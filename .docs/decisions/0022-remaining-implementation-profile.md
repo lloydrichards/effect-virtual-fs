@@ -68,3 +68,25 @@ now fields and ctime. chmod marks ctime even for unchanged mode. Birthtime remai
 
 Metadata.test.ts verifies these authority boundaries, open-time access survival, own-link updates, foreign/closed
 handles, path truncation, timestamp omission, and failed growth. Full checks are in .docs/evidence/metadata.
+
+## Snapshots and fixtures
+
+Snapshot v1 uses format effect-vfs, version 1, a root ID, and directory/file/symlink records. Runtime inode numbers
+and link counts are derived on restoration. Metadata stores canonical decimal nanoseconds, bounded to 128 digits
+to avoid unbounded bigint parsing. ID strings are nonempty and at most 128 characters. Base64 is padded and canonical.
+All schema objects reject unknown fields. Decoding requires explicit maxEncodedBytes/maxRecords/maxEntries/
+maxDecodedBytes limits; the decoded budget includes names and symlink targets. Limits bound input work, not exact heap
+usage. Field-shape/numeric failures are InvalidStructure; invalid UTF-8/JSON/base64 is InvalidEncoding. Graph validation
+rejects duplicate IDs/names, missing references, directory aliases/cycles, unreachable records, invalid byte names,
+and NUL in targets. Symlink cycles and dangling targets are valid stored content.
+
+Opaque snapshots retain an owned validated image. Capture copies content into immutable base64 strings under volume
+coordination, so same-length overwrites cannot change it. Encoding returns owned UTF-8 bytes. Each restore decodes
+independent storage and checks destination file/byte/entry limits before allocating file buffers. Existing volumes
+are never replaced. Image-local hard-link relationships survive; live resources and unreachable content do not.
+
+Fixtures are absolute final-state declarations with explicit parents and forward hard-link references. Dot components,
+collisions, missing parents, directory hard links, and alias cycles fail before exposure. Repeated separators compare
+by resulting byte components. Defaults are uid/gid zero, epoch-zero timestamps, directory 0755/file 0644/link 0777.
+Optional metadata is final, without umask. Root metadata is separate. File input bytes are captured at execution,
+with shared and detached buffers rejected. Snapshot.test.ts and .docs/evidence/snapshots record behavioral evidence.

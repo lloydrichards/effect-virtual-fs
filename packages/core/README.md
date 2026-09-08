@@ -2,7 +2,7 @@
 
 Private, experimental VirtualFileSystem core. This first slice implements volumes, callers, byte paths,
 directory creation/lookup, rename/removal, permissions, metadata, scoped directory resources, and optional Effect service provision.
-It also implements regular-file I/O and unlink. Links and byte-preserving enumeration are implemented. Snapshots and the memory adapter binding remain later slices.
+It also implements regular-file I/O and unlink. Links and byte-preserving enumeration are implemented. Fixtures and snapshots are implemented. The memory adapter binding remains a later slice.
 
 ## Usage
 
@@ -101,3 +101,10 @@ without implicit dot entries or an ordering promise.
 Metadata operations include access, path truncate, chmod, chown, and utimes. Metadata-changing methods also have
 Handle variants using invoking-caller authority. Path metadata options can select followFinalSymlink false.
 Time updates use `{ kind: "now" }`, `{ kind: "omit" }`, or `{ kind: "value", nanoseconds: 0n }` for each field.
+
+## Fixtures and persistence
+
+`Vfs.fromFixture({ entries })` constructs a validated final state with explicit parents and forward hard links.
+`volume.snapshot()` captures an isolated image; `encodeSnapshot` returns owned JSON/base64 bytes. `decodeSnapshot`
+requires explicit encoded-byte, record, entry, and decoded-byte limits. `fromSnapshot` restores a fresh independent
+volume subject to destination limits. Core performs no host I/O. Snapshot storage is outside live-volume quota.
