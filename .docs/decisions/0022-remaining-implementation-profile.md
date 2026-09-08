@@ -52,3 +52,19 @@ Links.test.ts covers aliases and replacement, dangling-target creation, final-li
 loop and exact expansion limits, quota retention, and strict independently owned byte results. Full workspace
 validation logs are retained under .docs/evidence/links. The official Issue 8 link/symlink descriptions were fetched
 and read; this records the selected behavior, not exhaustive POSIX conformance.
+
+## Metadata and authority
+
+chmod/chown/utimes act on targets by default and accept followFinalSymlink false for own-link updates. The Handle
+variants validate a live same-volume capability but use the invoking caller's identity, including for unlinked files.
+chmod requires owner or privilege; unprivileged regular-file chmod clears set-group-ID for a group outside the caller's
+groups. chown is restricted: only privilege changes uid; owners can retain uid and select a caller group. All regular
+file ownership changes clear set-ID bits. An empty owner update validates ownership then makes no change.
+
+Times use explicit now/omit/value variants with bigint epoch nanoseconds. Both omitted are a validated no-op. Both now
+allow owner, privilege, or write access; other updates require owner or privilege. One clock sample supplies requested
+now fields and ctime. chmod marks ctime even for unchanged mode. Birthtime remains creation time. access accepts bits
+0 through 7; explicit privilege does not grant regular-file execution unless some execute bit is set.
+
+Metadata.test.ts verifies these authority boundaries, open-time access survival, own-link updates, foreign/closed
+handles, path truncation, timestamp omission, and failed growth. Full checks are in .docs/evidence/metadata.

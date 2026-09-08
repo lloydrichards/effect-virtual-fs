@@ -1,0 +1,71 @@
+$ turbo run test --force
+• turbo 2.10.12
+
+   • Packages in scope: @effect-vfs/core, @effect-vfs/memory, @repo/config-typescript, @repo/scratchpad
+   • Running test in 4 packages
+   • Remote caching disabled
+
+@effect-vfs/memory:build: cache bypass, force executing 1830f3aae3e3da86
+@effect-vfs/memory:test: cache bypass, force executing cafd52bd38fd4663
+@effect-vfs/core:test: cache bypass, force executing cfefc12e9470e80e
+@effect-vfs/memory:build: $ tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser
+@effect-vfs/core:test: $ vitest run
+@effect-vfs/memory:test: $ vitest run
+@effect-vfs/memory:build: CLI Building entry: src/MemoryFileSystem.ts, src/index.ts
+@effect-vfs/memory:build: CLI Using tsconfig: tsconfig.json
+@effect-vfs/memory:build: CLI tsup v8.5.1
+@effect-vfs/memory:build: CLI Using tsup config: /Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/tsup.config.ts
+@effect-vfs/memory:build: CLI Target: es2022
+@effect-vfs/memory:build: CLI Cleaning output folder
+@effect-vfs/memory:build: ESM Build start
+@effect-vfs/memory:build: ESM dist/index.js            125.00 B
+@effect-vfs/memory:build: ESM dist/MemoryFileSystem.js 83.00 B
+@effect-vfs/memory:build: ESM dist/chunk-ILYMIGAW.js   73.50 KB
+@effect-vfs/memory:build: ESM ⚡️ Build success in 9ms
+@effect-vfs/core:test: 
+@effect-vfs/core:test:  RUN  v4.1.11 /Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/core
+@effect-vfs/core:test: 
+@effect-vfs/memory:test: 
+@effect-vfs/memory:test:  RUN  v4.1.11 /Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory
+@effect-vfs/memory:test: 
+@effect-vfs/core:test:  ✓ test/Links.test.ts (6 tests) 12ms
+@effect-vfs/core:test:  ✓ test/File.test.ts (7 tests) 12ms
+@effect-vfs/core:test:  ✓ test/Namespace.test.ts (9 tests) 15ms
+@effect-vfs/core:test:  ✓ test/Metadata.test.ts (5 tests) 14ms
+@effect-vfs/memory:build: Bundled 1 module in 2ms
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build:   index.js  31 bytes  (entry point)
+@effect-vfs/memory:build: 
+@repo/scratchpad:test: cache bypass, force executing 1445f899b57e6d1e
+@repo/scratchpad:test: $ vitest run --passWithNoTests
+@effect-vfs/core:test:  ✓ test/VirtualFileSystem.test.ts (27 tests) 28ms
+@effect-vfs/core:test: 
+@effect-vfs/core:test:  Test Files  5 passed (5)
+@effect-vfs/core:test:       Tests  54 passed (54)
+@effect-vfs/core:test:    Start at  00:54:06
+@effect-vfs/core:test:    Duration  270ms (transform 214ms, setup 0ms, import 827ms, tests 81ms, environment 0ms)
+@effect-vfs/core:test: 
+@repo/scratchpad:test: 
+@repo/scratchpad:test:  RUN  v4.1.11 /Users/lloyd/Documents/GitHub/effect-virtual-fs/apps/scratchpad
+@repo/scratchpad:test: 
+@repo/scratchpad:test: No test files found, exiting with code 0
+@repo/scratchpad:test: 
+@repo/scratchpad:test: include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+@repo/scratchpad:test: exclude:  **/node_modules/**, **/dist/**, **/.reference/**
+@repo/scratchpad:test: 
+@effect-vfs/memory:test:  ✓ test/MemoryFileSystem.test.ts (89 tests) 24348ms
+@effect-vfs/memory:test:      ✓ should write, list, copy, and rename a deeply nested volume  24289ms
+@effect-vfs/memory:test: 
+@effect-vfs/memory:test:  Test Files  1 passed (1)
+@effect-vfs/memory:test:       Tests  89 passed (89)
+@effect-vfs/memory:test:    Start at  00:54:06
+@effect-vfs/memory:test:    Duration  24.61s (transform 61ms, setup 0ms, import 184ms, tests 24.35s, environment 0ms)
+@effect-vfs/memory:test: 
+
+ Tasks:    4 successful, 4 total
+Cached:    0 cached, 4 total
+  Time:    24.769s 
+
+ WARNING  no output files found for task @effect-vfs/core#test. Please check your `outputs` key in `turbo.json`
+ WARNING  no output files found for task @effect-vfs/memory#test. Please check your `outputs` key in `turbo.json`
+ WARNING  no output files found for task @repo/scratchpad#test. Please check your `outputs` key in `turbo.json`

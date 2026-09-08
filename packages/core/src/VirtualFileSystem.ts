@@ -93,6 +93,18 @@ export type Metadata = typeof Metadata.Type
 export interface RelativeOptions {
   readonly relativeTo?: DirectoryHandle
 }
+export interface MetadataOptions extends RelativeOptions {
+  readonly followFinalSymlink?: boolean
+}
+export const OwnerUpdate = Schema.Struct({ uid: Schema.optionalKey(Natural), gid: Schema.optionalKey(Natural) })
+export type OwnerUpdate = typeof OwnerUpdate.Type
+export const TimeUpdate = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("now") }),
+  Schema.Struct({ kind: Schema.Literal("omit") }),
+  Schema.Struct({ kind: Schema.Literal("value"), nanoseconds: Schema.BigInt })
+])
+export const Times = Schema.Struct({ access: TimeUpdate, modification: TimeUpdate })
+export type Times = typeof Times.Type
 export interface DirectoryHandle {
   readonly [DirectoryHandleId]: true
   // oxlint-disable-next-line effecttsgo/lazy-effect -- Reviewed resource API uses explicit method calls.
@@ -134,6 +146,14 @@ export interface Caller {
     destination: PathInput,
     options?: { readonly sourceRelativeTo?: DirectoryHandle; readonly destinationRelativeTo?: DirectoryHandle }
   ) => Effect.Effect<void, FsError>
+  readonly access: (path: PathInput, bits?: number, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  readonly truncate: (path: PathInput, length: bigint, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  readonly chmod: (path: PathInput, mode: number, options?: MetadataOptions) => Effect.Effect<void, FsError>
+  readonly chown: (path: PathInput, owner: OwnerUpdate, options?: MetadataOptions) => Effect.Effect<void, FsError>
+  readonly utimes: (path: PathInput, times: Times, options?: MetadataOptions) => Effect.Effect<void, FsError>
+  readonly chmodHandle: (handle: FileHandle | DirectoryHandle, mode: number) => Effect.Effect<void, FsError>
+  readonly chownHandle: (handle: FileHandle | DirectoryHandle, owner: OwnerUpdate) => Effect.Effect<void, FsError>
+  readonly utimesHandle: (handle: FileHandle | DirectoryHandle, times: Times) => Effect.Effect<void, FsError>
   readonly lstat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>
   readonly link: (
     source: PathInput,
@@ -665,6 +685,96 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
       }))
     })
 
+    const metadataNode = Effect.fnUntraced(
+      function*(
+        target: PathInput | FileHandle | DirectoryHandle,
+        options: MetadataOptions | undefined,
+        operation: string
+      ) {
+        if (reference.directory === undefined) return yield* failure("ClosedCaller", operation)
+        if (typeof target === "object" && target !== null && (FileHandleId in target || DirectoryHandleId in target)) {
+          const ref = FileHandleId in target ? files.get(target) : handles.get(target)
+          if (ref === undefined) return yield* failure("InvalidHandle", operation)
+          if (ref.volume !== volumeIdentity) return yield* failure("ForeignHandle", operation)
+          const node = "file" in ref ? ref.file : ref.directory
+          if (node === undefined) return yield* failure("InvalidHandle", operation)
+          return node
+        }
+        const path = yield* Effect.fromResult(preparePath(target, operation, settings.maxPathBytes))
+        return yield* resolveNode(path, options?.relativeTo, operation, options?.followFinalSymlink !== false)
+      }
+    )
+    const changeMode = Effect.fnUntraced(
+      function*(target: PathInput | FileHandle | DirectoryHandle, mode: number, options?: MetadataOptions) {
+        if (!Schema.is(Mode)(mode)) return yield* failure("InvalidArgument", "chmod")
+        const chosen = options === undefined ? undefined : { ...options }
+        return yield* coordinated(Effect.gen(function*() {
+          const node = yield* metadataNode(target, chosen, "chmod")
+          if (!identity.privileged && identity.uid !== node.metadata.uid) return yield* failure("AccessDenied", "chmod")
+          const group = identity.gid === node.metadata.gid || identity.groups.includes(node.metadata.gid)
+          node.metadata = {
+            ...node.metadata,
+            mode: !identity.privileged && node.kind === "file" && !group ? mode & ~0o2000 : mode,
+            ctimeNs: clock.currentTimeNanosUnsafe()
+          }
+        }))
+      }
+    )
+    const changeOwner = Effect.fnUntraced(
+      function*(target: PathInput | FileHandle | DirectoryHandle, owner: OwnerUpdate, options?: MetadataOptions) {
+        const decoded = Schema.decodeResult(OwnerUpdate, { onExcessProperty: "error" })(owner)
+        if (Result.isFailure(decoded)) return yield* failure("InvalidArgument", "chown")
+        const update = { ...decoded.success }
+        const chosen = options === undefined ? undefined : { ...options }
+        return yield* coordinated(Effect.gen(function*() {
+          const node = yield* metadataNode(target, chosen, "chown")
+          if (
+            !identity.privileged && (identity.uid !== node.metadata.uid ||
+              (update.uid !== undefined && update.uid !== node.metadata.uid) ||
+              (update.gid !== undefined && update.gid !== identity.gid && !identity.groups.includes(update.gid)))
+          ) {
+            return yield* failure("AccessDenied", "chown")
+          }
+          if (update.uid === undefined && update.gid === undefined) return
+          node.metadata = {
+            ...node.metadata,
+            uid: update.uid ?? node.metadata.uid,
+            gid: update.gid ?? node.metadata.gid,
+            mode: node.kind === "file" ? node.metadata.mode & ~0o6000 : node.metadata.mode,
+            ctimeNs: clock.currentTimeNanosUnsafe()
+          }
+        }))
+      }
+    )
+    const changeTimes = Effect.fnUntraced(
+      function*(target: PathInput | FileHandle | DirectoryHandle, times: Times, options?: MetadataOptions) {
+        const decoded = Schema.decodeResult(Times, { onExcessProperty: "error" })(times)
+        if (Result.isFailure(decoded)) return yield* failure("InvalidArgument", "utimes")
+        const access = { ...decoded.success.access }
+        const modification = { ...decoded.success.modification }
+        const chosen = options === undefined ? undefined : { ...options }
+        return yield* coordinated(Effect.gen(function*() {
+          const node = yield* metadataNode(target, chosen, "utimes")
+          if (access.kind === "omit" && modification.kind === "omit") return
+          if (!identity.privileged && identity.uid !== node.metadata.uid) {
+            if (access.kind !== "now" || modification.kind !== "now") return yield* failure("AccessDenied", "utimes")
+            yield* authorize(node, identity, 2, "utimes", "/")
+          }
+          const now = clock.currentTimeNanosUnsafe()
+          node.metadata = {
+            ...node.metadata,
+            atimeNs: access.kind === "omit" ? node.metadata.atimeNs : access.kind === "now" ? now : access.nanoseconds,
+            mtimeNs: modification.kind === "omit"
+              ? node.metadata.mtimeNs
+              : modification.kind === "now"
+              ? now
+              : modification.nanoseconds,
+            ctimeNs: now
+          }
+        }))
+      }
+    )
+
     const authorizeRemoval = (parent: Directory, child: Node, operation: string, input: PathInput) =>
       (parent.metadata.mode & 0o1000) !== 0 && !identity.privileged &&
         identity.uid !== parent.metadata.uid && identity.uid !== child.metadata.uid
@@ -673,6 +783,46 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
 
     return Object.freeze({
       [CallerId]: true as const,
+      chmod: Effect.fn("Caller.chmod")(function*(path: PathInput, mode: number, options?: MetadataOptions) {
+        yield* changeMode(path, mode, options)
+      }),
+      chmodHandle: Effect.fn("Caller.chmodHandle")(function*(handle: FileHandle | DirectoryHandle, mode: number) {
+        yield* changeMode(handle, mode)
+      }),
+      chown: Effect.fn("Caller.chown")(function*(path: PathInput, owner: OwnerUpdate, options?: MetadataOptions) {
+        yield* changeOwner(path, owner, options)
+      }),
+      chownHandle: Effect.fn("Caller.chownHandle")(function*(handle: FileHandle | DirectoryHandle, owner: OwnerUpdate) {
+        yield* changeOwner(handle, owner)
+      }),
+      utimes: Effect.fn("Caller.utimes")(function*(path: PathInput, times: Times, options?: MetadataOptions) {
+        yield* changeTimes(path, times, options)
+      }),
+      utimesHandle: Effect.fn("Caller.utimesHandle")(function*(handle: FileHandle | DirectoryHandle, times: Times) {
+        yield* changeTimes(handle, times)
+      }),
+      access: Effect.fn("Caller.access")(function*(input: PathInput, bits = 0, options?: RelativeOptions) {
+        const prepared = preparePath(input, "access", settings.maxPathBytes)
+        const base = options?.relativeTo
+        if (!Number.isInteger(bits) || bits < 0 || bits > 7) return yield* failure("InvalidArgument", "access", input)
+        return yield* coordinated(Effect.gen(function*() {
+          const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "access")
+          if (node.kind === "file" && (bits & 1) !== 0 && (node.metadata.mode & 0o111) === 0) {
+            return yield* failure("AccessDenied", "access", input)
+          }
+          yield* authorize(node, identity, bits, "access", input)
+        }))
+      }),
+      truncate: Effect.fn("Caller.truncate")(function*(input: PathInput, length: bigint, options?: RelativeOptions) {
+        const prepared = preparePath(input, "truncate", settings.maxPathBytes)
+        const base = options?.relativeTo
+        return yield* coordinated(Effect.gen(function*() {
+          const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "truncate")
+          if (node.kind !== "file") return yield* failure("IsDirectory", "truncate", input)
+          yield* authorize(node, identity, 2, "truncate", input)
+          yield* resize(node, length, "truncate")
+        }))
+      }),
       lstat: Effect.fn("Caller.lstat")(function*(input: PathInput, options?: RelativeOptions) {
         const prepared = preparePath(input, "lstat", settings.maxPathBytes)
         const base = options?.relativeTo
