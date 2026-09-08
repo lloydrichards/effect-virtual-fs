@@ -1,7 +1,8 @@
 # Decision register
 
 Status: 9 September 2026. Accepted decisions below refine the original design; proposals in research and
-interface drafts remain proposals. The [directory-only core](first-core-implementation.md) is implemented.
+interface drafts remain proposals. The [directory-only core](first-core-implementation.md) and
+[directory rename/removal](directory-namespace-implementation.md) are implemented.
 Earlier descriptions of open questions record what each decision left unsettled at that point.
 
 ## Accepted direction

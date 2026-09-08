@@ -1,0 +1,26 @@
+{
+  "environment": {
+    "bun": "1.4.0",
+    "node": "24.10.0",
+    "effect": "4.0.0-rc.112"
+  },
+  "checks": {
+    "format": 0,
+    "lint": 0,
+    "contracts": 0,
+    "types": 0,
+    "tests": 0,
+    "build": 0,
+    "node-consumer": 0
+  },
+  "tests": {
+    "core": 36,
+    "memory": 89,
+    "cached": false
+  },
+  "sha256": {
+    "packages/core/src/VirtualFileSystem.ts": "0fe607cf37ae4759429317f33b028890adf5bc67ec40b51c0c2f2e9266415bc8",
+    "packages/core/test/Namespace.test.ts": "5a64ba7622df32648225316c311f78ad7303d372770a07ec8d2ea38f9a6c9bf0",
+    "bun.lock": "8f0be577f5ba1fe8fbe9a83f4b552898dabfd1e76ea585ce1c948c6e7a2de24d"
+  }
+}

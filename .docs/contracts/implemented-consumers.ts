@@ -18,6 +18,14 @@ export const scopedDirectory = (caller: Vfs.Caller) =>
   })) satisfies Effect.Effect<Vfs.Metadata, Vfs.FsError>
 
 export const service = Layer.effect(Vfs.CurrentFileSystem, rootCaller)
+export const moveDirectory = (caller: Vfs.Caller, source: Vfs.DirectoryHandle, destination: Vfs.DirectoryHandle) =>
+  caller.rename("old", "new", { sourceRelativeTo: source, destinationRelativeTo: destination }) satisfies Effect.Effect<
+    void,
+    Vfs.FsError
+  >
+
+export const removeDirectory = (caller: Vfs.Caller) => caller.rmdir("empty") satisfies Effect.Effect<void, Vfs.FsError>
+
 export const acquired = (caller: Vfs.Caller) =>
   caller.openDirectory(".") satisfies Effect.Effect<Vfs.DirectoryHandle, Vfs.FsError, Scope.Scope>
 

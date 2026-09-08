@@ -1,8 +1,8 @@
 # @effect-vfs/core
 
 Private, experimental directory-only VirtualFileSystem core. This first slice implements volumes, callers, byte paths,
-directory creation/lookup, permissions, metadata, scoped directory resources, and optional Effect service provision.
-It does not implement regular files, symlinks, rename/removal, snapshots, or the memory adapter binding yet.
+directory creation/lookup, rename/removal, permissions, metadata, scoped directory resources, and optional Effect service provision.
+It does not implement regular files, symlinks, snapshots, or the memory adapter binding yet.
 
 ## Usage
 
@@ -35,6 +35,7 @@ can acquire a derived caller and own its scope. The service adds no separate fil
 
 - `Vfs.make`, `volume.caller`, `Vfs.pathFromBytes`, and `Vfs.pathToBytes`.
 - `caller.stat`, exclusive nonrecursive `caller.mkdir`, `caller.withDirectory`, and `caller.openDirectory`.
+- `caller.rename` and empty-directory-only `caller.rmdir`.
 - `directory.stat` and `directory.close`.
 
 Other operations are absent rather than returning placeholder successes. Metadata currently describes directories
@@ -55,6 +56,18 @@ expansion occurs. Dot components resolve against directory identity and root dot
 Absolute paths ignore a supplied directory base. Relative paths require a live same-volume base and use the invoking
 caller's permissions. Directory bases are not restricted roots.
 
+Rename accepts independent `sourceRelativeTo` and `destinationRelativeTo` directory bases. It preserves cwd and
+handle identity, including the new parent used by `..`. Replacing an empty directory retains its open handles,
+whose metadata reports zero links. Removed directories reject relative lookup and creation with `NotFound`;
+retained callers can still use absolute paths. Root and final dot/dot-dot mutations fail with `InvalidArgument`.
+Nonempty directory removal or replacement fails with `NotEmpty`. A trailing slash on a rename destination
+requires an existing directory. Same-entry rename succeeds without changing metadata or consuming quota.
+
+Both rename parents require write/search permission. Sticky directories additionally require the invoking caller
+to own the parent or affected entry, or have explicit privilege. Destination replacement checks that entry too.
+No additional write permission on the moved directory itself is required. Successful rename/removal publishes
+parent link counts and timestamps together. Expected failures preserve both paths and their metadata.
+
 `maxEntries` excludes root and implicit dot entries. Zero allows root but no new names. `maxPathBytes` counts input
 bytes including separators, before normalization. Both limits have no configured cap when omitted. A provisional
 255-byte component bound is enforced. These are logical limits, not heap or CPU guarantees. Symlink expansion and
@@ -71,4 +84,5 @@ live reference. Expected failures use `FsError` or `ConfigurationError`; defects
 
 See the [accepted contracts](../../.docs/context/first-core-contract-review.md),
 [optional path limit](../../.docs/decisions/0021-optional-total-path-limit.md), and
-[implementation evidence](../../.docs/context/first-core-implementation.md).
+[initial implementation evidence](../../.docs/context/first-core-implementation.md), and
+[directory namespace evidence](../../.docs/context/directory-namespace-implementation.md).
