@@ -1,0 +1,45 @@
+{
+  "name": "@effect-vfs/memory",
+  "version": "0.1.0",
+  "description": "An in-memory implementation of Effect's FileSystem service.",
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./MemoryFileSystem": {
+      "types": "./dist/MemoryFileSystem.d.ts",
+      "import": "./dist/MemoryFileSystem.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist/**", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lloydrichards/effect-virtual-fs.git",
+    "directory": "packages/memory"
+  },
+  "scripts": {
+    "build": "tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser",
+    "clean": "git clean -xdf .cache .turbo dist node_modules tsconfig.tsbuildinfo",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-rc.112",
+    "@repo/config-typescript": "workspace:*",
+    "effect": "4.0.0-rc.112"
+  }
+}
