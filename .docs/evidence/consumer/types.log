@@ -1,0 +1,39 @@
+$ turbo run type-check
+• turbo 2.10.12
+
+   • Packages in scope: @effect-vfs/core, @effect-vfs/memory, @repo/config-typescript, @repo/scratchpad, @repo/virtual-build
+   • Running type-check in 5 packages
+   • Remote caching disabled
+
+@effect-vfs/core:type-check: cache hit, replaying logs 8de9f1cee81003d0
+@effect-vfs/core:build: cache hit, replaying logs 58f44b7a1671d614
+@effect-vfs/core:type-check: $ tsc --noEmit
+@effect-vfs/core:build: $ tsc --project tsconfig.build.json
+@repo/virtual-build:type-check: cache miss, executing 8e4682ebfa976401
+@effect-vfs/memory:type-check: cache hit, replaying logs 7069c52542fb4801
+@effect-vfs/memory:type-check: $ tsc --noEmit
+@effect-vfs/memory:build: cache hit, replaying logs ccd649f302e06b9c
+@effect-vfs/memory:build: $ tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser
+@effect-vfs/memory:build: CLI Building entry: src/MemoryFileSystem.ts, src/index.ts
+@effect-vfs/memory:build: CLI Using tsconfig: tsconfig.json
+@effect-vfs/memory:build: CLI tsup v8.5.1
+@effect-vfs/memory:build: CLI Using tsup config: /Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/tsup.config.ts
+@effect-vfs/memory:build: CLI Target: es2022
+@effect-vfs/memory:build: CLI Cleaning output folder
+@effect-vfs/memory:build: ESM Build start
+@effect-vfs/memory:build: ESM dist/index.js            125.00 B
+@effect-vfs/memory:build: ESM dist/MemoryFileSystem.js 99.00 B
+@effect-vfs/memory:build: ESM dist/chunk-2ESBQTSZ.js   34.84 KB
+@effect-vfs/memory:build: ESM ⚡️ Build success in 12ms
+@effect-vfs/memory:build: Bundled 1 module in 2ms
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build:   index.js  31 bytes  (entry point)
+@effect-vfs/memory:build: 
+@repo/scratchpad:type-check: cache hit, replaying logs da3bdb98e63d445f
+@repo/scratchpad:type-check: $ tsc --noEmit
+@repo/virtual-build:type-check: $ tsc --noEmit
+
+ Tasks:    6 successful, 6 total
+Cached:    5 cached, 6 total
+  Time:    87ms 
+

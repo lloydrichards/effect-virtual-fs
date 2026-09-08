@@ -40,3 +40,35 @@ export const rejected = (caller: Vfs.Caller) => {
   caller.close()
   return unscoped
 }
+
+export const scopedFile = (caller: Vfs.Caller) =>
+  Effect.scoped(Effect.gen(function*() {
+    const file = yield* caller.open("file", { access: "readWrite", create: "ifMissing" })
+    yield* file.write(new Uint8Array([1, 2]))
+    yield* file.pwrite(new Uint8Array([3]), 0n)
+    yield* file.seek(0n, "start")
+    return yield* file.read(2)
+  }))
+
+export const persistence = Effect.gen(function*() {
+  const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/file", bytes: new Uint8Array([1]) }] })
+  const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot())
+  return yield* Vfs.fromSnapshot(
+    yield* Vfs.decodeSnapshot(bytes, {
+      maxEncodedBytes: 10_000,
+      maxRecords: 10,
+      maxEntries: 10,
+      maxDecodedBytes: 1_000
+    })
+  )
+})
+
+export const rejectedFile = (caller: Vfs.Caller, file: Vfs.FileHandle) => {
+  // @ts-expect-error File acquisition requires Scope too.
+  const unscoped: Effect.Effect<Vfs.FileHandle, Vfs.FsError> = caller.open("file", { access: "read" })
+  // @ts-expect-error Positional offsets are bigint, never lossy numbers.
+  file.pread(1, 0)
+  // @ts-expect-error Decoding untrusted input requires explicit work limits.
+  Vfs.decodeSnapshot(new Uint8Array())
+  return unscoped
+}

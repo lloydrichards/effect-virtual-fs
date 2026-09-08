@@ -1,0 +1,22 @@
+{
+  "name": "@repo/virtual-build",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "demo": "bun run src/demo.ts",
+    "measure": "bun run src/measure.ts"
+  },
+  "dependencies": {
+    "@effect-vfs/core": "workspace:*",
+    "effect": "4.0.0-rc.112",
+    "vite": "8.2.2"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-rc.112",
+    "@repo/config-typescript": "workspace:*"
+  }
+}
