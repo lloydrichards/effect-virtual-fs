@@ -1,5 +1,9 @@
 # Implementation and evidence plan
 
+Current implementation update (9 September 2026): all accepted private milestones are implemented and locally
+validated. The [implemented profile](implemented-profile.md) supersedes the historical statuses and open questions
+below; policy 0022 records remaining implementation choices. Earlier text preserves the research/sequence history.
+
 Status: proposed sequence, 8 September 2026. No core implementation is authorized by this documentation plan alone.
 Use the [decision register](decisions.md) and [POSIX profile](posix-profile.md) to resolve contracts before coding.
 
@@ -95,3 +99,10 @@ across rename, update parent ancestry and link counts, retain removed handles, e
 reclaim entry quota. The [namespace evidence](directory-namespace-implementation.md) records nine additional cases
 and the pending I/O capacity question. This completes directory identity across rename in slice 1 and part of
 slice 2; file sharing, regular-file handles, links, adapter migration, and snapshots remain absent.
+
+## Completed private implementation
+
+Slices 0-7 are complete for the bounded private profile: construction/identity; files/namespace; permissions/limits;
+core-backed adaptation; fixtures/snapshots; standalone build/rebuild plus package acceptance; and local evidence.
+See the [implemented profile](implemented-profile.md) for the requirement-to-test ledger and explicit validation limits.
+Publication, full standards certification, Linux CI execution and browser runtime acceptance are not claimed.

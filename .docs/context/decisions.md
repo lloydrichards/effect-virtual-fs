@@ -1,5 +1,9 @@
 # Decision register
 
+Current implementation update (9 September 2026): all accepted private milestones are implemented and locally
+validated. The [implemented profile](implemented-profile.md) supersedes the historical statuses and open questions
+below; policy 0022 records remaining implementation choices. Earlier text preserves the research/sequence history.
+
 Status: 9 September 2026. Accepted decisions below refine the original design; proposals in research and
 interface drafts remain proposals. The [directory-only core](first-core-implementation.md) and
 [directory rename/removal](directory-namespace-implementation.md) are implemented.

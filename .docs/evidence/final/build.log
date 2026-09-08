@@ -1,0 +1,38 @@
+$ turbo run build
+• turbo 2.10.12
+
+   • Packages in scope: @effect-vfs/core, @effect-vfs/memory, @repo/config-typescript, @repo/scratchpad, @repo/virtual-build
+   • Running build in 5 packages
+   • Remote caching disabled
+
+@effect-vfs/core:build: cache hit, replaying logs 85b783bc2e85d279
+@effect-vfs/core:build: $ tsc --project tsconfig.build.json
+@repo/virtual-build:build: cache miss, executing 3935259bbd2a2e75
+@effect-vfs/memory:build: cache hit, replaying logs 7dd3c06f20264505
+@effect-vfs/memory:build: $ tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser && node compatibility/browser/check.mjs
+@effect-vfs/memory:build: CLI Building entry: src/MemoryFileSystem.ts, src/index.ts
+@effect-vfs/memory:build: CLI Using tsconfig: tsconfig.json
+@effect-vfs/memory:build: CLI tsup v8.5.1
+@effect-vfs/memory:build: CLI Using tsup config: /Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/tsup.config.ts
+@effect-vfs/memory:build: CLI Target: es2022
+@effect-vfs/memory:build: CLI Cleaning output folder
+@effect-vfs/memory:build: ESM Build start
+@effect-vfs/memory:build: ESM dist/index.js            125.00 B
+@effect-vfs/memory:build: ESM dist/MemoryFileSystem.js 99.00 B
+@effect-vfs/memory:build: ESM dist/chunk-2ESBQTSZ.js   34.84 KB
+@effect-vfs/memory:build: ESM ⚡️ Build success in 10ms
+@effect-vfs/memory:build: Bundled 121 modules in 15ms
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build:   index.js  0.44 MB  (entry point)
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build: Browser-target bundle smoke passed under Node (not a browser runtime test).
+@repo/scratchpad:build: cache miss, executing 3d540d685d6f45a5
+@repo/virtual-build:build: $ tsc --noEmit
+@repo/scratchpad:build: $ tsc --noEmit
+
+ Tasks:    4 successful, 4 total
+Cached:    2 cached, 4 total
+  Time:    109ms 
+
+ WARNING  no output files found for task @repo/scratchpad#build. Please check your `outputs` key in `turbo.json`
+ WARNING  no output files found for task @repo/virtual-build#build. Please check your `outputs` key in `turbo.json`
