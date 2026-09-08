@@ -38,6 +38,8 @@ describe("regular files", () => {
       assert.strictEqual(yield* f.seek(0n, "current"), 9n)
       assert.strictEqual((yield* Effect.flip(f.seek(-10n, "current"))).code, "InvalidArgument")
       assert.strictEqual(yield* f.seek(0n, "current"), 9n)
+      assert.strictEqual((yield* Effect.flip(f.pread(1, 1n << 64n))).code, "InvalidArgument")
+      assert.strictEqual((yield* Effect.flip(f.pwrite(bytes(1), 1n << 64n))).code, "InvalidArgument")
       assert.strictEqual(yield* f.seek(1n, "data"), 1n)
       assert.strictEqual(yield* f.seek(1n, "hole"), 9n)
       assert.strictEqual((yield* Effect.flip(f.seek(9n, "data"))).code, "NoData")

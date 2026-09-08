@@ -43,3 +43,6 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  * @since 4.0.0
  */
 export const layer: Layer.Layer<FileSystem.FileSystem> = internal.layer
+
+/** Bind a caller to an existing volume without creating /tmp or changing its contents. */
+export const bind = internal.bind

@@ -90,3 +90,33 @@ collisions, missing parents, directory hard links, and alias cycles fail before 
 by resulting byte components. Defaults are uid/gid zero, epoch-zero timestamps, directory 0755/file 0644/link 0777.
 Optional metadata is final, without umask. Root metadata is separate. File input bytes are captured at execution,
 with shared and detached buffers rejected. Snapshot.test.ts and .docs/evidence/snapshots record behavioral evidence.
+
+## Memory adaptation and observation
+
+Memory now depends on core and retains no separate inode/path/storage implementation. make creates a fresh volume
+with /tmp; bind constructs a caller on an existing volume without altering its tree. Default bindings use explicit
+privilege and umask zero with the adapter's 0644/0755 creation modes. Optional RootCallerOptions permit explicit
+credentials. The package remains private while core is private.
+
+Adapter handles maintain their own cursor: appending preserves it; non-append handle truncation clamps it; append
+handle and path truncation preserve it. Closed seek returns zero; negative seek is retained and nonempty I/O rejects
+it. The no-error seek signature remains unchanged. Stable shared-memory input is copied at the adapter boundary.
+Core whole-file read/write helpers keep each whole-file transfer atomic. Whole-file writes preflight all capacity
+and preserve an existing inode, content, and metadata on expected failure. They publish one create/update event.
+Recursive mkdir/remove/copy and temporary helpers compose individual core operations; they are not transactions
+against direct-core or other-binding writers. No atomic multi-call transaction is part of the core profile.
+
+Volume.watch acquires a scoped stream of committed byte-path create/update/remove events. It has an unbounded
+subscription buffer, no replay, and no silent overflow drops. Scope exit unsubscribes. Metadata and content writes
+publish every reachable alias; rename publishes remove/create. Events contain no mutable volume storage. Adapter
+watchers filter by raw path before strict UTF-8 conversion, so unrelated non-UTF-8 names do not terminate a watch.
+An unrepresentable relevant path fails the stream with InvalidData.
+
+Core capacity/size/resource failures map to adapter BadResource; permission to PermissionDenied, encoding to
+InvalidData, and invalid numeric arguments to BadArgument. Missing/existing names preserve NotFound/AlreadyExists.
+The adapter retains its trailing-slash directory-rename compatibility while core keeps the stricter destination
+rule. Error operation/path context follows the existing suite.
+
+All 89 existing memory tests pass through core. CoreBinding.test.ts adds sharing, direct-core watches, alias events,
+atomic quota rejection, strict byte filtering, copy topology/timestamps, and source-observed cursor cases. The first
+migration and two focused regression logs are retained under .docs/evidence/adapter.

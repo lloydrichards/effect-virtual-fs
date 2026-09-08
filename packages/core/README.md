@@ -2,7 +2,7 @@
 
 Private, experimental VirtualFileSystem core. This first slice implements volumes, callers, byte paths,
 directory creation/lookup, rename/removal, permissions, metadata, scoped directory resources, and optional Effect service provision.
-It also implements regular-file I/O and unlink. Links and byte-preserving enumeration are implemented. Fixtures and snapshots are implemented. The memory adapter binding remains a later slice.
+It also implements regular-file I/O and unlink. Links and byte-preserving enumeration are implemented. Fixtures and snapshots are implemented. The memory adapter binds this core.
 
 ## Usage
 
@@ -108,3 +108,7 @@ Time updates use `{ kind: "now" }`, `{ kind: "omit" }`, or `{ kind: "value", nan
 `volume.snapshot()` captures an isolated image; `encodeSnapshot` returns owned JSON/base64 bytes. `decodeSnapshot`
 requires explicit encoded-byte, record, entry, and decoded-byte limits. `fromSnapshot` restores a fresh independent
 volume subject to destination limits. Core performs no host I/O. Snapshot storage is outside live-volume quota.
+
+Whole-file readFile/writeFile helpers operate atomically and preserve existing file identity. Whole-file writes
+are all-or-error, while handle writes may return a short count. `volume.watch()` acquires a scoped stream of
+committed byte-path events, with an unbounded buffer and no replay. All writers publish through core.
