@@ -94,9 +94,9 @@ bun run tsc --project .docs/contracts/tsconfig.json
 bun .docs/contracts/models.check.mjs .docs/contracts/models.ts .docs/context/snapshot-format-draft.md
 ```
 
-CI runs both checks. `implemented-consumers.ts` exercises the actual directory slice; `consumers.ts` still exercises
-the broader future declaration. As later operations are implemented, move their examples to real exports and retire
-the corresponding duplicate declarations.
+CI runs both checks. `implemented-consumers.ts` exercises real directory, file, lifetime, and persistence exports.
+The private `apps/virtual-build` app also compiles and executes against built package exports. `consumers.ts` and
+`proposed.d.ts` remain historical design composition checks; their names and signatures are not the implemented API.
 
 ## Workspace tooling boundary
 
