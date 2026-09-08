@@ -1,0 +1,33 @@
+$ turbo run build
+
+   • Packages in scope: @effect-vfs/core, @effect-vfs/memory, @repo/config-typescript, @repo/scratchpad
+   • Running build in 4 packages
+   • Remote caching disabled
+
+@effect-vfs/core:build: cache miss, executing 576c2334111d6ab9
+@effect-vfs/memory:build: cache hit, replaying logs 1830f3aae3e3da86
+@effect-vfs/memory:build: $ tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser
+@effect-vfs/memory:build: CLI Building entry: src/MemoryFileSystem.ts, src/index.ts
+@effect-vfs/memory:build: CLI Using tsconfig: tsconfig.json
+@effect-vfs/memory:build: CLI tsup v8.5.1
+@effect-vfs/memory:build: CLI Using tsup config: /Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/tsup.config.ts
+@effect-vfs/memory:build: CLI Target: es2022
+@effect-vfs/memory:build: CLI Cleaning output folder
+@effect-vfs/memory:build: ESM Build start
+@effect-vfs/memory:build: ESM dist/MemoryFileSystem.js 83.00 B
+@effect-vfs/memory:build: ESM dist/index.js            125.00 B
+@effect-vfs/memory:build: ESM dist/chunk-ILYMIGAW.js   73.50 KB
+@effect-vfs/memory:build: ESM ⚡️ Build success in 8ms
+@effect-vfs/memory:build: Bundled 95 modules in 12ms
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build:   index.js  202.86 KB  (entry point)
+@effect-vfs/memory:build: 
+@repo/scratchpad:build: cache miss, executing c2fddb0611bdce3b
+@effect-vfs/core:build: $ tsc --project tsconfig.build.json
+@repo/scratchpad:build: $ tsc --noEmit
+
+ Tasks:    3 successful, 3 total
+Cached:    1 cached, 3 total
+  Time:    84ms 
+
+ WARNING  no output files found for task @repo/scratchpad#build. Please check your `outputs` key in `turbo.json`

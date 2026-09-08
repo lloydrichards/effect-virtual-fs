@@ -4,6 +4,10 @@ Introduce a standalone filesystem backend with defined POSIX semantics, immutabl
 
 6 September 2026 · Proposed scope · Not yet implemented
 
+Development note, 8 September 2026: [accepted decisions](../context/decisions.md) refine this proposal and take
+precedence where they settle a choice. They include JSON/base64 snapshots, explicit privilege, and a second bounded
+virtual-package acceptance milestone. The original proposal remains below as the design baseline.
+
 - **Approval requested** — Scope, compatibility promises, and design consequences.
 - **This PR** — Backend, Effect binding, fixtures, snapshot save/load, and a virtual-build acceptance test.
 - **Follow-ups** — Mounting, overlay, and host-directory import/export.
@@ -24,7 +28,7 @@ flowchart TB
   S --> New[Fresh independent volume]
 ```
 
-*Multiple consumers can share one live volume. A snapshot creates an independent starting point without exposing internal storage.*
+_Multiple consumers can share one live volume. A snapshot creates an independent starting point without exposing internal storage._
 
 Standalone means independent of `MemoryFileSystem`, not independent of Effect. Operations remain Effect values, with typed errors and scoped resources. The backend should remain usable in Node, browsers, and workers without requiring host filesystem access.
 
@@ -38,14 +42,14 @@ This is a bounded filesystem claim. It is not full POSIX conformance, certificat
 
 **Behavior included in this PR**
 
-| Area | Commitment | Consequence |
-| --- | --- | --- |
-| Files and namespace | Regular files, directories, symlinks, hard links, creation, rename, unlink, and directory removal. | Names and underlying file identity are distinct. Open files survive rename and unlink until their handles close. |
-| Path resolution | Relative paths, directory-relative operations, component-by-component symlink traversal, dot/dot-dot, and trailing-separator rules. | Path normalization cannot replace filesystem lookup. Permissions apply during traversal. |
-| Handles and I/O | Access modes, exclusive creation, append, truncation, scoped and explicit close, POSIX offsets, positional reads/writes, seeking, EOF, and zero-filled gaps. | The backend has a richer contract than today's Effect file handle. Sparse storage optimization is not required initially. |
-| Metadata | File identity, link count, owner/group, modes, timestamps, and both target-following and own-link metadata. | Consumers can inspect dangling links and distinguish status-change time from content-modification time. |
-| Permissions | Explicit credentials, owner/group/other checks, directory search permission, creation mask, and applicable namespace permission rules. | Permission metadata has behavioral meaning. A privileged default keeps fixtures and builds convenient. |
-| Errors | Typed, distinguishable filesystem failures, mapped separately into `PlatformError`. | A future binding can distinguish missing entries, wrong file kinds, invalid handles, denied access, and exhausted capacity. |
+| Area                | Commitment                                                                                                                                                   | Consequence                                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Files and namespace | Regular files, directories, symlinks, hard links, creation, rename, unlink, and directory removal.                                                           | Names and underlying file identity are distinct. Open files survive rename and unlink until their handles close.            |
+| Path resolution     | Relative paths, directory-relative operations, component-by-component symlink traversal, dot/dot-dot, and trailing-separator rules.                          | Path normalization cannot replace filesystem lookup. Permissions apply during traversal.                                    |
+| Handles and I/O     | Access modes, exclusive creation, append, truncation, scoped and explicit close, POSIX offsets, positional reads/writes, seeking, EOF, and zero-filled gaps. | The backend has a richer contract than today's Effect file handle. Sparse storage optimization is not required initially.   |
+| Metadata            | File identity, link count, owner/group, modes, timestamps, and both target-following and own-link metadata.                                                  | Consumers can inspect dangling links and distinguish status-change time from content-modification time.                     |
+| Permissions         | Explicit credentials, owner/group/other checks, directory search permission, creation mask, and applicable namespace permission rules.                       | Permission metadata has behavioral meaning. A privileged default keeps fixtures and builds convenient.                      |
+| Errors              | Typed, distinguishable filesystem failures, mapped separately into `PlatformError`.                                                                          | A future binding can distinguish missing entries, wrong file kinds, invalid handles, denied access, and exhausted capacity. |
 
 The specification defines these behaviors across several interfaces, including [open and creation](https://pubs.opengroup.org/onlinepubs/9799919799/functions/open.html), [pathname resolution](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap04.html#tag_04_16), and [seeking](https://pubs.opengroup.org/onlinepubs/9799919799/functions/lseek.html). The final profile must enumerate supported operations, applicable requirements, permitted alternatives, and limits. Broad categories in this proposal are not themselves a completed conformance ledger.
 
@@ -59,11 +63,11 @@ A volume is one live filesystem instance. Its public API exposes operations and 
 
 **Where state belongs**
 
-| Owner | State | Rule |
-| --- | --- | --- |
-| Volume | Namespace, inode identity, contents, metadata, limits, and mutation coordination. | Consumers bound to the same volume observe the same committed files. |
-| Caller context | Credentials, supplementary groups, working directory, and umask. | One consumer's context does not change another's. Derive a context for a different working directory. |
-| Open handle | Access mode, position, and lifetime. | Separate opens have independent positions. Closing one handle does not close another. |
+| Owner          | State                                                                             | Rule                                                                                                  |
+| -------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Volume         | Namespace, inode identity, contents, metadata, limits, and mutation coordination. | Consumers bound to the same volume observe the same committed files.                                  |
+| Caller context | Credentials, supplementary groups, working directory, and umask.                  | One consumer's context does not change another's. Derive a context for a different working directory. |
+| Open handle    | Access mode, position, and lifetime.                                              | Separate opens have independent positions. Closing one handle does not close another.                 |
 
 The default working directory is the volume root. Working directories retain directory identity across rename. This PR has one volume root; restricted caller roots and subtree confinement are deferred.
 
@@ -81,10 +85,10 @@ The backend follows POSIX offsets. The binding preserves Effect's current cursor
 
 **Examples that require adaptation**
 
-| Operation | Backend contract | Existing Effect binding |
-| --- | --- | --- |
-| Shrink a file below its offset | Preserve the offset. | Preserve the existing cursor-clamping behavior. |
-| Append through a handle | Advance the offset to the end of the written bytes. | Preserve the existing separate read-cursor behavior. |
+| Operation                      | Backend contract                                    | Existing Effect binding                              |
+| ------------------------------ | --------------------------------------------------- | ---------------------------------------------------- |
+| Shrink a file below its offset | Preserve the offset.                                | Preserve the existing cursor-clamping behavior.      |
+| Append through a handle        | Advance the offset to the end of the written bytes. | Preserve the existing separate read-cursor behavior. |
 
 The exploratory tests exposed these differences; they are not merely missing backend features. The existing shared adapter suite explicitly expects the Effect behavior. Preserving it avoids introducing an unrelated behavior change for existing consumers.
 
@@ -113,11 +117,11 @@ Host I/O stays outside the backend. The same snapshot can be stored in a file, b
 
 **Persistent state versus live runtime state**
 
-| Preserved | Excluded |
-| --- | --- |
-| File bytes, directory structure, and byte-preserving names. | Open handles, offsets, and unlinked files retained only by open handles. |
-| Hard-link relationships and raw symlink targets, including dangling links. | Watch subscriptions, active locks, and runtime closures. |
-| Ownership, permission metadata, supported timestamps, and format information needed to interpret the state. | Caller credentials, working directories, and Effect runtime objects. |
+| Preserved                                                                                                   | Excluded                                                                 |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| File bytes, directory structure, and byte-preserving names.                                                 | Open handles, offsets, and unlinked files retained only by open handles. |
+| Hard-link relationships and raw symlink targets, including dangling links.                                  | Watch subscriptions, active locks, and runtime closures.                 |
+| Ownership, permission metadata, supported timestamps, and format information needed to interpret the state. | Caller credentials, working directories, and Effect runtime objects.     |
 
 If two names reference one file, restoring them must recreate that relationship rather than two independent copies. Whether numeric inode identifiers themselves survive a restore remains a format detail to settle; shared identity within the restored volume is required.
 
@@ -159,16 +163,16 @@ Numeric defaults, filename/path limits, timestamp precision, and accounting rule
 
 **Explicit exclusions**
 
-| Deferred feature | What it would add | Consequence now |
-| --- | --- | --- |
-| FUSE and other host mounts | A native path backed by the live volume. | No claim that Vim or arbitrary native programs can access this volume directly. |
-| WebDAV and NFS | Separate network protocol bindings. | No network filesystem compatibility promise. |
-| Overlay | A writable layer over an existing tree, with copy-up and deletion records. | Independent copies are available; shared lower layers and cheap isolated branches are not. |
-| Host-directory import/export | Transfer ordinary files between a real directory and a volume. | Save/load uses the encoded snapshot format, not a normal host directory tree. |
-| Advisory locks | Application-visible locking with defined ownership. | No compatibility claim for software dependent on record locks. Internal mutation coordination is not a substitute. |
-| FIFOs, device files, and filesystem sockets | Special-file behavior and named communication. | The supported file kinds remain regular files, directories, and symlinks. |
-| Descriptor duplication and restricted roots | Shared-offset duplicates and caller-specific root boundaries. | No duplicated-descriptor or subtree-confinement guarantee. |
-| Optimized storage and durable commits | Copy-on-write blocks, allocation controls, or crash-safe persistence. | Correctness comes first; large snapshots and sparse files may be costly. |
+| Deferred feature                            | What it would add                                                          | Consequence now                                                                                                    |
+| ------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| FUSE and other host mounts                  | A native path backed by the live volume.                                   | No claim that Vim or arbitrary native programs can access this volume directly.                                    |
+| WebDAV and NFS                              | Separate network protocol bindings.                                        | No network filesystem compatibility promise.                                                                       |
+| Overlay                                     | A writable layer over an existing tree, with copy-up and deletion records. | Independent copies are available; shared lower layers and cheap isolated branches are not.                         |
+| Host-directory import/export                | Transfer ordinary files between a real directory and a volume.             | Save/load uses the encoded snapshot format, not a normal host directory tree.                                      |
+| Advisory locks                              | Application-visible locking with defined ownership.                        | No compatibility claim for software dependent on record locks. Internal mutation coordination is not a substitute. |
+| FIFOs, device files, and filesystem sockets | Special-file behavior and named communication.                             | The supported file kinds remain regular files, directories, and symlinks.                                          |
+| Descriptor duplication and restricted roots | Shared-offset duplicates and caller-specific root boundaries.              | No duplicated-descriptor or subtree-confinement guarantee.                                                         |
+| Optimized storage and durable commits       | Copy-on-write blocks, allocation controls, or crash-safe persistence.      | Correctness comes first; large snapshots and sparse files may be costly.                                           |
 
 Overlay requires merged lookups, hidden lower entries, and copy-up rules, as illustrated by [Linux's OverlayFS documentation](https://docs.kernel.org/filesystems/overlayfs.html). These policies are separate from POSIX and snapshot round-tripping. Mount bindings likewise have their own lifecycle and request contract; see [libfuse's operation interface](https://libfuse.github.io/doxygen/structfuse__operations.html).
 
@@ -197,4 +201,3 @@ The earlier exploration in this workspace recorded 15 POSIX probes: 11 passed an
 The 28 TODOs predate the scope decisions in this proposal and include deferred work. They are not the approval checklist. No mount, full build integration, or snapshot implementation was demonstrated by that exploration.
 
 Reference target: POSIX.1-2024, Issue 8. Some Open Group pages returned HTTP 403 during research. The unchanged truncation-offset rule was corroborated with the [Linux man-pages truncate documentation](https://man7.org/linux/man-pages/man2/truncate.2.html); the final conformance ledger still requires clause-level verification. This document establishes intended scope rather than asserting an exhaustive standards audit.
-

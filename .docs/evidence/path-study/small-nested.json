@@ -1,0 +1,239 @@
+{
+  "virtualRoot": "/project",
+  "manifest": {
+    "name": "vfs-vite-path-study",
+    "version": "0.0.0",
+    "private": true,
+    "dependencies": {
+      "vite": "8.2.2",
+      "@vitejs/plugin-react": "6.1.1",
+      "react": "19.2.8",
+      "react-dom": "19.2.8",
+      "typescript": "7.0.2"
+    }
+  },
+  "lockSha256": {
+    "package-lock.json": "7236f4e78a2cd67d91c3c8bb56d9ca4ce27510c270ac03cee67604e5b6ba621a"
+  },
+  "pathBytes": {
+    "count": 989,
+    "max": 127,
+    "p50": 67,
+    "p95": 108,
+    "p99": 114
+  },
+  "componentBytes": {
+    "count": 989,
+    "max": 49,
+    "p50": 15,
+    "p95": 32,
+    "p99": 42
+  },
+  "symlinkTargetBytes": {
+    "count": 4,
+    "max": 24,
+    "p50": 21,
+    "p95": 24,
+    "p99": 24
+  },
+  "symlinks": [
+    {
+      "path": "/project/node_modules/.bin/tsc",
+      "target": "../typescript/bin/tsc",
+      "targetBytes": 21,
+      "resolvedPathBytes": 40,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 21,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.bin/vite",
+      "target": "../vite/bin/vite.js",
+      "targetBytes": 19,
+      "resolvedPathBytes": 38,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 19,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/.bin/rolldown",
+      "target": "../rolldown/bin/cli.mjs",
+      "targetBytes": 23,
+      "resolvedPathBytes": 60,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 23,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/postcss/node_modules/.bin/nanoid",
+      "target": "../nanoid/bin/nanoid.cjs",
+      "targetBytes": 24,
+      "resolvedPathBytes": 82,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 24,
+        "exists": true
+      }
+    }
+  ],
+  "packageInventory": [
+    {
+      "path": "/project/node_modules/@vitejs/plugin-react/node_modules/@rolldown/pluginutils/package.json",
+      "name": "@rolldown/pluginutils",
+      "version": "1.0.1"
+    },
+    {
+      "path": "/project/node_modules/@vitejs/plugin-react/package.json",
+      "name": "@vitejs/plugin-react",
+      "version": "6.1.1"
+    },
+    {
+      "path": "/project/node_modules/react-dom/node_modules/scheduler/package.json",
+      "name": "scheduler",
+      "version": "0.27.0"
+    },
+    {
+      "path": "/project/node_modules/react-dom/package.json",
+      "name": "react-dom",
+      "version": "19.2.8"
+    },
+    {
+      "path": "/project/node_modules/react/package.json",
+      "name": "react",
+      "version": "19.2.8"
+    },
+    {
+      "path": "/project/node_modules/typescript/node_modules/@typescript/typescript-darwin-arm64/package.json",
+      "name": "@typescript/typescript-darwin-arm64",
+      "version": "7.0.2"
+    },
+    {
+      "path": "/project/node_modules/typescript/package.json",
+      "name": "typescript",
+      "version": "7.0.2"
+    },
+    {
+      "path": "/project/node_modules/typescript/vendor/vscode-jsonrpc/package.json",
+      "name": "vscode-jsonrpc",
+      "version": "9.0.0"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/fsevents/package.json",
+      "name": "fsevents",
+      "version": "2.3.3"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/lightningcss/node_modules/detect-libc/package.json",
+      "name": "detect-libc",
+      "version": "2.1.2"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/lightningcss/node_modules/lightningcss-darwin-arm64/package.json",
+      "name": "lightningcss-darwin-arm64",
+      "version": "1.33.0"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/lightningcss/package.json",
+      "name": "lightningcss",
+      "version": "1.33.0"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/picomatch/package.json",
+      "name": "picomatch",
+      "version": "4.0.7"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/postcss/node_modules/nanoid/package.json",
+      "name": "nanoid",
+      "version": "3.3.18"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/postcss/node_modules/picocolors/package.json",
+      "name": "picocolors",
+      "version": "1.1.1"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/postcss/node_modules/source-map-js/package.json",
+      "name": "source-map-js",
+      "version": "1.2.1"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/postcss/package.json",
+      "name": "postcss",
+      "version": "8.5.28"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/rolldown/node_modules/@oxc-project/types/package.json",
+      "name": "@oxc-project/types",
+      "version": "0.148.0"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/rolldown/node_modules/@rolldown/binding-darwin-arm64/package.json",
+      "name": "@rolldown/binding-darwin-arm64",
+      "version": "1.2.7"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/rolldown/node_modules/@rolldown/pluginutils/package.json",
+      "name": "@rolldown/pluginutils",
+      "version": "1.0.1"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/rolldown/package.json",
+      "name": "rolldown",
+      "version": "1.2.7"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/tinyglobby/node_modules/fdir/package.json",
+      "name": "fdir",
+      "version": "6.5.0"
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/tinyglobby/package.json",
+      "name": "tinyglobby",
+      "version": "0.2.17"
+    },
+    {
+      "path": "/project/node_modules/vite/package.json",
+      "name": "vite",
+      "version": "8.2.2"
+    }
+  ],
+  "longestPaths": [
+    {
+      "path": "/project/node_modules/vite/node_modules/rolldown/node_modules/@rolldown/binding-darwin-arm64/rolldown-binding.darwin-arm64.node",
+      "bytes": 127
+    },
+    {
+      "path": "/project/node_modules/vite/node_modules/lightningcss/node_modules/lightningcss-darwin-arm64/lightningcss.darwin-arm64.node",
+      "bytes": 122
+    },
+    {
+      "path": "/project/node_modules/typescript/node_modules/@typescript/typescript-darwin-arm64/lib/lib.es2015.symbol.wellknown.d.ts",
+      "bytes": 118
+    },
+    {
+      "path": "/project/node_modules/typescript/node_modules/@typescript/typescript-darwin-arm64/lib/lib.webworker.asynciterable.d.ts",
+      "bytes": 118
+    },
+    {
+      "path": "/project/node_modules/typescript/node_modules/@typescript/typescript-darwin-arm64/lib/lib.es2020.symbol.wellknown.d.ts",
+      "bytes": 118
+    }
+  ],
+  "pathsOverCandidates": {
+    "1024": 0,
+    "4096": 0,
+    "16384": 0
+  },
+  "limitations": "Physical installed entries; no recursive alias expansion, build, or complete resolver simulation."
+}

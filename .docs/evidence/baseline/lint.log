@@ -1,0 +1,21 @@
+$ oxlint
+.docs/contracts/consumers.ts:115:3: warning eslint(no-unused-expressions): Expected expression to be used help: Consider using this expression or removing it
+.docs/contracts/models.ts:6:24: warning effecttsgo(schema-number): This Schema number API accepts `NaN`, `Infinity`, and `-Infinity`. Use `Schema.Finite` for finite domain numbers. If non-finite values are intentional, disable this diagnostic for that line.
+.docs/contracts/consumers.ts:99:3: error effecttsgo(floating-effect): This Effect value is neither yielded nor used in an assignment.
+.docs/contracts/consumers.ts:101:3: error effecttsgo(floating-effect): This Effect value is neither yielded nor used in an assignment.
+.docs/contracts/consumers.ts:103:3: error effecttsgo(floating-effect): This Effect value is neither yielded nor used in an assignment.
+.docs/contracts/consumers.ts:105:3: error effecttsgo(floating-effect): This Effect value is neither yielded nor used in an assignment.
+.docs/contracts/consumers.ts:107:3: error effecttsgo(floating-effect): This Effect value is neither yielded nor used in an assignment.
+.docs/contracts/consumers.ts:109:3: error effecttsgo(floating-effect): This Effect value is neither yielded nor used in an assignment.
+.docs/contracts/consumers.ts:113:3: error effecttsgo(floating-effect): This Effect value is neither yielded nor used in an assignment.
+.docs/contracts/consumers.ts:97:9: error effecttsgo(missing-effect-context): This Effect requires a service that is missing from the expected Effect context: `Scope`.
+apps/scratchpad/tsconfig.json:3:3: error typescript(tsconfig-error): Invalid tsconfig help: Option 'allowImportingTsExtensions' can only be used when one of 'noEmit', 'emitDeclarationOnly', or 'rewriteRelativeImportExtensions' is set.
+packages/memory/tsconfig.json:3:3: error typescript(tsconfig-error): Invalid tsconfig help: Option 'allowImportingTsExtensions' can only be used when one of 'noEmit', 'emitDeclarationOnly', or 'rewriteRelativeImportExtensions' is set.
+packages/core/tsconfig.json:3:3: error typescript(tsconfig-error): Invalid tsconfig help: Option 'allowImportingTsExtensions' can only be used when one of 'noEmit', 'emitDeclarationOnly', or 'rewriteRelativeImportExtensions' is set.
+.docs/contracts/models.check.mjs:94:31: warning effecttsgo(any-unknown-in-error-context): This has unknown in the requirements channel and unknown in the error channel which is not recommended. Only service identifiers should appear in the requirements channel. Having an unknown or any error type is not useful. Consider instead using specific error types baked by Data.TaggedError for example.
+.docs/contracts/models.check.mjs:91:19: warning effecttsgo(any-unknown-in-error-context): This has unknown in the requirements channel and unknown in the error channel which is not recommended. Only service identifiers should appear in the requirements channel. Having an unknown or any error type is not useful. Consider instead using specific error types baked by Data.TaggedError for example.
+.docs/contracts/models.check.mjs:91:9: warning effecttsgo(any-unknown-in-error-context): This has unknown in the requirements channel and unknown in the error channel which is not recommended. Only service identifiers should appear in the requirements channel. Having an unknown or any error type is not useful. Consider instead using specific error types baked by Data.TaggedError for example.
+.docs/contracts/models.check.mjs:96:1: warning effecttsgo(global-console): This code uses `console.log`, the corresponding Effect logging API is `Effect.log or Logger`.
+.docs/contracts/models.check.mjs:3:26: warning effecttsgo(node-builtin-import): This module reference uses the `fs` module, the corresponding Effect API is `FileSystem` from `effect`.
+.docs/contracts/models.check.mjs:91:19: warning effecttsgo(unnecessary-effect-gen): This Effect.gen contains a single return statement.
+error: script "lint" exited with code 1

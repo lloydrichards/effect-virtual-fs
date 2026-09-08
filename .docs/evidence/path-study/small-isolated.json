@@ -1,0 +1,934 @@
+{
+  "virtualRoot": "/project",
+  "manifest": {
+    "name": "vfs-vite-path-study",
+    "version": "0.0.0",
+    "private": true,
+    "dependencies": {
+      "vite": "8.2.2",
+      "@vitejs/plugin-react": "6.1.1",
+      "react": "19.2.8",
+      "react-dom": "19.2.8",
+      "typescript": "7.0.2"
+    }
+  },
+  "lockSha256": {
+    "pnpm-lock.yaml": "4a8101cb6952c717edd3d35cea735ebb7ca5374b852151afe88a969659aff61a"
+  },
+  "pathBytes": {
+    "count": 1089,
+    "max": 155,
+    "p50": 95,
+    "p95": 145,
+    "p99": 151
+  },
+  "componentBytes": {
+    "count": 1089,
+    "max": 49,
+    "p50": 15,
+    "p95": 32,
+    "p99": 41
+  },
+  "symlinkTargetBytes": {
+    "count": 44,
+    "max": 99,
+    "p50": 46,
+    "p95": 89,
+    "p99": 99
+  },
+  "symlinks": [
+    {
+      "path": "/project/node_modules/typescript",
+      "target": ".pnpm/typescript@7.0.2/node_modules/typescript",
+      "targetBytes": 46,
+      "resolvedPathBytes": 68,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 46,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 59,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/react-dom",
+      "target": ".pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react-dom",
+      "targetBytes": 58,
+      "resolvedPathBytes": 80,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 58,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 71,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/vite",
+      "target": ".pnpm/vite@8.2.2/node_modules/vite",
+      "targetBytes": 34,
+      "resolvedPathBytes": 56,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 34,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 47,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/react",
+      "target": ".pnpm/react@19.2.8/node_modules/react",
+      "targetBytes": 37,
+      "resolvedPathBytes": 59,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 37,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 50,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/lightningcss@1.33.0/node_modules/lightningcss-darwin-arm64",
+      "target": "../../lightningcss-darwin-arm64@1.33.0/node_modules/lightningcss-darwin-arm64",
+      "targetBytes": 77,
+      "resolvedPathBytes": 99,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 77,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 90,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/lightningcss@1.33.0/node_modules/detect-libc",
+      "target": "../../detect-libc@2.1.2/node_modules/detect-libc",
+      "targetBytes": 48,
+      "resolvedPathBytes": 70,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 48,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 61,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/typescript@7.0.2/node_modules/@typescript/typescript-darwin-arm64",
+      "target": "../../../@typescript+typescript-darwin-arm64@7.0.2/node_modules/@typescript/typescript-darwin-arm64",
+      "targetBytes": 99,
+      "resolvedPathBytes": 118,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 99,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 112,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/tinyglobby",
+      "target": "../tinyglobby@0.2.17/node_modules/tinyglobby",
+      "targetBytes": 44,
+      "resolvedPathBytes": 69,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 44,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 57,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/lightningcss-darwin-arm64",
+      "target": "../lightningcss-darwin-arm64@1.33.0/node_modules/lightningcss-darwin-arm64",
+      "targetBytes": 74,
+      "resolvedPathBytes": 99,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 74,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 87,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/detect-libc",
+      "target": "../detect-libc@2.1.2/node_modules/detect-libc",
+      "targetBytes": 45,
+      "resolvedPathBytes": 70,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 45,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 58,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/nanoid",
+      "target": "../nanoid@3.3.18/node_modules/nanoid",
+      "targetBytes": 36,
+      "resolvedPathBytes": 61,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 36,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 49,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/rolldown",
+      "target": "../rolldown@1.2.7/node_modules/rolldown",
+      "targetBytes": 39,
+      "resolvedPathBytes": 64,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 39,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 52,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/picomatch",
+      "target": "../picomatch@4.0.7/node_modules/picomatch",
+      "targetBytes": 41,
+      "resolvedPathBytes": 66,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 41,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 54,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/postcss",
+      "target": "../postcss@8.5.28/node_modules/postcss",
+      "targetBytes": 38,
+      "resolvedPathBytes": 63,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 38,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 51,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/scheduler",
+      "target": "../scheduler@0.27.0/node_modules/scheduler",
+      "targetBytes": 42,
+      "resolvedPathBytes": 67,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 42,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 55,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/fdir",
+      "target": "../fdir@6.5.0_picomatch@4.0.7/node_modules/fdir",
+      "targetBytes": 47,
+      "resolvedPathBytes": 72,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 47,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 60,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/picocolors",
+      "target": "../picocolors@1.1.1/node_modules/picocolors",
+      "targetBytes": 43,
+      "resolvedPathBytes": 68,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 43,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 56,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/fsevents",
+      "target": "../fsevents@2.3.3/node_modules/fsevents",
+      "targetBytes": 39,
+      "resolvedPathBytes": 64,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 39,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 52,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/lightningcss",
+      "target": "../lightningcss@1.33.0/node_modules/lightningcss",
+      "targetBytes": 48,
+      "resolvedPathBytes": 73,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 48,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 61,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/source-map-js",
+      "target": "../source-map-js@1.2.1/node_modules/source-map-js",
+      "targetBytes": 49,
+      "resolvedPathBytes": 74,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 49,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 62,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/@rolldown/binding-darwin-arm64",
+      "target": "../../@rolldown+binding-darwin-arm64@1.2.7/node_modules/@rolldown/binding-darwin-arm64",
+      "targetBytes": 86,
+      "resolvedPathBytes": 108,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 86,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 99,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/@rolldown/pluginutils",
+      "target": "../../@rolldown+pluginutils@1.0.1/node_modules/@rolldown/pluginutils",
+      "targetBytes": 68,
+      "resolvedPathBytes": 90,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 68,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 81,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/@typescript/typescript-darwin-arm64",
+      "target": "../../@typescript+typescript-darwin-arm64@7.0.2/node_modules/@typescript/typescript-darwin-arm64",
+      "targetBytes": 96,
+      "resolvedPathBytes": 118,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 96,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 109,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/node_modules/@oxc-project/types",
+      "target": "../../@oxc-project+types@0.148.0/node_modules/@oxc-project/types",
+      "targetBytes": 64,
+      "resolvedPathBytes": 86,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 64,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 77,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/postcss@8.5.28/node_modules/nanoid",
+      "target": "../../nanoid@3.3.18/node_modules/nanoid",
+      "targetBytes": 39,
+      "resolvedPathBytes": 61,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 39,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 52,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/postcss@8.5.28/node_modules/picocolors",
+      "target": "../../picocolors@1.1.1/node_modules/picocolors",
+      "targetBytes": 46,
+      "resolvedPathBytes": 68,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 46,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 59,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/postcss@8.5.28/node_modules/source-map-js",
+      "target": "../../source-map-js@1.2.1/node_modules/source-map-js",
+      "targetBytes": 52,
+      "resolvedPathBytes": 74,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 52,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 65,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/tinyglobby@0.2.17/node_modules/picomatch",
+      "target": "../../picomatch@4.0.7/node_modules/picomatch",
+      "targetBytes": 44,
+      "resolvedPathBytes": 66,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 44,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 57,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/tinyglobby@0.2.17/node_modules/fdir",
+      "target": "../../fdir@6.5.0_picomatch@4.0.7/node_modules/fdir",
+      "targetBytes": 50,
+      "resolvedPathBytes": 72,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 50,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 63,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/rolldown@1.2.7/node_modules/@rolldown/binding-darwin-arm64",
+      "target": "../../../@rolldown+binding-darwin-arm64@1.2.7/node_modules/@rolldown/binding-darwin-arm64",
+      "targetBytes": 89,
+      "resolvedPathBytes": 108,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 89,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 102,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/rolldown@1.2.7/node_modules/@rolldown/pluginutils",
+      "target": "../../../@rolldown+pluginutils@1.0.1/node_modules/@rolldown/pluginutils",
+      "targetBytes": 71,
+      "resolvedPathBytes": 90,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 71,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 84,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/rolldown@1.2.7/node_modules/@oxc-project/types",
+      "target": "../../../@oxc-project+types@0.148.0/node_modules/@oxc-project/types",
+      "targetBytes": 67,
+      "resolvedPathBytes": 86,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 67,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 80,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/vite@8.2.2/node_modules/tinyglobby",
+      "target": "../../tinyglobby@0.2.17/node_modules/tinyglobby",
+      "targetBytes": 47,
+      "resolvedPathBytes": 69,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 47,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 60,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/vite@8.2.2/node_modules/rolldown",
+      "target": "../../rolldown@1.2.7/node_modules/rolldown",
+      "targetBytes": 42,
+      "resolvedPathBytes": 64,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 42,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 55,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/vite@8.2.2/node_modules/picomatch",
+      "target": "../../picomatch@4.0.7/node_modules/picomatch",
+      "targetBytes": 44,
+      "resolvedPathBytes": 66,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 44,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 57,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/vite@8.2.2/node_modules/postcss",
+      "target": "../../postcss@8.5.28/node_modules/postcss",
+      "targetBytes": 41,
+      "resolvedPathBytes": 63,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 41,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 54,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/vite@8.2.2/node_modules/fsevents",
+      "target": "../../fsevents@2.3.3/node_modules/fsevents",
+      "targetBytes": 42,
+      "resolvedPathBytes": 64,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 42,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 55,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/vite@8.2.2/node_modules/lightningcss",
+      "target": "../../lightningcss@1.33.0/node_modules/lightningcss",
+      "targetBytes": 51,
+      "resolvedPathBytes": 73,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 51,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 64,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/scheduler",
+      "target": "../../scheduler@0.27.0/node_modules/scheduler",
+      "targetBytes": 45,
+      "resolvedPathBytes": 67,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 45,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 58,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react",
+      "target": "../../react@19.2.8/node_modules/react",
+      "targetBytes": 37,
+      "resolvedPathBytes": 59,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 37,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 50,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/@vitejs+plugin-react@6.1.1_vite@8.2.2/node_modules/vite",
+      "target": "../../vite@8.2.2/node_modules/vite",
+      "targetBytes": 34,
+      "resolvedPathBytes": 56,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 34,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 47,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/@vitejs+plugin-react@6.1.1_vite@8.2.2/node_modules/@rolldown/pluginutils",
+      "target": "../../../@rolldown+pluginutils@1.0.1/node_modules/@rolldown/pluginutils",
+      "targetBytes": 71,
+      "resolvedPathBytes": 90,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 71,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 84,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/.pnpm/fdir@6.5.0_picomatch@4.0.7/node_modules/picomatch",
+      "target": "../../picomatch@4.0.7/node_modules/picomatch",
+      "targetBytes": 44,
+      "resolvedPathBytes": 66,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 44,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 57,
+        "exists": true
+      }
+    },
+    {
+      "path": "/project/node_modules/@vitejs/plugin-react",
+      "target": "../.pnpm/@vitejs+plugin-react@6.1.1_vite@8.2.2/node_modules/@vitejs/plugin-react",
+      "targetBytes": 80,
+      "resolvedPathBytes": 99,
+      "exists": true,
+      "resolution": {
+        "followed": 1,
+        "maxReplacementBytes": 80,
+        "exists": true
+      },
+      "packageJsonResolution": {
+        "followed": 1,
+        "maxReplacementBytes": 93,
+        "exists": true
+      }
+    }
+  ],
+  "packageInventory": [
+    {
+      "path": "/project/node_modules/.pnpm/@oxc-project+types@0.148.0/node_modules/@oxc-project/types/package.json",
+      "name": "@oxc-project/types",
+      "version": "0.148.0"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/@rolldown+binding-darwin-arm64@1.2.7/node_modules/@rolldown/binding-darwin-arm64/package.json",
+      "name": "@rolldown/binding-darwin-arm64",
+      "version": "1.2.7"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/@rolldown+pluginutils@1.0.1/node_modules/@rolldown/pluginutils/package.json",
+      "name": "@rolldown/pluginutils",
+      "version": "1.0.1"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/@typescript+typescript-darwin-arm64@7.0.2/node_modules/@typescript/typescript-darwin-arm64/package.json",
+      "name": "@typescript/typescript-darwin-arm64",
+      "version": "7.0.2"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/@vitejs+plugin-react@6.1.1_vite@8.2.2/node_modules/@vitejs/plugin-react/package.json",
+      "name": "@vitejs/plugin-react",
+      "version": "6.1.1"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/detect-libc@2.1.2/node_modules/detect-libc/package.json",
+      "name": "detect-libc",
+      "version": "2.1.2"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/fdir@6.5.0_picomatch@4.0.7/node_modules/fdir/package.json",
+      "name": "fdir",
+      "version": "6.5.0"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/fsevents@2.3.3/node_modules/fsevents/package.json",
+      "name": "fsevents",
+      "version": "2.3.3"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/lightningcss-darwin-arm64@1.33.0/node_modules/lightningcss-darwin-arm64/package.json",
+      "name": "lightningcss-darwin-arm64",
+      "version": "1.33.0"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/lightningcss@1.33.0/node_modules/lightningcss/package.json",
+      "name": "lightningcss",
+      "version": "1.33.0"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/nanoid@3.3.18/node_modules/nanoid/package.json",
+      "name": "nanoid",
+      "version": "3.3.18"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/picocolors@1.1.1/node_modules/picocolors/package.json",
+      "name": "picocolors",
+      "version": "1.1.1"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/picomatch@4.0.7/node_modules/picomatch/package.json",
+      "name": "picomatch",
+      "version": "4.0.7"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/postcss@8.5.28/node_modules/postcss/package.json",
+      "name": "postcss",
+      "version": "8.5.28"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react-dom/package.json",
+      "name": "react-dom",
+      "version": "19.2.8"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/react@19.2.8/node_modules/react/package.json",
+      "name": "react",
+      "version": "19.2.8"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/rolldown@1.2.7/node_modules/rolldown/package.json",
+      "name": "rolldown",
+      "version": "1.2.7"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/scheduler@0.27.0/node_modules/scheduler/package.json",
+      "name": "scheduler",
+      "version": "0.27.0"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/source-map-js@1.2.1/node_modules/source-map-js/package.json",
+      "name": "source-map-js",
+      "version": "1.2.1"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/tinyglobby@0.2.17/node_modules/tinyglobby/package.json",
+      "name": "tinyglobby",
+      "version": "0.2.17"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/package.json",
+      "name": "typescript",
+      "version": "7.0.2"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/vendor/vscode-jsonrpc/package.json",
+      "name": "vscode-jsonrpc",
+      "version": "9.0.0"
+    },
+    {
+      "path": "/project/node_modules/.pnpm/vite@8.2.2/node_modules/vite/package.json",
+      "name": "vite",
+      "version": "8.2.2"
+    }
+  ],
+  "longestPaths": [
+    {
+      "path": "/project/node_modules/.pnpm/@typescript+typescript-darwin-arm64@7.0.2/node_modules/@typescript/typescript-darwin-arm64/lib/lib.es2015.symbol.wellknown.d.ts",
+      "bytes": 155
+    },
+    {
+      "path": "/project/node_modules/.pnpm/@typescript+typescript-darwin-arm64@7.0.2/node_modules/@typescript/typescript-darwin-arm64/lib/lib.webworker.asynciterable.d.ts",
+      "bytes": 155
+    },
+    {
+      "path": "/project/node_modules/.pnpm/@typescript+typescript-darwin-arm64@7.0.2/node_modules/@typescript/typescript-darwin-arm64/lib/lib.es2020.symbol.wellknown.d.ts",
+      "bytes": 155
+    },
+    {
+      "path": "/project/node_modules/.pnpm/@typescript+typescript-darwin-arm64@7.0.2/node_modules/@typescript/typescript-darwin-arm64/lib/lib.webworker.importscripts.d.ts",
+      "bytes": 155
+    },
+    {
+      "path": "/project/node_modules/.pnpm/@typescript+typescript-darwin-arm64@7.0.2/node_modules/@typescript/typescript-darwin-arm64/lib/lib.es2018.asyncgenerator.d.ts",
+      "bytes": 153
+    }
+  ],
+  "pathsOverCandidates": {
+    "1024": 0,
+    "4096": 0,
+    "16384": 0
+  },
+  "limitations": "Physical installed entries; no recursive alias expansion, build, or complete resolver simulation."
+}

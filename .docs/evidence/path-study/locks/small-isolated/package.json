@@ -1,0 +1,12 @@
+{
+  "name": "vfs-vite-path-study",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "vite": "8.2.2",
+    "@vitejs/plugin-react": "6.1.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "typescript": "7.0.2"
+  }
+}
