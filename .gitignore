@@ -1,0 +1,30 @@
+# dependencies
+node_modules
+
+# build
+dist
+build
+.cache
+.turbo
+tsconfig.tsbuildinfo
+
+# local reference checkouts
+.reference/
+
+# environment
+.env
+.env.local
+.env.*.local
+
+# editors and operating systems
+.idea
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# test output
+coverage
+playwright-report
+test-results
+
