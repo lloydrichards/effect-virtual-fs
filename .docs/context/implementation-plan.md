@@ -87,3 +87,11 @@ The user subsequently authorized the private directory slice. Its [implementatio
 records 27 passing core tests, actual-package consumers, and the configured checks. Slice 0 is complete for this
 boundary. Slice 1 has directory identity, caller authority, owned paths, and scoped references; file sharing and
 cwd identity across rename still require the namespace/I/O work. The memory adapter remains independent.
+
+## Directory namespace execution
+
+The continued implementation request authorized later slices. Directory rename/removal now preserve cwd identity
+across rename, update parent ancestry and link counts, retain removed handles, enforce namespace permissions, and
+reclaim entry quota. The [namespace evidence](directory-namespace-implementation.md) records nine additional cases
+and the pending I/O capacity question. This completes directory identity across rename in slice 1 and part of
+slice 2; file sharing, regular-file handles, links, adapter migration, and snapshots remain absent.

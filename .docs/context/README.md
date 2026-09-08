@@ -1,7 +1,7 @@
 # VirtualFileSystem development context
 
 Research baseline: 8 September 2026. Implementation status: 9 September 2026. The private directory-only
-core is implemented; the complete public API and release profile remain unfinished.
+core, including rename/removal, is implemented; the complete public API and release profile remain unfinished.
 
 ## Start here
 
@@ -73,7 +73,8 @@ Baseline commits include `623416d` for the memory package, `cdf83c3` for the cor
 and `5e93650` for the imported design and research. The working tree was clean before this documentation work.
 
 - [`@effect-vfs/core`](../../packages/core/README.md) exports the directory-only VirtualFileSystem module.
-  Its package remains private at `0.0.0`; 27 core behavior tests pass.
+  Its package remains private at `0.0.0`; 36 core behavior tests pass. See the
+  [directory namespace evidence](directory-namespace-implementation.md).
 - [`@effect-vfs/memory`](../../packages/memory/README.md) is configured at `0.1.0` and implements Effect's existing
   service. Publication status has not been checked. Effect is pinned to `4.0.0-rc.112`.
 - The memory package contains a shared contract suite and memory-specific tests. Its build script includes browser

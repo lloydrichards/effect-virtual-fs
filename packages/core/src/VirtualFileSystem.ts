@@ -23,6 +23,7 @@ export type PathInput = string | BytePath
 export const FsCode = Schema.Literals([
   "NotFound",
   "AlreadyExists",
+  "NotEmpty",
   "NotDirectory",
   "AccessDenied",
   "InvalidHandle",
@@ -94,6 +95,12 @@ export interface DirectoryHandle {
 export interface Caller {
   readonly [CallerId]: true
   readonly stat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>
+  readonly rename: (
+    source: PathInput,
+    destination: PathInput,
+    options?: { readonly sourceRelativeTo?: DirectoryHandle; readonly destinationRelativeTo?: DirectoryHandle }
+  ) => Effect.Effect<void, FsError>
+  readonly rmdir: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
   readonly mkdir: (
     path: PathInput,
     options?: RelativeOptions & { readonly mode?: number }
@@ -147,7 +154,7 @@ export const pathToBytes = Effect.fn("VirtualFileSystem.pathToBytes")(function*(
 })
 
 interface Directory {
-  readonly parent: Directory | undefined
+  parent: Directory | undefined
   readonly entries: Map<string, Directory>
   metadata: Metadata
 }
@@ -282,6 +289,7 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
           yield* authorize(current, identity, 1, operation, path.input)
         }
         const components = parent ? path.components.slice(0, -1) : path.components
+        if (current.metadata.nlink === 0) return yield* failure("NotFound", operation, path.input)
         for (const component of components) {
           yield* authorize(current, identity, 1, operation, path.input)
           if (component === "2e") continue
@@ -316,8 +324,99 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
       })
     }
 
+    const authorizeRemoval = (parent: Directory, child: Directory, operation: string, input: PathInput) =>
+      (parent.metadata.mode & 0o1000) !== 0 && !identity.privileged &&
+        identity.uid !== parent.metadata.uid && identity.uid !== child.metadata.uid
+        ? Effect.fail(failure("AccessDenied", operation, input))
+        : Effect.void
+
     return Object.freeze({
       [CallerId]: true as const,
+      rename: Effect.fn("Caller.rename")(function*(
+        source: PathInput,
+        destination: PathInput,
+        options?: { readonly sourceRelativeTo?: DirectoryHandle; readonly destinationRelativeTo?: DirectoryHandle }
+      ) {
+        const oldPrepared = preparePath(source, "rename", settings.maxPathBytes)
+        const newPrepared = preparePath(destination, "rename", settings.maxPathBytes)
+        const oldBase = options?.sourceRelativeTo
+        const newBase = options?.destinationRelativeTo
+        return yield* coordinated(Effect.gen(function*() {
+          const oldPath = yield* Effect.fromResult(oldPrepared)
+          const newPath = yield* Effect.fromResult(newPrepared)
+          const oldParent = yield* locate(oldPath, oldBase, "rename", true)
+          const newParent = yield* locate(newPath, newBase, "rename", true)
+          yield* authorize(oldParent, identity, 3, "rename", source)
+          yield* authorize(newParent, identity, 3, "rename", destination)
+          const oldName = oldPath.components.at(-1)
+          const newName = newPath.components.at(-1)
+          if (
+            oldName === undefined || newName === undefined || oldName === "2e" || oldName === "2e2e" ||
+            newName === "2e" || newName === "2e2e"
+          ) {
+            return yield* failure("InvalidArgument", "rename", source)
+          }
+          const child = oldParent.entries.get(oldName)
+          if (child === undefined) return yield* failure("NotFound", "rename", source)
+          const replaced = newParent.entries.get(newName)
+          if (newPath.trailingSlash && replaced === undefined) return yield* failure("NotFound", "rename", destination)
+          if (child === replaced) return
+          yield* authorizeRemoval(oldParent, child, "rename", source)
+          if (replaced !== undefined) {
+            yield* authorizeRemoval(newParent, replaced, "rename", destination)
+            if (replaced.entries.size > 0) return yield* failure("NotEmpty", "rename", destination)
+          }
+          for (let ancestor: Directory | undefined = newParent; ancestor !== undefined; ancestor = ancestor.parent) {
+            if (ancestor === child) return yield* failure("InvalidArgument", "rename", destination)
+          }
+          const now = clock.currentTimeNanosUnsafe()
+          // All rejection checks precede namespace, ancestry, quota, and metadata publication.
+          oldParent.entries.delete(oldName)
+          newParent.entries.set(newName, child)
+          child.parent = newParent
+          oldParent.metadata = {
+            ...oldParent.metadata,
+            nlink: oldParent.metadata.nlink - 1,
+            mtimeNs: now,
+            ctimeNs: now
+          }
+          newParent.metadata = {
+            ...newParent.metadata,
+            nlink: newParent.metadata.nlink + (replaced === undefined ? 1 : 0),
+            mtimeNs: now,
+            ctimeNs: now
+          }
+          child.metadata = { ...child.metadata, ctimeNs: now }
+          if (replaced !== undefined) {
+            replaced.parent = undefined
+            replaced.metadata = { ...replaced.metadata, nlink: 0, ctimeNs: now }
+            entries -= 1
+          }
+        }))
+      }),
+      rmdir: Effect.fn("Caller.rmdir")(function*(input: PathInput, options?: RelativeOptions) {
+        const prepared = preparePath(input, "rmdir", settings.maxPathBytes)
+        const base = options?.relativeTo
+        return yield* coordinated(Effect.gen(function*() {
+          const path = yield* Effect.fromResult(prepared)
+          const parent = yield* locate(path, base, "rmdir", true)
+          yield* authorize(parent, identity, 3, "rmdir", input)
+          const name = path.components.at(-1)
+          if (name === undefined || name === "2e" || name === "2e2e") {
+            return yield* failure("InvalidArgument", "rmdir", input)
+          }
+          const child = parent.entries.get(name)
+          if (child === undefined) return yield* failure("NotFound", "rmdir", input)
+          yield* authorizeRemoval(parent, child, "rmdir", input)
+          if (child.entries.size > 0) return yield* failure("NotEmpty", "rmdir", input)
+          const now = clock.currentTimeNanosUnsafe()
+          parent.entries.delete(name)
+          parent.metadata = { ...parent.metadata, nlink: parent.metadata.nlink - 1, mtimeNs: now, ctimeNs: now }
+          child.parent = undefined
+          child.metadata = { ...child.metadata, nlink: 0, ctimeNs: now }
+          entries -= 1
+        }))
+      }),
       stat: Effect.fn("Caller.stat")(function*(input: PathInput, options?: RelativeOptions) {
         const prepared = preparePath(input, "stat", settings.maxPathBytes)
         const base = options?.relativeTo
