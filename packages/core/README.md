@@ -1,8 +1,9 @@
 # @effect-vfs/core
 
-Private, experimental VirtualFileSystem core. This first slice implements volumes, callers, byte paths,
-directory creation/lookup, rename/removal, permissions, metadata, scoped directory resources, and optional Effect service provision.
-It also implements regular-file I/O and unlink. Links and byte-preserving enumeration are implemented. Fixtures and snapshots are implemented. The memory adapter binds this core.
+Private, experimental standalone filesystem. Implements regular files, byte-preserving names, directories,
+links, scoped handles, permissions, metadata, quotas, watches, fixtures and isolated snapshot persistence.
+The memory adapter binds this core. See the [implemented profile](../../.docs/context/implemented-profile.md) for
+supported operations, decisions, tests and exclusions.
 
 ## Usage
 
@@ -69,8 +70,7 @@ parent link counts and timestamps together. Expected failures preserve both path
 
 `maxEntries` excludes root and implicit dot entries. Zero allows root but no new names. `maxPathBytes` counts input
 bytes including separators, before normalization. Both limits have no configured cap when omitted. A provisional
-255-byte component bound is enforced. These are logical limits, not heap or CPU guarantees. Symlink expansion and
-traversal limits are later work because this slice cannot create links.
+255-byte component bound is enforced. These are logical limits, not heap or CPU guarantees. Following symlinks is limited to 40 traversals; exact expanded bytes also obey maxPathBytes when configured.
 
 The volume captures its Effect Clock. Directory creation publishes child metadata and parent timestamps/link count
 together, using Unix-epoch bigint nanoseconds without promising physical nanosecond clock accuracy. Reads return

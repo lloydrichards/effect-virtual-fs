@@ -1,5 +1,9 @@
 # POSIX profile research
 
+Current implementation update (9 September 2026): all accepted private milestones are implemented and locally
+validated. The [implemented profile](implemented-profile.md) supersedes the historical statuses and open questions
+below; policy 0022 records remaining implementation choices. Earlier text preserves the research/sequence history.
+
 Status: research draft, 8 September 2026. No backend conformance tests have run. This is a starting ledger, not a completed conformance claim or an approved API.
 
 The [design proposal](../design/VirtualFileSystem-design.md) selects POSIX.1-2024, Issue 8, for a bounded filesystem subset. Each supported public operation still needs a mapping to applicable clauses, chosen alternatives, errors, limits, and executable evidence.

@@ -33,7 +33,7 @@
     "directory": "packages/memory"
   },
   "scripts": {
-    "build": "tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser",
+    "build": "tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser && node compatibility/browser/check.mjs",
     "clean": "git clean -xdf .cache .turbo dist node_modules tsconfig.tsbuildinfo",
     "test": "vitest run",
     "type-check": "tsc --noEmit"

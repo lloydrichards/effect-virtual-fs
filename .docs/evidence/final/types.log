@@ -1,0 +1,40 @@
+$ turbo run type-check
+• turbo 2.10.12
+
+   • Packages in scope: @effect-vfs/core, @effect-vfs/memory, @repo/config-typescript, @repo/scratchpad, @repo/virtual-build
+   • Running type-check in 5 packages
+   • Remote caching disabled
+
+@effect-vfs/core:build: cache miss, executing 85b783bc2e85d279
+@effect-vfs/core:type-check: cache miss, executing 8bbf9d5f011f1e7b
+@effect-vfs/core:type-check: $ tsc --noEmit
+@effect-vfs/core:build: $ tsc --project tsconfig.build.json
+@effect-vfs/memory:type-check: cache miss, executing 82572bbb965e2fe9
+@repo/virtual-build:type-check: cache miss, executing bc6eb1db8c0b397b
+@effect-vfs/memory:build: cache miss, executing 7dd3c06f20264505
+@repo/virtual-build:type-check: $ tsc --noEmit
+@effect-vfs/memory:type-check: $ tsc --noEmit
+@effect-vfs/memory:build: $ tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser && node compatibility/browser/check.mjs
+@effect-vfs/memory:build: CLI Building entry: src/MemoryFileSystem.ts, src/index.ts
+@effect-vfs/memory:build: CLI Using tsconfig: tsconfig.json
+@effect-vfs/memory:build: CLI tsup v8.5.1
+@effect-vfs/memory:build: CLI Using tsup config: /Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/tsup.config.ts
+@effect-vfs/memory:build: CLI Target: es2022
+@effect-vfs/memory:build: CLI Cleaning output folder
+@effect-vfs/memory:build: ESM Build start
+@effect-vfs/memory:build: ESM dist/MemoryFileSystem.js 99.00 B
+@effect-vfs/memory:build: ESM dist/index.js            125.00 B
+@effect-vfs/memory:build: ESM dist/chunk-2ESBQTSZ.js   34.84 KB
+@effect-vfs/memory:build: ESM ⚡️ Build success in 7ms
+@effect-vfs/memory:build: Bundled 121 modules in 14ms
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build:   index.js  0.44 MB  (entry point)
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build: Browser-target bundle smoke passed under Node (not a browser runtime test).
+@repo/scratchpad:type-check: cache miss, executing 964b5f9dccbfe92e
+@repo/scratchpad:type-check: $ tsc --noEmit
+
+ Tasks:    6 successful, 6 total
+Cached:    0 cached, 6 total
+  Time:    712ms 
+

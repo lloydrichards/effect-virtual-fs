@@ -4,10 +4,10 @@ An experimental workspace for an Effect-based virtual filesystem and its adapter
 
 ## Packages
 
-- `@effect-vfs/memory` is the first publishable package. It implements Effect's `FileSystem` service with an isolated
-  in-memory volume.
-- `@effect-vfs/core` is a private standalone backend with an initial directory-only implementation. See its
-  [supported operations](packages/core/README.md); files, snapshots, and adapter migration remain future work.
+- `@effect-vfs/core` is the private backend: files, byte-preserving namespace operations, permissions, scoped handles,
+  logical quotas, fixtures, isolated snapshots and strict encoding/restoration.
+- `@effect-vfs/memory` binds Effect's `FileSystem` service to core, with fresh or shared volumes.
+- `@repo/virtual-build` demonstrates Vite build/rebuild and bounded package imports from virtual files.
 
 ## Development
 
@@ -30,13 +30,8 @@ Reference repositories are optional and excluded from builds. See [.docs/referen
 
 Start with the [development context](.docs/context/README.md) for the current scope, researched contracts,
 Effect compatibility requirements, open decisions, and implementation evidence plan.
-The first core directory slice is implemented. Accepted decisions and implementation evidence are distinguished
-from proposals for later features.
-
-## Status
-
-`@effect-vfs/memory` begins at experimental version `0.1.0`. Publishing automation will be added after the
-`@effect-vfs` npm organization and trusted publishing are configured.
+The accepted private implementation milestones are complete. See the [implemented profile and evidence ledger](.docs/context/implemented-profile.md)
+for operations, limits, tests, and exclusions. Both library packages remain private; no publication is configured by this work.
 
 ## License
 

@@ -1,13 +1,14 @@
 # VirtualFileSystem development context
 
-Research baseline: 8 September 2026. Implementation status: 9 September 2026. The private directory-only
-core, including rename/removal, is implemented; the complete public API and release profile remain unfinished.
+Research baseline: 8 September 2026. Implementation status: 9 September 2026. The accepted private milestones are
+implemented and locally validated. Start with the [implemented profile and evidence ledger](implemented-profile.md)
+for the current API, limits, tests, exclusions and runtime caveats. Earlier slice documents are dated evidence.
 
 ## Start here
 
 1. Read the [decision register](decisions.md) for accepted choices and remaining work.
 2. Read the [design](../design/VirtualFileSystem-design.md) for the underlying behavior and exclusions, refined by those decisions.
-3. Read the [first implementation evidence](first-core-implementation.md) for current behavior and checks.
+3. Read the [first implementation evidence](first-core-implementation.md) for the original directory behavior and checks.
 4. Use the documents below for evidence, unresolved decisions, and implementation gates.
 
 | Document                                                   | Use it when                                                                    |
@@ -47,12 +48,10 @@ For detailed interface review, use the [resource and byte contract](resource-and
 [fixture/snapshot format example](snapshot-format-draft.md). They turn open engineering choices into concrete
 proposals without marking them accepted or implemented.
 
-The user confirmed the design direction, authorized research and context documentation, and subsequently
-authorized the first private directory implementation.
-Accepted decisions 0001-0021 refine the design; exact signatures and unresolved policy questions remain open.
-The design plus accepted decisions define current scope. Decision 0007 adds a bounded virtual-package acceptance
-milestone, with release gating still open. The older [research](../design/VirtualFileSystem-research.md) records exploration
-and includes goals that the design subsequently deferred. Its FUSE/Vim implementation sequence is not the current plan.
+The user authorized the design, initial directory slice, and then continued implementation and commits through all
+accepted milestones. Decisions 0001-0021 plus [implementation policy 0022](../decisions/0022-remaining-implementation-profile.md)
+define the private profile. The basic and bounded-package consumer gates both pass. Older research/prototype
+signatures remain historical proposals; use actual exports and the implemented profile for new work.
 
 Use these labels consistently:
 
@@ -69,34 +68,17 @@ or API explicitly before implementation.
 
 ## Current repository
 
-Baseline commits include `623416d` for the memory package, `cdf83c3` for the core placeholder and scratchpad,
-and `5e93650` for the imported design and research. The working tree was clean before this documentation work.
-
-- [`@effect-vfs/core`](../../packages/core/README.md) exports the directory-only VirtualFileSystem module.
-  Its package remains private at `0.0.0`; 36 core behavior tests pass. See the
-  [directory namespace evidence](directory-namespace-implementation.md).
-- [`@effect-vfs/memory`](../../packages/memory/README.md) is configured at `0.1.0` and implements Effect's existing
-  service. Publication status has not been checked. Effect is pinned to `4.0.0-rc.112`.
-- The memory package contains a shared contract suite and memory-specific tests. Its build script includes browser
-  bundling and NodeNext type compatibility checks. These are distinct from runtime tests in browsers or workers.
-- [CI](../../.github/workflows/pr-validation.yml) defines formatting, lint, type-check, test, and build commands.
-- The [scratchpad](../../apps/scratchpad/src/index.ts) exercises the current memory adapter, not standalone core.
-- [Pinned reference repositories](../references.md) are optional research inputs. They were not bootstrapped for this
-  pass. The original exploratory POSIX and acceptance-test files are absent from this checkout.
-
-The initial documentation pass installed no workspace dependencies or filesystem tests. A later isolated workspace
-copy established the initial evidence. Baseline cleanup subsequently installed repository dependencies and added
-bun.lock; the configured checks now pass. Prototype checks are also included in CI. The imported counts of
-100 passes, four expected failures, and 28 TODOs describe a different checkout. They establish no current core coverage.
-
-The initial documentation pass checked 36 local file links; subsequent passes check the expanded document set.
-Markdown formatting is checked with the configured
-`markdown-0.20.0.wasm` plugin through a temporary Markdown-only configuration. The initial full formatter was blocked by a malformed plugin URL. Baseline cleanup corrected the URL and the full
-format check now passes.
+- Core is private at 0.0.0 and memory is private at 0.1.0. Effect remains pinned to 4.0.0-rc.112.
+- Sixty core, 95 memory and three consumer tests pass. The memory suites run through core.
+- The private Vite app imports built package exports. See [consumer evidence](consumer-implementation.md).
+- [Final validation](../evidence/final/results.json) records the configured checks. Browser-target bundling plus a Node
+  smoke is distinct from browser runtime testing. Linux CI and the repository-pinned Bun 1.2.21 were not executed here.
+- The local run used Bun 1.4.0 and Node 24.10.0 without upgrading existing dependencies.
+- Historical first-slice, baseline and research documents preserve the checks and open questions from their dates.
 
 ## Stable boundaries
 
-The dependency direction will be `@effect-vfs/memory` to `@effect-vfs/core` to Effect. Core must not depend on the
+The dependency direction is `@effect-vfs/memory` to `@effect-vfs/core` to Effect. Core must not depend on the
 memory adapter or host filesystem services.
 
 | Owner             | Responsibility                                                                                           |
