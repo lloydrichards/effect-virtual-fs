@@ -2,7 +2,7 @@
 
 Private, experimental VirtualFileSystem core. This first slice implements volumes, callers, byte paths,
 directory creation/lookup, rename/removal, permissions, metadata, scoped directory resources, and optional Effect service provision.
-It also implements regular-file I/O and unlink. Symlinks, snapshots, and the memory adapter binding remain later slices.
+It also implements regular-file I/O and unlink. Links and byte-preserving enumeration are implemented. Snapshots and the memory adapter binding remain later slices.
 
 ## Usage
 
@@ -92,3 +92,8 @@ See the [accepted contracts](../../.docs/context/first-core-contract-review.md),
 pread/pwrite, seek, truncate, stat, sync, and strict explicit close. Separate opens have separate bigint offsets.
 `caller.unlink` removes the name while open handles retain bytes. See [file policy](../../.docs/decisions/0022-remaining-implementation-profile.md)
 for access, limits, partial transfers, timestamp rules, and the intentional difference from Effect adapter cursors.
+
+`caller.link` shares file or symlink identity. `caller.symlink` stores an exact raw target. `stat` follows targets;
+`lstat` inspects links. `readDirectory`, `readLink`, and `realPath` have byte-preserving variants suffixed `Bytes`.
+String variants fail with UnrepresentableName for non-UTF-8 names or targets. Enumeration is an atomic whole list
+without implicit dot entries or an ordering promise.
