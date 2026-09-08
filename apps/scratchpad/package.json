@@ -1,0 +1,22 @@
+{
+  "name": "@repo/scratchpad",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "clean": "git clean -xdf .cache .turbo dist node_modules tsconfig.tsbuildinfo",
+    "dev": "bun run src/index.ts",
+    "test": "vitest run --passWithNoTests",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect-vfs/memory": "workspace:*",
+    "@effect/platform-bun": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "@repo/config-typescript": "workspace:*",
+    "@types/bun": "^1.2.17"
+  }
+}
