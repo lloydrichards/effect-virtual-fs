@@ -88,6 +88,8 @@ describe("links and byte namespace", () => {
       yield* fs.symlink("", "/empty")
       assert.strictEqual(yield* fs.readLink("/empty"), "")
       assert.strictEqual((yield* Effect.flip(fs.stat("/empty"))).code, "NotFound")
+      yield* fs.mkdir("/x")
+      assert.strictEqual((yield* Effect.flip(fs.stat("/empty/x"))).code, "NotFound")
     }))
 
   it.effect("returns independently owned byte names and rejects lossy string results", () =>

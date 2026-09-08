@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "effect-vfs-monorepo",
@@ -48,6 +49,9 @@
     "packages/memory": {
       "name": "@effect-vfs/memory",
       "version": "0.1.0",
+      "dependencies": {
+        "@effect-vfs/core": "workspace:*",
+      },
       "devDependencies": {
         "@effect/vitest": "4.0.0-rc.112",
         "@repo/config-typescript": "workspace:*",

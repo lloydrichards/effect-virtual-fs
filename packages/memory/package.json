@@ -46,5 +46,9 @@
     "@repo/config-typescript": "workspace:*",
     "effect": "4.0.0-rc.112",
     "tsup": "8.5.1"
+  },
+  "private": true,
+  "dependencies": {
+    "@effect-vfs/core": "workspace:*"
   }
 }

@@ -6,11 +6,13 @@ import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
+import * as PubSub from "effect/PubSub"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as SchemaIssue from "effect/SchemaIssue"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
+import * as Stream from "effect/Stream"
 
 const BytePathId = Symbol("@effect-vfs/core/BytePath")
 const VolumeId = Symbol("@effect-vfs/core/Volume")
@@ -148,6 +150,8 @@ export interface Caller {
     destination: PathInput,
     options?: { readonly sourceRelativeTo?: DirectoryHandle; readonly destinationRelativeTo?: DirectoryHandle }
   ) => Effect.Effect<void, FsError>
+  readonly readFile: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsError>
+  readonly writeFile: (path: PathInput, bytes: Uint8Array, options: OpenOptions) => Effect.Effect<void, FsError>
   readonly access: (path: PathInput, bits?: number, options?: RelativeOptions) => Effect.Effect<void, FsError>
   readonly truncate: (path: PathInput, length: bigint, options?: RelativeOptions) => Effect.Effect<void, FsError>
   readonly chmod: (path: PathInput, mode: number, options?: MetadataOptions) => Effect.Effect<void, FsError>
@@ -189,7 +193,13 @@ export interface Caller {
     options?: RelativeOptions
   ) => Effect.Effect<DirectoryHandle, FsError, Scope.Scope>
 }
+export interface Change {
+  readonly _tag: "Create" | "Update" | "Remove"
+  readonly path: BytePath
+}
 export interface Volume {
+  // oxlint-disable-next-line effecttsgo/lazy-effect -- Explicit scoped subscription establishes readiness.
+  readonly watch: () => Effect.Effect<Stream.Stream<Change>, never, Scope.Scope>
   // oxlint-disable-next-line effecttsgo/lazy-effect -- Capture is an explicit operation.
   readonly snapshot: () => Effect.Effect<Image.Snapshot, Image.ImageError>
   readonly [VolumeId]: true
@@ -466,6 +476,45 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
       usedBytes = content
     }
 
+    const events = yield* PubSub.unbounded<Change>()
+    let subscribers = 0
+    const directoryHex = (directory: Directory): string => {
+      const names: Array<string> = []
+      let current = directory
+      while (current.parent !== undefined) {
+        const parent = current.parent
+        const found = [...parent.entries].find(([, node]) => node === current)
+        if (found === undefined) break
+        names.push(found[0])
+        current = parent
+      }
+      return "2f" + names.reverse().join("2f")
+    }
+    const publishEntry = (_tag: Change["_tag"], parent: Directory, name: string) => {
+      if (subscribers === 0) return
+      const prefix = directoryHex(parent)
+      PubSub.publishUnsafe(events, { _tag, path: ownedPath(nameBytes(prefix + (prefix === "2f" ? "" : "2f") + name)) })
+    }
+    const publishNode = (target: Node) => {
+      if (subscribers === 0) return
+      if (target === root) {
+        PubSub.publishUnsafe(events, { _tag: "Update" as const, path: ownedPath(new Uint8Array([47])) })
+      }
+      const pending: Array<readonly [Directory, string]> = [[root, "2f"]]
+      while (pending.length > 0) {
+        const next = pending.pop()
+        if (next === undefined) break
+        const [directory, prefix] = next
+        for (const [name, node] of directory.entries) {
+          const path = prefix + name
+          if (node === target) {
+            PubSub.publishUnsafe(events, { _tag: "Update" as const, path: ownedPath(nameBytes(path)) })
+          }
+          if (node.kind === "directory") pending.push([node, path + "2f"])
+        }
+      }
+    }
+
     // Permit waits stay interruptible. State transitions and resource registration do not.
     const coordinated = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(Effect.uninterruptible(effect))
     const release = (reference: DirectoryReference) =>
@@ -530,6 +579,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           mtimeNs: now,
           ctimeNs: now
         }
+        publishNode(file)
       })
     const fileHandle = (ref: FileReference): FileHandle => {
       const get = (operation: string, access?: "read" | "write") =>
@@ -542,10 +592,14 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           const file = yield* get(position === undefined ? "read" : "pread", "read")
           if (!Schema.is(Natural)(maximum)) return yield* failure("InvalidArgument", "read")
           const offset = position ?? ref.offset
-          if (typeof offset !== "bigint" || offset < 0n) return yield* failure("InvalidArgument", "read")
+          if (typeof offset !== "bigint" || offset < 0n || offset > 0x7fffffffffffffffn) {
+            return yield* failure("InvalidArgument", "read")
+          }
           const start = Number(offset > file.metadata.size ? file.metadata.size : offset)
           const data = file.data.slice(start, start + Math.min(maximum, file.data.length - start))
-          if (maximum > 0) file.metadata = { ...file.metadata, atimeNs: clock.currentTimeNanosUnsafe() }
+          if (maximum > 0) {
+            file.metadata = { ...file.metadata, atimeNs: clock.currentTimeNanosUnsafe() }
+          }
           if (position === undefined) ref.offset += BigInt(data.length)
           return data
         }))
@@ -558,8 +612,12 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           return yield* coordinated(Effect.gen(function*() {
             const file = yield* get(position === undefined ? "write" : "pwrite", "write")
             const offset = position ?? (ref.append ? file.metadata.size : ref.offset)
-            if (typeof offset !== "bigint" || offset < 0n) return yield* failure("InvalidArgument", "write")
-            if (bytes.length === 0) return 0
+            if (typeof offset !== "bigint" || offset < 0n || offset > 0x7fffffffffffffffn) {
+              return yield* failure("InvalidArgument", "write")
+            }
+            if (bytes.length === 0) {
+              return 0
+            }
             if (offset >= BigInt(maxFileBytes)) return yield* failure("FileTooLarge", "write")
             const start = Number(offset)
             const free = (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes
@@ -580,6 +638,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               mtimeNs: now,
               ctimeNs: now
             }
+            publishNode(file)
             if (position === undefined) ref.offset = offset + BigInt(count)
             return count
           }))
@@ -684,6 +743,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             return yield* failure("NotFound", operation, path.input)
           }
           if (child.kind === "symlink" && (followFinal || index < work.components.length - 1 || work.trailingSlash)) {
+            if (child.target.length === 0) return yield* failure("NotFound", operation, path.input)
             if (++traversals > 40) return yield* failure("SymlinkLoop", operation, path.input)
             const suffix = work.suffixes[index] ?? new Uint8Array(0)
             if (settings.maxPathBytes !== undefined && child.target.length + suffix.length > settings.maxPathBytes) {
@@ -813,6 +873,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               mode: !identity.privileged && node.kind === "file" && !group ? mode & ~0o2000 : mode,
               ctimeNs: clock.currentTimeNanosUnsafe()
             }
+            publishNode(node)
           }))
         }
       )
@@ -839,6 +900,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               mode: node.kind === "file" ? node.metadata.mode & ~0o6000 : node.metadata.mode,
               ctimeNs: clock.currentTimeNanosUnsafe()
             }
+            publishNode(node)
           }))
         }
       )
@@ -871,6 +933,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                 : modification.nanoseconds,
               ctimeNs: now
             }
+            publishNode(node)
           }))
         }
       )
@@ -883,6 +946,102 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
 
       return Object.freeze({
         [CallerId]: true as const,
+        readFile: Effect.fn("Caller.readFile")(function*(input: PathInput, options?: RelativeOptions) {
+          const prepared = preparePath(input, "readFile", settings.maxPathBytes)
+          const base = options?.relativeTo
+          return yield* coordinated(Effect.gen(function*() {
+            const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "readFile")
+            if (node.kind !== "file") return yield* failure("IsDirectory", "readFile", input)
+            yield* authorize(node, identity, 4, "readFile", input)
+            const data = new Uint8Array(node.data)
+            node.metadata = { ...node.metadata, atimeNs: clock.currentTimeNanosUnsafe() }
+            return data
+          }))
+        }),
+        writeFile: Effect.fn("Caller.writeFile")(function*(input: PathInput, bytes: Uint8Array, options: OpenOptions) {
+          const prepared = preparePath(input, "writeFile", settings.maxPathBytes)
+          if (!(bytes instanceof Uint8Array) || !(bytes.buffer instanceof ArrayBuffer) || !attachedBuffer(bytes)) {
+            return yield* failure("InvalidArgument", "writeFile", input)
+          }
+          const captured = new Uint8Array(bytes)
+          const { relativeTo: base, ...raw } = options
+          const decoded = Schema.decodeResult(OpenSettings, { onExcessProperty: "error" })(raw)
+          if (Result.isFailure(decoded)) return yield* failure("InvalidArgument", "writeFile", input)
+          const chosen = decoded.success
+          return yield* coordinated(Effect.gen(function*() {
+            const path = yield* Effect.fromResult(prepared)
+            if (chosen.create === "exclusive") {
+              const exists = yield* Effect.result(lookup(path, base, "writeFile", false))
+              if (Result.isSuccess(exists)) return yield* failure("AlreadyExists", "writeFile", input)
+              if (exists.failure.code !== "NotFound") return yield* exists.failure
+            }
+            const resolved = yield* lookup(
+              path,
+              base,
+              "writeFile",
+              chosen.followFinalSymlink !== false,
+              chosen.create === "ifMissing" || chosen.create === "exclusive"
+            )
+            const { name, parent } = resolved
+            if (parent === undefined || name === undefined || resolved.node?.kind === "directory") {
+              return yield* failure("IsDirectory", "writeFile", input)
+            }
+            if (resolved.node?.kind === "symlink") return yield* failure("SymlinkLoop", "writeFile", input)
+            if (chosen.access === "read") return yield* failure("InvalidHandle", "writeFile", input)
+            const file = resolved.node
+            if (file === undefined) {
+              yield* authorize(parent, identity, 3, "writeFile", input)
+              if (settings.maxEntries !== undefined && entries >= settings.maxEntries) {
+                return yield* failure("NoSpace", "writeFile", input)
+              }
+            } else yield* authorize(file, identity, chosen.access === "readWrite" ? 6 : 2, "writeFile", input)
+            const previous = file?.data.length ?? 0
+            const initial = chosen.truncate ? 0 : previous
+            const position = chosen.append ? initial : 0
+            const size = Math.max(initial, position + captured.length)
+            if (size > maxFileBytes) return yield* failure("FileTooLarge", "writeFile", input)
+            if (size - previous > (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes) {
+              return yield* failure("NoSpace", "writeFile", input)
+            }
+            if (file !== undefined && !chosen.truncate && captured.length === 0) return
+            const data = new Uint8Array(size)
+            if (file !== undefined && !chosen.truncate) data.set(file.data)
+            data.set(captured, position)
+            const now = clock.currentTimeNanosUnsafe()
+            const node: RegularFile = file ??
+              {
+                kind: "file",
+                data,
+                openCount: 0,
+                metadata: {
+                  ...directoryMetadata(
+                    nextInode++,
+                    identity.uid,
+                    parent.metadata.gid,
+                    (chosen.mode ?? 0o666) & 0o777 & ~umask,
+                    now
+                  ),
+                  kind: "file",
+                  nlink: 1
+                }
+              }
+            node.data = data
+            node.metadata = {
+              ...node.metadata,
+              mode: node.metadata.mode & ~0o6000,
+              size: BigInt(size),
+              mtimeNs: now,
+              ctimeNs: now
+            }
+            usedBytes += size - previous
+            if (file === undefined) {
+              parent.entries.set(name, node)
+              parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
+              entries += 1
+              publishEntry("Create", parent, name)
+            } else publishNode(node)
+          }))
+        }),
         chmod: Effect.fn("Caller.chmod")(function*(path: PathInput, mode: number, options?: MetadataOptions) {
           yield* changeMode(path, mode, options)
         }),
@@ -966,6 +1125,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
               node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
               entries += 1
+              publishEntry("Create", parent, name)
             }))
           }
         ),
@@ -1010,6 +1170,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             nextInode += 1n
             entries += 1
             usedBytes += bytes.length
+            publishEntry("Create", parent, name)
           }))
         }),
         readDirectoryBytes: Effect.fn("Caller.readDirectoryBytes")(
@@ -1108,6 +1269,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
               entries += 1
               nextInode += 1n
+              publishEntry("Create", parent, name)
             } else {
               if (file.kind === "symlink") return yield* failure("SymlinkLoop", "open", input)
               if (file.kind !== "file") return yield* failure("IsDirectory", "open", input)
@@ -1147,6 +1309,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
             detach(child, now)
             entries -= 1
+            publishEntry("Remove", parent, name)
           }))
         }),
         rename: Effect.fn("Caller.rename")(function*(
@@ -1204,6 +1367,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             }
             const now = clock.currentTimeNanosUnsafe()
             // All rejection checks precede namespace, ancestry, quota, and metadata publication.
+            const oldEvent = subscribers > 0
+              ? ownedPath(nameBytes(directoryHex(oldParent) + (oldParent === root ? "" : "2f") + oldName))
+              : undefined
             oldParent.entries.delete(oldName)
             newParent.entries.set(newName, child)
             if (child.kind === "directory") child.parent = newParent
@@ -1224,6 +1390,8 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               detach(replaced, now)
               entries -= 1
             }
+            if (oldEvent !== undefined) PubSub.publishUnsafe(events, { _tag: "Remove" as const, path: oldEvent })
+            publishEntry("Create", newParent, newName)
           }))
         }),
         rmdir: Effect.fn("Caller.rmdir")(function*(input: PathInput, options?: RelativeOptions) {
@@ -1248,6 +1416,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             child.parent = undefined
             child.metadata = { ...child.metadata, nlink: 0, ctimeNs: now }
             entries -= 1
+            publishEntry("Remove", parent, name)
           }))
         }),
         stat: Effect.fn("Caller.stat")(function*(input: PathInput, options?: RelativeOptions) {
@@ -1300,6 +1469,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               parent.metadata = parentMetadata
               nextInode += 1n
               entries += 1
+              publishEntry("Create", parent, name)
             }))
           }
         ),
@@ -1335,6 +1505,16 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
 
     const volume: Volume = Object.freeze({
       [VolumeId]: true as const,
+      watch: Effect.fn("Volume.watch")(function*() {
+        const subscription = yield* PubSub.subscribe(events)
+        subscribers += 1
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            subscribers -= 1
+          })
+        )
+        return Stream.fromEffectRepeat(PubSub.take(subscription))
+      }),
       snapshot: Effect.fn("Volume.snapshot")(function*() {
         return yield* coordinated(Effect.gen(function*() {
           const ids = new Map<Node, string>([[root, "0"]])

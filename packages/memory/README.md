@@ -4,13 +4,9 @@ An experimental, in-memory implementation of Effect's `FileSystem` service. It p
 symbolic links, hard links, scoped file handles, temporary resources, globbing, and watch streams without accessing
 the host filesystem.
 
-## Install
+## Workspace use
 
-```sh
-bun add -d @effect-vfs/memory effect
-```
-
-The first release is tested against `effect@4.0.0-rc.112` and keeps that exact peer dependency while Effect v4 is a
+This package is private and depends on the private core workspace package. It is tested against `effect@4.0.0-rc.112` and keeps that exact peer dependency while Effect v4 is a
 release candidate.
 
 ## Usage
@@ -41,9 +37,10 @@ The package is runtime-neutral and ESM-only. It has no Node or Bun runtime depen
 
 ## Status
 
-The package is experimental. Its initial interface follows Effect PR #6573. The future `@effect-vfs/core` package
-will define a standalone virtual filesystem with an explicit POSIX profile; `@effect-vfs/memory` will remain the
-Effect compatibility adapter.
+The package is experimental. Its interface follows Effect PR #6573 and now adapts the standalone `@effect-vfs/core`
+volume. `MemoryFileSystem.bind(volume, options?)` shares an existing volume without creating /tmp. Fresh make still
+creates /tmp. Bindings keep their own file cursors, and watchers observe direct-core writers. Core and adapter cursor
+semantics intentionally differ. Recursive helpers compose individual core operations rather than a volume transaction.
 
 ## Credits
 

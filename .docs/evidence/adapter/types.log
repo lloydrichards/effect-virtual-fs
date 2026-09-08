@@ -1,0 +1,37 @@
+$ turbo run type-check
+• turbo 2.10.12
+
+   • Packages in scope: @effect-vfs/core, @effect-vfs/memory, @repo/config-typescript, @repo/scratchpad
+   • Running type-check in 4 packages
+   • Remote caching disabled
+
+@effect-vfs/core:build: cache miss, executing 58f44b7a1671d614
+@effect-vfs/core:type-check: cache miss, executing 8de9f1cee81003d0
+@effect-vfs/core:type-check: $ tsc --noEmit
+@effect-vfs/core:build: $ tsc --project tsconfig.build.json
+@effect-vfs/memory:type-check: cache miss, executing 7069c52542fb4801
+@effect-vfs/memory:build: cache miss, executing ccd649f302e06b9c
+@effect-vfs/memory:type-check: $ tsc --noEmit
+@effect-vfs/memory:build: $ tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser
+@effect-vfs/memory:build: CLI Building entry: src/MemoryFileSystem.ts, src/index.ts
+@effect-vfs/memory:build: CLI Using tsconfig: tsconfig.json
+@effect-vfs/memory:build: CLI tsup v8.5.1
+@effect-vfs/memory:build: CLI Using tsup config: /Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/tsup.config.ts
+@effect-vfs/memory:build: CLI Target: es2022
+@effect-vfs/memory:build: CLI Cleaning output folder
+@effect-vfs/memory:build: ESM Build start
+@effect-vfs/memory:build: ESM dist/MemoryFileSystem.js 99.00 B
+@effect-vfs/memory:build: ESM dist/index.js            125.00 B
+@effect-vfs/memory:build: ESM dist/chunk-2ESBQTSZ.js   34.84 KB
+@effect-vfs/memory:build: ESM ⚡️ Build success in 7ms
+@effect-vfs/memory:build: Bundled 1 module in 2ms
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build:   index.js  31 bytes  (entry point)
+@effect-vfs/memory:build: 
+@repo/scratchpad:type-check: cache miss, executing da3bdb98e63d445f
+@repo/scratchpad:type-check: $ tsc --noEmit
+
+ Tasks:    5 successful, 5 total
+Cached:    0 cached, 5 total
+  Time:    531ms 
+
