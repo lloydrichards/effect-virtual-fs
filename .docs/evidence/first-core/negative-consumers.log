@@ -1,0 +1,5 @@
+../../../../../var/folders/gq/tmbzz1j139bdj_mz812288zw0000gn/T/vfs-consumers-_cys0ud1/.docs/contracts/implemented-consumers.ts(25,9): error TS2375: Type 'Effect<DirectoryHandle, FsError, Scope>' is not assignable to type 'Effect<DirectoryHandle, FsError, never>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Type 'Scope' is not assignable to type 'never'.
+../../../../../var/folders/gq/tmbzz1j139bdj_mz812288zw0000gn/T/vfs-consumers-_cys0ud1/.docs/contracts/implemented-consumers.ts(26,15): error TS2345: Argument of type 'Uint8Array<ArrayBuffer>' is not assignable to parameter of type 'PathInput'.
+../../../../../var/folders/gq/tmbzz1j139bdj_mz812288zw0000gn/T/vfs-consumers-_cys0ud1/.docs/contracts/implemented-consumers.ts(27,22): error TS2322: Type 'number' is not assignable to type 'DirectoryHandle'.
+../../../../../var/folders/gq/tmbzz1j139bdj_mz812288zw0000gn/T/vfs-consumers-_cys0ud1/.docs/contracts/implemented-consumers.ts(28,10): error TS2339: Property 'close' does not exist on type 'Caller'.

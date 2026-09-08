@@ -41,6 +41,7 @@
         "effect": "4.0.0-rc.112",
       },
       "devDependencies": {
+        "@effect/vitest": "4.0.0-rc.112",
         "@repo/config-typescript": "workspace:*",
       },
     },

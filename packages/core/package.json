@@ -7,13 +7,25 @@
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "clean": "git clean -xdf .cache .turbo dist node_modules tsconfig.tsbuildinfo",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "effect": "4.0.0-rc.112"
   },
   "devDependencies": {
-    "@repo/config-typescript": "workspace:*"
-  }
+    "@repo/config-typescript": "workspace:*",
+    "@effect/vitest": "4.0.0-rc.112"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./VirtualFileSystem": {
+      "types": "./dist/VirtualFileSystem.d.ts",
+      "import": "./dist/VirtualFileSystem.js"
+    }
+  },
+  "sideEffects": false
 }
