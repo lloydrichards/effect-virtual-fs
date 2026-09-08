@@ -33,3 +33,22 @@ failures precede publication. Interruption after publication still does not mean
 File.test.ts exercises ownership, separate offsets, seek/truncate, append concurrency, quota crossing, failed growth,
 unlinked charge retention, scope closure, exclusive creation, access and kind failures. Initial failures reflected
 missing APIs and configuration fields, not a demonstrated production regression.
+
+## Links and enumeration
+
+Hard links may name files or symlinks, never directories. The default source policy links the symlink itself;
+followSourceSymlink explicitly selects its target. Symlink target bytes are charged once per inode, survive
+dangling references, and are not validated as paths at creation. Empty targets are allowed; NUL and malformed string
+encoding are rejected. Component and expansion bounds apply when following the link. Creation uses mode 0777 without umask.
+Traversal follows at most 40 links and counts exact target-plus-suffix bytes, including repeated separators, before
+allocating the expansion. No-follow open of a final symlink fails SymlinkLoop; exclusive creation never follows it.
+
+Directory enumeration returns a whole-list observation under coordination, omits implicit dot entries, and promises
+no ordering. It requires read permission on the selected directory and updates atime. Raw name/target outputs are
+copies. String names, targets, and real paths use fatal UTF-8 decoding with BOM preserved; unrepresentable bytes fail
+UnrepresentableName. realPath outputs may exceed maxPathBytes; that option bounds input/expansion, not output.
+
+Links.test.ts covers aliases and replacement, dangling-target creation, final-link mutation, symlink-before-dot-dot,
+loop and exact expansion limits, quota retention, and strict independently owned byte results. Full workspace
+validation logs are retained under .docs/evidence/links. The official Issue 8 link/symlink descriptions were fetched
+and read; this records the selected behavior, not exhaustive POSIX conformance.

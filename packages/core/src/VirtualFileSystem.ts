@@ -37,7 +37,8 @@ export const FsCode = Schema.Literals([
   "IsDirectory",
   "FileTooLarge",
   "NoData",
-  "SymlinkLoop"
+  "SymlinkLoop",
+  "UnrepresentableName"
 ])
 export type FsCode = typeof FsCode.Type
 export class FsError extends Data.TaggedError("FsError")<{
@@ -133,6 +134,26 @@ export interface Caller {
     destination: PathInput,
     options?: { readonly sourceRelativeTo?: DirectoryHandle; readonly destinationRelativeTo?: DirectoryHandle }
   ) => Effect.Effect<void, FsError>
+  readonly lstat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>
+  readonly link: (
+    source: PathInput,
+    destination: PathInput,
+    options?: {
+      readonly sourceRelativeTo?: DirectoryHandle
+      readonly destinationRelativeTo?: DirectoryHandle
+      readonly followSourceSymlink?: boolean
+    }
+  ) => Effect.Effect<void, FsError>
+  readonly symlink: (target: PathInput, path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  readonly readLink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsError>
+  readonly readLinkBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsError>
+  readonly readDirectory: (path: PathInput, options?: RelativeOptions) => Effect.Effect<ReadonlyArray<string>, FsError>
+  readonly readDirectoryBytes: (
+    path: PathInput,
+    options?: RelativeOptions
+  ) => Effect.Effect<ReadonlyArray<Uint8Array>, FsError>
+  readonly realPath: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsError>
+  readonly realPathBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<BytePath, FsError>
   readonly open: (path: PathInput, options: OpenOptions) => Effect.Effect<FileHandle, FsError, Scope.Scope>
   readonly unlink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
   readonly rmdir: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
@@ -158,6 +179,21 @@ const bytePaths = new WeakMap<BytePath, Uint8Array>()
 const failure = (code: FsCode, operation: string, path?: PathInput) =>
   new FsError({ code, operation, ...(path === undefined ? {} : { path }) })
 
+const ownedPath = (bytes: Uint8Array): BytePath => {
+  const path: BytePath = Object.freeze({ [BytePathId]: true as const })
+  bytePaths.set(path, bytes)
+  return path
+}
+const strictString = (bytes: Uint8Array, operation: string) =>
+  Effect.try({
+    try: () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
+    catch: () => failure("UnrepresentableName", operation)
+  })
+const nameBytes = (name: string): Uint8Array => {
+  const bytes = new Uint8Array(name.length / 2)
+  for (let i = 0; i < bytes.length; i++) bytes[i] = Number.parseInt(name.slice(i * 2, i * 2 + 2), 16)
+  return bytes
+}
 // A zero-length view distinguishes a detached buffer from a valid empty buffer.
 const attachedBuffer = (bytes: Uint8Array): boolean => {
   try {
@@ -200,7 +236,12 @@ interface RegularFile {
   openCount: number
   metadata: Metadata
 }
-type Node = Directory | RegularFile
+interface SymbolicLink {
+  readonly kind: "symlink"
+  readonly target: Uint8Array
+  metadata: Metadata
+}
+type Node = Directory | RegularFile | SymbolicLink
 interface FileReference {
   readonly volume: symbol
   file: RegularFile | undefined
@@ -221,6 +262,8 @@ interface PreparedPath {
   readonly input: PathInput
   readonly absolute: boolean
   readonly trailingSlash: boolean
+  readonly bytes: Uint8Array
+  readonly suffixes: ReadonlyArray<Uint8Array>
   readonly components: ReadonlyArray<string>
 }
 
@@ -254,6 +297,7 @@ const preparePath = (
     return Result.fail(failure("PathTooLong", operation, input))
   }
   const components: Array<string> = []
+  const suffixes: Array<Uint8Array> = []
   let start = 0
   for (let index = 0; index <= bytes.length; index++) {
     if (index !== bytes.length && bytes[index] !== 47) continue
@@ -261,10 +305,18 @@ const preparePath = (
       // Provisional component bound from decision 0019; names are compared as bytes.
       if (index - start > 255) return Result.fail(failure("PathTooLong", operation, input))
       components.push(Encoding.encodeHex(bytes.subarray(start, index)))
+      suffixes.push(bytes.subarray(index))
     }
     start = index + 1
   }
-  return Result.succeed({ input, absolute: bytes[0] === 47, trailingSlash: bytes.at(-1) === 47, components })
+  return Result.succeed({
+    input,
+    absolute: bytes[0] === 47,
+    trailingSlash: bytes.at(-1) === 47,
+    bytes,
+    suffixes,
+    components
+  })
 }
 
 const configurationField = (issue: SchemaIssue.Issue): string => {
@@ -342,7 +394,8 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
       node.metadata = { ...node.metadata, nlink: 0, ctimeNs: now }
     } else {
       node.metadata = { ...node.metadata, nlink: node.metadata.nlink - 1, ctimeNs: now }
-      reclaim(node)
+      if (node.kind === "file") reclaim(node)
+      else if (node.metadata.nlink === 0) usedBytes -= node.target.length
     }
   }
   const releaseFile = (ref: FileReference) => {
@@ -474,42 +527,81 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
   }
 
   const createCaller = (reference: DirectoryReference, identity: Identity, umask: number): Caller => {
-    const resolveNode = Effect.fnUntraced(
-      function*(path: PreparedPath, base: DirectoryHandle | undefined, operation: string, parent = false) {
-        if (reference.directory === undefined) return yield* failure("ClosedCaller", operation, path.input)
-        let current: Node = path.absolute ? root : reference.directory
-        if (!path.absolute && base !== undefined) {
-          const target = handles.get(base)
-          if (target === undefined) return yield* failure("InvalidHandle", operation, path.input)
-          if (target.volume !== volumeIdentity) return yield* failure("ForeignHandle", operation, path.input)
-          if (target.directory === undefined) return yield* failure("InvalidHandle", operation, path.input)
-          current = target.directory
-          yield* authorize(current, identity, 1, operation, path.input)
+    const lookup = Effect.fnUntraced(function*(
+      path: PreparedPath,
+      base: DirectoryHandle | undefined,
+      operation: string,
+      followFinal = true,
+      allowMissing = false,
+      parentOnly = false
+    ) {
+      if (reference.directory === undefined) return yield* failure("ClosedCaller", operation, path.input)
+      let current: Node = path.absolute ? root : reference.directory
+      if (!path.absolute && base !== undefined) {
+        const target = handles.get(base)
+        if (target === undefined) return yield* failure("InvalidHandle", operation, path.input)
+        if (target.volume !== volumeIdentity) return yield* failure("ForeignHandle", operation, path.input)
+        if (target.directory === undefined) return yield* failure("InvalidHandle", operation, path.input)
+        current = target.directory
+        yield* authorize(current, identity, 1, operation, path.input)
+      }
+      if (current.metadata.nlink === 0) return yield* failure("NotFound", operation, path.input)
+      let work = path
+      let parent: Directory | undefined
+      let name: string | undefined
+      let traversals = 0
+      for (let index = 0; index < work.components.length - (parentOnly ? 1 : 0); index++) {
+        if (current.kind !== "directory") return yield* failure("NotDirectory", operation, path.input)
+        yield* authorize(current, identity, 1, operation, path.input)
+        const component = work.components[index]
+        if (component === undefined) break
+        if (component === "2e") continue
+        if (component === "2e2e") {
+          current = current.parent ?? current
+          parent = undefined
+          name = undefined
+          continue
         }
-        const components = parent ? path.components.slice(0, -1) : path.components
-        if (current.metadata.nlink === 0) return yield* failure("NotFound", operation, path.input)
-        for (const component of components) {
-          if (current.kind !== "directory") return yield* failure("NotDirectory", operation, path.input)
-          yield* authorize(current, identity, 1, operation, path.input)
-          if (component === "2e") continue
-          if (component === "2e2e") {
-            current = current.parent ?? current
-            continue
+        parent = current
+        name = component
+        const child = current.entries.get(component)
+        if (child === undefined) {
+          if (allowMissing && index === work.components.length - 1 && !work.trailingSlash) {
+            return { node: undefined, parent, name }
           }
-          const child = current.entries.get(component)
-          if (child === undefined) return yield* failure("NotFound", operation, path.input)
-          current = child
+          return yield* failure("NotFound", operation, path.input)
         }
-        if (!parent && path.trailingSlash && current.kind !== "directory") {
-          return yield* failure("NotDirectory", operation, path.input)
-        }
-        return current
+        if (child.kind === "symlink" && (followFinal || index < work.components.length - 1 || work.trailingSlash)) {
+          if (++traversals > 40) return yield* failure("SymlinkLoop", operation, path.input)
+          const suffix = work.suffixes[index] ?? new Uint8Array(0)
+          if (settings.maxPathBytes !== undefined && child.target.length + suffix.length > settings.maxPathBytes) {
+            return yield* failure("PathTooLong", operation, path.input)
+          }
+          const expansion = new Uint8Array(child.target.length + suffix.length)
+          expansion.set(child.target)
+          expansion.set(suffix, child.target.length)
+          work = yield* Effect.fromResult(preparePath(ownedPath(expansion), operation, settings.maxPathBytes))
+          if (work.absolute) current = root
+          index = -1
+        } else current = child
+      }
+      if (!parentOnly && work.trailingSlash && current.kind !== "directory") {
+        return yield* failure("NotDirectory", operation, path.input)
+      }
+      return { node: current, parent, name }
+    })
+    const resolveNode = Effect.fnUntraced(
+      function*(path: PreparedPath, base: DirectoryHandle | undefined, operation: string, followFinal = true) {
+        const result = yield* lookup(path, base, operation, followFinal)
+        if (result.node === undefined) return yield* failure("NotFound", operation, path.input)
+        return result.node
       }
     )
-
     const locate = Effect.fnUntraced(
       function*(path: PreparedPath, base: DirectoryHandle | undefined, operation: string, parent = false) {
-        const node = yield* resolveNode(path, base, operation, parent)
+        const result = yield* lookup(path, base, operation, true, false, parent)
+        const node = result.node
+        if (node === undefined) return yield* failure("NotFound", operation, path.input)
         if (node.kind !== "directory") return yield* failure("NotDirectory", operation, path.input)
         return node
       }
@@ -534,6 +626,45 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
       })
     }
 
+    const list = Effect.fnUntraced(function*(input: PathInput, options?: RelativeOptions) {
+      const prepared = preparePath(input, "readDirectory", settings.maxPathBytes)
+      const base = options?.relativeTo
+      return yield* coordinated(Effect.gen(function*() {
+        const directory = yield* locate(yield* Effect.fromResult(prepared), base, "readDirectory")
+        yield* authorize(directory, identity, 4, "readDirectory", input)
+        const result = [...directory.entries.keys()].map(nameBytes)
+        directory.metadata = { ...directory.metadata, atimeNs: clock.currentTimeNanosUnsafe() }
+        return result
+      }))
+    })
+    const readTarget = Effect.fnUntraced(function*(input: PathInput, options?: RelativeOptions) {
+      const prepared = preparePath(input, "readLink", settings.maxPathBytes)
+      const base = options?.relativeTo
+      return yield* coordinated(Effect.gen(function*() {
+        const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "readLink", false)
+        if (node.kind !== "symlink") return yield* failure("InvalidArgument", "readLink", input)
+        return new Uint8Array(node.target)
+      }))
+    })
+    const canonical = Effect.fnUntraced(function*(input: PathInput, options?: RelativeOptions) {
+      const prepared = preparePath(input, "realPath", settings.maxPathBytes)
+      const base = options?.relativeTo
+      return yield* coordinated(Effect.gen(function*() {
+        const result = yield* lookup(yield* Effect.fromResult(prepared), base, "realPath")
+        const components: Array<string> = []
+        if (result.node?.kind !== "directory" && result.name !== undefined) components.push(result.name)
+        let directory = result.node?.kind === "directory" ? result.node : result.parent
+        while (directory !== undefined && directory.parent !== undefined) {
+          const parent: Directory = directory.parent
+          const entry = [...parent.entries].find(([, child]) => child === directory)
+          if (entry === undefined) return yield* failure("NotFound", "realPath", input)
+          components.push(entry[0])
+          directory = parent
+        }
+        return nameBytes("2f" + components.reverse().join("2f"))
+      }))
+    })
+
     const authorizeRemoval = (parent: Directory, child: Node, operation: string, input: PathInput) =>
       (parent.metadata.mode & 0o1000) !== 0 && !identity.privileged &&
         identity.uid !== parent.metadata.uid && identity.uid !== child.metadata.uid
@@ -542,6 +673,113 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
 
     return Object.freeze({
       [CallerId]: true as const,
+      lstat: Effect.fn("Caller.lstat")(function*(input: PathInput, options?: RelativeOptions) {
+        const prepared = preparePath(input, "lstat", settings.maxPathBytes)
+        const base = options?.relativeTo
+        return yield* coordinated(Effect.gen(function*() {
+          return { ...(yield* resolveNode(yield* Effect.fromResult(prepared), base, "lstat", false)).metadata }
+        }))
+      }),
+      link: Effect.fn("Caller.link")(
+        function*(
+          source: PathInput,
+          destination: PathInput,
+          options?: {
+            readonly sourceRelativeTo?: DirectoryHandle
+            readonly destinationRelativeTo?: DirectoryHandle
+            readonly followSourceSymlink?: boolean
+          }
+        ) {
+          const a = preparePath(source, "link", settings.maxPathBytes)
+          const b = preparePath(destination, "link", settings.maxPathBytes)
+          const sourceBase = options?.sourceRelativeTo
+          const destinationBase = options?.destinationRelativeTo
+          const follow = options?.followSourceSymlink ?? false
+          return yield* coordinated(Effect.gen(function*() {
+            const node = yield* resolveNode(yield* Effect.fromResult(a), sourceBase, "link", follow)
+            if (node.kind === "directory") return yield* failure("IsDirectory", "link", source)
+            const path = yield* Effect.fromResult(b)
+            const parent = yield* locate(path, destinationBase, "link", true)
+            yield* authorize(parent, identity, 3, "link", destination)
+            const name = path.components.at(-1)
+            if (name === undefined || name === "2e" || name === "2e2e" || parent.entries.has(name)) {
+              return yield* failure("AlreadyExists", "link", destination)
+            }
+            if (path.trailingSlash) return yield* failure("NotDirectory", "link", destination)
+            if (settings.maxEntries !== undefined && entries >= settings.maxEntries) {
+              return yield* failure("NoSpace", "link", destination)
+            }
+            const now = clock.currentTimeNanosUnsafe()
+            parent.entries.set(name, node)
+            parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
+            node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
+            entries += 1
+          }))
+        }
+      ),
+      symlink: Effect.fn("Caller.symlink")(function*(target: PathInput, input: PathInput, options?: RelativeOptions) {
+        const prepared = preparePath(input, "symlink", settings.maxPathBytes)
+        if (typeof target === "string" && !wellFormed(target)) {
+          return yield* failure("InvalidPathEncoding", "symlink", target)
+        }
+        const rawTarget = typeof target === "string" ? new TextEncoder().encode(target) : bytePaths.get(target)
+        if (rawTarget === undefined || rawTarget.includes(0)) {
+          return yield* failure("InvalidArgument", "symlink", target)
+        }
+        const targetBytes = new Uint8Array(rawTarget)
+        const base = options?.relativeTo
+        return yield* coordinated(Effect.gen(function*() {
+          const path = yield* Effect.fromResult(prepared)
+          const bytes = targetBytes
+          const parent = yield* locate(path, base, "symlink", true)
+          yield* authorize(parent, identity, 3, "symlink", input)
+          const name = path.components.at(-1)
+          if (name === undefined || name === "2e" || name === "2e2e" || parent.entries.has(name)) {
+            return yield* failure("AlreadyExists", "symlink", input)
+          }
+          if (path.trailingSlash) return yield* failure("NotDirectory", "symlink", input)
+          if (
+            (settings.maxEntries !== undefined && entries >= settings.maxEntries) ||
+            bytes.length > (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes
+          ) return yield* failure("NoSpace", "symlink", input)
+          const now = clock.currentTimeNanosUnsafe()
+          const node: SymbolicLink = {
+            kind: "symlink",
+            target: new Uint8Array(bytes),
+            metadata: {
+              ...directoryMetadata(nextInode, identity.uid, parent.metadata.gid, 0o777, now),
+              kind: "symlink",
+              nlink: 1,
+              size: BigInt(bytes.length)
+            }
+          }
+          parent.entries.set(name, node)
+          parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
+          nextInode += 1n
+          entries += 1
+          usedBytes += bytes.length
+        }))
+      }),
+      readDirectoryBytes: Effect.fn("Caller.readDirectoryBytes")(
+        function*(input: PathInput, options?: RelativeOptions) {
+          return yield* list(input, options)
+        }
+      ),
+      readDirectory: Effect.fn("Caller.readDirectory")(function*(input: PathInput, options?: RelativeOptions) {
+        return yield* Effect.forEach(yield* list(input, options), (bytes) => strictString(bytes, "readDirectory"))
+      }),
+      readLinkBytes: Effect.fn("Caller.readLinkBytes")(function*(input: PathInput, options?: RelativeOptions) {
+        return yield* readTarget(input, options)
+      }),
+      readLink: Effect.fn("Caller.readLink")(function*(input: PathInput, options?: RelativeOptions) {
+        return yield* strictString(yield* readTarget(input, options), "readLink")
+      }),
+      realPathBytes: Effect.fn("Caller.realPathBytes")(function*(input: PathInput, options?: RelativeOptions) {
+        return ownedPath(yield* canonical(input, options))
+      }),
+      realPath: Effect.fn("Caller.realPath")(function*(input: PathInput, options?: RelativeOptions) {
+        return yield* strictString(yield* canonical(input, options), "realPath")
+      }),
       open: Effect.fn("Caller.open")(function*(input: PathInput, options: OpenOptions) {
         const prepared = preparePath(input, "open", settings.maxPathBytes)
         const { relativeTo: base, ...raw } = options
@@ -566,13 +804,26 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
         return yield* coordinated(Effect.gen(function*() {
           if (acquired.closed) return yield* Effect.interrupt
           const path = yield* Effect.fromResult(prepared)
-          const parent = yield* locate(path, base, "open", true)
-          const name = path.components.at(-1)
+          if (chosen.create === "exclusive") {
+            const existing = yield* Effect.result(lookup(path, base, "open", false))
+            if (Result.isSuccess(existing)) return yield* failure("AlreadyExists", "open", input)
+            if (existing.failure.code !== "NotFound") return yield* existing.failure
+          }
+          const resolved = yield* lookup(
+            path,
+            base,
+            "open",
+            chosen.followFinalSymlink !== false,
+            chosen.create === "ifMissing" || chosen.create === "exclusive"
+          )
+          const parent = resolved.parent
+          if (parent === undefined) return yield* failure("IsDirectory", "open", input)
+          const name = resolved.name
           if (name === undefined || name === "2e" || name === "2e2e") {
             return yield* failure("IsDirectory", "open", input)
           }
           yield* authorize(parent, identity, 1, "open", input)
-          let file = parent.entries.get(name)
+          let file = resolved.node
           if (file !== undefined && chosen.create === "exclusive") return yield* failure("AlreadyExists", "open", input)
           if (file === undefined) {
             if (chosen.create === undefined || chosen.create === "never" || path.trailingSlash) {
@@ -604,6 +855,7 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
             entries += 1
             nextInode += 1n
           } else {
+            if (file.kind === "symlink") return yield* failure("SymlinkLoop", "open", input)
             if (file.kind !== "file") return yield* failure("IsDirectory", "open", input)
             if (path.trailingSlash) return yield* failure("NotDirectory", "open", input)
             yield* authorize(
