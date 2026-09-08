@@ -115,3 +115,9 @@ Review these proposed policies before treating their field names, defaults, or a
 Add an accepted decision only for a settled choice. Link its D ID, source basis, concrete example, and required tests.
 Technical recommendations can live in contract drafts until reviewed. Update this register and affected context
 without erasing historical observations. Keep proposed tests and executed evidence separate.
+
+## Continued implementation
+
+[Implementation policy 0022](../decisions/0022-remaining-implementation-profile.md) records the regular-file choices
+used after the user instructed continued implementation through completion. It resolves the capacity question raised
+after directory rename/removal without reopening the accepted ownership, authority, or cancellation contracts.

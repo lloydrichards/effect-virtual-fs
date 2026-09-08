@@ -66,8 +66,7 @@ Final command logs are in [directory-namespace evidence](../evidence/directory-n
 compile the real source exports; a separate Node check imports the built package exports. Browser bundling remains
 build evidence only. No browser runtime, Ubuntu CI, exhaustive interruption schedule, or mutation audit is claimed.
 
-The next dependent slice is regular-file open/read/write/seek/truncate and scoped handles. A question is pending
-with the user on logical-length byte charging, capacity-limited prefix writes, and all-or-error truncation from the
-I/O proposal. Do not label this policy accepted without the answer. Remaining milestones are regular files and
+The next dependent slice is regular-file open/read/write/seek/truncate and scoped handles. The user subsequently instructed continued implementation through completion. The regular-file slice adopts
+logical-length charging, capacity-limited prefix writes, and all-or-error truncation; see decision 0022. Remaining milestones are regular files and
 links, remaining permissions/metadata/capacity, memory adaptation, fixtures/snapshots/codec, virtual module and
 package builds, and a completed profile ledger. The whole implementation is not complete.

@@ -1,8 +1,8 @@
 # @effect-vfs/core
 
-Private, experimental directory-only VirtualFileSystem core. This first slice implements volumes, callers, byte paths,
+Private, experimental VirtualFileSystem core. This first slice implements volumes, callers, byte paths,
 directory creation/lookup, rename/removal, permissions, metadata, scoped directory resources, and optional Effect service provision.
-It does not implement regular files, symlinks, snapshots, or the memory adapter binding yet.
+It also implements regular-file I/O and unlink. Symlinks, snapshots, and the memory adapter binding remain later slices.
 
 ## Usage
 
@@ -38,8 +38,7 @@ can acquire a derived caller and own its scope. The service adds no separate fil
 - `caller.rename` and empty-directory-only `caller.rmdir`.
 - `directory.stat` and `directory.close`.
 
-Other operations are absent rather than returning placeholder successes. Metadata currently describes directories
-only. The package emits JavaScript and declarations but remains private; the complete POSIX profile is unfinished.
+Other operations are absent rather than returning placeholder successes. Metadata describes directories and regular files. The package emits JavaScript and declarations but remains private; the complete POSIX profile is unfinished.
 
 ## Contracts
 
@@ -86,3 +85,10 @@ See the [accepted contracts](../../.docs/context/first-core-contract-review.md),
 [optional path limit](../../.docs/decisions/0021-optional-total-path-limit.md), and
 [initial implementation evidence](../../.docs/context/first-core-implementation.md), and
 [directory namespace evidence](../../.docs/context/directory-namespace-implementation.md).
+
+## Regular files
+
+`caller.open(path, { access: "readWrite", create: "ifMissing" })` acquires a scoped file. Handles provide read/write,
+pread/pwrite, seek, truncate, stat, sync, and strict explicit close. Separate opens have separate bigint offsets.
+`caller.unlink` removes the name while open handles retain bytes. See [file policy](../../.docs/decisions/0022-remaining-implementation-profile.md)
+for access, limits, partial transfers, timestamp rules, and the intentional difference from Effect adapter cursors.
