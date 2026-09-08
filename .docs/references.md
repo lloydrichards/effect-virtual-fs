@@ -1,5 +1,8 @@
 # Reference repositories
 
+For the current research and its source-verification status, start with the [development context](context/README.md).
+The copied design and research below are historical inputs; current scope and open decisions are distinguished there.
+
 Reference checkouts live under `.reference/`. They are research inputs only and are excluded from workspaces, builds,
 formatting, linting, and publishing.
 

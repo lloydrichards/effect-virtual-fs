@@ -1,0 +1,110 @@
+$ tsc --noEmit
+src/internal/memoryFileSystem.ts(493,36): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(498,34): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(502,34): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(510,47): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(539,40): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(540,12): error TS2322: Type 'Inode | undefined' is not assignable to type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(818,57): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(841,51): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(862,58): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(954,93): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(997,72): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(1244,51): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(1261,69): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(1312,51): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(1314,45): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(1332,54): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(1452,64): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(1562,13): error TS2304: Cannot find name 'TextEncoder'.
+src/internal/memoryFileSystem.ts(1905,50): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(1954,92): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(1978,92): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(2006,92): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(2044,92): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(2082,58): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(2086,51): error TS2345: Argument of type 'Inode | undefined' is not assignable to parameter of type 'Inode'.
+  Type 'undefined' is not assignable to type 'Inode'.
+    Type 'undefined' is not assignable to type 'number'.
+src/internal/memoryFileSystem.ts(2313,42): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/internal/memoryFileSystem.ts(2321,12): error TS18048: 'current' is possibly 'undefined'.
+src/internal/memoryFileSystem.ts(2321,62): error TS18048: 'current' is possibly 'undefined'.
+src/internal/memoryFileSystem.ts(2343,23): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/internal/memoryFileSystem.ts(2355,7): error TS2532: Object is possibly 'undefined'.
+src/internal/memoryFileSystem.ts(2356,8): error TS2532: Object is possibly 'undefined'.
+src/internal/memoryFileSystem.ts(2357,7): error TS2532: Object is possibly 'undefined'.
+src/internal/memoryFileSystem.ts(2359,19): error TS2532: Object is possibly 'undefined'.
+src/internal/memoryFileSystem.ts(2360,11): error TS18048: 'character' is possibly 'undefined'.
+src/internal/memoryFileSystem.ts(2363,20): error TS18048: 'character' is possibly 'undefined'.
+src/internal/memoryFileSystem.ts(2366,21): error TS18048: 'character' is possibly 'undefined'.
+src/internal/memoryFileSystem.ts(2384,36): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/internal/memoryFileSystem.ts(2385,41): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/internal/memoryFileSystem.ts(2399,39): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/internal/memoryFileSystem.ts(2453,81): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/internal/memoryFileSystem.ts(2480,9): error TS18048: 'segment' is possibly 'undefined'.
+src/internal/memoryFileSystem.ts(2482,9): error TS2322: Type 'boolean | undefined' is not assignable to type 'boolean'.
+  Type 'undefined' is not assignable to type 'boolean'.
+src/internal/memoryFileSystem.ts(2484,14): error TS2532: Object is possibly 'undefined'.
+src/internal/memoryFileSystem.ts(2489,9): error TS2322: Type 'boolean | undefined' is not assignable to type 'boolean'.
+  Type 'undefined' is not assignable to type 'boolean'.
+src/internal/memoryFileSystem.ts(2489,49): error TS2345: Argument of type 'CompiledGlobSegment | undefined' is not assignable to parameter of type 'GlobSegment'.
+  Type 'undefined' is not assignable to type 'GlobSegment'.
+src/internal/memoryFileSystem.ts(2494,3): error TS2322: Type 'boolean | undefined' is not assignable to type 'boolean'.
+  Type 'undefined' is not assignable to type 'boolean'.
+test/FileSystemTest.ts(6,21): error TS2304: Cannot find name 'TextEncoder'.
+test/FileSystemTest.ts(7,21): error TS2304: Cannot find name 'TextDecoder'.
+test/FileSystemTest.ts(1226,25): error TS2532: Object is possibly 'undefined'.
+test/MemoryFileSystem.test.ts(7,21): error TS2304: Cannot find name 'TextEncoder'.
+error: script "type-check" exited with code 1

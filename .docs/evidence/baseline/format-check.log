@@ -1,0 +1,6 @@
+$ dprint check
+Compiling https://plugins.dprint.dev/json-0.21.1.wasm
+Compiling https://plugins.dprint.dev/markdown-0.20.0.wasm
+Compiling https://plugins.dprint.dev/typescript-0.93.4.wasm
+Error resolving plugin https://plugins.dprint.dev/g-plane-pretty_yaml-v0.5.1.wasm: Error downloading https://plugins.dprint.dev/g-plane-pretty_yaml-v0.5.1.wasm - 404 Not Found
+error: script "format:check" exited with code 12

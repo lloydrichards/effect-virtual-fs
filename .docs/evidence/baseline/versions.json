@@ -1,0 +1,13 @@
+{
+  "bun": "1.2.21",
+  "node": "24.10.0",
+  "platform": "darwin-arm64",
+  "resolved": {
+    "effect": "4.0.0-rc.112",
+    "typescript": "7.0.2",
+    "@effect/tsgo": "0.38.0",
+    "vitest": "4.1.11",
+    "turbo": "2.10.12",
+    "oxlint": "1.80.0"
+  }
+}
