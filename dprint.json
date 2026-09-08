@@ -1,6 +1,8 @@
 {
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "includes": ["**/*.{ts,tsx,js,jsx,json,md,yml,yaml}"],
+  "includes": [
+    "**/*.{ts,tsx,js,jsx,json,md,yml,yaml}"
+  ],
   "indentWidth": 2,
   "lineWidth": 120,
   "newLineKind": "lf",
@@ -11,11 +13,20 @@
     "operatorPosition": "maintain",
     "arrowFunction.useParentheses": "force"
   },
-  "excludes": ["**/dist", "**/build", "**/node_modules", "**/coverage", "**/.turbo", "**/.cache", ".reference"],
+  "excludes": [
+    "**/dist",
+    "**/build",
+    "**/node_modules",
+    "**/coverage",
+    "**/.turbo",
+    "**/.cache",
+    ".reference",
+    ".docs/evidence/**"
+  ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.93.4.wasm",
     "https://plugins.dprint.dev/markdown-0.20.0.wasm",
     "https://plugins.dprint.dev/json-0.21.1.wasm",
-    "https://plugins.dprint.dev/g-plane-pretty_yaml-v0.5.1.wasm"
+    "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.5.1.wasm"
   ]
 }
