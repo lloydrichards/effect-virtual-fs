@@ -9,12 +9,19 @@
   },
   "overrides": [
     {
-      "files": ["**/*.test.ts", "**/*.test.tsx"],
+      "files": [
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ],
       "rules": {
         "effecttsgo/async-function": "off",
         "effecttsgo/node-builtin-import": "off",
         "effecttsgo/prefer-schema-over-json": "off"
       }
     }
+  ],
+  "ignorePatterns": [
+    ".docs/contracts/**",
+    ".docs/evidence/**"
   ]
 }

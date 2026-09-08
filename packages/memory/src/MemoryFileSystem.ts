@@ -10,8 +10,8 @@
  */
 import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
-import * as internal from "./internal/memoryFileSystem.js"
 import type * as Layer from "effect/Layer"
+import * as internal from "./internal/memoryFileSystem.js"
 
 /**
  * Creates a `FileSystem` service backed by a fresh in-memory volume.

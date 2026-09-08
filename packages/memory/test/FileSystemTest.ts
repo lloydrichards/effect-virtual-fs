@@ -80,7 +80,7 @@ const assertSystemError = (
   return error.reason
 }
 
-export const suite = (name: string, layer: Layer.Layer<FileSystem.FileSystem, unknown>) =>
+export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem, E>) =>
   it.layer(layer, { timeout: { seconds: 30 } })(`FileSystem (${name})`, (it) => {
     describe("path operations", () => {
       it.effect("should resolve relative paths when the adapter working directory is defined", () =>
@@ -968,7 +968,7 @@ export const suite = (name: string, layer: Layer.Layer<FileSystem.FileSystem, un
             return assert.fail("Expected the scoped operation to fail")
           }
           if (result.failure._tag === "PlatformError") {
-            return yield* Effect.fail(result.failure)
+            return yield* result.failure
           }
           const directory = result.failure.directory
 
@@ -1223,7 +1223,7 @@ export const suite = (name: string, layer: Layer.Layer<FileSystem.FileSystem, un
           })).map((entry) => entry.replaceAll("\\", "/")).sort()
 
           assert.strictEqual(matches.length, 1)
-          assert.isTrue(matches[0].endsWith("src/index.ts"))
+          assert.isTrue(matches.some((entry) => entry.endsWith("src/index.ts")))
         }))
 
       // TODO: Add watcher readiness and cleanup coverage per adapter; Node's startWatch helper uses a sentinel event.

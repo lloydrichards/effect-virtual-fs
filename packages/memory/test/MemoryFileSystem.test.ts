@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Cause, Effect, Exit, Fiber, FileSystem, Layer, Option, type PlatformError, Result, Stream } from "effect"
-import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
 import { TestClock } from "effect/testing"
+import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
 import * as FileSystemTest from "./FileSystemTest.js"
 
 const encoder = new TextEncoder()

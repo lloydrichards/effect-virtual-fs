@@ -1,3 +1,4 @@
+import { lastNonEmpty } from "effect/Array"
 import * as Brand from "effect/Brand"
 import type * as Cause from "effect/Cause"
 import * as Data from "effect/Data"
@@ -479,7 +480,7 @@ const resolve = Effect.fnUntraced(function*(
     return yield* notFound(method, path)
   }
   let components = path.split("/")
-  const stack: Array<Inode> = [RootInode]
+  const stack: [Inode, ...Array<Inode>] = [RootInode]
   const names: Array<string> = []
   let symbolicLinkTraversals = 0
 
@@ -490,16 +491,16 @@ const resolve = Effect.fnUntraced(function*(
     }
     if (component.length === 0) {
       if (components.length === 0) {
-        yield* getDirectory(state, stack[stack.length - 1], method, originalPath)
+        yield* getDirectory(state, lastNonEmpty(stack), method, originalPath)
       }
       continue
     }
     if (component === ".") {
-      yield* getDirectory(state, stack[stack.length - 1], method, originalPath)
+      yield* getDirectory(state, lastNonEmpty(stack), method, originalPath)
       continue
     }
     if (component === "..") {
-      yield* getDirectory(state, stack[stack.length - 1], method, originalPath)
+      yield* getDirectory(state, lastNonEmpty(stack), method, originalPath)
       if (stack.length > 1) {
         stack.pop()
         names.pop()
@@ -507,7 +508,7 @@ const resolve = Effect.fnUntraced(function*(
       continue
     }
 
-    const parent = yield* getDirectory(state, stack[stack.length - 1], method, originalPath)
+    const parent = yield* getDirectory(state, lastNonEmpty(stack), method, originalPath)
     const inode = findEntry(parent, component)
     if (inode === undefined) {
       return yield* notFound(method, originalPath)
@@ -535,7 +536,7 @@ const resolve = Effect.fnUntraced(function*(
     names.push(component)
   }
 
-  const inode = stack[stack.length - 1]
+  const inode = lastNonEmpty(stack)
   const entry = yield* getInode(state, inode, method, originalPath)
   return { inode, entry, path: names.length === 0 ? "/" : `/${names.join("/")}` } satisfies ResolvedInode
 })
@@ -2309,7 +2310,7 @@ const expandBraces = (method: string, pattern: string) => {
   while (true) {
     const index = patterns.findIndex((pattern) => findBraceExpansion(pattern) !== undefined)
     if (index === -1) return Effect.succeed(patterns)
-    const current = patterns[index]
+    const current = patterns[index]!
     const expansion = findBraceExpansion(current)
     if (expansion === undefined) return Effect.succeed(patterns)
     if (patterns.length - 1 + expansion.alternatives.length > MAX_BRACE_EXPANSIONS) {
@@ -2340,7 +2341,7 @@ const parseCharacterClass = (method: string, segment: string, start: number) => 
         return argumentError(method, "character classes must not end with an escape")
       }
     }
-    characters.push({ value: segment[index], escaped })
+    characters.push({ value: segment.charAt(index), escaped })
     index += 1
   }
   if (index === segment.length || characters.length === 0) {
@@ -2349,14 +2350,14 @@ const parseCharacterClass = (method: string, segment: string, start: number) => 
   const literals: Array<string> = []
   const ranges: Array<readonly [string, string]> = []
   for (let characterIndex = 0; characterIndex < characters.length; characterIndex++) {
-    const character = characters[characterIndex]
+    const character = characters[characterIndex]!
     if (
       characterIndex + 2 < characters.length &&
-      characters[characterIndex + 1].value === "-" &&
-      !characters[characterIndex + 1].escaped &&
-      characters[characterIndex + 2].value !== "-"
+      characters[characterIndex + 1]!.value === "-" &&
+      !characters[characterIndex + 1]!.escaped &&
+      characters[characterIndex + 2]!.value !== "-"
     ) {
-      const end = characters[characterIndex + 2].value
+      const end = characters[characterIndex + 2]!.value
       if (character.value > end) {
         return argumentError(method, "character class ranges must be ascending")
       }
@@ -2374,13 +2375,13 @@ const parseGlobSegment = Effect.fnUntraced(function*(method: string, segment: st
   const tokens: Array<GlobToken> = []
   let index = 0
   while (index < segment.length) {
-    const character = segment[index]
+    const character = segment.charAt(index)
     if (character === "\\") {
       index += 1
       if (index === segment.length) {
         return yield* argumentError(method, "patterns must not end with an escape")
       }
-      const value = segment[index]
+      const value = segment.charAt(index)
       if (globSyntaxCharacters.has(value)) {
         tokens.push(GlobToken.Literal({ value }))
       } else {
@@ -2450,7 +2451,7 @@ const matchesGlobSegment = (pattern: GlobSegment, value: string): boolean => {
   let starValueIndex = -1
   while (valueIndex < value.length) {
     const token = pattern.tokens[patternIndex]
-    if (token !== undefined && token._tag !== "Star" && matchesGlobToken(token, value[valueIndex])) {
+    if (token !== undefined && token._tag !== "Star" && matchesGlobToken(token, value.charAt(valueIndex))) {
       patternIndex += 1
       valueIndex += 1
     } else if (token?._tag === "Star") {
@@ -2473,25 +2474,26 @@ const matchesGlobSegment = (pattern: GlobSegment, value: string): boolean => {
 
 const matchesGlob = (pattern: CompiledGlobPattern, path: ReadonlyArray<string>, directory: boolean): boolean => {
   if (pattern.directoryOnly && !directory) return false
+  // Each row includes the terminal column; loop bounds keep every indexed cell present.
   let next = Array.from({ length: path.length + 1 }, (_, index) => index === path.length)
   for (let patternIndex = pattern.segments.length - 1; patternIndex >= 0; patternIndex--) {
     const current = Array.from({ length: path.length + 1 }, () => false)
-    const segment = pattern.segments[patternIndex]
+    const segment = pattern.segments[patternIndex]!
     if (segment._tag === "Globstar") {
       for (let pathIndex = path.length; pathIndex >= 0; pathIndex--) {
-        current[pathIndex] = next[pathIndex] ||
+        current[pathIndex] = next[pathIndex]! ||
           pathIndex < path.length &&
-            !path[pathIndex].startsWith(".") &&
-            current[pathIndex + 1]
+            !path[pathIndex]!.startsWith(".") &&
+            current[pathIndex + 1]!
       }
     } else {
       for (let pathIndex = path.length - 1; pathIndex >= 0; pathIndex--) {
-        current[pathIndex] = matchesGlobSegment(segment, path[pathIndex]) && next[pathIndex + 1]
+        current[pathIndex] = matchesGlobSegment(segment, path[pathIndex]!) && next[pathIndex + 1]!
       }
     }
     next = current
   }
-  return next[0]
+  return next[0]!
 }
 
 const glob = (volume: Volume) =>

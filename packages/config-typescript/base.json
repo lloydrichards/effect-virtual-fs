@@ -5,7 +5,9 @@
     "allowImportingTsExtensions": true,
     "exactOptionalPropertyTypes": true,
     "isolatedModules": true,
-    "lib": ["ES2023"],
+    "lib": [
+      "ES2023"
+    ],
     "module": "Preserve",
     "moduleDetection": "force",
     "moduleResolution": "bundler",
@@ -22,11 +24,19 @@
     "plugins": [
       {
         "name": "@effect/language-service",
-        "barrelImportPackages": ["effect"],
+        "barrelImportPackages": [
+          "effect"
+        ],
         "includeSuggestionsInTsc": true,
         "diagnostics": false
       }
-    ]
+    ],
+    "noEmit": true
   },
-  "exclude": ["node_modules", "dist", "build", "coverage"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "coverage"
+  ]
 }

@@ -1,5 +1,5 @@
-import { BunRuntime } from "@effect/platform-bun"
 import { MemoryFileSystem } from "@effect-vfs/memory"
+import { BunRuntime } from "@effect/platform-bun"
 import { Console, Effect, FileSystem } from "effect"
 
 Effect.gen(function*() {
