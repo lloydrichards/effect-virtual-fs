@@ -97,3 +97,7 @@ for access, limits, partial transfers, timestamp rules, and the intentional diff
 `lstat` inspects links. `readDirectory`, `readLink`, and `realPath` have byte-preserving variants suffixed `Bytes`.
 String variants fail with UnrepresentableName for non-UTF-8 names or targets. Enumeration is an atomic whole list
 without implicit dot entries or an ordering promise.
+
+Metadata operations include access, path truncate, chmod, chown, and utimes. Metadata-changing methods also have
+Handle variants using invoking-caller authority. Path metadata options can select followFinalSymlink false.
+Time updates use `{ kind: "now" }`, `{ kind: "omit" }`, or `{ kind: "value", nanoseconds: 0n }` for each field.
