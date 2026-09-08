@@ -1,0 +1,19 @@
+{
+  "name": "@effect-vfs/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "clean": "git clean -xdf .cache .turbo dist node_modules tsconfig.tsbuildinfo",
+    "test": "vitest run --passWithNoTests",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "@repo/config-typescript": "workspace:*"
+  }
+}
