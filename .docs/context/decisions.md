@@ -130,3 +130,8 @@ after directory rename/removal without reopening the accepted ownership, authori
 
 [Decision 0023](../decisions/0023-adapter-timestamp-overflow.md) accepts typed `InvalidData` failures from path and
 handle stat when a returned timestamp cannot be represented as a JavaScript Date, preserving core and snapshot values.
+
+## Reusable capability effects
+
+[Decision 0024](../decisions/0024-reusable-capability-effects.md) migrates the seven zero-argument core operations
+to reusable Effect properties and records the generator cleanup and narrowed lint exceptions.

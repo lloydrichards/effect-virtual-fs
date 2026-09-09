@@ -82,13 +82,13 @@ describe("directory volumes", () => {
       const a = yield* (yield* Vfs.make()).caller()
       const b = yield* (yield* Vfs.make()).caller()
       const base = yield* b.openDirectory("/")
-      yield* base.close()
+      yield* base.close
       yield* a.mkdir("/ok", { relativeTo: base })
       assert.strictEqual((yield* Effect.flip(a.stat("ok", { relativeTo: base }))).code, "ForeignHandle")
       const own = yield* a.openDirectory("/")
-      yield* own.close()
+      yield* own.close
       assert.strictEqual((yield* Effect.flip(a.stat("ok", { relativeTo: own }))).code, "InvalidHandle")
-      assert.strictEqual((yield* Effect.flip(own.close())).code, "InvalidHandle")
+      assert.strictEqual((yield* Effect.flip(own.close)).code, "InvalidHandle")
     }))
 
   it.effect("does not transfer opener privilege through a directory base", () =>
@@ -270,7 +270,7 @@ describe("input and mutation boundaries", () => {
   it.effect("serializes competing creates and quota accounting", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make({ maxEntries: 1 })).caller()
-      const results = yield* Effect.all([caller.mkdir("/same"), caller.mkdir("/same")].map(Effect.result), {
+      const results = yield* Effect.forEach([caller.mkdir("/same"), caller.mkdir("/same")], Effect.result, {
         concurrency: "unbounded"
       })
       assert.strictEqual(results.filter(Result.isSuccess).length, 1)
@@ -331,8 +331,8 @@ describe("authority, time, and resource lifetime", () => {
       assert.strictEqual((yield* caller.stat("/")).mtimeNs, -5n)
       assert.strictEqual((yield* Effect.flip(caller.mkdir("/other"))).code, "AlreadyExists")
       const handle = yield* caller.openDirectory("/work")
-      yield* handle.stat()
-      yield* handle.close()
+      yield* handle.stat
+      yield* handle.close
       assert.strictEqual(samples, initialSamples + 2)
       Object.assign(metadata, { uid: 999, nlink: 999 })
       assert.strictEqual((yield* caller.stat("/work")).uid, 0)
@@ -347,7 +347,7 @@ describe("authority, time, and resource lifetime", () => {
       const caller = yield* root.withDirectory("/work").pipe(Scope.provide(scope))
       const handle = yield* caller.openDirectory(".")
       yield* Scope.close(scope, Exit.void)
-      assert.strictEqual((yield* handle.stat()).ino, (yield* root.stat("/work")).ino)
+      assert.strictEqual((yield* handle.stat).ino, (yield* root.stat("/work")).ino)
       assert.strictEqual((yield* Effect.flip(caller.stat("/work", { relativeTo: handle }))).code, "ClosedCaller")
     }))
 
@@ -357,13 +357,13 @@ describe("authority, time, and resource lifetime", () => {
       const scope = yield* Scope.make()
       const handle = yield* caller.openDirectory("/").pipe(Scope.provide(scope))
       yield* Scope.close(scope, Exit.void)
-      assert.strictEqual((yield* Effect.flip(handle.stat())).code, "InvalidHandle")
+      assert.strictEqual((yield* Effect.flip(handle.stat)).code, "InvalidHandle")
       const early = yield* Effect.scoped(Effect.gen(function*() {
         const handle = yield* caller.openDirectory("/")
-        yield* handle.close()
+        yield* handle.close
         return handle
       }))
-      assert.strictEqual((yield* Effect.flip(early.close())).code, "InvalidHandle")
+      assert.strictEqual((yield* Effect.flip(early.close)).code, "InvalidHandle")
     }))
 
   it.effect("interruption before starting a mutation leaves no entry", () =>
@@ -394,7 +394,7 @@ describe("authority, time, and resource lifetime", () => {
       const handle = yield* Deferred.await(acquired)
       yield* Fiber.interrupt(worker)
       yield* caller.stat("/committed")
-      assert.strictEqual((yield* Effect.flip(handle.stat())).code, "InvalidHandle")
+      assert.strictEqual((yield* Effect.flip(handle.stat)).code, "InvalidHandle")
     }))
 })
 
@@ -420,7 +420,7 @@ it.effect("coordinates scope closure with acquisition without returning a live e
         Scope.close(scope, Exit.void)
       ], { concurrency: "unbounded" })
       if (Exit.isSuccess(acquisition)) {
-        assert.strictEqual((yield* Effect.flip(acquisition.value.stat())).code, "InvalidHandle")
+        assert.strictEqual((yield* Effect.flip(acquisition.value.stat)).code, "InvalidHandle")
       } else {
         assert.isTrue(Cause.hasInterruptsOnly(acquisition.cause))
       }
@@ -433,10 +433,10 @@ it.effect("orders handle observation against explicit close", () =>
     const caller = yield* (yield* Vfs.make()).caller()
     const handle = yield* caller.openDirectory("/")
     const [observation] = yield* Effect.all([
-      handle.stat().pipe(Effect.result),
-      handle.close()
+      handle.stat.pipe(Effect.result),
+      handle.close
     ], { concurrency: "unbounded" })
     if (Result.isFailure(observation)) assert.strictEqual(observation.failure.code, "InvalidHandle")
     else assert.strictEqual(observation.success.ino, (yield* caller.stat("/")).ino)
-    assert.strictEqual((yield* Effect.flip(handle.stat())).code, "InvalidHandle")
+    assert.strictEqual((yield* Effect.flip(handle.stat)).code, "InvalidHandle")
   }).pipe(Effect.provideService(Scheduler.MaxOpsBeforeYield, 64)))

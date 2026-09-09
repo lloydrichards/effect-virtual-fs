@@ -39,40 +39,39 @@ const translate = (error: Vfs.FsError, method: string, pathOrDescriptor: string 
 }
 const mapped = <A, R>(effect: Effect.Effect<A, Vfs.FsError, R>, method: string, path: string | number) =>
   effect.pipe(Effect.mapError((error) => translate(error, method, path)))
-const info = (
+const info = Effect.fnUntraced(function*(
   value: Vfs.Metadata,
   pathOrDescriptor: string | number
-): Effect.Effect<FileSystem.File.Info, PlatformError> =>
-  Effect.gen(function*() {
-    const date = (field: "atimeNs" | "mtimeNs" | "birthtimeNs") => {
-      const result = DateTime.make(Number(value[field] / 1_000_000n))
-      return Option.isSome(result)
-        ? Effect.succeed(Option.some(DateTime.toDateUtc(result.value)))
-        : Effect.fail(systemError({
-          module: "FileSystem",
-          method: "stat",
-          pathOrDescriptor,
-          _tag: "InvalidData",
-          description: `${field} cannot be represented as a JavaScript Date`
-        }))
-    }
-    return {
-      type: value.kind === "file" ? "File" : value.kind === "directory" ? "Directory" : "SymbolicLink",
-      ino: Option.some(Number(value.ino)),
-      dev: 0,
-      mode: value.mode | (value.kind === "file" ? 0o100000 : value.kind === "directory" ? 0o40000 : 0o120000),
-      uid: Option.some(value.uid),
-      gid: Option.some(value.gid),
-      nlink: Option.some(value.nlink),
-      rdev: Option.some(0),
-      size: FileSystem.Size(value.size),
-      blksize: Option.none(),
-      blocks: Option.none(),
-      atime: yield* date("atimeNs"),
-      mtime: yield* date("mtimeNs"),
-      birthtime: yield* date("birthtimeNs")
-    }
-  })
+): Effect.fn.Return<FileSystem.File.Info, PlatformError> {
+  const date = (field: "atimeNs" | "mtimeNs" | "birthtimeNs") => {
+    const result = DateTime.make(Number(value[field] / 1_000_000n))
+    return Option.isSome(result)
+      ? Effect.succeed(Option.some(DateTime.toDateUtc(result.value)))
+      : Effect.fail(systemError({
+        module: "FileSystem",
+        method: "stat",
+        pathOrDescriptor,
+        _tag: "InvalidData",
+        description: `${field} cannot be represented as a JavaScript Date`
+      }))
+  }
+  return {
+    type: value.kind === "file" ? "File" : value.kind === "directory" ? "Directory" : "SymbolicLink",
+    ino: Option.some(Number(value.ino)),
+    dev: 0,
+    mode: value.mode | (value.kind === "file" ? 0o100000 : value.kind === "directory" ? 0o40000 : 0o120000),
+    uid: Option.some(value.uid),
+    gid: Option.some(value.gid),
+    nlink: Option.some(value.nlink),
+    rdev: Option.some(0),
+    size: FileSystem.Size(value.size),
+    blksize: Option.none(),
+    blocks: Option.none(),
+    atime: yield* date("atimeNs"),
+    mtime: yield* date("mtimeNs"),
+    birthtime: yield* date("birthtimeNs")
+  }
+})
 const validateMode = (mode: number | undefined, method: string) =>
   mode === undefined || (Number.isInteger(mode) && mode >= 0 && mode <= 0xffffffff)
     ? Effect.void
@@ -83,30 +82,28 @@ const sizeInput = (size: FileSystem.SizeInput | undefined, method: string) => {
     ? Effect.succeed(BigInt(number))
     : Effect.fail(argumentError(method, "size must be a non-negative safe integer"))
 }
-const openOptions = (flag: FileSystem.OpenFlag, mode: number | undefined, method: string) =>
-  Effect.gen(function*() {
-    if (!["r", "r+", "w", "wx", "w+", "wx+", "a", "ax", "a+", "ax+"].includes(flag)) {
-      return yield* argumentError(method, "Unsupported open flag")
-    }
-    yield* validateMode(mode, method)
-    const create = flag.startsWith("w") || flag.startsWith("a")
-    return {
-      access: flag === "r" ? "read" : flag.endsWith("+") ? "readWrite" : "write",
-      create: create ? flag.includes("x") ? "exclusive" : "ifMissing" : "never",
-      ...(create ? { mode: (mode ?? 0o644) & 0o7777 } : {}),
-      append: flag.startsWith("a"),
-      truncate: flag.startsWith("w")
-    } satisfies Vfs.OpenOptions
-  })
+const openOptions = Effect.fnUntraced(function*(flag: FileSystem.OpenFlag, mode: number | undefined, method: string) {
+  if (!["r", "r+", "w", "wx", "w+", "wx+", "a", "ax", "a+", "ax+"].includes(flag)) {
+    return yield* argumentError(method, "Unsupported open flag")
+  }
+  yield* validateMode(mode, method)
+  const create = flag.startsWith("w") || flag.startsWith("a")
+  return {
+    access: flag === "r" ? "read" : flag.endsWith("+") ? "readWrite" : "write",
+    create: create ? flag.includes("x") ? "exclusive" : "ifMissing" : "never",
+    ...(create ? { mode: (mode ?? 0o644) & 0o7777 } : {}),
+    append: flag.startsWith("a"),
+    truncate: flag.startsWith("w")
+  } satisfies Vfs.OpenOptions
+})
 const childPath = (parent: string, name: string) => parent === "/" ? `/${name}` : `${parent}/${name}`
-const textPath = (path: Vfs.BytePath, method: string) =>
-  Effect.gen(function*() {
-    const bytes = yield* Vfs.pathToBytes(path)
-    return yield* Effect.try({
-      try: () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
-      catch: () => new Vfs.FsError({ code: "UnrepresentableName", operation: method })
-    })
+const textPath = Effect.fnUntraced(function*(path: Vfs.BytePath, method: string) {
+  const bytes = yield* Vfs.pathToBytes(path)
+  return yield* Effect.try({
+    try: () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
+    catch: () => new Vfs.FsError({ code: "UnrepresentableName", operation: method })
   })
+})
 
 export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Volume, options?: Vfs.RootCallerOptions) {
   const caller = yield* volume.caller({ ...options, umask: options?.umask ?? 0 })
@@ -132,7 +129,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
                   : error
               )
             )
-            yield* base.close()
+            yield* base.close
             base = next
           }
         })),
@@ -187,8 +184,8 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
     })
     return {
       [FileSystem.FileTypeId]: FileSystem.FileTypeId,
-      stat: mapped(handle.stat(), "stat", fd).pipe(Effect.flatMap((value) => info(value, fd))),
-      sync: mapped(handle.sync(), "sync", fd),
+      stat: mapped(handle.stat, "stat", fd).pipe(Effect.flatMap((value) => info(value, fd))),
+      sync: mapped(handle.sync, "sync", fd),
       seek: Effect.fn("MemoryFile.seek")(function*(offset, from) {
         return yield* locked(Effect.sync(() => {
           if (closed) return FileSystem.Size(0)
@@ -511,18 +508,16 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
     }),
     readLink: (path) => mapped(caller.readLink(path), "readLink", path),
     realPath: (path) => mapped(caller.realPath(path), "realPath", path),
-    rename: (source, destination) =>
-      mapped(
-        Effect.gen(function*() {
-          const sourceInfo = yield* caller.lstat(source)
-          const target = sourceInfo.kind === "directory" && destination.endsWith("/")
-            ? destination.replace(/\/+$/, "") || "/"
-            : destination
-          yield* caller.rename(source, target)
-        }),
-        "rename",
-        source
-      ),
+    rename: Effect.fn("MemoryFileSystem.rename")(
+      function*(source, destination) {
+        const sourceInfo = yield* caller.lstat(source)
+        const target = sourceInfo.kind === "directory" && destination.endsWith("/")
+          ? destination.replace(/\/+$/, "") || "/"
+          : destination
+        yield* caller.rename(source, target)
+      },
+      (effect, source) => mapped(effect, "rename", source)
+    ),
     link: (source, destination) => mapped(caller.link(source, destination), "link", source),
     symlink: (target, path) => mapped(caller.symlink(target, path), "symlink", path),
     truncate: Effect.fn("MemoryFileSystem.truncate")(function*(path, length) {
@@ -542,7 +537,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       ),
     watch: (path, options) =>
       Stream.unwrap(Effect.gen(function*() {
-        const stream = yield* volume.watch()
+        const stream = yield* volume.watch
         const resolved = yield* mapped(caller.realPath(path), "stat", path)
         const prefix = new TextEncoder().encode(resolved)
         return stream.pipe(

@@ -42,16 +42,15 @@ for (const name of ["effect", "vite", "rolldown"]) {
   }
 }
 const timings: Record<string, number> = { preparationMs: Number((performance.now() - preparationStarted).toFixed(2)) }
-const measure = <A, E>(name: string, effect: Effect.Effect<A, E>) =>
-  Effect.gen(function*() {
-    const start = performance.now()
-    const value = yield* effect
-    timings[name] = Number((performance.now() - start).toFixed(2))
-    return value
-  })
+const measure = Effect.fnUntraced(function*<A, E>(name: string, effect: Effect.Effect<A, E>) {
+  const start = performance.now()
+  const value = yield* effect
+  timings[name] = Number((performance.now() - start).toFixed(2))
+  return value
+})
 const result = await Effect.runPromise(Effect.gen(function*() {
   const volume = yield* measure("fixtureMs", Vfs.fromFixture({ entries }))
-  const snapshot = yield* measure("captureMs", volume.snapshot())
+  const snapshot = yield* measure("captureMs", volume.snapshot)
   const encoded = yield* measure("encodeMs", Vfs.encodeSnapshot(snapshot))
   const decoded = yield* measure(
     "decodeMs",

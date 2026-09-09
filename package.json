@@ -18,7 +18,8 @@
     "postprepare": "husky",
     "prepare": "effect-tsgo patch --oxlint",
     "test": "turbo run test",
-    "type-check": "turbo run type-check"
+    "type-check": "turbo run type-check",
+    "lint:effects": "bash scripts/lint-effects.sh"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^1.0.0",

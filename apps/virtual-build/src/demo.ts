@@ -19,9 +19,7 @@ const program = Effect.gen(function*() {
     reads: [...first.reads, ...packageBuild.reads]
   })
 })
-await Effect.runPromise(program.pipe(Effect.catchCause((cause) =>
-  Effect.gen(function*() {
-    yield* Effect.logError(cause)
-    process.exitCode = 1
-  })
-)))
+await Effect.runPromise(program.pipe(Effect.catchCause(Effect.fnUntraced(function*(cause) {
+  yield* Effect.logError(cause)
+  process.exitCode = 1
+}))))

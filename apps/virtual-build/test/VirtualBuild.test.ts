@@ -53,7 +53,7 @@ describe("standalone virtual builds", () => {
         (path) => Effect.promise(() => Fs.rm(path, { recursive: true, force: true }))
       )
       const volume = yield* Vfs.fromFixture(demoFixture)
-      const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot())
+      const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
       const path = Path.join(directory, "snapshot.json")
       yield* Effect.promise(() => Fs.writeFile(path, encoded))
       const restored = yield* Vfs.fromSnapshot(

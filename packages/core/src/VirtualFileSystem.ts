@@ -117,10 +117,8 @@ export const Times = Schema.Struct({ access: TimeUpdate, modification: TimeUpdat
 export type Times = typeof Times.Type
 export interface DirectoryHandle {
   readonly [DirectoryHandleId]: true
-  // oxlint-disable-next-line effecttsgo/lazy-effect -- Reviewed resource API uses explicit method calls.
-  readonly stat: () => Effect.Effect<Metadata, FsError>
-  // oxlint-disable-next-line effecttsgo/lazy-effect -- Explicit close is distinct from scope release.
-  readonly close: () => Effect.Effect<void, FsError>
+  readonly stat: Effect.Effect<Metadata, FsError>
+  readonly close: Effect.Effect<void, FsError>
 }
 export const SeekMode = Schema.Literals(["start", "current", "end", "data", "hole"])
 export type SeekMode = typeof SeekMode.Type
@@ -147,12 +145,9 @@ export interface FileHandle {
   readonly pwrite: (bytes: Uint8Array, offset: bigint) => Effect.Effect<number, FsError>
   readonly seek: (offset: bigint, mode: SeekMode) => Effect.Effect<bigint, FsError>
   readonly truncate: (length: bigint) => Effect.Effect<void, FsError>
-  // oxlint-disable-next-line effecttsgo/lazy-effect -- Explicit capability operation.
-  readonly stat: () => Effect.Effect<Metadata, FsError>
-  // oxlint-disable-next-line effecttsgo/lazy-effect -- Volatile validation, not persistence.
-  readonly sync: () => Effect.Effect<void, FsError>
-  // oxlint-disable-next-line effecttsgo/lazy-effect -- Explicit close differs from scope cleanup.
-  readonly close: () => Effect.Effect<void, FsError>
+  readonly stat: Effect.Effect<Metadata, FsError>
+  readonly sync: Effect.Effect<void, FsError>
+  readonly close: Effect.Effect<void, FsError>
 }
 export interface Caller {
   readonly [CallerId]: true
@@ -210,10 +205,8 @@ export interface Change {
   readonly path: BytePath
 }
 export interface Volume {
-  // oxlint-disable-next-line effecttsgo/lazy-effect -- Explicit scoped subscription establishes readiness.
-  readonly watch: () => Effect.Effect<Stream.Stream<Change>, never, Scope.Scope>
-  // oxlint-disable-next-line effecttsgo/lazy-effect -- Capture is an explicit operation.
-  readonly snapshot: () => Effect.Effect<Image.Snapshot, Image.ImageError>
+  readonly watch: Effect.Effect<Stream.Stream<Change>, never, Scope.Scope>
+  readonly snapshot: Effect.Effect<Image.Snapshot, Image.ImageError>
   readonly [VolumeId]: true
   readonly caller: (options?: RootCallerOptions) => Effect.Effect<Caller, ConfigurationError>
 }
@@ -586,90 +579,87 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
       }
       ref.closed = true
     }
-    const resize = (file: RegularFile, length: bigint, operation: string) =>
-      Effect.gen(function*() {
-        if (typeof length !== "bigint" || length < 0n) return yield* failure("InvalidArgument", operation)
-        if (length > BigInt(maxFileBytes)) return yield* failure("FileTooLarge", operation)
-        const size = Number(length)
-        if (size - file.data.length > (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes) {
-          return yield* failure("NoSpace", operation)
-        }
-        const data = new Uint8Array(size)
-        data.set(file.data.subarray(0, size))
-        const now = yield* timestamp(operation)
-        usedBytes += size - file.data.length
-        file.data = data
-        file.metadata = {
-          ...file.metadata,
-          size: length,
-          mode: file.metadata.mode & ~0o6000,
-          mtimeNs: now,
-          ctimeNs: now
-        }
-        publishNode(file)
-      })
+    const resize = Effect.fnUntraced(function*(file: RegularFile, length: bigint, operation: string) {
+      if (typeof length !== "bigint" || length < 0n) return yield* failure("InvalidArgument", operation)
+      if (length > BigInt(maxFileBytes)) return yield* failure("FileTooLarge", operation)
+      const size = Number(length)
+      if (size - file.data.length > (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes) {
+        return yield* failure("NoSpace", operation)
+      }
+      const data = new Uint8Array(size)
+      data.set(file.data.subarray(0, size))
+      const now = yield* timestamp(operation)
+      usedBytes += size - file.data.length
+      file.data = data
+      file.metadata = {
+        ...file.metadata,
+        size: length,
+        mode: file.metadata.mode & ~0o6000,
+        mtimeNs: now,
+        ctimeNs: now
+      }
+      publishNode(file)
+    })
     const fileHandle = (ref: FileReference): FileHandle => {
       const get = (operation: string, access?: "read" | "write") =>
         ref.file === undefined || (access === "read" && ref.access === "write") ||
           (access === "write" && ref.access === "read")
           ? Effect.fail(failure("InvalidHandle", operation))
           : Effect.succeed(ref.file)
-      const read = (maximum: number, position?: bigint) =>
-        coordinated(Effect.gen(function*() {
-          const file = yield* get(position === undefined ? "read" : "pread", "read")
-          if (!Schema.is(Natural)(maximum)) return yield* failure("InvalidArgument", "read")
-          const offset = position ?? ref.offset
+      const read = Effect.fnUntraced(function*(maximum: number, position?: bigint) {
+        const file = yield* get(position === undefined ? "read" : "pread", "read")
+        if (!Schema.is(Natural)(maximum)) return yield* failure("InvalidArgument", "read")
+        const offset = position ?? ref.offset
+        if (typeof offset !== "bigint" || offset < 0n || offset > 0x7fffffffffffffffn) {
+          return yield* failure("InvalidArgument", "read")
+        }
+        const start = Number(offset > file.metadata.size ? file.metadata.size : offset)
+        const data = file.data.slice(start, start + Math.min(maximum, file.data.length - start))
+        if (maximum > 0) {
+          file.metadata = { ...file.metadata, atimeNs: (yield* timestamp("read")) }
+        }
+        if (position === undefined) ref.offset += BigInt(data.length)
+        return data
+      }, coordinated)
+      const write = Effect.fnUntraced(function*(input: Uint8Array, position?: bigint) {
+        if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer) || !attachedBuffer(input)) {
+          return yield* failure("InvalidArgument", "write")
+        }
+        const bytes = new Uint8Array(input)
+        return yield* coordinated(Effect.gen(function*() {
+          const file = yield* get(position === undefined ? "write" : "pwrite", "write")
+          const offset = position ?? (ref.append ? file.metadata.size : ref.offset)
           if (typeof offset !== "bigint" || offset < 0n || offset > 0x7fffffffffffffffn) {
-            return yield* failure("InvalidArgument", "read")
-          }
-          const start = Number(offset > file.metadata.size ? file.metadata.size : offset)
-          const data = file.data.slice(start, start + Math.min(maximum, file.data.length - start))
-          if (maximum > 0) {
-            file.metadata = { ...file.metadata, atimeNs: (yield* timestamp("read")) }
-          }
-          if (position === undefined) ref.offset += BigInt(data.length)
-          return data
-        }))
-      const write = (input: Uint8Array, position?: bigint) =>
-        Effect.gen(function*() {
-          if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer) || !attachedBuffer(input)) {
             return yield* failure("InvalidArgument", "write")
           }
-          const bytes = new Uint8Array(input)
-          return yield* coordinated(Effect.gen(function*() {
-            const file = yield* get(position === undefined ? "write" : "pwrite", "write")
-            const offset = position ?? (ref.append ? file.metadata.size : ref.offset)
-            if (typeof offset !== "bigint" || offset < 0n || offset > 0x7fffffffffffffffn) {
-              return yield* failure("InvalidArgument", "write")
-            }
-            if (bytes.length === 0) {
-              return 0
-            }
-            if (offset >= BigInt(maxFileBytes)) return yield* failure("FileTooLarge", "write")
-            const start = Number(offset)
-            const free = (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes
-            const end = Math.min(maxFileBytes, file.data.length + free)
-            const count = Math.min(bytes.length, Math.max(0, end - start))
-            if (count === 0) return yield* failure("NoSpace", "write")
-            const size = Math.max(file.data.length, start + count)
-            const data = size === file.data.length ? file.data : new Uint8Array(size)
-            if (data !== file.data) data.set(file.data)
-            const now = yield* timestamp("write")
-            data.set(bytes.subarray(0, count), start)
-            usedBytes += size - file.data.length
-            file.data = data
-            file.metadata = {
-              ...file.metadata,
-              size: BigInt(size),
-              mode: file.metadata.mode & ~0o6000,
-              mtimeNs: now,
-              ctimeNs: now
-            }
-            publishNode(file)
-            if (position === undefined) ref.offset = offset + BigInt(count)
-            return count
-          }))
-        })
+          if (bytes.length === 0) {
+            return 0
+          }
+          if (offset >= BigInt(maxFileBytes)) return yield* failure("FileTooLarge", "write")
+          const start = Number(offset)
+          const free = (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes
+          const end = Math.min(maxFileBytes, file.data.length + free)
+          const count = Math.min(bytes.length, Math.max(0, end - start))
+          if (count === 0) return yield* failure("NoSpace", "write")
+          const size = Math.max(file.data.length, start + count)
+          const data = size === file.data.length ? file.data : new Uint8Array(size)
+          if (data !== file.data) data.set(file.data)
+          const now = yield* timestamp("write")
+          data.set(bytes.subarray(0, count), start)
+          usedBytes += size - file.data.length
+          file.data = data
+          file.metadata = {
+            ...file.metadata,
+            size: BigInt(size),
+            mode: file.metadata.mode & ~0o6000,
+            mtimeNs: now,
+            ctimeNs: now
+          }
+          publishNode(file)
+          if (position === undefined) ref.offset = offset + BigInt(count)
+          return count
+        }))
+      })
       const handle: FileHandle = Object.freeze({
         [FileHandleId]: true as const,
         read: Effect.fn("FileHandle.read")(function*(maximum: number) {
@@ -705,20 +695,14 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             yield* resize(yield* get("truncate", "write"), length, "truncate")
           }))
         }),
-        stat: Effect.fn("FileHandle.stat")(function*() {
-          return yield* coordinated(Effect.gen(function*() {
-            return { ...(yield* get("stat")).metadata }
-          }))
-        }),
-        sync: Effect.fn("FileHandle.sync")(function*() {
-          return yield* coordinated(Effect.suspend(() => Effect.asVoid(get("sync"))))
-        }),
-        close: Effect.fn("FileHandle.close")(function*() {
-          return yield* coordinated(Effect.gen(function*() {
-            yield* get("close")
-            releaseFile(ref)
-          }))
-        })
+        stat: coordinated(Effect.gen(function*() {
+          return { ...(yield* get("stat")).metadata }
+        })).pipe(Effect.withSpan("FileHandle.stat")),
+        sync: coordinated(Effect.suspend(() => Effect.asVoid(get("sync")))).pipe(Effect.withSpan("FileHandle.sync")),
+        close: coordinated(Effect.gen(function*() {
+          yield* get("close")
+          releaseFile(ref)
+        })).pipe(Effect.withSpan("FileHandle.close"))
       })
       files.set(handle, ref)
       return handle
@@ -817,10 +801,10 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
         }
       )
 
-      const acquireDirectory = (input: PathInput, options: RelativeOptions | undefined, operation: string) => {
-        const prepared = preparePath(input, operation, settings.maxPathBytes)
-        const base = options?.relativeTo
-        return Effect.gen(function*() {
+      const acquireDirectory = Effect.fnUntraced(
+        function*(input: PathInput, options: RelativeOptions | undefined, operation: string) {
+          const prepared = preparePath(input, operation, settings.maxPathBytes)
+          const base = options?.relativeTo
           const acquired: DirectoryReference = { volume: volumeIdentity, directory: undefined, closed: false }
           // Register before retaining a directory. Closed scopes can run this immediately,
           // so registration must not happen while holding the volume permit.
@@ -833,8 +817,8 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             acquired.directory = directory
             return acquired
           }))
-        })
-      }
+        }
+      )
 
       const list = Effect.fnUntraced(function*(input: PathInput, options?: RelativeOptions) {
         const prepared = preparePath(input, "readDirectory", settings.maxPathBytes)
@@ -1557,21 +1541,17 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           const acquired = yield* acquireDirectory(input, options, "openDirectory")
           const handle: DirectoryHandle = Object.freeze({
             [DirectoryHandleId]: true as const,
-            stat: Effect.fn("DirectoryHandle.stat")(function*() {
-              return yield* coordinated(Effect.suspend(() =>
-                acquired.directory === undefined
-                  ? Effect.fail(failure("InvalidHandle", "stat"))
-                  : Effect.succeed({ ...acquired.directory.metadata })
-              ))
-            }),
-            close: Effect.fn("DirectoryHandle.close")(function*() {
-              return yield* coordinated(Effect.suspend(() => {
-                if (acquired.directory === undefined) return Effect.fail(failure("InvalidHandle", "close"))
-                acquired.directory = undefined
-                acquired.closed = true
-                return Effect.void
-              }))
-            })
+            stat: coordinated(Effect.suspend(() =>
+              acquired.directory === undefined
+                ? Effect.fail(failure("InvalidHandle", "stat"))
+                : Effect.succeed({ ...acquired.directory.metadata })
+            )).pipe(Effect.withSpan("DirectoryHandle.stat")),
+            close: coordinated(Effect.suspend(() => {
+              if (acquired.directory === undefined) return Effect.fail(failure("InvalidHandle", "close"))
+              acquired.directory = undefined
+              acquired.closed = true
+              return Effect.void
+            })).pipe(Effect.withSpan("DirectoryHandle.close"))
           })
           handles.set(handle, acquired)
           return handle
@@ -1581,7 +1561,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
 
     const volume: Volume = Object.freeze({
       [VolumeId]: true as const,
-      watch: Effect.fn("Volume.watch")(function*() {
+      watch: Effect.gen(function*() {
         const subscription = yield* PubSub.subscribe(events)
         subscribers += 1
         yield* Effect.addFinalizer(() =>
@@ -1590,37 +1570,35 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           })
         )
         return Stream.fromEffectRepeat(PubSub.take(subscription))
-      }),
-      snapshot: Effect.fn("Volume.snapshot")(function*() {
-        return yield* coordinated(Effect.gen(function*() {
-          const ids = new Map<Node, string>([[root, "0"]])
-          const pending: Array<Node> = [root]
-          const records: Array<Image.Record> = []
-          for (let index = 0; index < pending.length; index++) {
-            const node = pending[index]
-            if (node === undefined) continue
-            const id = ids.get(node)
-            if (id === undefined) return yield* new Image.ImageError({ code: "InvalidStructure" })
-            const metadata = storedMetadata(node.metadata)
-            if (node.kind === "directory") {
-              const children: Array<{ name: string; target: string }> = []
-              for (const [name, child] of node.entries) {
-                let target = ids.get(child)
-                if (target === undefined) {
-                  target = String(ids.size)
-                  ids.set(child, target)
-                  pending.push(child)
-                }
-                children.push({ name: Image.base64(nameBytes(name)), target })
+      }).pipe(Effect.withSpan("Volume.watch")),
+      snapshot: coordinated(Effect.gen(function*() {
+        const ids = new Map<Node, string>([[root, "0"]])
+        const pending: Array<Node> = [root]
+        const records: Array<Image.Record> = []
+        for (let index = 0; index < pending.length; index++) {
+          const node = pending[index]
+          if (node === undefined) continue
+          const id = ids.get(node)
+          if (id === undefined) return yield* new Image.ImageError({ code: "InvalidStructure" })
+          const metadata = storedMetadata(node.metadata)
+          if (node.kind === "directory") {
+            const children: Array<{ name: string; target: string }> = []
+            for (const [name, child] of node.entries) {
+              let target = ids.get(child)
+              if (target === undefined) {
+                target = String(ids.size)
+                ids.set(child, target)
+                pending.push(child)
               }
-              records.push({ id, kind: "directory", metadata, entries: children })
-            } else if (node.kind === "file") {
-              records.push({ id, kind: "file", metadata, data: Image.base64(node.data) })
-            } else records.push({ id, kind: "symlink", metadata, target: Image.base64(node.target) })
-          }
-          return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records })
-        }))
-      }),
+              children.push({ name: Image.base64(nameBytes(name)), target })
+            }
+            records.push({ id, kind: "directory", metadata, entries: children })
+          } else if (node.kind === "file") {
+            records.push({ id, kind: "file", metadata, data: Image.base64(node.data) })
+          } else records.push({ id, kind: "symlink", metadata, target: Image.base64(node.target) })
+        }
+        return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records })
+      })).pipe(Effect.withSpan("Volume.snapshot")),
 
       caller: Effect.fn("Volume.caller")(function*(options?: RootCallerOptions) {
         const decoded = decodeConfiguration(RootCallerOptions, options === undefined ? {} : options)

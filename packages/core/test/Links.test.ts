@@ -9,18 +9,18 @@ describe("links and byte namespace", () => {
       const f = yield* fs.open("/a", { access: "readWrite", create: "exclusive" })
       yield* f.write(new Uint8Array([1, 2, 3]))
       yield* fs.link("/a", "/b")
-      assert.strictEqual((yield* fs.stat("/b")).ino, (yield* f.stat()).ino)
-      assert.strictEqual((yield* f.stat()).nlink, 2)
+      assert.strictEqual((yield* fs.stat("/b")).ino, (yield* f.stat).ino)
+      assert.strictEqual((yield* f.stat).nlink, 2)
       yield* fs.rename("/a", "/b")
-      assert.strictEqual((yield* f.stat()).nlink, 2)
+      assert.strictEqual((yield* f.stat).nlink, 2)
       yield* fs.unlink("/a")
       yield* fs.rename("/b", "/c")
-      assert.strictEqual((yield* f.stat()).nlink, 1)
+      assert.strictEqual((yield* f.stat).nlink, 1)
       const empty = yield* fs.open("/empty", { access: "write", create: "exclusive" })
       yield* fs.rename("/empty", "/c")
-      assert.strictEqual((yield* f.stat()).nlink, 0)
+      assert.strictEqual((yield* f.stat).nlink, 0)
       assert.strictEqual((yield* Effect.flip(empty.write(new Uint8Array([4])))).code, "NoSpace")
-      yield* f.close()
+      yield* f.close
       yield* empty.write(new Uint8Array([4]))
     }))
 
@@ -35,7 +35,7 @@ describe("links and byte namespace", () => {
       yield* fs.symlink("missing", "/b/dangling")
       const f = yield* fs.open("/b/dangling", { access: "write", create: "ifMissing" })
       yield* f.write(new Uint8Array([9]))
-      assert.strictEqual((yield* fs.stat("/b/missing")).ino, (yield* f.stat()).ino)
+      assert.strictEqual((yield* fs.stat("/b/missing")).ino, (yield* f.stat).ino)
       assert.strictEqual((yield* fs.lstat("/b/dangling")).kind, "symlink")
       assert.strictEqual(
         (yield* Effect.flip(fs.open("/b/dangling", { access: "read", followFinalSymlink: false }))).code,

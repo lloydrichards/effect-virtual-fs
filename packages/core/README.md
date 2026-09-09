@@ -18,8 +18,8 @@ const program = Effect.scoped(Effect.gen(function*() {
   const project = yield* root.withDirectory("/project")
   yield* project.mkdir("src")
   const directory = yield* project.openDirectory("src")
-  const metadata = yield* directory.stat()
-  yield* directory.close()
+  const metadata = yield* directory.stat
+  yield* directory.close
   return metadata
 }))
 ```
@@ -105,12 +105,12 @@ Time updates use `{ kind: "now" }`, `{ kind: "omit" }`, or `{ kind: "value", nan
 ## Fixtures and persistence
 
 `Vfs.fromFixture({ entries })` constructs a validated final state with explicit parents and forward hard links.
-`volume.snapshot()` captures an isolated image; `encodeSnapshot` returns owned JSON/base64 bytes. `decodeSnapshot`
+`volume.snapshot` captures an isolated image; `encodeSnapshot` returns owned JSON/base64 bytes. `decodeSnapshot`
 requires explicit encoded-byte, record, entry, and decoded-byte limits. `fromSnapshot` restores a fresh independent
 volume subject to destination limits. Core performs no host I/O. Snapshot storage is outside live-volume quota.
 
 Whole-file readFile/writeFile helpers operate atomically and preserve existing file identity. Whole-file writes
-are all-or-error, while handle writes may return a short count. `volume.watch()` acquires a scoped stream of
+are all-or-error, while handle writes may return a short count. `volume.watch` acquires a scoped stream of
 committed byte-path events, with an unbounded buffer and no replay. All writers publish through core.
 
 writeFile accepts optional replaceFinalSymlink and finalMode controls for atomic copy adaptation. Replacement uses
