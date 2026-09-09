@@ -14,7 +14,7 @@ describe("fixtures and snapshots", () => {
           (_, index) => index % 3 === 0 ? 0 : index % 3 === 1 ? 255 : 127
         )
         const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: input }] })
-        const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot())
+        const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
         const document = JSON.parse(new TextDecoder().decode(encoded))
         assert.strictEqual(
           document.records.find((record: { kind: string }) => record.kind === "file").data,
@@ -41,7 +41,7 @@ describe("fixtures and snapshots", () => {
       const f = yield* fs.open("/alias", { access: "read" })
       assert.deepStrictEqual(yield* f.read(2), new Uint8Array([1, 2]))
       const stat = yield* fs.stat("/dir/file")
-      assert.strictEqual(stat.ino, (yield* f.stat()).ino)
+      assert.strictEqual(stat.ino, (yield* f.stat).ino)
       assert.deepStrictEqual([stat.nlink, stat.uid, stat.mode, stat.mtimeNs], [2, 7, 0o640, 0n])
       assert.strictEqual(yield* fs.readLink("/dangling"), "absent")
     }))
@@ -50,7 +50,7 @@ describe("fixtures and snapshots", () => {
     Effect.gen(function*() {
       const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([1, 2]) }] })
       const fs = yield* volume.caller()
-      const snapshot = yield* volume.snapshot()
+      const snapshot = yield* volume.snapshot
       const f = yield* fs.open("/f", { access: "write" })
       yield* f.pwrite(new Uint8Array([9]), 0n)
       const bytes = yield* Vfs.encodeSnapshot(snapshot)
@@ -80,7 +80,7 @@ describe("fixtures and snapshots", () => {
       const f = yield* fs.open("/removed", { access: "write", create: "exclusive" })
       yield* f.write(new Uint8Array([1, 2, 3]))
       yield* fs.unlink("/removed")
-      const restored = yield* (yield* Vfs.fromSnapshot(yield* volume.snapshot(), { maxBytes: 0 })).caller()
+      const restored = yield* (yield* Vfs.fromSnapshot(yield* volume.snapshot, { maxBytes: 0 })).caller()
       assert.strictEqual((yield* restored.lstat(path)).ino, (yield* restored.lstat("/alias")).ino)
       assert.strictEqual((yield* Effect.flip(restored.stat("/removed"))).code, "NotFound")
       assert.strictEqual(yield* restored.readLink(path), "")
@@ -89,7 +89,7 @@ describe("fixtures and snapshots", () => {
   it.effect("rejects malformed graphs, unknown fields and noncanonical encodings", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([102]) }] })
-      const original = JSON.parse(new TextDecoder().decode(yield* Vfs.encodeSnapshot(yield* volume.snapshot())))
+      const original = JSON.parse(new TextDecoder().decode(yield* Vfs.encodeSnapshot(yield* volume.snapshot)))
       const mutations: Array<(image: typeof original) => void> = [
         (image) => {
           image.extra = true
@@ -142,7 +142,7 @@ describe("fixtures and snapshots", () => {
         entries: [{ kind: "file", path: "/before", bytes: new Uint8Array([1, 2, 3]) }]
       })
       const fs = yield* volume.caller()
-      const [snapshot] = yield* Effect.all([volume.snapshot(), fs.rename("/before", "/after")], {
+      const [snapshot] = yield* Effect.all([volume.snapshot, fs.rename("/before", "/after")], {
         concurrency: "unbounded"
       })
       const restored = yield* (yield* Vfs.fromSnapshot(snapshot)).caller()

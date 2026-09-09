@@ -12,7 +12,7 @@ describe("directory namespace", () => {
       yield* fs.mkdir("/old/work")
       const cwd = yield* fs.withDirectory("/old/work")
       const base = yield* fs.openDirectory("/old/work")
-      const before = yield* base.stat()
+      const before = yield* base.stat
       yield* fs.rename("/old/work", "/new/work")
       yield* fs.mkdir("/old/work")
       yield* cwd.mkdir("child")
@@ -34,7 +34,7 @@ describe("directory namespace", () => {
       const source = yield* fs.stat("/source")
       yield* fs.rename("/source", "/target/")
       assert.strictEqual((yield* fs.stat("/target")).ino, source.ino)
-      assert.strictEqual((yield* displaced.stat()).nlink, 0)
+      assert.strictEqual((yield* displaced.stat).nlink, 0)
       assert.strictEqual((yield* Effect.flip(removedCaller.mkdir("lost"))).code, "NotFound")
       assert.strictEqual((yield* Effect.flip(removedCaller.stat(".."))).code, "NotFound")
       assert.strictEqual((yield* removedCaller.stat("/target")).ino, source.ino)
@@ -95,12 +95,12 @@ describe("directory namespace", () => {
       const base = yield* fs.openDirectory("/a/b")
       assert.strictEqual((yield* Effect.flip(fs.rmdir("/a"))).code, "NotEmpty")
       yield* fs.rmdir("/a/b")
-      assert.strictEqual((yield* base.stat()).nlink, 0)
+      assert.strictEqual((yield* base.stat).nlink, 0)
       assert.strictEqual((yield* Effect.flip(fs.mkdir("child", { relativeTo: base }))).code, "NotFound")
       assert.strictEqual((yield* fs.stat("/a")).nlink, 2)
       yield* fs.mkdir("/reuse")
-      yield* base.close()
-      assert.strictEqual((yield* Effect.flip(base.stat())).code, "InvalidHandle")
+      yield* base.close
+      assert.strictEqual((yield* Effect.flip(base.stat)).code, "InvalidHandle")
     }))
 
   it.effect("checks both parent permissions and sticky ownership using the invoking caller", () =>
@@ -138,7 +138,7 @@ describe("directory namespace", () => {
         "ForeignHandle"
       )
       yield* fs.rename("/b/moved", "/a/work", { sourceRelativeTo: foreign, destinationRelativeTo: foreign })
-      yield* a.close()
+      yield* a.close
       assert.strictEqual(
         (yield* Effect.flip(fs.rename("/a/work", "work", { destinationRelativeTo: a }))).code,
         "InvalidHandle"

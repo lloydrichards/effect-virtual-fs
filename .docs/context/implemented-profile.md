@@ -104,3 +104,10 @@ Deferred: mounts, FUSE/Vim, network filesystems, overlays, host-tree import/expo
 descriptor duplication, restricted roots, sparse/COW optimization, crash durability, arbitrary native tools, full Node
 package resolution, installation and HMR. Core and memory remain private. The independent review identified and repaired additional correctness gaps after the first completion report;
 see [review corrections](review-fixes.md). All accepted feature milestones remain implemented; publication readiness and broader standards/runtime certification remain separate.
+
+## Effect operation syntax
+
+Under [decision 0024](../decisions/0024-reusable-capability-effects.md), directory `stat`/`close`, file
+`stat`/`sync`/`close`, and volume `watch`/`snapshot` are Effect properties. Yield them directly without parentheses.
+Each execution reads current state or acquires a fresh subscription. Explicit repeated close still fails.
+`bun run lint:effects` checks the untraced generator and lazy-Effect recommendations alongside ordinary lint.

@@ -24,6 +24,7 @@ jobs:
       # Oxlint resolves their package imports during type-aware analysis.
       - run: bun run build
       - run: bun run lint
+      - run: bun run lint:effects
       - name: Check documentation contracts
         run: |
           bun run tsc --project .docs/contracts/tsconfig.json

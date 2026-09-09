@@ -9,7 +9,7 @@ describe("whole-file symlink replacement", () => {
       const fs = yield* volume.caller()
       yield* fs.writeFile("/target", new Uint8Array([42]), { access: "write", create: "exclusive" })
       yield* fs.symlink("/target", "/link")
-      const watcher = yield* (yield* volume.watch()).pipe(
+      const watcher = yield* (yield* volume.watch).pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })

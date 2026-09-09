@@ -10,12 +10,17 @@
   "overrides": [
     {
       "files": [
-        "**/*.test.ts",
-        "**/*.test.tsx"
+        "apps/virtual-build/test/VirtualBuild.test.ts"
       ],
       "rules": {
-        "effecttsgo/async-function": "off",
-        "effecttsgo/node-builtin-import": "off",
+        "effecttsgo/node-builtin-import": "off"
+      }
+    },
+    {
+      "files": [
+        "packages/core/test/Snapshot.test.ts"
+      ],
+      "rules": {
         "effecttsgo/prefer-schema-over-json": "off"
       }
     }

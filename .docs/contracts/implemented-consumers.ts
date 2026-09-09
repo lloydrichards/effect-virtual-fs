@@ -13,7 +13,7 @@ export const scopedDirectory = (caller: Vfs.Caller) =>
   Effect.scoped(Effect.gen(function*() {
     const child = yield* caller.withDirectory(".")
     const handle = yield* child.openDirectory(".")
-    yield* handle.close()
+    yield* handle.close
     return yield* child.stat(".")
   })) satisfies Effect.Effect<Vfs.Metadata, Vfs.FsError>
 
@@ -52,7 +52,7 @@ export const scopedFile = (caller: Vfs.Caller) =>
 
 export const persistence = Effect.gen(function*() {
   const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/file", bytes: new Uint8Array([1]) }] })
-  const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot())
+  const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
   return yield* Vfs.fromSnapshot(
     yield* Vfs.decodeSnapshot(bytes, {
       maxEncodedBytes: 10_000,

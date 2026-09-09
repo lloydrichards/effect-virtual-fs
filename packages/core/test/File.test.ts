@@ -69,10 +69,10 @@ describe("regular files", () => {
       const f = yield* fs.open("/f", { access: "readWrite", create: "exclusive" })
       yield* f.write(bytes(1, 2, 3, 4))
       assert.strictEqual(yield* f.write(bytes(5, 6, 7)), 2)
-      const before = yield* f.stat()
+      const before = yield* f.stat
       assert.strictEqual((yield* Effect.flip(f.write(bytes(8)))).code, "NoSpace")
       assert.strictEqual((yield* Effect.flip(f.truncate(7n))).code, "NoSpace")
-      assert.deepStrictEqual(yield* f.stat(), before)
+      assert.deepStrictEqual(yield* f.stat, before)
       assert.strictEqual(yield* f.pwrite(bytes(9), 1n), 1)
       yield* f.truncate(4n)
       assert.strictEqual((yield* Effect.flip(f.pwrite(bytes(8), 6n))).code, "NoSpace")
@@ -87,14 +87,14 @@ describe("regular files", () => {
       const b = yield* fs.open("/f", { access: "read" })
       yield* a.write(bytes(1, 2))
       yield* fs.unlink("/f")
-      assert.strictEqual((yield* a.stat()).nlink, 0)
+      assert.strictEqual((yield* a.stat).nlink, 0)
       const replacement = yield* fs.open("/f", { access: "write", create: "exclusive" })
       assert.strictEqual((yield* Effect.flip(replacement.write(bytes(3)))).code, "NoSpace")
-      yield* a.close()
+      yield* a.close
       assert.deepStrictEqual(yield* b.read(2), bytes(1, 2))
-      yield* b.close()
+      yield* b.close
       assert.strictEqual(yield* replacement.write(bytes(3, 4)), 2)
-      assert.strictEqual((yield* Effect.flip(a.close())).code, "InvalidHandle")
+      assert.strictEqual((yield* Effect.flip(a.close)).code, "InvalidHandle")
       assert.strictEqual((yield* Effect.flip(a.read(0))).code, "InvalidHandle")
     }))
 
