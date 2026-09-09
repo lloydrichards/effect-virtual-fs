@@ -1676,15 +1676,10 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
     const decoded = Schema.decodeResult(Fixture, { onExcessProperty: "error" })(fixture)
     if (Result.isFailure(decoded)) return yield* new Image.ImageError({ code: "InvalidStructure", field: "fixture" })
     const source = decoded.success
-    // Encode all mutable input bytes before any suspension or publication.
-    const captured: Array<{ entry: Fixture["entries"][number]; data?: string }> = []
     for (const entry of source.entries) {
-      if (entry.kind === "file") {
-        if (!(entry.bytes.buffer instanceof ArrayBuffer) || !attachedBuffer(entry.bytes)) {
-          return yield* new Image.ImageError({ code: "InvalidEncoding", field: "bytes" })
-        }
-        captured.push({ entry, data: Image.base64(new Uint8Array(entry.bytes)) })
-      } else captured.push({ entry })
+      if (
+        entry.kind === "file" && (!(entry.bytes.buffer instanceof ArrayBuffer) || !attachedBuffer(entry.bytes))
+      ) return yield* new Image.ImageError({ code: "InvalidEncoding", field: "bytes" })
     }
     const metadata = (
       kind: "directory" | "file" | "symlink",
@@ -1717,7 +1712,8 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
             Result.succeed(path.components)
         )
       )
-    for (const { entry, data } of captured) {
+    // All byte inputs become immutable strings before the first successful suspension.
+    for (const entry of source.entries) {
       const parsed = fixturePath(entry.path)
       if (Result.isFailure(parsed)) {
         return yield* new Image.ImageError({ code: "InvalidStructure", field: "path" })
@@ -1742,7 +1738,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
           id: String(paths.size),
           kind: "file",
           metadata: metadata("file", entry.metadata),
-          data: data ?? ""
+          data: Image.base64(entry.bytes)
         })
       } else {
         if (typeof entry.target === "string" && !wellFormed(entry.target)) {

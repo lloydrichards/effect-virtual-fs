@@ -68,6 +68,9 @@ or API explicitly before implementation.
 
 ## Current repository
 
+- The [byte ownership follow-up](byte-ownership-refactor.md) simplifies whole-file storage and fixture
+  declarations, with fresh validation and a comparable snapshot measurement.
+
 - The [implementation refactor](implementation-refactor.md) records subsequent internal simplifications,
   comparable snapshot memory measurements, and review findings. Earlier validation remains dated evidence.
 
