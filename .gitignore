@@ -28,3 +28,8 @@ coverage
 playwright-report
 test-results
 
+# Generated validation output is local by default. Keep only deliberately curated
+# evidence (such as a result manifest or a regression reproduction) via an
+# explicit force-add after documenting why it is durable.
+.docs/evidence/**
+!.docs/evidence/README.md

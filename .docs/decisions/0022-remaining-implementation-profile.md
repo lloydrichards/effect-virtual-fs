@@ -49,9 +49,10 @@ copies. String names, targets, and real paths use fatal UTF-8 decoding with BOM 
 UnrepresentableName. realPath outputs may exceed maxPathBytes; that option bounds input/expansion, not output.
 
 Links.test.ts covers aliases and replacement, dangling-target creation, final-link mutation, symlink-before-dot-dot,
-loop and exact expansion limits, quota retention, and strict independently owned byte results. Full workspace
-validation logs are retained under .docs/evidence/links. The official Issue 8 link/symlink descriptions were fetched
-and read; this records the selected behavior, not exhaustive POSIX conformance.
+loop and exact expansion limits, quota retention, and strict independently owned byte results. The
+[result manifest](../evidence/links/results.json) records full-workspace validation; the targeted raw-name regression
+probe remains alongside it. The official Issue 8 link/symlink descriptions were fetched and read; this records the
+selected behavior, not exhaustive POSIX conformance.
 
 ## Metadata and authority
 
@@ -67,7 +68,8 @@ now fields and ctime. chmod marks ctime even for unchanged mode. Birthtime remai
 0 through 7; explicit privilege does not grant regular-file execution unless some execute bit is set.
 
 Metadata.test.ts verifies these authority boundaries, open-time access survival, own-link updates, foreign/closed
-handles, path truncation, timestamp omission, and failed growth. Full checks are in .docs/evidence/metadata.
+handles, path truncation, timestamp omission, and failed growth. The
+[result manifest](../evidence/metadata/results.json) records the completed checks.
 
 ## Snapshots and fixtures
 
@@ -89,7 +91,8 @@ Fixtures are absolute final-state declarations with explicit parents and forward
 collisions, missing parents, directory hard links, and alias cycles fail before exposure. Repeated separators compare
 by resulting byte components. Defaults are uid/gid zero, epoch-zero timestamps, directory 0755/file 0644/link 0777.
 Optional metadata is final, without umask. Root metadata is separate. File input bytes are captured at execution,
-with shared and detached buffers rejected. Snapshot.test.ts and .docs/evidence/snapshots record behavioral evidence.
+with shared and detached buffers rejected. Snapshot.test.ts and the
+[snapshot result manifest](../evidence/snapshots/results.json) record behavioral evidence.
 
 ## Memory adaptation and observation
 
@@ -118,8 +121,9 @@ The adapter retains its trailing-slash directory-rename compatibility while core
 rule. Error operation/path context follows the existing suite.
 
 All 89 existing memory tests pass through core. CoreBinding.test.ts adds sharing, direct-core watches, alias events,
-atomic quota rejection, strict byte filtering, copy topology/timestamps, and source-observed cursor cases. The first
-migration and two focused regression logs are retained under .docs/evidence/adapter.
+atomic quota rejection, strict byte filtering, copy topology/timestamps, and source-observed cursor cases. The
+[adapter result manifest](../evidence/adapter/results.json) records completed checks; the first-migration and focused
+regression probes are retained as durable failure evidence.
 
 ## Review corrections
 

@@ -98,11 +98,12 @@ the difference from the encoding-only result cannot be attributed solely to the 
 
 ## Final validation
 
-[Recorded commands and exits](../evidence/implementation-refactor/results.json) and sibling logs retain the baseline,
-slice checks, and final results. Final builds, types, and tests were forced, with zero Turbo cache hits. All 180 tests
-passed: 70 core, 107 adapter, and three virtual-build consumer tests. Formatting, lint, documentation compilation,
-and executable model checks passed. The separate independent review ran 14 focused metadata/replacement/decoder
-tests and ten snapshot boundary/ownership probes without finding a regression.
+[Recorded commands and exits](../evidence/implementation-refactor/results.json) retain the baseline, slice checks,
+and final results. The linked regression probes preserve the failures needed to explain this refactor; routine
+successful command output is summarized here rather than archived. Final builds, types, and tests were forced, with
+zero Turbo cache hits. All 180 tests passed: 70 core, 107 adapter, and three virtual-build consumer tests. Formatting,
+lint, documentation compilation, and executable model checks passed. The separate independent review ran 14 focused
+metadata/replacement/decoder tests and ten snapshot boundary/ownership probes without finding a regression.
 
 Build validation includes the browser-target bundle smoke executed under Node. It does not establish browser/worker
 runtime behavior. Linux CI and Bun 1.2.21 remain untested locally. Existing type/build cache use in intermediate logs
