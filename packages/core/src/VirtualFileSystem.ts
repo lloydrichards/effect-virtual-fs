@@ -1055,9 +1055,12 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               if (file !== undefined && !chosen.truncate && captured.length === 0 && chosen.finalMode === undefined) {
                 return
               }
-              const data = new Uint8Array(size)
-              if (file !== undefined && !chosen.truncate) data.set(file.data)
-              data.set(captured, position)
+              let data = captured
+              if (position !== 0 || size !== captured.length) {
+                data = new Uint8Array(size)
+                if (file !== undefined && !chosen.truncate) data.set(file.data)
+                data.set(captured, position)
+              }
               const now = yield* timestamp("writeFile")
               const node: RegularFile = file ??
                 {
