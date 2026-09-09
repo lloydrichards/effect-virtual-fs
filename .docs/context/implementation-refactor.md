@@ -48,3 +48,32 @@ publication, and release share one coordinator; file size alone does not justify
 The forced baseline built successfully and executed all 177 tests. Formatting, lint, documentation compilation,
 executable models, and forced workspace types also passed. Frozen installation succeeded using Bun 1.4.0 and Node
 24.10.0 without dependency changes. The repository pins Bun 1.2.21; that runtime and Linux CI were not run here.
+
+## Snapshot encoding
+
+The pinned Effect base64 encoder builds its output by concatenating individual characters. Encoding bounded
+12,288-byte chunks and joining them avoids retaining those long intermediate string chains across payloads.
+The chunk size is a multiple of three so only the final chunk can contain padding. All six fixture/capture
+encoding sites use the same internal helper. Input copying, strict validation, snapshot ownership, and the v1
+wire format remain unchanged; this is neither a new codec nor copy-on-write storage.
+
+The added public snapshot case checks exact canonical output and independent restoration for patterned bytes
+with each possible padding length across chunk boundaries. Changing the chunk size to 12,289 made that test
+fail with `InvalidEncoding`; the source was restored immediately. The [red log](../evidence/implementation-refactor/base64-boundary-red.log)
+records that targeted proof.
+
+The unchanged `node apps/virtual-build/src/measure.ts` workload ran in separate sequential Node 24.10.0 processes
+on macOS arm64, without forced collection. Both runs used 2,431 files, 50,721,951 source bytes, and 68,108,683 encoded
+bytes with the same installed package versions. [Before](../evidence/implementation-refactor/snapshot-before.json)
+and [after encoding refactor](../evidence/implementation-refactor/snapshot-after-encoding.json) record all phases.
+
+| Metric               | Before              | After encoding refactor |
+| -------------------- | ------------------- | ----------------------- |
+| Process peak RSS     | 3,056,074,752 bytes | 2,093,056,000 bytes     |
+| Fixture construction | 4,357.40 ms         | 1,468.65 ms             |
+| Snapshot capture     | 3,405.55 ms         | 1,217.98 ms             |
+
+Peak RSS fell 31.5% in this single pair. These are whole-process measurements including imports, preparation,
+retained fixture buffers, and restoration. Preparation was faster in the second run, 276 ms versus 657 ms, so
+timings include cache and run-order effects. The result is not a portable performance guarantee or heap bound;
+a single large file can still require substantial transient storage.
