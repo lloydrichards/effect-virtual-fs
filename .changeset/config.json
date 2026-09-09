@@ -2,7 +2,7 @@
   "$schema": "https://unpkg.com/@changesets/config@3.1.1/schema.json",
   "changelog": ["@changesets/changelog-github", { "repo": "lloydrichards/effect-virtual-fs" }],
   "commit": false,
-  "fixed": [["@effect-vfs/core", "@effect-vfs/memory"]],
+  "fixed": [["@effect-vfs/core", "@effect-vfs/memory", "@effect-vfs/persistence"]],
   "linked": [],
   "access": "public",
   "baseBranch": "main",
