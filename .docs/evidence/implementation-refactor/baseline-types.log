@@ -1,0 +1,40 @@
+$ turbo run type-check --force
+• turbo 2.10.12
+
+   • Packages in scope: @effect-vfs/core, @effect-vfs/memory, @repo/config-typescript, @repo/scratchpad, @repo/virtual-build
+   • Running type-check in 5 packages
+   • Remote caching disabled
+
+@effect-vfs/core:build: cache bypass, force executing b294433c2788bbb5
+@effect-vfs/core:type-check: cache bypass, force executing b33399d5cc1a626d
+@effect-vfs/core:build: $ tsc --project tsconfig.build.json
+@effect-vfs/core:type-check: $ tsc --noEmit
+@effect-vfs/memory:build: cache bypass, force executing ca779f21a15f3cb9
+@repo/virtual-build:type-check: cache bypass, force executing 40f401546c15e4c7
+@effect-vfs/memory:type-check: cache bypass, force executing b5e7332109c6e74a
+@repo/virtual-build:type-check: $ tsc --noEmit
+@effect-vfs/memory:build: $ tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser && node compatibility/browser/check.mjs
+@effect-vfs/memory:type-check: $ tsc --noEmit
+@effect-vfs/memory:build: CLI Building entry: src/MemoryFileSystem.ts, src/index.ts
+@effect-vfs/memory:build: CLI Using tsconfig: tsconfig.json
+@effect-vfs/memory:build: CLI tsup v8.5.1
+@effect-vfs/memory:build: CLI Using tsup config: /Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/tsup.config.ts
+@effect-vfs/memory:build: CLI Target: es2022
+@effect-vfs/memory:build: CLI Cleaning output folder
+@effect-vfs/memory:build: ESM Build start
+@effect-vfs/memory:build: ESM dist/MemoryFileSystem.js 99.00 B
+@effect-vfs/memory:build: ESM dist/chunk-IGMH2EZJ.js   35.18 KB
+@effect-vfs/memory:build: ESM dist/index.js            125.00 B
+@effect-vfs/memory:build: ESM ⚡️ Build success in 10ms
+@effect-vfs/memory:build: Bundled 121 modules in 16ms
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build:   index.js  0.44 MB  (entry point)
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build: Browser-target bundle smoke passed under Node (not a browser runtime test).
+@repo/scratchpad:type-check: cache bypass, force executing 9e037f0c2fd22bcc
+@repo/scratchpad:type-check: $ tsc --noEmit
+
+ Tasks:    6 successful, 6 total
+Cached:    0 cached, 6 total
+  Time:    812ms 
+

@@ -1,0 +1,2 @@
+$ dprint check
+Error saving incremental file /Users/lloyd/Library/Caches/dprint/cache/incremental/16325378185765316212: Operation not permitted (os error 1) (for '/Users/lloyd/Library/Caches/dprint/cache/incremental/16325378185765316212')

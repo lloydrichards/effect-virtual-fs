@@ -1,0 +1,40 @@
+$ turbo run type-check
+• turbo 2.10.12
+
+   • Packages in scope: @effect-vfs/core, @effect-vfs/memory, @repo/config-typescript, @repo/scratchpad, @repo/virtual-build
+   • Running type-check in 5 packages
+   • Remote caching disabled
+
+@effect-vfs/core:type-check: cache miss, executing f76a77344b29515e
+@effect-vfs/core:build: cache hit, replaying logs 32b654e0f6a14906
+@effect-vfs/core:build: $ tsc --project tsconfig.build.json
+@repo/virtual-build:type-check: cache miss, executing 975725ee037f8f84
+@effect-vfs/memory:type-check: cache miss, executing 9b4c04a7997a85f8
+@effect-vfs/memory:build: cache hit, replaying logs 837109c4f79ea7de
+@effect-vfs/memory:build: $ tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser && node compatibility/browser/check.mjs
+@effect-vfs/memory:build: CLI Building entry: src/MemoryFileSystem.ts, src/index.ts
+@effect-vfs/memory:build: CLI Using tsconfig: tsconfig.json
+@effect-vfs/memory:build: CLI tsup v8.5.1
+@effect-vfs/memory:build: CLI Using tsup config: /Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/tsup.config.ts
+@effect-vfs/memory:build: CLI Target: es2022
+@effect-vfs/memory:build: CLI Cleaning output folder
+@effect-vfs/memory:build: ESM Build start
+@effect-vfs/memory:build: ESM dist/index.js            125.00 B
+@effect-vfs/memory:build: ESM dist/chunk-BXDZPJCV.js   35.08 KB
+@effect-vfs/memory:build: ESM dist/MemoryFileSystem.js 99.00 B
+@effect-vfs/memory:build: ESM ⚡️ Build success in 12ms
+@effect-vfs/memory:build: Bundled 121 modules in 34ms
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build:   index.js  0.44 MB  (entry point)
+@effect-vfs/memory:build: 
+@effect-vfs/memory:build: Browser-target bundle smoke passed under Node (not a browser runtime test).
+@repo/scratchpad:type-check: cache miss, executing 67afd2b493fa7420
+@effect-vfs/core:type-check: $ tsc --noEmit
+@repo/virtual-build:type-check: $ tsc --noEmit
+@effect-vfs/memory:type-check: $ tsc --noEmit
+@repo/scratchpad:type-check: $ tsc --noEmit
+
+ Tasks:    6 successful, 6 total
+Cached:    2 cached, 6 total
+  Time:    182ms 
+

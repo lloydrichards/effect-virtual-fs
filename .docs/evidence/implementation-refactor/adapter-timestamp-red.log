@@ -1,0 +1,18 @@
+Core preserved accepted timestamp: true
+{
+  _id: "Exit",
+  _tag: "Failure",
+  cause: {
+    _id: "Cause",
+    failures: [
+      {
+        _tag: "Die",
+        defect: {
+          message: "Invalid date",
+          _tag: "IllegalArgumentError",
+          "~effect/Cause/IllegalArgumentError": "~effect/Cause/IllegalArgumentError",
+        },
+      }
+    ],
+  },
+}

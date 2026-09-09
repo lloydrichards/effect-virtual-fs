@@ -1,0 +1,3 @@
+$ dprint fmt
+Error saving incremental file /Users/lloyd/Library/Caches/dprint/cache/incremental/16325378185765316212: Operation not permitted (os error 1) (for '/Users/lloyd/Library/Caches/dprint/cache/incremental/16325378185765316212')
+Formatted [1m1[0m file.

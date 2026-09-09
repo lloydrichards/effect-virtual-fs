@@ -68,6 +68,9 @@ or API explicitly before implementation.
 
 ## Current repository
 
+- The [implementation refactor](implementation-refactor.md) records subsequent internal simplifications,
+  comparable snapshot memory measurements, and review findings. Earlier validation remains dated evidence.
+
 - Core is private at 0.0.0 and memory is private at 0.1.0. Effect remains pinned to 4.0.0-rc.112.
 - The core, memory and consumer suites pass, including the subsequent [review regressions](review-fixes.md). The memory suites run through core.
 - The private Vite app imports built package exports. See [consumer evidence](consumer-implementation.md).
