@@ -35,8 +35,10 @@ can use a host filesystem in production and an isolated in-memory filesystem in 
   `FileSystem.FileSystem` implementation. This is the usual starting point.
 - Use [`@effect-vfs/core`](packages/core/README.md) when you need byte-preserving names, explicit callers and
   permissions, shared volumes, fixtures, quotas, watches, or portable snapshots.
+- Use [`@effect-vfs/persistence`](packages/persistence/README.md) to save named SQLite checkpoints and restore
+  them as fresh volumes in a later process.
 
-The two `@effect-vfs` packages are prepared for public npm releases at version `0.1.0`. They currently target the
+The core, memory, and persistence packages are versioned at `0.0.1`. All packages target the
 exact peer version `effect@4.0.0-rc.112` while Effect 4 remains a release candidate.
 
 ## Repository development

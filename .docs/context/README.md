@@ -1,7 +1,9 @@
 # VirtualFileSystem development context
 
-Research baseline: 8 September 2026. Implementation status: 9 September 2026. The accepted implementation milestones are
-implemented and locally validated. Start with the [implemented profile and evidence ledger](implemented-profile.md)
+Research baseline: 8 September 2026. Implementation status: 9 September 2026. The accepted core implementation milestones are
+implemented and locally validated. Checkpoint persistence is implemented under decision 0025, including a
+separate-process SQLite proof.
+Start with the [implemented profile and evidence ledger](implemented-profile.md)
 for the current API, limits, tests, exclusions and runtime caveats. Earlier slice documents are dated evidence.
 
 ## Start here
@@ -68,6 +70,10 @@ or API explicitly before implementation.
 
 ## Current repository
 
+- [Named checkpoint persistence](../decisions/0025-checkpoint-persistence.md) defines the implemented package,
+  `@effect-vfs/persistence`, with SQLite and a separate-process save/load proof. It does not depend on snapshot
+  comparison.
+
 - The [byte ownership follow-up](byte-ownership-refactor.md) simplifies whole-file storage and fixture
   declarations, with fresh validation and a comparable snapshot measurement.
 
@@ -85,8 +91,8 @@ or API explicitly before implementation.
 
 ## Stable boundaries
 
-The dependency direction is `@effect-vfs/memory` to `@effect-vfs/core` to Effect. Core must not depend on the
-memory adapter or host filesystem services.
+The dependency direction is `@effect-vfs/memory` to `@effect-vfs/core` to Effect. The accepted persistence package
+also depends on core and owns its storage I/O. Core must not depend on either adapter or host filesystem services.
 
 | Owner             | Responsibility                                                                                           |
 | ----------------- | -------------------------------------------------------------------------------------------------------- |

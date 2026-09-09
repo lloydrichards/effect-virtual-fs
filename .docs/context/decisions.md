@@ -1,8 +1,9 @@
 # Decision register
 
-Current implementation update (9 September 2026): all accepted milestones are implemented and locally
-validated. The [implemented profile](implemented-profile.md) supersedes the historical statuses and open questions
-below; policy 0022 records remaining implementation choices. Earlier text preserves the research/sequence history.
+Current implementation update (9 September 2026): the accepted core milestones are implemented and locally
+validated. Checkpoint persistence under decision 0025 is implemented.
+The [implemented profile](implemented-profile.md) supersedes the historical core statuses and open questions
+below; policy 0022 records remaining core implementation choices. Earlier text preserves the research/sequence history.
 
 Status: 9 September 2026. Accepted decisions below refine the original design; proposals in research and
 interface drafts remain proposals. The [directory-only core](first-core-implementation.md) and
@@ -135,3 +136,9 @@ handle stat when a returned timestamp cannot be represented as a JavaScript Date
 
 [Decision 0024](../decisions/0024-reusable-capability-effects.md) migrates the seven zero-argument core operations
 to reusable Effect properties and records the generator cleanup and narrowed lint exceptions.
+
+## Named checkpoint persistence
+
+[Decision 0025](../decisions/0025-checkpoint-persistence.md) accepts a separate `@effect-vfs/persistence` package
+with create-only named checkpoints, required decode limits, application-provided SQLite and an explicit migration.
+Bun SQLite passes the separate-process restart check.
