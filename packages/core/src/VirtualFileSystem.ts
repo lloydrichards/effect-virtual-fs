@@ -304,6 +304,12 @@ interface DirectoryReference {
 }
 const handles = new WeakMap<DirectoryHandle, DirectoryReference>()
 
+interface LookupOptions {
+  readonly followFinalSymlink?: boolean
+  readonly allowMissing?: boolean
+  readonly parentOnly?: boolean
+}
+
 interface PreparedPath {
   readonly input: PathInput
   readonly absolute: boolean
@@ -723,10 +729,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
         path: PreparedPath,
         base: DirectoryHandle | undefined,
         operation: string,
-        followFinal = true,
-        allowMissing = false,
-        parentOnly = false
+        options: LookupOptions = {}
       ) {
+        const { followFinalSymlink = true, allowMissing = false, parentOnly = false } = options
         if (reference.directory === undefined) return yield* failure("ClosedCaller", operation, path.input)
         let current: Node = path.absolute ? root : reference.directory
         if (!path.absolute && base !== undefined) {
@@ -763,7 +768,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             }
             return yield* failure("NotFound", operation, path.input)
           }
-          if (child.kind === "symlink" && (followFinal || index < work.components.length - 1 || work.trailingSlash)) {
+          if (
+            child.kind === "symlink" && (followFinalSymlink || index < work.components.length - 1 || work.trailingSlash)
+          ) {
             if (child.target.length === 0) return yield* failure("NotFound", operation, path.input)
             if (++traversals > 40) return yield* failure("SymlinkLoop", operation, path.input)
             const suffix = work.suffixes[index] ?? new Uint8Array(0)
@@ -784,15 +791,25 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
         return { node: current, parent, name }
       })
       const resolveNode = Effect.fnUntraced(
-        function*(path: PreparedPath, base: DirectoryHandle | undefined, operation: string, followFinal = true) {
-          const result = yield* lookup(path, base, operation, followFinal)
+        function*(
+          path: PreparedPath,
+          base: DirectoryHandle | undefined,
+          operation: string,
+          options?: Pick<LookupOptions, "followFinalSymlink">
+        ) {
+          const result = yield* lookup(path, base, operation, options)
           if (result.node === undefined) return yield* failure("NotFound", operation, path.input)
           return result.node
         }
       )
       const locate = Effect.fnUntraced(
-        function*(path: PreparedPath, base: DirectoryHandle | undefined, operation: string, parent = false) {
-          const result = yield* lookup(path, base, operation, true, false, parent)
+        function*(
+          path: PreparedPath,
+          base: DirectoryHandle | undefined,
+          operation: string,
+          options?: Pick<LookupOptions, "parentOnly">
+        ) {
+          const result = yield* lookup(path, base, operation, options)
           const node = result.node
           if (node === undefined) return yield* failure("NotFound", operation, path.input)
           if (node.kind !== "directory") return yield* failure("NotDirectory", operation, path.input)
@@ -834,7 +851,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
         const prepared = preparePath(input, "readLink", settings.maxPathBytes)
         const base = options?.relativeTo
         return yield* coordinated(Effect.gen(function*() {
-          const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "readLink", false)
+          const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "readLink", {
+            followFinalSymlink: false
+          })
           if (node.kind !== "symlink") return yield* failure("InvalidArgument", "readLink", input)
           return new Uint8Array(node.target)
         }))
@@ -876,7 +895,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             return node
           }
           const path = yield* Effect.fromResult(preparePath(target, operation, settings.maxPathBytes))
-          return yield* resolveNode(path, options?.relativeTo, operation, options?.followFinalSymlink !== false)
+          return yield* resolveNode(path, options?.relativeTo, operation, {
+            followFinalSymlink: options?.followFinalSymlink !== false
+          })
         }
       )
       const changeMode = Effect.fnUntraced(
@@ -993,7 +1014,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             return yield* coordinated(Effect.gen(function*() {
               const path = yield* Effect.fromResult(prepared)
               if (chosen.create === "exclusive") {
-                const exists = yield* Effect.result(lookup(path, base, "writeFile", false))
+                const exists = yield* Effect.result(lookup(path, base, "writeFile", { followFinalSymlink: false }))
                 if (Result.isSuccess(exists)) return yield* failure("AlreadyExists", "writeFile", input)
                 if (exists.failure.code !== "NotFound") return yield* exists.failure
               }
@@ -1001,8 +1022,10 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                 path,
                 base,
                 "writeFile",
-                chosen.replaceFinalSymlink !== true && chosen.followFinalSymlink !== false,
-                chosen.create === "ifMissing" || chosen.create === "exclusive"
+                {
+                  followFinalSymlink: chosen.replaceFinalSymlink !== true && chosen.followFinalSymlink !== false,
+                  allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
+                }
               )
               const { name, parent } = resolved
               if (parent === undefined || name === undefined || resolved.node?.kind === "directory") {
@@ -1130,7 +1153,10 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           const prepared = preparePath(input, "lstat", settings.maxPathBytes)
           const base = options?.relativeTo
           return yield* coordinated(Effect.gen(function*() {
-            return { ...(yield* resolveNode(yield* Effect.fromResult(prepared), base, "lstat", false)).metadata }
+            const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "lstat", {
+              followFinalSymlink: false
+            })
+            return { ...node.metadata }
           }))
         }),
         link: Effect.fn("Caller.link")(
@@ -1149,10 +1175,12 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             const destinationBase = options?.destinationRelativeTo
             const follow = options?.followSourceSymlink ?? false
             return yield* coordinated(Effect.gen(function*() {
-              const node = yield* resolveNode(yield* Effect.fromResult(a), sourceBase, "link", follow)
+              const node = yield* resolveNode(yield* Effect.fromResult(a), sourceBase, "link", {
+                followFinalSymlink: follow
+              })
               if (node.kind === "directory") return yield* failure("IsDirectory", "link", source)
               const path = yield* Effect.fromResult(b)
-              const parent = yield* locate(path, destinationBase, "link", true)
+              const parent = yield* locate(path, destinationBase, "link", { parentOnly: true })
               yield* authorize(parent, identity, 3, "link", destination)
               const name = path.components.at(-1)
               if (name === undefined || name === "2e" || name === "2e2e" || parent.entries.has(name)) {
@@ -1185,7 +1213,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           return yield* coordinated(Effect.gen(function*() {
             const path = yield* Effect.fromResult(prepared)
             const bytes = targetBytes
-            const parent = yield* locate(path, base, "symlink", true)
+            const parent = yield* locate(path, base, "symlink", { parentOnly: true })
             yield* authorize(parent, identity, 3, "symlink", input)
             const name = path.components.at(-1)
             if (name === undefined || name === "2e" || name === "2e2e" || parent.entries.has(name)) {
@@ -1260,7 +1288,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             if (acquired.closed) return yield* Effect.interrupt
             const path = yield* Effect.fromResult(prepared)
             if (chosen.create === "exclusive") {
-              const existing = yield* Effect.result(lookup(path, base, "open", false))
+              const existing = yield* Effect.result(lookup(path, base, "open", { followFinalSymlink: false }))
               if (Result.isSuccess(existing)) return yield* failure("AlreadyExists", "open", input)
               if (existing.failure.code !== "NotFound") return yield* existing.failure
             }
@@ -1268,8 +1296,10 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               path,
               base,
               "open",
-              chosen.followFinalSymlink !== false,
-              chosen.create === "ifMissing" || chosen.create === "exclusive"
+              {
+                followFinalSymlink: chosen.followFinalSymlink !== false,
+                allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
+              }
             )
             const parent = resolved.parent
             if (parent === undefined) return yield* failure("IsDirectory", "open", input)
@@ -1335,7 +1365,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           const base = options?.relativeTo
           return yield* coordinated(Effect.gen(function*() {
             const path = yield* Effect.fromResult(prepared)
-            const parent = yield* locate(path, base, "unlink", true)
+            const parent = yield* locate(path, base, "unlink", { parentOnly: true })
             yield* authorize(parent, identity, 3, "unlink", input)
             const name = path.components.at(-1)
             if (name === undefined || name === "2e" || name === "2e2e") {
@@ -1366,8 +1396,8 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           return yield* coordinated(Effect.gen(function*() {
             const oldPath = yield* Effect.fromResult(oldPrepared)
             const newPath = yield* Effect.fromResult(newPrepared)
-            const oldParent = yield* locate(oldPath, oldBase, "rename", true)
-            const newParent = yield* locate(newPath, newBase, "rename", true)
+            const oldParent = yield* locate(oldPath, oldBase, "rename", { parentOnly: true })
+            const newParent = yield* locate(newPath, newBase, "rename", { parentOnly: true })
             yield* authorize(oldParent, identity, 3, "rename", source)
             yield* authorize(newParent, identity, 3, "rename", destination)
             const oldName = oldPath.components.at(-1)
@@ -1441,7 +1471,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           const base = options?.relativeTo
           return yield* coordinated(Effect.gen(function*() {
             const path = yield* Effect.fromResult(prepared)
-            const parent = yield* locate(path, base, "rmdir", true)
+            const parent = yield* locate(path, base, "rmdir", { parentOnly: true })
             yield* authorize(parent, identity, 3, "rmdir", input)
             const name = path.components.at(-1)
             if (name === undefined || name === "2e" || name === "2e2e") {
@@ -1478,7 +1508,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             if (!Schema.is(Mode)(mode)) return yield* failure("InvalidArgument", "mkdir", input)
             return yield* coordinated(Effect.gen(function*() {
               const path = yield* Effect.fromResult(prepared)
-              const parent = yield* locate(path, base, "mkdir", true)
+              const parent = yield* locate(path, base, "mkdir", { parentOnly: true })
               yield* authorize(parent, identity, 3, "mkdir", input)
               const name = path.components.at(-1)
               if (name === undefined || name === "2e" || name === "2e2e" || parent.entries.has(name)) {
