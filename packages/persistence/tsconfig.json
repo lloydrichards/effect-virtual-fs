@@ -1,0 +1,5 @@
+{
+  "extends": "@repo/config-typescript/base.json",
+  "compilerOptions": { "rootDir": ".", "lib": ["ES2023", "DOM"], "types": ["vitest/globals", "node"] },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

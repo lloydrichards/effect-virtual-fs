@@ -10,7 +10,9 @@
   "overrides": [
     {
       "files": [
-        "apps/virtual-build/test/VirtualBuild.test.ts"
+        "apps/virtual-build/test/VirtualBuild.test.ts",
+        "packages/persistence/test/Restart.test.ts",
+        "packages/persistence/test/fixtures/restart.ts"
       ],
       "rules": {
         "effecttsgo/node-builtin-import": "off"

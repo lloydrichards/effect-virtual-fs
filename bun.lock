@@ -50,7 +50,7 @@
     },
     "packages/core": {
       "name": "@effect-vfs/core",
-      "version": "0.1.0",
+      "version": "0.0.1",
       "devDependencies": {
         "@effect/vitest": "4.0.0-rc.112",
         "@repo/config-typescript": "workspace:*",
@@ -62,7 +62,7 @@
     },
     "packages/memory": {
       "name": "@effect-vfs/memory",
-      "version": "0.1.0",
+      "version": "0.0.1",
       "dependencies": {
         "@effect-vfs/core": "workspace:*",
       },
@@ -71,6 +71,23 @@
         "@repo/config-typescript": "workspace:*",
         "effect": "4.0.0-rc.112",
         "tsup": "8.5.1",
+      },
+      "peerDependencies": {
+        "effect": "4.0.0-rc.112",
+      },
+    },
+    "packages/persistence": {
+      "name": "@effect-vfs/persistence",
+      "version": "0.0.1",
+      "dependencies": {
+        "@effect-vfs/core": "^0.0.1",
+      },
+      "devDependencies": {
+        "@effect/sql-sqlite-bun": "4.0.0-rc.112",
+        "@effect/vitest": "4.0.0-rc.112",
+        "@repo/config-typescript": "workspace:*",
+        "@types/node": "26.5.0",
+        "effect": "4.0.0-rc.112",
       },
       "peerDependencies": {
         "effect": "4.0.0-rc.112",
@@ -142,9 +159,13 @@
 
     "@effect-vfs/memory": ["@effect-vfs/memory@workspace:packages/memory"],
 
+    "@effect-vfs/persistence": ["@effect-vfs/persistence@workspace:packages/persistence"],
+
     "@effect/platform-bun": ["@effect/platform-bun@4.0.0-rc.112", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.112" }, "peerDependencies": { "effect": "^4.0.0-rc.112" } }, "sha512-Y5n2HhV/vsbrJls9ukX42RL7zqXQxISHegWFsP9njsCyDmGTnq7QYSO82rglwrLPwtTrv5dkSRTuGw4+oXxgMg=="],
 
     "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-rc.112", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.21.3" }, "peerDependencies": { "effect": "^4.0.0-rc.112" } }, "sha512-ttjz0xKamFN7vL8pNDYVwddJLjZvqKePc05djlz2VcdaKbLsnYbtMnL1rbOfHgEnIUSHGh7FkjaN4DM1Ov81sQ=="],
+
+    "@effect/sql-sqlite-bun": ["@effect/sql-sqlite-bun@4.0.0-rc.112", "", { "peerDependencies": { "effect": "^4.0.0-rc.112" } }, "sha512-EqR8pWZo3VzedRvP6qo5HcfqNmFvSa+sQLWQl3oBMx2KY1FCc8NYjep79wYjNkW0qABnffrPUXCMTOncd1A+5g=="],
 
     "@effect/tsgo": ["@effect/tsgo@0.38.0", "", { "optionalDependencies": { "@effect/tsgo-darwin-arm64": "0.38.0", "@effect/tsgo-darwin-x64": "0.38.0", "@effect/tsgo-linux-arm": "0.38.0", "@effect/tsgo-linux-arm64": "0.38.0", "@effect/tsgo-linux-x64": "0.38.0", "@effect/tsgo-win32-arm64": "0.38.0", "@effect/tsgo-win32-x64": "0.38.0" }, "bin": { "effect-tsgo": "dist/effect-tsgo.cjs" } }, "sha512-eazN0kX+WNT1jNjIm/l5esnkpKVfd1wNh2ig0pfaULKuI2PZh0JwjbepDPUr6MWx5cqOiUgwStNf5hGhg2w00g=="],
 
