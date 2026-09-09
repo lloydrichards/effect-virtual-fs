@@ -58,6 +58,17 @@ const snapshots = new WeakMap<Snapshot, Document>()
 const canonicalBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?(?![\s\S])/
 export const decodedLength = (value: string): number =>
   value.length / 4 * 3 - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0)
+export const base64 = (input: Uint8Array): string => {
+  // Effect's encoder concatenates individual characters. Join bounded chunks so snapshots
+  // retain flat strings instead of those intermediate string chains. A multiple of three
+  // keeps padding in the final chunk only, preserving canonical base64.
+  const chunkBytes = 12_288
+  const chunks: Array<string> = []
+  for (let offset = 0; offset < input.length; offset += chunkBytes) {
+    chunks.push(Encoding.encodeBase64(input.subarray(offset, offset + chunkBytes)))
+  }
+  return chunks.join("")
+}
 const error = (code: ImageError["code"], field?: string) =>
   new ImageError({ code, ...(field === undefined ? {} : { field }) })
 export const bytes = (value: string): Uint8Array => {

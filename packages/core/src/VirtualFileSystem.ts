@@ -1611,12 +1611,12 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                   ids.set(child, target)
                   pending.push(child)
                 }
-                children.push({ name: Encoding.encodeBase64(nameBytes(name)), target })
+                children.push({ name: Image.base64(nameBytes(name)), target })
               }
               records.push({ id, kind: "directory", metadata, entries: children })
             } else if (node.kind === "file") {
-              records.push({ id, kind: "file", metadata, data: Encoding.encodeBase64(node.data) })
-            } else records.push({ id, kind: "symlink", metadata, target: Encoding.encodeBase64(node.target) })
+              records.push({ id, kind: "file", metadata, data: Image.base64(node.data) })
+            } else records.push({ id, kind: "symlink", metadata, target: Image.base64(node.target) })
           }
           return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records })
         }))
@@ -1702,7 +1702,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
         if (!(entry.bytes.buffer instanceof ArrayBuffer) || !attachedBuffer(entry.bytes)) {
           return yield* new Image.ImageError({ code: "InvalidEncoding", field: "bytes" })
         }
-        captured.push({ entry, data: Encoding.encodeBase64(new Uint8Array(entry.bytes)) })
+        captured.push({ entry, data: Image.base64(new Uint8Array(entry.bytes)) })
       } else captured.push({ entry })
     }
     const metadata = (
@@ -1783,7 +1783,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
           id: String(paths.size),
           kind: "symlink",
           metadata: metadata("symlink", entry.metadata),
-          target: Encoding.encodeBase64(target)
+          target: Image.base64(target)
         })
       }
     }
@@ -1816,7 +1816,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
           .ImageError({ code: "InvalidStructure", field: "parent" })
       }
       const entries = children.get(parent.id) ?? []
-      entries.push({ name: Encoding.encodeBase64(nameBytes(name)), target: child.id })
+      entries.push({ name: Image.base64(nameBytes(name)), target: child.id })
       children.set(parent.id, entries)
     }
     const records = [...new Set(declarations.values())].map((record): Image.Record =>

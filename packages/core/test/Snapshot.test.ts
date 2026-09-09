@@ -6,6 +6,25 @@ const limits = { maxEncodedBytes: 1_000_000, maxRecords: 100, maxEntries: 100, m
 const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
 
 describe("fixtures and snapshots", () => {
+  it.effect("should preserve canonical payloads and bytes when files span encoding chunks", () =>
+    Effect.gen(function*() {
+      for (const [tail, suffix] of ["", "AA==", "AP8="].entries()) {
+        const input = Uint8Array.from(
+          { length: 24_576 + tail },
+          (_, index) => index % 3 === 0 ? 0 : index % 3 === 1 ? 255 : 127
+        )
+        const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: input }] })
+        const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot())
+        const document = JSON.parse(new TextDecoder().decode(encoded))
+        assert.strictEqual(
+          document.records.find((record: { kind: string }) => record.kind === "file").data,
+          "AP9/".repeat(8_192) + suffix
+        )
+        const restored = yield* Vfs.fromSnapshot(yield* Vfs.decodeSnapshot(encoded, limits))
+        assert.deepStrictEqual(yield* (yield* restored.caller()).readFile("/f"), input)
+      }
+    }))
+
   it.effect("loads order-independent fixtures with forward hard links and fixed metadata", () =>
     Effect.gen(function*() {
       const input = new Uint8Array([1, 2])
