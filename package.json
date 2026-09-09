@@ -17,9 +17,11 @@
     "lint-staged": "lint-staged",
     "postprepare": "husky",
     "prepare": "effect-tsgo patch --oxlint",
+    "release": "bun run build && changeset publish",
     "test": "turbo run test",
     "type-check": "turbo run type-check",
-    "lint:effects": "bash scripts/lint-effects.sh"
+    "lint:effects": "bash scripts/lint-effects.sh",
+    "version-packages": "changeset version"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^1.0.0",

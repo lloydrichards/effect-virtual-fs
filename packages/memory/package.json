@@ -1,6 +1,6 @@
 {
   "name": "@effect-vfs/memory",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "An in-memory implementation of Effect's FileSystem service.",
   "homepage": "https://github.com/lloydrichards/effect-virtual-fs#readme",
   "bugs": {
@@ -56,6 +56,6 @@
     "tsup": "8.5.1"
   },
   "dependencies": {
-    "@effect-vfs/core": "^0.1.0"
+    "@effect-vfs/core": "^0.0.1"
   }
 }
