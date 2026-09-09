@@ -30,6 +30,14 @@ test-results
 
 # Generated validation output is local by default. Keep only deliberately curated
 # evidence (such as a result manifest or a regression reproduction) via an
-# explicit force-add after documenting why it is durable.
+# explicit inclusion after documenting why it is durable.
 .docs/evidence/**
 !.docs/evidence/README.md
+
+# Keep curated byte-ownership evidence visible to GitButler's workspace scanner.
+!.docs/evidence/byte-ownership-refactor/
+!.docs/evidence/byte-ownership-refactor/before.json
+!.docs/evidence/byte-ownership-refactor/after.json
+!.docs/evidence/byte-ownership-refactor/results.json
+!.docs/evidence/byte-ownership-refactor/whole-file-red.log
+!.docs/evidence/byte-ownership-refactor/fixture-red.log

@@ -15,5 +15,6 @@ or generated command logs. Summarize their outcome in the context document and
 record it in the relevant result manifest instead.
 
 `.gitignore` ignores new files here by default. When a new artifact meets the
-criteria above, add it intentionally with a force-add and link to it from the
-document that explains its continued value.
+criteria above, include it intentionally and link to it from the document that
+explains its continued value. With GitButler, use exact file exceptions in
+`.gitignore` so its workspace scanner continues to see the retained artifacts.
