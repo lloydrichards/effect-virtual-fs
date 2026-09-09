@@ -225,6 +225,10 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
     return output
   })
   const remove: FileSystem.FileSystem["remove"] = Effect.fn("MemoryFileSystem.remove")(function*(path, options) {
+    const name = path.split("/").filter((part) => part.length > 0).at(-1)
+    if (name === undefined || name === "." || name === "..") {
+      return yield* resourceError("remove", path, "Cannot remove root or dot entries")
+    }
     const action = Effect.scoped(Effect.gen(function*() {
       const node = yield* caller.lstat(path)
       if (node.kind !== "directory") return yield* caller.unlink(path)
@@ -277,7 +281,9 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
               access: "write",
               create: options?.overwrite ? "ifMissing" : "exclusive",
               truncate: true,
-              mode: sourceNode.mode
+              replaceFinalSymlink: true,
+              mode: sourceNode.mode,
+              finalMode: sourceNode.mode
             })
           } else if (sourceNode.kind === "symlink") {
             if (existing._tag === "Success") {
@@ -329,7 +335,9 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
                     access: "write",
                     create: options?.overwrite ? "ifMissing" : "exclusive",
                     truncate: true,
-                    mode: entry.metadata.mode
+                    replaceFinalSymlink: true,
+                    mode: entry.metadata.mode,
+                    finalMode: entry.metadata.mode
                   })
                   copiedNodes.set(entry.metadata.ino, { base: parent, name: entry.name })
                 }
@@ -392,14 +400,13 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
           const metadata = yield* caller.stat(source)
           if (metadata.kind !== "file") return yield* new Vfs.FsError({ code: "IsDirectory", operation: "copyFile" })
           const target = yield* Effect.result(caller.stat(destination))
-          if (target._tag === "Success" && target.success.ino === metadata.ino) {
-            return yield* new Vfs.FsError({ code: "InvalidArgument", operation: "copyFile" })
-          }
+          if (target._tag === "Success" && target.success.ino === metadata.ino) return
           yield* caller.writeFile(destination, yield* caller.readFile(source), {
             access: "write",
             create: "ifMissing",
             truncate: true,
-            mode: metadata.mode
+            mode: metadata.mode,
+            finalMode: metadata.mode
           })
         }),
         "copyFile",

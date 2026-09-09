@@ -112,3 +112,8 @@ volume subject to destination limits. Core performs no host I/O. Snapshot storag
 Whole-file readFile/writeFile helpers operate atomically and preserve existing file identity. Whole-file writes
 are all-or-error, while handle writes may return a short count. `volume.watch()` acquires a scoped stream of
 committed byte-path events, with an unbounded buffer and no replay. All writers publish through core.
+
+writeFile accepts optional replaceFinalSymlink and finalMode controls for atomic copy adaptation. Replacement uses
+namespace/sticky permission and preserves the target; finalMode uses chmod authority and commits alongside bytes.
+Ordinary mode still affects creation only. Explicit timestamps and Clock samples must fit snapshot v1's signed
+128-digit domain. Invalid values fail before publication. See the [review corrections](../../.docs/context/review-fixes.md).

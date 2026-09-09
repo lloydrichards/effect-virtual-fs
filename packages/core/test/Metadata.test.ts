@@ -1,9 +1,95 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Clock, Effect, Result } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 describe("metadata authority", () => {
+  it.effect("rejects timestamps outside the snapshot domain before changing path or handle metadata", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      const handle = yield* fs.open("/f", { access: "write", create: "exclusive" })
+      const before = yield* handle.stat()
+      for (const nanoseconds of [10n ** 128n, -(10n ** 128n)]) {
+        const times = { access: { kind: "value", nanoseconds }, modification: { kind: "now" } } as const
+        const result = yield* Effect.result(fs.utimes("/f", times))
+        assert.isTrue(Result.isFailure(result), "out-of-domain timestamp must fail")
+        if (Result.isFailure(result)) assert.strictEqual(result.failure.code, "InvalidArgument")
+        assert.deepStrictEqual(yield* handle.stat(), before)
+        assert.strictEqual((yield* Effect.flip(fs.utimesHandle(handle, times))).code, "InvalidArgument")
+        assert.deepStrictEqual(yield* handle.stat(), before)
+      }
+    }))
+
+  it.effect("round-trips timestamp boundaries and rejects out-of-domain fixture metadata", () =>
+    Effect.gen(function*() {
+      const maximum = 10n ** 128n - 1n
+      const volume = yield* Vfs.fromFixture({
+        rootMetadata: { birthtimeNs: -maximum },
+        entries: [{ kind: "file", path: "/f", bytes: new Uint8Array(), metadata: { ctimeNs: maximum } }]
+      })
+      const fs = yield* volume.caller()
+      yield* fs.utimes("/f", {
+        access: { kind: "value", nanoseconds: maximum },
+        modification: { kind: "value", nanoseconds: -maximum }
+      })
+      const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot())
+      const restored = yield* Vfs.fromSnapshot(
+        yield* Vfs.decodeSnapshot(encoded, {
+          maxEncodedBytes: 8192,
+          maxRecords: 2,
+          maxEntries: 1,
+          maxDecodedBytes: 1
+        })
+      )
+      const copy = yield* restored.caller()
+      assert.strictEqual((yield* copy.stat("/")).birthtimeNs, -maximum)
+      const metadata = yield* copy.stat("/f")
+      assert.strictEqual(metadata.atimeNs, maximum)
+      assert.strictEqual(metadata.mtimeNs, -maximum)
+      for (const nanoseconds of [maximum + 1n, -maximum - 1n]) {
+        const rootError = yield* Effect.flip(Vfs.fromFixture({
+          rootMetadata: { atimeNs: nanoseconds },
+          entries: []
+        }))
+        assert.strictEqual(rootError._tag, "ImageError")
+        if (rootError._tag === "ImageError") assert.strictEqual(rootError.code, "InvalidStructure")
+        const entryError = yield* Effect.flip(Vfs.fromFixture({
+          entries: [{ kind: "file", path: "/f", bytes: new Uint8Array(), metadata: { birthtimeNs: nanoseconds } }]
+        }))
+        assert.strictEqual(entryError._tag, "ImageError")
+        if (entryError._tag === "ImageError") assert.strictEqual(entryError.code, "InvalidStructure")
+      }
+    }))
+
+  it.effect("rejects unsupported captured clock samples before creation or mutation", () =>
+    Effect.gen(function*() {
+      const original = yield* Clock.clockWith(Effect.succeed)
+      let now = 10n ** 128n
+      const clock: Clock.Clock = {
+        currentTimeMillisUnsafe: () => original.currentTimeMillisUnsafe(),
+        currentTimeMillis: original.currentTimeMillis,
+        currentTimeNanosUnsafe: () => now,
+        currentTimeNanos: Effect.sync(() => now),
+        monotonicTimeNanosUnsafe: () => original.monotonicTimeNanosUnsafe(),
+        monotonicTimeNanos: original.monotonicTimeNanos,
+        sleep: (duration) => original.sleep(duration)
+      }
+      const result = yield* Effect.result(Vfs.make().pipe(Effect.provideService(Clock.Clock, clock)))
+      assert.isTrue(Result.isFailure(result), "out-of-domain Clock must fail construction")
+      if (Result.isFailure(result)) assert.strictEqual(result.failure.field, "clock.currentTimeNanos")
+      now = 0n
+      const volume = yield* Vfs.make().pipe(Effect.provideService(Clock.Clock, clock))
+      const fs = yield* volume.caller()
+      const file = yield* fs.open("/f", { access: "readWrite", create: "exclusive" })
+      yield* file.write(new Uint8Array([1]))
+      const before = yield* Vfs.encodeSnapshot(yield* volume.snapshot())
+      now = -(10n ** 128n)
+      for (const operation of [fs.mkdir("/d"), file.write(new Uint8Array([2])), fs.chmod("/f", 0), fs.readFile("/f")]) {
+        assert.strictEqual((yield* Effect.flip(operation)).code, "InvalidArgument")
+        assert.deepStrictEqual(yield* Vfs.encodeSnapshot(yield* volume.snapshot()), before)
+      }
+    }))
+
   it.effect("keeps open-time access after chmod while metadata uses the invoking caller", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()

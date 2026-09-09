@@ -1,0 +1,70 @@
+$ vitest run test/AdapterCompatibility.test.ts -t "copies the source mode"
+
+ RUN  v4.1.11 /Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory
+
+stdout | test/AdapterCompatibility.test.ts > memory adapter compatibility > copies the source mode while preserving an existing copyFile destination and its aliases
+[07:47:04.538] ERROR (#1): Error [AssertionError]: expected [ { _tag: 'Update', …(1) }, …(2) ] to deeply equal [ { _tag: 'Update', …(1) }, …(2) ]
+    at Array.<anonymous> (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/test/AdapterCompatibility.test.ts:101:14) {
+  actual: [
+    { _tag: 'Update', path: '/destination' },
+    { _tag: 'Update', path: '/alias' },
+    { _tag: 'Update', path: '/destination' }
+  ],
+  expected: [
+    { _tag: 'Update', path: '/destination' },
+    { _tag: 'Update', path: '/alias' },
+    { _tag: 'Create', path: '/sentinel' }
+  ],
+  showDiff: true,
+  operator: 'deepStrictEqual',
+  [cause]: undefined
+}
+
+ ❯ test/AdapterCompatibility.test.ts (11 tests | 1 failed | 10 skipped) 18ms
+     × copies the source mode while preserving an existing copyFile destination and its aliases 17ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/AdapterCompatibility.test.ts > memory adapter compatibility > copies the source mode while preserving an existing copyFile destination and its aliases
+AssertionError: expected [ { _tag: 'Update', …(1) }, …(2) ] to deeply equal [ { _tag: 'Update', …(1) }, …(2) ]
+
+- Expected
++ Received
+
+@@ -6,9 +6,9 @@
+    {
+      "_tag": "Update",
+      "path": "/alias",
+    },
+    {
+-     "_tag": "Create",
+-     "path": "/sentinel",
++     "_tag": "Update",
++     "path": "/destination",
+    },
+  ]
+
+ ❯ Array.<anonymous> test/AdapterCompatibility.test.ts:101:14
+     99|       assert.strictEqual(new TextDecoder().decode(Option.getOrThrow(yi…
+    100|       yield* fs.makeDirectory("/sentinel")
+    101|       assert.deepStrictEqual(yield* Fiber.join(watched), [
+       |              ^
+    102|         { _tag: "Update", path: "/destination" },
+    103|         { _tag: "Update", path: "/alias" },
+ ❯ Object.~effect/Effect/successCont ../../node_modules/effect/src/internal/effect.ts:1365:25
+ ❯ Object.~effect/Effect/evaluate ../../node_modules/effect/src/internal/core.ts:514:30
+ ❯ FiberImpl.runLoop ../../node_modules/effect/src/internal/effect.ts:655:39
+ ❯ FiberImpl.evaluate ../../node_modules/effect/src/internal/effect.ts:607:22
+ ❯ ../../node_modules/effect/src/internal/effect.ts:5422:8
+ ❯ ../../node_modules/effect/src/internal/effect.ts:5500:18
+ ❯ Module.<anonymous> ../../node_modules/effect/src/internal/effect.ts:5519:4
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 10 skipped (11)
+   Start at  07:47:04
+   Duration  277ms (transform 58ms, setup 0ms, import 176ms, tests 18ms, environment 0ms)
+
+error: script "test" exited with code 1

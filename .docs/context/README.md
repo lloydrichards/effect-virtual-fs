@@ -69,9 +69,9 @@ or API explicitly before implementation.
 ## Current repository
 
 - Core is private at 0.0.0 and memory is private at 0.1.0. Effect remains pinned to 4.0.0-rc.112.
-- Sixty core, 95 memory and three consumer tests pass. The memory suites run through core.
+- The core, memory and consumer suites pass, including the subsequent [review regressions](review-fixes.md). The memory suites run through core.
 - The private Vite app imports built package exports. See [consumer evidence](consumer-implementation.md).
-- [Final validation](../evidence/final/results.json) records the configured checks. Browser-target bundling plus a Node
+- [Latest review validation](../evidence/review-fixes/results.json) records the configured checks. Browser-target bundling plus a Node
   smoke is distinct from browser runtime testing. Linux CI and the repository-pinned Bun 1.2.21 were not executed here.
 - The local run used Bun 1.4.0 and Node 24.10.0 without upgrading existing dependencies.
 - Historical first-slice, baseline and research documents preserve the checks and open questions from their dates.
