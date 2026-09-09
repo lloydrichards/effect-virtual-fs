@@ -1,3 +1,8 @@
+/**
+ * Compiles and matches the bounded POSIX glob syntax used by the memory adapter.
+ *
+ * @internal
+ */
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import { badArgument } from "effect/PlatformError"
@@ -236,6 +241,7 @@ const compileGlobPattern = Effect.fnUntraced(function*(method: string, pattern: 
   return { segments: compiled, directoryOnly } satisfies CompiledGlobPattern
 })
 
+/** @internal */
 export const compileGlobPatterns = Effect.fnUntraced(function*(method: string, pattern: string) {
   const expanded = yield* expandBraces(method, pattern)
   return yield* Effect.forEach(expanded, (alternative) => compileGlobPattern(method, alternative))
@@ -282,6 +288,7 @@ const matchesGlobSegment = (pattern: GlobSegment, value: string): boolean => {
   return patternIndex === pattern.tokens.length
 }
 
+/** @internal */
 export const matchesGlob = (pattern: CompiledGlobPattern, path: ReadonlyArray<string>, directory: boolean): boolean => {
   if (pattern.directoryOnly && !directory) return false
   // Each row includes the terminal column; loop bounds keep every indexed cell present.

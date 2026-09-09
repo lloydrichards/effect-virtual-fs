@@ -1,6 +1,6 @@
 # VirtualFileSystem development context
 
-Research baseline: 8 September 2026. Implementation status: 9 September 2026. The accepted private milestones are
+Research baseline: 8 September 2026. Implementation status: 9 September 2026. The accepted implementation milestones are
 implemented and locally validated. Start with the [implemented profile and evidence ledger](implemented-profile.md)
 for the current API, limits, tests, exclusions and runtime caveats. Earlier slice documents are dated evidence.
 
@@ -50,7 +50,7 @@ proposals without marking them accepted or implemented.
 
 The user authorized the design, initial directory slice, and then continued implementation and commits through all
 accepted milestones. Decisions 0001-0021 plus [implementation policy 0022](../decisions/0022-remaining-implementation-profile.md)
-define the private profile. The basic and bounded-package consumer gates both pass. Older research/prototype
+define the implemented profile. The basic and bounded-package consumer gates both pass. Older research/prototype
 signatures remain historical proposals; use actual exports and the implemented profile for new work.
 
 Use these labels consistently:
@@ -74,7 +74,8 @@ or API explicitly before implementation.
 - The [implementation refactor](implementation-refactor.md) records subsequent internal simplifications,
   comparable snapshot memory measurements, and review findings. Earlier validation remains dated evidence.
 
-- Core is private at 0.0.0 and memory is private at 0.1.0. Effect remains pinned to 4.0.0-rc.112.
+- Core and memory are prepared for public `0.1.0` releases. Core must be published first because memory depends on
+  `@effect-vfs/core@^0.1.0`. Effect remains pinned to 4.0.0-rc.112.
 - The core, memory and consumer suites pass, including the subsequent [review regressions](review-fixes.md). The memory suites run through core.
 - The private Vite app imports built package exports. See [consumer evidence](consumer-implementation.md).
 - [Latest review validation](../evidence/review-fixes/results.json) records the configured checks. Browser-target bundling plus a Node

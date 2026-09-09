@@ -1,30 +1,26 @@
-import * as Data from "effect/Data"
+/**
+ * Snapshot validation and serialization used by `VirtualFileSystem`.
+ *
+ * @internal
+ */
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
+import { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "../Snapshot.js"
 
-const SnapshotId = Symbol("@effect-vfs/core/Snapshot")
-export interface Snapshot {
-  readonly [SnapshotId]: true
-}
-export class ImageError extends Data.TaggedError("ImageError")<{
-  readonly code: "InvalidEncoding" | "UnsupportedVersion" | "InvalidStructure" | "LimitExceeded"
-  readonly field?: string
-}> {}
 const natural = Schema.Finite.check(
   Schema.isInt(),
   Schema.isGreaterThanOrEqualTo(0),
   Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
 )
-export const DecodeLimits = Schema.Struct({
-  maxEncodedBytes: natural,
-  maxRecords: natural,
-  maxEntries: natural,
-  maxDecodedBytes: natural
-})
-export type DecodeLimits = typeof DecodeLimits.Type
+
+class SnapshotImpl implements Snapshot {
+  readonly [SnapshotTypeId]: SnapshotTypeId = SnapshotTypeId
+}
+
 const integer = Schema.String.check(Schema.isPattern(/^(?:0|-?[1-9][0-9]{0,127})(?![\s\S])/))
+/** @internal */
 export const StoredMetadata = Schema.Struct({
   uid: natural,
   gid: natural,
@@ -34,8 +30,10 @@ export const StoredMetadata = Schema.Struct({
   ctimeNs: integer,
   birthtimeNs: integer
 })
+/** @internal */
 export type StoredMetadata = typeof StoredMetadata.Type
 const id = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128))
+/** @internal */
 export const Record = Schema.Union([
   Schema.Struct({
     id,
@@ -46,13 +44,16 @@ export const Record = Schema.Union([
   Schema.Struct({ id, kind: Schema.Literal("file"), metadata: StoredMetadata, data: Schema.String }),
   Schema.Struct({ id, kind: Schema.Literal("symlink"), metadata: StoredMetadata, target: Schema.String })
 ])
+/** @internal */
 export type Record = typeof Record.Type
+/** @internal */
 export const Document = Schema.Struct({
   format: Schema.Literal("effect-vfs"),
   version: Schema.Literal(1),
   root: id,
   records: Schema.Array(Record)
 })
+/** @internal */
 export type Document = typeof Document.Type
 const snapshots = new WeakMap<Snapshot, Document>()
 const canonicalBase64Tail = /^(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?(?![\s\S])/
@@ -60,8 +61,10 @@ const canonicalBase64Tail = /^(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/][AQgw]==|[A-Za-z0
 // the regexp stack growth caused by repeating a four-character group over large files.
 const canonicalBase64 = (value: string): boolean =>
   value.length % 4 === 0 && !/[^A-Za-z0-9+/]/.test(value.slice(0, -4)) && canonicalBase64Tail.test(value.slice(-4))
+/** @internal */
 export const decodedLength = (value: string): number =>
   value.length / 4 * 3 - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0)
+/** @internal */
 export const base64 = (input: Uint8Array): string => {
   // Effect's encoder concatenates individual characters. Join bounded chunks so snapshots
   // retain flat strings instead of those intermediate string chains. A multiple of three
@@ -75,17 +78,20 @@ export const base64 = (input: Uint8Array): string => {
 }
 const error = (code: ImageError["code"], field?: string) =>
   new ImageError({ code, ...(field === undefined ? {} : { field }) })
+/** @internal */
 export const bytes = (value: string): Uint8Array => {
   const result = Encoding.decodeBase64(value)
   if (Result.isFailure(result)) throw new Error("Invalid trusted snapshot base64")
   return result.success
 }
+/** @internal */
 export const inspect = (snapshot: Snapshot): Effect.Effect<Document, ImageError> =>
   Effect.suspend(() => {
     const document = snapshots.get(snapshot)
     return document === undefined ? Effect.fail(error("InvalidStructure", "snapshot")) : Effect.succeed(document)
   })
 
+/** @internal */
 export const capture = Effect.fnUntraced(function*(input: unknown, limits?: DecodeLimits) {
   const decoded = Schema.decodeUnknownResult(Document, { onExcessProperty: "error" })(input)
   if (Result.isFailure(decoded)) return yield* error("InvalidStructure")
@@ -155,17 +161,19 @@ export const capture = Effect.fnUntraced(function*(input: unknown, limits?: Deco
     if (record?.kind === "directory") { for (const entry of record.entries) pending.push(entry.target) }
   }
   if (visited.size !== records.size) return yield* error("InvalidStructure", "reachability")
-  const snapshot: Snapshot = Object.freeze({ [SnapshotId]: true as const })
+  const snapshot: Snapshot = Object.freeze(new SnapshotImpl())
   snapshots.set(snapshot, document)
   return snapshot
 })
 
+/** @internal */
 export const encodeSnapshot = Effect.fn("VirtualFileSystem.encodeSnapshot")(function*(snapshot: Snapshot) {
   const text = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(yield* inspect(snapshot)).pipe(
     Effect.mapError(() => error("InvalidStructure"))
   )
   return new TextEncoder().encode(text)
 })
+/** @internal */
 export const decodeSnapshot = Effect.fn("VirtualFileSystem.decodeSnapshot")(
   function*(input: Uint8Array, limits: DecodeLimits) {
     const checked = Schema.decodeResult(DecodeLimits, { onExcessProperty: "error" })(limits)

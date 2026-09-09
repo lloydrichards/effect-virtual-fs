@@ -1,4 +1,4 @@
-import { MemoryFileSystem } from "../../dist/index.js"
-import * as MemoryFileSystemModule from "../../dist/MemoryFileSystem.js"
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as MemoryFileSystemModule from "@effect-vfs/memory/MemoryFileSystem"
 
 export { MemoryFileSystem, MemoryFileSystemModule }

@@ -1,6 +1,6 @@
 # Decision register
 
-Current implementation update (9 September 2026): all accepted private milestones are implemented and locally
+Current implementation update (9 September 2026): all accepted milestones are implemented and locally
 validated. The [implemented profile](implemented-profile.md) supersedes the historical statuses and open questions
 below; policy 0022 records remaining implementation choices. Earlier text preserves the research/sequence history.
 
@@ -13,7 +13,7 @@ Earlier descriptions of open questions record what each decision left unsettled 
 
 | Topic                   | Accepted choice                                                                                                       | Record                                                        |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Packages                | Memory ships first; core stays private until its claims have evidence; memory later depends on core.                  | [0001](../decisions/0001-package-boundaries.md)               |
+| Packages                | Core met its evidence gate; publish core 0.1.0 before memory 0.1.0 because memory depends on core.                    | [0001](../decisions/0001-package-boundaries.md)               |
 | Access styles           | Explicit objects plus a thin optional Effect service layer, both available initially.                                 | [0002](../decisions/0002-explicit-api-and-effect-services.md) |
 | String filename results | Fail with structured errors when a required filename cannot be represented faithfully. Preserve raw-byte access.      | [0003](../decisions/0003-strict-string-filename-boundary.md)  |
 | Privilege               | Explicit caller setting independent of user/group IDs; default caller is privileged.                                  | [0004](../decisions/0004-explicit-caller-privilege.md)        |

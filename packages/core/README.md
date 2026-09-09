@@ -1,119 +1,283 @@
 # @effect-vfs/core
 
-Private, experimental standalone filesystem. Implements regular files, byte-preserving names, directories,
-links, scoped handles, permissions, metadata, quotas, watches, fixtures and isolated snapshot persistence.
-The memory adapter binds this core. See the [implemented profile](../../.docs/context/implemented-profile.md) for
-supported operations, decisions, tests and exclusions.
+`@effect-vfs/core` is a runtime-neutral virtual filesystem engine for Effect. It gives you isolated in-memory volumes,
+byte-preserving paths, POSIX-inspired permissions, logical quotas, change streams, deterministic fixtures, and portable
+encoded snapshots without reading from or writing to the host filesystem.
 
-## Usage
+Use it when filesystem state is part of your domain: sandboxing a tool, modeling several users against one namespace,
+testing permission behavior, building repeatable fixtures, or saving and restoring an in-memory workspace. If you need
+Effect's standard `FileSystem` service, use [`@effect-vfs/memory`](https://www.npmjs.com/package/@effect-vfs/memory),
+which adapts this package to that interface.
+
+The package implements a documented subset of POSIX behavior. It does not claim full POSIX conformance. See the
+[implemented profile](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.docs/context/implemented-profile.md)
+for the exact permission, path, timestamp, quota, and atomicity rules.
+
+## Install
+
+```sh
+npm install @effect-vfs/core effect@4.0.0-rc.112
+```
+
+Version `0.1.0` targets the exact peer version `effect@4.0.0-rc.112`.
+
+## The mental model
+
+The API has three levels:
+
+- A `Volume` owns one isolated namespace and its file contents.
+- A `Caller` accesses that volume with its own identity, umask, and current directory.
+- File and directory handles are scoped capabilities. Effect closes them when their scope ends.
+
+Callers created from the same volume see the same files. A new volume starts with independent state. This separation
+lets you model access by several users without reaching for process globals or the host filesystem.
+
+## Create an isolated workspace
+
+This example creates a bounded workspace, gives an unprivileged caller access to one directory, and uses a scoped file
+handle to read the result. It demonstrates the main benefit of the core API: storage, credentials, limits, and resource
+lifetime are explicit values that can be composed in one Effect program.
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const utf8 = new TextEncoder()
+
+const program = Effect.scoped(Effect.gen(function*() {
+  const volume = yield* Vfs.make({
+    maxEntries: 100,
+    maxBytes: 1_000_000,
+    maxFileBytes: 100_000
+  })
+
+  const admin = yield* volume.caller()
+  yield* admin.mkdir("/workspace", { mode: 0o770 })
+  yield* admin.chown("/workspace", { uid: 1000, gid: 1000 })
+
+  const developer = yield* volume.caller({
+    identity: { uid: 1000, gid: 1000, groups: [], privileged: false },
+    umask: 0o027
+  })
+
+  yield* developer.writeFile(
+    "/workspace/config.json",
+    utf8.encode(JSON.stringify({ feature: "preview" })),
+    { access: "write", create: "exclusive", mode: 0o666 }
+  )
+
+  const file = yield* developer.open("/workspace/config.json", { access: "read" })
+  const contents = yield* file.read(100_000)
+  const metadata = yield* file.stat
+
+  return {
+    config: JSON.parse(new TextDecoder().decode(contents)),
+    mode: metadata.mode.toString(8)
+  }
+}))
+
+const result = await Effect.runPromise(program)
+console.log(result) // { config: { feature: "preview" }, mode: "640" }
+```
+
+The root caller is privileged by default. Privilege is explicit: setting `uid` to `0` does not grant it. New root
+callers default to umask `0o022`; the developer's `0o027` mask turns the requested file mode `0o666` into `0o640`.
+
+The root package exports `VirtualFileSystem` as a namespace. The equivalent direct module import is
+`import * as Vfs from "@effect-vfs/core/VirtualFileSystem"`.
+
+## Preserve path bytes exactly
+
+JavaScript strings cannot represent every filename allowed by a byte-oriented filesystem. `BytePath` keeps arbitrary
+non-NUL path bytes intact. This matters when reproducing archives, protocol fixtures, or Unix directory trees that
+contain names which are not valid UTF-8.
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const volume = yield* Vfs.make()
+  const fs = yield* volume.caller()
+
+  // Absolute path whose final component is the single byte 0xff.
+  const opaquePath = yield* Vfs.pathFromBytes(new Uint8Array([0x2f, 0xff]))
+  yield* fs.writeFile(opaquePath, new Uint8Array([1, 2, 3]), {
+    access: "write",
+    create: "exclusive"
+  })
+
+  const names = yield* fs.readDirectoryBytes("/")
+  const roundTrip = yield* Vfs.pathToBytes(opaquePath)
+  return { names: names.map((name) => Array.from(name)), roundTrip: Array.from(roundTrip) }
+})
+
+console.log(await Effect.runPromise(program))
+// { names: [[255]], roundTrip: [47, 255] }
+```
+
+The constructors and byte-returning operations copy their buffers, so later mutation cannot change stored paths.
+String-returning operations fail with `FsError` code `UnrepresentableName` when a name is not valid UTF-8. Use the byte
+variants of directory enumeration, symbolic-link targets, and resolved paths when exact bytes matter.
+
+## Build fixtures and restore snapshots
+
+Fixtures make tests deterministic without a setup sequence. Snapshots let you capture that prepared state, serialize
+it, and create independent workspaces from the same image. This is useful for test isolation, preview environments, and
+resettable sandboxes.
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const decodeLimits = {
+  maxEncodedBytes: 1_000_000,
+  maxRecords: 1_000,
+  maxEntries: 1_000,
+  maxDecodedBytes: 1_000_000
+}
+
+const program = Effect.gen(function*() {
+  const template = yield* Vfs.fromFixture({
+    entries: [
+      { kind: "directory", path: "/project" },
+      {
+        kind: "file",
+        path: "/project/settings.json",
+        bytes: new TextEncoder().encode("{\"theme\":\"dark\"}")
+      }
+    ]
+  })
+
+  const encoded = yield* Vfs.encodeSnapshot(yield* template.snapshot)
+  const snapshot = yield* Vfs.decodeSnapshot(encoded, decodeLimits)
+  const workspaceA = yield* Vfs.fromSnapshot(snapshot)
+  const workspaceB = yield* Vfs.fromSnapshot(snapshot)
+  const a = yield* workspaceA.caller()
+  const b = yield* workspaceB.caller()
+
+  yield* a.writeFile("/project/settings.json", new TextEncoder().encode("{\"theme\":\"light\"}"), {
+    access: "write",
+    truncate: true
+  })
+
+  return new TextDecoder().decode(yield* b.readFile("/project/settings.json"))
+})
+
+console.log(await Effect.runPromise(program)) // {"theme":"dark"}
+```
+
+Fixture paths must be absolute and unique, and parent directories must be listed explicitly. Fixtures can also contain
+symbolic links, metadata, and forward hard links.
+
+Snapshot decoding requires explicit work limits because encoded bytes may come from an untrusted source. A snapshot
+contains the reachable namespace and metadata. It excludes callers, open handles, cursor positions, watch
+subscriptions, and unlinked content. Each restored volume is independent.
+
+## Use scoped handles for incremental I/O
+
+Whole-file operations are convenient, but handles give each open file an independent `bigint` cursor and support
+incremental reads, positional I/O, seeking, and truncation. `Effect.scoped` guarantees cleanup on success, failure, or
+interruption.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
 const program = Effect.scoped(Effect.gen(function*() {
-  const volume = yield* Vfs.make({ maxEntries: 100 })
-  const root = yield* volume.caller()
-  yield* root.mkdir("/project")
-  const project = yield* root.withDirectory("/project")
-  yield* project.mkdir("src")
-  const directory = yield* project.openDirectory("src")
-  const metadata = yield* directory.stat
-  yield* directory.close
-  return metadata
+  const fs = yield* (yield* Vfs.make()).caller()
+  yield* fs.writeFile("/events.log", new TextEncoder().encode("one\ntwo\n"), {
+    access: "write",
+    create: "exclusive"
+  })
+
+  const file = yield* fs.open("/events.log", { access: "read" })
+  const first = yield* file.read(4) // Advances this handle's cursor.
+  const second = yield* file.read(4)
+  const preview = yield* file.pread(3, 0n) // Does not move the cursor.
+
+  return [first, second, preview].map((bytes) => new TextDecoder().decode(bytes))
 }))
+
+console.log(await Effect.runPromise(program)) // ["one\n", "two\n", "one"]
 ```
 
-Every execution of `make` creates an independent volume. Callers from the same volume share its namespace but retain
-separate credentials, masks, and cwd identities. Root callers need no Scope and have no close method. Derived callers
-and directory handles use the acquiring scope; closing a parent caller does not close independently scoped children
-or handles. Explicit double-close fails; scope cleanup tolerates an earlier explicit close.
+Handles also expose an explicit `close` effect when early release matters. Calling explicit close twice fails, while
+scope cleanup remains safe after an explicit close.
 
-Use `Vfs.CurrentFileSystem` with `Effect.provideService` or `Layer.succeed` to provide an existing caller. `Layer.effect`
-can acquire a derived caller and own its scope. The service adds no separate filesystem state.
+## Handle expected failures as data
 
-## Supported operations
+Filesystem failures are typed `FsError` values with a stable `code`, `operation`, and optional `path`. Configuration
+and snapshot failures use `ConfigurationError` and `ImageError`. Interruption and defects remain separate from these
+expected failures.
 
-- `Vfs.make`, `volume.caller`, `Vfs.pathFromBytes`, and `Vfs.pathToBytes`.
-- `caller.stat`, exclusive nonrecursive `caller.mkdir`, `caller.withDirectory`, and `caller.openDirectory`.
-- `caller.rename` and empty-directory-only `caller.rmdir`.
-- `directory.stat` and `directory.close`.
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
 
-Other operations are absent rather than returning placeholder successes. Metadata describes directories and regular files. The package emits JavaScript and declarations but remains private; the complete POSIX profile is unfinished.
+const program = Effect.gen(function*() {
+  const fs = yield* (yield* Vfs.make()).caller()
 
-## Contracts
+  return yield* fs.readFile("/optional.json").pipe(
+    Effect.catchTag("FsError", (error) =>
+      error.code === "NotFound"
+        ? Effect.succeed(new TextEncoder().encode("{}"))
+        : Effect.fail(error))
+  )
+})
 
-Root starts at uid/gid 0 with mode 0755. Default callers are explicitly privileged, with uid/gid 0, no supplementary
-groups, and umask 0022. User ID zero alone grants no privilege. Creation uses caller uid, parent gid, and requested
-mode 0777 masked by umask. Sticky creation is supported; creation set-ID bits are ignored. Directory handles grant
-identity, not the opener's privilege.
+const bytes = await Effect.runPromise(program)
+console.log(new TextDecoder().decode(bytes)) // {}
+```
 
-String paths use strict UTF-8 input; lone surrogates, NUL, and empty input fail. Byte paths preserve non-UTF-8 names.
-Constructors copy byte inputs at execution and exports return independent buffers. Shared-memory-backed and detached
-views are rejected. Slash is the separator on every runtime; no case folding, Unicode normalization, or host-path
-expansion occurs. Dot components resolve against directory identity and root dot-dot stays at root.
+## Provide a caller as an Effect service
 
-Absolute paths ignore a supplied directory base. Relative paths require a live same-volume base and use the invoking
-caller's permissions. Directory bases are not restricted roots.
+`CurrentFileSystem` is an optional service for application code that should receive an existing caller through its
+Effect environment. The service owns no storage; the provided caller keeps its original volume, identity, umask, and
+current directory.
 
-Rename accepts independent `sourceRelativeTo` and `destinationRelativeTo` directory bases. It preserves cwd and
-handle identity, including the new parent used by `..`. Replacing an empty directory retains its open handles,
-whose metadata reports zero links. Removed directories reject relative lookup and creation with `NotFound`;
-retained callers can still use absolute paths. Root and final dot/dot-dot mutations fail with `InvalidArgument`.
-Nonempty directory removal or replacement fails with `NotEmpty`. A trailing slash on a rename destination
-requires an existing directory. Same-entry rename succeeds without changing metadata or consuming quota.
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
 
-Both rename parents require write/search permission. Sticky directories additionally require the invoking caller
-to own the parent or affected entry, or have explicit privilege. Destination replacement checks that entry too.
-No additional write permission on the moved directory itself is required. Successful rename/removal publishes
-parent link counts and timestamps together. Expected failures preserve both paths and their metadata.
+const loadConfig = Effect.gen(function*() {
+  const fs = yield* Vfs.CurrentFileSystem
+  return yield* fs.readFile("/app/config.json")
+})
 
-`maxEntries` excludes root and implicit dot entries. Zero allows root but no new names. `maxPathBytes` counts input
-bytes including separators, before normalization. Both limits have no configured cap when omitted. A provisional
-255-byte component bound is enforced. These are logical limits, not heap or CPU guarantees. Following symlinks is limited to 40 traversals; exact expanded bytes also obey maxPathBytes when configured.
+const program = Effect.gen(function*() {
+  const fs = yield* (yield* Vfs.make()).caller()
+  yield* fs.mkdir("/app")
+  yield* fs.writeFile("/app/config.json", new TextEncoder().encode("{}"), {
+    access: "write",
+    create: "exclusive"
+  })
+  return yield* loadConfig.pipe(Effect.provideService(Vfs.CurrentFileSystem, fs))
+})
 
-The volume captures its Effect Clock. Directory creation publishes child metadata and parent timestamps/link count
-together, using Unix-epoch bigint nanoseconds without promising physical nanosecond clock accuracy. Reads return
-independent metadata objects. Failed creation leaves the namespace and metadata unchanged.
+const bytes = await Effect.runPromise(program)
+console.log(new TextDecoder().decode(bytes)) // {}
+```
 
-Operations use one permit per volume. Waiting is interruptible; publication and resource-state transitions are
-uninterruptible. Interruption can arrive after publication, so it does not imply rollback. Cleanup is registered
-before acquiring a directory reference. Acquisition into an already closed scope interrupts instead of retaining a
-live reference. Expected failures use `FsError` or `ConfigurationError`; defects and interruption remain distinct.
+## When to use core or memory
 
-See the [accepted contracts](../../.docs/context/first-core-contract-review.md),
-[optional path limit](../../.docs/decisions/0021-optional-total-path-limit.md), and
-[initial implementation evidence](../../.docs/context/first-core-implementation.md), and
-[directory namespace evidence](../../.docs/context/directory-namespace-implementation.md).
+Choose `@effect-vfs/core` when you need direct access to volumes, callers, credentials, byte paths, quotas, watches,
+fixtures, or snapshots. Choose `@effect-vfs/memory` when existing code expects Effect's `FileSystem` service and you
+want an in-memory implementation. The memory adapter is built on this core, so you can create a core volume and bind
+the adapter to it when you need both interfaces.
 
-## Regular files
+## Compatibility and behavioral limits
 
-`caller.open(path, { access: "readWrite", create: "ifMissing" })` acquires a scoped file. Handles provide read/write,
-pread/pwrite, seek, truncate, stat, sync, and strict explicit close. Separate opens have separate bigint offsets.
-`caller.unlink` removes the name while open handles retain bytes. See [file policy](../../.docs/decisions/0022-remaining-implementation-profile.md)
-for access, limits, partial transfers, timestamp rules, and the intentional difference from Effect adapter cursors.
+This package is experimental. Its public API may change between minor releases while Effect v4 remains a release
+candidate.
 
-`caller.link` shares file or symlink identity. `caller.symlink` stores an exact raw target. `stat` follows targets;
-`lstat` inspects links. `readDirectory`, `readLink`, and `realPath` have byte-preserving variants suffixed `Bytes`.
-String variants fail with UnrepresentableName for non-UTF-8 names or targets. Enumeration is an atomic whole list
-without implicit dot entries or an ordering promise.
+- Components are limited to 255 bytes. Symbolic-link traversal is limited to 40 links.
+- Omitted logical quotas are unbounded by configuration, apart from fixed file and component bounds.
+- Absolute paths ignore a supplied directory base. Relative paths can use a live, same-volume directory handle.
+- Operations coordinate through one permit per volume. Interruption while waiting makes no change; interruption after
+  a commit does not roll it back.
+- Watch streams contain byte paths and report future committed creates, updates, and removals without replay.
+- `sync` checks handle liveness. An in-memory volume provides no host or crash durability.
 
-Metadata operations include access, path truncate, chmod, chown, and utimes. Metadata-changing methods also have
-Handle variants using invoking-caller authority. Path metadata options can select followFinalSymlink false.
-Time updates use `{ kind: "now" }`, `{ kind: "omit" }`, or `{ kind: "value", nanoseconds: 0n }` for each field.
-
-## Fixtures and persistence
-
-`Vfs.fromFixture({ entries })` constructs a validated final state with explicit parents and forward hard links.
-`volume.snapshot` captures an isolated image; `encodeSnapshot` returns owned JSON/base64 bytes. `decodeSnapshot`
-requires explicit encoded-byte, record, entry, and decoded-byte limits. `fromSnapshot` restores a fresh independent
-volume subject to destination limits. Core performs no host I/O. Snapshot storage is outside live-volume quota.
-
-Whole-file readFile/writeFile helpers operate atomically and preserve existing file identity. Whole-file writes
-are all-or-error, while handle writes may return a short count. `volume.watch` acquires a scoped stream of
-committed byte-path events, with an unbounded buffer and no replay. All writers publish through core.
-
-writeFile accepts optional replaceFinalSymlink and finalMode controls for atomic copy adaptation. Replacement uses
-namespace/sticky permission and preserves the target; finalMode uses chmod authority and commits alongside bytes.
-Ordinary mode still affects creation only. Explicit timestamps and Clock samples must fit snapshot v1's signed
-128-digit domain. Invalid values fail before publication. See the [review corrections](../../.docs/context/review-fixes.md).
+For the complete contract, read the
+[implemented profile](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.docs/context/implemented-profile.md).

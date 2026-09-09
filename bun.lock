@@ -50,13 +50,14 @@
     },
     "packages/core": {
       "name": "@effect-vfs/core",
-      "version": "0.0.0",
-      "dependencies": {
-        "effect": "4.0.0-rc.112",
-      },
+      "version": "0.1.0",
       "devDependencies": {
         "@effect/vitest": "4.0.0-rc.112",
         "@repo/config-typescript": "workspace:*",
+        "effect": "4.0.0-rc.112",
+      },
+      "peerDependencies": {
+        "effect": "4.0.0-rc.112",
       },
     },
     "packages/memory": {

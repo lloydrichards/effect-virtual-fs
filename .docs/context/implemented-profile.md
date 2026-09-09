@@ -1,6 +1,6 @@
 # Implemented filesystem profile
 
-Status: 9 September 2026. The accepted private implementation milestones are complete: core, memory adaptation,
+Status: 9 September 2026. The accepted implementation milestones are complete: core, memory adaptation,
 fixtures/snapshots, standalone build/rebuild, bounded virtual package imports, and local validation. This is a
 bounded project profile based on POSIX.1-2024 Issue 8, not full POSIX conformance or certification. The research
 ledger remains useful for source provenance; this document states what the implementation actually supports.
@@ -102,8 +102,10 @@ The dependency workload measurement is a single selected real-tree sample, not a
 
 Deferred: mounts, FUSE/Vim, network filesystems, overlays, host-tree import/export APIs, special files, advisory locks,
 descriptor duplication, restricted roots, sparse/COW optimization, crash durability, arbitrary native tools, full Node
-package resolution, installation and HMR. Core and memory remain private. The independent review identified and repaired additional correctness gaps after the first completion report;
-see [review corrections](review-fixes.md). All accepted feature milestones remain implemented; publication readiness and broader standards/runtime certification remain separate.
+package resolution, installation and HMR. Core and memory are prepared for public `0.1.0` releases, with core published
+first because memory depends on it. The independent review identified and repaired additional correctness gaps after
+the first completion report; see [review corrections](review-fixes.md). All accepted feature milestones remain
+implemented; broader standards and runtime certification remain separate.
 
 ## Effect operation syntax
 
