@@ -1,0 +1,41 @@
+{
+  "packages": [
+    {
+      "name": "effect",
+      "version": "4.0.0-rc.112"
+    },
+    {
+      "name": "vite",
+      "version": "8.2.2"
+    },
+    {
+      "name": "rolldown",
+      "version": "1.2.7"
+    }
+  ],
+  "workload": "Selected installed package trees; nested node_modules and nonregular entries excluded",
+  "files": 2431,
+  "entries": 2554,
+  "sourceBytes": 50721951,
+  "encodedBytes": 68108683,
+  "encodedToSourceRatio": 1.343,
+  "restoredManifestBytes": 5093,
+  "timings": {
+    "preparationMs": 184.62,
+    "fixtureMs": 3933.46,
+    "captureMs": 3325.43,
+    "encodeMs": 75.28,
+    "decodeMs": 260.16,
+    "restoreMs": 102.91
+  },
+  "memory": {
+    "beforePreparationRssBytes": 115163136,
+    "afterRestorationRssBytes": 3300999168,
+    "peakRssBytes": 3330342912,
+    "peakSource": "Node process.resourceUsage().maxRSS (KiB) multiplied by 1024",
+    "peakScope": "Process lifetime through restoration, including imports, host fixture preparation and all phases",
+    "collection": "No forced garbage collection; fixture input and pipeline values coexist as runtime liveness permits"
+  },
+  "runtime": "Node v24.10.0",
+  "platform": "darwin-arm64"
+}

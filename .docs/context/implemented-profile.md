@@ -59,7 +59,7 @@ resolves the remaining file, link, metadata, snapshot, and adapter choices under
 
 Rows inherit the source sections in the [research profile](posix-profile.md), refined by decisions 0020-0022.
 The named tests are executable project examples, not exhaustive enumeration of all standard clauses/error overlaps.
-All listed suites executed successfully in [final validation](../evidence/final/results.json). This evidence belongs
+All listed suites executed successfully in [review validation](../evidence/review-fixes/results.json). This evidence belongs
 to the source in the commit containing this ledger; earlier slice logs retain their earlier revisions and outcomes.
 
 | Requirements                | Selected behavior and representative executable evidence                                                                                                                                                                                                                                                                                                                    |
@@ -87,7 +87,7 @@ proposals and prototype declarations are historical composition material. They d
 ## Validation and exclusions
 
 Final commands include frozen install, formatting, lint, documentation contracts, executable models, types, forced
-workspace tests and builds. Tests execute 60 core + 95 memory + 3 consumer = 158. Logs identify cached type/build
+workspace tests and builds. The pre-review run executed 158 tests; the [review corrections](review-fixes.md) pass 177 tests, including regressions for the missed failures. Logs identify cached type/build
 results. The browser-target build now executes a reachable filesystem smoke under Node after bundling: this caught
 an undefined-export artifact from the earlier re-export-only fixture. It still does not establish browser/worker runtime
 behavior. Package exports are also exercised by the Vite consumer, without core importing memory or host filesystem APIs.
@@ -98,5 +98,5 @@ The dependency workload measurement is a single selected real-tree sample, not a
 
 Deferred: mounts, FUSE/Vim, network filesystems, overlays, host-tree import/export APIs, special files, advisory locks,
 descriptor duplication, restricted roots, sparse/COW optimization, crash durability, arbitrary native tools, full Node
-package resolution, installation and HMR. Core and memory remain private. There are no known outstanding implementation
-milestones in the accepted private scope; publication readiness and broader standards/runtime certification remain separate.
+package resolution, installation and HMR. Core and memory remain private. The independent review identified and repaired additional correctness gaps after the first completion report;
+see [review corrections](review-fixes.md). All accepted feature milestones remain implemented; publication readiness and broader standards/runtime certification remain separate.

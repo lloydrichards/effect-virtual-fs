@@ -1,0 +1,190 @@
+
+ RUN  v4.1.11 /Users/lloyd/Documents/GitHub/effect-virtual-fs
+
+stdout | packages/core/test/Replacement.test.ts > whole-file symlink replacement > replaces only the final link at full quota and publishes only its destination
+[07:45:53.186] ERROR (#1): Error [FsError]: 
+    at failure (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/core/src/VirtualFileSystem.ts:220:3)
+    at Object.<anonymous> (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/core/src/VirtualFileSystem.ts:983:56)
+    at Caller.writeFile (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/core/test/Replacement.test.ts:13:17)
+    at Caller.writeFile (definition) (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/core/src/VirtualFileSystem.ts:975:27) {
+  code: 'InvalidArgument',
+  operation: 'writeFile',
+  path: '/link',
+  _tag: 'FsError',
+  [cause]: undefined
+}
+
+stdout | packages/core/test/Replacement.test.ts > whole-file symlink replacement > retains linked target charges and metadata when replacement exceeds quota
+[07:45:53.189] ERROR (#9): Error [AssertionError]: expected 'InvalidArgument' to equal 'NoSpace'
+    at Array.<anonymous> (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/core/test/Replacement.test.ts:34:14) {
+  actual: 'InvalidArgument',
+  expected: 'NoSpace',
+  showDiff: true,
+  operator: 'strictEqual',
+  [cause]: undefined
+}
+
+stdout | packages/core/test/Replacement.test.ts > whole-file symlink replacement > requires namespace authority and retains ordinary no-follow behavior
+[07:45:53.191] ERROR (#15): Error [AssertionError]: expected 'InvalidArgument' to equal 'AccessDenied'
+    at Array.<anonymous> (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/core/test/Replacement.test.ts:54:14) {
+  actual: 'InvalidArgument',
+  expected: 'AccessDenied',
+  showDiff: true,
+  operator: 'strictEqual',
+  [cause]: undefined
+}
+
+ ❯ packages/core/test/Replacement.test.ts (3 tests | 3 failed) 14ms
+     × replaces only the final link at full quota and publishes only its destination 9ms
+     × retains linked target charges and metadata when replacement exceeds quota 3ms
+     × requires namespace authority and retains ordinary no-follow behavior 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/core/test/Replacement.test.ts > whole-file symlink replacement > replaces only the final link at full quota and publishes only its destination
+{
+  code: 'InvalidArgument',
+  operation: 'writeFile',
+  path: '/link',
+  _tag: 'FsError',
+  message: '',
+  stack: 'FsError: \n' +
+    '    at failure (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/core/src/VirtualFileSystem.ts:220:3)\n' +
+    '    at Object.<anonymous> (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/core/src/VirtualFileSystem.ts:983:56)\n' +
+    '    at Generator.next (<anonymous>)\n' +
+    '    at Object.~effect/Effect/successCont (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:928:26)\n' +
+    '    at Object.~effect/Effect/evaluate (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:940:23)\n' +
+    '    at FiberImpl.runLoop (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:462:107)\n' +
+    '    at FiberImpl.evaluate (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:422:23)\n' +
+    '    at file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:2286:9\n' +
+    '    at file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:2338:19\n' +
+    '    at Module.<anonymous> (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:2349:31)',
+  name: 'FsError',
+  stacks: [
+    {
+      method: 'failure',
+      file: '/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/core/src/VirtualFileSystem.ts',
+      line: 220,
+      column: 3
+    },
+    {
+      method: 'Object.<anonymous>',
+      file: '/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/core/src/VirtualFileSystem.ts',
+      line: 983,
+      column: 56
+    },
+    {
+      line: 1365,
+      column: 25,
+      file: '/Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/src/internal/effect.ts',
+      method: 'Object.~effect/Effect/successCont'
+    },
+    {
+      line: 1377,
+      column: 23,
+      file: '/Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/src/internal/effect.ts',
+      method: 'Object.~effect/Effect/evaluate'
+    },
+    {
+      line: 655,
+      column: 39,
+      file: '/Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/src/internal/effect.ts',
+      method: 'FiberImpl.runLoop'
+    },
+    {
+      line: 607,
+      column: 22,
+      file: '/Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/src/internal/effect.ts',
+      method: 'FiberImpl.evaluate'
+    },
+    {
+      line: 5422,
+      column: 8,
+      file: '/Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/src/internal/effect.ts',
+      method: ''
+    },
+    {
+      line: 5500,
+      column: 18,
+      file: '/Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/src/internal/effect.ts',
+      method: ''
+    },
+    {
+      line: 5519,
+      column: 4,
+      file: '/Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/src/internal/effect.ts',
+      method: 'Module.<anonymous>'
+    }
+  ]
+}
+ ❯ failure packages/core/src/VirtualFileSystem.ts:220:3
+    218| const bytePaths = new WeakMap<BytePath, Uint8Array>()
+    219| const failure = (code: FsCode, operation: string, path?: PathInput) =>
+    220|   new FsError({ code, operation, ...(path === undefined ? {} : { path …
+       |   ^
+    221|
+    222| const ownedPath = (bytes: Uint8Array): BytePath => {
+ ❯ Object.<anonymous> packages/core/src/VirtualFileSystem.ts:983:56
+ ❯ Object.~effect/Effect/successCont node_modules/effect/src/internal/effect.ts:1365:25
+ ❯ Object.~effect/Effect/evaluate node_modules/effect/src/internal/effect.ts:1377:23
+ ❯ FiberImpl.runLoop node_modules/effect/src/internal/effect.ts:655:39
+ ❯ FiberImpl.evaluate node_modules/effect/src/internal/effect.ts:607:22
+ ❯ node_modules/effect/src/internal/effect.ts:5422:8
+ ❯ node_modules/effect/src/internal/effect.ts:5500:18
+ ❯ Module.<anonymous> node_modules/effect/src/internal/effect.ts:5519:4
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  packages/core/test/Replacement.test.ts > whole-file symlink replacement > retains linked target charges and metadata when replacement exceeds quota
+AssertionError: expected 'InvalidArgument' to equal 'NoSpace'
+
+Expected: "NoSpace"
+Received: "InvalidArgument"
+
+ ❯ Array.<anonymous> packages/core/test/Replacement.test.ts:34:14
+     32|         access: "write", create: "ifMissing", truncate: true, replaceF…
+     33|       }))
+     34|       assert.strictEqual(failure.code, "NoSpace")
+       |              ^
+     35|       assert.deepStrictEqual(yield* fs.lstat("/a"), before)
+     36|       assert.deepStrictEqual(yield* fs.stat("/"), root)
+ ❯ Object.~effect/Effect/successCont node_modules/effect/src/internal/effect.ts:1365:25
+ ❯ Object.~effect/Effect/evaluate node_modules/effect/src/internal/core.ts:514:30
+ ❯ FiberImpl.runLoop node_modules/effect/src/internal/effect.ts:655:39
+ ❯ FiberImpl.evaluate node_modules/effect/src/internal/effect.ts:607:22
+ ❯ node_modules/effect/src/internal/effect.ts:5422:8
+ ❯ node_modules/effect/src/internal/effect.ts:5500:18
+ ❯ Module.<anonymous> node_modules/effect/src/internal/effect.ts:5519:4
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  packages/core/test/Replacement.test.ts > whole-file symlink replacement > requires namespace authority and retains ordinary no-follow behavior
+AssertionError: expected 'InvalidArgument' to equal 'AccessDenied'
+
+Expected: "AccessDenied"
+Received: "InvalidArgument"
+
+ ❯ Array.<anonymous> packages/core/test/Replacement.test.ts:54:14
+     52|       const other = yield* volume.caller({ identity: { uid: 1, gid: 1,…
+     53|       const options = { access: "write", create: "ifMissing", truncate…
+     54|       assert.strictEqual((yield* Effect.flip(other.writeFile("/sticky/…
+       |              ^
+     55|         ...options, replaceFinalSymlink: true
+     56|       }))).code, "AccessDenied")
+ ❯ Object.~effect/Effect/successCont node_modules/effect/src/internal/effect.ts:1365:25
+ ❯ Object.~effect/Effect/evaluate node_modules/effect/src/internal/core.ts:514:30
+ ❯ FiberImpl.runLoop node_modules/effect/src/internal/effect.ts:655:39
+ ❯ FiberImpl.evaluate node_modules/effect/src/internal/effect.ts:607:22
+ ❯ node_modules/effect/src/internal/effect.ts:5422:8
+ ❯ node_modules/effect/src/internal/effect.ts:5500:18
+ ❯ Module.<anonymous> node_modules/effect/src/internal/effect.ts:5519:4
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  07:45:52
+   Duration  220ms (transform 39ms, setup 0ms, import 123ms, tests 14ms, environment 0ms)
+
+error: "vitest" exited with code 1

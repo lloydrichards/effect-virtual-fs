@@ -120,3 +120,16 @@ rule. Error operation/path context follows the existing suite.
 All 89 existing memory tests pass through core. CoreBinding.test.ts adds sharing, direct-core watches, alias events,
 atomic quota rejection, strict byte filtering, copy topology/timestamps, and source-observed cursor cases. The first
 migration and two focused regression logs are retained under .docs/evidence/adapter.
+
+## Review corrections
+
+Live explicit timestamps, fixture metadata and Clock samples share snapshot v1's signed 128-digit domain. Unsupported
+values fail before publication; the wire format is unchanged. Initial Clock failure is ConfigurationError with field
+clock.currentTimeNanos, later operation samples fail InvalidArgument.
+
+writeFile additionally accepts replaceFinalSymlink and finalMode. The former replaces only a final symlink using
+namespace/sticky authority and reclaims its bytes only for its last name. The latter applies chmod authority/group
+rules while publishing bytes and final mode together. Both preserve state on expected failure, require no temporary
+entry and publish one destination update per reachable alias. Existing open/no-follow and creation mode rules remain.
+These controls preserve adapter copy semantics, including existing destination modes, without extra watcher events.
+See [review corrections](../context/review-fixes.md) for regression and memory-cost evidence.

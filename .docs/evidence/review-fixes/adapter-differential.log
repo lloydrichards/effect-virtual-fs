@@ -1,0 +1,70 @@
+old {
+  selfCopy: {
+    _id: "Result",
+    _tag: "Success",
+    value: undefined,
+  },
+  copyMode: "100600",
+  overwrite: {
+    _id: "Result",
+    _tag: "Success",
+    value: undefined,
+  },
+  external: "external",
+  readLink: {
+    _id: "Result",
+    _tag: "Failure",
+    failure: {
+      reason: [Object ...],
+      _tag: "PlatformError",
+      "~effect/platform/PlatformError": "~effect/platform/PlatformError",
+    },
+  },
+}
+new {
+  selfCopy: {
+    _id: "Result",
+    _tag: "Success",
+    value: undefined,
+  },
+  copyMode: "100600",
+  overwrite: {
+    _id: "Result",
+    _tag: "Success",
+    value: undefined,
+  },
+  external: "external",
+  readLink: {
+    _id: "Result",
+    _tag: "Failure",
+    failure: {
+      reason: [Object ...],
+      _tag: "PlatformError",
+      "~effect/platform/PlatformError": "~effect/platform/PlatformError",
+    },
+  },
+}
+old {
+  removal: {
+    _id: "Result",
+    _tag: "Failure",
+    failure: {
+      reason: [Object ...],
+      _tag: "PlatformError",
+      "~effect/platform/PlatformError": "~effect/platform/PlatformError",
+    },
+  },
+  entries: [ "sentinel", "tmp" ],
+}
+new {
+  removal: {
+    _id: "Result",
+    _tag: "Failure",
+    failure: {
+      reason: [Object ...],
+      _tag: "PlatformError",
+      "~effect/platform/PlatformError": "~effect/platform/PlatformError",
+    },
+  },
+  entries: [ "sentinel", "tmp" ],
+}
