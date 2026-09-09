@@ -1,8 +1,0 @@
-[01:27:19.582] INFO (#1): {
-  firstBundle: "//#region \\0effect-vfs:/__effect_vfs_demo__/main.js\nvar value = 42;\n//#endregion\nexport { value };\n",
-  rebuiltBundle: "//#region \\0effect-vfs:/__effect_vfs_demo__/main.js\nvar value = 43;\n//#endregion\nexport { value };\n",
-  packageBundle: "//#region \\0effect-vfs:/node_modules/only-in-vfs/index.js\nvar value = \"virtual-package\";\n//#endregion\nexport { value };\n",
-  reads: [ "/__effect_vfs_demo__/main.js", "/__effect_vfs_demo__/value.js", "/__effect_vfs_demo__/package.js",
-    "/node_modules/only-in-vfs/package.json", "/node_modules/only-in-vfs/index.js"
-  ],
-}

@@ -46,8 +46,9 @@ runtime defect. The final behavior assertions exercise public operations; no ful
 ## Executed checks
 
 Environment: Bun 1.2.21 on PATH, Node 24.10.0, macOS arm64, Effect 4.0.0-rc.112.
-The [manifest](../evidence/first-core/results.json) records exit codes and source/test/lock hashes.
-Raw logs are retained in [first-core evidence](../evidence/first-core/).
+The [manifest](../evidence/first-core/results.json) records exit codes and source/test/lock hashes. The linked
+negative-consumer probe is retained because it demonstrates the intended type rejections; routine successful command
+output is summarized here rather than archived.
 
 | Command/check                                                                                           | Result                                                                                          |
 | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |

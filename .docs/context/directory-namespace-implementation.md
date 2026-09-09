@@ -62,9 +62,10 @@ Tests executed 36 core and 89 memory cases with zero cache hits. Builds had zero
 core and replayed three unchanged memory/build/scratchpad tasks from cache. Model checks validate the existing
 prototype, not implemented filesystem snapshots. Turbo's absent coverage-output warnings remain informational.
 
-Final command logs are in [directory-namespace evidence](../evidence/directory-namespace/). Package consumer checks
-compile the real source exports; a separate Node check imports the built package exports. Browser bundling remains
-build evidence only. No browser runtime, Ubuntu CI, exhaustive interruption schedule, or mutation audit is claimed.
+The [result manifest](../evidence/directory-namespace/results.json) records the completed check exits. Package
+consumer checks compile the real source exports; a separate Node check imports the built package exports. Browser
+bundling remains build evidence only. No browser runtime, Ubuntu CI, exhaustive interruption schedule, or mutation
+audit is claimed.
 
 The next dependent slice is regular-file open/read/write/seek/truncate and scoped handles. The user subsequently instructed continued implementation through completion. The regular-file slice adopts
 logical-length charging, capacity-limited prefix writes, and all-or-error truncation; see decision 0022. Remaining milestones are regular files and
