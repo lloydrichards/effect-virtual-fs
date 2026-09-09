@@ -55,7 +55,11 @@ export const Document = Schema.Struct({
 })
 export type Document = typeof Document.Type
 const snapshots = new WeakMap<Snapshot, Document>()
-const canonicalBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?(?![\s\S])/
+const canonicalBase64Tail = /^(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?(?![\s\S])/
+// Only the final quartet can contain padding. Scanning the alphabet separately avoids
+// the regexp stack growth caused by repeating a four-character group over large files.
+const canonicalBase64 = (value: string): boolean =>
+  value.length % 4 === 0 && !/[^A-Za-z0-9+/]/.test(value.slice(0, -4)) && canonicalBase64Tail.test(value.slice(-4))
 export const decodedLength = (value: string): number =>
   value.length / 4 * 3 - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0)
 export const base64 = (input: Uint8Array): string => {
@@ -104,7 +108,7 @@ export const capture = Effect.fnUntraced(function*(input: unknown, limits?: Deco
       ? record.entries.map((entry) => entry.name)
       : [record.kind === "file" ? record.data : record.target]
     for (const value of values) {
-      if (!canonicalBase64.test(value)) return yield* error("InvalidEncoding", record.id)
+      if (!canonicalBase64(value)) return yield* error("InvalidEncoding", record.id)
       payload += decodedLength(value)
       if (!Number.isSafeInteger(payload) || (limits !== undefined && payload > limits.maxDecodedBytes)) {
         return yield* error("LimitExceeded", "bytes")
