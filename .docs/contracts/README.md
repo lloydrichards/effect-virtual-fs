@@ -3,9 +3,10 @@
 Status: checked proposal, 8 September 2026. This directory contains no filesystem implementation and is outside the
 workspace packages. Successful compilation does not finalize these declarations or prove filesystem behavior.
 
-The directory-only core slice now exists. [implemented-consumers.ts](implemented-consumers.ts) checks its real
-exports, including four deliberate type rejections. The broader declarations still describe future file/snapshot APIs
-and must not be used as proof that those operations exist.
+Current implementation, 9 September 2026: [implemented-consumers.ts](implemented-consumers.ts) checks real directory,
+file, lifetime, and persistence exports, including deliberate type rejections. Use the
+[implemented profile](../context/implemented-profile.md) for supported behavior. The separate proposed declarations
+remain historical design checks and do not define the implemented signatures.
 
 ## Files and evidence
 

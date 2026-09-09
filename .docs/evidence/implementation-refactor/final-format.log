@@ -1,0 +1,2 @@
+$ dprint fmt
+$ dprint check

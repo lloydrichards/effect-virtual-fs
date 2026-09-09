@@ -77,3 +77,46 @@ Peak RSS fell 31.5% in this single pair. These are whole-process measurements in
 retained fixture buffers, and restoration. Preparation was faster in the second run, 276 ms versus 657 ms, so
 timings include cache and run-order effects. The result is not a portable performance guarantee or heap bound;
 a single large file can still require substantial transient storage.
+
+## Large snapshot decoder repair
+
+A valid snapshot with a 12,000,000-byte file and sufficient decode limits caused `RangeError: Maximum call stack
+size exceeded`. The canonical base64 regexp repeated a four-character group across the full payload. The
+[public regression failed](../evidence/implementation-refactor/large-decode-red.log) before repair. Validation now
+scans the alphabet before the final quartet and checks padding and unused bits only in that bounded quartet.
+Unknown fields, graph checks, budgets, error classification, and validation order remain unchanged.
+
+`SnapshotDecoding.test.ts` restores that large payload and rejects malformed alphabets, interior padding, whitespace,
+and noncanonical unused bits. The focused snapshot suites then [passed nine tests](../evidence/implementation-refactor/large-decode-green.log).
+An independent review also compared public decoding against canonical base64 roundtrips for 1,276 valid and malformed
+inputs; it found no mismatch.
+
+A [final benchmark](../evidence/implementation-refactor/snapshot-after-final.json) after this repair reported
+1,919,533,056 bytes peak RSS, 37.2% below the same baseline, with identical source and encoded byte counts. Fixture
+construction took 1,381.66 ms and capture took 1,188.75 ms. This is another single run with warm input caches;
+the difference from the encoding-only result cannot be attributed solely to the decoder repair.
+
+## Final validation
+
+[Recorded commands and exits](../evidence/implementation-refactor/results.json) and sibling logs retain the baseline,
+slice checks, and final results. Final builds, types, and tests were forced, with zero Turbo cache hits. All 180 tests
+passed: 70 core, 107 adapter, and three virtual-build consumer tests. Formatting, lint, documentation compilation,
+and executable model checks passed. The separate independent review ran 14 focused metadata/replacement/decoder
+tests and ten snapshot boundary/ownership probes without finding a regression.
+
+Build validation includes the browser-target bundle smoke executed under Node. It does not establish browser/worker
+runtime behavior. Linux CI and Bun 1.2.21 remain untested locally. Existing type/build cache use in intermediate logs
+is distinct from the forced final results. No dependencies, lockfile, package privacy, or public signatures changed.
+
+## Pending adapter timestamp decision
+
+The review also reproduced an adapter failure through public APIs: writing a file, assigning core access time
+`10n ** 100n` with `caller.utimes`, binding that volume with `MemoryFileSystem.bind`, and calling adapter `stat`
+produces a defect, `IllegalArgumentError: Invalid date`. The timestamp is inside the accepted core/snapshot domain,
+but outside JavaScript Date's range. The [probe output](../evidence/implementation-refactor/adapter-timestamp-red.log)
+records the failure.
+
+The proposed adapter policy is `Option.none()` for each unrepresentable date. An alternative is a typed
+`InvalidData` failure for the entire stat operation. Both preserve core timestamps; neither silently clamps them.
+This public behavior choice was presented for approval and remains pending. The internal refactors do not
+change timestamp conversion while that decision is open.
