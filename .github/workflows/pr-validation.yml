@@ -20,6 +20,9 @@ jobs:
           bun-version: 1.2.21
       - run: bun install --frozen-lockfile
       - run: bun run format:check
+      # Workspace packages export declarations from dist/. Build them before
+      # Oxlint resolves their package imports during type-aware analysis.
+      - run: bun run build
       - run: bun run lint
       - name: Check documentation contracts
         run: |
@@ -27,4 +30,3 @@ jobs:
           bun .docs/contracts/models.check.mjs .docs/contracts/models.ts .docs/context/snapshot-format-draft.md
       - run: bun run type-check
       - run: bun run test
-      - run: bun run build
