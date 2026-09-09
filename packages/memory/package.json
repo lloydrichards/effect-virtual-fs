@@ -2,6 +2,11 @@
   "name": "@effect-vfs/memory",
   "version": "0.1.0",
   "description": "An in-memory implementation of Effect's FileSystem service.",
+  "homepage": "https://github.com/lloydrichards/effect-virtual-fs#readme",
+  "bugs": {
+    "url": "https://github.com/lloydrichards/effect-virtual-fs/issues"
+  },
+  "keywords": ["effect", "filesystem", "memory", "testing", "typescript"],
   "type": "module",
   "sideEffects": false,
   "license": "MIT",
@@ -17,6 +22,9 @@
       "types": "./dist/MemoryFileSystem.d.ts",
       "import": "./dist/MemoryFileSystem.js"
     },
+    "./internal/*": null,
+    "./index": null,
+    "./*/index": null,
     "./package.json": "./package.json"
   },
   "files": [
@@ -47,8 +55,7 @@
     "effect": "4.0.0-rc.112",
     "tsup": "8.5.1"
   },
-  "private": true,
   "dependencies": {
-    "@effect-vfs/core": "workspace:*"
+    "@effect-vfs/core": "^0.1.0"
   }
 }

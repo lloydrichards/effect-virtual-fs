@@ -1,6 +1,6 @@
 # Implementation and evidence plan
 
-Current implementation update (9 September 2026): all accepted private milestones are implemented and locally
+Current implementation update (9 September 2026): all accepted milestones are implemented and locally
 validated. The [implemented profile](implemented-profile.md) supersedes the historical statuses and open questions
 below; policy 0022 records remaining implementation choices. Earlier text preserves the research/sequence history.
 
@@ -49,7 +49,8 @@ remove later namespace or file-I/O requirements, and lists the decisions still n
 
 These slices are dependency guidance, not separate release promises. Permission and error requirements must inform
 path/handle design from the start, even if their exhaustive coverage arrives in slice 3. `@effect-vfs/core` remains
-private until the release evidence exists. The memory release order follows [decision 0001](../decisions/0001-package-boundaries.md).
+private until the release evidence exists. That evidence now exists, and core must be published before memory because
+memory depends on `@effect-vfs/core@^0.1.0`. See [decision 0001](../decisions/0001-package-boundaries.md).
 
 ## High-value regressions
 
@@ -100,9 +101,9 @@ reclaim entry quota. The [namespace evidence](directory-namespace-implementation
 and the pending I/O capacity question. This completes directory identity across rename in slice 1 and part of
 slice 2; file sharing, regular-file handles, links, adapter migration, and snapshots remain absent.
 
-## Completed private implementation
+## Completed implementation
 
-Slices 0-7 are complete for the bounded private profile: construction/identity; files/namespace; permissions/limits;
+Slices 0-7 are complete for the bounded profile: construction/identity; files/namespace; permissions/limits;
 core-backed adaptation; fixtures/snapshots; standalone build/rebuild plus package acceptance; and local evidence.
 See the [implemented profile](implemented-profile.md) for the requirement-to-test ledger and explicit validation limits.
 Publication, full standards certification, Linux CI execution and browser runtime acceptance are not claimed.

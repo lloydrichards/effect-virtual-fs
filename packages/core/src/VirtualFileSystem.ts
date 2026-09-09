@@ -1,8 +1,17 @@
-/** Runtime-neutral virtual filesystem with independently scoped capabilities. */
-import * as Image from "./internal/image.js"
-export { DecodeLimits, decodeSnapshot, encodeSnapshot, ImageError, type Snapshot } from "./internal/image.js"
+/**
+ * Runtime-neutral virtual filesystem contracts and constructors.
+ *
+ * **Details**
+ *
+ * Volumes own isolated namespaces. Callers carry path context and credentials,
+ * while file and directory handles use `Scope` for deterministic release.
+ *
+ * @since 0.1.0
+ */
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
+import { DecodeLimits, ImageError, type Snapshot } from "./Snapshot.js"
+export { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
@@ -13,6 +22,7 @@ import type * as SchemaIssue from "effect/SchemaIssue"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
+import * as Image from "./internal/image.js"
 
 const BytePathId = Symbol("@effect-vfs/core/BytePath")
 const VolumeId = Symbol("@effect-vfs/core/Volume")
@@ -20,11 +30,29 @@ const CallerId = Symbol("@effect-vfs/core/Caller")
 const FileHandleId = Symbol("@effect-vfs/core/FileHandle")
 const DirectoryHandleId = Symbol("@effect-vfs/core/DirectoryHandle")
 
+/**
+ * An opaque path that preserves arbitrary non-NUL bytes without UTF-8 conversion.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface BytePath {
   readonly [BytePathId]: true
 }
+/**
+ * A UTF-8 string path or an opaque byte-preserving path.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type PathInput = string | BytePath
 
+/**
+ * Schema for portable virtual filesystem error codes.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const FsCode = Schema.Literals([
   "NotFound",
   "AlreadyExists",
@@ -44,13 +72,35 @@ export const FsCode = Schema.Literals([
   "SymlinkLoop",
   "UnrepresentableName"
 ])
+/**
+ * A portable virtual filesystem error code.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type FsCode = typeof FsCode.Type
+/**
+ * Describes an expected filesystem operation failure.
+ *
+ * @category errors
+ * @since 0.1.0
+ */
 export class FsError extends Data.TaggedError("FsError")<{
+  /** Machine-readable reason for the failure. */
   readonly code: FsCode
+  /** Operation that detected the failure. */
   readonly operation: string
+  /** Path involved in the failure, when one path identifies it. */
   readonly path?: PathInput
 }> {}
+/**
+ * Describes an invalid volume or caller option and names the rejected field.
+ *
+ * @category errors
+ * @since 0.1.0
+ */
 export class ConfigurationError extends Data.TaggedError("ConfigurationError")<{
+  /** Name of the rejected option. */
   readonly field: string
 }> {}
 
@@ -60,24 +110,70 @@ const Natural = Schema.Finite.check(
   Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
 )
 const Mode = Natural.check(Schema.isLessThanOrEqualTo(0o7777))
+/**
+ * Schema for a caller's numeric identity, supplementary groups, and explicit privilege.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const Identity = Schema.Struct({
+  /** Numeric user identifier used by ownership and permission checks. */
   uid: Natural,
+  /** Primary numeric group identifier. */
   gid: Natural,
+  /** Supplementary group identifiers used by group permission checks. */
   groups: Schema.Array(Natural),
+  /** Grants root-style permission bypasses independently of `uid`. */
   privileged: Schema.Boolean
 })
+/**
+ * A caller identity used for permission checks.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type Identity = typeof Identity.Type
+/**
+ * Schema for root caller credentials and creation mask.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const RootCallerOptions = Schema.Struct({
+  /** Caller identity. Defaults to privileged uid and gid `0`. */
   identity: Schema.optionalKey(Identity),
+  /** Creation mask applied to requested modes. Defaults to `0o022`. */
   umask: Schema.optionalKey(Natural.check(Schema.isLessThanOrEqualTo(0o777)))
 })
+/**
+ * Options for creating a root caller on a volume.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type RootCallerOptions = typeof RootCallerOptions.Type
+/**
+ * Schema for optional volume capacity and path limits.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const VolumeOptions = Schema.Struct({
+  /** Maximum number of filesystem nodes. Omission leaves the count unbounded. */
   maxEntries: Schema.optionalKey(Natural),
+  /** Maximum combined regular-file content in bytes. */
   maxBytes: Schema.optionalKey(Natural),
+  /** Maximum content size of one regular file in bytes. */
   maxFileBytes: Schema.optionalKey(Natural.check(Schema.isLessThanOrEqualTo(0xffffffff))),
+  /** Maximum encoded byte length of an absolute or relative path. */
   maxPathBytes: Schema.optionalKey(Natural.check(Schema.isGreaterThanOrEqualTo(1)))
 })
+/**
+ * Capacity and path limits for a volume.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type VolumeOptions = typeof VolumeOptions.Type
 // Match snapshot v1's canonical signed decimal timestamp domain.
 const timestampLimit = 10n ** 128n - 1n
@@ -85,6 +181,12 @@ const Timestamp = Schema.BigInt.check(
   Schema.isGreaterThanOrEqualToBigInt(-timestampLimit),
   Schema.isLessThanOrEqualToBigInt(timestampLimit)
 )
+/**
+ * Schema for filesystem node metadata with bigint inode, size, and nanosecond fields.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const Metadata = Schema.Struct({
   kind: Schema.Literals(["directory", "file", "symlink"]),
   ino: Schema.BigInt,
@@ -98,121 +200,318 @@ export const Metadata = Schema.Struct({
   ctimeNs: Timestamp,
   birthtimeNs: Timestamp
 })
+/**
+ * Metadata for a directory, regular file, or symbolic link.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type Metadata = typeof Metadata.Type
 
+/**
+ * Resolves a relative path from a live directory handle instead of the caller's directory.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface RelativeOptions {
+  /** Resolve relative paths from this live, same-volume handle instead of the caller's current directory. */
   readonly relativeTo?: DirectoryHandle
 }
+/**
+ * Controls the base directory and whether metadata operations follow the final symbolic link.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface MetadataOptions extends RelativeOptions {
+  /** Follow the final symbolic link. Defaults to `true`. */
   readonly followFinalSymlink?: boolean
 }
+/**
+ * Schema for an owner update. Omitted fields retain their existing values.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const OwnerUpdate = Schema.Struct({ uid: Schema.optionalKey(Natural), gid: Schema.optionalKey(Natural) })
+/**
+ * An owner update for `chown` operations.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type OwnerUpdate = typeof OwnerUpdate.Type
+/**
+ * Schema for setting a timestamp to the clock, retaining it, or supplying nanoseconds.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const TimeUpdate = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("now") }),
   Schema.Struct({ kind: Schema.Literal("omit") }),
   Schema.Struct({ kind: Schema.Literal("value"), nanoseconds: Timestamp })
 ])
+/**
+ * Schema for independent access and modification time updates.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const Times = Schema.Struct({ access: TimeUpdate, modification: TimeUpdate })
+/**
+ * Access and modification time updates for `utimes` operations.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type Times = typeof Times.Type
+/**
+ * A scoped directory capability that can be used for metadata and relative lookup.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface DirectoryHandle {
   readonly [DirectoryHandleId]: true
+  /** Reads metadata for the directory while the handle remains open. */
   readonly stat: Effect.Effect<Metadata, FsError>
+  /** Closes the handle. A repeated explicit close fails; scope cleanup remains safe. */
   readonly close: Effect.Effect<void, FsError>
 }
+/**
+ * Schema for file seek origins, including dense-file data and hole queries.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const SeekMode = Schema.Literals(["start", "current", "end", "data", "hole"])
+/**
+ * The origin used by a file handle seek operation.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type SeekMode = typeof SeekMode.Type
+/**
+ * Schema for file access, creation, append, truncate, and symlink behavior.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const OpenSettings = Schema.Struct({
+  /** Permitted operations on the returned handle. */
   access: Schema.Literals(["read", "write", "readWrite"]),
+  /** Creation policy. Defaults to `"never"`. */
   create: Schema.optionalKey(Schema.Literals(["never", "ifMissing", "exclusive"])),
+  /** Requested mode for a new file, before applying the caller's umask. */
   mode: Schema.optionalKey(Mode),
+  /** Write at the current end of file regardless of the handle cursor. */
   append: Schema.optionalKey(Schema.Boolean),
+  /** Truncate an existing regular file to zero bytes during open. */
   truncate: Schema.optionalKey(Schema.Boolean),
+  /** Follow the final symbolic link. Defaults to `true`. */
   followFinalSymlink: Schema.optionalKey(Schema.Boolean)
 })
+/**
+ * Options for acquiring a scoped file handle.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
 const WriteFileSettings = Schema.Struct({
   ...OpenSettings.fields,
+  /** Replace the final symbolic link itself instead of its target. */
   replaceFinalSymlink: Schema.optionalKey(Schema.Boolean),
+  /** Mode to apply after replacing an existing file. */
   finalMode: Schema.optionalKey(Mode)
 })
+/**
+ * Options for an atomic whole-file write, including replacement and final mode controls.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type WriteFileOptions = typeof WriteFileSettings.Type & RelativeOptions
+/**
+ * A scoped regular-file capability with an independent bigint cursor.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface FileHandle {
   readonly [FileHandleId]: true
+  /** Reads up to `maximumBytes` from the cursor and advances it by the returned length. */
   readonly read: (maximumBytes: number) => Effect.Effect<Uint8Array, FsError>
+  /** Reads at `offset` without changing the cursor. */
   readonly pread: (maximumBytes: number, offset: bigint) => Effect.Effect<Uint8Array, FsError>
+  /** Writes at the cursor and advances it, or writes at end of file when opened for append. */
   readonly write: (bytes: Uint8Array) => Effect.Effect<number, FsError>
+  /** Writes at `offset` without changing the cursor. Append mode does not affect positional writes. */
   readonly pwrite: (bytes: Uint8Array, offset: bigint) => Effect.Effect<number, FsError>
+  /** Moves the cursor and returns its new offset. `data` finds content and `hole` finds end of file. */
   readonly seek: (offset: bigint, mode: SeekMode) => Effect.Effect<bigint, FsError>
+  /** Sets the file length without changing the cursor. */
   readonly truncate: (length: bigint) => Effect.Effect<void, FsError>
+  /** Reads metadata for the open file. */
   readonly stat: Effect.Effect<Metadata, FsError>
+  /** Checks handle liveness. In-memory storage has no host or crash durability to flush. */
   readonly sync: Effect.Effect<void, FsError>
+  /** Closes the handle. A repeated explicit close fails; scope cleanup remains safe. */
   readonly close: Effect.Effect<void, FsError>
 }
+/**
+ * A filesystem caller with its own identity, creation mask, and current directory.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Caller {
   readonly [CallerId]: true
+  /** Reads metadata, following the final symbolic link by default. */
   readonly stat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>
+  /** Atomically moves an entry within this volume without replacing a non-empty directory. */
   readonly rename: (
     source: PathInput,
     destination: PathInput,
-    options?: { readonly sourceRelativeTo?: DirectoryHandle; readonly destinationRelativeTo?: DirectoryHandle }
+    options?: {
+      /** Base directory for a relative source path. */
+      readonly sourceRelativeTo?: DirectoryHandle
+      /** Base directory for a relative destination path. */
+      readonly destinationRelativeTo?: DirectoryHandle
+    }
   ) => Effect.Effect<void, FsError>
+  /** Reads and returns an owned copy of a regular file's complete contents. */
   readonly readFile: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsError>
+  /** Atomically writes a complete regular file according to the replacement options. */
   readonly writeFile: (path: PathInput, bytes: Uint8Array, options: WriteFileOptions) => Effect.Effect<void, FsError>
+  /** Checks the requested permission bits without opening the entry. */
   readonly access: (path: PathInput, bits?: number, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  /** Sets a regular file's length. Extending creates a zero-filled region. */
   readonly truncate: (path: PathInput, length: bigint, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  /** Changes permission bits, following the final symbolic link by default. */
   readonly chmod: (path: PathInput, mode: number, options?: MetadataOptions) => Effect.Effect<void, FsError>
+  /** Changes uid, gid, or both, following the final symbolic link by default. */
   readonly chown: (path: PathInput, owner: OwnerUpdate, options?: MetadataOptions) => Effect.Effect<void, FsError>
+  /** Updates access and modification times, following the final symbolic link by default. */
   readonly utimes: (path: PathInput, times: Times, options?: MetadataOptions) => Effect.Effect<void, FsError>
+  /** Changes permission bits through a live, same-volume handle. */
   readonly chmodHandle: (handle: FileHandle | DirectoryHandle, mode: number) => Effect.Effect<void, FsError>
+  /** Changes uid, gid, or both through a live, same-volume handle. */
   readonly chownHandle: (handle: FileHandle | DirectoryHandle, owner: OwnerUpdate) => Effect.Effect<void, FsError>
+  /** Updates access and modification times through a live, same-volume handle. */
   readonly utimesHandle: (handle: FileHandle | DirectoryHandle, times: Times) => Effect.Effect<void, FsError>
+  /** Reads metadata without following the final symbolic link. */
   readonly lstat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>
+  /** Creates a hard link to an existing non-directory entry. */
   readonly link: (
     source: PathInput,
     destination: PathInput,
     options?: {
+      /** Base directory for a relative source path. */
       readonly sourceRelativeTo?: DirectoryHandle
+      /** Base directory for a relative destination path. */
       readonly destinationRelativeTo?: DirectoryHandle
+      /** Link to the final symbolic link's target instead of the link itself. */
       readonly followSourceSymlink?: boolean
     }
   ) => Effect.Effect<void, FsError>
+  /** Creates a symbolic link. The target bytes are stored without resolving them. */
   readonly symlink: (target: PathInput, path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  /** Reads a symbolic-link target as UTF-8, failing with `UnrepresentableName` for other bytes. */
   readonly readLink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsError>
+  /** Reads a symbolic-link target as owned bytes. */
   readonly readLinkBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsError>
+  /** Reads directory names as UTF-8, failing if any name is not representable. */
   readonly readDirectory: (path: PathInput, options?: RelativeOptions) => Effect.Effect<ReadonlyArray<string>, FsError>
+  /** Reads directory names as owned byte arrays. */
   readonly readDirectoryBytes: (
     path: PathInput,
     options?: RelativeOptions
   ) => Effect.Effect<ReadonlyArray<Uint8Array>, FsError>
+  /** Resolves links and normalizes a path as UTF-8. */
   readonly realPath: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsError>
+  /** Resolves links and normalizes a path without requiring UTF-8 names. */
   readonly realPathBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<BytePath, FsError>
+  /** Opens a scoped regular-file handle. The surrounding scope closes it automatically. */
   readonly open: (path: PathInput, options: OpenOptions) => Effect.Effect<FileHandle, FsError, Scope.Scope>
+  /** Removes a non-directory entry. Open handles remain usable until closed. */
   readonly unlink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  /** Removes an empty directory. */
   readonly rmdir: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  /** Creates one directory. Parent directories must already exist. */
   readonly mkdir: (
     path: PathInput,
-    options?: RelativeOptions & { readonly mode?: number }
+    options?: RelativeOptions & {
+      /** Requested mode before applying the caller's umask. Defaults to `0o777`. */
+      readonly mode?: number
+    }
   ) => Effect.Effect<void, FsError>
+  /** Creates a scoped caller whose current directory is the resolved directory identity. */
   readonly withDirectory: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Caller, FsError, Scope.Scope>
+  /** Opens a scoped directory handle for metadata and relative path resolution. */
   readonly openDirectory: (
     path: PathInput,
     options?: RelativeOptions
   ) => Effect.Effect<DirectoryHandle, FsError, Scope.Scope>
 }
+/**
+ * A committed namespace or content change emitted by a volume watch stream.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Change {
+  /** Kind of committed namespace or content change. */
   readonly _tag: "Create" | "Update" | "Remove"
+  /** Absolute path of the changed entry. */
   readonly path: BytePath
 }
+/**
+ * An isolated virtual filesystem namespace that creates callers, snapshots, and watch streams.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Volume {
+  /** Opens a scoped stream of future committed changes. Events are not replayed. */
   readonly watch: Effect.Effect<Stream.Stream<Change>, never, Scope.Scope>
-  readonly snapshot: Effect.Effect<Image.Snapshot, Image.ImageError>
+  /** Captures an isolated snapshot of the reachable namespace and metadata. */
+  readonly snapshot: Effect.Effect<Snapshot, ImageError>
   readonly [VolumeId]: true
+  /** Creates a caller rooted at `/` with independent credentials, umask, and current directory. */
   readonly caller: (options?: RootCallerOptions) => Effect.Effect<Caller, ConfigurationError>
 }
+/**
+ * Optional Effect service for providing an existing filesystem caller.
+ *
+ * @category services
+ * @since 0.1.0
+ */
 export class CurrentFileSystem
   extends Context.Service<CurrentFileSystem, Caller>()("@effect-vfs/core/CurrentFileSystem")
 {}
+
+/**
+ * Encodes a snapshot as owned UTF-8 JSON bytes using the version 1 snapshot format.
+ *
+ * @category serialization
+ * @since 0.1.0
+ */
+export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, ImageError> = Image.encodeSnapshot
+
+/**
+ * Decodes version 1 snapshot bytes while enforcing explicit input and payload limits.
+ *
+ * @category serialization
+ * @since 0.1.0
+ */
+export const decodeSnapshot: (
+  input: Uint8Array,
+  limits: DecodeLimits
+) => Effect.Effect<Snapshot, ImageError> = Image.decodeSnapshot
 
 const bytePaths = new WeakMap<BytePath, Uint8Array>()
 const failure = (code: FsCode, operation: string, path?: PathInput) =>
@@ -244,7 +543,16 @@ const attachedBuffer = (bytes: Uint8Array): boolean => {
   }
 }
 
-/** Copies at execution; shared backing and detached views are rejected. */
+/**
+ * Creates an opaque byte path by copying the input when the Effect executes.
+ *
+ * **Gotchas**
+ *
+ * Shared-memory-backed and detached views fail with `InvalidArgument`.
+ *
+ * @category constructors
+ * @since 0.1.0
+ */
 export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(function*(bytes: Uint8Array) {
   if (!(bytes instanceof Uint8Array) || !(bytes.buffer instanceof ArrayBuffer)) {
     return yield* failure("InvalidArgument", "pathFromBytes")
@@ -257,6 +565,12 @@ export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(functi
   return path
 })
 
+/**
+ * Copies the bytes held by an opaque byte path.
+ *
+ * @category getters
+ * @since 0.1.0
+ */
 export const pathToBytes = Effect.fn("VirtualFileSystem.pathToBytes")(function*(path: BytePath) {
   const bytes = bytePaths.get(path)
   if (bytes === undefined) return yield* failure("InvalidArgument", "pathToBytes")
@@ -436,7 +750,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
         else {
           const length = Image.decodedLength(record.kind === "file" ? record.data : record.target)
           if (record.kind === "file" && length > maxFileBytes) {
-            return yield* new Image.ImageError({ code: "LimitExceeded", field: "maxFileBytes" })
+            return yield* new ImageError({ code: "LimitExceeded", field: "maxFileBytes" })
           }
           content += length
         }
@@ -445,7 +759,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
         (settings.maxEntries !== undefined && count > settings.maxEntries) ||
         (settings.maxBytes !== undefined && content > settings.maxBytes)
       ) {
-        return yield* new Image.ImageError({ code: "LimitExceeded", field: "volume" })
+        return yield* new ImageError({ code: "LimitExceeded", field: "volume" })
       }
       for (const record of image.records) {
         const metadata: Metadata = {
@@ -481,10 +795,10 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
       for (const record of image.records) {
         if (record.kind !== "directory") continue
         const parent = incoming.get(record.id)
-        if (parent?.kind !== "directory") return yield* new Image.ImageError({ code: "InvalidStructure" })
+        if (parent?.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
         for (const entry of record.entries) {
           const node = incoming.get(entry.target)
-          if (node === undefined) return yield* new Image.ImageError({ code: "InvalidStructure" })
+          if (node === undefined) return yield* new ImageError({ code: "InvalidStructure" })
           parent.entries.set(Encoding.encodeHex(Image.bytes(entry.name)), node)
           if (node.kind === "directory") {
             node.parent = parent
@@ -1582,7 +1896,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           const node = pending[index]
           if (node === undefined) continue
           const id = ids.get(node)
-          if (id === undefined) return yield* new Image.ImageError({ code: "InvalidStructure" })
+          if (id === undefined) return yield* new ImageError({ code: "InvalidStructure" })
           const metadata = storedMetadata(node.metadata)
           if (node.kind === "directory") {
             const children: Array<{ name: string; target: string }> = []
@@ -1619,12 +1933,28 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
   }
 )
 
-/** Creates a fresh empty volume. Image failures cannot arise without an image. */
+/**
+ * Creates a fresh empty volume and captures the current Effect `Clock`.
+ *
+ * **Details**
+ *
+ * Each execution creates independent storage. Snapshot image failures cannot
+ * arise because this constructor does not accept persisted input.
+ *
+ * @category constructors
+ * @since 0.1.0
+ */
 export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: VolumeOptions) {
   return yield* makeVolume(options).pipe(Effect.catchTag("ImageError", Effect.die))
 })
+/**
+ * Restores a fresh volume from an opaque snapshot under the supplied destination limits.
+ *
+ * @category constructors
+ * @since 0.1.0
+ */
 export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
-  function*(snapshot: Image.Snapshot, options?: VolumeOptions) {
+  function*(snapshot: Snapshot, options?: VolumeOptions) {
     const image = yield* Image.inspect(snapshot)
     return yield* makeVolume(options, image)
   }
@@ -1645,6 +1975,16 @@ const FixturePath = Schema.Union([
     typeof value === "object" && value !== null && BytePathId in value && value[BytePathId] === true
   )
 ])
+/**
+ * Schema for a complete fixture namespace with optional metadata and forward hard links.
+ *
+ * **Details**
+ *
+ * Fixture paths must be absolute, unique, and explicitly include their parent directories.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const Fixture = Schema.Struct({
   rootMetadata: Schema.optionalKey(FixtureMetadata),
   entries: Schema.Array(Schema.Union([
@@ -1668,18 +2008,30 @@ export const Fixture = Schema.Struct({
     Schema.Struct({ kind: Schema.Literal("hardLink"), path: FixturePath, target: FixturePath })
   ]))
 })
+/**
+ * A complete filesystem fixture accepted by `fromFixture`.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type Fixture = typeof Fixture.Type
+/**
+ * Builds a fresh volume from a validated final-state fixture.
+ *
+ * @category constructors
+ * @since 0.1.0
+ */
 export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
   function*(fixture: Fixture, options?: VolumeOptions) {
     const config = decodeConfiguration(VolumeOptions, options ?? {})
     if (Result.isFailure(config)) return yield* config.failure
     const decoded = Schema.decodeResult(Fixture, { onExcessProperty: "error" })(fixture)
-    if (Result.isFailure(decoded)) return yield* new Image.ImageError({ code: "InvalidStructure", field: "fixture" })
+    if (Result.isFailure(decoded)) return yield* new ImageError({ code: "InvalidStructure", field: "fixture" })
     const source = decoded.success
     for (const entry of source.entries) {
       if (
         entry.kind === "file" && (!(entry.bytes.buffer instanceof ArrayBuffer) || !attachedBuffer(entry.bytes))
-      ) return yield* new Image.ImageError({ code: "InvalidEncoding", field: "bytes" })
+      ) return yield* new ImageError({ code: "InvalidEncoding", field: "bytes" })
     }
     const metadata = (
       kind: "directory" | "file" | "symlink",
@@ -1716,15 +2068,15 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
     for (const entry of source.entries) {
       const parsed = fixturePath(entry.path)
       if (Result.isFailure(parsed)) {
-        return yield* new Image.ImageError({ code: "InvalidStructure", field: "path" })
+        return yield* new ImageError({ code: "InvalidStructure", field: "path" })
       }
       const components = parsed.success
       const key = components.join("/")
-      if (paths.has(key)) return yield* new Image.ImageError({ code: "InvalidStructure", field: "duplicate" })
+      if (paths.has(key)) return yield* new ImageError({ code: "InvalidStructure", field: "duplicate" })
       paths.set(key, components)
       if (entry.kind === "hardLink") {
         const target = fixturePath(entry.target)
-        if (Result.isFailure(target)) return yield* new Image.ImageError({ code: "InvalidStructure", field: "target" })
+        if (Result.isFailure(target)) return yield* new ImageError({ code: "InvalidStructure", field: "target" })
         aliases.set(key, target.success.join("/"))
       } else if (entry.kind === "directory") {
         declarations.set(key, {
@@ -1742,7 +2094,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
         })
       } else {
         if (typeof entry.target === "string" && !wellFormed(entry.target)) {
-          return yield* new Image.ImageError({
+          return yield* new ImageError({
             code: "InvalidEncoding",
             field: "target"
           })
@@ -1751,7 +2103,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
           ? new TextEncoder().encode(entry.target)
           : bytePaths.get(entry.target)
         if (target === undefined || target.includes(0)) {
-          return yield* new Image.ImageError({
+          return yield* new ImageError({
             code: "InvalidStructure",
             field: "target"
           })
@@ -1768,15 +2120,15 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
       let target = key
       const seen = new Set<string>()
       while (!declarations.has(target)) {
-        if (seen.has(target)) return yield* new Image.ImageError({ code: "InvalidStructure", field: "hardLink" })
+        if (seen.has(target)) return yield* new ImageError({ code: "InvalidStructure", field: "hardLink" })
         seen.add(target)
         const next = aliases.get(target)
-        if (next === undefined) return yield* new Image.ImageError({ code: "InvalidStructure", field: "hardLink" })
+        if (next === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "hardLink" })
         target = next
       }
       const node = declarations.get(target)
       if (node === undefined || node.kind === "directory") {
-        return yield* new Image.ImageError({
+        return yield* new ImageError({
           code: "InvalidStructure",
           field: "hardLink"
         })
@@ -1789,8 +2141,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
       const child = declarations.get(key)
       const name = components.at(-1)
       if (parent?.kind !== "directory" || child === undefined || name === undefined) {
-        return yield* new Image
-          .ImageError({ code: "InvalidStructure", field: "parent" })
+        return yield* new ImageError({ code: "InvalidStructure", field: "parent" })
       }
       const entries = children.get(parent.id) ?? []
       entries.push({ name: Image.base64(nameBytes(name)), target: child.id })

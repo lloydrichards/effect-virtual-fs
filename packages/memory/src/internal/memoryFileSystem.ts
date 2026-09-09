@@ -1,3 +1,11 @@
+/**
+ * Implements the Effect `FileSystem` adapter over `@effect-vfs/core`.
+ *
+ * This module owns string-path conversion, Effect cursor compatibility, error
+ * translation, recursive helpers, temporary resources, globbing, and watches.
+ *
+ * @internal
+ */
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -105,6 +113,7 @@ const textPath = Effect.fnUntraced(function*(path: Vfs.BytePath, method: string)
   })
 })
 
+/** @internal */
 export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Volume, options?: Vfs.RootCallerOptions) {
   const caller = yield* volume.caller({ ...options, umask: options?.umask ?? 0 })
   let nextDescriptor = 3
@@ -161,7 +170,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       return bytes
     })
     const write = Effect.fnUntraced(function*(input: Uint8Array, method: string, all: boolean) {
-      // The existing adapter accepts ordinary and shared-backed byte views by copying.
+      // Copy the view so writes accept ArrayBuffer- and SharedArrayBuffer-backed input.
       const bytes = new Uint8Array(input)
       return yield* locked(Effect.gen(function*() {
         if (closed) return yield* resourceError(method, fd)
@@ -586,8 +595,12 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
     })
   })
 })
+
+/** @internal */
 export const make: Effect.Effect<FileSystem.FileSystem> = Effect.gen(function*() {
   const volume = yield* Vfs.fromFixture({ entries: [{ kind: "directory", path: "/tmp" }] })
   return yield* bind(volume)
 }).pipe(Effect.orDie)
+
+/** @internal */
 export const layer = Layer.effect(FileSystem.FileSystem, make)
