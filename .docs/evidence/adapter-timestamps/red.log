@@ -1,0 +1,158 @@
+
+ RUN  v4.1.11 /Users/lloyd/Documents/GitHub/effect-virtual-fs
+
+stdout | packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when atimeNs exceeds the Date range with sign -1
+[08:45:24.462] ERROR (#1): Error [IllegalArgumentError]: Invalid date
+    at fromDateUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:166:11)
+    at Module.makeUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:186:10)
+    at info (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/src/internal/memoryFileSystem.ts:54:50)
+    at file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:1074:100
+    at ~effect/Utils/internal (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/Utils.js:79:14) {
+  _tag: 'IllegalArgumentError',
+  '~effect/Cause/IllegalArgumentError': '~effect/Cause/IllegalArgumentError',
+  [cause]: undefined
+}
+
+stdout | packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when atimeNs exceeds the Date range with sign 1
+[08:45:24.464] ERROR (#7): Error [IllegalArgumentError]: Invalid date
+    at fromDateUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:166:11)
+    at Module.makeUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:186:10)
+    at info (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/src/internal/memoryFileSystem.ts:54:50)
+    at file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:1074:100
+    at ~effect/Utils/internal (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/Utils.js:79:14) {
+  _tag: 'IllegalArgumentError',
+  '~effect/Cause/IllegalArgumentError': '~effect/Cause/IllegalArgumentError',
+  [cause]: undefined
+}
+
+stdout | packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when mtimeNs exceeds the Date range with sign -1
+[08:45:24.466] ERROR (#13): Error [IllegalArgumentError]: Invalid date
+    at fromDateUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:166:11)
+    at Module.makeUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:186:10)
+    at info (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/src/internal/memoryFileSystem.ts:55:50)
+    at file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:1074:100
+    at ~effect/Utils/internal (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/Utils.js:79:14) {
+  _tag: 'IllegalArgumentError',
+  '~effect/Cause/IllegalArgumentError': '~effect/Cause/IllegalArgumentError',
+  [cause]: undefined
+}
+
+stdout | packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when mtimeNs exceeds the Date range with sign 1
+[08:45:24.466] ERROR (#19): Error [IllegalArgumentError]: Invalid date
+    at fromDateUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:166:11)
+    at Module.makeUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:186:10)
+    at info (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/src/internal/memoryFileSystem.ts:55:50)
+    at file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:1074:100
+    at ~effect/Utils/internal (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/Utils.js:79:14) {
+  _tag: 'IllegalArgumentError',
+  '~effect/Cause/IllegalArgumentError': '~effect/Cause/IllegalArgumentError',
+  [cause]: undefined
+}
+
+stdout | packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when birthtimeNs exceeds the Date range with sign -1
+[08:45:24.467] ERROR (#25): Error [IllegalArgumentError]: Invalid date
+    at fromDateUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:166:11)
+    at Module.makeUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:186:10)
+    at info (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/src/internal/memoryFileSystem.ts:56:54)
+    at file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:1074:100
+    at ~effect/Utils/internal (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/Utils.js:79:14) {
+  _tag: 'IllegalArgumentError',
+  '~effect/Cause/IllegalArgumentError': '~effect/Cause/IllegalArgumentError',
+  [cause]: undefined
+}
+
+stdout | packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when birthtimeNs exceeds the Date range with sign 1
+[08:45:24.468] ERROR (#31): Error [IllegalArgumentError]: Invalid date
+    at fromDateUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:166:11)
+    at Module.makeUnsafe (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/dateTime.js:186:10)
+    at info (/Users/lloyd/Documents/GitHub/effect-virtual-fs/packages/memory/src/internal/memoryFileSystem.ts:56:54)
+    at file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/internal/effect.js:1074:100
+    at ~effect/Utils/internal (file:///Users/lloyd/Documents/GitHub/effect-virtual-fs/node_modules/effect/dist/Utils.js:79:14) {
+  _tag: 'IllegalArgumentError',
+  '~effect/Cause/IllegalArgumentError': '~effect/Cause/IllegalArgumentError',
+  [cause]: undefined
+}
+
+ ❯ packages/memory/test/Timestamp.test.ts (7 tests | 6 failed) 17ms
+     × should fail stat with InvalidData when atimeNs exceeds the Date range with sign -1 10ms
+     × should fail stat with InvalidData when atimeNs exceeds the Date range with sign 1 1ms
+     × should fail stat with InvalidData when mtimeNs exceeds the Date range with sign -1 1ms
+     × should fail stat with InvalidData when mtimeNs exceeds the Date range with sign 1 1ms
+     × should fail stat with InvalidData when birthtimeNs exceeds the Date range with sign -1 1ms
+     × should fail stat with InvalidData when birthtimeNs exceeds the Date range with sign 1 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when atimeNs exceeds the Date range with sign -1
+ FAIL  packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when atimeNs exceeds the Date range with sign 1
+IllegalArgumentError: Invalid date
+ ❯ fromDateUnsafe node_modules/effect/src/internal/dateTime.ts:211:10
+ ❯ Module.makeUnsafe node_modules/effect/src/internal/dateTime.ts:232:9
+ ❯ info packages/memory/src/internal/memoryFileSystem.ts:54:50
+     52|   blksize: Option.none(),
+     53|   blocks: Option.none(),
+     54|   atime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number(val…
+       |                                                  ^
+     55|   mtime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number(val…
+     56|   birthtime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number…
+ ❯ node_modules/effect/src/internal/effect.ts:1772:80
+ ❯ ~effect/Utils/internal node_modules/effect/src/Utils.ts:208:13
+ ❯ Object.~effect/Effect/successCont node_modules/effect/src/internal/effect.ts:1772:60
+ ❯ Object.~effect/Effect/evaluate node_modules/effect/src/internal/core.ts:514:30
+ ❯ FiberImpl.runLoop node_modules/effect/src/internal/effect.ts:655:39
+ ❯ FiberImpl.evaluate node_modules/effect/src/internal/effect.ts:607:22
+ ❯ node_modules/effect/src/internal/effect.ts:5422:8
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when mtimeNs exceeds the Date range with sign -1
+ FAIL  packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when mtimeNs exceeds the Date range with sign 1
+IllegalArgumentError: Invalid date
+ ❯ fromDateUnsafe node_modules/effect/src/internal/dateTime.ts:211:10
+ ❯ Module.makeUnsafe node_modules/effect/src/internal/dateTime.ts:232:9
+ ❯ info packages/memory/src/internal/memoryFileSystem.ts:55:50
+     53|   blocks: Option.none(),
+     54|   atime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number(val…
+     55|   mtime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number(val…
+       |                                                  ^
+     56|   birthtime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number…
+     57| })
+ ❯ node_modules/effect/src/internal/effect.ts:1772:80
+ ❯ ~effect/Utils/internal node_modules/effect/src/Utils.ts:208:13
+ ❯ Object.~effect/Effect/successCont node_modules/effect/src/internal/effect.ts:1772:60
+ ❯ Object.~effect/Effect/evaluate node_modules/effect/src/internal/core.ts:514:30
+ ❯ FiberImpl.runLoop node_modules/effect/src/internal/effect.ts:655:39
+ ❯ FiberImpl.evaluate node_modules/effect/src/internal/effect.ts:607:22
+ ❯ node_modules/effect/src/internal/effect.ts:5422:8
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when birthtimeNs exceeds the Date range with sign -1
+ FAIL  packages/memory/test/Timestamp.test.ts > adapter timestamp conversion > should fail stat with InvalidData when birthtimeNs exceeds the Date range with sign 1
+IllegalArgumentError: Invalid date
+ ❯ fromDateUnsafe node_modules/effect/src/internal/dateTime.ts:211:10
+ ❯ Module.makeUnsafe node_modules/effect/src/internal/dateTime.ts:232:9
+ ❯ info packages/memory/src/internal/memoryFileSystem.ts:56:54
+     54|   atime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number(val…
+     55|   mtime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number(val…
+     56|   birthtime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number…
+       |                                                      ^
+     57| })
+     58| const validateMode = (mode: number | undefined, method: string) =>
+ ❯ node_modules/effect/src/internal/effect.ts:1772:80
+ ❯ ~effect/Utils/internal node_modules/effect/src/Utils.ts:208:13
+ ❯ Object.~effect/Effect/successCont node_modules/effect/src/internal/effect.ts:1772:60
+ ❯ Object.~effect/Effect/evaluate node_modules/effect/src/internal/core.ts:514:30
+ ❯ FiberImpl.runLoop node_modules/effect/src/internal/effect.ts:655:39
+ ❯ FiberImpl.evaluate node_modules/effect/src/internal/effect.ts:607:22
+ ❯ node_modules/effect/src/internal/effect.ts:5422:8
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 1 passed (7)
+   Start at  08:45:24
+   Duration  268ms (transform 51ms, setup 0ms, import 159ms, tests 17ms, environment 0ms)
+
+error: "vitest" exited with code 1

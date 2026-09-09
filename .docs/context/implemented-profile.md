@@ -6,8 +6,8 @@ bounded project profile based on POSIX.1-2024 Issue 8, not full POSIX conformanc
 ledger remains useful for source provenance; this document states what the implementation actually supports.
 
 The subsequent [implementation refactor](implementation-refactor.md) preserves this profile, fixes large-payload
-snapshot validation, and records 180 passing tests plus lower measured snapshot RSS. It also records an unresolved
-adapter timestamp-conversion policy; the supported core timestamp domain itself is unchanged.
+snapshot validation, and records 180 passing tests plus lower measured snapshot RSS. [Decision 0023](../decisions/0023-adapter-timestamp-overflow.md) requires typed `InvalidData` from adapter stat when
+a returned timestamp cannot fit JavaScript Date. The supported core timestamp domain itself is unchanged.
 
 ## Public surface
 
