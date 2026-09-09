@@ -262,6 +262,19 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       )
     }
   )
+  const writeCopiedFile = (
+    destination: Vfs.PathInput,
+    bytes: Uint8Array,
+    mode: number,
+    options: Pick<Vfs.WriteFileOptions, "relativeTo" | "create" | "replaceFinalSymlink">
+  ) =>
+    caller.writeFile(destination, bytes, {
+      ...options,
+      access: "write",
+      truncate: true,
+      mode,
+      finalMode: mode
+    })
   const copy: FileSystem.FileSystem["copy"] = Effect.fn("MemoryFileSystem.copy")(
     function*(source, destination, options) {
       return yield* mapped(
@@ -277,13 +290,9 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
           }
           if (sourceNode.kind === "file") {
             const bytes = yield* caller.readFile(source)
-            yield* caller.writeFile(destination, bytes, {
-              access: "write",
+            yield* writeCopiedFile(destination, bytes, sourceNode.mode, {
               create: options?.overwrite ? "ifMissing" : "exclusive",
-              truncate: true,
-              replaceFinalSymlink: true,
-              mode: sourceNode.mode,
-              finalMode: sourceNode.mode
+              replaceFinalSymlink: true
             })
           } else if (sourceNode.kind === "symlink") {
             if (existing._tag === "Success") {
@@ -330,15 +339,16 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
                     destinationRelativeTo: parent
                   })
                 } else {
-                  yield* caller.writeFile(entry.name, yield* caller.readFile(entry.name, { relativeTo: entry.base }), {
-                    ...relative,
-                    access: "write",
-                    create: options?.overwrite ? "ifMissing" : "exclusive",
-                    truncate: true,
-                    replaceFinalSymlink: true,
-                    mode: entry.metadata.mode,
-                    finalMode: entry.metadata.mode
-                  })
+                  yield* writeCopiedFile(
+                    entry.name,
+                    yield* caller.readFile(entry.name, { relativeTo: entry.base }),
+                    entry.metadata.mode,
+                    {
+                      ...relative,
+                      create: options?.overwrite ? "ifMissing" : "exclusive",
+                      replaceFinalSymlink: true
+                    }
+                  )
                   copiedNodes.set(entry.metadata.ino, { base: parent, name: entry.name })
                 }
               } else {
@@ -401,13 +411,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
           if (metadata.kind !== "file") return yield* new Vfs.FsError({ code: "IsDirectory", operation: "copyFile" })
           const target = yield* Effect.result(caller.stat(destination))
           if (target._tag === "Success" && target.success.ino === metadata.ino) return
-          yield* caller.writeFile(destination, yield* caller.readFile(source), {
-            access: "write",
-            create: "ifMissing",
-            truncate: true,
-            mode: metadata.mode,
-            finalMode: metadata.mode
-          })
+          yield* writeCopiedFile(destination, yield* caller.readFile(source), metadata.mode, { create: "ifMissing" })
         }),
         "copyFile",
         source
