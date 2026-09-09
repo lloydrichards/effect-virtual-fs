@@ -900,19 +900,28 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           })
         }
       )
+      const permittedMode = (
+        metadata: Pick<Metadata, "kind" | "uid" | "gid">,
+        mode: number,
+        operation: string,
+        path?: PathInput
+      ) => {
+        if (!identity.privileged && identity.uid !== metadata.uid) {
+          return Effect.fail(failure("AccessDenied", operation, path))
+        }
+        const group = identity.gid === metadata.gid || identity.groups.includes(metadata.gid)
+        return Effect.succeed(!identity.privileged && metadata.kind === "file" && !group ? mode & ~0o2000 : mode)
+      }
       const changeMode = Effect.fnUntraced(
         function*(target: PathInput | FileHandle | DirectoryHandle, mode: number, options?: MetadataOptions) {
           if (!Schema.is(Mode)(mode)) return yield* failure("InvalidArgument", "chmod")
           const chosen = options === undefined ? undefined : { ...options }
           return yield* coordinated(Effect.gen(function*() {
             const node = yield* metadataNode(target, chosen, "chmod")
-            if (!identity.privileged && identity.uid !== node.metadata.uid) {
-              return yield* failure("AccessDenied", "chmod")
-            }
-            const group = identity.gid === node.metadata.gid || identity.groups.includes(node.metadata.gid)
+            const permitted = yield* permittedMode(node.metadata, mode, "chmod")
             node.metadata = {
               ...node.metadata,
-              mode: !identity.privileged && node.kind === "file" && !group ? mode & ~0o2000 : mode,
+              mode: permitted,
               ctimeNs: (yield* timestamp("chmod"))
             }
             publishNode(node)
@@ -1044,12 +1053,12 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                   return yield* failure("NoSpace", "writeFile", input)
                 }
               } else yield* authorize(file, identity, chosen.access === "readWrite" ? 6 : 2, "writeFile", input)
-              if (
-                chosen.finalMode !== undefined && file !== undefined && !identity.privileged &&
-                identity.uid !== file.metadata.uid
-              ) {
-                return yield* failure("AccessDenied", "writeFile", input)
-              }
+              const finalMode = chosen.finalMode === undefined ? undefined : yield* permittedMode(
+                file?.metadata ?? { kind: "file", uid: identity.uid, gid: parent.metadata.gid },
+                chosen.finalMode,
+                "writeFile",
+                input
+              )
               const previous = file?.data.length ?? 0
               const initial = chosen.truncate ? 0 : previous
               const position = chosen.append ? initial : 0
@@ -1084,14 +1093,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                   }
                 }
               node.data = data
-              const group = identity.gid === node.metadata.gid || identity.groups.includes(node.metadata.gid)
               node.metadata = {
                 ...node.metadata,
-                mode: chosen.finalMode === undefined ?
-                  node.metadata.mode & ~0o6000
-                  : !identity.privileged && !group
-                  ? chosen.finalMode & ~0o2000
-                  : chosen.finalMode,
+                mode: finalMode ?? node.metadata.mode & ~0o6000,
                 size: BigInt(size),
                 mtimeNs: now,
                 ctimeNs: now

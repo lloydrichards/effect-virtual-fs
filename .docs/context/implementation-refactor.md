@@ -23,6 +23,11 @@ could replace them publicly, but would change accepted callers and require a com
 the single whole-file commit still protects failed replacement, destination identity, quota reuse, and one update
 per reachable alias.
 
+`permittedMode` now shares owner authorization and regular-file set-group-ID filtering between `chmod` and
+`writeFile`. The latter computes its final mode before capacity checks and publication, retaining failure order,
+creation ownership, and atomic bytes/mode updates. A helper that mutated metadata itself would mix policy with
+timestamps and event delivery; returning the permitted mode lets each operation keep its own commit boundary.
+
 ## Test and comment audit
 
 | Test or cluster                      | Observable behaviour                                       | Current owner | Decision | Evidence and risk                                                                      |
