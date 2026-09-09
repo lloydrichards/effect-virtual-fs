@@ -125,3 +125,8 @@ without erasing historical observations. Keep proposed tests and executed eviden
 [Implementation policy 0022](../decisions/0022-remaining-implementation-profile.md) records the regular-file choices
 used after the user instructed continued implementation through completion. It resolves the capacity question raised
 after directory rename/removal without reopening the accepted ownership, authority, or cancellation contracts.
+
+## Adapter timestamp representation
+
+[Decision 0023](../decisions/0023-adapter-timestamp-overflow.md) accepts typed `InvalidData` failures from path and
+handle stat when a returned timestamp cannot be represented as a JavaScript Date, preserving core and snapshot values.

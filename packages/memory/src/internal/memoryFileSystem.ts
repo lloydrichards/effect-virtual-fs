@@ -39,22 +39,40 @@ const translate = (error: Vfs.FsError, method: string, pathOrDescriptor: string 
 }
 const mapped = <A, R>(effect: Effect.Effect<A, Vfs.FsError, R>, method: string, path: string | number) =>
   effect.pipe(Effect.mapError((error) => translate(error, method, path)))
-const info = (value: Vfs.Metadata): FileSystem.File.Info => ({
-  type: value.kind === "file" ? "File" : value.kind === "directory" ? "Directory" : "SymbolicLink",
-  ino: Option.some(Number(value.ino)),
-  dev: 0,
-  mode: value.mode | (value.kind === "file" ? 0o100000 : value.kind === "directory" ? 0o40000 : 0o120000),
-  uid: Option.some(value.uid),
-  gid: Option.some(value.gid),
-  nlink: Option.some(value.nlink),
-  rdev: Option.some(0),
-  size: FileSystem.Size(value.size),
-  blksize: Option.none(),
-  blocks: Option.none(),
-  atime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number(value.atimeNs / 1_000_000n)))),
-  mtime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number(value.mtimeNs / 1_000_000n)))),
-  birthtime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(Number(value.birthtimeNs / 1_000_000n))))
-})
+const info = (
+  value: Vfs.Metadata,
+  pathOrDescriptor: string | number
+): Effect.Effect<FileSystem.File.Info, PlatformError> =>
+  Effect.gen(function*() {
+    const date = (field: "atimeNs" | "mtimeNs" | "birthtimeNs") => {
+      const result = DateTime.make(Number(value[field] / 1_000_000n))
+      return Option.isSome(result)
+        ? Effect.succeed(Option.some(DateTime.toDateUtc(result.value)))
+        : Effect.fail(systemError({
+          module: "FileSystem",
+          method: "stat",
+          pathOrDescriptor,
+          _tag: "InvalidData",
+          description: `${field} cannot be represented as a JavaScript Date`
+        }))
+    }
+    return {
+      type: value.kind === "file" ? "File" : value.kind === "directory" ? "Directory" : "SymbolicLink",
+      ino: Option.some(Number(value.ino)),
+      dev: 0,
+      mode: value.mode | (value.kind === "file" ? 0o100000 : value.kind === "directory" ? 0o40000 : 0o120000),
+      uid: Option.some(value.uid),
+      gid: Option.some(value.gid),
+      nlink: Option.some(value.nlink),
+      rdev: Option.some(0),
+      size: FileSystem.Size(value.size),
+      blksize: Option.none(),
+      blocks: Option.none(),
+      atime: yield* date("atimeNs"),
+      mtime: yield* date("mtimeNs"),
+      birthtime: yield* date("birthtimeNs")
+    }
+  })
 const validateMode = (mode: number | undefined, method: string) =>
   mode === undefined || (Number.isInteger(mode) && mode >= 0 && mode <= 0xffffffff)
     ? Effect.void
@@ -169,7 +187,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
     })
     return {
       [FileSystem.FileTypeId]: FileSystem.FileTypeId,
-      stat: mapped(handle.stat(), "stat", fd).pipe(Effect.map(info)),
+      stat: mapped(handle.stat(), "stat", fd).pipe(Effect.flatMap((value) => info(value, fd))),
       sync: mapped(handle.sync(), "sync", fd),
       seek: Effect.fn("MemoryFile.seek")(function*(offset, from) {
         return yield* locked(Effect.sync(() => {
@@ -453,7 +471,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
   )
   return FileSystem.make({
     access: (path) => mapped(Effect.asVoid(caller.stat(path)), "access", path),
-    stat: (path) => mapped(caller.stat(path), "stat", path).pipe(Effect.map(info)),
+    stat: (path) => mapped(caller.stat(path), "stat", path).pipe(Effect.flatMap((value) => info(value, path))),
     chmod: Effect.fn("MemoryFileSystem.chmod")(function*(path, mode) {
       yield* validateMode(mode, "chmod")
       yield* mapped(caller.chmod(path, mode & 0o7777), "chmod", path)

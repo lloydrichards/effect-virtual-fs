@@ -108,7 +108,7 @@ Build validation includes the browser-target bundle smoke executed under Node. I
 runtime behavior. Linux CI and Bun 1.2.21 remain untested locally. Existing type/build cache use in intermediate logs
 is distinct from the forced final results. No dependencies, lockfile, package privacy, or public signatures changed.
 
-## Pending adapter timestamp decision
+## Accepted adapter timestamp policy
 
 The review also reproduced an adapter failure through public APIs: writing a file, assigning core access time
 `10n ** 100n` with `caller.utimes`, binding that volume with `MemoryFileSystem.bind`, and calling adapter `stat`
@@ -116,7 +116,12 @@ produces a defect, `IllegalArgumentError: Invalid date`. The timestamp is inside
 but outside JavaScript Date's range. The [probe output](../evidence/implementation-refactor/adapter-timestamp-red.log)
 records the failure.
 
-The proposed adapter policy is `Option.none()` for each unrepresentable date. An alternative is a typed
-`InvalidData` failure for the entire stat operation. Both preserve core timestamps; neither silently clamps them.
-This public behavior choice was presented for approval and remains pending. The internal refactors do not
-change timestamp conversion while that decision is open.
+The user accepted a typed `InvalidData` failure for the entire stat operation. Path and handle stat now report
+the offending atimeNs, mtimeNs, or birthtimeNs field with path/descriptor context. Core timestamps and snapshot
+values remain unchanged. Valid Date boundaries and truncation to whole milliseconds retain their existing behavior.
+[Decision 0023](../decisions/0023-adapter-timestamp-overflow.md) records the policy and its rationale.
+
+The seven public adapter regressions first reproduced the defect, then passed with the repair. They cover both
+overflow signs for all three returned timestamp fields, path and handle stat, unchanged core metadata, exact Date
+boundaries, fractional negative milliseconds, and independently owned Date results. ctime is not exposed by Effect
+Info and does not participate in this conversion. Evidence is in [timestamp validation](../evidence/adapter-timestamps/results.json).
