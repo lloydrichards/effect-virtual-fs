@@ -4,7 +4,7 @@ title: Deferred capabilities
 description: Lists capabilities intentionally outside the current filesystem contract so future exploration is not mistaken for implemented support.
 status: draft
 tags: [profile, roadmap, deferred]
-generated: { by: codex/okf, at: 2026-09-10T11:03:16Z }
+generated: { by: codex/okf, at: 2026-09-10T11:48:22Z }
 ---
 
 # Deferred capabilities
@@ -13,7 +13,7 @@ The current profile does not include:
 
 - FUSE or other host mounts, Vim integration, or access by arbitrary native tools;
 - NFS, WebDAV, or other network filesystem protocols;
-- overlay filesystems, copy-up rules, or cheap copy-on-write branches;
+- overlay deltas, live backing volumes, merge or rebase, block-level copying, or changed-data budgets;
 - host-directory import or export;
 - FIFOs, device files, filesystem sockets, or other special files;
 - advisory locks or descriptor duplication;
@@ -26,4 +26,4 @@ These are exclusions, not rejected designs. Active investigation may be represen
 
 See [system boundaries](/architecture/system-boundaries.md "constrained by") and the [bounded POSIX profile](bounded-posix.md "contrasts with") for the current supported boundary. Network filesystem work is currently only [draft NFS research](/research/nfs-server.md "explored by").
 
-Overlay [v1 scope is accepted](/decisions/staged-overlay-delivery.md "constrained by"); implementation remains deferred. [Overlay research](/research/overlay-filesystem.md "explored by") maps the current constraints and remaining planning questions.
+Overlay [v1 scope is implemented](/contracts/overlay-workspaces.md "contrasts with"). [Overlay research](/research/overlay-filesystem.md "explored by") retains alternatives and deferred delta questions.

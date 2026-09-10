@@ -25,6 +25,7 @@ import * as Stream from "effect/Stream"
 import * as Content from "./internal/content.js"
 import * as Image from "./internal/image.js"
 import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./internal/overlayChanges.js"
+import * as OverlayTesting from "./internal/overlayTesting.js"
 
 const BytePathId = Symbol("@effect-vfs/core/BytePath")
 const VolumeId = Symbol("@effect-vfs/core/Volume")

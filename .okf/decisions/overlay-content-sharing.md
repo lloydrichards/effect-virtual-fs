@@ -11,12 +11,12 @@ sources:
   - id: research
     resource: ../research/overlay-filesystem.md
     title: Overlay storage alternatives
-generated: { by: codex/okf, at: 2026-09-10T11:03:16Z }
+generated: { by: codex/okf, at: 2026-09-10T11:48:22Z }
 ---
 
 # Overlay content sharing
 
-Accepted by the user on 2026-09-10; implementation is pending. V1 workspaces created from the same immutable snapshot share unchanged file contents. First content change gives the workspace private whole-file contents. Copying only changed blocks or ranges is deferred.
+Accepted by the user on 2026-09-10 and implemented with a weak snapshot-identity cache. V1 workspaces created from the same immutable snapshot share unchanged file contents. First content change gives the workspace private whole-file contents. Copying only changed blocks or ranges is deferred.
 
 Reads and metadata-only changes, including access times and permissions, retain shared contents. Metadata remains private. Public reads still return owned bytes under the [byte ownership contract](/contracts/byte-ownership.md "preserves"); internal sharing must never expose mutable backing buffers.
 

@@ -14,18 +14,18 @@ sources:
   - id: research
     resource: ../research/overlay-changes.md
     title: Summary, metadata and restoration distinctions
-generated: { by: codex/okf, at: 2026-09-10T11:03:16Z }
+generated: { by: codex/okf, at: 2026-09-10T11:48:22Z }
 ---
 
 # Overlay final-difference summary
 
-Accepted by the user on 2026-09-10; implementation is pending. This refines [staged delivery](staged-overlay-delivery.md "refines"). The summary describes current differences from the immutable base, not intermediate operations or audit history.
+Accepted by the user on 2026-09-10 and implemented by `OverlayVolume.changes` and `capture`. This refines [staged delivery](staged-overlay-delivery.md "refines"). The summary describes current differences from the immutable base, not intermediate operations or audit history.
 
 ## Final state and filtering
 
 Creating then deleting a new file leaves no entry difference for that file. Repeated edits produce one final content difference. Restoring original bytes removes the content difference even if storage stays private; a dirty flag alone is insufficient. Other metadata or namespace differences may remain.
 
-Hide timestamp-only differences by default, with an explicit option to include them. This includes access times from reads, times left by reverted edits and explicit time changes. Permissions, ownership, content and namespace changes remain visible. Complete snapshots always retain all timestamps. The option name and timestamp detail on otherwise changed entries remain API design tasks.
+Hide timestamp-only differences by default, with `includeTimestamps` to include them. This includes access times from reads, times left by reverted edits and explicit time changes. Permissions, ownership, content and namespace changes remain visible. When another field differs, the default record omits timestamp field names. Complete snapshots always retain all timestamps.
 
 ## Renames
 

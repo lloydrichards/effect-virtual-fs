@@ -1,7 +1,7 @@
 ---
 type: Research Report
 title: Overlay filesystem direction
-description: Maps accepted overlay scope to current implementation constraints, proposed behavior evidence and unresolved planning cases.
+description: Records the evidence and alternatives that led to the implemented overlay v1 boundary and its deferred work.
 status: draft
 tags: [overlay, architecture, identity, roadmap]
 sources:
@@ -38,18 +38,21 @@ sources:
   - id: binding-tests
     resource: ../../packages/memory/test/CoreBinding.test.ts
     title: Shared volume behavior through direct and adapter callers
+  - id: overlay-tests
+    resource: ../../packages/core/test/Overlay.test.ts
+    title: Representative overlay behavior, summaries and capture races
   - id: linux
     resource: https://docs.kernel.org/filesystems/overlayfs.html
     title: Linux OverlayFS semantics and limitations
   - id: oci
     resource: https://specs.opencontainers.org/image-spec/layer/
     title: OCI image layer changesets
-generated: { by: codex/okf, at: 2026-09-10T11:03:16Z }
+generated: { by: codex/okf, at: 2026-09-10T14:35:31Z }
 ---
 
 # Overlay filesystem direction
 
-Issue #8 requests an ordinary volume over a read-only base and writable changes for disposable builds and agent workspaces.[^issue] Start with [staged delivery](/decisions/staged-overlay-delivery.md "constrained by") and its focused decisions for accepted requirements. This concept owns implementation evidence, alternatives and unresolved planning questions. Overlay implementation is pending; the architecture proposals below remain draft.
+Issue #8 requests an ordinary volume over a read-only base and writable changes for disposable builds and agent workspaces.[^issue] Start with [staged delivery](/decisions/staged-overlay-delivery.md "constrained by") and its focused decisions for accepted requirements. The resulting behavior is specified by [overlay workspaces](/contracts/overlay-workspaces.md "implemented by"). This concept retains the alternatives and implementation rationale; deferred delta work remains draft.
 
 ## Current implementation constraints
 
@@ -120,16 +123,18 @@ Existing reference suites cover snapshot isolation, links, handles, replacement 
 
 Passing these suites establishes the existing reference behavior, not overlay correctness or sharing.
 
-## Questions the implementation plan must resolve
+## Resolved v1 implementation choices
 
-- Public constructor, package/export placement, error types and summary/capture result types. Preserve core independence from adapters and storage drivers.
-- Internal node/content boundary, decoded-base cache ownership, copy-on-write on every mutating path, and capture retention of stable bytes plus lineage. Ordinary handles currently mutate same-sized buffers in place, which cannot mutate content retained by a completed capture.[^core]
-- Summary granularity and ordering for directory moves, hard-link content edits and timestamp detail on otherwise changed entries. Work through rename replacement, name swaps, and deleting/recreating the same path with equal bytes before freezing records. These presentation cases are unresolved, not reasons to infer a new policy.
-- Restoration versus resuming an overlay: an ordinary saved snapshot reconstructs its visible filesystem, but excludes the original base association and lineage. Decide whether v1 needs any additional resume behavior; do not promise that loading a snapshot restores the original change summary.[^images]
-- Sharing scope for repeated use of one `Snapshot` versus separately decoded equivalent images, and whether identical-byte writes or no-op truncation may allocate private storage. Do not infer content deduplication from the sharing decision.
-- Cancellation and work bounds for large summary/capture operations; focused evidence that sharing survives reads and metadata updates. No quantitative performance contract has been accepted.
+- `@effect-vfs/core` exports `makeOverlay` and `OverlayVolume`; the capability remains directly usable by the memory adapter.
+- A weak cache keyed by the actual `Snapshot` shares immutable regular-file payloads. Namespace nodes and metadata remain private, and every content mutation replaces the whole-file content object.
+- Initial nodes retain private snapshot-record lineage. Comparison pairs only one removed and one added name per lineage, classifies replacements after rename pairing, and sorts raw bytes using the rename source as its primary path.
+- Summary records use `Added`, `Removed`, `Replaced`, `Renamed`, and `Updated`, with explicit field differences. Directory moves may produce records for descendants.
+- `includeTimestamps` controls all four time fields. Default records still expose content, mode and ownership changes while omitting timestamp details.
+- `capture` encodes the complete image and copies path/lineage observations under the existing volume gate, then compares stable inputs. This makes no capture-latency promise.
+- A saved complete snapshot restores visible state only. Calling `makeOverlay` on it establishes a new baseline with an empty summary.
+- Equivalent snapshots decoded as distinct objects do not share cached payloads. Identical writes may retain private storage even when the final content difference cancels.
 
-The first useful experiment is a minimal identity/content boundary tested with aliases, preexisting handles and stable capture. This should inform the plan without introducing deferred delta encoding or a broad public storage abstraction.
+The implementation deliberately avoids delta encoding, a general storage-provider API, live bases, or public object references.
 
 [^issue]: Issue #8 was retrieved on 2026-09-10 with no comments. Accepted decisions record subsequent user choices; the issue is not their approval source.
 

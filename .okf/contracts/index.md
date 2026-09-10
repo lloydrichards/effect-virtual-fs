@@ -11,3 +11,4 @@
 - [Memory adapter compatibility](./memory-adapter-compatibility.md) - Effect `FileSystem` behavior over core volumes.
 - [Virtual build consumer](./virtual-build-consumer.md) - Build and package-import acceptance boundary.
 - [Checkpoint persistence](./checkpoint-persistence.md) - Explicit SQLite-backed named checkpoints.
+- [Overlay workspaces](./overlay-workspaces.md) - Snapshot-based writable branches, shared contents, summaries, and capture.

@@ -11,12 +11,12 @@ sources:
   - id: research
     resource: ../research/overlay-changes.md
     title: Export alternatives and future delta requirements
-generated: { by: codex/okf, at: 2026-09-10T11:03:16Z }
+generated: { by: codex/okf, at: 2026-09-10T11:48:22Z }
 ---
 
 # Staged overlay delivery
 
-Accepted by the user on 2026-09-10 in Codex task `01a08acd-b076-7512-bab8-451137eaa712`. This concept records those decisions; issue #8 supplies the original questions, and code sources establish constraints rather than approval. Overlay implementation is pending. Start here for v1 scope, then follow the focused decisions below. Their stable status means accepted design, not implemented capability.
+Accepted by the user on 2026-09-10 in Codex task `01a08acd-b076-7512-bab8-451137eaa712`. This concept records those decisions; issue #8 supplies the original questions, and code sources establish constraints rather than approval. The implemented behavior is recorded by the [overlay workspace contract](/contracts/overlay-workspaces.md "implemented by"). Start here for v1 scope, then follow the focused decisions below.
 
 ## V1 scope
 
@@ -38,4 +38,4 @@ Existing [whole-volume limits](/contracts/capacity-and-limits.md "preserves") in
 
 Exact delta persistence, a changed-data budget, in-place reset, merge/rebase, and automatic persistence are outside v1. Delta persistence requires its own format, base matching, validation, restoration and base-retention policy. Block/range copying is deferred; no quantified memory or startup guarantee is promised.
 
-Constructor and result types, package placement, directory grouping and internal storage remain design tasks. This record settles requirements; it does not claim an implementation plan or implementation exists.
+Core exports `makeOverlay`, `OverlayVolume`, schema-backed summary records, `changes` and paired `capture`. Directory moves may produce one rename per affected path. Internal storage and lineage remain private.
