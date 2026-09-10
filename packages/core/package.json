@@ -17,7 +17,7 @@
     "build": "tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json",
     "clean": "git clean -xdf .cache .turbo dist node_modules tsconfig.tsbuildinfo",
     "test": "vitest run",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit && tsc --project contracts/tsconfig.json"
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.112"

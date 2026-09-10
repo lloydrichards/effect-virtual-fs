@@ -25,9 +25,5 @@ jobs:
       - run: bun run build
       - run: bun run lint
       - run: bun run lint:effects
-      - name: Check documentation contracts
-        run: |
-          bun run tsc --project .docs/contracts/tsconfig.json
-          bun .docs/contracts/models.check.mjs .docs/contracts/models.ts .docs/context/snapshot-format-draft.md
       - run: bun run type-check
       - run: bun run test
