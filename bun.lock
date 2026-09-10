@@ -18,6 +18,21 @@
         "vitest": "^4.1.11",
       },
     },
+    "apps/overlay-demo": {
+      "name": "@repo/overlay-demo",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect-vfs/core": "workspace:*",
+        "@effect/ai-openai": "4.0.0-rc.112",
+        "effect": "4.0.0-rc.112",
+        "effect-boxes": "^0.17.2",
+      },
+      "devDependencies": {
+        "@effect/vitest": "4.0.0-rc.112",
+        "@repo/config-typescript": "workspace:*",
+        "@types/bun": "^1.2.17",
+      },
+    },
     "apps/scratchpad": {
       "name": "@repo/scratchpad",
       "version": "0.0.0",
@@ -160,6 +175,8 @@
     "@effect-vfs/memory": ["@effect-vfs/memory@workspace:packages/memory"],
 
     "@effect-vfs/persistence": ["@effect-vfs/persistence@workspace:packages/persistence"],
+
+    "@effect/ai-openai": ["@effect/ai-openai@4.0.0-rc.112", "", { "peerDependencies": { "effect": "^4.0.0-rc.112" } }, "sha512-j2X86xvgpAtNiusyESADHZn3PUzMVatE1zWXd0No2aybx/euKiVBVWZOtzq7ntJ5KvPHRBOFXTGPADdApQrwug=="],
 
     "@effect/platform-bun": ["@effect/platform-bun@4.0.0-rc.112", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.112" }, "peerDependencies": { "effect": "^4.0.0-rc.112" } }, "sha512-Y5n2HhV/vsbrJls9ukX42RL7zqXQxISHegWFsP9njsCyDmGTnq7QYSO82rglwrLPwtTrv5dkSRTuGw4+oXxgMg=="],
 
@@ -320,6 +337,8 @@
     "@pnpm/deps.graph-sequencer": ["@pnpm/deps.graph-sequencer@1100.0.1", "", {}, "sha512-pOr5+q1fLYKwFN3LAJuGZEnfXDcQ73zqgDHMtGy+K+uIoUqyY+6MeDCWFwfu+4EFuq76I5EPFofoNAI+Bmmq4A=="],
 
     "@repo/config-typescript": ["@repo/config-typescript@workspace:packages/config-typescript"],
+
+    "@repo/overlay-demo": ["@repo/overlay-demo@workspace:apps/overlay-demo"],
 
     "@repo/scratchpad": ["@repo/scratchpad@workspace:apps/scratchpad"],
 
@@ -520,6 +539,8 @@
     "dprint": ["dprint@0.54.0", "", { "optionalDependencies": { "@dprint/darwin-arm64": "0.54.0", "@dprint/darwin-x64": "0.54.0", "@dprint/linux-arm64-glibc": "0.54.0", "@dprint/linux-arm64-musl": "0.54.0", "@dprint/linux-loong64-glibc": "0.54.0", "@dprint/linux-loong64-musl": "0.54.0", "@dprint/linux-riscv64-glibc": "0.54.0", "@dprint/linux-x64-glibc": "0.54.0", "@dprint/linux-x64-musl": "0.54.0", "@dprint/win32-arm64": "0.54.0", "@dprint/win32-x64": "0.54.0" }, "bin": { "dprint": "bin.cjs" } }, "sha512-sIy25poR2gRP/tWPTgP0MPeJoJcpv0xzYDcsboapvthbEt1Qw3Al252CA0xFyIh2cYEGGKyBJtKokryv4ERlJw=="],
 
     "effect": ["effect@4.0.0-rc.112", "", { "dependencies": { "fast-check": "^4.9.0", "msgpackr": "^2.0.5" } }, "sha512-wXxwuh1Ywnv4cPRM3Wfa0vDwuOHnZ1TsTgHJkG9XgzND6inhBH9n1vBxhg3iIXOia/OrpmvVmd3lrD4vq6bF3A=="],
+
+    "effect-boxes": ["effect-boxes@0.17.2", "", { "peerDependencies": { "effect": ">=4.0.0-rc.108" } }, "sha512-CtrXogmXf4+qyeYtc6UFR2w4dd3yLHCPyos8yDHlrO2vHTFOM3VPEgTdMy+RJ+jrGGF0pgdnFWW+mD6AXQ+Iyg=="],
 
     "es-module-lexer": ["es-module-lexer@2.3.2", "", {}, "sha512-poHGpORABojJJucnV9KbOavETW8lBVnphkW77ER5/BQ5Fz7oXSoCNek7IH3vR5nRjdsEz926ibFYX8KtLQmdyw=="],
 
