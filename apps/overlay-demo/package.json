@@ -1,0 +1,23 @@
+{
+  "name": "@repo/overlay-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "demo": "bun --env-file=.env run src/demo.ts",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect-vfs/core": "workspace:*",
+    "@effect/ai-openai": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112",
+    "effect-boxes": "^0.17.2"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-rc.112",
+    "@repo/config-typescript": "workspace:*",
+    "@types/bun": "^1.2.17"
+  }
+}
