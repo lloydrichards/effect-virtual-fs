@@ -29,6 +29,7 @@
   ],
   "ignorePatterns": [
     ".docs/contracts/**",
-    ".docs/evidence/**"
+    ".docs/evidence/**",
+    "packages/core/contracts/ApiTypes.ts"
   ]
 }

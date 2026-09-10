@@ -1,0 +1,9 @@
+{
+  "extends": "@repo/config-typescript/base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "noEmit": true,
+    "rootDir": ".."
+  },
+  "include": ["ApiTypes.ts"]
+}
