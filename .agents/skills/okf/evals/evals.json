@@ -1,0 +1,35 @@
+{
+  "skill_name": "okf",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "A new durable architectural decision has been accepted. Plan how to add it to this repository's OKF bundle without editing files yet, including its sources, relationships, lifecycle metadata, and validation.",
+      "expected_output": "A read-only, repository-grounded authoring plan that creates one focused decision concept, uses current authoritative sources, connects it selectively, and uses pinned okf-graph commands.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "The checkpoint persistence implementation has changed. Find the affected OKF concepts, explain which source and graph relationships need checking, and outline the smallest safe maintenance update.",
+      "expected_output": "An index-first and graph-assisted maintenance plan that verifies sources, updates only affected concepts and metadata, records the change, and validates the bundle.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Use okf-graph to explore how the package-boundaries decision relates to the implemented filesystem profile. Report the relevant path and neighboring concepts without changing the bundle.",
+      "expected_output": "A read-only exploration using graph path, neighbors, and concept inspection with correct concept-ID conventions and no speculative relationships.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I refactored the in-memory filesystem implementation without changing observable behavior or package ownership. Maintain the OKF as needed.",
+      "expected_output": "The agent checks relevant sources and concludes that file churn alone does not require an OKF edit when durable claims remain accurate. It validates if useful and does not add a log entry for a validation-only run.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "We implemented a capability currently listed as deferred. Update the repository knowledge to reflect the change.",
+      "expected_output": "The agent verifies code and tests, updates the implemented and deferred profiles plus any affected contract, adjusts sources, timestamps, relationships, and one log entry, then runs the repository OKF check script for the affected concepts.",
+      "files": []
+    }
+  ]
+}

@@ -41,6 +41,24 @@ can use a host filesystem in production and an isolated in-memory filesystem in 
 The core, memory, and persistence packages are versioned at `0.0.1`. All packages target the
 exact peer version `effect@4.0.0-rc.112` while Effect 4 remains a release candidate.
 
+## Explore project knowledge
+
+The [OKF bundle](.okf/index.md) connects the current architecture, behavioral contracts, accepted decisions,
+research, and validation guidance. With [Bun](https://bun.sh) installed, start from the project overview and explore
+its neighboring concepts interactively:
+
+```sh
+npx --yes okf-graph@0.2.0 concept .okf profiles/project-overview --interactive
+```
+
+Concept IDs are paths inside `.okf` without the `.md` extension. You can also validate the bundle or inspect a
+focused neighborhood directly:
+
+```sh
+npx --yes okf-graph@0.2.0 validate .okf
+npx --yes okf-graph@0.2.0 graph neighbors .okf contracts/snapshots-and-fixtures
+```
+
 ## Repository development
 
 ```sh
@@ -56,17 +74,14 @@ Run the private scratchpad with:
 bun run --filter @repo/scratchpad dev
 ```
 
-Reference repositories are optional and excluded from builds. See [.docs/references.md](.docs/references.md).
+Reference repositories under `.reference/` are optional and excluded from builds.
 
 `@repo/virtual-build` is a private example package that demonstrates Vite build and rebuild flows over virtual files.
 
 ## Core development context
 
-Start with the [development context](.docs/context/README.md) for the current scope, researched contracts,
-Effect compatibility requirements, open decisions, and implementation evidence plan.
-The accepted implementation milestones are complete. See the
-[implemented profile and evidence ledger](.docs/context/implemented-profile.md) for operations, limits, tests, and
-exclusions.
+Start with the [project knowledge overview](.okf/profiles/project-overview.md) for the current system boundary, then
+follow its graph links into the implemented profile, focused contracts, accepted decisions, and draft research.
 
 ## License
 

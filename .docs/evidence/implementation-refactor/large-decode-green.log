@@ -1,9 +1,0 @@
-
- RUN  v4.1.11 /Users/lloyd/Documents/GitHub/effect-virtual-fs
-
-
- Test Files  2 passed (2)
-      Tests  9 passed (9)
-   Start at  08:31:24
-   Duration  256ms (transform 75ms, setup 0ms, import 262ms, tests 91ms, environment 0ms)
-

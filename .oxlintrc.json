@@ -28,8 +28,6 @@
     }
   ],
   "ignorePatterns": [
-    ".docs/contracts/**",
-    ".docs/evidence/**",
     "packages/core/contracts/ApiTypes.ts"
   ]
 }
