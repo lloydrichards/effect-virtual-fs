@@ -10,7 +10,7 @@ Effect's standard `FileSystem` service, use [`@effect-vfs/memory`](https://www.n
 which adapts this package to that interface.
 
 The package implements a documented subset of POSIX behavior. It does not claim full POSIX conformance. See the
-[implemented profile](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.docs/context/implemented-profile.md)
+[implemented profile](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.okf/profiles/implemented-filesystem.md)
 for the exact permission, path, timestamp, quota, and atomicity rules.
 
 ## Install
@@ -280,4 +280,4 @@ candidate.
 - `sync` checks handle liveness. An in-memory volume provides no host or crash durability.
 
 For the complete contract, read the
-[implemented profile](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.docs/context/implemented-profile.md).
+[implemented profile](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.okf/profiles/implemented-filesystem.md).

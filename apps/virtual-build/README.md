@@ -43,4 +43,3 @@ The script does not force garbage collection or isolate phases, and fixture inpu
 This measures the whole benchmark process, not core-only memory, exact JavaScript heap allocation, per-phase peaks,
 or a portable memory guarantee. Peak RSS is `null` under Bun because that runtime's metric has not been verified here;
 use the direct Node command above for peak-memory evidence. Runtime and platform are recorded with each result.
-The original timing/size sample is in `.docs/evidence/consumer/measurement.json`.

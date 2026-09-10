@@ -183,7 +183,7 @@ filesystem. It does not provide FUSE mounts, host-tree import or export, special
 files, advisory locks, descriptor duplication, crash durability, or
 copy-on-write snapshot optimization. Recursive adapter operations run as a
 sequence of core operations rather than one transaction. See the
-[implemented profile](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.docs/context/implemented-profile.md)
+[implemented profile](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.okf/profiles/implemented-filesystem.md)
 for the exact behavior and exclusions.
 
 ## Compatibility
