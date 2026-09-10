@@ -64,6 +64,19 @@ export const persistence = Effect.gen(function*() {
   )
 })
 
+export const overlay = Effect.gen(function*() {
+  const base = yield* (yield* Vfs.make()).snapshot
+  const volume = yield* Vfs.makeOverlay(base, { maxBytes: 1_000 })
+  const ordinary: Vfs.Volume = volume
+  const changes: ReadonlyArray<Vfs.OverlayChange> = yield* volume.changes({ includeTimestamps: true })
+  const capture: Vfs.OverlayCapture = yield* volume.capture()
+  return { ordinary, changes, capture }
+}) satisfies Effect.Effect<{
+  readonly ordinary: Vfs.Volume
+  readonly changes: ReadonlyArray<Vfs.OverlayChange>
+  readonly capture: Vfs.OverlayCapture
+}, Vfs.ConfigurationError | Vfs.ImageError>
+
 export const rejectedFile = (caller: Vfs.Caller, file: Vfs.FileHandle) => {
   // @ts-expect-error File acquisition requires Scope too.
   const unscoped: Effect.Effect<Vfs.FileHandle, Vfs.FsError> = caller.open("file", { access: "read" })
@@ -71,5 +84,7 @@ export const rejectedFile = (caller: Vfs.Caller, file: Vfs.FileHandle) => {
   file.pread(1, 0)
   // @ts-expect-error Decoding untrusted input requires explicit work limits.
   Vfs.decodeSnapshot(new Uint8Array())
+  // @ts-expect-error Overlay construction requires an authentic opaque snapshot.
+  Vfs.makeOverlay(new Uint8Array())
   return unscoped
 }
