@@ -22,13 +22,16 @@ import type * as SchemaIssue from "effect/SchemaIssue"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
+import * as Content from "./internal/content.js"
 import * as Image from "./internal/image.js"
+import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./internal/overlayChanges.js"
 
 const BytePathId = Symbol("@effect-vfs/core/BytePath")
 const VolumeId = Symbol("@effect-vfs/core/Volume")
 const CallerId = Symbol("@effect-vfs/core/Caller")
 const FileHandleId = Symbol("@effect-vfs/core/FileHandle")
 const DirectoryHandleId = Symbol("@effect-vfs/core/DirectoryHandle")
+const bytePaths = new WeakMap<BytePath, Uint8Array>()
 
 /**
  * An opaque path that preserves arbitrary non-NUL bytes without UTF-8 conversion.
@@ -39,6 +42,15 @@ const DirectoryHandleId = Symbol("@effect-vfs/core/DirectoryHandle")
 export interface BytePath {
   readonly [BytePathId]: true
 }
+/**
+ * Schema for an opaque byte-preserving filesystem path.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
+export const BytePath = Schema.declare<BytePath>((value): value is BytePath =>
+  typeof value === "object" && value !== null && bytePaths.has(value as BytePath)
+)
 /**
  * A UTF-8 string path or an opaque byte-preserving path.
  *
@@ -470,6 +482,109 @@ export interface Change {
   readonly path: BytePath
 }
 /**
+ * Schema for the filesystem entry kinds reported by overlay summaries.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
+export const OverlayNodeKind = Schema.Literals(["directory", "file", "symlink"])
+/**
+ * A filesystem entry kind reported by an overlay summary.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type OverlayNodeKind = typeof OverlayNodeKind.Type
+/**
+ * Schema for observable fields that can differ from an overlay's immutable base.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
+export const OverlayDifference = Schema.Literals([
+  "content",
+  "mode",
+  "uid",
+  "gid",
+  "atimeNs",
+  "mtimeNs",
+  "ctimeNs",
+  "birthtimeNs"
+])
+/**
+ * A content, ownership, permission, or timestamp field that differs from the overlay base.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type OverlayDifference = typeof OverlayDifference.Type
+const OverlayDifferences = Schema.Array(OverlayDifference)
+const NonEmptyOverlayDifferences = OverlayDifferences.check(Schema.isMinLength(1))
+/**
+ * Schema for a final-state overlay difference.
+ *
+ * **Details**
+ *
+ * Paths retain arbitrary non-NUL bytes. Renames are reported only when retained
+ * base identity makes the removed and added names unambiguous.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
+export const OverlayChange = Schema.Union([
+  Schema.TaggedStruct("Added", { path: BytePath, kind: OverlayNodeKind }),
+  Schema.TaggedStruct("Removed", { path: BytePath, kind: OverlayNodeKind }),
+  Schema.TaggedStruct("Replaced", {
+    path: BytePath,
+    beforeKind: OverlayNodeKind,
+    afterKind: OverlayNodeKind,
+    differences: OverlayDifferences
+  }),
+  Schema.TaggedStruct("Renamed", {
+    from: BytePath,
+    to: BytePath,
+    kind: OverlayNodeKind,
+    differences: OverlayDifferences
+  }),
+  Schema.TaggedStruct("Updated", { path: BytePath, kind: OverlayNodeKind, differences: NonEmptyOverlayDifferences })
+])
+/**
+ * A path-oriented final-state difference from an overlay's immutable base.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type OverlayChange = typeof OverlayChange.Type
+/**
+ * Schema for overlay summary filtering.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
+export const OverlayChangesOptions = Schema.Struct({
+  /** Include access, modification, change, and birth-time differences. Defaults to `false`. */
+  includeTimestamps: Schema.optionalKey(Schema.Boolean)
+})
+/**
+ * Filtering options for an overlay final-difference summary.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
+/**
+ * A complete snapshot and final-difference summary captured from one committed state.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export interface OverlayCapture {
+  /** Complete version 1 snapshot owned by this capture. */
+  readonly snapshot: Snapshot
+  /** Owned summary that describes the same state as `snapshot`. */
+  readonly changes: ReadonlyArray<OverlayChange>
+}
+/**
  * An isolated virtual filesystem namespace that creates callers, snapshots, and watch streams.
  *
  * @category models
@@ -483,6 +598,22 @@ export interface Volume {
   readonly [VolumeId]: true
   /** Creates a caller rooted at `/` with independent credentials, umask, and current directory. */
   readonly caller: (options?: RootCallerOptions) => Effect.Effect<Caller, ConfigurationError>
+}
+/**
+ * An ordinary volume with final-state inspection relative to one immutable snapshot base.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export interface OverlayVolume extends Volume {
+  /** Computes final differences from the immutable base when this reusable effect executes. */
+  readonly changes: (
+    options?: OverlayChangesOptions
+  ) => Effect.Effect<ReadonlyArray<OverlayChange>, ConfigurationError | ImageError>
+  /** Captures one committed state when this reusable effect executes. */
+  readonly capture: (
+    options?: OverlayChangesOptions
+  ) => Effect.Effect<OverlayCapture, ConfigurationError | ImageError>
 }
 /**
  * Optional Effect service for providing an existing filesystem caller.
@@ -513,7 +644,6 @@ export const decodeSnapshot: (
   limits: DecodeLimits
 ) => Effect.Effect<Snapshot, ImageError> = Image.decodeSnapshot
 
-const bytePaths = new WeakMap<BytePath, Uint8Array>()
 const failure = (code: FsCode, operation: string, path?: PathInput) =>
   new FsError({ code, operation, ...(path === undefined ? {} : { path }) })
 
@@ -579,18 +709,21 @@ export const pathToBytes = Effect.fn("VirtualFileSystem.pathToBytes")(function*(
 
 interface Directory {
   readonly kind: "directory"
+  readonly lineage: string | undefined
   parent: Directory | undefined
   readonly entries: Map<string, Node>
   metadata: Metadata
 }
 interface RegularFile {
   readonly kind: "file"
-  data: Uint8Array
+  readonly lineage: string | undefined
+  data: Content.Content
   openCount: number
   metadata: Metadata
 }
 interface SymbolicLink {
   readonly kind: "symlink"
+  readonly lineage: string | undefined
   readonly target: Uint8Array
   metadata: Metadata
 }
@@ -712,9 +845,19 @@ const storedMetadata = (metadata: Metadata): Image.StoredMetadata => ({
   birthtimeNs: String(metadata.birthtimeNs)
 })
 
+type VolumeSource =
+  | { readonly _tag: "Empty" }
+  | { readonly _tag: "Snapshot"; readonly image: Image.Document }
+  | {
+    readonly _tag: "Overlay"
+    readonly base: Snapshot
+    readonly image: Image.Document
+  }
+
 /** Each execution constructs a fresh volume and captures its Clock. */
 const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
-  function*(options?: VolumeOptions, image?: Image.Document) {
+  function*(source: VolumeSource, options?: VolumeOptions) {
+    const image = source._tag === "Empty" ? undefined : source.image
     const decoded = decodeConfiguration(VolumeOptions, options === undefined ? {} : options)
     if (Result.isFailure(decoded)) return yield* decoded.failure
     const settings = { ...decoded.success }
@@ -732,6 +875,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
     const gate = Semaphore.makeUnsafe(1)
     const root: Directory = {
       kind: "directory",
+      lineage: image?.root,
       parent: undefined,
       entries: new Map(),
       metadata: directoryMetadata(1n, 0, 0, 0o755, initialTime)
@@ -761,6 +905,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
       ) {
         return yield* new ImageError({ code: "LimitExceeded", field: "volume" })
       }
+      const baseContents = source._tag === "Overlay" ? Content.forOverlay(source.base, image) : undefined
       for (const record of image.records) {
         const metadata: Metadata = {
           ...record.metadata,
@@ -776,20 +921,26 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
         if (record.kind === "directory") {
           const node: Directory = record.id === image.root
             ? root
-            : { kind: "directory", parent: undefined, entries: new Map(), metadata }
+            : { kind: "directory", lineage: record.id, parent: undefined, entries: new Map(), metadata }
           node.metadata = metadata
           incoming.set(record.id, node)
         } else if (record.kind === "file") {
-          const data = Image.bytes(record.data)
+          const data = baseContents?.get(record.id) ?? Content.make(Image.bytes(record.data))
           incoming.set(record.id, {
             kind: "file",
+            lineage: record.id,
             data,
             openCount: 0,
-            metadata: { ...metadata, size: BigInt(data.length) }
+            metadata: { ...metadata, size: BigInt(data.bytes.length) }
           })
         } else {
           const target = Image.bytes(record.target)
-          incoming.set(record.id, { kind: "symlink", target, metadata: { ...metadata, size: BigInt(target.length) } })
+          incoming.set(record.id, {
+            kind: "symlink",
+            lineage: record.id,
+            target,
+            metadata: { ...metadata, size: BigInt(target.length) }
+          })
         }
       }
       for (const record of image.records) {
@@ -849,6 +1000,70 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
       }
     }
 
+    const captureSnapshot = Effect.fnUntraced(function*() {
+      const ids = new Map<Node, string>([[root, "0"]])
+      const pending: Array<Node> = [root]
+      const records: Array<Image.Record> = []
+      for (let index = 0; index < pending.length; index++) {
+        const node = pending[index]
+        if (node === undefined) continue
+        const id = ids.get(node)
+        if (id === undefined) return yield* new ImageError({ code: "InvalidStructure" })
+        const metadata = storedMetadata(node.metadata)
+        if (node.kind === "directory") {
+          const children: Array<{ name: string; target: string }> = []
+          for (const [name, child] of node.entries) {
+            let target = ids.get(child)
+            if (target === undefined) {
+              target = String(ids.size)
+              ids.set(child, target)
+              pending.push(child)
+            }
+            children.push({ name: Image.base64(nameBytes(name)), target })
+          }
+          records.push({ id, kind: "directory", metadata, entries: children })
+        } else if (node.kind === "file") {
+          records.push({ id, kind: "file", metadata, data: Image.base64(node.data.bytes) })
+        } else records.push({ id, kind: "symlink", metadata, target: Image.base64(node.target) })
+      }
+
+      return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records })
+    })
+
+    const observeChanges = () => {
+      const observation: Array<ObservationEntry> = []
+      const paths: Array<readonly [Node, Uint8Array]> = [[root, new Uint8Array([47])]]
+      for (let index = 0; index < paths.length; index++) {
+        const current = paths[index]
+        if (current === undefined) continue
+        const [node, path] = current
+        observation.push({
+          path: new Uint8Array(path),
+          lineage: node.lineage,
+          kind: node.kind,
+          content: node.kind === "file" ? node.data.bytes : node.kind === "symlink" ? node.target : undefined,
+          metadata: storedMetadata(node.metadata)
+        })
+        if (node.kind !== "directory") continue
+        for (const [name, child] of node.entries) {
+          const bytes = nameBytes(name)
+          const childPath = new Uint8Array(path.length + (path.length === 1 ? 0 : 1) + bytes.length)
+          childPath.set(path)
+          let offset = path.length
+          if (path.length !== 1) childPath[offset++] = 47
+          childPath.set(bytes, offset)
+          paths.push([child, childPath])
+        }
+      }
+      return observation
+    }
+
+    const captureState = Effect.fnUntraced(function*(hook?: OverlayTesting.ObservationHook) {
+      const snapshot = yield* captureSnapshot()
+      if (hook !== undefined) yield* hook.betweenSnapshotAndSummary
+      return { snapshot, observation: observeChanges() }
+    })
+
     // Permit waits stay interruptible. State transitions and resource registration do not.
     const coordinated = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(Effect.uninterruptible(effect))
     const release = (reference: DirectoryReference) =>
@@ -871,8 +1086,8 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
 
     const reclaim = (file: RegularFile) => {
       if (file.metadata.nlink === 0 && file.openCount === 0) {
-        usedBytes -= file.data.length
-        file.data = new Uint8Array(0)
+        usedBytes -= file.data.bytes.length
+        file.data = Content.empty()
       }
     }
     const detach = (node: Node, now: bigint) => {
@@ -897,14 +1112,14 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
       if (typeof length !== "bigint" || length < 0n) return yield* failure("InvalidArgument", operation)
       if (length > BigInt(maxFileBytes)) return yield* failure("FileTooLarge", operation)
       const size = Number(length)
-      if (size - file.data.length > (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes) {
+      if (size - file.data.bytes.length > (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes) {
         return yield* failure("NoSpace", operation)
       }
       const data = new Uint8Array(size)
-      data.set(file.data.subarray(0, size))
+      data.set(file.data.bytes.subarray(0, size))
       const now = yield* timestamp(operation)
-      usedBytes += size - file.data.length
-      file.data = data
+      usedBytes += size - file.data.bytes.length
+      file.data = Content.make(data)
       file.metadata = {
         ...file.metadata,
         size: length,
@@ -928,7 +1143,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           return yield* failure("InvalidArgument", "read")
         }
         const start = Number(offset > file.metadata.size ? file.metadata.size : offset)
-        const data = file.data.slice(start, start + Math.min(maximum, file.data.length - start))
+        const data = file.data.bytes.slice(start, start + Math.min(maximum, file.data.bytes.length - start))
         if (maximum > 0) {
           file.metadata = { ...file.metadata, atimeNs: (yield* timestamp("read")) }
         }
@@ -952,16 +1167,18 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           if (offset >= BigInt(maxFileBytes)) return yield* failure("FileTooLarge", "write")
           const start = Number(offset)
           const free = (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes
-          const end = Math.min(maxFileBytes, file.data.length + free)
+          const end = Math.min(maxFileBytes, file.data.bytes.length + free)
           const count = Math.min(bytes.length, Math.max(0, end - start))
           if (count === 0) return yield* failure("NoSpace", "write")
-          const size = Math.max(file.data.length, start + count)
-          const data = size === file.data.length ? file.data : new Uint8Array(size)
-          if (data !== file.data) data.set(file.data)
+          const size = Math.max(file.data.bytes.length, start + count)
+          // Always detach before mutation. A same-sized write is the critical
+          // case: the current payload may belong to the base or a prior capture.
+          const data = new Uint8Array(size)
+          data.set(file.data.bytes)
           const now = yield* timestamp("write")
           data.set(bytes.subarray(0, count), start)
-          usedBytes += size - file.data.length
-          file.data = data
+          usedBytes += size - file.data.bytes.length
+          file.data = Content.make(data)
           file.metadata = {
             ...file.metadata,
             size: BigInt(size),
@@ -1302,7 +1519,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "readFile")
             if (node.kind !== "file") return yield* failure("IsDirectory", "readFile", input)
             yield* authorize(node, identity, 4, "readFile", input)
-            const data = new Uint8Array(node.data)
+            const data = new Uint8Array(node.data.bytes)
             node.metadata = { ...node.metadata, atimeNs: (yield* timestamp("readFile")) }
             return data
           }))
@@ -1357,7 +1574,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                 "writeFile",
                 input
               )
-              const previous = file?.data.length ?? 0
+              const previous = file?.data.bytes.length ?? 0
               const initial = chosen.truncate ? 0 : previous
               const position = chosen.append ? initial : 0
               const size = Math.max(initial, position + captured.length)
@@ -1372,14 +1589,15 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               let data = captured
               if (position !== 0 || size !== captured.length) {
                 data = new Uint8Array(size)
-                if (file !== undefined && !chosen.truncate) data.set(file.data)
+                if (file !== undefined && !chosen.truncate) data.set(file.data.bytes)
                 data.set(captured, position)
               }
               const now = yield* timestamp("writeFile")
               const node: RegularFile = file ??
                 {
                   kind: "file",
-                  data,
+                  lineage: undefined,
+                  data: Content.make(data),
                   openCount: 0,
                   metadata: {
                     ...directoryMetadata(
@@ -1393,7 +1611,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                     nlink: 1
                   }
                 }
-              node.data = data
+              node.data = Content.make(data)
               node.metadata = {
                 ...node.metadata,
                 mode: finalMode ?? node.metadata.mode & ~0o6000,
@@ -1532,6 +1750,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             const now = yield* timestamp("symlink")
             const node: SymbolicLink = {
               kind: "symlink",
+              lineage: undefined,
               target: new Uint8Array(bytes),
               metadata: {
                 ...directoryMetadata(nextInode, identity.uid, parent.metadata.gid, 0o777, now),
@@ -1628,7 +1847,8 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               const now = yield* timestamp("open")
               file = {
                 kind: "file",
-                data: new Uint8Array(0),
+                lineage: undefined,
+                data: Content.empty(),
                 openCount: 0,
                 metadata: {
                   ...directoryMetadata(
@@ -1825,6 +2045,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               const now = yield* timestamp("mkdir")
               const child: Directory = {
                 kind: "directory",
+                lineage: undefined,
                 parent,
                 entries: new Map(),
                 metadata: directoryMetadata(
@@ -1876,6 +2097,29 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
       })
     }
 
+    const baseObservation = source._tag === "Overlay" ? observeChanges() : undefined
+    const publicChange = (change: RawOverlayChange): OverlayChange => {
+      switch (change._tag) {
+        case "Added":
+        case "Removed":
+        case "Updated":
+        case "Replaced":
+          return Object.freeze({ ...change, path: ownedPath(new Uint8Array(change.path)) })
+        case "Renamed":
+          return Object.freeze({
+            ...change,
+            from: ownedPath(new Uint8Array(change.from)),
+            to: ownedPath(new Uint8Array(change.to))
+          })
+      }
+      throw new Error("Unknown internal overlay change")
+    }
+    const publicChanges = (changes: ReadonlyArray<RawOverlayChange>): ReadonlyArray<OverlayChange> =>
+      Object.freeze(changes.map(publicChange))
+    const changeOptions = (options?: OverlayChangesOptions) => {
+      const decoded = decodeConfiguration(OverlayChangesOptions, options === undefined ? {} : options)
+      return Result.isFailure(decoded) ? Effect.fail(decoded.failure) : Effect.succeed(decoded.success)
+    }
     const volume: Volume = Object.freeze({
       [VolumeId]: true as const,
       watch: Effect.gen(function*() {
@@ -1888,34 +2132,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
         )
         return Stream.fromEffectRepeat(PubSub.take(subscription))
       }).pipe(Effect.withSpan("Volume.watch")),
-      snapshot: coordinated(Effect.gen(function*() {
-        const ids = new Map<Node, string>([[root, "0"]])
-        const pending: Array<Node> = [root]
-        const records: Array<Image.Record> = []
-        for (let index = 0; index < pending.length; index++) {
-          const node = pending[index]
-          if (node === undefined) continue
-          const id = ids.get(node)
-          if (id === undefined) return yield* new ImageError({ code: "InvalidStructure" })
-          const metadata = storedMetadata(node.metadata)
-          if (node.kind === "directory") {
-            const children: Array<{ name: string; target: string }> = []
-            for (const [name, child] of node.entries) {
-              let target = ids.get(child)
-              if (target === undefined) {
-                target = String(ids.size)
-                ids.set(child, target)
-                pending.push(child)
-              }
-              children.push({ name: Image.base64(nameBytes(name)), target })
-            }
-            records.push({ id, kind: "directory", metadata, entries: children })
-          } else if (node.kind === "file") {
-            records.push({ id, kind: "file", metadata, data: Image.base64(node.data) })
-          } else records.push({ id, kind: "symlink", metadata, target: Image.base64(node.target) })
-        }
-        return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records })
-      })).pipe(Effect.withSpan("Volume.snapshot")),
+      snapshot: coordinated(captureSnapshot()).pipe(Effect.withSpan("Volume.snapshot")),
 
       caller: Effect.fn("Volume.caller")(function*(options?: RootCallerOptions) {
         const decoded = decodeConfiguration(RootCallerOptions, options === undefined ? {} : options)
@@ -1929,7 +2146,29 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
         )
       })
     })
-    return volume
+    if (source._tag !== "Overlay" || baseObservation === undefined) {
+      return { _tag: "Volume" as const, volume }
+    }
+    const hook = OverlayTesting.getObservationHook(source.base)
+    const overlay: OverlayVolume = Object.freeze({
+      ...volume,
+      changes: Effect.fn("OverlayVolume.changes")(function*(options?: OverlayChangesOptions) {
+        const selected = yield* changeOptions(options)
+        const current = yield* coordinated(Effect.sync(observeChanges))
+        return publicChanges(compareOverlay(baseObservation, current, selected.includeTimestamps ?? false))
+      }),
+      capture: Effect.fn("OverlayVolume.capture")(function*(options?: OverlayChangesOptions) {
+        const selected = yield* changeOptions(options)
+        const current = yield* coordinated(captureState(hook))
+        return Object.freeze({
+          snapshot: current.snapshot,
+          changes: publicChanges(
+            compareOverlay(baseObservation, current.observation, selected.includeTimestamps ?? false)
+          )
+        })
+      })
+    })
+    return { _tag: "Overlay" as const, volume: overlay }
   }
 )
 
@@ -1945,7 +2184,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
  * @since 0.1.0
  */
 export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: VolumeOptions) {
-  return yield* makeVolume(options).pipe(Effect.catchTag("ImageError", Effect.die))
+  const result = yield* makeVolume({ _tag: "Empty" }, options).pipe(Effect.catchTag("ImageError", Effect.die))
+  if (result._tag === "Overlay") return yield* Effect.die(new Error("empty volume constructed as overlay"))
+  return result.volume
 })
 /**
  * Restores a fresh volume from an opaque snapshot under the supplied destination limits.
@@ -1956,7 +2197,37 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
 export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
   function*(snapshot: Snapshot, options?: VolumeOptions) {
     const image = yield* Image.inspect(snapshot)
-    return yield* makeVolume(options, image)
+    const result = yield* makeVolume({ _tag: "Snapshot", image }, options)
+    if (result._tag === "Overlay") return yield* new ImageError({ code: "InvalidStructure" })
+    return result.volume
+  }
+)
+
+/**
+ * Creates an isolated writable volume relative to one immutable snapshot base.
+ *
+ * **Details**
+ *
+ * Workspaces made from the same snapshot share unchanged regular-file payloads.
+ * The first content mutation copies the whole file into workspace-private
+ * storage. Metadata, namespace state, coordination, handles, and watches are
+ * always private to the new workspace.
+ *
+ * Invalid base snapshots fail with `ImageError`; invalid volume limits fail
+ * with `ConfigurationError`. Each execution creates a fresh workspace.
+ *
+ * @category constructors
+ * @since 0.1.0
+ */
+export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
+  function*(base: Snapshot, options?: VolumeOptions): Effect.fn.Return<OverlayVolume, ConfigurationError | ImageError> {
+    const image = yield* Image.inspect(base)
+    const result = yield* makeVolume(
+      { _tag: "Overlay", base, image },
+      options
+    )
+    if (result._tag === "Volume") return yield* new ImageError({ code: "InvalidStructure" })
+    return result.volume
   }
 )
 
@@ -2151,6 +2422,9 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
       record.kind === "directory" ? { ...record, entries: children.get(record.id) ?? [] } : record
     )
     const snapshot = yield* Image.capture({ format: "effect-vfs", version: 1, root: "root", records })
-    return yield* makeVolume(config.success, yield* Image.inspect(snapshot))
+    const image = yield* Image.inspect(snapshot)
+    const result = yield* makeVolume({ _tag: "Snapshot", image }, config.success)
+    if (result._tag === "Overlay") return yield* new ImageError({ code: "InvalidStructure" })
+    return result.volume
   }
 )
