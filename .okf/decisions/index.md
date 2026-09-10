@@ -27,3 +27,7 @@ Accepted architectural and behavioral decisions for the virtual filesystem:
 - [Adapter timestamp overflow](./adapter-timestamp-overflow.md)
 - [Reusable capability effects](./reusable-capability-effects.md)
 - [Named checkpoint persistence](./named-checkpoint-persistence.md)
+- [Staged overlay delivery](./staged-overlay-delivery.md) is the entry point for accepted overlay scope and focused decisions.
+- [Overlay base and writable-state ownership](./overlay-base-ownership.md)
+- [Overlay content sharing](./overlay-content-sharing.md)
+- [Overlay final-difference summary](./overlay-final-difference-summary.md)

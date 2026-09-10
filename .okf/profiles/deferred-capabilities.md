@@ -4,7 +4,7 @@ title: Deferred capabilities
 description: Lists capabilities intentionally outside the current filesystem contract so future exploration is not mistaken for implemented support.
 status: draft
 tags: [profile, roadmap, deferred]
-generated: { by: codex/okf, at: 2026-09-10T00:00:00+00:00 }
+generated: { by: codex/okf, at: 2026-09-10T11:03:16Z }
 ---
 
 # Deferred capabilities
@@ -25,3 +25,5 @@ The current profile does not include:
 These are exclusions, not rejected designs. Active investigation may be represented separately as draft research, but it must not imply implementation or acceptance. Snapshot checkpoints provide explicit reconstruction, not live-write durability; dense zero-filled gaps provide filesystem behavior without sparse allocation.
 
 See [system boundaries](/architecture/system-boundaries.md "constrained by") and the [bounded POSIX profile](bounded-posix.md "contrasts with") for the current supported boundary. Network filesystem work is currently only [draft NFS research](/research/nfs-server.md "explored by").
+
+Overlay [v1 scope is accepted](/decisions/staged-overlay-delivery.md "constrained by"); implementation remains deferred. [Overlay research](/research/overlay-filesystem.md "explored by") maps the current constraints and remaining planning questions.
