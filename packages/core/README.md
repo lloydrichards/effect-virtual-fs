@@ -174,6 +174,53 @@ Snapshot decoding requires explicit work limits because encoded bytes may come f
 contains the reachable namespace and metadata. It excludes callers, open handles, cursor positions, watch
 subscriptions, and unlinked content. Each restored volume is independent.
 
+## Branch from one immutable snapshot
+
+Use `makeOverlay` when several writable workspaces start from the same snapshot. Untouched regular-file contents are
+shared internally. A content change copies that whole file for the editing workspace; namespace and metadata state are
+always private. Logical quotas still count the complete visible volume, including shared base files and unlinked-open
+contents.
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const branch = Effect.gen(function*() {
+  const template = yield* Vfs.fromFixture({
+    entries: [
+      { kind: "directory", path: "/project" },
+      { kind: "file", path: "/project/settings.json", bytes: new Uint8Array() }
+    ]
+  })
+  const base = yield* template.snapshot
+  const workspace = yield* Vfs.makeOverlay(base, { maxBytes: 1_000_000 })
+  const fs = yield* workspace.caller()
+
+  yield* fs.rename("/project/settings.json", "/project/preferences.json")
+  return yield* workspace.capture()
+})
+```
+
+`makeOverlay(base, options)` returns a reusable Effect. Each execution creates a fresh workspace from `base`; it does
+not memoize or reset an earlier workspace. Invalid volume options fail with `ConfigurationError`, while failure to
+inspect the base snapshot fails with `ImageError`.
+
+`changes()` reports final differences from the base. It hides timestamp-only differences unless called with
+`{ includeTimestamps: true }`. Renames are paired only from retained object identity; equal contents are never treated
+as rename evidence. Paths in summaries are `BytePath` values, so inspect them with `pathToBytes` when names may not be
+UTF-8. Although `OverlayChange` and its options have schemas, a summary is an in-process value containing opaque
+`BytePath` objects. The schema is not a portable summary encoding.
+
+`capture()` returns a complete version 1 snapshot and matching summary from one committed state. Later writes change
+neither result. The snapshot works with `encodeSnapshot`, `fromSnapshot`, and `@effect-vfs/persistence` checkpoints.
+Restoring it recovers the complete filesystem state, not the earlier overlay base relationship or summary. To reset,
+create a fresh overlay from the base and replace your application reference; existing callers, handles, and watches
+remain attached to the old workspace until their own lifetimes end.
+
+The Effects returned by `changes(options)` and `capture(options)` are also reusable. Each execution observes the
+workspace again. Invalid summary options fail with `ConfigurationError`; failure to construct the complete observed
+snapshot fails with `ImageError`. Reusing a previously completed `capture()` result does not observe later writes.
+
 ## Use scoped handles for incremental I/O
 
 Whole-file operations are convenient, but handles give each open file an independent `bigint` cursor and support
