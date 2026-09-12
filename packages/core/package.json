@@ -1,6 +1,6 @@
 {
   "name": "@effect-vfs/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A runtime-neutral virtual filesystem core for Effect.",
   "homepage": "https://github.com/lloydrichards/effect-virtual-fs#readme",
   "bugs": {
