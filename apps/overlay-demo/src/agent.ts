@@ -137,13 +137,13 @@ export const runAgent = Effect.fn("Agent.run")(function*({
 })
 
 const OpenAiClientLive = OpenAiClient.layerConfig({
-  apiKey: Config.redacted("OPENAI_API_KEY")
+  apiKey: Config.Redacted("OPENAI_API_KEY")
 }).pipe(Layer.provide(FetchHttpClient.layer))
 
 export const LanguageModelLive = Layer.effect(
   LanguageModel.LanguageModel,
   Effect.gen(function*() {
-    const model = yield* Config.string("OPENAI_MODEL").pipe(Config.withDefault("gpt-5-mini"))
+    const model = yield* Config.String("OPENAI_MODEL").pipe(Config.withDefault("gpt-5-mini"))
     return yield* OpenAiLanguageModel.make({ model })
   })
 ).pipe(Layer.provide(OpenAiClientLive))
