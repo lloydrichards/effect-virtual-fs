@@ -1,0 +1,88 @@
+# Test with an isolated filesystem
+
+Provide `MemoryFileSystem.layer` to code under test when each test should use disposable filesystem state without
+reading or writing the host disk.
+
+## Keep the program independent of storage
+
+Write production code against Effect's `FileSystem.FileSystem` service:
+
+```ts
+import { Effect, FileSystem } from "effect"
+
+const writeManifest = (version: string) =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+
+    yield* fs.makeDirectory("/dist", { recursive: true })
+    yield* fs.writeFileString(
+      "/dist/manifest.json",
+      JSON.stringify({ version })
+    )
+
+    return yield* fs.readFileString("/dist/manifest.json")
+  })
+```
+
+The program does not know whether its files are stored in memory or on the host.
+
+## Provide fresh state for each test
+
+Run each test program with the memory layer:
+
+```ts
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import { Effect } from "effect"
+
+const first = await Effect.runPromise(
+  writeManifest("first").pipe(Effect.provide(MemoryFileSystem.layer))
+)
+
+const second = await Effect.runPromise(
+  writeManifest("second").pipe(Effect.provide(MemoryFileSystem.layer))
+)
+
+console.log({ first, second })
+```
+
+Each top-level execution materializes independent storage. One run cannot observe files created by the other.
+
+Your test runner can place the `Effect.runPromise` call inside its normal test function and assert on the returned
+value. Keep the assertion library outside the Effect program so the example remains portable between runners.
+
+## Understand layer sharing
+
+Effect memoizes a layer within one layer graph. When several services in the same graph receive the same
+`MemoryFileSystem.layer`, they share one filesystem service and one volume.
+
+That sharing is useful when collaborators should see the same files. Wrap the layer with `Layer.fresh` when separate
+parts of one graph must materialize independent filesystems.
+
+```ts
+import { Layer } from "effect"
+
+const isolatedFileSystem = Layer.fresh(MemoryFileSystem.layer)
+```
+
+Separate calls to `MemoryFileSystem.make` also create independent services directly. Use
+[`MemoryFileSystem.bind`](/api/memory/memory-file-system#bind) instead when multiple adapters should deliberately share
+an existing core volume.
+
+## Keep host access outside the assumption
+
+The memory adapter replaces Effect's `FileSystem` service. It cannot intercept code that directly uses:
+
+- `node:fs`;
+- child processes;
+- native extensions; or
+- another API that accesses the host filesystem independently.
+
+A test is isolated only when the code under test obtains filesystem access through the provided Effect service.
+
+## Handle scoped resources
+
+Open files, temporary resources, and watch subscriptions are scoped. Keep the owning `Effect.scoped` workflow alive
+while those resources are in use. Closing the scope releases its handles and subscriptions.
+
+For the adapter constructors and layer types, see the
+[`MemoryFileSystem` API reference](/api/memory/memory-file-system).

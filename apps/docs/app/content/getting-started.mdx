@@ -1,0 +1,76 @@
+# Getting started
+
+Build and run a small Effect program whose files exist only in memory. You will keep using Effect's standard
+`FileSystem` service and select the virtual implementation when the program runs.
+
+## Install the memory adapter
+
+Install the adapter and its exact Effect peer version:
+
+```sh
+npm install @effect-vfs/memory effect@4.0.0-rc.114
+```
+
+The packages are ESM-only, so your project must support ES modules.
+
+## Write a filesystem program
+
+Create a program that requests `FileSystem.FileSystem`, writes a JSON file, and reads it back:
+
+```ts
+import { Effect, FileSystem } from "effect"
+
+const loadSettings = Effect.gen(function*() {
+  const fs = yield* FileSystem.FileSystem
+
+  yield* fs.writeFileString(
+    "/settings.json",
+    JSON.stringify({ mode: "preview" })
+  )
+
+  return yield* fs.readFileString("/settings.json")
+})
+```
+
+There is nothing virtual-filesystem-specific in this program. It can run with any implementation of Effect's
+`FileSystem` service.
+
+## Provide the in-memory filesystem
+
+Provide `MemoryFileSystem.layer` when you run the program:
+
+```ts
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import { Effect, FileSystem } from "effect"
+
+const loadSettings = Effect.gen(function*() {
+  const fs = yield* FileSystem.FileSystem
+  yield* fs.writeFileString(
+    "/settings.json",
+    JSON.stringify({ mode: "preview" })
+  )
+  return yield* fs.readFileString("/settings.json")
+})
+
+const settings = await Effect.runPromise(
+  loadSettings.pipe(Effect.provide(MemoryFileSystem.layer))
+)
+
+console.log(settings)
+```
+
+The program prints:
+
+```text
+{"mode":"preview"}
+```
+
+No host file is created. `MemoryFileSystem.layer` supplies a fresh virtual volume with `/` as its working directory
+and an empty `/tmp` directory.
+
+## Choose the next step
+
+- [Test with an isolated filesystem](/guides/testing-with-an-isolated-filesystem) when you need disposable state for
+  repeatable tests.
+- [Choose a package](/concepts/which-package) before using volumes, snapshots, or SQLite checkpoints directly.
+- Open the [`MemoryFileSystem` API reference](/api/memory/memory-file-system) for the complete adapter surface.
