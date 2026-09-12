@@ -194,28 +194,51 @@ const normalize = Effect.fnUntraced(
       if (record.kind === "directory") {
         for (const entry of record.entries) {
           if (++entries > limits.maxEntries) return yield* failure("LimitExceeded", "entries")
+          const nameLength = encodedPayloadLength(entry.name)
+          const pathLength = safeAdd(path.length + (path.length === 1 ? 0 : 1), nameLength)
+          const nextPathBytes = pathLength === undefined ? undefined : safeAdd(pathBytes, pathLength)
+          const pathLimit = role === "base" ? limits.maxIdentityBytes : limits.maxDecodedDeltaBytes
+          if (nextPathBytes === undefined || exceedsByteLimit(nextPathBytes, pathLimit)) {
+            return yield* failure("LimitExceeded", role === "base" ? "identityBytes" : "decodedDeltaBytes")
+          }
+          pathBytes = nextPathBytes
           pending.push([entry.target, join(path, Image.bytes(entry.name))])
         }
       }
     }
     const objects: Array<ObjectView> = []
-    const byPath = new Map<string, ObjectView>()
+    const byPath = new Map<string, { readonly object: ObjectView; readonly path: Uint8Array }>()
     let payloadBytes = 0
+    let basePayloadBytes = 0
     for (const record of doc.records) {
       const paths = pathsById.get(record.id)
       if (paths === undefined) return yield* failure("InvalidStructure", role)
       paths.sort(compareBytes)
-      const payload = record.kind === "directory"
+      const encodedPayload = record.kind === "directory"
         ? undefined
-        : Image.bytes(record.kind === "file" ? record.data : record.target)
-      if (payload !== undefined) {
-        const next = safeAdd(payloadBytes, payload.length)
-        if (next === undefined || next > limits.maxOutputBytes) return yield* failure("LimitExceeded", "outputBytes")
-        payloadBytes = next
+        : record.kind === "file"
+        ? record.data
+        : record.target
+      if (encodedPayload !== undefined) {
+        const payloadLength = encodedPayloadLength(encodedPayload)
+        const next = safeAdd(role === "base" ? basePayloadBytes : payloadBytes, payloadLength)
+        const limit = role === "base" ? limits.maxIdentityBytes : limits.maxOutputBytes
+        if (next === undefined || exceedsByteLimit(next, limit)) {
+          return yield* failure("LimitExceeded", role === "base" ? "identityBytes" : "outputBytes")
+        }
+        if (role === "base") basePayloadBytes = next
+        else payloadBytes = next
       }
-      const object = { kind: record.kind, metadata: record.metadata, paths, payload } satisfies ObjectView
+      const payload = encodedPayload === undefined ? undefined : Image.bytes(encodedPayload)
+      const object = {
+        kind: record.kind,
+        metadata: record.metadata,
+        paths,
+        pathIdentity: paths.map(key).join("/"),
+        payload
+      } satisfies ObjectView
       objects.push(object)
-      for (const path of paths) byPath.set(key(path), object)
+      for (const path of paths) byPath.set(key(path), { object, path })
     }
     objects.sort((a, b) => compareBytes(a.paths[0]!, b.paths[0]!))
     return { objects, byPath }
@@ -380,8 +403,7 @@ const buildImage = Effect.fnUntraced(
         : undefined
       if (payload === undefined && base !== undefined) return yield* failure("InvalidStructure", "baseReference")
       const actual = payload ?? new Uint8Array()
-      const next = safeAdd(bytes, actual.length)
-      if (next === undefined || next > limits.maxOutputBytes) return yield* failure("LimitExceeded", "outputBytes")
+      if (next === undefined) return yield* failure("LimitExceeded", "outputBytes")
       bytes = next
       records.push(
         record.kind === "file"
