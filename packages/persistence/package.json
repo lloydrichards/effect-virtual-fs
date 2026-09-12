@@ -1,6 +1,6 @@
 {
   "name": "@effect-vfs/persistence",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Named SQLite checkpoints for Effect virtual filesystems.",
   "homepage": "https://github.com/lloydrichards/effect-virtual-fs#readme",
   "type": "module",
@@ -27,7 +27,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect-vfs/core": "^0.1.0"
+    "@effect-vfs/core": "^0.2.0"
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.114"
