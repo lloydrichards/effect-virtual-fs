@@ -20,13 +20,13 @@
     "type-check": "tsc --noEmit && tsc --project contracts/tsconfig.json"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0-rc.114"
   },
   "devDependencies": {
-    "@effect/platform-bun": "4.0.0-rc.112",
+    "@effect/platform-bun": "4.0.0-rc.114",
     "@repo/config-typescript": "workspace:*",
-    "@effect/vitest": "4.0.0-rc.112",
-    "effect": "4.0.0-rc.112"
+    "@effect/vitest": "4.0.0-rc.114",
+    "effect": "4.0.0-rc.114"
   },
   "exports": {
     ".": {

@@ -6,7 +6,7 @@ previews, or tools that need reproducible filesystem state.
 ## Quick start
 
 ```sh
-npm install @effect-vfs/memory effect@4.0.0-rc.112
+npm install @effect-vfs/memory effect@4.0.0-rc.114
 ```
 
 ```ts
@@ -39,7 +39,7 @@ can use a host filesystem in production and an isolated in-memory filesystem in 
   them as fresh volumes in a later process.
 
 The core, memory, and persistence packages are versioned at `0.0.1`. All packages target the
-exact peer version `effect@4.0.0-rc.112` while Effect 4 remains a release candidate.
+exact peer version `effect@4.0.0-rc.114` while Effect 4 remains a release candidate.
 
 ## Explore project knowledge
 

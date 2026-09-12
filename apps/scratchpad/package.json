@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@effect-vfs/memory": "workspace:*",
-    "@effect/platform-bun": "4.0.0-rc.112",
-    "effect": "4.0.0-rc.112"
+    "@effect/platform-bun": "4.0.0-rc.114",
+    "effect": "4.0.0-rc.114"
   },
   "devDependencies": {
     "@repo/config-typescript": "workspace:*",

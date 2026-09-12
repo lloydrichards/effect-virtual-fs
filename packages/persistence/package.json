@@ -29,13 +29,13 @@
     "@effect-vfs/core": "^0.1.0"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0-rc.114"
   },
   "devDependencies": {
-    "@effect/sql-sqlite-bun": "4.0.0-rc.112",
-    "@effect/vitest": "4.0.0-rc.112",
+    "@effect/sql-sqlite-bun": "4.0.0-rc.114",
+    "@effect/vitest": "4.0.0-rc.114",
     "@repo/config-typescript": "workspace:*",
     "@types/node": "26.5.0",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0-rc.114"
   }
 }

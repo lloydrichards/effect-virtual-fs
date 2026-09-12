@@ -12,11 +12,11 @@
   },
   "dependencies": {
     "@effect-vfs/core": "workspace:*",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.114",
     "vite": "8.2.2"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.0-rc.112",
+    "@effect/vitest": "4.0.0-rc.114",
     "@repo/config-typescript": "workspace:*"
   }
 }
