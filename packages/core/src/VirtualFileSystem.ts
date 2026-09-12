@@ -18,40 +18,35 @@ import * as Encoding from "effect/Encoding"
 import * as PubSub from "effect/PubSub"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import type * as SchemaIssue from "effect/SchemaIssue"
+import type * as SchemaAST from "effect/SchemaAST"
+import * as SchemaIssue from "effect/SchemaIssue"
+import * as SchemaTransformation from "effect/SchemaTransformation"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
+import { BytePath, BytePathId, getBytes as getBytePathBytes, make as makeBytePath } from "./BytePath.js"
+export { BytePath } from "./BytePath.js"
 import * as Content from "./internal/content.js"
 import * as Image from "./internal/image.js"
 import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./internal/overlayChanges.js"
 import * as OverlayTesting from "./internal/overlayTesting.js"
+import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
+import * as SnapshotDeltaModel from "./SnapshotDelta.js"
+export {
+  SnapshotChange,
+  SnapshotChangesOptions,
+  type SnapshotDelta,
+  SnapshotDeltaError,
+  SnapshotDeltaLimits,
+  SnapshotDeltaTypeId,
+  SnapshotDifference,
+  SnapshotNodeKind
+} from "./SnapshotDelta.js"
 
-const BytePathId = Symbol("@effect-vfs/core/BytePath")
 const VolumeId = Symbol("@effect-vfs/core/Volume")
 const CallerId = Symbol("@effect-vfs/core/Caller")
 const FileHandleId = Symbol("@effect-vfs/core/FileHandle")
 const DirectoryHandleId = Symbol("@effect-vfs/core/DirectoryHandle")
-const bytePaths = new WeakMap<BytePath, Uint8Array>()
-
-/**
- * An opaque path that preserves arbitrary non-NUL bytes without UTF-8 conversion.
- *
- * @category models
- * @since 0.1.0
- */
-export interface BytePath {
-  readonly [BytePathId]: true
-}
-/**
- * Schema for an opaque byte-preserving filesystem path.
- *
- * @category schemas
- * @since 0.1.0
- */
-export const BytePath = Schema.declare<BytePath>((value): value is BytePath =>
-  typeof value === "object" && value !== null && bytePaths.has(value as BytePath)
-)
 /**
  * A UTF-8 string path or an opaque byte-preserving path.
  *
@@ -645,13 +640,100 @@ export const decodeSnapshot: (
   limits: DecodeLimits
 ) => Effect.Effect<Snapshot, ImageError> = Image.decodeSnapshot
 
+const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
+  const decoded = decodeConfiguration(
+    SnapshotDeltaModel.SnapshotDeltaLimits,
+    limits ?? SnapshotDeltaModel.SnapshotDeltaLimits.default
+  )
+  return Result.isFailure(decoded) ? Effect.fail(decoded.failure) : Effect.succeed(decoded.success)
+}
+
+/**
+ * Computes an exact portable delta between two immutable snapshots.
+ * Requires the platform-neutral `Crypto.Crypto` service for base identity.
+ *
+ * @category snapshots
+ * @since 0.1.0
+ */
+export const diffSnapshots = Effect.fn("VirtualFileSystem.diffSnapshots")(function*(
+  base: Snapshot,
+  target: Snapshot,
+  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+) {
+  return yield* SnapshotDeltaInternal.diffSnapshots(base, target, yield* deltaLimits(limits))
+})
+
+/**
+ * Verifies an exact snapshot delta against its base and derives an owned path-oriented summary.
+ * Requires the platform-neutral `Crypto.Crypto` service for base identity.
+ */
+export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshotDelta")(function*(
+  base: Snapshot,
+  delta: SnapshotDeltaModel.SnapshotDelta,
+  options?: SnapshotDeltaModel.SnapshotChangesOptions,
+  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+) {
+  const decoded = decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {})
+  if (Result.isFailure(decoded)) return yield* decoded.failure
+  return yield* SnapshotDeltaInternal.inspectSnapshotDelta(base, delta, decoded.success, yield* deltaLimits(limits))
+})
+
+/**
+ * Applies an exact delta to its semantically matching base and returns a new snapshot.
+ * Requires the platform-neutral `Crypto.Crypto` service for base identity.
+ *
+ * @category snapshots
+ * @since 0.1.0
+ */
+export const applySnapshotDelta = Effect.fn("VirtualFileSystem.applySnapshotDelta")(function*(
+  base: Snapshot,
+  delta: SnapshotDeltaModel.SnapshotDelta,
+  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+) {
+  return yield* SnapshotDeltaInternal.applySnapshotDelta(base, delta, yield* deltaLimits(limits))
+})
+
+const deltaSchemaIssue = (cause: ImageError, input: unknown, options: SchemaAST.ParseOptions) =>
+  new SchemaIssue.InvalidValue(
+    { message: `Snapshot delta ${cause.code}${cause.field === undefined ? "" : ` at ${cause.field}`}` },
+    input,
+    options
+  )
+
+/**
+ * Creates an Effect Schema codec between owned bytes and opaque snapshot deltas.
+ * Omission uses `SnapshotDeltaLimits.default`.
+ */
+export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
+  const selected = Schema.decodeResult(SnapshotDeltaModel.SnapshotDeltaLimits, { onExcessProperty: "error" })(
+    limits ?? SnapshotDeltaModel.SnapshotDeltaLimits.default
+  )
+  return Schema.Uint8Array.pipe(
+    Schema.decodeTo(
+      SnapshotDeltaModel.SnapshotDelta,
+      SchemaTransformation.transformOrFail({
+        decode: (input, options) =>
+          Result.isFailure(selected)
+            ? Effect.fail(new SchemaIssue.InvalidValue({ message: "Invalid snapshot delta limits" }, limits, options))
+            : SnapshotDeltaInternal.decodeSnapshotDelta(input, selected.success).pipe(
+              Effect.mapError((cause) => deltaSchemaIssue(cause, input, options))
+            ),
+        encode: (delta, options) =>
+          Result.isFailure(selected)
+            ? Effect.fail(new SchemaIssue.InvalidValue({ message: "Invalid snapshot delta limits" }, limits, options))
+            : SnapshotDeltaInternal.encodeSnapshotDelta(delta, selected.success).pipe(
+              Effect.mapError((cause) => deltaSchemaIssue(cause, delta, options))
+            )
+      })
+    )
+  )
+}
+
 const failure = (code: FsCode, operation: string, path?: PathInput) =>
   new FsError({ code, operation, ...(path === undefined ? {} : { path }) })
 
 const ownedPath = (bytes: Uint8Array): BytePath => {
-  const path: BytePath = Object.freeze({ [BytePathId]: true as const })
-  bytePaths.set(path, bytes)
-  return path
+  return makeBytePath(bytes)
 }
 const strictString = (bytes: Uint8Array, operation: string) =>
   Effect.try({
@@ -691,9 +773,7 @@ export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(functi
   if (!attachedBuffer(bytes)) return yield* failure("InvalidArgument", "pathFromBytes")
   const owned = new Uint8Array(bytes)
   if (owned.length === 0 || owned.includes(0)) return yield* failure("InvalidArgument", "pathFromBytes")
-  const path: BytePath = Object.freeze({ [BytePathId]: true as const })
-  bytePaths.set(path, owned)
-  return path
+  return makeBytePath(owned)
 })
 
 /**
@@ -703,7 +783,7 @@ export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(functi
  * @since 0.1.0
  */
 export const pathToBytes = Effect.fn("VirtualFileSystem.pathToBytes")(function*(path: BytePath) {
-  const bytes = bytePaths.get(path)
+  const bytes = getBytePathBytes(path)
   if (bytes === undefined) return yield* failure("InvalidArgument", "pathToBytes")
   return new Uint8Array(bytes)
 })
@@ -781,7 +861,7 @@ const preparePath = (
     if (!wellFormed(input)) return Result.fail(failure("InvalidPathEncoding", operation, input))
     bytes = new TextEncoder().encode(input)
   } else if (typeof input === "object" && input !== null) {
-    bytes = bytePaths.get(input)
+    bytes = getBytePathBytes(input)
   }
   if (bytes === undefined) return Result.fail(failure("InvalidArgument", operation))
   if (bytes.length === 0) return Result.fail(failure("NotFound", operation, input))
@@ -1728,7 +1808,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           if (typeof target === "string" && !wellFormed(target)) {
             return yield* failure("InvalidPathEncoding", "symlink", target)
           }
-          const rawTarget = typeof target === "string" ? new TextEncoder().encode(target) : bytePaths.get(target)
+          const rawTarget = typeof target === "string" ? new TextEncoder().encode(target) : getBytePathBytes(target)
           if (rawTarget === undefined || rawTarget.includes(0)) {
             return yield* failure("InvalidArgument", "symlink", target)
           }
@@ -2373,7 +2453,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
         }
         const target = typeof entry.target === "string"
           ? new TextEncoder().encode(entry.target)
-          : bytePaths.get(entry.target)
+          : getBytePathBytes(entry.target)
         if (target === undefined || target.includes(0)) {
           return yield* new ImageError({
             code: "InvalidStructure",

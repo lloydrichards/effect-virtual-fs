@@ -23,6 +23,7 @@
     "effect": "4.0.0-rc.112"
   },
   "devDependencies": {
+    "@effect/platform-bun": "4.0.0-rc.112",
     "@repo/config-typescript": "workspace:*",
     "@effect/vitest": "4.0.0-rc.112",
     "effect": "4.0.0-rc.112"
