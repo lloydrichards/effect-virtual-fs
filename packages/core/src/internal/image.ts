@@ -3,11 +3,13 @@
  *
  * @internal
  */
+import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "../Snapshot.js"
+import * as CanonicalBase64 from "./canonicalBase64.js"
 
 const natural = Schema.Finite.check(
   Schema.isInt(),
@@ -56,14 +58,8 @@ export const Document = Schema.Struct({
 /** @internal */
 export type Document = typeof Document.Type
 const snapshots = new WeakMap<Snapshot, Document>()
-const canonicalBase64Tail = /^(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?(?![\s\S])/
-// Only the final quartet can contain padding. Scanning the alphabet separately avoids
-// the regexp stack growth caused by repeating a four-character group over large files.
-const canonicalBase64 = (value: string): boolean =>
-  value.length % 4 === 0 && !/[^A-Za-z0-9+/]/.test(value.slice(0, -4)) && canonicalBase64Tail.test(value.slice(-4))
 /** @internal */
-export const decodedLength = (value: string): number =>
-  value.length / 4 * 3 - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0)
+export const decodedLength = CanonicalBase64.decodedLength
 /** @internal */
 export const base64 = (input: Uint8Array): string => {
   // Effect's encoder concatenates individual characters. Join bounded chunks so snapshots
@@ -80,9 +76,7 @@ const error = (code: ImageError["code"], field?: string) =>
   new ImageError({ code, ...(field === undefined ? {} : { field }) })
 /** @internal */
 export const bytes = (value: string): Uint8Array => {
-  const result = Encoding.decodeBase64(value)
-  if (Result.isFailure(result)) throw new Error("Invalid trusted snapshot base64")
-  return result.success
+  return CanonicalBase64.decodeTrusted(value)
 }
 /** @internal */
 export const inspect = (snapshot: Snapshot): Effect.Effect<Document, ImageError> =>
@@ -98,7 +92,7 @@ export const capture = Effect.fnUntraced(function*(input: unknown, limits?: Deco
   const document = decoded.success
   const records = new Map<string, Record>()
   let entries = 0
-  let payload = 0
+  let payload = ByteSize.zero
   if (limits !== undefined && document.records.length > limits.maxRecords) {
     return yield* error("LimitExceeded", "records")
   }
@@ -114,9 +108,9 @@ export const capture = Effect.fnUntraced(function*(input: unknown, limits?: Deco
       ? record.entries.map((entry) => entry.name)
       : [record.kind === "file" ? record.data : record.target]
     for (const value of values) {
-      if (!canonicalBase64(value)) return yield* error("InvalidEncoding", record.id)
-      payload += decodedLength(value)
-      if (!Number.isSafeInteger(payload) || (limits !== undefined && payload > limits.maxDecodedBytes)) {
+      if (!CanonicalBase64.isCanonical(value)) return yield* error("InvalidEncoding", record.id)
+      payload = ByteSize.sum(payload, ByteSize.bytes(decodedLength(value)))
+      if (limits !== undefined && ByteSize.isGreaterThan(payload, limits.maxDecodedBytes)) {
         return yield* error("LimitExceeded", "bytes")
       }
     }
@@ -179,7 +173,9 @@ export const decodeSnapshot = Effect.fn("VirtualFileSystem.decodeSnapshot")(
     const checked = Schema.decodeResult(DecodeLimits, { onExcessProperty: "error" })(limits)
     if (Result.isFailure(checked)) return yield* error("InvalidStructure", "limits")
     if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) return yield* error("InvalidEncoding")
-    if (input.byteLength > checked.success.maxEncodedBytes) return yield* error("LimitExceeded", "encodedBytes")
+    if (ByteSize.isGreaterThan(ByteSize.bytes(input.byteLength), checked.success.maxEncodedBytes)) {
+      return yield* error("LimitExceeded", "encodedBytes")
+    }
     const text = yield* Effect.try({
       try: () => new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(input)),
       catch: () => error("InvalidEncoding")

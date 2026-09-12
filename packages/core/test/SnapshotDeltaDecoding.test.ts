@@ -1,6 +1,7 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
+import * as ByteSize from "effect/ByteSize"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const encoder = new TextEncoder()
@@ -120,28 +121,70 @@ describe("snapshot delta Schema codec", () => {
       assert.strictEqual(error.field, "changes")
     }).pipe(Effect.provide(BunCrypto.layer)))
 
+  it.effect("accepts a semantically identical summary with reordered object keys", () =>
+    Effect.gen(function*() {
+      const { base, encoded } = yield* encodedDelta
+      const source = document(encoded)
+      const change = source.changes[0]!
+      const reordered = Object.fromEntries(Object.entries(change).reverse())
+      const delta = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(
+        encodeDocument({ ...source, changes: [reordered] })
+      )
+
+      yield* Vfs.applySnapshotDelta(base, delta)
+    }).pipe(Effect.provide(BunCrypto.layer)))
+
   it.effect("accepts exact codec boundaries and rejects the next smaller budget", () =>
     Effect.gen(function*() {
       const { encoded } = yield* encodedDelta
       const source = document(encoded)
       const decodedBytes = 32 + 1 + 2 + 3 + 2
-      const boundaries: ReadonlyArray<readonly [keyof Vfs.SnapshotDeltaLimits, number]> = [
-        ["maxEncodedBytes", encoded.length],
-        ["maxDeltaRecords", source.records.length + source.changes.length],
-        ["maxDecodedDeltaBytes", decodedBytes],
-        ["maxEntries", 1],
-        ["maxOutputRecords", source.records.length],
-        ["maxOutputBytes", 3]
+      const boundaries: ReadonlyArray<readonly [Vfs.SnapshotDeltaLimits, Vfs.SnapshotDeltaLimits]> = [
+        [
+          customLimits({ maxEncodedBytes: ByteSize.bytes(encoded.length) }),
+          customLimits({ maxEncodedBytes: ByteSize.bytes(encoded.length - 1) })
+        ],
+        [
+          customLimits({ maxDeltaRecords: source.records.length + source.changes.length }),
+          customLimits({ maxDeltaRecords: source.records.length + source.changes.length - 1 })
+        ],
+        [
+          customLimits({ maxDecodedDeltaBytes: ByteSize.bytes(decodedBytes) }),
+          customLimits({ maxDecodedDeltaBytes: ByteSize.bytes(decodedBytes - 1) })
+        ],
+        [customLimits({ maxEntries: 1 }), customLimits({ maxEntries: 0 })],
+        [
+          customLimits({ maxOutputRecords: source.records.length }),
+          customLimits({ maxOutputRecords: source.records.length - 1 })
+        ],
+        [customLimits({ maxOutputBytes: ByteSize.bytes(3) }), customLimits({ maxOutputBytes: ByteSize.bytes(2) })]
       ]
 
-      for (const [field, boundary] of boundaries) {
+      for (const [accepted, rejected] of boundaries) {
         assert.isDefined(
-          yield* Schema.decodeEffect(
-            Vfs.SnapshotDeltaFromBytes(customLimits({ [field]: boundary }))
-          )(encoded)
+          yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes(accepted))(encoded)
         )
-        assert.isDefined(yield* reject(encoded, customLimits({ [field]: boundary - 1 })))
+        assert.isDefined(yield* reject(encoded, rejected))
       }
+    }).pipe(Effect.provide(BunCrypto.layer)))
+
+  it.effect("preserves byte limits above Number.MAX_SAFE_INTEGER without narrowing", () =>
+    Effect.gen(function*() {
+      const { base, target } = yield* snapshots
+      const exactLimit = ByteSize.bytes(BigInt(Number.MAX_SAFE_INTEGER) + 1n)
+      const limits = customLimits({
+        maxEncodedBytes: exactLimit,
+        maxIdentityBytes: exactLimit,
+        maxDecodedDeltaBytes: exactLimit,
+        maxOutputBytes: exactLimit
+      })
+      const delta = yield* Vfs.diffSnapshots(base, target, limits)
+      const codec = Vfs.SnapshotDeltaFromBytes(limits)
+      const encoded = yield* Schema.encodeEffect(codec)(delta)
+      const decoded = yield* Schema.decodeEffect(codec)(encoded)
+      const restored = yield* Vfs.applySnapshotDelta(base, decoded, limits)
+      const caller = yield* (yield* Vfs.fromSnapshot(restored)).caller()
+      assert.deepStrictEqual(yield* caller.readFile("/f"), new Uint8Array([1, 2, 3]))
     }).pipe(Effect.provide(BunCrypto.layer)))
 
   it.effect("enforces inherited-record limits and rejects an unresolved base reference on apply", () =>
@@ -164,7 +207,7 @@ describe("snapshot delta Schema codec", () => {
         const [limits, field] of [
           [customLimits({ maxInheritedRecords: 0 }), "inheritedRecords"],
           [customLimits({ maxDeltaRecords: 0 }), "deltaRecords"],
-          [customLimits({ maxIdentityBytes: 0 }), "identityBytes"]
+          [customLimits({ maxIdentityBytes: ByteSize.zero }), "identityBytes"]
         ] as const
       ) {
         const error = yield* Effect.flip(Vfs.applySnapshotDelta(base, delta, limits))

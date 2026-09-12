@@ -13,7 +13,7 @@ through Effect's string-based `FileSystem` API.
 ## Install
 
 ```sh
-npm install @effect-vfs/memory effect@4.0.0-rc.112
+npm install @effect-vfs/memory effect@4.0.0-rc.114
 ```
 
 The binding and snapshot examples below import `@effect-vfs/core` directly. Add it as a direct dependency when using
@@ -23,7 +23,7 @@ those APIs:
 npm install @effect-vfs/core
 ```
 
-Version `0.1.0` targets exactly `effect@4.0.0-rc.112`. Effect v4 is still a
+Version `0.1.0` targets exactly `effect@4.0.0-rc.114`. Effect v4 is still a
 release candidate, so a later Effect release may require a matching version of
 this package.
 
@@ -114,12 +114,13 @@ core volume and expose it through `MemoryFileSystem.bind`.
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { Effect } from "effect"
+import * as ByteSize from "effect/ByteSize"
 
 const decodeLimits = {
-  maxEncodedBytes: 1_000_000,
+  maxEncodedBytes: ByteSize.megabytes(1),
   maxRecords: 10_000,
   maxEntries: 10_000,
-  maxDecodedBytes: 1_000_000
+  maxDecodedBytes: ByteSize.megabytes(1)
 }
 
 const program = Effect.gen(function*() {

@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { ByteSize, Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import * as Content from "../src/internal/content.js"
 import * as Image from "../src/internal/image.js"
@@ -12,9 +12,10 @@ describe("overlay content storage", () => {
       })).snapshot
       const image = yield* Image.inspect(base)
       assert.isFalse(Content.hasOverlayContents(base))
+      // @ts-expect-error exercises runtime rejection of a value outside the public ByteSize contract
       assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: -1 })), Vfs.ConfigurationError)
       assert.isFalse(Content.hasOverlayContents(base))
-      assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: 2 })), Vfs.ImageError)
+      assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: ByteSize.bytes(2) })), Vfs.ImageError)
       assert.isFalse(Content.hasOverlayContents(base))
       const first = Content.forOverlay(base, image)
       const second = Content.forOverlay(base, image)

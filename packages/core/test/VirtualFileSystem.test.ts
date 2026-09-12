@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Cause, Clock, Deferred, Effect, Exit, Fiber, Layer, Result, Scheduler, Scope } from "effect"
+import { ByteSize, Cause, Clock, Deferred, Effect, Exit, Fiber, Layer, Result, Scheduler, Scope } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const identity = (uid: number, privileged = false, groups: ReadonlyArray<number> = []) => ({
@@ -125,7 +125,7 @@ describe("directory volumes", () => {
 
   it.effect("applies optional byte limits at volume use before normalizing separators", () =>
     Effect.gen(function*() {
-      const limited = yield* (yield* Vfs.make({ maxPathBytes: 3 })).caller()
+      const limited = yield* (yield* Vfs.make({ maxPathBytes: ByteSize.bytes(3) })).caller()
       const unlimited = yield* (yield* Vfs.make()).caller()
       const path = yield* Vfs.pathFromBytes(new TextEncoder().encode("/é"))
       yield* limited.mkdir(path)
@@ -167,8 +167,15 @@ describe("input and mutation boundaries", () => {
         assert.strictEqual(error.field, "maxEntries")
       }
       for (const maxPathBytes of [0, -1, 1.5, Infinity]) {
+        // @ts-expect-error exercises runtime rejection outside the public ByteSize contract
         assert.strictEqual((yield* Effect.flip(Vfs.make({ maxPathBytes }))).field, "maxPathBytes")
       }
+      assert.strictEqual((yield* Effect.flip(Vfs.make({ maxPathBytes: ByteSize.zero }))).field, "maxPathBytes")
+      assert.strictEqual(
+        (yield* Effect.flip(Vfs.make({ maxFileBytes: ByteSize.bytes(0x1_0000_0000) }))).field,
+        "maxFileBytes"
+      )
+      yield* Vfs.make({ maxBytes: ByteSize.bytes(BigInt(Number.MAX_SAFE_INTEGER) + 1n) })
       const options = { maxEntries: 0 }
       const construct = Vfs.make(options)
       options.maxEntries = 1

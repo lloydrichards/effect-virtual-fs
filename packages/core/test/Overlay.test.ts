@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Deferred, Effect, Exit, Fiber, Scope, Stream } from "effect"
+import { ByteSize, Deferred, Effect, Exit, Fiber, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { setObservationHook } from "../src/internal/overlayTesting.js"
 
@@ -49,11 +49,11 @@ describe("overlay volumes", () => {
     Effect.gen(function*() {
       const source = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: bytes("abcd") }] })
       const base = yield* source.snapshot
-      const tooSmall = yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: 3 }))
+      const tooSmall = yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: ByteSize.bytes(3) }))
       assert.instanceOf(tooSmall, Vfs.ImageError)
       assert.strictEqual(tooSmall.code, "LimitExceeded")
 
-      const overlay = yield* Vfs.makeOverlay(base, { maxBytes: 5 })
+      const overlay = yield* Vfs.makeOverlay(base, { maxBytes: ByteSize.bytes(5) })
       const fs = yield* overlay.caller()
       const handle = yield* fs.open("/f", { access: "readWrite" })
       assert.strictEqual(yield* handle.pwrite(bytes("WXYZ"), 4n), 1)
@@ -112,7 +112,7 @@ describe("overlay volumes", () => {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/held", bytes: bytes("abc") }]
       })).snapshot
-      const overlay = yield* Vfs.makeOverlay(base, { maxBytes: 3 })
+      const overlay = yield* Vfs.makeOverlay(base, { maxBytes: ByteSize.bytes(3) })
       const fs = yield* overlay.caller()
       const scope = yield* Scope.make()
       const held = yield* fs.open("/held", { access: "read" }).pipe(Scope.provide(scope))

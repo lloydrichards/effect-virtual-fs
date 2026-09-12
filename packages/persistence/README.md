@@ -3,7 +3,7 @@
 `@effect-vfs/persistence` saves named filesystem snapshots and loads them for restoration in a later process.
 The application chooses when to capture, supplies its SQLite connection, and controls startup migrations.
 
-The first supported integration is Bun with `@effect/sql-sqlite-bun@4.0.0-rc.112`. The package depends on core and
+The first supported integration is Bun with `@effect/sql-sqlite-bun@4.0.0-rc.114`. The package depends on core and
 Effect, so importing it does not open a database or import a runtime-specific driver.
 
 ## Save and restore
@@ -13,12 +13,13 @@ import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { CheckpointStore } from "@effect-vfs/persistence"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { Effect, Layer } from "effect"
+import * as ByteSize from "effect/ByteSize"
 
 const limits = {
-  maxEncodedBytes: 10_000_000,
+  maxEncodedBytes: ByteSize.megabytes(10),
   maxRecords: 10_000,
   maxEntries: 20_000,
-  maxDecodedBytes: 5_000_000
+  maxDecodedBytes: ByteSize.megabytes(5)
 }
 
 const Database = SqliteClient.layer({ filename: "checkpoints.sqlite" })
@@ -42,7 +43,7 @@ await Effect.runPromise(save.pipe(Effect.provide(Checkpoints)))
 const restore = Effect.gen(function*() {
   const store = yield* CheckpointStore
   const snapshot = yield* store.load("run-42")
-  const volume = yield* Vfs.fromSnapshot(snapshot, { maxBytes: 5_000_000 })
+  const volume = yield* Vfs.fromSnapshot(snapshot, { maxBytes: ByteSize.megabytes(5) })
   return yield* (yield* volume.caller()).readFile("/hello.txt")
 })
 

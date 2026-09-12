@@ -1,11 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { ByteSize, Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 describe("links and byte namespace", () => {
   it.effect("shares hard-link identity and charges content once through rename replacement", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make({ maxBytes: 3 })).caller()
+      const fs = yield* (yield* Vfs.make({ maxBytes: ByteSize.bytes(3) })).caller()
       const f = yield* fs.open("/a", { access: "readWrite", create: "exclusive" })
       yield* f.write(new Uint8Array([1, 2, 3]))
       yield* fs.link("/a", "/b")
@@ -64,7 +64,7 @@ describe("links and byte namespace", () => {
 
   it.effect("enforces traversal and exact expansion limits without changing the namespace", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make({ maxPathBytes: 12 })).caller()
+      const fs = yield* (yield* Vfs.make({ maxPathBytes: ByteSize.bytes(12) })).caller()
       yield* fs.mkdir("/longname")
       yield* fs.symlink("/longname", "/a")
       assert.strictEqual((yield* Effect.flip(fs.stat("/a/////x"))).code, "PathTooLong")
@@ -80,7 +80,7 @@ describe("links and byte namespace", () => {
 
   it.effect("stores raw symlink targets and validates path limits only when traversing", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make({ maxPathBytes: 12 })).caller()
+      const fs = yield* (yield* Vfs.make({ maxPathBytes: ByteSize.bytes(12) })).caller()
       const target = "x".repeat(300)
       yield* fs.symlink(target, "/raw")
       assert.strictEqual(yield* fs.readLink("/raw"), target)

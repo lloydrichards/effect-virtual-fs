@@ -1,6 +1,6 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Fiber, Option, Stream } from "effect"
+import { ByteSize, Effect, Fiber, Option, Stream } from "effect"
 import * as Memory from "../src/MemoryFileSystem.js"
 
 describe("memory adapter compatibility", () => {
@@ -38,7 +38,7 @@ describe("memory adapter compatibility", () => {
 
   it.effect("preserves the destination symlink and target when replacement exceeds volume capacity", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxBytes: 45 })
+      const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(45) })
       const fs = yield* Memory.bind(volume)
       yield* fs.writeFileString("/source", "x".repeat(32))
       yield* fs.writeFileString("/external", "safe")
@@ -59,7 +59,7 @@ describe("memory adapter compatibility", () => {
 
   it.effect("reuses the replaced symlink's capacity without staging a temporary entry", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxBytes: 19, maxEntries: 3 })
+      const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(19), maxEntries: 3 })
       const fs = yield* Memory.bind(volume)
       yield* fs.writeFileString("/source", "copied")
       yield* fs.writeFileString("/external", "safe")

@@ -63,13 +63,13 @@ export class ImageError extends Data.TaggedError("ImageError")<{
  */
 export const DecodeLimits = Schema.Struct({
   /** Maximum accepted encoded input length in bytes. */
-  maxEncodedBytes: Natural,
+  maxEncodedBytes: Schema.ByteSize,
   /** Maximum number of stored metadata and content records. */
   maxRecords: Natural,
   /** Maximum number of namespace entries. */
   maxEntries: Natural,
   /** Maximum combined decoded byte content. */
-  maxDecodedBytes: Natural
+  maxDecodedBytes: Schema.ByteSize
 })
 
 /**

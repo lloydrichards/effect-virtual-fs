@@ -7,6 +7,7 @@
  * @internal
  */
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as ByteSize from "effect/ByteSize"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -72,7 +73,7 @@ const info = Effect.fnUntraced(function*(
     gid: Option.some(value.gid),
     nlink: Option.some(value.nlink),
     rdev: Option.some(0),
-    size: FileSystem.Size(value.size),
+    size: ByteSize.bytes(value.size),
     blksize: Option.none(),
     blocks: Option.none(),
     atime: yield* date("atimeNs"),
@@ -84,7 +85,7 @@ const validateMode = (mode: number | undefined, method: string) =>
   mode === undefined || (Number.isInteger(mode) && mode >= 0 && mode <= 0xffffffff)
     ? Effect.void
     : Effect.fail(argumentError(method, "mode must be an unsigned 32-bit integer"))
-const sizeInput = (size: FileSystem.SizeInput | undefined, method: string) => {
+const sizeInput = (size: number | undefined, method: string) => {
   const number = Number(size ?? 0)
   return Number.isSafeInteger(number) && number >= 0
     ? Effect.succeed(BigInt(number))
@@ -188,7 +189,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
           total += written
           if (!chosen.append) position += BigInt(written)
         } while (all && total < bytes.length)
-        return FileSystem.Size(total)
+        return total
       }))
     })
     return {
@@ -197,16 +198,16 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       sync: mapped(handle.sync, "sync", fd),
       seek: Effect.fn("MemoryFile.seek")(function*(offset, from) {
         return yield* locked(Effect.sync(() => {
-          if (closed) return FileSystem.Size(0)
-          position = from === "start" ? FileSystem.Size(offset) : position + FileSystem.Size(offset)
-          return FileSystem.Size(position)
+          if (closed) return 0n
+          position = from === "start" ? offset : position + offset
+          return position
         }))
       }),
       read: Effect.fn("MemoryFile.read")(function*(buffer) {
         return yield* locked(Effect.gen(function*() {
           const bytes = yield* read(buffer.length, "read")
           buffer.set(bytes)
-          return FileSystem.Size(bytes.length)
+          return bytes.length
         }))
       }),
       readAlloc: Effect.fn("MemoryFile.readAlloc")(function*(size) {
