@@ -221,6 +221,85 @@ The Effects returned by `changes(options)` and `capture(options)` are also reusa
 workspace again. Invalid summary options fail with `ConfigurationError`; failure to construct the complete observed
 snapshot fails with `ImageError`. Reusing a previously completed `capture()` result does not observe later writes.
 
+## Store and apply exact snapshot deltas
+
+Use `diffSnapshots` when you need a portable description of the exact difference between two immutable snapshots.
+The result is an opaque `SnapshotDelta`: inspect it for a path-oriented summary, encode it with Effect Schema, or apply
+it to a semantically identical base to reconstruct the target snapshot.
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import { Effect, Schema } from "effect"
+
+const Delta = Vfs.SnapshotDeltaFromBytes()
+
+const program = Effect.gen(function*() {
+  const baseVolume = yield* Vfs.fromFixture({
+    entries: [{ kind: "file", path: "/old.txt", bytes: new TextEncoder().encode("before") }]
+  })
+  const targetVolume = yield* Vfs.fromFixture({
+    entries: [{ kind: "file", path: "/new.txt", bytes: new TextEncoder().encode("after") }]
+  })
+  const base = yield* baseVolume.snapshot
+  const target = yield* targetVolume.snapshot
+
+  const delta = yield* Vfs.diffSnapshots(base, target)
+  const changes = yield* Vfs.inspectSnapshotDelta(base, delta)
+  const bytes = yield* Schema.encodeEffect(Delta)(delta)
+  const decoded = yield* Schema.decodeEffect(Delta)(bytes)
+  const restored = yield* Vfs.applySnapshotDelta(base, decoded)
+
+  return { changes, restored }
+})
+
+await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))
+```
+
+Inspection verifies the delta against its semantic base before reporting what the two snapshots prove. It does not guess renames from equal contents or paths: a move is a
+`Removed` change followed by an `Added` change. `Updated` records identify changed semantic fields, including content,
+metadata, symbolic-link targets, and hard-link topology. Summaries do not contain replay payloads; the opaque delta does.
+
+Each delta records the semantic identity of its required base. Inspecting or applying it against a different valid snapshot fails with a
+`SnapshotDeltaError` whose `code` is `BaseMismatch`. Equivalent snapshots are accepted even if their encoded bytes or
+internal record identifiers differ. Applying a delta returns another immutable `Snapshot`; call `fromSnapshot` when
+you need a writable volume.
+
+Creation, inspection, encoding, decoding, and application use finite `SnapshotDeltaLimits.default` limits when none are supplied.
+Delta creation, inspection, and application require Effect's platform-neutral `Crypto.Crypto` service for SHA-256 base identity.
+Provide the official Node, Bun, browser, or Deno crypto layer at the application edge; the core never imports a host
+crypto implementation. Memory-sensitive applications can use one policy throughout the workflow:
+
+```ts
+const limits = Vfs.SnapshotDeltaLimits.constrained
+const Delta = Vfs.SnapshotDeltaFromBytes(limits)
+
+const constrained = Effect.gen(function*() {
+  const delta = yield* Vfs.diffSnapshots(base, target, limits)
+  const bytes = yield* Schema.encodeEffect(Delta)(delta)
+  const decoded = yield* Schema.decodeEffect(Delta)(bytes)
+  return yield* Vfs.applySnapshotDelta(base, decoded, limits)
+})
+```
+
+Both presets are frozen complete policies. The shipped values are:
+
+| limit                               | `constrained` | `default` |
+| ----------------------------------- | ------------: | --------: |
+| encoded bytes                       |         2 MiB |    16 MiB |
+| canonical identity bytes            |         4 MiB |    32 MiB |
+| stored records plus summary changes |         6,500 |    50,000 |
+| decoded delta bytes                 |       512 KiB |     8 MiB |
+| base records                        |         6,500 |    50,000 |
+| target records                      |         6,500 |    50,000 |
+| namespace entries                   |         6,500 |   100,000 |
+| output records                      |         6,500 |    50,000 |
+| output payload bytes                |       256 KiB |     4 MiB |
+| inherited records                   |         6,500 |    50,000 |
+
+These are conservative finite defaults, not universal workspace-size or memory guarantees. To tune one dimension,
+spread a preset into a complete `SnapshotDeltaLimits` value and replace that field.
+
 ## Use scoped handles for incremental I/O
 
 Whole-file operations are convenient, but handles give each open file an independent `bigint` cursor and support

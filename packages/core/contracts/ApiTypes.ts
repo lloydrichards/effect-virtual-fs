@@ -1,7 +1,10 @@
 // Compile-only checks against the public core API. Never execute `rejected` or
 // `rejectedFile`: their invalid calls exist to make API regressions fail type-checking.
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import type * as PlatformError from "effect/PlatformError"
+import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
@@ -76,6 +79,56 @@ export const overlay = Effect.gen(function*() {
   readonly changes: ReadonlyArray<Vfs.OverlayChange>
   readonly capture: Vfs.OverlayCapture
 }, Vfs.ConfigurationError | Vfs.ImageError>
+
+const customDeltaLimits: Vfs.SnapshotDeltaLimits = {
+  ...Vfs.SnapshotDeltaLimits.constrained,
+  maxEncodedBytes: 8 * 1024 * 1024
+}
+
+export const snapshotDelta = Effect.gen(function*() {
+  const baseVolume = yield* Vfs.fromFixture({
+    entries: [{ kind: "file", path: "/before", bytes: new Uint8Array([1]) }]
+  })
+  const targetVolume = yield* Vfs.fromFixture({
+    entries: [{ kind: "file", path: "/after", bytes: new Uint8Array([2]) }]
+  })
+  const base = yield* baseVolume.snapshot
+  const target = yield* targetVolume.snapshot
+  const delta = yield* Vfs.diffSnapshots(base, target, customDeltaLimits)
+  const changes: ReadonlyArray<Vfs.SnapshotChange> = yield* Vfs.inspectSnapshotDelta(base, delta, {
+    includeTimestamps: true
+  })
+
+  const codec = Vfs.SnapshotDeltaFromBytes(customDeltaLimits)
+  const bytes = yield* Schema.encodeEffect(codec)(delta)
+  const decoded = yield* Schema.decodeEffect(codec)(bytes)
+  const restored = yield* Vfs.applySnapshotDelta(base, decoded, customDeltaLimits)
+  return { changes, restored }
+}) satisfies Effect.Effect<
+  { readonly changes: ReadonlyArray<Vfs.SnapshotChange>; readonly restored: Vfs.Snapshot },
+  Vfs.ConfigurationError | Vfs.ImageError | Vfs.SnapshotDeltaError | Schema.SchemaError | PlatformError.PlatformError,
+  Crypto.Crypto
+>
+
+export const defaultDeltaCodec = Vfs.SnapshotDeltaFromBytes(Vfs.SnapshotDeltaLimits.default)
+export const constrainedDeltaCodec = Vfs.SnapshotDeltaFromBytes(Vfs.SnapshotDeltaLimits.constrained)
+
+export const recoverBaseMismatch = (base: Vfs.Snapshot, delta: Vfs.SnapshotDelta) =>
+  Vfs.applySnapshotDelta(base, delta).pipe(
+    Effect.catchTag(
+      "SnapshotDeltaError",
+      (error) => error.code === "BaseMismatch" ? Effect.succeed(base) : Effect.fail(error)
+    )
+  )
+
+export const rejectedDelta = () => {
+  // @ts-expect-error Delta comparison requires authentic opaque snapshots, not encoded bytes.
+  Vfs.diffSnapshots(new Uint8Array(), new Uint8Array())
+  // @ts-expect-error Delta application requires an authentic opaque SnapshotDelta.
+  Vfs.applySnapshotDelta({} as Vfs.Snapshot, { records: [] })
+  // @ts-expect-error Custom policies must specify every resource limit.
+  Vfs.SnapshotDeltaFromBytes({ maxEncodedBytes: 1_000 })
+}
 
 export const rejectedFile = (caller: Vfs.Caller, file: Vfs.FileHandle) => {
   // @ts-expect-error File acquisition requires Scope too.

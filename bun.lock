@@ -67,6 +67,7 @@
       "name": "@effect-vfs/core",
       "version": "0.0.1",
       "devDependencies": {
+        "@effect/platform-bun": "4.0.0-rc.112",
         "@effect/vitest": "4.0.0-rc.112",
         "@repo/config-typescript": "workspace:*",
         "effect": "4.0.0-rc.112",
