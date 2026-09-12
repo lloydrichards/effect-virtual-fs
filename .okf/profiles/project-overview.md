@@ -9,12 +9,14 @@ sources:
     title: Repository overview
   - resource: ../../package.json
     title: Workspace definition
-generated: { by: codex/okf, at: 2026-09-10T00:00:00Z }
+  - resource: ../../apps/docs/package.json
+    title: Documentation application manifest
+generated: { by: codex/okf, at: 2026-09-12T15:06:35Z }
 ---
 
 # Project knowledge overview
 
-Effect Virtual FS provides a runtime-neutral filesystem core, an Effect `FileSystem` adapter, SQLite-backed named checkpoints, and a bounded virtual-build consumer.
+Effect Virtual FS provides a runtime-neutral filesystem core, an Effect `FileSystem` adapter, SQLite-backed named checkpoints, and a bounded virtual-build consumer. Its static documentation application publishes a landing page and generated API references for the public core, memory, and persistence entrypoints.
 
 Start with the [system boundaries](/architecture/system-boundaries.md "described by") to understand ownership, then use the [implemented filesystem profile](implemented-filesystem.md "implemented by") to reach current behavior. Work outside that contract is listed under [deferred capabilities](deferred-capabilities.md "excludes") and must remain distinguishable from implemented support.
 
