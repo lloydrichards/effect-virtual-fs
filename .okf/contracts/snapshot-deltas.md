@@ -23,12 +23,12 @@ sources:
   - id: effect-crypto
     resource: https://github.com/Effect-TS/effect/blob/main/packages/effect/src/Crypto.ts
     title: Effect platform-neutral Crypto service
-generated: { by: codex/okf, at: 2026-09-12T12:25:38+02:00 }
+generated: { by: codex/okf, at: 2026-09-12T14:02:54Z }
 ---
 
 # Portable snapshot deltas
 
-`diffSnapshots(base, target, limits?)` produces an opaque, portable `SnapshotDelta`. `applySnapshotDelta(base, delta, limits?)` reconstructs a new opaque `Snapshot`; it never mutates or exposes a live volume. Both operations intentionally require Effect's platform-neutral `Crypto.Crypto` service. A delta is valid only for a base with the same canonical semantic SHA-256 identity. Applying it to a different valid base fails with `SnapshotDeltaError` code `BaseMismatch`.[^api][^effect-crypto]
+`diffSnapshots(base, target, limits?)` produces an opaque, portable `SnapshotDelta`. `applySnapshotDelta(base, delta, limits?)` reconstructs a new opaque `Snapshot`; it never mutates or exposes a live volume. Creation, inspection and application intentionally require Effect's platform-neutral `Crypto.Crypto` service. A delta is valid only for a base with the same canonical semantic SHA-256 identity. Inspecting or applying it against a different valid base fails with `SnapshotDeltaError` code `BaseMismatch`.[^api][^effect-crypto]
 
 The identity includes the complete reachable namespace, raw byte paths, node kinds, regular-file bytes, symbolic-link targets, all retained metadata and hard-link equivalence classes. It ignores snapshot record ordering and image-local record identifiers.[^implementation]
 
@@ -36,7 +36,7 @@ The identity includes the complete reachable namespace, raw byte paths, node kin
 
 `SnapshotDeltaFromBytes(limits?)` is the public Effect Schema transformation between owned `Uint8Array` values and opaque deltas. Its internal JSON/base64 document is separately versioned as `effect-vfs-delta` version 1. Decoding rejects unsupported versions, excess fields, malformed UTF-8 or base64, invalid paths, duplicate namespace entries and cross-path inherited references. Base-dependent inconsistencies, including forged summaries and unresolved inherited references, fail during inspection or application before a snapshot is returned.[^decoding-tests]
 
-One complete `SnapshotDeltaLimits` policy applies to creation, encoding, decoding and application. Omitting it uses the frozen `SnapshotDeltaLimits.default`; `SnapshotDeltaLimits.constrained` is the frozen memory-sensitive preset. A custom policy must provide every field. Limits bound encoded and decoded bytes, canonical identity bytes, base, target, delta and output records, namespace entries, output payload bytes and inherited-record work.[^models]
+One complete `SnapshotDeltaLimits` policy applies to creation, inspection, encoding, decoding and application. Omitting it uses the frozen `SnapshotDeltaLimits.default`; `SnapshotDeltaLimits.constrained` is the frozen memory-sensitive preset. A custom policy must provide every field. Byte budgets use Effect's exact `ByteSize.ByteSize` type, while record and entry counts remain numbers. Limits bound encoded and decoded bytes, canonical identity bytes, base, target, delta and output records, namespace entries, output payload bytes and inherited-record work.[^models]
 
 The delta stores the target object graph. Unchanged regular-file and symbolic-link payloads may refer to a same-path object in the verified base; other payloads are inline. Directory and hard-link topology is reconstructed and validated as a complete snapshot before publication.[^implementation]
 
