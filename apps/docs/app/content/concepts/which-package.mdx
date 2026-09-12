@@ -1,0 +1,63 @@
+# Which package should I use?
+
+Start with `@effect-vfs/memory` unless you need to control the underlying virtual volume directly. The three public
+packages form layers of one system and can be used together.
+
+## Package overview
+
+| Package | Choose it when you need | Main abstraction |
+| --- | --- | --- |
+| `@effect-vfs/memory` | Existing Effect code should use an isolated in-memory filesystem | `FileSystem.FileSystem` |
+| `@effect-vfs/core` | You need explicit volumes, callers, byte paths, permissions, fixtures, quotas, watches, snapshots, or overlays | `Volume` and `Caller` |
+| `@effect-vfs/persistence` | You need to save named snapshots in SQLite and load them in a later process | `CheckpointStore` |
+
+## Start with memory
+
+`@effect-vfs/memory` implements Effect's standard `FileSystem` service. Application code continues to request
+`FileSystem.FileSystem`; only the layer supplied at runtime changes.
+
+Use it for tests, build previews, code generators, browser tools, and other programs that need disposable filesystem
+state without host filesystem I/O.
+
+```ts
+program.pipe(Effect.provide(MemoryFileSystem.layer))
+```
+
+Read [Getting started](/getting-started) for a complete program or open the
+[`MemoryFileSystem` API reference](/api/memory/memory-file-system).
+
+## Add core for explicit control
+
+`@effect-vfs/core` owns filesystem state and its bounded POSIX behavior. Use it directly when you need capabilities
+that do not fit Effect's string-based `FileSystem` interface, including:
+
+- byte-preserving paths;
+- explicit caller identities, permissions, working directories, and creation masks;
+- shared volumes and change streams;
+- fixtures, quotas, snapshots, overlays, or snapshot deltas; and
+- scoped file and directory handles.
+
+You can create a core volume and expose the same state through `MemoryFileSystem.bind`. This lets ordinary Effect
+filesystem code and lower-level core callers work with one shared namespace.
+
+Open the [`VirtualFileSystem` API reference](/api/core/virtual-file-system) for the complete core surface.
+
+## Add persistence for named checkpoints
+
+`@effect-vfs/persistence` stores immutable snapshots under create-only names in SQLite. Applications still own:
+
+- capturing the snapshot;
+- providing and migrating the database;
+- choosing decode and resource limits; and
+- restoring the loaded snapshot into a fresh volume.
+
+It is checkpoint storage, not a live disk. It does not automatically save mutations or provide checkpoint listing,
+replacement, deletion, history, or crash recovery.
+
+Open the [`CheckpointStore` API reference](/api/persistence/checkpoint-store) for its public service and error types.
+
+## Decision summary
+
+- Use **memory** when your program already speaks Effect `FileSystem`.
+- Add **core** when your program must own or inspect virtual filesystem state.
+- Add **persistence** when an immutable snapshot must survive in SQLite.

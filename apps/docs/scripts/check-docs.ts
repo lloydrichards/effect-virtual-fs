@@ -3,6 +3,7 @@
 import { readdir } from "node:fs/promises"
 import path from "node:path"
 import { apiPages } from "../app/api-pages"
+import { contentPages } from "../app/content-pages"
 import { navigation } from "../app/nav.config"
 import routes from "../app/routes"
 
@@ -17,12 +18,16 @@ const walk = async (directory: string): Promise<Array<string>> => {
   }))).flat()
 }
 
-const expectedContent = ["index.mdx", ...apiPages.map(({ contentPath }) => contentPath.replace("content/", ""))].sort()
+const expectedContent = [
+  "index.mdx",
+  ...contentPages.map(({ contentPath }) => contentPath.replace("content/", "")),
+  ...apiPages.map(({ contentPath }) => contentPath.replace("content/", ""))
+].sort()
 const actualContent = (await walk(contentDir))
   .map((file) => path.relative(contentDir, file))
   .filter((file) => file.endsWith(".mdx"))
   .sort()
-const expectedRoutes = apiPages.map(({ href }) => href).sort()
+const expectedRoutes = [...contentPages, ...apiPages].map(({ href }) => href).sort()
 
 const assertEqual = (label: string, actual: ReadonlyArray<string>, expected: ReadonlyArray<string>): void => {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -38,4 +43,6 @@ assertEqual(
 )
 assertEqual("Navigation", navigation.flatMap(({ items }) => items.map(({ href }) => href)).sort(), expectedRoutes)
 
-console.log(`Docs structure is valid: 1 landing page and ${apiPages.length} API pages.`)
+console.log(
+  `Docs structure is valid: 1 landing page, ${contentPages.length} content pages, and ${apiPages.length} API pages.`
+)
