@@ -1,0 +1,61 @@
+# CheckpointStore overview
+
+Create-only SQLite checkpoints. Applications own capture, database provisioning,
+migration timing, and restoration into a fresh volume.
+
+Added in v0.1.0
+
+---
+
+## errors
+
+### CheckpointError (class)
+
+Checkpoint lookup, naming, or storage failure. Image failures retain core's `ImageError`.
+
+**Signature**
+
+```ts
+export declare class CheckpointError
+```
+
+Added in v0.1.0
+
+## models
+
+### CheckpointStoreShape (interface)
+
+Named checkpoints with no implicit capture, replacement, or live-write persistence.
+
+**Signature**
+
+```ts
+export interface CheckpointStoreShape {
+  /** Saves a new name. A duplicate fails without modifying the existing checkpoint. */
+  readonly save: (
+    name: string,
+    snapshot: Vfs.Snapshot,
+  ) => Effect.Effect<void, CheckpointError | Vfs.ImageError>;
+  /** Loads a validated snapshot. A missing name fails with `NotFound`. */
+  readonly load: (
+    name: string,
+  ) => Effect.Effect<Vfs.Snapshot, CheckpointError | Vfs.ImageError>;
+}
+```
+
+Added in v0.1.0
+
+## services
+
+### CheckpointStore (class)
+
+SQLite checkpoint service. Supply a SQLite `SqlClient` and run `migrate` before use.
+Driver lifetime belongs to the application's layer scope.
+
+**Signature**
+
+```ts
+export declare class CheckpointStore
+```
+
+Added in v0.1.0

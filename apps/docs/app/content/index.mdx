@@ -1,0 +1,41 @@
+# Effect VirtualFileSystem
+
+Run Effect programs against an in-memory filesystem without touching the host disk. Use it for isolated tests, build
+previews, or tools that need reproducible filesystem state.
+
+## Start with the memory filesystem
+
+```sh
+npm install @effect-vfs/memory effect@4.0.0-rc.114
+```
+
+```ts
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import { Effect, FileSystem } from "effect"
+
+const program = Effect.gen(function*() {
+  const fs = yield* FileSystem.FileSystem
+  yield* fs.writeFileString("/settings.json", JSON.stringify({ mode: "preview" }))
+  return yield* fs.readFileString("/settings.json")
+})
+
+const settings = await Effect.runPromise(
+  program.pipe(Effect.provide(MemoryFileSystem.layer))
+)
+
+console.log(settings)
+```
+
+The program continues to use Effect's standard filesystem interface. Only the provided layer changes, so production
+can use a host filesystem while tests and tools use disposable in-memory state.
+
+## Choose a package
+
+- [`@effect-vfs/memory`](/api/memory/memory-file-system) adapts the virtual filesystem to Effect's standard
+  `FileSystem.FileSystem` service. This is the usual starting point.
+- [`@effect-vfs/core`](/api/core/virtual-file-system) provides byte-preserving paths, explicit callers and permissions,
+  shared volumes, fixtures, quotas, watches, overlays, and portable encoded snapshots.
+- [`@effect-vfs/persistence`](/api/persistence/checkpoint-store) saves named snapshots to SQLite and restores them as
+  fresh volumes in a later process.
+
+All three packages are ESM-only and currently target `effect@4.0.0-rc.114`.
