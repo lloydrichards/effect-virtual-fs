@@ -2,6 +2,12 @@
 
 ## 2026-09-12
 
+- **Effect-native snapshot limits**: Changed encoded and decoded snapshot work budgets to exact `ByteSize.ByteSize` values and kept persistence comparisons exact through SQLite.
+
+- **Effect-native volume limits**: Changed volume, file, and path byte limits to exact `ByteSize.ByteSize` values while retaining numeric entry limits and the uint32 dense-file ceiling.
+
+- **Effect RC 114 ByteSize adoption**: Updated the memory adapter to Effect's branded file metadata sizes and bigint seek contract, and changed snapshot-delta byte budgets to `ByteSize.ByteSize` while keeping record counts numeric.
+
 - **Effect-native snapshot identity**: Replaced the internal SHA-256 implementation with the platform-neutral `Crypto.Crypto` service and added an explicit canonical-identity byte limit.
 
 - **Portable snapshot deltas implemented**: Added exact base-dependent reconstruction, base-verified path inspection, an Effect Schema byte codec, canonical semantic SHA-256 identity, same-path inherited payloads, strict hostile-input validation, shared finite limits across every operation, and focused behavior evidence.
