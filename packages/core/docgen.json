@@ -1,0 +1,11 @@
+{
+  "srcDir": ".cache/docgen-src",
+  "outDir": "docs",
+  "enforceVersion": false,
+  "enforceExamples": false,
+  "exclude": [
+    ".cache/docgen-src/internal/**/*.ts",
+    ".cache/docgen-src/index.ts"
+  ],
+  "parseCompilerOptions": "tsconfig.docgen.json"
+}
