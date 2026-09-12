@@ -38,7 +38,7 @@ can use a host filesystem in production and an isolated in-memory filesystem in 
 - Use [`@effect-vfs/persistence`](packages/persistence/README.md) to save named SQLite checkpoints and restore
   them as fresh volumes in a later process.
 
-The core, memory, and persistence packages are versioned at `0.0.1`. All packages target the
+The core, memory, and persistence packages are versioned at `0.1.0`. All packages target the
 exact peer version `effect@4.0.0-rc.114` while Effect 4 remains a release candidate.
 
 ## Explore project knowledge
