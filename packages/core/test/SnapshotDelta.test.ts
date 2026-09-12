@@ -1,6 +1,6 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const encoder = new TextEncoder()
@@ -9,6 +9,16 @@ const snapshotFromDocument = (document: unknown) =>
   Vfs.decodeSnapshot(encoder.encode(JSON.stringify(document)), snapshotLimits)
 const snapshotDocument = (snapshot: Vfs.Snapshot) =>
   Vfs.encodeSnapshot(snapshot).pipe(Effect.map((bytes) => JSON.parse(new TextDecoder().decode(bytes))))
+const deltaLimitsWith = (
+  field: "maxIdentityBytes" | "maxDecodedDeltaBytes" | "maxOutputBytes",
+  value: number
+): Vfs.SnapshotDeltaLimits => {
+  const current = Vfs.SnapshotDeltaLimits.default[field]
+  return Schema.decodeSync(Vfs.SnapshotDeltaLimits)({
+    ...Vfs.SnapshotDeltaLimits.default,
+    [field]: typeof current === "bigint" ? BigInt(value) : value
+  })
+}
 
 describe("snapshot deltas", () => {
   it.effect("reconstructs node kinds, raw paths, payloads, and every retained metadata field", () =>
@@ -169,6 +179,143 @@ describe("snapshot deltas", () => {
       const error = yield* Effect.flip(Vfs.applySnapshotDelta(yield* snapshotFromDocument(changed), delta))
       assert.instanceOf(error, Vfs.SnapshotDeltaError)
       assert.strictEqual(error.code, "BaseMismatch")
+    }).pipe(Effect.provide(BunCrypto.layer)))
+
+  it.effect("includes every retained semantic component in base identity", () =>
+    Effect.gen(function*() {
+      const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))
+      const volume = yield* Vfs.fromFixture({
+        rootMetadata: { mode: 0o755, uid: 1, gid: 2, atimeNs: 3n, mtimeNs: 4n, ctimeNs: 5n, birthtimeNs: 6n },
+        entries: [
+          { kind: "directory", path: "/d" },
+          { kind: "file", path: "/d/a", bytes: new Uint8Array([1]), metadata: { mode: 0o640, uid: 7 } },
+          { kind: "hardLink", path: "/b", target: "/d/a" },
+          { kind: "symlink", path: "/link", target: "target" },
+          { kind: "file", path: raw, bytes: new Uint8Array([2]) }
+        ]
+      })
+      const base = yield* volume.snapshot
+      const delta = yield* Vfs.diffSnapshots(base, base)
+      const source = yield* snapshotDocument(base)
+      const root = source.records.find((record: { id: string }) => record.id === source.root)
+      const file = source.records.find((record: { kind: string; data?: string }) =>
+        record.kind === "file" && record.data === "AQ=="
+      )
+      const symlink = source.records.find((record: { kind: string }) => record.kind === "symlink")
+      assert.isDefined(root)
+      assert.isDefined(file)
+      assert.isDefined(symlink)
+
+      const cases: Array<readonly [string, unknown]> = []
+      for (const field of ["mode", "uid", "gid"] as const) {
+        const changed = structuredClone(source)
+        const changedRoot = changed.records.find((record: { id: string }) => record.id === changed.root)
+        changedRoot.metadata[field] += 1
+        cases.push([`root ${field}`, changed])
+      }
+      for (const field of ["atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"] as const) {
+        const changed = structuredClone(source)
+        const changedRoot = changed.records.find((record: { id: string }) => record.id === changed.root)
+        changedRoot.metadata[field] = String(BigInt(changedRoot.metadata[field]) + 1n)
+        cases.push([`root ${field}`, changed])
+      }
+      {
+        const changed = structuredClone(source)
+        changed.records.find((record: { id: string }) => record.id === file.id).metadata.mode += 1
+        cases.push(["entry metadata", changed])
+      }
+      {
+        const changed = structuredClone(source)
+        const changedRoot = changed.records.find((record: { id: string }) => record.id === changed.root)
+        changedRoot.entries.find((entry: { name: string }) => entry.name === "/w==").name = "/g=="
+        cases.push(["raw path", changed])
+      }
+      {
+        const changed = structuredClone(source)
+        const changedFile = changed.records.find((record: { id: string }) => record.id === file.id)
+        changedFile.kind = "symlink"
+        changedFile.target = changedFile.data
+        delete changedFile.data
+        cases.push(["node kind", changed])
+      }
+      {
+        const changed = structuredClone(source)
+        changed.records.find((record: { id: string }) => record.id === file.id).data = "Ag=="
+        cases.push(["file payload", changed])
+      }
+      {
+        const changed = structuredClone(source)
+        changed.records.find((record: { id: string }) => record.id === symlink.id).target = "b3RoZXI="
+        cases.push(["symlink target", changed])
+      }
+      {
+        const changed = structuredClone(source)
+        const changedRoot = changed.records.find((record: { id: string }) => record.id === changed.root)
+        const changedFile = changed.records.find((record: { id: string }) => record.id === file.id)
+        changed.records.push({ ...structuredClone(changedFile), id: "split" })
+        changedRoot.entries.find((entry: { name: string }) => entry.name === "Yg==").target = "split"
+        cases.push(["hard-link equivalence", changed])
+      }
+
+      for (const [label, changed] of cases) {
+        const error = yield* Effect.flip(Vfs.applySnapshotDelta(yield* snapshotFromDocument(changed), delta))
+        assert.instanceOf(error, Vfs.SnapshotDeltaError, label)
+        assert.strictEqual(error.code, "BaseMismatch", label)
+      }
+    }).pipe(Effect.provide(BunCrypto.layer)))
+
+  it.effect("applies the output payload budget only to the target", () =>
+    Effect.gen(function*() {
+      const baseVolume = yield* Vfs.fromFixture({
+        entries: [{ kind: "file", path: "/large", bytes: new Uint8Array(128) }]
+      })
+      const targetVolume = yield* Vfs.fromFixture({ entries: [] })
+      const base = yield* baseVolume.snapshot
+      const target = yield* targetVolume.snapshot
+      const limits = deltaLimitsWith("maxOutputBytes", 0)
+
+      const delta = yield* Vfs.diffSnapshots(base, target, limits)
+      assert.strictEqual((yield* Vfs.inspectSnapshotDelta(base, delta, undefined, limits)).length, 1)
+      const restored = yield* Vfs.applySnapshotDelta(base, delta, limits)
+      assert.deepStrictEqual(
+        yield* (yield* Vfs.fromSnapshot(restored)).caller().pipe(Effect.flatMap((fs) => fs.readDirectory("/"))),
+        []
+      )
+    }).pipe(Effect.provide(BunCrypto.layer)))
+
+  it.effect("rejects snapshot path and payload work at the configured boundaries", () =>
+    Effect.gen(function*() {
+      const empty = yield* (yield* Vfs.fromFixture({ entries: [] })).snapshot
+      const payload = yield* (yield* Vfs.fromFixture({
+        entries: [{ kind: "file", path: "/f", bytes: new Uint8Array(128) }]
+      })).snapshot
+      const nested = yield* (yield* Vfs.fromFixture({
+        entries: [
+          { kind: "directory", path: "/a" },
+          { kind: "file", path: "/a/b", bytes: new Uint8Array() }
+        ]
+      })).snapshot
+
+      const basePayloadError = yield* Effect.flip(
+        Vfs.diffSnapshots(payload, empty, deltaLimitsWith("maxIdentityBytes", 127))
+      )
+      assert.instanceOf(basePayloadError, Vfs.ImageError)
+      assert.strictEqual(basePayloadError.code, "LimitExceeded")
+      assert.strictEqual(basePayloadError.field, "identityBytes")
+
+      const targetPathError = yield* Effect.flip(
+        Vfs.diffSnapshots(empty, nested, deltaLimitsWith("maxDecodedDeltaBytes", 2))
+      )
+      assert.instanceOf(targetPathError, Vfs.ImageError)
+      assert.strictEqual(targetPathError.code, "LimitExceeded")
+      assert.strictEqual(targetPathError.field, "decodedDeltaBytes")
+
+      const targetPayloadError = yield* Effect.flip(
+        Vfs.diffSnapshots(empty, payload, deltaLimitsWith("maxOutputBytes", 127))
+      )
+      assert.instanceOf(targetPayloadError, Vfs.ImageError)
+      assert.strictEqual(targetPayloadError.code, "LimitExceeded")
+      assert.strictEqual(targetPayloadError.field, "outputBytes")
     }).pipe(Effect.provide(BunCrypto.layer)))
 
   it.effect("orders raw paths deterministically, filters timestamps, and returns fresh frozen owned results", () =>
