@@ -16,10 +16,10 @@ for the exact permission, path, timestamp, quota, and atomicity rules.
 ## Install
 
 ```sh
-npm install @effect-vfs/core effect@4.0.0-rc.112
+npm install @effect-vfs/core effect@4.0.0-rc.114
 ```
 
-Version `0.1.0` targets the exact peer version `effect@4.0.0-rc.112`.
+Version `0.1.0` targets the exact peer version `effect@4.0.0-rc.114`.
 
 ## The mental model
 
@@ -40,15 +40,15 @@ lifetime are explicit values that can be composed in one Effect program.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { Effect } from "effect"
+import { ByteSize, Effect } from "effect"
 
 const utf8 = new TextEncoder()
 
 const program = Effect.scoped(Effect.gen(function*() {
   const volume = yield* Vfs.make({
     maxEntries: 100,
-    maxBytes: 1_000_000,
-    maxFileBytes: 100_000
+    maxBytes: ByteSize.megabytes(1),
+    maxFileBytes: ByteSize.kilobytes(100)
   })
 
   const admin = yield* volume.caller()
@@ -129,12 +129,13 @@ resettable sandboxes.
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
+import * as ByteSize from "effect/ByteSize"
 
 const decodeLimits = {
-  maxEncodedBytes: 1_000_000,
+  maxEncodedBytes: ByteSize.megabytes(1),
   maxRecords: 1_000,
   maxEntries: 1_000,
-  maxDecodedBytes: 1_000_000
+  maxDecodedBytes: ByteSize.megabytes(1)
 }
 
 const program = Effect.gen(function*() {
@@ -184,6 +185,7 @@ contents.
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
+import * as ByteSize from "effect/ByteSize"
 
 const branch = Effect.gen(function*() {
   const template = yield* Vfs.fromFixture({
@@ -193,7 +195,7 @@ const branch = Effect.gen(function*() {
     ]
   })
   const base = yield* template.snapshot
-  const workspace = yield* Vfs.makeOverlay(base, { maxBytes: 1_000_000 })
+  const workspace = yield* Vfs.makeOverlay(base, { maxBytes: ByteSize.megabytes(1) })
   const fs = yield* workspace.caller()
 
   yield* fs.rename("/project/settings.json", "/project/preferences.json")
@@ -231,6 +233,7 @@ it to a semantically identical base to reconstruct the target snapshot.
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Effect, Schema } from "effect"
+import * as ByteSize from "effect/ByteSize"
 
 const Delta = Vfs.SnapshotDeltaFromBytes()
 
@@ -299,6 +302,13 @@ Both presets are frozen complete policies. The shipped values are:
 
 These are conservative finite defaults, not universal workspace-size or memory guarantees. To tune one dimension,
 spread a preset into a complete `SnapshotDeltaLimits` value and replace that field.
+
+```ts
+const limits = {
+  ...Vfs.SnapshotDeltaLimits.default,
+  maxOutputBytes: ByteSize.mebibytes(8)
+}
+```
 
 ## Use scoped handles for incremental I/O
 

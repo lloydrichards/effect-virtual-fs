@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"
 import * as Schema from "effect/Schema"
 import { BytePath } from "./BytePath.js"
@@ -97,15 +98,15 @@ export class SnapshotDeltaError extends Data.TaggedError("SnapshotDeltaError")<{
 }> {}
 
 const SnapshotDeltaLimitsSchema = Schema.Struct({
-  maxEncodedBytes: Natural,
-  maxIdentityBytes: Natural,
+  maxEncodedBytes: Schema.ByteSize,
+  maxIdentityBytes: Schema.ByteSize,
   maxDeltaRecords: Natural,
-  maxDecodedDeltaBytes: Natural,
+  maxDecodedDeltaBytes: Schema.ByteSize,
   maxBaseRecords: Natural,
   maxTargetRecords: Natural,
   maxEntries: Natural,
   maxOutputRecords: Natural,
-  maxOutputBytes: Natural,
+  maxOutputBytes: Schema.ByteSize,
   maxInheritedRecords: Natural
 })
 /** Resource limits shared by delta creation, inspection, encoding, decoding, and application. */
@@ -115,29 +116,28 @@ export type SnapshotDeltaLimits = typeof SnapshotDeltaLimitsSchema.Type
 export const makeSnapshotDeltaLimits = (limits: SnapshotDeltaLimits): SnapshotDeltaLimits =>
   Object.freeze({ ...limits })
 
-const mebibyte = 1024 * 1024
 const constrained = makeSnapshotDeltaLimits({
-  maxEncodedBytes: 2 * mebibyte,
-  maxIdentityBytes: 4 * mebibyte,
+  maxEncodedBytes: ByteSize.mebibytes(2),
+  maxIdentityBytes: ByteSize.mebibytes(4),
   maxDeltaRecords: 6_500,
-  maxDecodedDeltaBytes: 512 * 1024,
+  maxDecodedDeltaBytes: ByteSize.kibibytes(512),
   maxBaseRecords: 6_500,
   maxTargetRecords: 6_500,
   maxEntries: 6_500,
   maxOutputRecords: 6_500,
-  maxOutputBytes: 256 * 1024,
+  maxOutputBytes: ByteSize.kibibytes(256),
   maxInheritedRecords: 6_500
 })
 const defaultLimits = makeSnapshotDeltaLimits({
-  maxEncodedBytes: 16 * mebibyte,
-  maxIdentityBytes: 32 * mebibyte,
+  maxEncodedBytes: ByteSize.mebibytes(16),
+  maxIdentityBytes: ByteSize.mebibytes(32),
   maxDeltaRecords: 50_000,
-  maxDecodedDeltaBytes: 8 * mebibyte,
+  maxDecodedDeltaBytes: ByteSize.mebibytes(8),
   maxBaseRecords: 50_000,
   maxTargetRecords: 50_000,
   maxEntries: 100_000,
   maxOutputRecords: 50_000,
-  maxOutputBytes: 4 * mebibyte,
+  maxOutputBytes: ByteSize.mebibytes(4),
   maxInheritedRecords: 50_000
 })
 

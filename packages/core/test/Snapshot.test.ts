@@ -1,11 +1,26 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { ByteSize, Effect, Schema } from "effect"
+import { BytePathId } from "../src/BytePath.js"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
-const limits = { maxEncodedBytes: 1_000_000, maxRecords: 100, maxEntries: 100, maxDecodedBytes: 100_000 }
+const limits = {
+  maxEncodedBytes: ByteSize.megabytes(1),
+  maxRecords: 100,
+  maxEntries: 100,
+  maxDecodedBytes: ByteSize.kilobytes(100)
+}
 const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
 
 describe("fixtures and snapshots", () => {
+  it("rejects objects that forge the public BytePath symbol", () => {
+    const forged = Object.freeze({ [BytePathId]: true })
+    const decoded = Schema.decodeUnknownResult(Vfs.Fixture)({
+      entries: [{ kind: "directory", path: forged }]
+    })
+
+    assert.isTrue(decoded._tag === "Failure")
+  })
+
   it.effect("should preserve canonical payloads and bytes when files span encoding chunks", () =>
     Effect.gen(function*() {
       for (const [tail, suffix] of ["", "AA==", "AP8="].entries()) {
@@ -62,7 +77,7 @@ describe("fixtures and snapshots", () => {
       const bf = yield* b.open("/f", { access: "read" })
       yield* af.write(new Uint8Array([8]))
       assert.deepStrictEqual(yield* bf.read(2), new Uint8Array([1, 2]))
-      const byteLimit = yield* Effect.flip(Vfs.fromSnapshot(snapshot, { maxBytes: 1 }))
+      const byteLimit = yield* Effect.flip(Vfs.fromSnapshot(snapshot, { maxBytes: ByteSize.bytes(1) }))
       assert.instanceOf(byteLimit, Vfs.ImageError)
       assert.strictEqual(byteLimit.code, "LimitExceeded")
       const entryLimit = yield* Effect.flip(Vfs.fromSnapshot(snapshot, { maxEntries: 0 }))
@@ -80,7 +95,7 @@ describe("fixtures and snapshots", () => {
       const f = yield* fs.open("/removed", { access: "write", create: "exclusive" })
       yield* f.write(new Uint8Array([1, 2, 3]))
       yield* fs.unlink("/removed")
-      const restored = yield* (yield* Vfs.fromSnapshot(yield* volume.snapshot, { maxBytes: 0 })).caller()
+      const restored = yield* (yield* Vfs.fromSnapshot(yield* volume.snapshot, { maxBytes: ByteSize.zero })).caller()
       assert.strictEqual((yield* restored.lstat(path)).ino, (yield* restored.lstat("/alias")).ino)
       assert.strictEqual((yield* Effect.flip(restored.stat("/removed"))).code, "NotFound")
       assert.strictEqual(yield* restored.readLink(path), "")
@@ -131,9 +146,26 @@ describe("fixtures and snapshots", () => {
         "InvalidEncoding"
       )
       assert.strictEqual(
-        (yield* Effect.flip(Vfs.decodeSnapshot(new Uint8Array(10), { ...limits, maxEncodedBytes: 9 }))).code,
+        (yield* Effect.flip(Vfs.decodeSnapshot(new Uint8Array(10), {
+          ...limits,
+          maxEncodedBytes: ByteSize.bytes(9)
+        }))).code,
         "LimitExceeded"
       )
+    }))
+
+  it.effect("keeps byte limits exact above the safe-integer range", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
+      const exactLimit = ByteSize.bytes(BigInt(Number.MAX_SAFE_INTEGER) + 1n)
+      const decoded = yield* Vfs.decodeSnapshot(encoded, {
+        ...limits,
+        maxEncodedBytes: exactLimit,
+        maxDecodedBytes: exactLimit
+      })
+      const restored = yield* Vfs.fromSnapshot(decoded)
+      assert.deepStrictEqual(yield* (yield* restored.caller()).readDirectory("/"), [])
     }))
 
   it.effect("captures a complete serial namespace when rename races and enforces decoded budgets", () =>
@@ -150,7 +182,11 @@ describe("fixtures and snapshots", () => {
       assert.isTrue(names.join() === "before" || names.join() === "after")
       const encoded = yield* Vfs.encodeSnapshot(snapshot)
       for (
-        const bound of [{ ...limits, maxRecords: 1 }, { ...limits, maxEntries: 0 }, { ...limits, maxDecodedBytes: 2 }]
+        const bound of [
+          { ...limits, maxRecords: 1 },
+          { ...limits, maxEntries: 0 },
+          { ...limits, maxDecodedBytes: ByteSize.bytes(2) }
+        ]
       ) {
         assert.strictEqual((yield* Effect.flip(Vfs.decodeSnapshot(encoded, bound))).code, "LimitExceeded")
       }
@@ -166,7 +202,10 @@ describe("fixtures and snapshots", () => {
       ]
       for (const fixture of invalid) yield* Effect.flip(Vfs.fromFixture(fixture))
       const limit = yield* Effect.flip(
-        Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: new Uint8Array(2) }] }, { maxBytes: 1 })
+        Vfs.fromFixture(
+          { entries: [{ kind: "file", path: "/f", bytes: new Uint8Array(2) }] },
+          { maxBytes: ByteSize.bytes(1) }
+        )
       )
       assert.instanceOf(limit, Vfs.ImageError)
       assert.strictEqual(limit.code, "LimitExceeded")

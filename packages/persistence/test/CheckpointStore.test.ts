@@ -1,11 +1,16 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer, Result } from "effect"
+import { ByteSize, Effect, Layer, Result } from "effect"
 import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
 import { CheckpointError, CheckpointStore } from "../src/index.js"
 
-const limits = { maxEncodedBytes: 100_000, maxRecords: 100, maxEntries: 100, maxDecodedBytes: 10_000 }
+const limits = {
+  maxEncodedBytes: ByteSize.kilobytes(100),
+  maxRecords: 100,
+  maxEntries: 100,
+  maxDecodedBytes: ByteSize.kilobytes(10)
+}
 const snapshot = Effect.gen(function*() {
   const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([0, 255, 1]) }] })
   return yield* volume.snapshot
@@ -86,10 +91,18 @@ describe("SQLite checkpoints", () => {
       yield* CheckpointStore.migrate
       const mutableLimits = { ...limits }
       const store = yield* CheckpointStore.make(mutableLimits)
-      mutableLimits.maxEncodedBytes = 0
+      mutableLimits.maxEncodedBytes = ByteSize.zero
       yield* store.save("kept", yield* snapshot)
       yield* CheckpointStore.migrate
       yield* store.load("kept")
+      const exactLimit = ByteSize.bytes(BigInt(Number.MAX_SAFE_INTEGER) + 1n)
+      const exactStore = yield* CheckpointStore.make({
+        ...limits,
+        maxEncodedBytes: exactLimit,
+        maxDecodedBytes: exactLimit
+      })
+      yield* exactStore.save("exact", yield* snapshot)
+      yield* exactStore.load("exact")
       for (const invalid of [{ ...limits, maxRecords: -1 }, { ...limits, extra: true }]) {
         const error = yield* Effect.flip(CheckpointStore.make(invalid))
         assert.strictEqual(error.code, "InvalidStructure")
@@ -98,11 +111,11 @@ describe("SQLite checkpoints", () => {
     })))
 
   it.effect.each([
-    { ...limits, maxEncodedBytes: 1 },
+    { ...limits, maxEncodedBytes: ByteSize.bytes(1) },
     { ...limits, maxRecords: 1 },
     { ...limits, maxEntries: 0 },
-    { ...limits, maxDecodedBytes: 2 }
-  ])("enforces the same save and load budgets: %j", (bounded) =>
+    { ...limits, maxDecodedBytes: ByteSize.bytes(2) }
+  ])("enforces the same save and load budgets", (bounded) =>
     database(Effect.gen(function*() {
       yield* CheckpointStore.migrate
       const broad = yield* CheckpointStore.make(limits)
@@ -136,7 +149,8 @@ describe("SQLite checkpoints", () => {
         assert.instanceOf(error, Vfs.ImageError)
         assert.strictEqual(error.code, code)
       }
-      yield* sql`INSERT INTO effect_vfs_checkpoints VALUES ('oversized', zeroblob(${limits.maxEncodedBytes + 1}))`
+      const oversized = ByteSize.toBigInt(limits.maxEncodedBytes) + 1n
+      yield* sql`INSERT INTO effect_vfs_checkpoints VALUES ('oversized', zeroblob(${oversized}))`
       const error = yield* Effect.flip(store.load("oversized"))
       assert.instanceOf(error, Vfs.ImageError)
       assert.strictEqual(error.code, "LimitExceeded")

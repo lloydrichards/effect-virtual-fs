@@ -1,5 +1,5 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { Effect, Schema } from "effect"
+import { ByteSize, Effect, Schema } from "effect"
 // External measurement reads host files directly; core itself has no host filesystem dependency.
 // oxlint-disable-next-line effecttsgo/node-builtin-import
 import * as Fs from "node:fs/promises"
@@ -55,10 +55,10 @@ const result = await Effect.runPromise(Effect.gen(function*() {
   const decoded = yield* measure(
     "decodeMs",
     Vfs.decodeSnapshot(encoded, {
-      maxEncodedBytes: encoded.length,
+      maxEncodedBytes: ByteSize.bytes(encoded.length),
       maxRecords: entries.length + 1,
       maxEntries: entries.length,
-      maxDecodedBytes: sourceBytes + entries.length * 512
+      maxDecodedBytes: ByteSize.bytes(sourceBytes + entries.length * 512)
     })
   )
   const restored = yield* measure("restoreMs", Vfs.fromSnapshot(decoded))

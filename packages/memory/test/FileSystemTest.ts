@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { DateTime, Effect, type Layer, Option, Ref, Result, Stream } from "effect"
+import * as ByteSize from "effect/ByteSize"
 import * as FileSystem from "effect/FileSystem"
 import * as PlatformError from "effect/PlatformError"
 
@@ -26,7 +27,7 @@ const fillBuffer = Effect.fnUntraced(function*(file: FileSystem.File, buffer: Ui
     }
     offset += bytesRead
   }
-  return FileSystem.Size(offset)
+  return offset
 })
 
 const readAllocUpTo = Effect.fnUntraced(function*(file: FileSystem.File, size: number) {
@@ -142,7 +143,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.deepStrictEqual((yield* fs.readDirectory(path("src"))).sort(), ["features", "index.ts"])
           assert.strictEqual((yield* fs.stat(path("src"))).type, "Directory")
           assert.strictEqual((yield* fs.stat(path("src", "index.ts"))).type, "File")
-          assert.strictEqual((yield* fs.stat(path("src", "index.ts"))).size, FileSystem.Size(9))
+          assert.strictEqual((yield* fs.stat(path("src", "index.ts"))).size, ByteSize.bytes(9))
         }))
 
       it.effect("should include nested files when listing directories recursively", () =>
@@ -536,12 +537,12 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           const second = yield* fs.open(file)
 
           const buffer = new Uint8Array(2)
-          assert.strictEqual(yield* fillBuffer(first, buffer), FileSystem.Size(2))
+          assert.strictEqual(yield* fillBuffer(first, buffer), 2)
           assert.strictEqual(decoder.decode(buffer), "01")
           assert.strictEqual(decoder.decode(yield* readAllocUpTo(second, 2)), "01")
-          yield* first.seek(3, "current")
+          yield* first.seek(3n, "current")
           assert.strictEqual(decoder.decode(yield* readAllocUpTo(first, 2)), "56")
-          yield* first.seek(0, "start")
+          yield* first.seek(0n, "start")
           assert.strictEqual(decoder.decode(yield* readAllocUpTo(first, 2)), "01")
         }))
 
@@ -555,15 +556,15 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           yield* writeUsingWrite(file, encoder.encode("def"))
           assert.strictEqual(yield* fs.readFileString(filePath), "abcdef")
 
-          yield* file.seek(-2, "current")
+          yield* file.seek(-2n, "current")
           yield* writeUsingWrite(file, encoder.encode("WXYZ"))
           assert.strictEqual(yield* fs.readFileString(filePath), "abcdWXYZ")
 
-          yield* file.seek(2, "start")
+          yield* file.seek(2n, "start")
           yield* writeUsingWrite(file, encoder.encode("!!"))
           yield* file.sync
 
-          assert.strictEqual((yield* file.stat).size, FileSystem.Size(8))
+          assert.strictEqual((yield* file.stat).size, ByteSize.bytes(8))
           assert.strictEqual(yield* fs.readFileString(filePath), "ab!!WXYZ")
         }))
 
@@ -574,7 +575,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           yield* fs.writeFileString(filePath, "seed")
           const file = yield* fs.open(filePath, { flag: "a+" })
 
-          yield* file.seek(0, "start")
+          yield* file.seek(0n, "start")
           yield* writeUsingWrite(file, encoder.encode("xy"))
 
           assert.strictEqual(yield* fs.readFileString(filePath), "seedxy")
@@ -588,11 +589,11 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           const file = yield* fs.open(filePath, { flag: "r+" })
 
           yield* file.truncate(3)
-          assert.strictEqual((yield* file.stat).size, FileSystem.Size(3))
+          assert.strictEqual((yield* file.stat).size, ByteSize.bytes(3))
           assert.strictEqual(yield* fs.readFileString(filePath), "abc")
 
           yield* file.truncate(5)
-          assert.strictEqual((yield* file.stat).size, FileSystem.Size(5))
+          assert.strictEqual((yield* file.stat).size, ByteSize.bytes(5))
           assert.deepStrictEqual(yield* fs.readFile(filePath), encoder.encode("abc\0\0"))
         }))
 
@@ -659,7 +660,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
             assert.strictEqual(yield* fs.readFileString(filePath), expectedContent)
 
             if (access !== "write") {
-              yield* file.seek(0, "start")
+              yield* file.seek(0n, "start")
               assert.strictEqual(decoder.decode(yield* readAllocUpTo(file, 1)), expectedContent.slice(0, 1))
             } else {
               const error = yield* Effect.flip(file.readAlloc(1))
@@ -746,7 +747,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           const filePath = path("sparse.bin")
           const file = yield* fs.open(filePath, { flag: "w+" })
 
-          yield* file.seek(4, "start")
+          yield* file.seek(4n, "start")
           yield* file.writeAll(new Uint8Array([42, 255]))
 
           assert.deepStrictEqual(yield* fs.readFile(filePath), new Uint8Array([0, 0, 0, 0, 42, 255]))
@@ -761,7 +762,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           const file = yield* fs.open(before, { flag: "r+" })
 
           yield* fs.rename(before, after)
-          yield* file.seek(0, "start")
+          yield* file.seek(0n, "start")
           yield* file.writeAll(encoder.encode("renamed"))
 
           assert.isFalse(yield* fs.exists(before))
@@ -796,7 +797,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           yield* fs.remove(filePath)
           assert.isFalse(yield* fs.exists(filePath))
           assert.strictEqual(decoder.decode(yield* readAllocUpTo(file, 7)), "content")
-          assert.strictEqual((yield* file.stat).size, FileSystem.Size(7))
+          assert.strictEqual((yield* file.stat).size, ByteSize.bytes(7))
         }))
 
       it.effect("should preserve the read cursor when appending through a handle", () =>
@@ -806,7 +807,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           const file = yield* fs.open(filePath, { flag: "a+" })
 
           yield* file.writeAll(encoder.encode("foo"))
-          yield* file.seek(0, "start")
+          yield* file.seek(0n, "start")
           yield* file.writeAll(encoder.encode("bar"))
           assert.strictEqual(decoder.decode(yield* readAllocUpTo(file, 3)), "foo")
 
@@ -820,8 +821,8 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           const { fs, path } = yield* makeTestContext
           const file = yield* fs.open(path("seek-cursor.txt"), { flag: "w+" })
 
-          assert.strictEqual(yield* file.seek(6, "start"), FileSystem.Size(6))
-          assert.strictEqual(yield* file.seek(-2, "current"), FileSystem.Size(4))
+          assert.strictEqual(yield* file.seek(6n, "start"), 6n)
+          assert.strictEqual(yield* file.seek(-2n, "current"), 4n)
         }))
 
       it.effect("should preserve or clamp a file-handle cursor based on the truncated length", () =>
@@ -831,7 +832,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           const file = yield* fs.open(filePath, { flag: "w+" })
           yield* file.writeAll(encoder.encode("lorem ipsum dolor sit amet"))
 
-          yield* file.seek(6, "start")
+          yield* file.seek(6n, "start")
           yield* file.truncate(11)
           yield* file.writeAll(encoder.encode("!"))
           assert.strictEqual(yield* fs.readFileString(filePath), "lorem !psum")
@@ -1127,11 +1128,11 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
 
           yield* fs.remove(alias)
           yield* fs.writeFileString(source, "replacement")
-          yield* handle.seek(0, "start")
+          yield* handle.seek(0n, "start")
           yield* handle.writeAll(encoder.encode("retained"))
 
           assert.strictEqual(yield* fs.readFileString(source), "replacement")
-          yield* handle.seek(0, "start")
+          yield* handle.seek(0n, "start")
           assert.strictEqual(decoder.decode(yield* readAllocUpTo(handle, 8)), "retained")
         }))
 

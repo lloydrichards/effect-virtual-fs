@@ -5,7 +5,7 @@
  * @since 0.1.0
  */
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { Context, Data, Effect, Layer, Schema } from "effect"
+import { ByteSize, Context, Data, Effect, Layer, Schema } from "effect"
 import * as Migrator from "effect/unstable/sql/Migrator"
 import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
 
@@ -72,6 +72,7 @@ export class CheckpointStore extends Context.Service<CheckpointStore, Checkpoint
       Effect.mapError(() => new Vfs.ImageError({ code: "InvalidStructure", field: "limits" }))
     )
     const sql = (yield* SqlClient).withoutTransforms()
+    const maxEncodedBytes = ByteSize.toBigInt(ownedLimits.maxEncodedBytes)
 
     const save = Effect.fn("CheckpointStore.save")(function*(name: string, snapshot: Vfs.Snapshot) {
       yield* checkName(name, "save")
@@ -95,7 +96,7 @@ export class CheckpointStore extends Context.Service<CheckpointStore, Checkpoint
       const rows = yield* sql`
         SELECT typeof(image) AS kind,
           CASE WHEN typeof(image) = 'blob' THEN length(image) ELSE NULL END AS size,
-          CASE WHEN typeof(image) = 'blob' AND length(image) <= ${ownedLimits.maxEncodedBytes}
+          CASE WHEN typeof(image) = 'blob' AND length(image) <= ${maxEncodedBytes}
             THEN image ELSE NULL END AS image
         FROM effect_vfs_checkpoints WHERE name = ${name}
       `.pipe(Effect.mapError(
@@ -109,7 +110,7 @@ export class CheckpointStore extends Context.Service<CheckpointStore, Checkpoint
       if (row.kind !== "blob" || row.size === null) {
         return yield* new Vfs.ImageError({ code: "InvalidStructure", field: "image" })
       }
-      if (row.size > ownedLimits.maxEncodedBytes) {
+      if (BigInt(row.size) > maxEncodedBytes) {
         return yield* new Vfs.ImageError({ code: "LimitExceeded", field: "encodedBytes" })
       }
       if (row.image === null) return yield* new Vfs.ImageError({ code: "InvalidStructure", field: "image" })

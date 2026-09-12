@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Exit, Scope } from "effect"
+import { ByteSize, Effect, Exit, Scope } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const bytes = (...values: Array<number>) => new Uint8Array(values)
@@ -65,7 +65,7 @@ describe("regular files", () => {
 
   it.effect("returns capacity-limited prefixes and preserves bytes and metadata on failed growth", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make({ maxBytes: 6 })).caller()
+      const fs = yield* (yield* Vfs.make({ maxBytes: ByteSize.bytes(6) })).caller()
       const f = yield* fs.open("/f", { access: "readWrite", create: "exclusive" })
       yield* f.write(bytes(1, 2, 3, 4))
       assert.strictEqual(yield* f.write(bytes(5, 6, 7)), 2)
@@ -82,7 +82,7 @@ describe("regular files", () => {
 
   it.effect("retains unlinked content charge until the final independent handle closes", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make({ maxBytes: 2, maxEntries: 1 })).caller()
+      const fs = yield* (yield* Vfs.make({ maxBytes: ByteSize.bytes(2), maxEntries: 1 })).caller()
       const a = yield* fs.open("/f", { access: "readWrite", create: "exclusive" })
       const b = yield* fs.open("/f", { access: "read" })
       yield* a.write(bytes(1, 2))
@@ -116,7 +116,7 @@ describe("regular files", () => {
 
   it.effect("checks kind, access, exclusive creation and file bounds before changing content", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxFileBytes: 2 })
+      const volume = yield* Vfs.make({ maxFileBytes: ByteSize.bytes(2) })
       const fs = yield* volume.caller()
       const f = yield* fs.open("/f", { access: "readWrite", create: "exclusive", mode: 0o400 })
       yield* f.write(bytes(1, 2, 3))

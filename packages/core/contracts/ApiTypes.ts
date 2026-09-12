@@ -1,5 +1,6 @@
 // Compile-only checks against the public core API. Never execute `rejected` or
 // `rejectedFile`: their invalid calls exist to make API regressions fail type-checking.
+import * as ByteSize from "effect/ByteSize"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -9,7 +10,7 @@ import type * as Scope from "effect/Scope"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 export const rootCaller = Effect.gen(function*() {
-  const volume = yield* Vfs.make({ maxEntries: 10, maxPathBytes: 1024 })
+  const volume = yield* Vfs.make({ maxEntries: 10, maxPathBytes: ByteSize.kibibytes(1) })
   return yield* volume.caller()
 }) satisfies Effect.Effect<Vfs.Caller, Vfs.ConfigurationError>
 
@@ -59,17 +60,17 @@ export const persistence = Effect.gen(function*() {
   const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
   return yield* Vfs.fromSnapshot(
     yield* Vfs.decodeSnapshot(bytes, {
-      maxEncodedBytes: 10_000,
+      maxEncodedBytes: ByteSize.kilobytes(10),
       maxRecords: 10,
       maxEntries: 10,
-      maxDecodedBytes: 1_000
+      maxDecodedBytes: ByteSize.kilobytes(1)
     })
   )
 })
 
 export const overlay = Effect.gen(function*() {
   const base = yield* (yield* Vfs.make()).snapshot
-  const volume = yield* Vfs.makeOverlay(base, { maxBytes: 1_000 })
+  const volume = yield* Vfs.makeOverlay(base, { maxBytes: ByteSize.bytes(1_000) })
   const ordinary: Vfs.Volume = volume
   const changes: ReadonlyArray<Vfs.OverlayChange> = yield* volume.changes({ includeTimestamps: true })
   const capture: Vfs.OverlayCapture = yield* volume.capture()
@@ -82,7 +83,7 @@ export const overlay = Effect.gen(function*() {
 
 const customDeltaLimits: Vfs.SnapshotDeltaLimits = {
   ...Vfs.SnapshotDeltaLimits.constrained,
-  maxEncodedBytes: 8 * 1024 * 1024
+  maxEncodedBytes: ByteSize.mebibytes(8)
 }
 
 export const snapshotDelta = Effect.gen(function*() {

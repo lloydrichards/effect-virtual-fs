@@ -8,6 +8,7 @@
  *
  * @since 0.1.0
  */
+import * as ByteSize from "effect/ByteSize"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import { DecodeLimits, ImageError, type Snapshot } from "./Snapshot.js"
@@ -24,7 +25,7 @@ import * as SchemaTransformation from "effect/SchemaTransformation"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
-import { BytePath, BytePathId, getBytes as getBytePathBytes, make as makeBytePath } from "./BytePath.js"
+import { BytePath, getBytes as getBytePathBytes, make as makeBytePath } from "./BytePath.js"
 export { BytePath } from "./BytePath.js"
 import * as Content from "./internal/content.js"
 import * as Image from "./internal/image.js"
@@ -170,11 +171,23 @@ export const VolumeOptions = Schema.Struct({
   /** Maximum number of filesystem nodes. Omission leaves the count unbounded. */
   maxEntries: Schema.optionalKey(Natural),
   /** Maximum combined regular-file content in bytes. */
-  maxBytes: Schema.optionalKey(Natural),
+  maxBytes: Schema.optionalKey(Schema.ByteSize),
   /** Maximum content size of one regular file in bytes. */
-  maxFileBytes: Schema.optionalKey(Natural.check(Schema.isLessThanOrEqualTo(0xffffffff))),
+  maxFileBytes: Schema.optionalKey(
+    Schema.ByteSize.check(
+      Schema.makeFilter((size) =>
+        ByteSize.isLessThanOrEqualTo(size, ByteSize.bytes(0xffffffff)) ? undefined : "must be at most 4294967295 bytes"
+      )
+    )
+  ),
   /** Maximum encoded byte length of an absolute or relative path. */
-  maxPathBytes: Schema.optionalKey(Natural.check(Schema.isGreaterThanOrEqualTo(1)))
+  maxPathBytes: Schema.optionalKey(
+    Schema.ByteSize.check(
+      Schema.makeFilter((size) =>
+        ByteSize.isGreaterThanOrEqualTo(size, ByteSize.bytes(1)) ? undefined : "must be at least 1 byte"
+      )
+    )
+  )
 })
 /**
  * Capacity and path limits for a volume.
@@ -711,7 +724,7 @@ export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDelta
   return Schema.Uint8Array.pipe(
     Schema.decodeTo(
       SnapshotDeltaModel.SnapshotDelta,
-      SchemaTransformation.transformOrFail({
+      SchemaTransformation.transformEffect({
         decode: (input, options) =>
           Result.isFailure(selected)
             ? Effect.fail(new SchemaIssue.InvalidValue({ message: "Invalid snapshot delta limits" }, limits, options))
@@ -741,9 +754,7 @@ const strictString = (bytes: Uint8Array, operation: string) =>
     catch: () => failure("UnrepresentableName", operation)
   })
 const nameBytes = (name: string): Uint8Array => {
-  const bytes = new Uint8Array(name.length / 2)
-  for (let i = 0; i < bytes.length; i++) bytes[i] = Number.parseInt(name.slice(i * 2, i * 2 + 2), 16)
-  return bytes
+  return Result.getOrThrow(Encoding.decodeHex(name))
 }
 // A zero-length view distinguishes a detached buffer from a valid empty buffer.
 const attachedBuffer = (bytes: Uint8Array): boolean => {
@@ -854,7 +865,7 @@ const wellFormed = (value: string): boolean => {
 const preparePath = (
   input: PathInput,
   operation: string,
-  maxPathBytes: number | undefined
+  maxPathBytes: ByteSize.ByteSize | undefined
 ): Result.Result<PreparedPath, FsError> => {
   let bytes: Uint8Array | undefined
   if (typeof input === "string") {
@@ -866,7 +877,7 @@ const preparePath = (
   if (bytes === undefined) return Result.fail(failure("InvalidArgument", operation))
   if (bytes.length === 0) return Result.fail(failure("NotFound", operation, input))
   if (bytes.includes(0)) return Result.fail(failure("InvalidArgument", operation, input))
-  if (maxPathBytes !== undefined && bytes.length > maxPathBytes) {
+  if (maxPathBytes !== undefined && ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxPathBytes)) {
     return Result.fail(failure("PathTooLong", operation, input))
   }
   const components: Array<string> = []
@@ -963,12 +974,13 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
     }
     let nextInode = 2n
     let entries = 0
-    let usedBytes = 0
-    const maxFileBytes = settings.maxFileBytes ?? 0xffffffff
+    let usedBytes = 0n
+    // The schema caps this value at uint32, so this boundary conversion is exact.
+    const maxFileBytes = Number(ByteSize.toBigInt(settings.maxFileBytes ?? ByteSize.bytes(0xffffffff)))
 
     if (image !== undefined) {
       const incoming = new Map<string, Node>()
-      let content = 0
+      let content = 0n
       let count = 0
       for (const record of image.records) {
         if (record.kind === "directory") count += record.entries.length
@@ -977,12 +989,12 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           if (record.kind === "file" && length > maxFileBytes) {
             return yield* new ImageError({ code: "LimitExceeded", field: "maxFileBytes" })
           }
-          content += length
+          content += BigInt(length)
         }
       }
       if (
         (settings.maxEntries !== undefined && count > settings.maxEntries) ||
-        (settings.maxBytes !== undefined && content > settings.maxBytes)
+        (settings.maxBytes !== undefined && content > ByteSize.toBigInt(settings.maxBytes))
       ) {
         return yield* new ImageError({ code: "LimitExceeded", field: "volume" })
       }
@@ -1167,7 +1179,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
 
     const reclaim = (file: RegularFile) => {
       if (file.metadata.nlink === 0 && file.openCount === 0) {
-        usedBytes -= file.data.bytes.length
+        usedBytes -= BigInt(file.data.bytes.length)
         file.data = Content.empty()
       }
     }
@@ -1178,7 +1190,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
       } else {
         node.metadata = { ...node.metadata, nlink: node.metadata.nlink - 1, ctimeNs: now }
         if (node.kind === "file") reclaim(node)
-        else if (node.metadata.nlink === 0) usedBytes -= node.target.length
+        else if (node.metadata.nlink === 0) usedBytes -= BigInt(node.target.length)
       }
     }
     const releaseFile = (ref: FileReference) => {
@@ -1193,13 +1205,16 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
       if (typeof length !== "bigint" || length < 0n) return yield* failure("InvalidArgument", operation)
       if (length > BigInt(maxFileBytes)) return yield* failure("FileTooLarge", operation)
       const size = Number(length)
-      if (size - file.data.bytes.length > (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes) {
+      if (
+        settings.maxBytes !== undefined &&
+        BigInt(size - file.data.bytes.length) > ByteSize.toBigInt(settings.maxBytes) - usedBytes
+      ) {
         return yield* failure("NoSpace", operation)
       }
       const data = new Uint8Array(size)
       data.set(file.data.bytes.subarray(0, size))
       const now = yield* timestamp(operation)
-      usedBytes += size - file.data.bytes.length
+      usedBytes += BigInt(size - file.data.bytes.length)
       file.data = Content.make(data)
       file.metadata = {
         ...file.metadata,
@@ -1247,8 +1262,11 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           }
           if (offset >= BigInt(maxFileBytes)) return yield* failure("FileTooLarge", "write")
           const start = Number(offset)
-          const free = (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes
-          const end = Math.min(maxFileBytes, file.data.bytes.length + free)
+          const free = settings.maxBytes === undefined
+            ? BigInt(maxFileBytes)
+            : ByteSize.toBigInt(settings.maxBytes) - usedBytes
+          const maximumEnd = BigInt(file.data.bytes.length) + free
+          const end = Number(BigInt(maxFileBytes) < maximumEnd ? BigInt(maxFileBytes) : maximumEnd)
           const count = Math.min(bytes.length, Math.max(0, end - start))
           if (count === 0) return yield* failure("NoSpace", "write")
           const size = Math.max(file.data.bytes.length, start + count)
@@ -1258,7 +1276,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
           data.set(file.data.bytes)
           const now = yield* timestamp("write")
           data.set(bytes.subarray(0, count), start)
-          usedBytes += size - file.data.bytes.length
+          usedBytes += BigInt(size - file.data.bytes.length)
           file.data = Content.make(data)
           file.metadata = {
             ...file.metadata,
@@ -1370,7 +1388,10 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             if (child.target.length === 0) return yield* failure("NotFound", operation, path.input)
             if (++traversals > 40) return yield* failure("SymlinkLoop", operation, path.input)
             const suffix = work.suffixes[index] ?? new Uint8Array(0)
-            if (settings.maxPathBytes !== undefined && child.target.length + suffix.length > settings.maxPathBytes) {
+            if (
+              settings.maxPathBytes !== undefined &&
+              ByteSize.isGreaterThan(ByteSize.bytes(child.target.length + suffix.length), settings.maxPathBytes)
+            ) {
               return yield* failure("PathTooLong", operation, path.input)
             }
             const expansion = new Uint8Array(child.target.length + suffix.length)
@@ -1661,7 +1682,10 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               const size = Math.max(initial, position + captured.length)
               if (size > maxFileBytes) return yield* failure("FileTooLarge", "writeFile", input)
               const reclaimed = replaced !== undefined && replaced.metadata.nlink === 1 ? replaced.target.length : 0
-              if (size - previous > (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes + reclaimed) {
+              if (
+                settings.maxBytes !== undefined &&
+                BigInt(size - previous) > ByteSize.toBigInt(settings.maxBytes) - usedBytes + BigInt(reclaimed)
+              ) {
                 return yield* failure("NoSpace", "writeFile", input)
               }
               if (file !== undefined && !chosen.truncate && captured.length === 0 && chosen.finalMode === undefined) {
@@ -1700,7 +1724,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                 mtimeNs: now,
                 ctimeNs: now
               }
-              usedBytes += size - previous
+              usedBytes += BigInt(size - previous)
               if (file === undefined) {
                 if (replaced !== undefined) detach(replaced, now)
                 parent.entries.set(name, node)
@@ -1826,7 +1850,8 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             if (path.trailingSlash) return yield* failure("NotDirectory", "symlink", input)
             if (
               (settings.maxEntries !== undefined && entries >= settings.maxEntries) ||
-              bytes.length > (settings.maxBytes ?? Number.MAX_SAFE_INTEGER) - usedBytes
+              (settings.maxBytes !== undefined &&
+                BigInt(bytes.length) > ByteSize.toBigInt(settings.maxBytes) - usedBytes)
             ) return yield* failure("NoSpace", "symlink", input)
             const now = yield* timestamp("symlink")
             const node: SymbolicLink = {
@@ -1844,7 +1869,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
             nextInode += 1n
             entries += 1
-            usedBytes += bytes.length
+            usedBytes += BigInt(bytes.length)
             publishEntry("Create", parent, name)
           }))
         }),
@@ -2323,9 +2348,7 @@ const FixtureMetadata = Schema.Struct({
 })
 const FixturePath = Schema.Union([
   Schema.String,
-  Schema.declare<BytePath>((value): value is BytePath =>
-    typeof value === "object" && value !== null && BytePathId in value && value[BytePathId] === true
-  )
+  BytePath
 ])
 /**
  * Schema for a complete fixture namespace with optional metadata and forward hard links.

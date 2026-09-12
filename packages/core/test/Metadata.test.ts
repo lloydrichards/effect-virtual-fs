@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Clock, Effect, Result } from "effect"
+import { ByteSize, Clock, Effect, Result } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
@@ -35,10 +35,10 @@ describe("metadata authority", () => {
       const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
       const restored = yield* Vfs.fromSnapshot(
         yield* Vfs.decodeSnapshot(encoded, {
-          maxEncodedBytes: 8192,
+          maxEncodedBytes: ByteSize.kibibytes(8),
           maxRecords: 2,
           maxEntries: 1,
-          maxDecodedBytes: 1
+          maxDecodedBytes: ByteSize.bytes(1)
         })
       )
       const copy = yield* restored.caller()
@@ -169,7 +169,7 @@ describe("metadata authority", () => {
 
   it.effect("checks privileged execute bits and truncates paths without moving existing offsets", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make({ maxBytes: 3 })).caller()
+      const fs = yield* (yield* Vfs.make({ maxBytes: ByteSize.bytes(3) })).caller()
       const f = yield* fs.open("/f", { access: "readWrite", create: "exclusive" })
       yield* f.write(new Uint8Array([1, 2, 3]))
       assert.strictEqual((yield* Effect.flip(fs.access("/f", 1))).code, "AccessDenied")

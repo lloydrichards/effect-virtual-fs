@@ -1,6 +1,6 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { ByteSize, Effect } from "effect"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as Path from "node:path"
@@ -58,10 +58,10 @@ describe("standalone virtual builds", () => {
       yield* Effect.promise(() => Fs.writeFile(path, encoded))
       const restored = yield* Vfs.fromSnapshot(
         yield* Vfs.decodeSnapshot(yield* Effect.promise(() => Fs.readFile(path)), {
-          maxEncodedBytes: 1_000_000,
+          maxEncodedBytes: ByteSize.megabytes(1),
           maxRecords: 100,
           maxEntries: 100,
-          maxDecodedBytes: 100_000
+          maxDecodedBytes: ByteSize.kilobytes(100)
         })
       )
       const result = yield* buildVirtual(yield* restored.caller(), "/__effect_vfs_demo__/main.js")

@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { ByteSize, Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const encodedFile = (data: string) => {
@@ -14,7 +14,12 @@ const encodedFile = (data: string) => {
     ]
   }))
 }
-const limits = { maxEncodedBytes: 17_000_000, maxRecords: 2, maxEntries: 1, maxDecodedBytes: 12_000_001 }
+const limits = {
+  maxEncodedBytes: ByteSize.megabytes(17),
+  maxRecords: 2,
+  maxEntries: 1,
+  maxDecodedBytes: ByteSize.bytes(12_000_001)
+}
 
 describe("snapshot decoding", () => {
   it.effect("should restore a large canonical payload when it fits the supplied budgets", () =>

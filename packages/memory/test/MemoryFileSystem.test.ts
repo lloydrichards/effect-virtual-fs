@@ -142,7 +142,7 @@ it.layer(MemoryFileSystem.layer)("FileSystem (memory-specific)", (it) => {
       yield* fs.writeFileString(path, "content")
       const file = yield* fs.open(path, { flag: "r+" })
 
-      yield* file.seek(Number.MAX_SAFE_INTEGER, "start")
+      yield* file.seek(BigInt(Number.MAX_SAFE_INTEGER), "start")
       assert.isTrue(Result.isFailure(yield* Effect.result(file.writeAll(new Uint8Array([1])))))
 
       for (const size of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
@@ -230,24 +230,24 @@ it.layer(MemoryFileSystem.layer)("FileSystem (memory-specific)", (it) => {
       const withoutWatchers = {
         succeeded: Exit.isSuccess(written),
         contents: yield* fs.readFileString("/file.txt"),
-        position: yield* file.seek(0, "current")
+        position: yield* file.seek(0n, "current")
       }
       const watcher = yield* fs.watch("/file.txt").pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
-      yield* file.seek(0, "start")
+      yield* file.seek(0n, "start")
       const watchedWrite = yield* Effect.exit(file.writeAll(encoder.encode("second")))
       const withWatcher = {
         succeeded: Exit.isSuccess(watchedWrite),
         contents: yield* fs.readFileString("/file.txt"),
-        position: yield* file.seek(0, "current")
+        position: yield* file.seek(0n, "current")
       }
 
       assert.deepStrictEqual({ withoutWatchers, withWatcher }, {
-        withoutWatchers: { succeeded: true, contents: "AFTER!", position: FileSystem.Size(6) },
-        withWatcher: { succeeded: true, contents: "second", position: FileSystem.Size(6) }
+        withoutWatchers: { succeeded: true, contents: "AFTER!", position: 6n },
+        withWatcher: { succeeded: true, contents: "second", position: 6n }
       })
       const events = yield* Fiber.join(watcher)
       assert.deepStrictEqual(events, [{ _tag: "Update", path: "/file.txt" }])

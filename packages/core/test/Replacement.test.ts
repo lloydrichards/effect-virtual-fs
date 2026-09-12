@@ -1,11 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Fiber, Stream } from "effect"
+import { ByteSize, Effect, Fiber, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 describe("whole-file symlink replacement", () => {
   it.effect("replaces only the final link at full quota and publishes only its destination", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxEntries: 2, maxBytes: 8 })
+      const volume = yield* Vfs.make({ maxEntries: 2, maxBytes: ByteSize.bytes(8) })
       const fs = yield* volume.caller()
       yield* fs.writeFile("/target", new Uint8Array([42]), { access: "write", create: "exclusive" })
       yield* fs.symlink("/target", "/link")
@@ -33,7 +33,7 @@ describe("whole-file symlink replacement", () => {
 
   it.effect("retains linked target charges and metadata when replacement exceeds quota", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxBytes: 1 })
+      const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(1) })
       const fs = yield* volume.caller()
       yield* fs.symlink("/", "/a")
       yield* fs.link("/a", "/b")

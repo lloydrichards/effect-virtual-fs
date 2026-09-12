@@ -1,6 +1,6 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Exit, Fiber, Option, Scope, Stream } from "effect"
+import { ByteSize, Effect, Exit, Fiber, Option, Scope, Stream } from "effect"
 import * as Memory from "../src/MemoryFileSystem.js"
 
 const bytes = new TextEncoder()
@@ -17,14 +17,14 @@ describe("core-backed memory bindings", () => {
       const bf = yield* b.open("/f")
       const read = yield* af.readAlloc(1)
       assert.isTrue(Option.isSome(read))
-      assert.strictEqual(yield* bf.seek(0, "current"), 0n)
+      assert.strictEqual(yield* bf.seek(0n, "current"), 0n)
       yield* b.writeFileString("/f", "xyz")
       assert.strictEqual(new TextDecoder().decode(Option.getOrThrow(yield* bf.readAlloc(3))), "xyz")
       const scope = yield* Scope.make()
       const closed = yield* a.open("/f").pipe(Scope.provide(scope))
       yield* Scope.close(scope, Exit.void)
       yield* Effect.flip(closed.readAlloc(1))
-      assert.strictEqual(yield* closed.seek(10, "start"), 0n)
+      assert.strictEqual(yield* closed.seek(10n, "start"), 0n)
       assert.strictEqual(yield* a.readFileString("/f"), "xyz")
     }))
 
@@ -52,7 +52,7 @@ describe("core-backed memory bindings", () => {
 
   it.effect("preserves the old file and publishes nothing when a whole-file write exceeds quota", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxBytes: 3 })
+      const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(3) })
       const core = yield* volume.caller()
       const adapter = yield* Memory.bind(volume)
       yield* adapter.writeFileString("/f", "old")
@@ -104,15 +104,15 @@ describe("core-backed memory bindings", () => {
       const fs = yield* Memory.make
       yield* fs.writeFileString("/f", "abcd")
       const f = yield* fs.open("/f", { flag: "a+" })
-      yield* f.seek(4, "start")
+      yield* f.seek(4n, "start")
       yield* f.truncate(1)
-      assert.strictEqual(yield* f.seek(0, "current"), 4n)
+      assert.strictEqual(yield* f.seek(0n, "current"), 4n)
       const g = yield* fs.open("/f", { flag: "r+" })
-      yield* g.seek(3, "start")
+      yield* g.seek(3n, "start")
       yield* fs.truncate("/f", 0)
-      assert.strictEqual(yield* g.seek(0, "current"), 3n)
-      yield* g.seek(-1, "start")
+      assert.strictEqual(yield* g.seek(0n, "current"), 3n)
+      yield* g.seek(-1n, "start")
       yield* Effect.flip(g.readAlloc(1))
-      assert.strictEqual(yield* g.seek(0, "current"), -1n)
+      assert.strictEqual(yield* g.seek(0n, "current"), -1n)
     }))
 })

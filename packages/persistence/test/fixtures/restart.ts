@@ -1,7 +1,7 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { CheckpointStore } from "@effect-vfs/persistence"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
-import { Effect } from "effect"
+import { ByteSize, Effect } from "effect"
 import * as assert from "node:assert/strict"
 
 const mode = process.argv[2]
@@ -10,7 +10,12 @@ if (filename === undefined || (mode !== "save" && mode !== "restore")) {
   throw new Error("Expected save or restore and a database filename")
 }
 
-const limits = { maxEncodedBytes: 100_000, maxRecords: 20, maxEntries: 20, maxDecodedBytes: 1_000 }
+const limits = {
+  maxEncodedBytes: ByteSize.kilobytes(100),
+  maxRecords: 20,
+  maxEntries: 20,
+  maxDecodedBytes: ByteSize.kilobytes(1)
+}
 const metadata = { uid: 7, gid: 11, mode: 0o640, atimeNs: 13n, mtimeNs: 17n, ctimeNs: 19n, birthtimeNs: 23n }
 const content = new Uint8Array([0, 255, 128, 1])
 
@@ -60,7 +65,7 @@ const program = Effect.gen(function*() {
   assert.deepEqual(yield* caller.readFile(binaryPath), new Uint8Array([8]))
   const independent = yield* (yield* Vfs.fromSnapshot(yield* store.load("before"))).caller()
   assert.deepEqual(yield* independent.readFile("/alias"), content)
-  const failure = yield* Effect.flip(Vfs.fromSnapshot(snapshot, { maxBytes: 3 }))
+  const failure = yield* Effect.flip(Vfs.fromSnapshot(snapshot, { maxBytes: ByteSize.bytes(3) }))
   assert.ok(failure instanceof Vfs.ImageError)
   assert.equal(failure.code, "LimitExceeded")
   yield* Effect.log("restored")

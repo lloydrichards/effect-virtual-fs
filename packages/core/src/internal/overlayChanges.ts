@@ -1,3 +1,6 @@
+import * as Encoding from "effect/Encoding"
+import * as Equal from "effect/Equal"
+
 /** @internal */
 export interface ObservationMetadata {
   readonly uid: number
@@ -65,11 +68,7 @@ const tagOrder: Record<RawOverlayChange["_tag"], number> = {
   Updated: 4
 }
 
-const key = (path: Uint8Array): string => {
-  let result = ""
-  for (const byte of path) result += byte.toString(16).padStart(2, "0")
-  return result
-}
+const key = Encoding.encodeHex
 
 const comparePaths = (left: Uint8Array, right: Uint8Array): number => {
   const length = Math.min(left.length, right.length)
@@ -81,12 +80,7 @@ const comparePaths = (left: Uint8Array, right: Uint8Array): number => {
 }
 
 const sameBytes = (left: Uint8Array | undefined, right: Uint8Array | undefined): boolean => {
-  if (left === right) return true
-  if (left === undefined || right === undefined || left.length !== right.length) return false
-  for (let index = 0; index < left.length; index++) {
-    if (left[index] !== right[index]) return false
-  }
-  return true
+  return Equal.equals(left, right)
 }
 
 const differences = (before: ObservationEntry, after: ObservationEntry, includeTimestamps: boolean) =>

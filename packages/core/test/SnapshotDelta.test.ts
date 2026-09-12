@@ -1,10 +1,15 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Schema } from "effect"
+import { ByteSize, Effect, Schema } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const encoder = new TextEncoder()
-const snapshotLimits = { maxEncodedBytes: 1_000_000, maxRecords: 100, maxEntries: 100, maxDecodedBytes: 100_000 }
+const snapshotLimits = {
+  maxEncodedBytes: ByteSize.megabytes(1),
+  maxRecords: 100,
+  maxEntries: 100,
+  maxDecodedBytes: ByteSize.kilobytes(100)
+}
 const snapshotFromDocument = (document: unknown) =>
   Vfs.decodeSnapshot(encoder.encode(JSON.stringify(document)), snapshotLimits)
 const snapshotDocument = (snapshot: Vfs.Snapshot) =>
@@ -19,8 +24,24 @@ const deltaLimitsWith = (
     [field]: typeof current === "bigint" ? BigInt(value) : value
   })
 }
+const DeltaIdentity = Schema.fromJsonString(Schema.Struct({
+  base: Schema.Struct({ digest: Schema.String })
+}))
 
 describe("snapshot deltas", () => {
+  it.effect("keeps the empty snapshot semantic identity stable", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.fromFixture({
+        rootMetadata: { mode: 0o755, uid: 0, gid: 0, atimeNs: 0n, mtimeNs: 0n, ctimeNs: 0n, birthtimeNs: 0n },
+        entries: []
+      })
+      const snapshot = yield* volume.snapshot
+      const delta = yield* Vfs.diffSnapshots(snapshot, snapshot)
+      const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
+      const document = yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))
+      assert.strictEqual(document.base.digest, "rZYY/SonfmsCbsGkLQjVSfHecxzy6kiNba2QGEmixg0=")
+    }).pipe(Effect.provide(BunCrypto.layer)))
+
   it.effect("reconstructs node kinds, raw paths, payloads, and every retained metadata field", () =>
     Effect.gen(function*() {
       const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))

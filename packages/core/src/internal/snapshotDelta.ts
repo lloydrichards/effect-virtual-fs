@@ -1,6 +1,9 @@
 /** Exact snapshot delta construction, inspection, serialization, and application. @internal */
+import * as ByteSize from "effect/ByteSize"
 import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
+import * as Encoding from "effect/Encoding"
+import * as Equal from "effect/Equal"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { make as makeBytePath } from "../BytePath.js"
@@ -16,6 +19,7 @@ import {
   type SnapshotDifference,
   type SnapshotNodeKind
 } from "../SnapshotDelta.js"
+import * as CanonicalBase64 from "./canonicalBase64.js"
 import * as Image from "./image.js"
 
 const Path = Schema.String
@@ -101,15 +105,9 @@ const differenceOrder = [
 ] as const
 const encoder = new TextEncoder()
 const Json = Schema.fromJsonString(Schema.Unknown)
-const b64tail = /^(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?(?![\s\S])/
 const failure = (code: ImageError["code"], field?: string) =>
   new ImageError({ code, ...(field === undefined ? {} : { field }) })
-const sameBytes = (a: Uint8Array | undefined, b: Uint8Array | undefined) => {
-  if (a === b) return true
-  if (a === undefined || b === undefined || a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
-  return true
-}
+const sameBytes = (a: Uint8Array | undefined, b: Uint8Array | undefined) => Equal.equals(a, b)
 const compareBytes = (a: Uint8Array, b: Uint8Array) => {
   for (let i = 0; i < Math.min(a.length, b.length); i++) {
     const d = a[i]! - b[i]!
@@ -117,11 +115,7 @@ const compareBytes = (a: Uint8Array, b: Uint8Array) => {
   }
   return a.length - b.length
 }
-const key = (path: Uint8Array) => {
-  let out = ""
-  for (const byte of path) out += byte.toString(16).padStart(2, "0")
-  return out
-}
+const key = Encoding.encodeHex
 const join = (parent: Uint8Array, name: Uint8Array) => {
   const out = new Uint8Array(parent.length + (parent.length === 1 ? 0 : 1) + name.length)
   out.set(parent)
@@ -140,11 +134,8 @@ const basename = (path: Uint8Array) => {
   while (slash > 0 && path[slash] !== 47) slash--
   return path.subarray(slash + 1)
 }
-const canonical64 = (s: string) =>
-  s.length % 4 === 0 && !/[^A-Za-z0-9+/]/.test(s.slice(0, -4)) && b64tail.test(s.slice(-4))
-const decodedLength = (s: string) => s.length / 4 * 3 - (s.endsWith("==") ? 2 : s.endsWith("=") ? 1 : 0)
 const decode64 = (s: string, field: string): Effect.Effect<Uint8Array, ImageError> =>
-  canonical64(s) ? Effect.succeed(Image.bytes(s)) : Effect.fail(failure("InvalidEncoding", field))
+  CanonicalBase64.isCanonical(s) ? Effect.succeed(Image.bytes(s)) : Effect.fail(failure("InvalidEncoding", field))
 const safeAdd = (a: number, b: number) => {
   const n = a + b
   return Number.isSafeInteger(n) ? n : undefined
@@ -249,17 +240,22 @@ const u64 = (n: number) => {
   new DataView(out.buffer).setBigUint64(0, BigInt(n), false)
   return out
 }
+// This is the versioned semantic identity encoding, not a generic byte builder.
+// Field framing, ordering, and the domain prefix are part of the persisted delta contract.
 const identityBytes = Effect.fnUntraced(function*(view: SnapshotView, limits: SnapshotDeltaLimits) {
   let length = 0
-  let output = new Uint8Array(Math.min(limits.maxIdentityBytes, 1024))
+  const initialCapacity = ByteSize.isGreaterThanOrEqualTo(limits.maxIdentityBytes, ByteSize.kibibytes(1))
+    ? 1024
+    : Number(ByteSize.toBigInt(limits.maxIdentityBytes))
+  let output = new Uint8Array(initialCapacity)
   const append = (bytes: Uint8Array): Effect.Effect<void, ImageError> => {
     const next = safeAdd(length, bytes.length)
-    if (next === undefined || next > limits.maxIdentityBytes) {
+    if (next === undefined || BigInt(next) > ByteSize.toBigInt(limits.maxIdentityBytes)) {
       return Effect.fail(failure("LimitExceeded", "identityBytes"))
     }
     if (next > output.length) {
       let capacity = Math.max(1, output.length)
-      while (capacity < next) capacity = Math.min(limits.maxIdentityBytes, capacity * 2)
+      while (capacity < next) capacity = Math.min(next, capacity * 2)
       const expanded = new Uint8Array(capacity)
       expanded.set(output)
       output = expanded
@@ -433,7 +429,9 @@ const validate = Effect.fnUntraced(
       return yield* failure("LimitExceeded", "deltaRecords")
     }
     if (document.records.length > limits.maxOutputRecords) return yield* failure("LimitExceeded", "outputRecords")
-    if (!canonical64(document.base.digest) || decodedLength(document.base.digest) !== 32) {
+    if (
+      !CanonicalBase64.isCanonical(document.base.digest) || CanonicalBase64.decodedLength(document.base.digest) !== 32
+    ) {
       return yield* failure("InvalidEncoding", "digest")
     }
     let decoded = 32
@@ -445,9 +443,11 @@ const validate = Effect.fnUntraced(
         return yield* failure("InvalidStructure", "paths")
       }
       for (const encodedPath of record.paths) {
-        if (!canonical64(encodedPath)) return yield* failure("InvalidEncoding", "path")
-        decoded = safeAdd(decoded, decodedLength(encodedPath)) ?? Number.POSITIVE_INFINITY
-        if (decoded > limits.maxDecodedDeltaBytes) return yield* failure("LimitExceeded", "decodedDeltaBytes")
+        if (!CanonicalBase64.isCanonical(encodedPath)) return yield* failure("InvalidEncoding", "path")
+        decoded = safeAdd(decoded, CanonicalBase64.decodedLength(encodedPath)) ?? Number.POSITIVE_INFINITY
+        if (BigInt(decoded) > ByteSize.toBigInt(limits.maxDecodedDeltaBytes)) {
+          return yield* failure("LimitExceeded", "decodedDeltaBytes")
+        }
         entries++
         if (entries > limits.maxEntries) return yield* failure("LimitExceeded", "entries")
         const path = yield* decode64(encodedPath, "path")
@@ -456,15 +456,15 @@ const validate = Effect.fnUntraced(
       }
       if (record.kind !== "directory") {
         if (record.payload._tag === "Inline") {
-          if (!canonical64(record.payload.bytes)) return yield* failure("InvalidEncoding", "payload")
-          decoded = safeAdd(decoded, decodedLength(record.payload.bytes)) ?? Number.POSITIVE_INFINITY
-          if (decoded > limits.maxDecodedDeltaBytes) {
+          if (!CanonicalBase64.isCanonical(record.payload.bytes)) return yield* failure("InvalidEncoding", "payload")
+          decoded = safeAdd(decoded, CanonicalBase64.decodedLength(record.payload.bytes)) ?? Number.POSITIVE_INFINITY
+          if (BigInt(decoded) > ByteSize.toBigInt(limits.maxDecodedDeltaBytes)) {
             return yield* failure("LimitExceeded", "decodedDeltaBytes")
           }
         } else {
-          if (!canonical64(record.payload.path)) return yield* failure("InvalidEncoding", "basePath")
-          decoded = safeAdd(decoded, decodedLength(record.payload.path)) ?? Number.POSITIVE_INFINITY
-          if (decoded > limits.maxDecodedDeltaBytes) {
+          if (!CanonicalBase64.isCanonical(record.payload.path)) return yield* failure("InvalidEncoding", "basePath")
+          decoded = safeAdd(decoded, CanonicalBase64.decodedLength(record.payload.path)) ?? Number.POSITIVE_INFINITY
+          if (BigInt(decoded) > ByteSize.toBigInt(limits.maxDecodedDeltaBytes)) {
             return yield* failure("LimitExceeded", "decodedDeltaBytes")
           }
           inherited++
@@ -480,9 +480,11 @@ const validate = Effect.fnUntraced(
     }
     let previous: Uint8Array | undefined
     for (const change of document.changes) {
-      if (!canonical64(change.path)) return yield* failure("InvalidEncoding", "changePath")
-      decoded = safeAdd(decoded, decodedLength(change.path)) ?? Number.POSITIVE_INFINITY
-      if (decoded > limits.maxDecodedDeltaBytes) return yield* failure("LimitExceeded", "decodedDeltaBytes")
+      if (!CanonicalBase64.isCanonical(change.path)) return yield* failure("InvalidEncoding", "changePath")
+      decoded = safeAdd(decoded, CanonicalBase64.decodedLength(change.path)) ?? Number.POSITIVE_INFINITY
+      if (BigInt(decoded) > ByteSize.toBigInt(limits.maxDecodedDeltaBytes)) {
+        return yield* failure("LimitExceeded", "decodedDeltaBytes")
+      }
       const path = yield* decode64(change.path, "changePath")
       if (!validPath(path) || (previous !== undefined && compareBytes(previous, path) >= 0)) {
         return yield* failure("InvalidStructure", "changes")
@@ -590,13 +592,17 @@ export const encodeSnapshotDelta = Effect.fnUntraced(function*(delta: SnapshotDe
   yield* validate(document, limits)
   const text = yield* Schema.encodeEffect(Json)(document).pipe(Effect.mapError(() => failure("InvalidStructure")))
   const bytes = encoder.encode(text)
-  if (bytes.length > limits.maxEncodedBytes) return yield* failure("LimitExceeded", "encodedBytes")
+  if (BigInt(bytes.length) > ByteSize.toBigInt(limits.maxEncodedBytes)) {
+    return yield* failure("LimitExceeded", "encodedBytes")
+  }
   return bytes
 })
 /** @internal */
 export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array, limits: SnapshotDeltaLimits) {
   if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) return yield* failure("InvalidEncoding")
-  if (input.byteLength > limits.maxEncodedBytes) return yield* failure("LimitExceeded", "encodedBytes")
+  if (BigInt(input.byteLength) > ByteSize.toBigInt(limits.maxEncodedBytes)) {
+    return yield* failure("LimitExceeded", "encodedBytes")
+  }
   const text = yield* Effect.try({
     try: () => new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(input)),
     catch: () => failure("InvalidEncoding")
@@ -614,23 +620,6 @@ export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array
 /** @internal */
 export const applySnapshotDelta = Effect.fn("VirtualFileSystem.applySnapshotDelta")(
   function*(base: Snapshot, delta: SnapshotDelta, limits: SnapshotDeltaLimits) {
-    const document = yield* getDocument(delta)
-    yield* validate(document, limits)
-    const before = yield* normalize(base, limits, "base")
-    if (!sameBytes(yield* digest(before, limits), Image.bytes(document.base.digest))) {
-      return yield* new SnapshotDeltaError({ code: "BaseMismatch" })
-    }
-    const target = yield* buildImage(document, before, limits)
-    const after = yield* normalize(target, limits, "target")
-    const actualChanges = yield* Schema.encodeEffect(Json)(compare(before, after)).pipe(
-      Effect.mapError(() => failure("InvalidStructure", "changes"))
-    )
-    const expectedChanges = yield* Schema.encodeEffect(Json)(document.changes).pipe(
-      Effect.mapError(() => failure("InvalidStructure", "changes"))
-    )
-    if (actualChanges !== expectedChanges) {
-      return yield* failure("InvalidStructure", "changes")
-    }
-    return target
+    return (yield* verify(base, yield* getDocument(delta), limits)).target
   }
 )

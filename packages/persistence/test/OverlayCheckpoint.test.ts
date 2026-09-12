@@ -1,11 +1,16 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { ByteSize, Effect } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { CheckpointStore } from "../src/index.js"
 
-const limits = { maxEncodedBytes: 100_000, maxRecords: 100, maxEntries: 100, maxDecodedBytes: 10_000 }
+const limits = {
+  maxEncodedBytes: ByteSize.kilobytes(100),
+  maxRecords: 100,
+  maxEntries: 100,
+  maxDecodedBytes: ByteSize.kilobytes(10)
+}
 const database = <A, E>(effect: Effect.Effect<A, E, SqlClient>) =>
   effect.pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" })))
 
