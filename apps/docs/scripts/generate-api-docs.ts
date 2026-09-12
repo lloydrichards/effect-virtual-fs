@@ -29,10 +29,10 @@ const escapeMdxUnsafe = (content: string): string => {
     .join("\n")
 }
 
-const transformContent = (content: string, primary: boolean): string => {
+const transformContent = (content: string): string => {
   const withoutMetadata = stripInlineToc(replaceTocHeader(stripFrontmatter(content)))
   const headingsAdjusted = withoutMetadata.replace(/^(#{1,5}) /gm, "#$1 ")
-  return escapeMdxUnsafe(primary ? headingsAdjusted.replace(/^#{2,6} /m, "# ") : headingsAdjusted)
+  return escapeMdxUnsafe(headingsAdjusted.replace(/^#{2,6} /m, "# "))
 }
 
 const keepPublishedExports = (moduleName: string, content: string): string => {
@@ -48,9 +48,11 @@ const docgen = path.join(root, "node_modules/.bin/docgen")
 
 await mkdir(stagedApiDir, { recursive: true })
 
-for (const page of apiPages) {
-  const packageDir = path.join(root, page.packageDir)
-  if (page.packageDir === "packages/core") {
+const packageDirs = [...new Set(apiPages.map((page) => page.packageDir))]
+
+for (const packagePath of packageDirs) {
+  const packageDir = path.join(root, packagePath)
+  if (packagePath === "packages/core") {
     const stagedSource = path.join(packageDir, ".cache/docgen-src")
     await rm(stagedSource, { recursive: true, force: true })
     await cp(path.join(packageDir, "src"), stagedSource, { recursive: true })
@@ -69,30 +71,26 @@ for (const page of apiPages) {
     stderr: "inherit"
   })
   const exitCode = await child.exited
-  if (exitCode !== 0) throw new Error(`docgen failed for ${page.packageDir} with exit code ${exitCode}`)
+  if (exitCode !== 0) throw new Error(`docgen failed for ${packagePath} with exit code ${exitCode}`)
 
   const generatedDir = path.join(packageDir, "docs/modules")
   const generatedFiles = await readdir(generatedDir, { recursive: true })
-  const moduleFiles = new Map<string, string>()
-  for (const moduleName of page.moduleNames) {
-    const expectedFile = `${moduleName}.ts.md`
+  const packagePages = apiPages.filter((page) => page.packageDir === packagePath)
+
+  for (const page of packagePages) {
+    const expectedFile = `${page.moduleName}.ts.md`
     const generatedFile = generatedFiles.find((file) => file === expectedFile || file.endsWith(`/${expectedFile}`))
     if (generatedFile === undefined) {
-      throw new Error(`docgen did not generate ${page.packageDir}/docs/modules/${expectedFile}`)
+      throw new Error(`docgen did not generate ${packagePath}/docs/modules/${expectedFile}`)
     }
-    moduleFiles.set(moduleName, generatedFile)
-  }
 
-  const modules = await Promise.all(
-    page.moduleNames.map((moduleName) => readFile(path.join(generatedDir, moduleFiles.get(moduleName)!), "utf8"))
-  )
-  const source = modules
-    .map((content, index) => transformContent(keepPublishedExports(page.moduleNames[index]!, content), index === 0))
-    .join("\n\n---\n\n")
-  const destination = path.join(stagedApiDir, page.contentPath.replace("content/api/", ""))
-  await mkdir(path.dirname(destination), { recursive: true })
-  await writeFile(destination, source, "utf8")
-  console.log(`Generated ${page.contentPath}`)
+    const content = await readFile(path.join(generatedDir, generatedFile), "utf8")
+    const source = transformContent(keepPublishedExports(page.moduleName, content))
+    const destination = path.join(stagedApiDir, page.contentPath.replace("content/api/", ""))
+    await mkdir(path.dirname(destination), { recursive: true })
+    await writeFile(destination, source, "utf8")
+    console.log(`Generated ${page.contentPath}`)
+  }
 }
 
 await rm(apiDir, { recursive: true, force: true })

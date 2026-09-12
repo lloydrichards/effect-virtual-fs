@@ -1,0 +1,33 @@
+# BytePath overview
+
+---
+
+## models
+
+### BytePath (interface)
+
+An opaque path that preserves arbitrary non-NUL bytes without UTF-8 conversion.
+
+**Signature**
+
+```ts
+export interface BytePath {
+  readonly [BytePathId]: true;
+}
+```
+
+Added in v0.1.0
+
+## schemas
+
+### BytePath
+
+Schema for an opaque byte-preserving filesystem path.
+
+**Signature**
+
+```ts
+export declare const BytePath: Schema.declare<BytePath, BytePath>;
+```
+
+Added in v0.1.0
