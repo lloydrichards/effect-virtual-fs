@@ -14,6 +14,7 @@ import {
   SidebarMenuItem,
   useSidebar
 } from "~/components/ui/sidebar"
+import { cn } from "~/lib/utils"
 import { navigation } from "~/nav.config"
 
 export function AppSidebar() {
@@ -41,8 +42,11 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {navigation.map((section) => (
-          <SidebarGroup key={section.title}>
+        {navigation.map((section, index) => (
+          <SidebarGroup
+            key={section.title}
+            className={cn(index === navigation.length - 1 && "mt-auto")}
+          >
             <SidebarGroupLabel>{section.title}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
