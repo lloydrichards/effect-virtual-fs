@@ -1,5 +1,13 @@
 # Bundle update log
 
+## 2026-09-12
+
+- **Effect-native snapshot identity**: Replaced the internal SHA-256 implementation with the platform-neutral `Crypto.Crypto` service and added an explicit canonical-identity byte limit.
+
+- **Portable snapshot deltas implemented**: Added exact base-dependent reconstruction, base-verified path inspection, an Effect Schema byte codec, canonical semantic SHA-256 identity, same-path inherited payloads, strict hostile-input validation, shared finite limits across every operation, and focused behavior evidence.
+
+- **Portable snapshot delta interface**: Accepted an opaque exact delta with Schema encoding, path-oriented inspection, canonical semantic base identity, a dedicated base-mismatch error and shared finite resource policies. Kept wire layout and measured preset values as implementation research.
+
 ## 2026-09-10
 
 - **Overlay parity evidence**: Recast the research scenario table as a broader parity matrix and distinguished representative executed overlay coverage from remaining cases.

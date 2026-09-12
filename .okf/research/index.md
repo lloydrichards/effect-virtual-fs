@@ -4,7 +4,7 @@
 - [Effect adapter compatibility](effect-compatibility.md) identifies the behavior the memory adapter must preserve over the core.
 - [NFSv4.1 server direction](nfs-server.md) is draft research for exposing live volumes to native tools.
 - [Overlay filesystem direction](overlay-filesystem.md) maps current implementation constraints, behavior evidence and unresolved planning cases to the accepted decisions.
-- [Deferred overlay delta restoration](overlay-changes.md) retains later-stage encoding, base identity and validation research.
+- [Snapshot delta representation research](overlay-changes.md) retains the wire-layout, measurement and validation work needed by the accepted public interface.
 
 - [Object references](object-references.md) proposes path-independent identity with caller authority.
 - [Mutation revisions](mutation-revisions.md) proposes reliable change tracking and coordinated observations.
