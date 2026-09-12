@@ -5,6 +5,7 @@
   "license": "MIT",
   "exports": {
     "./base.json": "./base.json",
-    "./library.json": "./library.json"
+    "./library.json": "./library.json",
+    "./vite.json": "./vite.json"
   }
 }

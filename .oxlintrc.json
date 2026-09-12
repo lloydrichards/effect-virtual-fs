@@ -25,6 +25,21 @@
       "rules": {
         "effecttsgo/prefer-schema-over-json": "off"
       }
+    },
+    {
+      "files": [
+        "apps/docs/**/*.ts",
+        "apps/docs/**/*.tsx"
+      ],
+      "rules": {
+        "effecttsgo/async-function": "off",
+        "effecttsgo/global-console": "off",
+        "effecttsgo/global-date": "off",
+        "effecttsgo/global-random": "off",
+        "effecttsgo/global-timers": "off",
+        "effecttsgo/node-builtin-import": "off",
+        "effecttsgo/process-env": "off"
+      }
     }
   ],
   "ignorePatterns": [
