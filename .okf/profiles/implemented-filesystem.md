@@ -14,7 +14,7 @@ sources:
   - id: persistence-source
     resource: ../../packages/persistence/src/CheckpointStore.ts
     title: Checkpoint store public implementation
-generated: { by: codex/okf, at: 2026-09-10T11:48:22Z }
+generated: { by: codex/okf, at: 2026-09-12T11:38:56+02:00 }
 ---
 
 # Implemented filesystem
@@ -28,6 +28,8 @@ The supported behavior is a [bounded POSIX profile](bounded-posix.md "constraine
 `@effect-vfs/memory` binds a core volume to Effect's existing `FileSystem` service and preserves adapter-specific compatibility behavior. `make` and `layer` create a fresh volume containing `/tmp`; `bind` exposes an existing volume without changing its tree. See the [memory adapter compatibility contract](/contracts/memory-adapter-compatibility.md "refined by").
 
 Snapshots use a strict version 1 JSON/base64 representation. Capture and restore isolate storage, retain reachable namespace and metadata, and exclude live handles, caller state, subscriptions, and unreachable content. The [virtual-build consumer contract](/contracts/virtual-build-consumer.md "refined by") demonstrates build and rebuild through public exports, including a bounded virtual-package import case.
+
+The core can also create, inspect, Schema-encode, decode, and apply [portable snapshot deltas](/contracts/snapshot-deltas.md "refined by"). A delta reconstructs an exact target only from a semantically matching immutable base. Path-oriented summaries do not infer renames, and finite shared policies bound creation, codec, and application work.
 
 `@effect-vfs/persistence` adds named, create-only SQLite checkpoints over encoded snapshots. Applications supply the SQLite client and run the migration explicitly. Loading returns an opaque snapshot for restoration into a fresh volume. This implements the [checkpoint persistence decision](/decisions/named-checkpoint-persistence.md "implements") and is specified by the [checkpoint persistence contract](/contracts/checkpoint-persistence.md "refined by").
 

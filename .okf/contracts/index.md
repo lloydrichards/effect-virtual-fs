@@ -8,6 +8,7 @@
 - [Capacity and limits](./capacity-and-limits.md) - Volume accounting and implementation bounds.
 - [Mutation and observation](./mutation-and-observation.md) - Coordination, cancellation, snapshots, and watches.
 - [Snapshots and fixtures](./snapshots-and-fixtures.md) - Construction, capture, encoding, decoding, and restoration.
+- [Portable snapshot deltas](./snapshot-deltas.md) - Exact base-dependent reconstruction, deterministic inspection, Schema encoding, and work limits.
 - [Memory adapter compatibility](./memory-adapter-compatibility.md) - Effect `FileSystem` behavior over core volumes.
 - [Virtual build consumer](./virtual-build-consumer.md) - Build and package-import acceptance boundary.
 - [Checkpoint persistence](./checkpoint-persistence.md) - Explicit SQLite-backed named checkpoints.
