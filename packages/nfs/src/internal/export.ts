@@ -1,0 +1,196 @@
+import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as Data from "effect/Data"
+import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Scope from "effect/Scope"
+import * as Semaphore from "effect/Semaphore"
+
+const HANDLE_VERSION = 1
+const HANDLE_BYTES = 25
+
+export interface ExportLimits {
+  readonly maxFilehandles: number
+  readonly maxNameBytes: number
+}
+
+export interface OpenedFile {
+  readonly handle: Vfs.FileHandle
+  readonly close: Effect.Effect<void>
+}
+
+export interface NfsExport {
+  readonly root: Effect.Effect<Vfs.ObjectReference, Vfs.FsError>
+  readonly handleFor: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, ExportCapacityError>
+  readonly resolve: (handle: Uint8Array) => Effect.Effect<Vfs.ObjectReference, InvalidFilehandleError>
+  readonly observeMetadata: (
+    reference: Vfs.ObjectReference
+  ) => Effect.Effect<Vfs.ObjectObservation<Vfs.Metadata>, Vfs.FsError>
+  readonly observeDirectory: (
+    reference: Vfs.ObjectReference
+  ) => Effect.Effect<Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>>, Vfs.FsError>
+  readonly lookup: (
+    directory: Vfs.ObjectReference,
+    name: Uint8Array
+  ) => Effect.Effect<Vfs.ObjectReference, Vfs.FsError | InvalidNameError>
+  readonly parent: (directory: Vfs.ObjectReference) => Effect.Effect<Vfs.ObjectReference, Vfs.FsError>
+  readonly readLink: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, Vfs.FsError>
+  readonly open: (reference: Vfs.ObjectReference) => Effect.Effect<OpenedFile, Vfs.FsError>
+  readonly fsid: readonly [bigint, bigint]
+}
+
+export class ExportCapacityError extends Data.TaggedError("ExportCapacityError")<{ readonly detail: string }> {
+  constructor(message: string) {
+    super({ detail: message })
+  }
+}
+
+export class InvalidFilehandleError extends Data.TaggedError("InvalidFilehandleError")<{
+  readonly reason: "Malformed" | "WrongGeneration" | "Stale" | "Unknown"
+}> {
+  constructor(reason: "Malformed" | "WrongGeneration" | "Stale" | "Unknown") {
+    super({ reason })
+  }
+}
+
+export class InvalidNameError extends Data.TaggedError("InvalidNameError")<{ readonly detail: string }> {
+  constructor(message: string) {
+    super({ detail: message })
+  }
+}
+
+const assertPositiveInteger = (name: string, value: number): void => {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`)
+}
+
+const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
+  if (left.length !== right.length) return false
+  let difference = 0
+  for (let index = 0; index < left.length; index++) difference |= left[index]! ^ right[index]!
+  return difference === 0
+}
+
+const validateGeneration = (generation: Uint8Array): void => {
+  if (generation.length !== 16) throw new RangeError("generation must contain exactly 16 bytes")
+}
+
+const decodeUtf8 = (bytes: Uint8Array): string => {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+  } catch {
+    throw new InvalidNameError("Name is not valid UTF-8")
+  }
+}
+
+export const validateName = (bytes: Uint8Array, maxNameBytes: number): string => {
+  if (bytes.length === 0 || bytes.length > maxNameBytes) throw new InvalidNameError("Name length is invalid")
+  if (bytes.includes(0) || bytes.includes(0x2f)) throw new InvalidNameError("Name contains a forbidden byte")
+  const decoded = decodeUtf8(bytes)
+  if (decoded === "." || decoded === "..") throw new InvalidNameError("Reserved path components are not names")
+  // A fatal decode plus byte-for-byte re-encoding prevents replacement or normalization.
+  if (!sameBytes(bytes, new TextEncoder().encode(decoded))) {
+    throw new InvalidNameError("Name cannot be represented exactly")
+  }
+  return decoded
+}
+
+const uint64From = (bytes: Uint8Array, offset: number): bigint =>
+  new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(offset)
+
+export const makeExport = (
+  caller: Vfs.Caller,
+  generation: Uint8Array,
+  limits: ExportLimits
+): NfsExport => {
+  validateGeneration(generation)
+  assertPositiveInteger("maxFilehandles", limits.maxFilehandles)
+  assertPositiveInteger("maxNameBytes", limits.maxNameBytes)
+
+  const generationCopy = new Uint8Array(generation)
+  const referencesById = new Map<bigint, Vfs.ObjectReference>()
+  const idsByReference = new WeakMap<object, bigint>()
+  const registryGate = Semaphore.makeUnsafe(1)
+  let nextId = 1n
+
+  const handleFor = (reference: Vfs.ObjectReference): Effect.Effect<Uint8Array, ExportCapacityError> =>
+    registryGate.withPermit(Effect.gen(function*() {
+      let id = idsByReference.get(reference as object)
+      if (id === undefined) {
+        if (referencesById.size >= limits.maxFilehandles) {
+          for (const [candidateId, candidate] of referencesById) {
+            const result = yield* Effect.result(caller.observeMetadata(candidate))
+            if (result._tag === "Failure" && result.failure.code === "StaleReference") {
+              referencesById.delete(candidateId)
+              idsByReference.delete(candidate as object)
+            }
+          }
+          if (referencesById.size >= limits.maxFilehandles) {
+            return yield* new ExportCapacityError("Filehandle registry is full")
+          }
+        }
+        id = nextId++
+        idsByReference.set(reference as object, id)
+        referencesById.set(id, reference)
+      }
+      const bytes = new Uint8Array(HANDLE_BYTES)
+      bytes[0] = HANDLE_VERSION
+      bytes.set(generationCopy, 1)
+      new DataView(bytes.buffer).setBigUint64(17, id)
+      return bytes
+    }))
+
+  const resolve = (handle: Uint8Array): Effect.Effect<Vfs.ObjectReference, InvalidFilehandleError> =>
+    Effect.suspend(() => {
+      if (handle.length !== HANDLE_BYTES || handle[0] !== HANDLE_VERSION) {
+        return Effect.fail(new InvalidFilehandleError("Malformed"))
+      }
+      if (!sameBytes(handle.subarray(1, 17), generationCopy)) {
+        return Effect.fail(new InvalidFilehandleError("WrongGeneration"))
+      }
+      const reference = referencesById.get(uint64From(handle, 17))
+      if (reference === undefined) return Effect.fail(new InvalidFilehandleError("Unknown"))
+      return caller.observeMetadata(reference).pipe(
+        Effect.as(reference),
+        Effect.mapError((error) => new InvalidFilehandleError(error.code === "StaleReference" ? "Stale" : "Unknown"))
+      )
+    })
+
+  const open = (reference: Vfs.ObjectReference): Effect.Effect<OpenedFile, Vfs.FsError> =>
+    Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function*() {
+        const scope = yield* Scope.make()
+        const opened = yield* Effect.exit(restore(
+          caller.openReference(reference).pipe(Effect.provideService(Scope.Scope, scope))
+        ))
+        if (Exit.isFailure(opened)) {
+          yield* Scope.close(scope, opened)
+          return yield* Effect.failCause(opened.cause)
+        }
+        return {
+          handle: opened.value,
+          close: Scope.close(scope, Exit.void).pipe(Effect.orDie)
+        }
+      })
+    )
+
+  return {
+    root: caller.rootReference,
+    handleFor,
+    resolve,
+    observeMetadata: caller.observeMetadata,
+    observeDirectory: caller.observeDirectory,
+    lookup: (directory, name) =>
+      Effect.suspend<Vfs.ObjectReference, Vfs.FsError | InvalidNameError, never>(() => {
+        try {
+          validateName(name, limits.maxNameBytes)
+          return caller.lookupReference(directory, name)
+        } catch (error) {
+          if (error instanceof InvalidNameError) return Effect.fail(error)
+          throw error
+        }
+      }),
+    parent: caller.parentReference,
+    readLink: caller.readLinkReference,
+    open,
+    fsid: [uint64From(generationCopy, 0), uint64From(generationCopy, 8)]
+  }
+}
