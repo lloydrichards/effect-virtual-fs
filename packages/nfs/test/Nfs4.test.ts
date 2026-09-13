@@ -562,6 +562,37 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(new Reader(yield* handler.compound(retry), limits).uint32(), Status.OK)
     }))
 
+  it.effect("accepts small actual replies within a negotiated response channel", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        { leaseDurationSeconds: 30, generation, now: () => 0, limits }
+      )
+      const { session } = yield* startSession(handler, "small-response", { maxResponse: 128 })
+      assert.strictEqual(
+        new Reader(yield* handler.compound(call([sequence(session, 1)])), limits).uint32(),
+        Status.OK
+      )
+      const { session: readdirSession } = yield* startSession(handler, "small-readdir-response", {
+        maxResponse: 512
+      })
+      assert.strictEqual(
+        new Reader(
+          yield* handler.compound(call([
+            sequence(readdirSession, 1),
+            (writer) => writer.uint32(Operation.PUTROOTFH),
+            (writer) =>
+              writer.uint32(Operation.READDIR).uint64(0n).fixedOpaque(new Uint8Array(8))
+                .uint32(0).uint32(32_768).uint32(0)
+          ], "readdirplus ")),
+          limits
+        ).uint32(),
+        Status.OK
+      )
+    }))
+
   it.effect("counts retained requests against the replay-memory budget", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()

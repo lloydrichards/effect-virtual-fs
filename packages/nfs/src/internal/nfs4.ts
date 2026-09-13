@@ -851,25 +851,24 @@ const makeCookieVerifier = (generation: Uint8Array, revision: bigint): Uint8Arra
 
 const replayReplyBound = (
   operations: ReadonlyArray<ParsedOperation>,
-  limits: Nfs4Limits,
   tagBytes: number
 ): number => {
-  let bytes = 64 + tagBytes + (4 - tagBytes % 4) % 4
+  let bytes = 12 + tagBytes + (4 - tagBytes % 4) % 4
   for (const operation of operations) {
     if (operation.kind === "Read") {
-      const count = operation.value.count
-      bytes += 32 + Math.min(count, ByteSize.toNumberUnsafe(limits.maxReadBytes))
+      bytes += 32
     } else if (operation.kind === "Readdir") {
-      const maxcount = operation.value.maxcount
-      bytes += 32 + Math.min(maxcount, ByteSize.toNumberUnsafe(limits.maxReaddirReplyBytes))
+      bytes += 32
     } else if (operation.kind === "Getattr") {
-      bytes += 256 + ByteSize.toNumberUnsafe(limits.maxStringBytes) * 2
+      bytes += 32
     } else if (operation.kind === "Getfh") {
       bytes += 64
     } else if (operation.kind === "Readlink") {
-      bytes += 32 + ByteSize.toNumberUnsafe(limits.maxStringBytes)
+      bytes += 32
+    } else if (operation.kind === "Sequence") {
+      bytes += 44
     } else {
-      bytes += 256
+      bytes += 16
     }
     if (bytes > Number.MAX_SAFE_INTEGER) return Number.MAX_SAFE_INTEGER
   }
@@ -1020,6 +1019,20 @@ export const makeNfs4Handler = (
           }
 
           const response = encodeCompound(parsed.tag, parts)
+          const responseBytes = addBytes(byteLength(response.length), rpcReplyOverheadBytes)
+          if (responseBytes > byteLength(activeSession?.fore.maxResponse ?? Number.MAX_SAFE_INTEGER)) {
+            rollbackSequence?.()
+            rollbackSequence = undefined
+            return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.REP_TOO_BIG }])
+          }
+          if (
+            shouldCache &&
+            responseBytes > byteLength(activeSession?.fore.maxCachedResponse ?? Number.MAX_SAFE_INTEGER)
+          ) {
+            rollbackSequence?.()
+            rollbackSequence = undefined
+            return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.REP_TOO_BIG_TO_CACHE }])
+          }
           if (activeSlot !== undefined && shouldCache) {
             const retainedBytes = addBytes(byteLength(call.arguments.length), byteLength(response.length))
             if (
@@ -1265,7 +1278,7 @@ export const makeNfs4Handler = (
                 if (parsed.operations.length > session.fore.maxOperations) {
                   return Effect.succeed({ code: operation.code, status: Status.TOO_MANY_OPS })
                 }
-                const replyBound = replayReplyBound(parsed.operations, options.limits, parsed.tag.length)
+                const replyBound = replayReplyBound(parsed.operations, parsed.tag.length)
                 const rpcReplyBound = addBytes(byteLength(replyBound), rpcReplyOverheadBytes)
                 if (rpcReplyBound > byteLength(session.fore.maxResponse)) {
                   return Effect.succeed({ code: operation.code, status: Status.REP_TOO_BIG })
