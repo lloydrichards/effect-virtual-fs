@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Opaque snapshot TypeIds**: Aligned Snapshot and SnapshotDelta with Effect-style string TypeIds and moved snapshot-delta representation state behind the internal implementation seam.
+
 - **Atomic watch registration**: Coordinated subscriber activation with volume mutations so committed events cannot be dropped while a watch is registering.
 
 - **Byte path value semantics**: Defined opaque `BytePath` equality and hashing by its ordered bytes and added Effect-style pipe composition without exposing its representation.

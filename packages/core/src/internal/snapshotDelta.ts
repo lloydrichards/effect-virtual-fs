@@ -8,19 +8,18 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { ImageError, type Snapshot } from "../Snapshot.js"
 import {
-  makeSnapshotDelta,
   type SnapshotChange,
   type SnapshotChangesOptions,
   type SnapshotDelta,
   SnapshotDeltaError,
   type SnapshotDeltaLimits,
-  snapshotDeltaValue,
   SnapshotDifference,
   SnapshotNodeKind
 } from "../SnapshotDelta.js"
 import { make as makeBytePath } from "./bytePath.js"
 import * as CanonicalBase64 from "./canonicalBase64.js"
 import * as Image from "./image.js"
+import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
 
 const Path = Schema.String
 const Payload = Schema.Union([
@@ -331,7 +330,7 @@ const compare = (base: SnapshotView, target: SnapshotView): ReadonlyArray<Change
 }
 const getDocument = (delta: SnapshotDelta): Effect.Effect<Document, ImageError> =>
   Effect.suspend(() => {
-    const value = snapshotDeltaValue(delta)
+    const value = SnapshotDeltaModel.value(delta)
     return value !== undefined && Schema.is(Document)(value)
       ? Effect.succeed(value)
       : Effect.fail(failure("InvalidStructure", "delta"))
@@ -528,7 +527,7 @@ export const diffSnapshots = Effect.fnUntraced(
       changes
     }
     yield* validate(document, limits)
-    return makeSnapshotDelta(document)
+    return SnapshotDeltaModel.make(document)
   }
 )
 /** @internal */
@@ -601,7 +600,7 @@ export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array
   const parsed = Schema.decodeUnknownResult(Document, { onExcessProperty: "error" })(value)
   if (Result.isFailure(parsed)) return yield* failure("InvalidStructure")
   yield* validate(parsed.success, limits)
-  return makeSnapshotDelta(parsed.success)
+  return SnapshotDeltaModel.make(parsed.success)
 })
 /** @internal */
 export const applySnapshotDelta = Effect.fnUntraced(
