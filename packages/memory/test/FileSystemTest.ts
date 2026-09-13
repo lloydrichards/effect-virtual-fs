@@ -81,6 +81,20 @@ const assertSystemError = (
   return error.reason
 }
 
+const assertBadArgument = (
+  error: PlatformError.PlatformError,
+  expected: { readonly method: string; readonly description: string }
+): PlatformError.BadArgument => {
+  assert.strictEqual(error._tag, "PlatformError")
+  if (!(error.reason instanceof PlatformError.BadArgument)) {
+    return assert.fail("Expected a BadArgument")
+  }
+  assert.strictEqual(error.reason.module, "FileSystem")
+  assert.strictEqual(error.reason.method, expected.method)
+  assert.strictEqual(error.reason.description, expected.description)
+  return error.reason
+}
+
 export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem, E>) =>
   it.layer(layer, { timeout: { seconds: 30 } })(`FileSystem (${name})`, (it) => {
     describe("path operations", () => {
@@ -823,6 +837,47 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
 
           assert.strictEqual(yield* file.seek(6n, "start"), 6n)
           assert.strictEqual(yield* file.seek(-2n, "current"), 4n)
+        }))
+
+      it.effect("should reject seeks before the start without moving the cursor", () =>
+        Effect.gen(function*() {
+          const { fs, path } = yield* makeTestContext
+          const file = yield* fs.open(path("negative-seek.txt"), { flag: "w+" })
+          yield* file.seek(4n, "start")
+
+          const error = yield* Effect.flip(file.seek(-5n, "current"))
+
+          assertBadArgument(error, {
+            method: "seek",
+            description: "Cannot seek before the start of the file"
+          })
+          assert.strictEqual(yield* file.seek(0n, "current"), 4n)
+        }))
+
+      it.effect("should reject invalid runtime readAlloc sizes while preserving truncate's default", () =>
+        Effect.gen(function*() {
+          const { fs, path } = yield* makeTestContext
+          const filePath = path("invalid-read-size.txt")
+          yield* fs.writeFileString(filePath, "content")
+          const file = yield* fs.open(filePath, { flag: "r+" })
+          const readAlloc = file.readAlloc as unknown as (
+            size?: unknown
+          ) => Effect.Effect<Option.Option<Uint8Array>, PlatformError.PlatformError>
+
+          assertBadArgument(yield* Effect.flip(readAlloc()), {
+            method: "readAlloc",
+            description: "size must be a non-negative integer"
+          })
+          for (const input of [null, "1", 1.5, -1]) {
+            const error = yield* Effect.flip(readAlloc(input))
+            assertBadArgument(error, {
+              method: "readAlloc",
+              description: "size must be a non-negative integer"
+            })
+          }
+
+          yield* file.truncate()
+          assert.strictEqual((yield* fs.stat(filePath)).size, ByteSize.bytes(0))
         }))
 
       it.effect("should preserve or clamp a file-handle cursor based on the truncated length", () =>

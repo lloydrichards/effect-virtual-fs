@@ -85,11 +85,11 @@ const validateMode = (mode: number | undefined, method: string) =>
   mode === undefined || (Number.isInteger(mode) && mode >= 0 && mode <= 0xffffffff)
     ? Effect.void
     : Effect.fail(argumentError(method, "mode must be an unsigned 32-bit integer"))
-const sizeInput = (size: number | undefined, method: string) => {
-  const number = Number(size ?? 0)
-  return Number.isSafeInteger(number) && number >= 0
+const sizeInput = (size: number | undefined, method: string, defaultValue?: number) => {
+  const number = size === undefined ? defaultValue : size
+  return typeof number === "number" && Number.isSafeInteger(number) && number >= 0
     ? Effect.succeed(BigInt(number))
-    : Effect.fail(argumentError(method, "size must be a non-negative safe integer"))
+    : Effect.fail(argumentError(method, "size must be a non-negative integer"))
 }
 const openOptions = Effect.fnUntraced(function*(flag: FileSystem.OpenFlag, mode: number | undefined, method: string) {
   if (!["r", "r+", "w", "wx", "w+", "wx+", "a", "ax", "a+", "ax+"].includes(flag)) {
@@ -197,10 +197,14 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       stat: mapped(handle.stat, "stat", fd).pipe(Effect.flatMap((value) => info(value, fd))),
       sync: mapped(handle.sync, "sync", fd),
       seek: Effect.fn("MemoryFile.seek")(function*(offset, from) {
-        return yield* locked(Effect.sync(() => {
+        return yield* locked(Effect.gen(function*() {
           if (closed) return 0n
-          position = from === "start" ? offset : position + offset
-          return position
+          const next = from === "start" ? offset : position + offset
+          if (next < 0n) {
+            return yield* argumentError("seek", "Cannot seek before the start of the file")
+          }
+          position = next
+          return next
         }))
       }),
       read: Effect.fn("MemoryFile.read")(function*(buffer) {
@@ -220,7 +224,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
         )
       }),
       truncate: Effect.fn("MemoryFile.truncate")(function*(length) {
-        const size = yield* sizeInput(length, "truncate")
+        const size = yield* sizeInput(length, "truncate", 0)
         return yield* locked(Effect.gen(function*() {
           yield* mapped(handle.truncate(size), "truncate", fd)
           if (!chosen.append && position > size) position = size
@@ -531,7 +535,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
     link: (source, destination) => mapped(caller.link(source, destination), "link", source),
     symlink: (target, path) => mapped(caller.symlink(target, path), "symlink", path),
     truncate: Effect.fn("MemoryFileSystem.truncate")(function*(path, length) {
-      yield* mapped(caller.truncate(path, yield* sizeInput(length, "truncate")), "truncate", path)
+      yield* mapped(caller.truncate(path, yield* sizeInput(length, "truncate", 0)), "truncate", path)
     }),
     makeTempDirectory: (options) => temp("makeTempDirectory", false, options),
     makeTempFile: (options) => temp("makeTempFile", true, options),
