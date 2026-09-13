@@ -1,5 +1,19 @@
 # Bundle update log
 
+## 2026-09-13
+
+- **NFS configuration defaults**: Added frozen finite resource presets and optional server and limit overrides while retaining a complete validated runtime policy.
+
+- **NFS schema-owned configuration**: Replaced the public interface-only limit model with Effect schemas, explicit `ByteSize` budgets, and a one-way public-to-internal normalization boundary.
+
+- **NFS adversarial hardening**: Corrected client-incarnation recovery, negotiated channel enforcement, slot replay accounting, stateid and READDIR wire forms, session teardown, compound interruption atomicity, decode-error boundaries, and open-handle ownership; added an explicit pending-replacement limit and focused behavioral coverage.
+
+- **Native macOS NFS evidence**: Verified mount, listing, reads, symlink traversal, hard-link identity, live VFS mutation refresh, read-only rejection, restart remount, and clean unmount; retained the privileged Linux-client gate.
+
+- **Experimental NFS preview**: Accepted and implemented the private localhost-only read-only package boundary, core object-observation primitives, bounded RPC/XDR transport, volatile NFSv4.1 sessions and filehandles, browse/read operations, scoped server API, and runnable example. Retained the incomplete real-client browse/read gate and full RFC conformance exclusions.
+
+- **Live object identity and revisions**: Implemented canonical volume-local object references, deletion lifetime, caller-authorized reference operations, runtime mutation revisions, and coherent owned directory observations while keeping snapshot version 1 unchanged.
+
 ## 2026-09-12
 
 - **Effect-native snapshot limits**: Changed encoded and decoded snapshot work budgets to exact `ByteSize.ByteSize` values and kept persistence comparisons exact through SQLite.
