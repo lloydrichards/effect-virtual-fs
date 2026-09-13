@@ -6,7 +6,6 @@ import * as Encoding from "effect/Encoding"
 import * as Equal from "effect/Equal"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import { make as makeBytePath } from "../BytePath.js"
 import { ImageError, type Snapshot } from "../Snapshot.js"
 import {
   makeSnapshotDelta,
@@ -19,6 +18,7 @@ import {
   type SnapshotDifference,
   type SnapshotNodeKind
 } from "../SnapshotDelta.js"
+import { make as makeBytePath } from "./bytePath.js"
 import * as CanonicalBase64 from "./canonicalBase64.js"
 import * as Image from "./image.js"
 

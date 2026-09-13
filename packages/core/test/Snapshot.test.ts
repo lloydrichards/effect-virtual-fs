@@ -13,7 +13,7 @@ const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value
 
 describe("fixtures and snapshots", () => {
   it("rejects objects that forge the public BytePath symbol", () => {
-    const forged = Object.freeze({ [BytePathId]: true })
+    const forged = Object.freeze({ [BytePathId]: BytePathId })
     const decoded = Schema.decodeUnknownResult(Vfs.Fixture)({
       entries: [{ kind: "directory", path: forged }]
     })
