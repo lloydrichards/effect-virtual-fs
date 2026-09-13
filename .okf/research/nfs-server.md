@@ -12,8 +12,14 @@ sources:
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Current core interfaces and implementation
   - id: nfs-preview
-    resource: ../../packages/nfs/README.md
+    resource: ../../apps/nfs-preview/README.md
     title: Experimental NFS preview profile and mount example
+  - id: linux-gate
+    resource: https://github.com/lloydrichards/effect-virtual-fs/issues/39
+    title: Privileged Linux mount gate and retained macOS result
+  - id: nfs-tests
+    resource: ../../packages/nfs/test/Nfs4.test.ts
+    title: NFSv4.1 protocol behavior tests
   - id: checkpoints
     resource: ../../packages/persistence/src/CheckpointStore.ts
     title: Explicit checkpoint storage
@@ -44,7 +50,7 @@ On 2026-09-13 a macOS client completed AUTH_SYS NFSv4.1 `EXCHANGE_ID`, `CREATE_S
 
 The retained macOS result records a successful mount of this implementation, including directory listing, regular-file reads, symlink traversal, equal inode identity for two hard-link names, VFS-side file replacement after the configured one-second attribute-cache window, protocol-level write rejection, restart-required remount behavior, and clean unmount.[^linux-gate] Protocol tests cover the required non-pNFS `EXCHANGE_ID` role, structured `AUTH_SYS` callback credentials, downward `CREATE_SESSION` limit negotiation, compound-local `SAVEFH` and `RESTOREFH`, and read-only `OPEN` with `CLAIM_FH`.[^nfs-tests] The repeatable privileged Linux-client mount remains an implementation gate.[^linux-gate][^nfs-preview]
 
-The package's public configuration, resource limits, limit overrides, and bound address are Effect schemas. The constructor supplies loopback, ephemeral-port, lease, and finite resource defaults while accepting selective overrides. Byte budgets use `Schema.ByteSize`, count and protocol fields carry explicit numeric bounds, and startup validates the complete resolved policy before the only conversion into the private number-based XDR limits. Live `Volume` and `Caller` values remain capability contracts and are checked effectfully. Public declarations do not depend on the package-blocked protocol modules under `internal`.[^nfs-preview]
+The package's public configuration, resource limits, limit overrides, and bound address are Effect schemas. The constructor supplies loopback, ephemeral-port, lease, and finite resource defaults while accepting selective overrides. Byte budgets use `Schema.ByteSize`, count and protocol fields carry explicit numeric bounds, and startup validates the complete resolved policy before the only conversion into the private number-based XDR limits. Live `Volume` and `Caller` values remain capability contracts and are checked effectfully. Public declarations do not depend on the package-blocked protocol modules under `internal`. A separate workspace app owns the runnable fixture and native mount instructions.[^nfs-preview]
 
 The bounded preview also models confirmed and pending client incarnations separately, limits pending restart replacements explicitly, enforces negotiated session channels, preserves slot replay identity across retries and teardown, and uses RFC stateid and directory-cookie forms for read interoperability. Stateful compounds complete atomically after acquiring the server state gate; this deliberately favors replay correctness over prompt cancellation because the accepted deployment is a local in-memory volume with bounded operations.
 
@@ -57,3 +63,7 @@ If the experiment proceeds, define an explicitly bounded preview profile. A succ
 [^issue]: Issue #11 owns the research milestone and discussion.
 
 [^nfs-preview]: The package README defines the experimental scope, manual mount command, and remaining privileged Linux gate.
+
+[^linux-gate]: Issue #39 retains the completed macOS gate summary and owns the missing repeatable Linux-client evidence.
+
+[^nfs-tests]: The NFS protocol suite checks negotiation, callback credentials, filehandle operations, directory behavior, replay, and read-only opens.

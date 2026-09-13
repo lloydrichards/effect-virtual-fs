@@ -1,0 +1,21 @@
+{
+  "name": "@repo/nfs-preview",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "start": "bun run src/main.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect-vfs/core": "workspace:*",
+    "@effect-vfs/nfs": "workspace:*",
+    "@effect/platform-bun": "4.0.0-rc.114",
+    "effect": "4.0.0-rc.114"
+  },
+  "devDependencies": {
+    "@repo/config-typescript": "workspace:*",
+    "@types/bun": "^1.2.17"
+  }
+}

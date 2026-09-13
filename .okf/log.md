@@ -2,6 +2,10 @@
 
 ## 2026-09-13
 
+- **NFS review corrections**: Grounded the macOS interoperability summary in issue #39 and the protocol claims in focused tests; removed the unsupported packet-trace claim.
+
+- **Standalone NFS preview app**: Moved the runnable fixture out of the library package into a private workspace app with macOS mount, verification, troubleshooting, and cleanup instructions.
+
 - **NFS configuration defaults**: Added frozen finite resource presets and optional server and limit overrides while retaining a complete validated runtime policy.
 
 - **NFS schema-owned configuration**: Replaced the public interface-only limit model with Effect schemas, explicit `ByteSize` budgets, and a one-way public-to-internal normalization boundary.
