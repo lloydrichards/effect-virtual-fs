@@ -5,7 +5,7 @@ import { Chat, LanguageModel, Tool, Toolkit } from "effect/unstable/ai"
 import { FetchHttpClient } from "effect/unstable/http"
 
 const encoder = new TextEncoder()
-const decoder = new TextDecoder()
+const decoder = new TextDecoder("utf-8", { fatal: true })
 
 export type AgentRole = "planner" | "author" | "reviewer"
 
@@ -73,8 +73,12 @@ export const makeWorkspaceToolkit = Effect.fn("Agent.makeWorkspaceToolkit")(func
     read_file: Effect.fn("WorkspaceTools.readFile")(function*({ path }) {
       const relativePath = yield* projectPath(path)
       const bytes = yield* caller.readFile(relativePath).pipe(Effect.mapError(fsFailure))
+      const content = yield* Effect.try({
+        try: () => decoder.decode(bytes),
+        catch: () => `Invalid UTF-8 file: ${relativePath}`
+      })
       yield* observed("read", relativePath)
-      return decoder.decode(bytes)
+      return content
     }),
     write_file: Effect.fn("WorkspaceTools.writeFile")(function*({ content, path }) {
       const relativePath = yield* projectPath(path)
