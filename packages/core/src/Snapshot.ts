@@ -10,12 +10,6 @@
 import * as Data from "effect/Data"
 import * as Schema from "effect/Schema"
 
-const Natural = Schema.Finite.check(
-  Schema.isInt(),
-  Schema.isGreaterThanOrEqualTo(0),
-  Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
-)
-
 /**
  * Type identifier for opaque filesystem snapshots.
  *
@@ -65,9 +59,9 @@ export const DecodeLimits = Schema.Struct({
   /** Maximum accepted encoded input length in bytes. */
   maxEncodedBytes: Schema.ByteSize,
   /** Maximum number of stored metadata and content records. */
-  maxRecords: Natural,
+  maxRecords: Schema.Natural,
   /** Maximum number of namespace entries. */
-  maxEntries: Natural,
+  maxEntries: Schema.Natural,
   /** Maximum combined decoded byte content. */
   maxDecodedBytes: Schema.ByteSize
 })

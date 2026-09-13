@@ -11,12 +11,6 @@ import * as Schema from "effect/Schema"
 import { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "../Snapshot.js"
 import * as CanonicalBase64 from "./canonicalBase64.js"
 
-const natural = Schema.Finite.check(
-  Schema.isInt(),
-  Schema.isGreaterThanOrEqualTo(0),
-  Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
-)
-
 class SnapshotImpl implements Snapshot {
   readonly [SnapshotTypeId]: SnapshotTypeId = SnapshotTypeId
 }
@@ -24,9 +18,9 @@ class SnapshotImpl implements Snapshot {
 const integer = Schema.String.check(Schema.isPattern(/^(?:0|-?[1-9][0-9]{0,127})(?![\s\S])/))
 /** @internal */
 export const StoredMetadata = Schema.Struct({
-  uid: natural,
-  gid: natural,
-  mode: natural.check(Schema.isLessThanOrEqualTo(0o7777)),
+  uid: Schema.Natural,
+  gid: Schema.Natural,
+  mode: Schema.Natural.check(Schema.isLessThanOrEqualTo(0o7777)),
   atimeNs: integer,
   mtimeNs: integer,
   ctimeNs: integer,
