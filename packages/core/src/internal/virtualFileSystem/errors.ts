@@ -1,14 +1,9 @@
-/** Virtual filesystem failure schemas and identities shared by the runtime implementation. @internal */
+// Virtual filesystem failure schemas and identities shared by the runtime implementation.
 import * as Data from "effect/Data"
 import * as Schema from "effect/Schema"
 import type { PathInput } from "../../VirtualFileSystem.js"
 
-/**
- * Schema for portable virtual filesystem error codes.
- *
- * @category schemas
- * @since 0.1.0
- */
+/** @internal */
 export const FsCode = Schema.Literals([
   "NotFound",
   "AlreadyExists",
@@ -31,34 +26,18 @@ export const FsCode = Schema.Literals([
   "SymlinkLoop",
   "UnrepresentableName"
 ])
-/**
- * A portable virtual filesystem error code.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type FsCode = typeof FsCode.Type
-/**
- * Describes an expected filesystem operation failure.
- *
- * @category errors
- * @since 0.1.0
- */
+
+/** @internal */
 export class FsError extends Data.TaggedError("FsError")<{
-  /** Machine-readable reason for the failure. */
   readonly code: FsCode
-  /** Operation that detected the failure. */
   readonly operation: string
-  /** Path involved in the failure, when one path identifies it. */
   readonly path?: PathInput
 }> {}
-/**
- * Describes an invalid volume or caller option and names the rejected field.
- *
- * @category errors
- * @since 0.1.0
- */
+
+/** @internal */
 export class ConfigurationError extends Data.TaggedError("ConfigurationError")<{
-  /** Name of the rejected option. */
   readonly field: string
 }> {}

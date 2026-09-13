@@ -10,6 +10,13 @@ import * as Internal from "./internal/bytePath.js"
  * @since 0.1.0
  */
 export const BytePathId: "@effect-vfs/core/BytePath" = Internal.BytePathId
+
+/**
+ * Type identifier for opaque byte-preserving filesystem paths.
+ *
+ * @category type ids
+ * @since 0.1.0
+ */
 export type BytePathId = typeof BytePathId
 
 /**

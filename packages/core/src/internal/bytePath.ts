@@ -1,4 +1,4 @@
-/** Opaque byte path representation and value protocols. @internal */
+// Opaque byte path representation and value protocols.
 import * as Equal from "effect/Equal"
 import * as Hash from "effect/Hash"
 import { pipeArguments } from "effect/Pipeable"
@@ -37,13 +37,16 @@ const BytePathProto: BytePath = {
   }
 }
 
+/** @internal */
 export const isBytePath = (value: unknown): value is BytePath =>
   typeof value === "object" && value !== null && bytePaths.has(value as BytePath)
 
+/** @internal */
 export const make = (bytes: Uint8Array): BytePath => {
   const path = Object.create(BytePathProto) as BytePath
   bytePaths.set(path, bytes)
   return Object.freeze(path)
 }
 
+/** @internal */
 export const getBytes = (path: BytePath): Uint8Array | undefined => bytePaths.get(path)

@@ -1,4 +1,4 @@
-/** Byte-preserving path validation and conversion. @internal */
+// Byte-preserving path validation and conversion.
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
@@ -10,21 +10,29 @@ import type { PathInput } from "../../VirtualFileSystem.js"
 import { getBytes as getBytePathBytes, make as makeBytePath } from "../bytePath.js"
 import { ConfigurationError, type FsCode, FsError } from "./errors.js"
 
+/** @internal */
 export const failure = (code: FsCode, operation: string, path?: PathInput) =>
   new FsError({ code, operation, ...(path === undefined ? {} : { path }) })
 
+/** @internal */
 export const ownedPath = (bytes: Uint8Array): BytePath => {
   return makeBytePath(bytes)
 }
+
+/** @internal */
 export const strictString = (bytes: Uint8Array, operation: string) =>
   Effect.try({
     try: () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
     catch: () => failure("UnrepresentableName", operation)
   })
+
+/** @internal */
 export const nameBytes = (name: string): Uint8Array => {
   return Result.getOrThrow(Encoding.decodeHex(name))
 }
 // A zero-length view distinguishes a detached buffer from a valid empty buffer.
+
+/** @internal */
 export const attachedBuffer = (bytes: Uint8Array): boolean => {
   try {
     new Uint8Array(bytes.buffer, bytes.byteOffset, 0)
@@ -35,16 +43,7 @@ export const attachedBuffer = (bytes: Uint8Array): boolean => {
   }
 }
 
-/**
- * Creates an opaque byte path by copying the input when the Effect executes.
- *
- * **Gotchas**
- *
- * Shared-memory-backed and detached views fail with `InvalidArgument`.
- *
- * @category constructors
- * @since 0.1.0
- */
+/** @internal */
 export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(function*(bytes: Uint8Array) {
   if (!(bytes instanceof Uint8Array) || !(bytes.buffer instanceof ArrayBuffer)) {
     return yield* failure("InvalidArgument", "pathFromBytes")
@@ -55,24 +54,21 @@ export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(functi
   return makeBytePath(owned)
 })
 
-/**
- * Copies the bytes held by an opaque byte path.
- *
- * @category getters
- * @since 0.1.0
- */
+/** @internal */
 export const pathToBytes = Effect.fn("VirtualFileSystem.pathToBytes")(function*(path: BytePath) {
   const bytes = getBytePathBytes(path)
   if (bytes === undefined) return yield* failure("InvalidArgument", "pathToBytes")
   return new Uint8Array(bytes)
 })
 
+/** @internal */
 export interface LookupOptions {
   readonly followFinalSymlink?: boolean
   readonly allowMissing?: boolean
   readonly parentOnly?: boolean
 }
 
+/** @internal */
 export interface PreparedPath {
   readonly input: PathInput
   readonly absolute: boolean
@@ -82,6 +78,7 @@ export interface PreparedPath {
   readonly components: ReadonlyArray<string>
 }
 
+/** @internal */
 export const wellFormed = (value: string): boolean => {
   for (let index = 0; index < value.length; index++) {
     const code = value.charCodeAt(index)
@@ -93,6 +90,7 @@ export const wellFormed = (value: string): boolean => {
   return true
 }
 
+/** @internal */
 export const preparePath = (
   input: PathInput,
   operation: string,
@@ -139,6 +137,8 @@ const configurationField = (issue: SchemaIssue.Issue): string => {
   if (issue._tag === "Composite") return configurationField(issue.issues[0])
   return "options"
 }
+
+/** @internal */
 export const decodeConfiguration = <A>(schema: Schema.Codec<A>, value: unknown) =>
   Schema.decodeUnknownResult(schema, { onExcessProperty: "error" })(value).pipe(
     Result.mapError((error) => new ConfigurationError({ field: configurationField(error.issue) }))

@@ -1,8 +1,4 @@
-/**
- * Immutable regular-file payloads shared by overlay workspaces.
- *
- * @internal
- */
+// Immutable regular-file payloads shared by overlay workspaces.
 import type { Snapshot } from "../../Snapshot.js"
 import * as Image from "../image.js"
 
@@ -22,12 +18,8 @@ export const make = (bytes: Uint8Array): Content => ({ bytes })
 /** @internal */
 export const empty = (): Content => make(new Uint8Array(0))
 
-/**
- * Returns the immutable file payloads associated with the identity of a base
- * snapshot. The cache is weak so it cannot extend the snapshot's lifetime.
- *
- * @internal
- */
+// The weak cache shares immutable payloads without extending the snapshot's lifetime.
+/** @internal */
 export const forOverlay = (snapshot: Snapshot, image: Image.Document): ReadonlyMap<string, Content> => {
   const cached = overlayContents.get(snapshot)
   if (cached !== undefined) return cached

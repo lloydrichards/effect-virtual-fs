@@ -366,6 +366,21 @@ export interface Change {
 
 Added in v0.1.0
 
+### DirectoryEntry (interface)
+
+One owned directory name paired with the referenced child object.
+
+**Signature**
+
+```ts
+export interface DirectoryEntry {
+  readonly name: Uint8Array;
+  readonly reference: ObjectReference;
+}
+```
+
+Added in v0.1.0
+
 ### DirectoryHandle (interface)
 
 A scoped directory capability that can be used for metadata and relative lookup.
@@ -483,6 +498,35 @@ Controls the base directory and whether metadata operations follow the final sym
 export interface MetadataOptions extends RelativeOptions {
   /** Follow the final symbolic link. Defaults to `true`. */
   readonly followFinalSymlink?: boolean;
+}
+```
+
+Added in v0.1.0
+
+### ObjectObservation (interface)
+
+A value and the revision of the object from the same coordinated observation.
+
+**Signature**
+
+```ts
+export interface ObjectObservation<A> {
+  readonly value: A;
+  readonly revision: bigint;
+}
+```
+
+Added in v0.1.0
+
+### ObjectReference (interface)
+
+An opaque identity for one object in one live volume.
+
+**Signature**
+
+```ts
+export interface ObjectReference {
+  readonly [ObjectReferenceId]: true;
 }
 ```
 
@@ -1120,6 +1164,29 @@ export declare const SeekMode: Schema.Literals<
 
 Added in v0.1.0
 
+### SnapshotDeltaFromBytes
+
+Creates an Effect Schema codec between owned bytes and opaque snapshot deltas.
+Omission uses `SnapshotDeltaLimits.default`.
+
+**Signature**
+
+```ts
+export declare const SnapshotDeltaFromBytes: (
+  limits?: SnapshotDeltaModel.SnapshotDeltaLimits,
+) => Schema.decodeTo<
+  Schema.declare<
+    SnapshotDeltaModel.SnapshotDelta,
+    SnapshotDeltaModel.SnapshotDelta
+  >,
+  Schema.Uint8Array,
+  never,
+  never
+>;
+```
+
+Added in v0.1.0
+
 ### TimeUpdate
 
 Schema for setting a timestamp to the clock, retaining it, or supplying nanoseconds.
@@ -1506,67 +1573,6 @@ export declare const diffSnapshots: (
 
 Added in v0.1.0
 
-## utils
-
-### DirectoryEntry (interface)
-
-One owned directory name paired with the referenced child object.
-
-**Signature**
-
-```ts
-export interface DirectoryEntry {
-  readonly name: Uint8Array;
-  readonly reference: ObjectReference;
-}
-```
-
-### ObjectObservation (interface)
-
-A value and the revision of the object from the same coordinated observation.
-
-**Signature**
-
-```ts
-export interface ObjectObservation<A> {
-  readonly value: A;
-  readonly revision: bigint;
-}
-```
-
-### ObjectReference (interface)
-
-An opaque identity for one object in one live volume.
-
-**Signature**
-
-```ts
-export interface ObjectReference {
-  readonly [ObjectReferenceId]: true;
-}
-```
-
-### SnapshotDeltaFromBytes
-
-Creates an Effect Schema codec between owned bytes and opaque snapshot deltas.
-Omission uses `SnapshotDeltaLimits.default`.
-
-**Signature**
-
-```ts
-export declare const SnapshotDeltaFromBytes: (
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits,
-) => Schema.decodeTo<
-  Schema.declare<
-    SnapshotDeltaModel.SnapshotDelta,
-    SnapshotDeltaModel.SnapshotDelta
-  >,
-  Schema.Uint8Array,
-  never,
-  never
->;
-```
-
 ### inspectSnapshotDelta
 
 Verifies an exact snapshot delta against its base and derives an owned path-oriented summary.
@@ -1851,3 +1857,5 @@ export declare const inspectSnapshotDelta: (
       : never
 >;
 ```
+
+Added in v0.1.0

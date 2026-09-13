@@ -9,25 +9,62 @@ import * as Schema from "effect/Schema"
 import { BytePath } from "./BytePath.js"
 import * as Internal from "./internal/snapshotDeltaModel.js"
 
-/** Type identifier for opaque snapshot deltas. */
+/**
+ * Type identifier for opaque snapshot deltas.
+ *
+ * @category type ids
+ * @since 0.1.0
+ */
 export const SnapshotDeltaTypeId: "@effect-vfs/core/SnapshotDelta" = Internal.SnapshotDeltaTypeId
-/** Type identifier for opaque snapshot deltas. */
+
+/**
+ * Type identifier for opaque snapshot deltas.
+ *
+ * @category type ids
+ * @since 0.1.0
+ */
 export type SnapshotDeltaTypeId = typeof SnapshotDeltaTypeId
 
-/** An immutable, opaque description of the exact difference between two snapshots. */
+/**
+ * An immutable, opaque description of the exact difference between two snapshots.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface SnapshotDelta {
   readonly [SnapshotDeltaTypeId]: SnapshotDeltaTypeId
 }
 
-/** Schema for an already validated opaque snapshot delta. */
+/**
+ * Schema for an already validated opaque snapshot delta.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const SnapshotDelta = Schema.declare<SnapshotDelta>(Internal.isSnapshotDelta)
 
-/** Schema for filesystem entry kinds reported by snapshot inspection. */
+/**
+ * Schema for filesystem entry kinds reported by snapshot inspection.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const SnapshotNodeKind = Schema.Literals(["directory", "file", "symlink"])
-/** A filesystem entry kind reported by snapshot inspection. */
+
+/**
+ * A filesystem entry kind reported by snapshot inspection.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type SnapshotNodeKind = typeof SnapshotNodeKind.Type
 
-/** Schema for semantic fields that can differ between snapshots. */
+/**
+ * Schema for semantic fields that can differ between snapshots.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const SnapshotDifference = Schema.Literals([
   "kind",
   "content",
@@ -41,7 +78,13 @@ export const SnapshotDifference = Schema.Literals([
   "ctimeNs",
   "birthtimeNs"
 ])
-/** A semantic field that differs between two snapshots. */
+
+/**
+ * A semantic field that differs between two snapshots.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type SnapshotDifference = typeof SnapshotDifference.Type
 
 const SnapshotDifferences = Schema.Array(SnapshotDifference).check(Schema.isMinLength(1))
@@ -51,6 +94,9 @@ const SnapshotDifferences = Schema.Array(SnapshotDifference).check(Schema.isMinL
  *
  * Independent snapshots do not preserve shared lineage, so moves are reported
  * as a removal and an addition rather than an inferred rename.
+ *
+ * @category schemas
+ * @since 0.1.0
  */
 export const SnapshotChange = Schema.Union([
   Schema.TaggedStruct("Added", { path: BytePath, kind: SnapshotNodeKind }),
@@ -62,18 +108,40 @@ export const SnapshotChange = Schema.Union([
     differences: SnapshotDifferences
   })
 ])
-/** A path-oriented semantic difference between two snapshots. */
+
+/**
+ * A path-oriented semantic difference between two snapshots.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type SnapshotChange = typeof SnapshotChange.Type
 
-/** Schema for snapshot-delta inspection options. */
+/**
+ * Schema for snapshot-delta inspection options.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const SnapshotChangesOptions = Schema.Struct({
   /** Include access, modification, change, and birth-time differences. Defaults to `false`. */
   includeTimestamps: Schema.optionalKey(Schema.Boolean)
 })
-/** Filtering options for snapshot-delta inspection. */
+
+/**
+ * Filtering options for snapshot-delta inspection.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type
 
-/** A valid snapshot delta was inspected or applied against a valid but semantically different base. */
+/**
+ * A valid snapshot delta was inspected or applied against a valid but semantically different base.
+ *
+ * @category errors
+ * @since 0.1.0
+ */
 export class SnapshotDeltaError extends Data.TaggedError("SnapshotDeltaError")<{
   readonly code: "BaseMismatch"
 }> {}
@@ -90,7 +158,13 @@ const SnapshotDeltaLimitsSchema = Schema.Struct({
   maxOutputBytes: Schema.ByteSize,
   maxInheritedRecords: Schema.Natural
 })
-/** Resource limits shared by delta creation, inspection, encoding, decoding, and application. */
+
+/**
+ * Resource limits shared by delta creation, inspection, encoding, decoding, and application.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type SnapshotDeltaLimits = typeof SnapshotDeltaLimitsSchema.Type
 
 /** Constructs and freezes a complete snapshot-delta resource policy. @internal */
@@ -127,6 +201,9 @@ const defaultLimits = makeSnapshotDeltaLimits({
  *
  * The constrained preset is intended for memory-sensitive environments. The
  * default preset permits larger snapshots and payloads while remaining finite.
+ *
+ * @category schemas
+ * @since 0.1.0
  */
 export const SnapshotDeltaLimits = Object.assign(SnapshotDeltaLimitsSchema, {
   constrained,

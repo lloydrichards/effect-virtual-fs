@@ -37,7 +37,11 @@ const transformContent = (content: string): string => {
 
 const keepPublishedExports = (moduleName: string, content: string): string => {
   if (moduleName === "BytePath") return content.replace(/^# utils[\s\S]*$/m, "")
-  if (moduleName === "SnapshotDelta") return content.replace(/^## makeSnapshotDeltaLimits[\s\S]*$/m, "")
+  if (moduleName === "SnapshotDelta") {
+    return content
+      .replace(/^## makeSnapshotDeltaLimits[\s\S]*$/m, "")
+      .replace(/\n# utils\s*$/, "")
+  }
   return content
 }
 

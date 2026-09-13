@@ -1,4 +1,4 @@
-/** Runtime definitions and cohesive live virtual filesystem engine. @internal */
+// Runtime definitions and cohesive live virtual filesystem engine.
 import * as ByteSize from "effect/ByteSize"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
@@ -23,7 +23,7 @@ import type {
 } from "../VirtualFileSystem.js"
 import { getBytes as getBytePathBytes } from "./bytePath.js"
 import * as Image from "./image.js"
-import { ConfigurationError, type FsCode, FsCode as FsCodeSchema, FsError } from "./virtualFileSystem/errors.js"
+import { ConfigurationError, FsCode as FsCodeSchema, FsError } from "./virtualFileSystem/errors.js"
 import * as Content from "./virtualFileSystem/overlayContent.js"
 import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./virtualFileSystem/overlayDiff.js"
 import {
@@ -41,68 +41,51 @@ import {
 import * as TestHooks from "./virtualFileSystem/testHooks.js"
 import * as WatchHub from "./virtualFileSystem/watchHub.js"
 
+/** @internal */
 export const VolumeId = Symbol("@effect-vfs/core/Volume")
+
+/** @internal */
 export const CallerId = Symbol("@effect-vfs/core/Caller")
+
+/** @internal */
 export const FileHandleId = Symbol("@effect-vfs/core/FileHandle")
+
+/** @internal */
 export const DirectoryHandleId = Symbol("@effect-vfs/core/DirectoryHandle")
+
+/** @internal */
 export const ObjectReferenceId = Symbol("@effect-vfs/core/ObjectReference")
+
+/** @internal */
 export { ConfigurationError, FsCodeSchema as FsCode, FsError }
 
+/** @internal */
 export const Mode = Schema.Natural.check(Schema.isLessThanOrEqualTo(0o7777))
-/**
- * Schema for a caller's numeric identity, supplementary groups, and explicit privilege.
- *
- * @category schemas
- * @since 0.1.0
- */
+
+/** @internal */
 export const Identity = Schema.Struct({
-  /** Numeric user identifier used by ownership and permission checks. */
   uid: Schema.Natural,
-  /** Primary numeric group identifier. */
   gid: Schema.Natural,
-  /** Supplementary group identifiers used by group permission checks. */
   groups: Schema.Array(Schema.Natural),
-  /** Grants root-style permission bypasses independently of `uid`. */
   privileged: Schema.Boolean
 })
-/**
- * A caller identity used for permission checks.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type Identity = typeof Identity.Type
-/**
- * Schema for root caller credentials and creation mask.
- *
- * @category schemas
- * @since 0.1.0
- */
+
+/** @internal */
 export const RootCallerOptions = Schema.Struct({
-  /** Caller identity. Defaults to privileged uid and gid `0`. */
   identity: Schema.optionalKey(Identity),
-  /** Creation mask applied to requested modes. Defaults to `0o022`. */
   umask: Schema.optionalKey(Schema.Natural.check(Schema.isLessThanOrEqualTo(0o777)))
 })
-/**
- * Options for creating a root caller on a volume.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type RootCallerOptions = typeof RootCallerOptions.Type
-/**
- * Schema for optional volume capacity and path limits.
- *
- * @category schemas
- * @since 0.1.0
- */
+
+/** @internal */
 export const VolumeOptions = Schema.Struct({
-  /** Maximum number of filesystem nodes. Omission leaves the count unbounded. */
   maxEntries: Schema.optionalKey(Schema.Natural),
-  /** Maximum combined regular-file content in bytes. */
   maxBytes: Schema.optionalKey(Schema.ByteSize),
-  /** Maximum content size of one regular file in bytes. */
   maxFileBytes: Schema.optionalKey(
     Schema.ByteSize.check(
       Schema.makeFilter((size) =>
@@ -110,7 +93,6 @@ export const VolumeOptions = Schema.Struct({
       )
     )
   ),
-  /** Maximum encoded byte length of an absolute or relative path. */
   maxPathBytes: Schema.optionalKey(
     Schema.ByteSize.check(
       Schema.makeFilter((size) =>
@@ -119,25 +101,20 @@ export const VolumeOptions = Schema.Struct({
     )
   )
 })
-/**
- * Capacity and path limits for a volume.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type VolumeOptions = typeof VolumeOptions.Type
+
 // Match snapshot v1's canonical signed decimal timestamp domain.
 const timestampLimit = 10n ** 128n - 1n
+
+/** @internal */
 export const Timestamp = Schema.BigInt.check(
   Schema.isGreaterThanOrEqualToBigInt(-timestampLimit),
   Schema.isLessThanOrEqualToBigInt(timestampLimit)
 )
-/**
- * Schema for filesystem node metadata with bigint inode, size, and nanosecond fields.
- *
- * @category schemas
- * @since 0.1.0
- */
+
+/** @internal */
 export const Metadata = Schema.Struct({
   kind: Schema.Literals(["directory", "file", "symlink"]),
   ino: Schema.BigInt,
@@ -151,133 +128,68 @@ export const Metadata = Schema.Struct({
   ctimeNs: Timestamp,
   birthtimeNs: Timestamp
 })
-/**
- * Metadata for a directory, regular file, or symbolic link.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type Metadata = typeof Metadata.Type
 
-/**
- * Schema for an owner update. Omitted fields retain their existing values.
- *
- * @category schemas
- * @since 0.1.0
- */
+/** @internal */
 export const OwnerUpdate = Schema.Struct({
   uid: Schema.optionalKey(Schema.Natural),
   gid: Schema.optionalKey(Schema.Natural)
 })
-/**
- * An owner update for `chown` operations.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type OwnerUpdate = typeof OwnerUpdate.Type
-/**
- * Schema for setting a timestamp to the clock, retaining it, or supplying nanoseconds.
- *
- * @category schemas
- * @since 0.1.0
- */
+
+/** @internal */
 export const TimeUpdate = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("now") }),
   Schema.Struct({ kind: Schema.Literal("omit") }),
   Schema.Struct({ kind: Schema.Literal("value"), nanoseconds: Timestamp })
 ])
-/**
- * Schema for independent access and modification time updates.
- *
- * @category schemas
- * @since 0.1.0
- */
+
+/** @internal */
 export const Times = Schema.Struct({ access: TimeUpdate, modification: TimeUpdate })
-/**
- * Access and modification time updates for `utimes` operations.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type Times = typeof Times.Type
 
-/**
- * Schema for file seek origins, including dense-file data and hole queries.
- *
- * @category schemas
- * @since 0.1.0
- */
+/** @internal */
 export const SeekMode = Schema.Literals(["start", "current", "end", "data", "hole"])
-/**
- * The origin used by a file handle seek operation.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type SeekMode = typeof SeekMode.Type
-/**
- * Schema for file access, creation, append, truncate, and symlink behavior.
- *
- * @category schemas
- * @since 0.1.0
- */
+
+/** @internal */
 export const OpenSettings = Schema.Struct({
-  /** Permitted operations on the returned handle. */
   access: Schema.Literals(["read", "write", "readWrite"]),
-  /** Creation policy. Defaults to `"never"`. */
   create: Schema.optionalKey(Schema.Literals(["never", "ifMissing", "exclusive"])),
-  /** Requested mode for a new file, before applying the caller's umask. */
   mode: Schema.optionalKey(Mode),
-  /** Write at the current end of file regardless of the handle cursor. */
   append: Schema.optionalKey(Schema.Boolean),
-  /** Truncate an existing regular file to zero bytes during open. */
   truncate: Schema.optionalKey(Schema.Boolean),
-  /** Follow the final symbolic link. Defaults to `true`. */
   followFinalSymlink: Schema.optionalKey(Schema.Boolean)
 })
-/**
- * Options for acquiring a scoped file handle.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
+
+/** @internal */
 export const WriteFileSettings = Schema.Struct({
   ...OpenSettings.fields,
-  /** Replace the final symbolic link itself instead of its target. */
   replaceFinalSymlink: Schema.optionalKey(Schema.Boolean),
-  /** Mode to apply after replacing an existing file. */
   finalMode: Schema.optionalKey(Mode)
 })
-/**
- * Options for an atomic whole-file write, including replacement and final mode controls.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type WriteFileOptions = typeof WriteFileSettings.Type & RelativeOptions
 
-/**
- * Schema for the filesystem entry kinds reported by overlay summaries.
- *
- * @category schemas
- * @since 0.1.0
- */
+/** @internal */
 export const OverlayNodeKind = Schema.Literals(["directory", "file", "symlink"])
-/**
- * A filesystem entry kind reported by an overlay summary.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type OverlayNodeKind = typeof OverlayNodeKind.Type
-/**
- * Schema for observable fields that can differ from an overlay's immutable base.
- *
- * @category schemas
- * @since 0.1.0
- */
+
+/** @internal */
 export const OverlayDifference = Schema.Literals([
   "content",
   "mode",
@@ -288,26 +200,13 @@ export const OverlayDifference = Schema.Literals([
   "ctimeNs",
   "birthtimeNs"
 ])
-/**
- * A content, ownership, permission, or timestamp field that differs from the overlay base.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type OverlayDifference = typeof OverlayDifference.Type
 const OverlayDifferences = Schema.Array(OverlayDifference)
 const NonEmptyOverlayDifferences = OverlayDifferences.check(Schema.isMinLength(1))
-/**
- * Schema for a final-state overlay difference.
- *
- * **Details**
- *
- * Paths retain arbitrary non-NUL bytes. Renames are reported only when retained
- * base identity makes the removed and added names unambiguous.
- *
- * @category schemas
- * @since 0.1.0
- */
+
+/** @internal */
 export const OverlayChange = Schema.Union([
   Schema.TaggedStruct("Added", { path: BytePath, kind: OverlayNodeKind }),
   Schema.TaggedStruct("Removed", { path: BytePath, kind: OverlayNodeKind }),
@@ -325,41 +224,24 @@ export const OverlayChange = Schema.Union([
   }),
   Schema.TaggedStruct("Updated", { path: BytePath, kind: OverlayNodeKind, differences: NonEmptyOverlayDifferences })
 ])
-/**
- * A path-oriented final-state difference from an overlay's immutable base.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type OverlayChange = typeof OverlayChange.Type
-/**
- * Schema for overlay summary filtering.
- *
- * @category schemas
- * @since 0.1.0
- */
+
+/** @internal */
 export const OverlayChangesOptions = Schema.Struct({
-  /** Include access, modification, change, and birth-time differences. Defaults to `false`. */
   includeTimestamps: Schema.optionalKey(Schema.Boolean)
 })
-/**
- * Filtering options for an overlay final-difference summary.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
 
-/**
- * Optional Effect service for providing an existing filesystem caller.
- *
- * @category services
- * @since 0.1.0
- */
+/** @internal */
 export class CurrentFileSystem
   extends Context.Service<CurrentFileSystem, Caller>()("@effect-vfs/core/CurrentFileSystem")
 {}
 
+/** @internal */
 export const FixtureMetadata = Schema.Struct({
   uid: Schema.optionalKey(Schema.Natural),
   gid: Schema.optionalKey(Schema.Natural),
@@ -373,16 +255,8 @@ const FixturePath = Schema.Union([
   Schema.String,
   BytePath
 ])
-/**
- * Schema for a complete fixture namespace with optional metadata and forward hard links.
- *
- * **Details**
- *
- * Fixture paths must be absolute, unique, and explicitly include their parent directories.
- *
- * @category schemas
- * @since 0.1.0
- */
+
+/** @internal */
 export const Fixture = Schema.Struct({
   rootMetadata: Schema.optionalKey(FixtureMetadata),
   entries: Schema.Array(Schema.Union([
@@ -406,12 +280,8 @@ export const Fixture = Schema.Struct({
     Schema.Struct({ kind: Schema.Literal("hardLink"), path: FixturePath, target: FixturePath })
   ]))
 })
-/**
- * A complete filesystem fixture accepted by `fromFixture`.
- *
- * @category models
- * @since 0.1.0
- */
+
+/** @internal */
 export type Fixture = typeof Fixture.Type
 
 interface Directory {
@@ -495,7 +365,9 @@ type VolumeSource =
     readonly image: Image.Document
   }
 
-/** Each execution constructs a fresh volume and captures its Clock. */
+// Each execution constructs a fresh volume and captures its Clock.
+
+/** @internal */
 export const makeVolume = Effect.fnUntraced(
   function*(source: VolumeSource, options?: VolumeOptions) {
     const image = source._tag === "Empty" ? undefined : source.image
@@ -1974,28 +1846,14 @@ export const makeVolume = Effect.fnUntraced(
   }
 )
 
-/**
- * Creates a fresh empty volume and captures the current Effect `Clock`.
- *
- * **Details**
- *
- * Each execution creates independent storage. Snapshot image failures cannot
- * arise because this constructor does not accept persisted input.
- *
- * @category constructors
- * @since 0.1.0
- */
+/** @internal */
 export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: VolumeOptions) {
   const result = yield* makeVolume({ _tag: "Empty" }, options).pipe(Effect.catchTag("ImageError", Effect.die))
   if (result._tag === "Overlay") return yield* Effect.die(new Error("empty volume constructed as overlay"))
   return result.volume
 })
-/**
- * Restores a fresh volume from an opaque snapshot under the supplied destination limits.
- *
- * @category constructors
- * @since 0.1.0
- */
+
+/** @internal */
 export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
   function*(snapshot: Snapshot, options?: VolumeOptions) {
     const image = yield* Image.inspect(snapshot)
@@ -2005,22 +1863,7 @@ export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
   }
 )
 
-/**
- * Creates an isolated writable volume relative to one immutable snapshot base.
- *
- * **Details**
- *
- * Workspaces made from the same snapshot share unchanged regular-file payloads.
- * The first content mutation copies the whole file into workspace-private
- * storage. Metadata, namespace state, coordination, handles, and watches are
- * always private to the new workspace.
- *
- * Invalid base snapshots fail with `ImageError`; invalid volume limits fail
- * with `ConfigurationError`. Each execution creates a fresh workspace.
- *
- * @category constructors
- * @since 0.1.0
- */
+/** @internal */
 export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
   function*(base: Snapshot, options?: VolumeOptions): Effect.fn.Return<OverlayVolume, ConfigurationError | ImageError> {
     const image = yield* Image.inspect(base)
