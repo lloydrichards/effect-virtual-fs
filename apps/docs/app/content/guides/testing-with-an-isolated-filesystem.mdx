@@ -1,16 +1,26 @@
 # Test with an isolated filesystem
 
-Provide `MemoryFileSystem.layer` to code under test when each test should use disposable filesystem state without
+Use `@effect/vitest` with `MemoryFileSystem.layer` when each test should receive disposable filesystem state without
 reading or writing the host disk.
 
-## Keep the program independent of storage
+## Install the test dependencies
+
+Install the core volume, memory adapter, and their exact Effect peer, then add the matching Effect test integration and
+Vitest 5:
+
+```sh
+npm install @effect-vfs/core @effect-vfs/memory effect@4.0.0-rc.114
+npm install --save-dev @effect/vitest@4.0.0-rc.114 vitest@^5.0.0
+```
+
+## Keep production code independent of storage
 
 Write production code against Effect's `FileSystem.FileSystem` service:
 
 ```ts
 import { Effect, FileSystem } from "effect"
 
-const writeManifest = (version: string) =>
+export const writeManifest = (version: string) =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
 
@@ -24,49 +34,104 @@ const writeManifest = (version: string) =>
   })
 ```
 
-The program does not know whether its files are stored in memory or on the host.
+The program requests a filesystem but does not choose its implementation. Production can provide a host filesystem;
+tests can provide a new in-memory volume.
 
-## Provide fresh state for each test
+## Provide fresh state to each test
 
-Run each test program with the memory layer:
+Import the test API from `@effect/vitest` and return an Effect from `it.effect`:
 
 ```ts
 import { MemoryFileSystem } from "@effect-vfs/memory"
-import { Effect } from "effect"
+import { assert, describe, it } from "@effect/vitest"
+import { Effect, FileSystem } from "effect"
+import { writeManifest } from "./writeManifest.js"
 
-const first = await Effect.runPromise(
-  writeManifest("first").pipe(Effect.provide(MemoryFileSystem.layer))
-)
+describe("writeManifest", () => {
+  it.effect("should write the requested version when the filesystem is empty", () =>
+    Effect.gen(function*() {
+      const result = yield* writeManifest("1.2.3")
 
-const second = await Effect.runPromise(
-  writeManifest("second").pipe(Effect.provide(MemoryFileSystem.layer))
-)
+      assert.deepStrictEqual(JSON.parse(result), { version: "1.2.3" })
+    }).pipe(Effect.provide(MemoryFileSystem.layer)))
 
-console.log({ first, second })
+  it.effect("should start without files from another test when a fresh layer is provided", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+
+      assert.isFalse(yield* fs.exists("/dist/manifest.json"))
+    }).pipe(Effect.provide(MemoryFileSystem.layer)))
+})
 ```
 
-Each top-level execution materializes independent storage. One run cannot observe files created by the other.
+Each `it.effect` execution above materializes its own layer graph and volume. Files written by the first test are absent
+from the second.
 
-Your test runner can place the `Effect.runPromise` call inside its normal test function and assert on the returned
-value. Keep the assertion library outside the Effect program so the example remains portable between runners.
+Do not call `Effect.runPromise` or `Effect.runSync` inside an Effect test. `it.effect` runs the returned Effect, supplies
+Effect's test services, and keeps a scope open for the test.
 
-## Understand layer sharing
+## Seed a test layer from a volume
 
-Effect memoizes a layer within one layer graph. When several services in the same graph receive the same
-`MemoryFileSystem.layer`, they share one filesystem service and one volume.
-
-That sharing is useful when collaborators should see the same files. Wrap the layer with `Layer.fresh` when separate
-parts of one graph must materialize independent filesystems.
+Build a core volume with `VirtualFileSystem.fromFixture`, bind it to Effect's filesystem service, and provide the result
+to `it.effect`. This is useful when the code under test expects a project or another known directory structure to exist
+before the test begins:
 
 ```ts
-import { Layer } from "effect"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import { assert, it } from "@effect/vitest"
+import { Effect, FileSystem, Layer } from "effect"
 
-const isolatedFileSystem = Layer.fresh(MemoryFileSystem.layer)
+const encoder = new TextEncoder()
+
+const seededFileSystem = Layer.effect(
+  FileSystem.FileSystem,
+  Effect.gen(function*() {
+    const volume = yield* Vfs.fromFixture({
+      entries: [
+        { kind: "directory", path: "/project" },
+        {
+          kind: "file",
+          path: "/project/package.json",
+          bytes: encoder.encode(JSON.stringify({ name: "example", version: "1.2.3" }))
+        }
+      ]
+    })
+
+    return yield* MemoryFileSystem.bind(volume)
+  })
+)
+
+it.effect("should read the version when the project fixture contains a package file", () =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const manifest = JSON.parse(yield* fs.readFileString("/project/package.json"))
+
+    assert.strictEqual(manifest.version, "1.2.3")
+  }).pipe(Effect.provide(seededFileSystem)))
 ```
 
-Separate calls to `MemoryFileSystem.make` also create independent services directly. Use
-[`MemoryFileSystem.bind`](/api/memory/memory-file-system#bind) instead when multiple adapters should deliberately share
-an existing core volume.
+Providing `seededFileSystem` inside `it.effect` builds a new volume for that test. Other tests can reuse the same layer
+definition without sharing mutations.
+
+## Write behavior-focused tests
+
+Keep each test centered on one observable promise:
+
+- Name it `should <observable outcome> when <relevant condition>`.
+- Assert returned values, public errors, emitted events, or filesystem state rather than implementation details.
+- Keep several assertions together only when they prove the same behavior.
+- Use `assert` from `@effect/vitest` for ordinary equality and narrowing checks.
+- Use Effect test services such as `TestClock` for time-dependent behavior instead of real sleeps.
+- Use `Deferred`, `Queue`, or another deterministic signal for concurrent tests instead of polling.
+
+## Let the test scope release resources
+
+`it.effect` already provides a scope. Open files, temporary resources, derived streams, and watch subscriptions can use
+that scope directly. You do not need to add `Effect.scoped` around the test body.
+
+Explicit cleanup still belongs in the test when cleanup itself is the behavior being asserted. Otherwise, let the test
+scope release resources when the returned Effect completes.
 
 ## Keep host access outside the assumption
 
@@ -78,11 +143,6 @@ The memory adapter replaces Effect's `FileSystem` service. It cannot intercept c
 - another API that accesses the host filesystem independently.
 
 A test is isolated only when the code under test obtains filesystem access through the provided Effect service.
-
-## Handle scoped resources
-
-Open files, temporary resources, and watch subscriptions are scoped. Keep the owning `Effect.scoped` workflow alive
-while those resources are in use. Closing the scope releases its handles and subscriptions.
 
 For the adapter constructors and layer types, see the
 [`MemoryFileSystem` API reference](/api/memory/memory-file-system).
