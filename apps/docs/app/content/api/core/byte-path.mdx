@@ -11,8 +11,8 @@ An opaque path that preserves arbitrary non-NUL bytes without UTF-8 conversion.
 **Signature**
 
 ```ts
-export interface BytePath {
-  readonly [BytePathId]: true;
+export interface BytePath extends Equal.Equal, Pipeable {
+  readonly [BytePathId]: BytePathId;
 }
 ```
 
@@ -28,6 +28,20 @@ Schema for an opaque byte-preserving filesystem path.
 
 ```ts
 export declare const BytePath: Schema.declare<BytePath, BytePath>;
+```
+
+Added in v0.1.0
+
+## type ids
+
+### BytePathId
+
+Type identifier for opaque byte-preserving filesystem paths.
+
+**Signature**
+
+```ts
+export declare const BytePathId: "@effect-vfs/core/BytePath";
 ```
 
 Added in v0.1.0
