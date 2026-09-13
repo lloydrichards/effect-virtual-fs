@@ -195,9 +195,7 @@ export interface Caller {
     source: PathInput,
     destination: PathInput,
     options?: {
-      /** Base directory for a relative source path. */
       readonly sourceRelativeTo?: DirectoryHandle;
-      /** Base directory for a relative destination path. */
       readonly destinationRelativeTo?: DirectoryHandle;
     },
   ) => Effect.Effect<void, FsError>;
@@ -267,11 +265,8 @@ export interface Caller {
     source: PathInput,
     destination: PathInput,
     options?: {
-      /** Base directory for a relative source path. */
       readonly sourceRelativeTo?: DirectoryHandle;
-      /** Base directory for a relative destination path. */
       readonly destinationRelativeTo?: DirectoryHandle;
-      /** Link to the final symbolic link's target instead of the link itself. */
       readonly followSourceSymlink?: boolean;
     },
   ) => Effect.Effect<void, FsError>;
@@ -330,7 +325,6 @@ export interface Caller {
   readonly mkdir: (
     path: PathInput,
     options?: RelativeOptions & {
-      /** Requested mode before applying the caller's umask. Defaults to `0o777`. */
       readonly mode?: number;
     },
   ) => Effect.Effect<void, FsError>;
@@ -390,9 +384,7 @@ A scoped directory capability that can be used for metadata and relative lookup.
 ```ts
 export interface DirectoryHandle {
   readonly [DirectoryHandleId]: true;
-  /** Reads metadata for the directory while the handle remains open. */
   readonly stat: Effect.Effect<Metadata, FsError>;
-  /** Closes the handle. A repeated explicit close fails; scope cleanup remains safe. */
   readonly close: Effect.Effect<void, FsError>;
 }
 ```
@@ -1859,3 +1851,9 @@ export declare const inspectSnapshotDelta: (
 ```
 
 Added in v0.1.0
+
+## Related documentation
+
+- [Volumes, callers, and handles](/concepts/filesystem-model)
+- [Build and transport filesystem snapshots](/guides/fixtures-and-snapshots)
+- [Create an isolated overlay workspace](/guides/overlay-filesystems)
