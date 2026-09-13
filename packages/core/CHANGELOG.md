@@ -1,5 +1,19 @@
 # @effect-vfs/core
 
+## 0.3.0
+
+### Minor Changes
+
+- [`ca776e0`](https://github.com/lloydrichards/effect-virtual-fs/commit/ca776e0501a1ffe47989b05f64431eba97ca4d76) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Expose stable object references and coordinated mutation revisions for adapters that need path-independent identity and reliable cache invalidation.
+
+- [`3dd7516`](https://github.com/lloydrichards/effect-virtual-fs/commit/3dd75165544e93e2898b6a25c3735e29465865df) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `BytePath` values now support byte-wise Effect equality, hashing, and pipe composition.
+
+- [`111a8c4`](https://github.com/lloydrichards/effect-virtual-fs/commit/111a8c4035252c81eec392a534e8dcfc7b84dbe1) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Opaque snapshot and snapshot-delta values now use Effect-style string TypeIds.
+
+### Patch Changes
+
+- [`133cd1c`](https://github.com/lloydrichards/effect-virtual-fs/commit/133cd1ca6d99da5c8f4bdab391a34a5d32e9b5df) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Volume watch registration is now coordinated with mutations so committed events are not lost while a watcher starts.
+
 ## 0.2.0
 
 ### Minor Changes
