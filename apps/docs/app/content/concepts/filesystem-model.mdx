@@ -1,0 +1,110 @@
+# Volumes, callers, and handles
+
+Use `@effect-vfs/core` when your program needs to control filesystem state, authority, or resource lifetime directly.
+The core separates those concerns into three kinds of object:
+
+- a `Volume` owns shared filesystem state;
+- a `Caller` supplies identity and lookup context; and
+- a `FileHandle` or `DirectoryHandle` represents an open, scoped resource.
+
+This separation lets several callers or adapters share files without sharing credentials, working directories, or file
+cursors.
+
+## One volume owns the filesystem
+
+A `Volume` is one isolated, live filesystem. It owns the directory tree, file contents, metadata, capacity accounting,
+change stream, and snapshot state.
+
+Consumers that use the same volume observe the same successfully completed filesystem operations. Consumers that create
+separate volumes do not. Restoring a snapshot also creates a new volume rather than replacing the state of an existing
+one.
+
+Creating a volume does not grant access by itself. Call `volume.caller()` to create an object that can perform filesystem
+operations.
+
+## A caller supplies context and authority
+
+A `Caller` combines filesystem operations with the context needed to evaluate them:
+
+- a user ID, group ID, and supplementary groups;
+- an explicit `privileged` flag;
+- a creation mask, or umask; and
+- a current-directory identity.
+
+Each call to `volume.caller()` creates an independent root caller. It starts at `/` and does not require an Effect scope.
+Changing the options for one caller does not change another caller.
+
+Privilege is separate from the numeric user ID. A caller with user ID `0` is not privileged unless its identity says so.
+The default root caller is privileged for convenience, but that authority applies only to this virtual filesystem. It
+does not create a JavaScript security boundary or restrict access to host APIs.
+
+The caller's umask affects the mode of newly created entries. Permission checks use its identity, supplementary groups,
+and explicit privilege. See the [`VirtualFileSystem` API reference](/api/core/virtual-file-system) for the caller option
+schemas and operations.
+
+## Derived callers keep a directory identity
+
+Use `caller.withDirectory(path)` to create a caller whose relative paths start from a chosen directory. The derived
+caller keeps the directory's identity, not just the path string used to find it. If that directory moves within the same
+volume, the caller still refers to it.
+
+A derived caller is scoped. Keep its surrounding `Effect.scoped` workflow alive for as long as the caller is needed.
+Closing that scope releases the derived caller, but it does not release independently scoped handles created elsewhere.
+
+## Handles own cursor and lifetime
+
+`caller.open` returns a `FileHandle`. Each open handle has its own access mode, bigint cursor, and lifetime. Two handles
+for the same file can therefore read or seek independently. An open file can remain usable after a rename or unlink until
+its final handle closes.
+
+`caller.openDirectory` returns a `DirectoryHandle`. It provides metadata operations and can act as the base for relative
+path lookup. The handle must belong to the same volume as the caller using it.
+
+Both handle types are scoped. The surrounding scope closes them automatically. You may close a handle earlier through
+its `close` effect, but a second explicit close fails with `InvalidHandle`. Scope cleanup remains safe after an early
+close.
+
+## Scope resources where they are used
+
+This small program creates a scope-free root caller, then uses a scoped caller whose relative paths start in `/work`:
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const volume = yield* Vfs.make()
+  const root = yield* volume.caller()
+  yield* root.mkdir("/work")
+
+  const work = yield* root.withDirectory("/work")
+  yield* work.writeFile("result.txt", new TextEncoder().encode("done"))
+
+  return yield* root.readFile("/work/result.txt")
+}).pipe(Effect.scoped)
+```
+
+The ownership pattern is:
+
+1. Create a `Volume` for the shared filesystem state.
+2. Create one or more root callers for independent authority and lookup context.
+3. Use `Effect.scoped` around derived callers, open handles, and watch subscriptions.
+4. Keep a resource inside its owning scope unless another scope acquired it independently.
+
+The root caller and volume can outlive any individual handle. Closing one handle does not close other handles for the
+same file.
+
+## Choose core or the memory adapter
+
+Start with `@effect-vfs/memory` when application code already uses Effect's `FileSystem.FileSystem` service. The adapter
+provides ordinary string-path operations and translates expected core failures into `PlatformError` values.
+
+Use `@effect-vfs/core` directly when you need explicit callers, byte-preserving paths, permissions, quotas, fixtures,
+watches, snapshots, overlays, or scoped directory-relative operations.
+
+The two packages can share state. `MemoryFileSystem.bind(volume)` exposes an existing core volume through Effect's
+`FileSystem` service. The binding sees the same namespace and contents, but it creates its own caller, descriptor table,
+and file cursors.
+
+Read [Which package should I use?](/concepts/which-package) for the package-level decision or open the
+[`VirtualFileSystem` API reference](/api/core/virtual-file-system) for complete signatures.

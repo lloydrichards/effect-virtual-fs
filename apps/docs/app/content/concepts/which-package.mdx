@@ -41,6 +41,7 @@ You can create a core volume and expose the same state through `MemoryFileSystem
 filesystem code and lower-level core callers work with one shared namespace.
 
 Open the [`VirtualFileSystem` API reference](/api/core/virtual-file-system) for the complete core surface.
+Read [Volumes, callers, and handles](/concepts/filesystem-model) for the ownership, authority, and scope model.
 
 ## Add persistence for named checkpoints
 
@@ -55,6 +56,7 @@ It is checkpoint storage, not a live disk. It does not automatically save mutati
 replacement, deletion, history, or crash recovery.
 
 Open the [`CheckpointStore` API reference](/api/persistence/checkpoint-store) for its public service and error types.
+Follow [Save and restore SQLite checkpoints](/guides/sqlite-checkpoints) for a complete file-backed example.
 
 ## Decision summary
 
