@@ -7,9 +7,10 @@ import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"
 import * as Schema from "effect/Schema"
 import { BytePath } from "./BytePath.js"
+import * as Internal from "./internal/snapshotDeltaModel.js"
 
 /** Type identifier for opaque snapshot deltas. */
-export const SnapshotDeltaTypeId = Symbol("@effect-vfs/core/SnapshotDelta")
+export const SnapshotDeltaTypeId: "@effect-vfs/core/SnapshotDelta" = Internal.SnapshotDeltaTypeId
 /** Type identifier for opaque snapshot deltas. */
 export type SnapshotDeltaTypeId = typeof SnapshotDeltaTypeId
 
@@ -18,22 +19,8 @@ export interface SnapshotDelta {
   readonly [SnapshotDeltaTypeId]: SnapshotDeltaTypeId
 }
 
-const snapshotDeltas = new WeakMap<SnapshotDelta, object>()
-
-/** @internal */
-export const makeSnapshotDelta = (value: object): SnapshotDelta => {
-  const delta = Object.freeze<SnapshotDelta>({ [SnapshotDeltaTypeId]: SnapshotDeltaTypeId })
-  snapshotDeltas.set(delta, value)
-  return delta
-}
-
-/** @internal */
-export const snapshotDeltaValue = (delta: SnapshotDelta): object | undefined => snapshotDeltas.get(delta)
-
 /** Schema for an already validated opaque snapshot delta. */
-export const SnapshotDelta = Schema.declare<SnapshotDelta>((value): value is SnapshotDelta =>
-  typeof value === "object" && value !== null && snapshotDeltas.has(value as SnapshotDelta)
-)
+export const SnapshotDelta = Schema.declare<SnapshotDelta>(Internal.isSnapshotDelta)
 
 /** Schema for filesystem entry kinds reported by snapshot inspection. */
 export const SnapshotNodeKind = Schema.Literals(["directory", "file", "symlink"])

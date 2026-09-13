@@ -16,7 +16,7 @@ import * as Schema from "effect/Schema"
  * @category type ids
  * @since 0.1.0
  */
-export const SnapshotTypeId = Symbol("@effect-vfs/core/Snapshot")
+export const SnapshotTypeId = "@effect-vfs/core/Snapshot" as const
 
 /**
  * Type identifier for opaque filesystem snapshots.
