@@ -1,0 +1,160 @@
+# Save and restore SQLite checkpoints
+
+Save a virtual filesystem snapshot under a name, then load it into a fresh volume later. The application owns the
+SQLite database and decides when to capture and restore each checkpoint.
+
+This guide uses Bun and the supported `@effect/sql-sqlite-bun` provider. It assumes you can already create a core
+volume. For an introduction to the available packages, see [Choose a package](/concepts/which-package).
+If snapshots are new to you, first read [Build and transport filesystem snapshots](/guides/fixtures-and-snapshots).
+
+## Install the persistence package
+
+Install the persistence package, its exact Effect peer, and the Bun SQLite provider:
+
+```sh
+npm install @effect-vfs/persistence effect@4.0.0-rc.114 @effect/sql-sqlite-bun@4.0.0-rc.114
+```
+
+`@effect-vfs/persistence` includes `@effect-vfs/core`. The SQLite provider is a separate runtime dependency because
+the persistence package does not choose or open a database for you.
+
+## Configure the checkpoint store
+
+Choose limits for the encoded snapshot and the filesystem data it can contain. The store applies the same limits
+when it saves and loads a checkpoint.
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core";
+import { CheckpointError, CheckpointStore } from "@effect-vfs/persistence";
+import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient";
+import { ByteSize, Effect, Layer } from "effect";
+
+const limits = {
+  maxEncodedBytes: ByteSize.megabytes(10),
+  maxRecords: 10_000,
+  maxEntries: 20_000,
+  maxDecodedBytes: ByteSize.megabytes(5),
+};
+
+const Database = SqliteClient.layer({ filename: "checkpoints.sqlite" });
+
+const Checkpoints = CheckpointStore.layer(limits).pipe(
+  Layer.provide(Layer.effectDiscard(CheckpointStore.migrate)),
+  Layer.provide(Database),
+);
+```
+
+Use a file-backed database when another process must load the checkpoint. An in-memory database such as `:memory:`
+does not survive the process that created it.
+
+`CheckpointStore.migrate` creates the package tables. Run it during application startup before serving checkpoint
+work. It is safe to run again on later startups. `CheckpointStore.layer` does not run migrations by itself.
+
+## Save a named checkpoint
+
+Capture a snapshot explicitly and pass it to `save`:
+
+```ts
+const save = Effect.gen(function* () {
+  const store = yield* CheckpointStore;
+  const volume = yield* Vfs.fromFixture({
+    entries: [
+      {
+        kind: "file",
+        path: "/hello.txt",
+        bytes: new TextEncoder().encode("hello"),
+      },
+    ],
+  });
+
+  yield* store.save("run-42", yield* volume.snapshot);
+});
+
+await Effect.runPromise(save.pipe(Effect.provide(Checkpoints)));
+```
+
+Each name is create-only. Saving `run-42` again fails with `AlreadyExists` and leaves the original checkpoint
+unchanged. Later changes to `volume` are not written automatically; capture another snapshot and save it under a new
+name.
+
+## Load and restore the checkpoint
+
+Load the named snapshot and use it to create a fresh, independent volume:
+
+```ts
+const restore = Effect.gen(function* () {
+  const store = yield* CheckpointStore;
+  const snapshot = yield* store.load("run-42");
+  const volume = yield* Vfs.fromSnapshot(snapshot, {
+    maxBytes: ByteSize.megabytes(5),
+  });
+  const caller = yield* volume.caller();
+
+  return new TextDecoder().decode(yield* caller.readFile("/hello.txt"));
+});
+
+const text = await Effect.runPromise(restore.pipe(Effect.provide(Checkpoints)));
+
+console.log(text);
+```
+
+The program prints:
+
+```text
+hello
+```
+
+The restore program can run in another process as long as it opens the same `checkpoints.sqlite` file and provides
+the same checkpoint layer setup.
+
+## Handle checkpoint failures
+
+`CheckpointError` identifies naming, lookup, and SQLite failures. Handle it by tag, then inspect its `code`:
+
+```ts
+const handleCheckpointError = (error: CheckpointError) => {
+  switch (error.code) {
+    case "InvalidName":
+      return Effect.logError(
+        "Use a nonempty checkpoint name of at most 255 UTF-8 bytes",
+      );
+    case "NotFound":
+      return Effect.logWarning("The checkpoint does not exist");
+    case "AlreadyExists":
+      return Effect.logWarning("The checkpoint name is already in use");
+    case "Storage":
+      return Effect.logError("SQLite checkpoint operation failed", error.cause);
+  }
+};
+
+const load = Effect.gen(function* () {
+  const store = yield* CheckpointStore;
+  return yield* store.load("run-42");
+}).pipe(Effect.catchTag("CheckpointError", handleCheckpointError));
+```
+
+The error also records the `operation` (`save`, `load`, or `migrate`) and, when applicable, the checkpoint `name`.
+`Storage` preserves the underlying failure in `cause`.
+
+Snapshot validation failures remain [`ImageError`](/api/core/snapshot). They include invalid limits, corrupt or
+unsupported stored images, and images that exceed the configured budgets.
+
+## Understand database ownership and commits
+
+Keep the application-provided SQLite client alive for as long as the checkpoint store uses it. The persistence
+package owns the `effect_vfs_checkpoints` and `effect_vfs_checkpoint_migrations` tables, while your application owns
+the database file, driver configuration, migration coordination, backups, and connection lifetime.
+
+`save` participates in an enclosing Effect SQL transaction. It does not commit that outer transaction. Without an
+outer transaction, a successful `save` has completed its insert. SQLite uniqueness also ensures that only one of two
+competing saves can claim a name.
+
+An interruption can arrive after SQLite commits but before the caller observes success. If you retry the same name,
+handle `AlreadyExists` as an uncertain result: verify that the existing checkpoint is the one you intended instead of
+assuming that every duplicate is safe to ignore.
+
+The package does not configure SQLite busy timeouts, journaling, synchronization, or power-loss durability. Choose
+those settings according to your application's requirements.
+
+This release does not provide checkpoint listing, replacement, deletion, history, or automatic saving. For the full
+service and error signatures, see the [`CheckpointStore` API reference](/api/persistence/checkpoint-store).

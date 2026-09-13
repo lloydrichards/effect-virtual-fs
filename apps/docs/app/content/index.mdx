@@ -31,11 +31,11 @@ can use a host filesystem while tests and tools use disposable in-memory state.
 
 ## Choose a package
 
-- [`@effect-vfs/memory`](/api/memory/memory-file-system) adapts the virtual filesystem to Effect's standard
+- [`@effect-vfs/memory`](https://www.npmjs.com/package/@effect-vfs/memory) adapts the virtual filesystem to Effect's standard
   `FileSystem.FileSystem` service. This is the usual starting point.
-- [`@effect-vfs/core`](/api/core/virtual-file-system) provides byte-preserving paths, explicit callers and permissions,
+- [`@effect-vfs/core`](https://www.npmjs.com/package/@effect-vfs/core) provides byte-preserving paths, explicit callers and permissions,
   shared volumes, fixtures, quotas, watches, overlays, and portable encoded snapshots.
-- [`@effect-vfs/persistence`](/api/persistence/checkpoint-store) saves named snapshots to SQLite and restores them as
+- [`@effect-vfs/persistence`](https://www.npmjs.com/package/@effect-vfs/persistence) saves named snapshots to SQLite and restores them as
   fresh volumes in a later process.
 
 All three packages are ESM-only and currently target `effect@4.0.0-rc.114`.

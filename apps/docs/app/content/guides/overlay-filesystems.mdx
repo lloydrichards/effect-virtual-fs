@@ -1,0 +1,140 @@
+# Create an isolated overlay workspace
+
+Use an overlay when a preview, generator, or agent should edit a project without changing its starting state. An
+overlay is an ordinary writable `Volume` backed by one immutable snapshot.
+
+## Capture the base project
+
+Start with a snapshot of the files that every workspace should see. This example creates two workspaces from the same
+base, edits one of them, reviews the result, and captures it:
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core";
+import { Effect } from "effect";
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+const program = Effect.gen(function* () {
+  const source = yield* Vfs.fromFixture({
+    entries: [
+      { kind: "directory", path: "/project" },
+      {
+        kind: "file",
+        path: "/project/package.json",
+        bytes: encoder.encode('{"scripts":{}}'),
+      },
+    ],
+  });
+  const base = yield* source.snapshot;
+
+  const workspace = yield* Vfs.makeOverlay(base);
+  const sibling = yield* Vfs.makeOverlay(base);
+  const fs = yield* workspace.caller();
+
+  yield* fs.writeFile(
+    "/project/package.json",
+    encoder.encode('{"scripts":{"check":"tsc --noEmit"}}'),
+    { access: "write", truncate: true },
+  );
+  yield* fs.writeFile(
+    "/project/notes.md",
+    encoder.encode("Review the generated type errors.\n"),
+    { access: "write", create: "exclusive" },
+  );
+
+  const changes = yield* workspace.changes();
+  const changedKinds = changes.map((change) => change._tag);
+
+  const siblingFs = yield* sibling.caller();
+  const unchanged = decoder.decode(
+    yield* siblingFs.readFile("/project/package.json"),
+  );
+
+  const accepted = yield* workspace.capture();
+  const acceptedFs = yield* (yield* Vfs.fromSnapshot(
+    accepted.snapshot,
+  )).caller();
+  const notes = decoder.decode(yield* acceptedFs.readFile("/project/notes.md"));
+
+  return { changedKinds, unchanged, notes };
+});
+
+console.log(await Effect.runPromise(program));
+```
+
+`changedKinds` contains `Updated` and `Added`. The sibling still
+contains `{"scripts":{}}`, while the restored capture contains the new notes file.
+
+## Make changes without changing the base
+
+Each execution of `makeOverlay(base)` creates a fresh workspace. Workspaces made from the same snapshot have private
+namespaces, metadata, callers, handles, watches, and mutation coordination. A write in one workspace cannot change the
+base, the source volume, or a sibling workspace.
+
+Unchanged regular-file payloads are shared. The first content mutation replaces the whole file payload with
+workspace-private storage, including a same-size handle write. This is whole-file copy-on-write, not block-level
+copying. Reads return owned byte copies.
+
+Capacity limits passed to `makeOverlay` apply to the complete visible filesystem. They do not measure changed data
+alone.
+
+## Inspect the final differences
+
+Call `workspace.changes()` to compare the current workspace with its base. The result describes final state, not the
+sequence of operations that produced it.
+
+Changes can be:
+
+- `Added` or `Removed` when a path exists on only one side;
+- `Updated` when content, ownership, permissions, or another reported field changed;
+- `Replaced` when the same path now refers to a new object identity; or
+- `Renamed` when retained base identity proves one unambiguous move.
+
+Equal file contents do not prove a rename. Ambiguous hard-link moves remain additions and removals. Timestamp-only
+differences are hidden by default; pass `{ includeTimestamps: true }` when they matter.
+
+Summary paths are opaque `BytePath` values because a virtual filesystem can contain names that are not UTF-8. Use
+`pathToBytes` to obtain their raw bytes. Compare paths as bytes. For display, use hex or base64, or attempt fatal UTF-8
+decoding with a byte-safe fallback. A normal `TextDecoder` can turn different invalid byte sequences into the same
+replacement-character text. Overlay summaries are in-process values and do not have a portable encoding.
+
+## Capture a matching result and summary
+
+Use `workspace.capture()` when you need both the complete snapshot and its change summary. It observes both from one
+successfully completed state, so a concurrent write cannot leave the snapshot and summary describing different states.
+
+The returned snapshot and changes remain stable after later workspace writes. You can restore or encode the snapshot,
+and you can store it with `@effect-vfs/persistence`.
+
+Do not replace `capture()` with separate `workspace.snapshot` and `workspace.changes()` calls when the two results
+must match. A mutation can commit between those observations.
+
+## Reset the workspace
+
+Create another overlay from the original base and replace the workspace reference in your application:
+
+```ts
+const freshWorkspaceEffect = Vfs.makeOverlay(base);
+```
+
+Execute the effect where your application installs the replacement workspace.
+
+There is no in-place reset. Existing callers, handles, and watches remain attached to the old workspace until their
+normal lifetimes end.
+
+Restoring a captured snapshot recovers its filesystem state, not its previous overlay relationship. Calling
+`makeOverlay(captured.snapshot)` establishes a new base and starts with an empty change summary.
+
+## Keep host access outside the assumption
+
+An overlay isolates virtual filesystem state. It is not a security sandbox and cannot intercept code that uses
+`node:fs`, child processes, native extensions, or another host-access API. Code must use the overlay caller or a bound
+Effect `FileSystem` service for the isolation to apply.
+
+## Next steps
+
+- [Build and transport filesystem snapshots](/guides/fixtures-and-snapshots) for fixture, codec, and delta workflows.
+- [Test with an isolated filesystem](/guides/testing-with-an-isolated-filesystem) for the standard Effect
+  `FileSystem` adapter.
+- Open the [`VirtualFileSystem` API reference](/api/core/virtual-file-system) for overlay constructors and models.

@@ -1,0 +1,165 @@
+# Build and transport filesystem snapshots
+
+Use `@effect-vfs/core` when you need to create known filesystem state, capture it, and restore it without sharing
+mutable storage. You can also compute a portable delta when sending a complete second snapshot would be wasteful.
+
+## Create a volume from a fixture
+
+A fixture describes the final filesystem tree. It is not a sequence of filesystem commands. Declare parent directories
+explicitly, even when their children appear first in the `entries` array.
+
+Install the core package and its exact Effect peer:
+
+```sh
+npm install @effect-vfs/core effect@4.0.0-rc.114
+```
+
+The following program creates a small project, captures it, transports the snapshot as bytes, and restores independent
+writable state:
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core";
+import { Effect } from "effect";
+import * as ByteSize from "effect/ByteSize";
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+const decodeLimits: Vfs.DecodeLimits = {
+  maxEncodedBytes: ByteSize.kibibytes(64),
+  maxRecords: 20,
+  maxEntries: 20,
+  maxDecodedBytes: ByteSize.kibibytes(32),
+};
+
+const program = Effect.gen(function* () {
+  const source = yield* Vfs.fromFixture({
+    entries: [
+      { kind: "directory", path: "/project" },
+      {
+        kind: "file",
+        path: "/project/config.json",
+        bytes: encoder.encode('{"mode":"development"}'),
+      },
+    ],
+  });
+
+  const base = yield* source.snapshot;
+  const encoded = yield* Vfs.encodeSnapshot(base);
+
+  // Treat transported or stored bytes as untrusted input.
+  const decoded = yield* Vfs.decodeSnapshot(encoded, decodeLimits);
+  const restored = yield* Vfs.fromSnapshot(decoded);
+  const restoredFs = yield* restored.caller();
+
+  return {
+    encodedBytes: encoded.byteLength,
+    config: decoder.decode(yield* restoredFs.readFile("/project/config.json")),
+  };
+});
+
+console.log(await Effect.runPromise(program));
+```
+
+The restored config contains `{"mode":"development"}`. Writing to the restored volume does not change the source
+volume or captured snapshot.
+
+Fixture bytes, snapshots, encoded bytes, and restored volumes own their data. Changing an input `Uint8Array`, an
+encoded result, or one restored volume does not change the others.
+
+## Capture and restore immutable state
+
+Read `volume.snapshot` whenever you need a new capture. A snapshot contains the reachable namespace, file contents,
+links, and metadata from one committed state. It does not contain callers, open handles, watch subscriptions, or
+unlinked files that are still held open.
+
+`encodeSnapshot` returns version 1 JSON/base64 bytes. Treat that representation as an interchange format rather than
+an object to edit. Decode it with `decodeSnapshot`, then pass the opaque result to `fromSnapshot`. Each call to
+`fromSnapshot` creates independent writable storage.
+
+## Decode untrusted bytes with finite limits
+
+`decodeSnapshot` requires all four limits. Choose them from what your application accepts:
+
+- Set `maxEncodedBytes` to the largest snapshot your storage or transport is allowed to deliver.
+- Set `maxDecodedBytes` to the largest combined file and symbolic-link payload the application should hold.
+- Set `maxRecords` to the largest number of stored filesystem objects and payload records you expect.
+- Set `maxEntries` to the largest reachable namespace you expect.
+
+Use `ByteSize` values for byte limits and numbers for record and entry counts. Decoding fails with an `ImageError`
+before returning a partial snapshot when the input is malformed, uses an unsupported version, or exceeds a limit.
+
+Decoding limits protect the conversion from bytes to a snapshot. `fromSnapshot` can also receive `VolumeOptions` when
+the restored volume needs tighter file, path, entry, or total-byte limits.
+
+## Compare and apply snapshots
+
+`diffSnapshots(base, target)` creates an opaque delta for one semantic base. Inspect it with
+`inspectSnapshotDelta(base, delta)`, or reconstruct the target with `applySnapshotDelta(base, delta)`.
+
+Install the Effect crypto provider for your runtime before using snapshot deltas. This Bun example uses the version
+matched to the Effect peer:
+
+```sh
+npm install @effect/platform-bun@4.0.0-rc.114
+```
+
+The following program creates two snapshots and reconstructs the second from their delta:
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core";
+import * as BunCrypto from "@effect/platform-bun/BunCrypto";
+import { Effect } from "effect";
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+const program = Effect.gen(function* () {
+  const baseVolume = yield* Vfs.fromFixture({
+    entries: [{ kind: "file", path: "/config.json", bytes: encoder.encode('{"mode":"development"}') }],
+  });
+  const targetVolume = yield* Vfs.fromSnapshot(yield* baseVolume.snapshot);
+  const targetFs = yield* targetVolume.caller();
+  yield* targetFs.writeFile("/config.json", encoder.encode('{"mode":"preview"}'), {
+    access: "write",
+    truncate: true,
+  });
+
+  const base = yield* baseVolume.snapshot;
+  const target = yield* targetVolume.snapshot;
+  const delta = yield* Vfs.diffSnapshots(base, target);
+  const changes = yield* Vfs.inspectSnapshotDelta(base, delta);
+  const reconstructed = yield* Vfs.applySnapshotDelta(base, delta);
+  const restoredFs = yield* (yield* Vfs.fromSnapshot(reconstructed)).caller();
+
+  return {
+    changedKinds: changes.map((change) => change._tag),
+    config: decoder.decode(yield* restoredFs.readFile("/config.json")),
+  };
+});
+
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))));
+```
+
+The reconstructed config contains `{"mode":"preview"}`, and `changedKinds` contains `Updated`.
+
+Inspection reports `Added`, `Removed`, and `Updated` paths. Independent snapshots do not retain shared lineage, so a
+move appears as a removal and an addition rather than an inferred rename. Timestamp-only changes are hidden unless
+you pass `{ includeTimestamps: true }`.
+
+Applying a delta never mutates the base. It returns another immutable snapshot. A semantically different base fails
+with `SnapshotDeltaError` and the `BaseMismatch` code.
+
+Delta creation, inspection, and application require Effect's `Crypto.Crypto` service. The example provides the Bun
+implementation at the program boundary. Use the corresponding official crypto layer for another runtime.
+
+Use [`SnapshotDeltaFromBytes`](/api/core/virtual-file-system#snapshotdeltafrombytes) when the delta itself must cross a
+storage or transport boundary. Its default and constrained policies apply finite limits to the complete delta
+workflow.
+
+## Next steps
+
+- [Create an isolated overlay workspace](/guides/overlay-filesystems) when you need a writable branch from a snapshot.
+- Open the [`VirtualFileSystem` API reference](/api/core/virtual-file-system) for constructor and codec signatures.
+- Open the [`Snapshot` API reference](/api/core/snapshot) for decode errors and limit types.
+- Open the [`SnapshotDelta` API reference](/api/core/snapshot-delta) for change and delta-limit models.

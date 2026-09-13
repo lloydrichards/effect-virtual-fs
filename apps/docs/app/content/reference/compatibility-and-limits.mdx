@@ -1,0 +1,152 @@
+# Compatibility and limits
+
+The three published Effect Virtual FS packages implement a documented subset of POSIX filesystem behavior in memory.
+They do not provide a mounted host filesystem, a complete POSIX implementation, or a way to intercept direct calls to
+`node:fs`.
+
+This page records the supported package format, runtime evidence, filesystem differences, and resource limits. Follow
+the API links for exact types and signatures.
+
+## Package compatibility
+
+| Package                   | Effect peer    | Module format | Purpose                                                            |
+| ------------------------- | -------------- | ------------- | ------------------------------------------------------------------ |
+| `@effect-vfs/core`        | `4.0.0-rc.114` | ESM only      | Runtime-neutral volumes, callers, handles, snapshots, and overlays |
+| `@effect-vfs/memory`      | `4.0.0-rc.114` | ESM only      | Effect `FileSystem.FileSystem` adapter                             |
+| `@effect-vfs/persistence` | `4.0.0-rc.114` | ESM only      | Named SQLite snapshot checkpoints                                  |
+
+Use an ES module build and install the exact Effect peer version shown above.
+
+The published manifests do not declare a consumer Node.js version. The repository uses Node.js 24 or later and Bun
+1.2.21 for development and validation. That contributor-toolchain requirement is not evidence that every earlier Node.js
+release works. Bun is required by the documented SQLite provider and its runtime tests, not by the core or memory APIs.
+
+## Runtime evidence
+
+Runtime-neutral means the core does not import Node.js or Bun filesystem APIs. It does not mean that every operation has
+been run on every JavaScript runtime.
+
+| Area           | What the repository checks                                                                                     |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| Core package   | TypeScript build, NodeNext import compatibility, and behavior tests under the repository test runner           |
+| Memory adapter | NodeNext import compatibility and a browser-target bundle                                                     |
+| Browser target | The bundle runs as a smoke test under Node.js; this is not a browser runtime test                              |
+| Persistence    | Real SQLite tests under Bun and NodeNext declaration compatibility; Node SQLite runtime behavior is not tested |
+
+Portable snapshot-delta operations use Effect's `Crypto.Crypto` service. Supply the appropriate Effect crypto layer for
+the runtime at the application boundary.
+
+## Implemented filesystem behavior
+
+The core supports regular files, directories, symbolic links, hard links, component-by-component path lookup,
+directory-relative lookup, scoped file and directory handles, metadata, permissions, namespace changes, watches, and
+snapshot capture.
+
+The behavior follows documented POSIX.1-2024 rules for this subset, with these important boundaries:
+
+- typed Effect failures replace global `errno`;
+- Effect scopes manage derived callers, handles, and watch subscriptions;
+- caller privilege is explicit and does not come from the host process;
+- storage is dense and in memory, not sparse or host-backed; and
+- the memory adapter may follow Effect `FileSystem` behavior where it differs from the lower-level core contract.
+
+These published packages do not claim full POSIX conformance. They do not provide a C filesystem API, host mount,
+simulated process, host-directory import or export, device files, FIFOs, filesystem sockets, advisory locks, or
+descriptor duplication. Snapshot checkpoints are explicit copies, not automatic persistence of live writes or host
+`fsync` durability.
+
+## Path limits
+
+| Limit                                          | Value                                      | Configurable             |
+| ---------------------------------------------- | ------------------------------------------ | ------------------------ |
+| Path component                                 | 255 bytes                                  | No                       |
+| Symbolic-link traversals during one resolution | 40                                         | No                       |
+| Total encoded path length                      | Unlimited by default                       | Yes, with `maxPathBytes` |
+| String path encoding                           | Valid UTF-8 without NUL or lone surrogates | No                       |
+
+`BytePath` preserves arbitrary non-NUL filename bytes. String-returning operations fail when a stored name cannot be
+represented as UTF-8.
+
+Absolute paths ignore a supplied directory base. Relative paths can use a live `DirectoryHandle` from the same volume.
+
+## Volume capacity limits
+
+Pass optional limits when creating or restoring a core volume.
+
+| Option         | What it limits                                                | Default             |
+| -------------- | ------------------------------------------------------------- | ------------------- |
+| `maxEntries`   | Namespace entries                                             | No configured limit |
+| `maxBytes`     | Logical bytes held by regular files and symbolic-link targets | No configured limit |
+| `maxFileBytes` | Bytes in one regular file                                     | 4,294,967,295 bytes |
+| `maxPathBytes` | Total encoded bytes accepted for one path                     | No configured limit |
+
+The dense-file ceiling of 4,294,967,295 bytes is fixed. `maxFileBytes` may lower it but cannot raise it. File contents and
+symbolic-link targets are charged once per inode, so hard links do not duplicate their byte charge. An unlinked file
+remains charged while an open handle keeps it alive.
+
+The [`VirtualFileSystem` API reference](/api/core/virtual-file-system) documents `VolumeOptions` and the constructors that
+accept it.
+
+## Watch behavior
+
+`volume.watch` opens a scoped stream of future committed create, update, and remove events.
+
+- Events are not replayed.
+- Registration is coordinated with mutations so an event cannot be lost while the subscription becomes active.
+- The current implementation uses an unbounded queue and exposes no caller-configurable event or byte limit.
+- Closing the owning scope releases the subscription.
+
+A slow consumer can therefore retain queued events in memory. Apply an application-level consumption or lifetime policy
+when event volume is not already bounded by the workload.
+
+## Glob limits
+
+Globbing belongs to the memory adapter. Patterns are root-relative POSIX-style paths.
+
+The adapter supports `*`, `?`, `**`, character classes and ranges, class negation, escaped syntax, and nested comma-list
+brace expansion. Brace expansion is capped at 256 alternatives. That ceiling is fixed and callers cannot configure it.
+
+The adapter does not support extglobs, numeric brace ranges, POSIX character classes, whole-pattern negation, or following
+symbolic links during traversal. A trailing slash matches directories only. Dotfiles require a pattern segment that
+explicitly starts with `.` or a positive character class that includes it.
+
+## Snapshot decode limits
+
+`decodeSnapshot` requires a complete `DecodeLimits` value. There is no default decode policy.
+
+| Field             | Work it bounds                      |
+| ----------------- | ----------------------------------- |
+| `maxEncodedBytes` | Encoded snapshot input bytes        |
+| `maxRecords`      | Stored metadata and content records |
+| `maxEntries`      | Namespace entries                   |
+| `maxDecodedBytes` | Combined decoded byte content       |
+
+Encoded and decoded byte budgets use `ByteSize.ByteSize`. Record and entry limits are numbers. Restoring the decoded
+snapshot also applies the destination volume's capacity limits.
+
+See the [`Snapshot` API reference](/api/core/snapshot) and
+[`VirtualFileSystem` API reference](/api/core/virtual-file-system).
+
+## Snapshot delta limits
+
+One complete `SnapshotDeltaLimits` policy applies to delta creation, inspection, encoding, decoding, and application.
+Omitting it selects the frozen `SnapshotDeltaLimits.default` policy. `SnapshotDeltaLimits.constrained` is a smaller preset
+for memory-sensitive environments. A custom policy must provide every field.
+
+The policy bounds encoded and decoded delta bytes, canonical identity work, base and target records, delta and output
+records, namespace entries, output payload bytes, and inherited-record work. Byte budgets use `ByteSize.ByteSize`; record
+and entry budgets use numbers.
+
+See the [`Snapshot delta API reference`](/api/core/snapshot-delta) for the preset values and complete policy schema.
+
+## Which limits callers can configure
+
+| Area                                              | Caller-configurable                             |
+| ------------------------------------------------- | ----------------------------------------------- |
+| Volume capacity and total path length             | Yes, through `VolumeOptions`                    |
+| Snapshot decoding                                 | Yes, and a complete policy is required          |
+| Snapshot delta work                               | Yes, through a preset or complete custom policy |
+| Path component length and symlink traversal count | No                                              |
+| Dense-file hard ceiling                           | No, but `maxFileBytes` can lower it             |
+| Watch queue                                       | No                                              |
+| Glob brace expansion                              | No                                              |
