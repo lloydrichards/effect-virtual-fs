@@ -119,12 +119,7 @@ export class ConfigurationError extends Data.TaggedError("ConfigurationError")<{
   readonly field: string
 }> {}
 
-const Natural = Schema.Finite.check(
-  Schema.isInt(),
-  Schema.isGreaterThanOrEqualTo(0),
-  Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
-)
-const Mode = Natural.check(Schema.isLessThanOrEqualTo(0o7777))
+const Mode = Schema.Natural.check(Schema.isLessThanOrEqualTo(0o7777))
 /**
  * Schema for a caller's numeric identity, supplementary groups, and explicit privilege.
  *
@@ -133,11 +128,11 @@ const Mode = Natural.check(Schema.isLessThanOrEqualTo(0o7777))
  */
 export const Identity = Schema.Struct({
   /** Numeric user identifier used by ownership and permission checks. */
-  uid: Natural,
+  uid: Schema.Natural,
   /** Primary numeric group identifier. */
-  gid: Natural,
+  gid: Schema.Natural,
   /** Supplementary group identifiers used by group permission checks. */
-  groups: Schema.Array(Natural),
+  groups: Schema.Array(Schema.Natural),
   /** Grants root-style permission bypasses independently of `uid`. */
   privileged: Schema.Boolean
 })
@@ -158,7 +153,7 @@ export const RootCallerOptions = Schema.Struct({
   /** Caller identity. Defaults to privileged uid and gid `0`. */
   identity: Schema.optionalKey(Identity),
   /** Creation mask applied to requested modes. Defaults to `0o022`. */
-  umask: Schema.optionalKey(Natural.check(Schema.isLessThanOrEqualTo(0o777)))
+  umask: Schema.optionalKey(Schema.Natural.check(Schema.isLessThanOrEqualTo(0o777)))
 })
 /**
  * Options for creating a root caller on a volume.
@@ -175,7 +170,7 @@ export type RootCallerOptions = typeof RootCallerOptions.Type
  */
 export const VolumeOptions = Schema.Struct({
   /** Maximum number of filesystem nodes. Omission leaves the count unbounded. */
-  maxEntries: Schema.optionalKey(Natural),
+  maxEntries: Schema.optionalKey(Schema.Natural),
   /** Maximum combined regular-file content in bytes. */
   maxBytes: Schema.optionalKey(Schema.ByteSize),
   /** Maximum content size of one regular file in bytes. */
@@ -217,10 +212,10 @@ const Timestamp = Schema.BigInt.check(
 export const Metadata = Schema.Struct({
   kind: Schema.Literals(["directory", "file", "symlink"]),
   ino: Schema.BigInt,
-  nlink: Natural,
+  nlink: Schema.Natural,
   size: Schema.BigInt,
-  uid: Natural,
-  gid: Natural,
+  uid: Schema.Natural,
+  gid: Schema.Natural,
   mode: Mode,
   atimeNs: Timestamp,
   mtimeNs: Timestamp,
@@ -278,7 +273,10 @@ export interface MetadataOptions extends RelativeOptions {
  * @category schemas
  * @since 0.1.0
  */
-export const OwnerUpdate = Schema.Struct({ uid: Schema.optionalKey(Natural), gid: Schema.optionalKey(Natural) })
+export const OwnerUpdate = Schema.Struct({
+  uid: Schema.optionalKey(Schema.Natural),
+  gid: Schema.optionalKey(Schema.Natural)
+})
 /**
  * An owner update for `chown` operations.
  *
@@ -1327,7 +1325,7 @@ const makeVolume = Effect.fnUntraced(
           : Effect.succeed(ref.file)
       const read = Effect.fnUntraced(function*(maximum: number, position?: bigint) {
         const file = yield* get(position === undefined ? "read" : "pread", "read")
-        if (!Schema.is(Natural)(maximum)) return yield* failure("InvalidArgument", "read")
+        if (!Schema.is(Schema.Natural)(maximum)) return yield* failure("InvalidArgument", "read")
         const offset = position ?? ref.offset
         if (typeof offset !== "bigint" || offset < 0n || offset > 0x7fffffffffffffffn) {
           return yield* failure("InvalidArgument", "read")
@@ -2535,8 +2533,8 @@ export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
 )
 
 const FixtureMetadata = Schema.Struct({
-  uid: Schema.optionalKey(Natural),
-  gid: Schema.optionalKey(Natural),
+  uid: Schema.optionalKey(Schema.Natural),
+  gid: Schema.optionalKey(Schema.Natural),
   mode: Schema.optionalKey(Mode),
   atimeNs: Schema.optionalKey(Timestamp),
   mtimeNs: Schema.optionalKey(Timestamp),

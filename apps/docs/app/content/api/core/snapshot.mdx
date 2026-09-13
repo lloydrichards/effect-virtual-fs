@@ -63,8 +63,8 @@ Schema for the mandatory resource limits applied while decoding a snapshot.
 ```ts
 export declare const DecodeLimits: Schema.Struct<{
   readonly maxEncodedBytes: Schema.ByteSize;
-  readonly maxRecords: Schema.Finite;
-  readonly maxEntries: Schema.Finite;
+  readonly maxRecords: Schema.Natural;
+  readonly maxEntries: Schema.Natural;
   readonly maxDecodedBytes: Schema.ByteSize;
 }>;
 ```

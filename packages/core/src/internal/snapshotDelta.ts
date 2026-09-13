@@ -15,8 +15,8 @@ import {
   SnapshotDeltaError,
   type SnapshotDeltaLimits,
   snapshotDeltaValue,
-  type SnapshotDifference,
-  type SnapshotNodeKind
+  SnapshotDifference,
+  SnapshotNodeKind
 } from "../SnapshotDelta.js"
 import { make as makeBytePath } from "./bytePath.js"
 import * as CanonicalBase64 from "./canonicalBase64.js"
@@ -43,28 +43,14 @@ const Record = Schema.Union([
   })
 ])
 type Record = typeof Record.Type
-const Kind = Schema.Literals(["directory", "file", "symlink"])
-const Difference = Schema.Literals([
-  "kind",
-  "content",
-  "target",
-  "hardLinks",
-  "mode",
-  "uid",
-  "gid",
-  "atimeNs",
-  "mtimeNs",
-  "ctimeNs",
-  "birthtimeNs"
-])
 const Change = Schema.Union([
-  Schema.TaggedStruct("Added", { path: Path, kind: Kind }),
-  Schema.TaggedStruct("Removed", { path: Path, kind: Kind }),
+  Schema.TaggedStruct("Added", { path: Path, kind: SnapshotNodeKind }),
+  Schema.TaggedStruct("Removed", { path: Path, kind: SnapshotNodeKind }),
   Schema.TaggedStruct("Updated", {
     path: Path,
-    beforeKind: Kind,
-    afterKind: Kind,
-    differences: Schema.Array(Difference).check(Schema.isMinLength(1))
+    beforeKind: SnapshotNodeKind,
+    afterKind: SnapshotNodeKind,
+    differences: Schema.Array(SnapshotDifference).check(Schema.isMinLength(1))
   })
 ])
 type Change = typeof Change.Type

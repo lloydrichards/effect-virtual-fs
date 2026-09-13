@@ -1422,9 +1422,9 @@ Fixture paths must be absolute, unique, and explicitly include their parent dire
 export declare const Fixture: Schema.Struct<{
   readonly rootMetadata: Schema.optionalKey<
     Schema.Struct<{
-      readonly uid: Schema.optionalKey<Schema.Finite>;
-      readonly gid: Schema.optionalKey<Schema.Finite>;
-      readonly mode: Schema.optionalKey<Schema.Finite>;
+      readonly uid: Schema.optionalKey<Schema.Natural>;
+      readonly gid: Schema.optionalKey<Schema.Natural>;
+      readonly mode: Schema.optionalKey<Schema.Natural>;
       readonly atimeNs: Schema.optionalKey<Schema.BigInt>;
       readonly mtimeNs: Schema.optionalKey<Schema.BigInt>;
       readonly ctimeNs: Schema.optionalKey<Schema.BigInt>;
@@ -1441,9 +1441,9 @@ export declare const Fixture: Schema.Struct<{
           >;
           readonly metadata: Schema.optionalKey<
             Schema.Struct<{
-              readonly uid: Schema.optionalKey<Schema.Finite>;
-              readonly gid: Schema.optionalKey<Schema.Finite>;
-              readonly mode: Schema.optionalKey<Schema.Finite>;
+              readonly uid: Schema.optionalKey<Schema.Natural>;
+              readonly gid: Schema.optionalKey<Schema.Natural>;
+              readonly mode: Schema.optionalKey<Schema.Natural>;
               readonly atimeNs: Schema.optionalKey<Schema.BigInt>;
               readonly mtimeNs: Schema.optionalKey<Schema.BigInt>;
               readonly ctimeNs: Schema.optionalKey<Schema.BigInt>;
@@ -1459,9 +1459,9 @@ export declare const Fixture: Schema.Struct<{
           readonly bytes: Schema.Uint8Array;
           readonly metadata: Schema.optionalKey<
             Schema.Struct<{
-              readonly uid: Schema.optionalKey<Schema.Finite>;
-              readonly gid: Schema.optionalKey<Schema.Finite>;
-              readonly mode: Schema.optionalKey<Schema.Finite>;
+              readonly uid: Schema.optionalKey<Schema.Natural>;
+              readonly gid: Schema.optionalKey<Schema.Natural>;
+              readonly mode: Schema.optionalKey<Schema.Natural>;
               readonly atimeNs: Schema.optionalKey<Schema.BigInt>;
               readonly mtimeNs: Schema.optionalKey<Schema.BigInt>;
               readonly ctimeNs: Schema.optionalKey<Schema.BigInt>;
@@ -1479,9 +1479,9 @@ export declare const Fixture: Schema.Struct<{
           >;
           readonly metadata: Schema.optionalKey<
             Schema.Struct<{
-              readonly uid: Schema.optionalKey<Schema.Finite>;
-              readonly gid: Schema.optionalKey<Schema.Finite>;
-              readonly mode: Schema.optionalKey<Schema.Finite>;
+              readonly uid: Schema.optionalKey<Schema.Natural>;
+              readonly gid: Schema.optionalKey<Schema.Natural>;
+              readonly mode: Schema.optionalKey<Schema.Natural>;
               readonly atimeNs: Schema.optionalKey<Schema.BigInt>;
               readonly mtimeNs: Schema.optionalKey<Schema.BigInt>;
               readonly ctimeNs: Schema.optionalKey<Schema.BigInt>;
@@ -1549,9 +1549,9 @@ Schema for a caller's numeric identity, supplementary groups, and explicit privi
 
 ```ts
 export declare const Identity: Schema.Struct<{
-  readonly uid: Schema.Finite;
-  readonly gid: Schema.Finite;
-  readonly groups: Schema.$Array<Schema.Finite>;
+  readonly uid: Schema.Natural;
+  readonly gid: Schema.Natural;
+  readonly groups: Schema.$Array<Schema.Natural>;
   readonly privileged: Schema.Boolean;
 }>;
 ```
@@ -1568,11 +1568,11 @@ Schema for filesystem node metadata with bigint inode, size, and nanosecond fiel
 export declare const Metadata: Schema.Struct<{
   readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>;
   readonly ino: Schema.BigInt;
-  readonly nlink: Schema.Finite;
+  readonly nlink: Schema.Natural;
   readonly size: Schema.BigInt;
-  readonly uid: Schema.Finite;
-  readonly gid: Schema.Finite;
-  readonly mode: Schema.Finite;
+  readonly uid: Schema.Natural;
+  readonly gid: Schema.Natural;
+  readonly mode: Schema.Natural;
   readonly atimeNs: Schema.BigInt;
   readonly mtimeNs: Schema.BigInt;
   readonly ctimeNs: Schema.BigInt;
@@ -1594,7 +1594,7 @@ export declare const OpenSettings: Schema.Struct<{
   readonly create: Schema.optionalKey<
     Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>
   >;
-  readonly mode: Schema.optionalKey<Schema.Finite>;
+  readonly mode: Schema.optionalKey<Schema.Natural>;
   readonly append: Schema.optionalKey<Schema.Boolean>;
   readonly truncate: Schema.optionalKey<Schema.Boolean>;
   readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>;
@@ -1773,8 +1773,8 @@ Schema for an owner update. Omitted fields retain their existing values.
 
 ```ts
 export declare const OwnerUpdate: Schema.Struct<{
-  readonly uid: Schema.optionalKey<Schema.Finite>;
-  readonly gid: Schema.optionalKey<Schema.Finite>;
+  readonly uid: Schema.optionalKey<Schema.Natural>;
+  readonly gid: Schema.optionalKey<Schema.Natural>;
 }>;
 ```
 
@@ -1790,13 +1790,13 @@ Schema for root caller credentials and creation mask.
 export declare const RootCallerOptions: Schema.Struct<{
   readonly identity: Schema.optionalKey<
     Schema.Struct<{
-      readonly uid: Schema.Finite;
-      readonly gid: Schema.Finite;
-      readonly groups: Schema.$Array<Schema.Finite>;
+      readonly uid: Schema.Natural;
+      readonly gid: Schema.Natural;
+      readonly groups: Schema.$Array<Schema.Natural>;
       readonly privileged: Schema.Boolean;
     }>
   >;
-  readonly umask: Schema.optionalKey<Schema.Finite>;
+  readonly umask: Schema.optionalKey<Schema.Natural>;
 }>;
 ```
 
@@ -1878,7 +1878,7 @@ Schema for optional volume capacity and path limits.
 
 ```ts
 export declare const VolumeOptions: Schema.Struct<{
-  readonly maxEntries: Schema.optionalKey<Schema.Finite>;
+  readonly maxEntries: Schema.optionalKey<Schema.Natural>;
   readonly maxBytes: Schema.optionalKey<Schema.ByteSize>;
   readonly maxFileBytes: Schema.optionalKey<Schema.ByteSize>;
   readonly maxPathBytes: Schema.optionalKey<Schema.ByteSize>;

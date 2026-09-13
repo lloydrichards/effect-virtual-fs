@@ -8,12 +8,6 @@ import * as Data from "effect/Data"
 import * as Schema from "effect/Schema"
 import { BytePath } from "./BytePath.js"
 
-const Natural = Schema.Finite.check(
-  Schema.isInt(),
-  Schema.isGreaterThanOrEqualTo(0),
-  Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
-)
-
 /** Type identifier for opaque snapshot deltas. */
 export const SnapshotDeltaTypeId = Symbol("@effect-vfs/core/SnapshotDelta")
 /** Type identifier for opaque snapshot deltas. */
@@ -100,14 +94,14 @@ export class SnapshotDeltaError extends Data.TaggedError("SnapshotDeltaError")<{
 const SnapshotDeltaLimitsSchema = Schema.Struct({
   maxEncodedBytes: Schema.ByteSize,
   maxIdentityBytes: Schema.ByteSize,
-  maxDeltaRecords: Natural,
+  maxDeltaRecords: Schema.Natural,
   maxDecodedDeltaBytes: Schema.ByteSize,
-  maxBaseRecords: Natural,
-  maxTargetRecords: Natural,
-  maxEntries: Natural,
-  maxOutputRecords: Natural,
+  maxBaseRecords: Schema.Natural,
+  maxTargetRecords: Schema.Natural,
+  maxEntries: Schema.Natural,
+  maxOutputRecords: Schema.Natural,
   maxOutputBytes: Schema.ByteSize,
-  maxInheritedRecords: Natural
+  maxInheritedRecords: Schema.Natural
 })
 /** Resource limits shared by delta creation, inspection, encoding, decoding, and application. */
 export type SnapshotDeltaLimits = typeof SnapshotDeltaLimitsSchema.Type

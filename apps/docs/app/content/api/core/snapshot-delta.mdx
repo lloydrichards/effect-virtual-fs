@@ -151,14 +151,14 @@ default preset permits larger snapshots and payloads while remaining finite.
 export declare const SnapshotDeltaLimits: Schema.Struct<{
   readonly maxEncodedBytes: Schema.ByteSize;
   readonly maxIdentityBytes: Schema.ByteSize;
-  readonly maxDeltaRecords: Schema.Finite;
+  readonly maxDeltaRecords: Schema.Natural;
   readonly maxDecodedDeltaBytes: Schema.ByteSize;
-  readonly maxBaseRecords: Schema.Finite;
-  readonly maxTargetRecords: Schema.Finite;
-  readonly maxEntries: Schema.Finite;
-  readonly maxOutputRecords: Schema.Finite;
+  readonly maxBaseRecords: Schema.Natural;
+  readonly maxTargetRecords: Schema.Natural;
+  readonly maxEntries: Schema.Natural;
+  readonly maxOutputRecords: Schema.Natural;
   readonly maxOutputBytes: Schema.ByteSize;
-  readonly maxInheritedRecords: Schema.Finite;
+  readonly maxInheritedRecords: Schema.Natural;
 }> & {
   constrained: {
     readonly maxEncodedBytes: ByteSize.ByteSize;
