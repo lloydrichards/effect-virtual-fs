@@ -1,14 +1,15 @@
 import { assert, describe, it } from "@effect/vitest"
+import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import { handleCall } from "../src/internal/rpc.js"
 import { Reader, Writer } from "../src/internal/xdr.js"
 
 const limits = {
-  maxOpaqueBytes: 128,
-  maxStringBytes: 32,
+  maxOpaqueBytes: ByteSize.bytes(128),
+  maxStringBytes: ByteSize.bytes(32),
   maxArrayElements: 8,
-  maxAuthBytes: 64,
-  maxMachineNameBytes: 12,
+  maxAuthBytes: ByteSize.bytes(64),
+  maxMachineNameBytes: ByteSize.bytes(12),
   maxSupplementaryGroups: 2
 }
 const none = new Writer().uint32(0).opaque(new Uint8Array()).bytes()

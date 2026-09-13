@@ -1,6 +1,6 @@
 export interface DecodeLimits {
-  readonly maxOpaqueBytes: number
-  readonly maxStringBytes: number
+  readonly maxOpaqueBytes: ByteSize.ByteSize
+  readonly maxStringBytes: ByteSize.ByteSize
   readonly maxArrayElements: number
 }
 
@@ -24,8 +24,8 @@ export class Reader {
   #offset = 0
 
   constructor(readonly bytes: Uint8Array, readonly limits: DecodeLimits) {
-    assertLimit("maxOpaqueBytes", limits.maxOpaqueBytes)
-    assertLimit("maxStringBytes", limits.maxStringBytes)
+    assertLimit("maxOpaqueBytes", ByteSize.toNumberUnsafe(limits.maxOpaqueBytes))
+    assertLimit("maxStringBytes", ByteSize.toNumberUnsafe(limits.maxStringBytes))
     assertLimit("maxArrayElements", limits.maxArrayElements)
     this.#view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   }
@@ -79,17 +79,17 @@ export class Reader {
   }
 
   opaque(maxBytes = this.limits.maxOpaqueBytes): Uint8Array {
-    assertLimit("opaque limit", maxBytes)
+    assertLimit("opaque limit", ByteSize.toNumberUnsafe(maxBytes))
     const length = this.uint32()
-    if (length > maxBytes || length > this.limits.maxOpaqueBytes) {
+    if (BigInt(length) > maxBytes || BigInt(length) > this.limits.maxOpaqueBytes) {
       throw new XdrDecodeError("XDR opaque value exceeds its limit")
     }
     return this.fixedOpaque(length)
   }
 
   string(maxBytes = this.limits.maxStringBytes): string {
-    assertLimit("string limit", maxBytes)
-    const bytes = this.opaque(Math.min(maxBytes, this.limits.maxStringBytes))
+    assertLimit("string limit", ByteSize.toNumberUnsafe(maxBytes))
+    const bytes = this.opaque(ByteSize.min(maxBytes, this.limits.maxStringBytes))
     try {
       return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
     } catch {
@@ -184,4 +184,5 @@ export class Writer {
     return bytes
   }
 }
+import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"

@@ -1,6 +1,7 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Exit, Scope } from "effect"
+import * as ByteSize from "effect/ByteSize"
 import { makeExport } from "../src/internal/export.js"
 import {
   makeNfs4Handler,
@@ -14,24 +15,25 @@ import { Reader, Writer } from "../src/internal/xdr.js"
 
 const generation = new Uint8Array(16).fill(7)
 const limits: Nfs4Limits = {
-  maxOpaqueBytes: 65_536,
-  maxStringBytes: 1_024,
+  maxOpaqueBytes: ByteSize.bytes(65_536),
+  maxStringBytes: ByteSize.bytes(1_024),
   maxArrayElements: 128,
-  maxCompoundBytes: 65_536,
+  maxRecordBytes: ByteSize.bytes(65_536),
+  maxCompoundBytes: ByteSize.bytes(65_536),
   maxOperations: 32,
   maxBitmapWords: 4,
   maxClients: 4,
   maxPendingClientReplacements: 1,
   maxSessions: 4,
   maxSlotsPerSession: 4,
-  maxReplayBytes: 65_536,
+  maxReplayBytes: ByteSize.bytes(65_536),
   maxOpens: 8,
-  maxOwnerBytes: 1_024,
-  maxReadBytes: 4_096,
-  maxWriteBytes: 4_096,
+  maxOwnerBytes: ByteSize.bytes(1_024),
+  maxReadBytes: ByteSize.bytes(4_096),
+  maxWriteBytes: ByteSize.bytes(4_096),
   maxReaddirEntries: 32,
-  maxReaddirReplyBytes: 16_384,
-  maxNameBytes: 255
+  maxReaddirReplyBytes: ByteSize.bytes(16_384),
+  maxNameBytes: ByteSize.bytes(255)
 }
 
 const call = (operations: ReadonlyArray<(writer: Writer) => void>, tag = "probe") => {
@@ -111,12 +113,14 @@ const startSession = (
     return { client, session: response.fixedOpaque(16) }
   })
 
-const sequence = (session: Uint8Array, sequence: number, cache = false) => (writer: Writer) =>
-  writer.uint32(Operation.SEQUENCE).fixedOpaque(session).uint32(sequence).uint32(0).uint32(1).boolean(cache)
+const sequence = (session: Uint8Array, sequence: number, cache = false, slot = 0) => (writer: Writer) =>
+  writer.uint32(Operation.SEQUENCE).fixedOpaque(session).uint32(sequence).uint32(slot).uint32(1).boolean(cache)
 
-const openReadOnly = (client: bigint, name: string) => (writer: Writer) =>
-  writer.uint32(Operation.OPEN).uint32(0).uint32(1).uint32(0).uint64(client).string("owner")
+const openByName = (client: bigint, name: string, access = 1, deny = 0) => (writer: Writer) =>
+  writer.uint32(Operation.OPEN).uint32(0).uint32(access).uint32(deny).uint64(client).string("owner")
     .uint32(0).uint32(0).string(name)
+
+const openReadOnly = (client: bigint, name: string) => openByName(client, name)
 
 const parseOpen = (bytes: Uint8Array) => {
   const reader = new Reader(bytes, limits)
@@ -132,7 +136,7 @@ const parseOpen = (bytes: Uint8Array) => {
   assert.strictEqual(reader.uint32(), Operation.OPEN)
   assert.strictEqual(reader.uint32(), Status.OK)
   const stateid = reader.fixedOpaque(16)
-  reader.boolean()
+  const atomic = reader.boolean()
   reader.uint64()
   reader.uint64()
   reader.uint32()
@@ -140,7 +144,7 @@ const parseOpen = (bytes: Uint8Array) => {
   reader.uint32()
   assert.strictEqual(reader.uint32(), Operation.GETFH)
   assert.strictEqual(reader.uint32(), Status.OK)
-  return { stateid, filehandle: reader.opaque() }
+  return { stateid, atomic, filehandle: reader.opaque() }
 }
 
 const stateidWithSequence = (stateid: Uint8Array, sequence: number) => {
@@ -164,7 +168,7 @@ describe("NFSv4.1 COMPOUND", () => {
   it.effect("echoes the tag, executes in order, and stops at a missing LOOKUP", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
-      const export_ = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 })
+      const export_ = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
       const handler = yield* makeNfs4Handler(export_, { leaseDurationSeconds: 30, generation, now: () => 0, limits })
       const { session } = yield* startSession(handler, "missing-client")
       const response = yield* handler.compound(call([
@@ -190,7 +194,7 @@ describe("NFSv4.1 COMPOUND", () => {
       })
       const caller = yield* volume.caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const { session } = yield* startSession(handler, "saved-filehandle")
@@ -209,7 +213,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const response = new Reader(yield* handler.compound(call([exchangeId("macos-client")])), limits)
@@ -227,7 +231,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const started = yield* startSession(handler, "confirmed-client")
@@ -246,7 +250,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const update = (owner: string, verifier: Uint8Array) =>
@@ -284,7 +288,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const caller = yield* (yield* Vfs.make()).caller()
       const constrained = { ...limits, maxClients: 1 }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const invalid = call([(writer) =>
@@ -304,7 +308,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const exchange = new Reader(yield* handler.compound(call([exchangeId("macos-session")])), limits)
@@ -336,11 +340,56 @@ describe("NFSv4.1 COMPOUND", () => {
       result.finish()
     }))
 
+  it.effect("negotiates and enforces full RPC record bounds", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      const constrained = { ...limits, maxRecordBytes: ByteSize.bytes(2_048) }
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        {
+          leaseDurationSeconds: 30,
+          generation,
+          now: () => 0,
+          limits: constrained
+        }
+      )
+      const exchange = new Reader(yield* handler.compound(call([exchangeId("rpc-bounds")])), limits)
+      exchange.uint32()
+      exchange.string()
+      exchange.uint32()
+      exchange.uint32()
+      exchange.uint32()
+      const client = exchange.uint64()
+      const created = new Reader(
+        yield* handler.compound(call([(writer) => {
+          writer.uint32(Operation.CREATE_SESSION).uint64(client).uint32(1).uint32(0)
+          channel(writer, 2)
+          channel(writer, 0)
+          writer.uint32(0).uint32(0)
+        }])),
+        limits
+      )
+      assert.strictEqual(created.uint32(), Status.OK)
+      created.string()
+      created.uint32()
+      created.uint32()
+      created.uint32()
+      const session = created.fixedOpaque(16)
+      created.uint32()
+      created.uint32()
+      assert.strictEqual(created.uint32(), 0)
+      assert.strictEqual(created.uint32(), 2_048)
+      assert.strictEqual(created.uint32(), 2_048)
+
+      const oversized = { ...call([sequence(session, 1)]), requestBytes: 2_049 }
+      assert.strictEqual(new Reader(yield* handler.compound(oversized), limits).uint32(), Status.REQ_TOO_BIG)
+    }))
+
   it.effect("returns BADXDR before a malformed read-only mutation can report ROFS", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const malformed = new Writer().string("bad").uint32(1).uint32(1).uint32(Operation.WRITE).fixedOpaque(
@@ -364,7 +413,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const valid = call([]).arguments
@@ -390,7 +439,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const exchange = new Reader(yield* handler.compound(call([exchangeId("client")])), limits)
@@ -434,7 +483,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const caller = yield* (yield* Vfs.make()).caller()
       const constrained = { ...limits, maxSessions: 1 }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const exchange = new Reader(yield* handler.compound(call([exchangeId("create-replay")])), limits)
@@ -476,7 +525,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const { session } = yield* startSession(handler, "uncached-replay")
@@ -494,12 +543,12 @@ describe("NFSv4.1 COMPOUND", () => {
   it.effect("leaves a slot unchanged when SEQUENCE rejects an oversized cached reply", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
-      const constrained = { ...limits, maxReplayBytes: 64 }
+      const constrained = { ...limits, maxReplayBytes: ByteSize.bytes(512) }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
-      const { session } = yield* startSession(handler, "replay-budget")
+      const { session } = yield* startSession(handler, "replay-budget", { maxCachedResponse: 64 })
       const rejected = call([
         sequence(session, 1, true),
         (writer) => writer.uint32(Operation.PUTROOTFH),
@@ -513,11 +562,32 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(new Reader(yield* handler.compound(retry), limits).uint32(), Status.OK)
     }))
 
+  it.effect("counts retained requests against the replay-memory budget", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      const constrained = { ...limits, maxReplayBytes: ByteSize.bytes(512) }
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
+      )
+      const { session } = yield* startSession(handler, "request-budget")
+      const first = call([
+        sequence(session, 1, false, 0),
+        (writer) => writer.uint32(Operation.PUTROOTFH)
+      ], "x".repeat(80))
+      assert.strictEqual(new Reader(yield* handler.compound(first), limits).uint32(), Status.OK)
+      const second = call([
+        sequence(session, 1, false, 1),
+        (writer) => writer.uint32(Operation.PUTROOTFH)
+      ], "x".repeat(80))
+      assert.strictEqual(new Reader(yield* handler.compound(second), limits).uint32(), Status.RESOURCE)
+    }))
+
   it.effect("rejects a different request that reuses a cached slot sequence", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const { session } = yield* startSession(handler, "false-retry")
@@ -553,9 +623,9 @@ describe("NFSv4.1 COMPOUND", () => {
   it.effect("replaces a slot's cached reply without double-counting its old bytes", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
-      const constrained = { ...limits, maxReplayBytes: 600 }
+      const constrained = { ...limits, maxReplayBytes: ByteSize.bytes(1_024) }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const { session } = yield* startSession(handler, "replace-replay")
@@ -575,7 +645,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const caller = yield* (yield* Vfs.make()).caller()
       const constrained = { ...limits, maxClients: 1, maxSessions: 1 }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const first = yield* startSession(handler, "restarted-client")
@@ -607,7 +677,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const caller = yield* (yield* Vfs.make()).caller()
       const constrained = { ...limits, maxClients: 1 }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const original = yield* startSession(handler, "abandoned-restart")
@@ -648,7 +718,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const caller = yield* (yield* Vfs.make()).caller()
       const constrained = { ...limits, maxClients: 2, maxPendingClientReplacements: 1 }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       yield* startSession(handler, "pending-a")
@@ -690,7 +760,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const { session } = yield* startSession(handler, "destroy-order")
@@ -713,7 +783,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const { session } = yield* startSession(handler, "unsequenced-destroy-order")
@@ -736,9 +806,9 @@ describe("NFSv4.1 COMPOUND", () => {
   it.effect("releases cached replay capacity when DESTROY_SESSION removes its session", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
-      const constrained = { ...limits, maxClients: 8, maxSessions: 1, maxReplayBytes: 600 }
+      const constrained = { ...limits, maxClients: 8, maxSessions: 1, maxReplayBytes: ByteSize.bytes(1_024) }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       for (let index = 0; index < 4; index++) {
@@ -780,7 +850,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 })
+      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
       let opens = 0
       const export_ = {
         ...base,
@@ -802,12 +872,44 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(opens, 1)
     }))
 
+  it.effect("reports read-only access and non-atomic name resolution for OPEN", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        { leaseDurationSeconds: 30, generation, now: () => 0, limits }
+      )
+      const client = yield* startSession(handler, "open-contract")
+      const writeAccess = call([
+        sequence(client.session, 1),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        openByName(client.client, "file", 2)
+      ])
+      assert.strictEqual(new Reader(yield* handler.compound(writeAccess), limits).uint32(), Status.ROFS)
+      const denyRead = call([
+        sequence(client.session, 2),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        openByName(client.client, "file", 1, 1)
+      ])
+      assert.strictEqual(new Reader(yield* handler.compound(denyRead), limits).uint32(), Status.OPENMODE)
+      const opened = parseOpen(
+        yield* handler.compound(call([
+          sequence(client.session, 3),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openReadOnly(client.client, "file"),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
+      assert.isFalse(opened.atomic)
+    }))
+
   it.effect("requires a first SEQUENCE and keeps another client from using an open stateid", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1, 2]), { access: "write", create: "exclusive" })
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       assert.strictEqual(
@@ -843,7 +945,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1, 2]), { access: "write", create: "exclusive" })
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const client = yield* startSession(handler, "reader")
@@ -905,7 +1007,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const export_ = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 })
+      const export_ = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
       const root = yield* caller.rootReference
       const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
       const filehandle = yield* export_.handleFor(reference)
@@ -934,7 +1036,7 @@ describe("NFSv4.1 COMPOUND", () => {
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       yield* caller.symlink("file", "/link")
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const client = yield* startSession(handler, "browser")
@@ -1036,7 +1138,7 @@ describe("NFSv4.1 COMPOUND", () => {
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const root = yield* caller.rootReference
       const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
-      const export_ = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 })
+      const export_ = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
       const filehandle = yield* export_.handleFor(reference)
       const handler = yield* makeNfs4Handler(
         export_,
@@ -1055,9 +1157,9 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.symlink("12345678901234567", "/link")
-      const constrained = { ...limits, maxStringBytes: 16 }
+      const constrained = { ...limits, maxStringBytes: ByteSize.bytes(16) }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const { session } = yield* startSession(handler, "link-bound")
@@ -1080,7 +1182,7 @@ describe("NFSv4.1 COMPOUND", () => {
       yield* caller.writeFile("/a", new Uint8Array([1]), { access: "write", create: "exclusive" })
       yield* caller.writeFile("/b", new Uint8Array([2]), { access: "write", create: "exclusive" })
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 1, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 1, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const { session } = yield* startSession(handler, "attribute-free-readdir")
@@ -1106,7 +1208,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const caller = yield* volume.caller()
       const constrained = { ...limits, maxReaddirEntries: 1 }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const { session } = yield* startSession(handler, "pagination")
@@ -1166,7 +1268,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const { session } = yield* startSession(handler, "zero-dircount")
@@ -1186,7 +1288,7 @@ describe("NFSv4.1 COMPOUND", () => {
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const constrained = { ...limits, maxOpens: 1 }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const { client, session } = yield* startSession(handler, "invalid-open-access")
@@ -1214,7 +1316,7 @@ describe("NFSv4.1 COMPOUND", () => {
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const constrained = { ...limits, maxOpens: 1 }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const { client, session } = yield* startSession(handler, "repeated-open")
@@ -1254,7 +1356,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const { client, session } = yield* startSession(handler, "special-stateids")
@@ -1302,7 +1404,9 @@ describe("NFSv4.1 COMPOUND", () => {
             sequence(session, 4),
             (writer) => writer.uint32(Operation.PUTROOTFH),
             (writer) => writer.uint32(Operation.LOOKUP).string("file"),
-            (writer) => writer.uint32(Operation.READ).fixedOpaque(anonymous).uint64(0n).uint32(limits.maxReadBytes + 1)
+            (writer) =>
+              writer.uint32(Operation.READ).fixedOpaque(anonymous).uint64(0n)
+                .uint32(ByteSize.toNumberUnsafe(limits.maxReadBytes) + 1)
           ])),
           limits
         ).uint32(),
@@ -1325,9 +1429,9 @@ describe("NFSv4.1 COMPOUND", () => {
   it.effect("enforces negotiated channel operation and cached-reply limits before advancing a slot", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
-      const constrained = { ...limits, maxReplayBytes: 580 }
+      const constrained = { ...limits, maxReplayBytes: ByteSize.bytes(580) }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const operationsSession = yield* startSession(handler, "channel-operations", { maxOperations: 2 })
@@ -1365,7 +1469,7 @@ describe("NFSv4.1 COMPOUND", () => {
       yield* caller.link("/file", "/alias")
       yield* caller.chmod("/file", 0o640)
       yield* caller.chown("/file", { uid: 501, gid: 20 })
-      const export_ = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 })
+      const export_ = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
       const root = yield* caller.rootReference
       const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
       const observation = yield* caller.observeMetadata(reference)
@@ -1416,7 +1520,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(values.uint32(), Status.OK)
       assert.deepStrictEqual(values.opaque(), expectedHandle)
       assert.strictEqual(values.uint64(), observation.value.ino)
-      assert.strictEqual(values.uint32(), limits.maxNameBytes)
+      assert.strictEqual(values.uint32(), ByteSize.toNumberUnsafe(limits.maxNameBytes))
       assert.strictEqual(values.uint64(), BigInt(limits.maxReadBytes))
       assert.strictEqual(values.uint64(), BigInt(limits.maxWriteBytes))
       assert.strictEqual(values.uint32(), 0o640)
@@ -1449,7 +1553,7 @@ describe("NFSv4.1 COMPOUND", () => {
         modification: { kind: "omit" }
       })
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const { session } = yield* startSession(handler, "timestamp-bounds")
@@ -1494,9 +1598,9 @@ describe("NFSv4.1 COMPOUND", () => {
       const caller = yield* (yield* Vfs.make()).caller()
       const bytes = new Uint8Array([0, 1, 2, 3, 4, 5, 6])
       yield* caller.writeFile("/file", bytes, { access: "write", create: "exclusive" })
-      const constrained = { ...limits, maxReadBytes: 3 }
+      const constrained = { ...limits, maxReadBytes: ByteSize.bytes(3) }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const client = yield* startSession(handler, "offset-reader")
@@ -1561,7 +1665,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const original = new Uint8Array([1, 2, 3])
       yield* caller.writeFile("/file", original, { access: "write", create: "exclusive" })
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const client = yield* startSession(handler, "mutations")
@@ -1616,7 +1720,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
       const constrained = { ...limits, maxClients: 1, maxSessions: 1, maxOpens: 1 }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 1, generation, now: () => now, limits: constrained }
       )
       const first = yield* startSession(handler, "expires")
@@ -1643,7 +1747,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
       const scope = yield* Scope.make()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       ).pipe(Effect.provideService(Scope.Scope, scope))
       const client = yield* startSession(handler, "handler-finalizer")
@@ -1667,7 +1771,7 @@ describe("NFSv4.1 COMPOUND", () => {
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const constrained = { ...limits, maxSessions: 1, maxOpens: 1 }
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
       )
       const first = yield* startSession(handler, "first-capacity")
@@ -1755,7 +1859,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const root = yield* caller.rootReference
       const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const client = yield* startSession(handler, "destroy-client")
@@ -1841,7 +1945,7 @@ describe("NFSv4.1 COMPOUND", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: 255 }),
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
         { leaseDurationSeconds: 30, generation, now: () => 0, limits }
       )
       const client = yield* startSession(handler, "decode")

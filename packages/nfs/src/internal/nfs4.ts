@@ -1,4 +1,5 @@
 import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
@@ -93,21 +94,22 @@ const EXCHGID4_FLAG_CONFIRMED_R = 0x8000_0000
 const EXCHGID4_ALLOWED_ARGUMENT_FLAGS = 0x4007_0103
 
 export interface Nfs4Limits extends DecodeLimits {
-  readonly maxCompoundBytes: number
+  readonly maxRecordBytes: ByteSize.ByteSize
+  readonly maxCompoundBytes: ByteSize.ByteSize
   readonly maxOperations: number
   readonly maxBitmapWords: number
   readonly maxClients: number
   readonly maxPendingClientReplacements: number
   readonly maxSessions: number
   readonly maxSlotsPerSession: number
-  readonly maxReplayBytes: number
+  readonly maxReplayBytes: ByteSize.ByteSize
   readonly maxOpens: number
-  readonly maxOwnerBytes: number
-  readonly maxReadBytes: number
-  readonly maxWriteBytes: number
+  readonly maxOwnerBytes: ByteSize.ByteSize
+  readonly maxReadBytes: ByteSize.ByteSize
+  readonly maxWriteBytes: ByteSize.ByteSize
   readonly maxReaddirEntries: number
-  readonly maxReaddirReplyBytes: number
-  readonly maxNameBytes: number
+  readonly maxReaddirReplyBytes: ByteSize.ByteSize
+  readonly maxNameBytes: ByteSize.ByteSize
 }
 
 export interface Nfs4Options {
@@ -254,6 +256,7 @@ interface ClientState {
     readonly credentials: string
     readonly status: number
     readonly body?: Uint8Array
+    readonly retainedBytes: ByteSize.ByteSize
   } | undefined
 }
 
@@ -262,7 +265,7 @@ interface ReplaySlot {
   response?: Uint8Array
   request?: Uint8Array
   credentials?: string
-  cachedBytes?: number
+  retainedBytes?: ByteSize.ByteSize
 }
 
 interface SessionState {
@@ -290,9 +293,18 @@ const assertOptions = (options: Nfs4Options): void => {
   }
   if (options.generation.length !== 16) throw new RangeError("generation must contain exactly 16 bytes")
   for (const [name, value] of Object.entries(options.limits)) {
-    if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`)
+    if (typeof value === "bigint") {
+      if (value <= 0n) throw new RangeError(`${name} must be a positive byte size`)
+    } else if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new RangeError(`${name} must be a positive safe integer`)
+    }
   }
 }
+
+const byteLength = (length: number): ByteSize.ByteSize => ByteSize.bytes(length)
+const addBytes = (left: ByteSize.ByteSize, right: ByteSize.ByteSize): ByteSize.ByteSize => ByteSize.sum(left, right)
+const subtractBytes = (left: ByteSize.ByteSize, right: ByteSize.ByteSize): ByteSize.ByteSize =>
+  ByteSize.bytes(left - right)
 
 const bytesKey = (bytes: Uint8Array): string => {
   let result = ""
@@ -572,7 +584,7 @@ const decodeOperation = (reader: Reader, limits: Nfs4Limits): ParsedOperation =>
 }
 
 const parseCompound = (bytes: Uint8Array, limits: Nfs4Limits) => {
-  if (bytes.length > limits.maxCompoundBytes) throw new XdrDecodeError("COMPOUND exceeds byte limit")
+  if (byteLength(bytes.length) > limits.maxCompoundBytes) throw new XdrDecodeError("COMPOUND exceeds byte limit")
   const reader = new Reader(bytes, limits)
   const tag = reader.opaque(limits.maxStringBytes)
   const minor = reader.uint32()
@@ -687,7 +699,7 @@ const requestedAttributes = (words: ReadonlyArray<number>): ReadonlyArray<number
   return result
 }
 
-const isValidName = (name: Uint8Array, maxNameBytes: number): boolean => {
+const isValidName = (name: Uint8Array, maxNameBytes: ByteSize.ByteSize): boolean => {
   try {
     validateName(name, maxNameBytes)
     return true
@@ -760,13 +772,13 @@ const encodeAttributes = (
         values.uint64(BigInt.asUintN(64, metadata.ino))
         break
       case 29:
-        values.uint32(options.limits.maxNameBytes)
+        values.uint32(ByteSize.toNumberUnsafe(options.limits.maxNameBytes))
         break
       case 30:
-        values.uint64(BigInt(options.limits.maxReadBytes))
+        values.uint64(options.limits.maxReadBytes)
         break
       case 31:
-        values.uint64(BigInt(options.limits.maxWriteBytes))
+        values.uint64(options.limits.maxWriteBytes)
         break
       case 33:
         values.uint32(metadata.mode)
@@ -846,16 +858,16 @@ const replayReplyBound = (
   for (const operation of operations) {
     if (operation.kind === "Read") {
       const count = operation.value.count
-      bytes += 32 + Math.min(count, limits.maxReadBytes)
+      bytes += 32 + Math.min(count, ByteSize.toNumberUnsafe(limits.maxReadBytes))
     } else if (operation.kind === "Readdir") {
       const maxcount = operation.value.maxcount
-      bytes += 32 + Math.min(maxcount, limits.maxReaddirReplyBytes)
+      bytes += 32 + Math.min(maxcount, ByteSize.toNumberUnsafe(limits.maxReaddirReplyBytes))
     } else if (operation.kind === "Getattr") {
-      bytes += 256 + limits.maxStringBytes * 2
+      bytes += 256 + ByteSize.toNumberUnsafe(limits.maxStringBytes) * 2
     } else if (operation.kind === "Getfh") {
       bytes += 64
     } else if (operation.kind === "Readlink") {
-      bytes += 32 + limits.maxStringBytes
+      bytes += 32 + ByteSize.toNumberUnsafe(limits.maxStringBytes)
     } else {
       bytes += 256
     }
@@ -877,14 +889,19 @@ export const makeNfs4Handler = (
     let clientSerial = 1n
     let sessionSerial = 1n
     let openSerial = 1n
-    let replayBytes = 0
+    let replayBytes = ByteSize.bytes(0)
+    const maxRpcRequestBytes = ByteSize.min(options.limits.maxRecordBytes, options.limits.maxCompoundBytes)
+    const maxRpcResponseBytes = ByteSize.min(options.limits.maxRecordBytes, options.limits.maxCompoundBytes)
+    const rpcReplyOverheadBytes = ByteSize.bytes(24)
     const stateGate = Semaphore.makeUnsafe(1)
 
     const revokeClient = (client: ClientState): Effect.Effect<void> =>
       Effect.gen(function*() {
         for (const [key, session] of sessions) {
           if (session.client !== client) continue
-          for (const slot of session.slots) replayBytes -= slot.cachedBytes ?? 0
+          for (const slot of session.slots) {
+            replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
+          }
           sessions.delete(key)
         }
         for (const [key, open] of opens) {
@@ -894,7 +911,13 @@ export const makeNfs4Handler = (
         }
       })
 
+    const releaseCreateSessionReplay = (client: ClientState): void => {
+      replayBytes = subtractBytes(replayBytes, client.createSessionReplay?.retainedBytes ?? ByteSize.bytes(0))
+      client.createSessionReplay = undefined
+    }
+
     const removeClientRecord = (client: ClientState): void => {
+      releaseCreateSessionReplay(client)
       clients.delete(client.id)
       if (clientsByOwner.get(client.owner) !== client) return
       if (client.previous !== undefined && clients.has(client.previous.id)) {
@@ -998,18 +1021,21 @@ export const makeNfs4Handler = (
 
           const response = encodeCompound(parsed.tag, parts)
           if (activeSlot !== undefined && shouldCache) {
+            const retainedBytes = addBytes(byteLength(call.arguments.length), byteLength(response.length))
             if (
-              response.length > options.limits.maxReplayBytes ||
-              replayBytes + response.length > options.limits.maxReplayBytes
+              retainedBytes > options.limits.maxReplayBytes ||
+              addBytes(replayBytes, retainedBytes) > options.limits.maxReplayBytes
             ) {
+              rollbackSequence?.()
+              rollbackSequence = undefined
               return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.RESOURCE }])
             }
-            replayBytes -= activeSlot.cachedBytes ?? 0
+            replayBytes = subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0))
             activeSlot.response = new Uint8Array(response)
             activeSlot.request = new Uint8Array(call.arguments)
             activeSlot.credentials = credentialsKey(call.credentials)
-            activeSlot.cachedBytes = response.length
-            replayBytes += response.length
+            activeSlot.retainedBytes = retainedBytes
+            replayBytes = addBytes(replayBytes, retainedBytes)
           } else if (activeSlot !== undefined) {
             const sequencePart = parts[0]!
             const second = parsed.operations[1]
@@ -1019,10 +1045,17 @@ export const makeNfs4Handler = (
                 sequencePart,
                 { code: second.code, status: Status.RETRY_UNCACHED_REP }
               ])
+            const retainedBytes = addBytes(byteLength(call.arguments.length), byteLength(replay.length))
+            if (addBytes(replayBytes, retainedBytes) > options.limits.maxReplayBytes) {
+              rollbackSequence?.()
+              rollbackSequence = undefined
+              return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.RESOURCE }])
+            }
             activeSlot.response = replay
             activeSlot.request = new Uint8Array(call.arguments)
             activeSlot.credentials = credentialsKey(call.credentials)
-            activeSlot.cachedBytes = 0
+            activeSlot.retainedBytes = retainedBytes
+            replayBytes = addBytes(replayBytes, retainedBytes)
           }
           rollbackSequence = undefined
           return response
@@ -1139,12 +1172,20 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.SEQ_MISORDERED })
                 }
                 const complete = (status: number, body?: Uint8Array): ResultPart => {
+                  const previousRetainedBytes = client.createSessionReplay?.retainedBytes ?? ByteSize.bytes(0)
+                  const retainedBytes = addBytes(
+                    byteLength(call.arguments.length),
+                    byteLength(body?.length ?? 0)
+                  )
+                  replayBytes = subtractBytes(replayBytes, previousRetainedBytes)
+                  replayBytes = addBytes(replayBytes, retainedBytes)
                   client.sequence = nextSequenceId(client.sequence)
                   client.createSessionReplay = {
                     sequence: value.sequence,
                     request: new Uint8Array(call.arguments),
                     credentials: credentialsKey(call.credentials),
                     status,
+                    retainedBytes,
                     ...(body === undefined ? {} : { body: new Uint8Array(body) })
                   }
                   return body === undefined
@@ -1152,6 +1193,13 @@ export const makeNfs4Handler = (
                     : { code: operation.code, status, body }
                 }
                 return Effect.gen(function*() {
+                  const previousRetainedBytes = client.createSessionReplay?.retainedBytes ?? ByteSize.bytes(0)
+                  if (
+                    addBytes(byteLength(call.arguments.length), ByteSize.bytes(80)) >
+                      subtractBytes(options.limits.maxReplayBytes, subtractBytes(replayBytes, previousRetainedBytes))
+                  ) {
+                    return { code: operation.code, status: Status.RESOURCE }
+                  }
                   if (client.previous !== undefined) {
                     const previousSessions = [...sessions.values()].filter((session) =>
                       session.client === client.previous
@@ -1160,7 +1208,7 @@ export const makeNfs4Handler = (
                       return complete(Status.RESOURCE)
                     }
                     yield* revokeClient(client.previous)
-                    clients.delete(client.previous.id)
+                    removeClientRecord(client.previous)
                   } else if (sessions.size >= options.limits.maxSessions) {
                     return complete(Status.RESOURCE)
                   }
@@ -1169,9 +1217,12 @@ export const makeNfs4Handler = (
                   const id = makeOpaqueId(options.generation, sessionSerial++)
                   const fore: ChannelAttrs = {
                     headerPadding: 0,
-                    maxRequest: Math.min(value.fore.maxRequest, options.limits.maxCompoundBytes),
-                    maxResponse: Math.min(value.fore.maxResponse, options.limits.maxCompoundBytes),
-                    maxCachedResponse: Math.min(value.fore.maxCachedResponse, options.limits.maxReplayBytes),
+                    maxRequest: Math.min(value.fore.maxRequest, ByteSize.toNumberUnsafe(maxRpcRequestBytes)),
+                    maxResponse: Math.min(value.fore.maxResponse, ByteSize.toNumberUnsafe(maxRpcResponseBytes)),
+                    maxCachedResponse: Math.min(
+                      value.fore.maxCachedResponse,
+                      ByteSize.toNumberUnsafe(options.limits.maxReplayBytes)
+                    ),
                     maxOperations: Math.min(value.fore.maxOperations, options.limits.maxOperations),
                     maxRequests: slotCount,
                     rdmaIrd: []
@@ -1208,25 +1259,33 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.BAD_HIGH_SLOT })
                 }
                 const slot = session.slots[value.slot]!
-                if (call.arguments.length > session.fore.maxRequest) {
+                if ((call.requestBytes ?? call.arguments.length) > session.fore.maxRequest) {
                   return Effect.succeed({ code: operation.code, status: Status.REQ_TOO_BIG })
                 }
                 if (parsed.operations.length > session.fore.maxOperations) {
                   return Effect.succeed({ code: operation.code, status: Status.TOO_MANY_OPS })
                 }
                 const replyBound = replayReplyBound(parsed.operations, options.limits, parsed.tag.length)
-                if (replyBound > session.fore.maxResponse) {
+                const rpcReplyBound = addBytes(byteLength(replyBound), rpcReplyOverheadBytes)
+                if (rpcReplyBound > byteLength(session.fore.maxResponse)) {
                   return Effect.succeed({ code: operation.code, status: Status.REP_TOO_BIG })
                 }
-                if (value.cache && replyBound > session.fore.maxCachedResponse) {
+                if (value.cache && rpcReplyBound > byteLength(session.fore.maxCachedResponse)) {
                   return Effect.succeed({ code: operation.code, status: Status.REP_TOO_BIG_TO_CACHE })
                 }
                 if (value.sequence !== nextSequenceId(slot.sequence)) {
                   return Effect.succeed({ code: operation.code, status: Status.SEQ_MISORDERED })
                 }
+                const uncachedReplayBound = 96 + parsed.tag.length + (4 - parsed.tag.length % 4) % 4
+                const retainedBound = addBytes(
+                  byteLength(call.arguments.length),
+                  byteLength(value.cache ? replyBound : uncachedReplayBound)
+                )
                 if (
-                  value.cache &&
-                  replyBound > options.limits.maxReplayBytes - (replayBytes - (slot.cachedBytes ?? 0))
+                  retainedBound > subtractBytes(
+                    options.limits.maxReplayBytes,
+                    subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
+                  )
                 ) {
                   return Effect.succeed({ code: operation.code, status: Status.RESOURCE })
                 }
@@ -1235,7 +1294,7 @@ export const makeNfs4Handler = (
                   response: slot.response,
                   request: slot.request,
                   credentials: slot.credentials,
-                  cachedBytes: slot.cachedBytes
+                  retainedBytes: slot.retainedBytes
                 }
                 const previousReplayBytes = replayBytes
                 rollbackSequence = () => {
@@ -1247,16 +1306,17 @@ export const makeNfs4Handler = (
                   else slot.request = previousSlot.request
                   if (previousSlot.credentials === undefined) delete slot.credentials
                   else slot.credentials = previousSlot.credentials
-                  if (previousSlot.cachedBytes === undefined) delete slot.cachedBytes
-                  else slot.cachedBytes = previousSlot.cachedBytes
+                  if (previousSlot.retainedBytes === undefined) delete slot.retainedBytes
+                  else slot.retainedBytes = previousSlot.retainedBytes
                 }
-                replayBytes -= slot.cachedBytes ?? 0
+                replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
                 slot.sequence = value.sequence
                 delete slot.response
                 delete slot.request
                 delete slot.credentials
-                delete slot.cachedBytes
+                delete slot.retainedBytes
                 session.client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
+                releaseCreateSessionReplay(session.client)
                 activeSession = session
                 activeSlot = slot
                 shouldCache = value.cache
@@ -1289,7 +1349,7 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.NOT_ONLY_OP })
                 }
                 for (const slot of session.slots) {
-                  replayBytes -= slot.cachedBytes ?? 0
+                  replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
                 }
                 sessions.delete(key)
                 if (session === activeSession) {
@@ -1402,7 +1462,7 @@ export const makeNfs4Handler = (
                   withCurrent((reference) =>
                     mapFs(export_.readLink(reference)).pipe(
                       Effect.filterOrFail(
-                        (target) => target.length <= options.limits.maxStringBytes,
+                        (target) => byteLength(target.length) <= options.limits.maxStringBytes,
                         () => Status.RESOURCE
                       )
                     )
@@ -1434,7 +1494,10 @@ export const makeNfs4Handler = (
                       const writer = new Writer().fixedOpaque(verifier)
                       let count = 0
                       let directoryBytes = 0
-                      const responseLimit = Math.min(value.maxcount, options.limits.maxReaddirReplyBytes)
+                      const responseLimit = Math.min(
+                        value.maxcount,
+                        ByteSize.toNumberUnsafe(options.limits.maxReaddirReplyBytes)
+                      )
                       if (responseLimit < 16) {
                         return { code: operation.code, status: Status.TOOSMALL } satisfies ResultPart
                       }
@@ -1500,7 +1563,10 @@ export const makeNfs4Handler = (
                 if (value.access === 0 || (value.access & ~3) !== 0) {
                   return Effect.succeed({ code: operation.code, status: Status.INVAL })
                 }
-                if ((value.access & 2) !== 0 || value.deny !== 0) {
+                if ((value.access & 2) !== 0) {
+                  return Effect.succeed({ code: operation.code, status: Status.ROFS })
+                }
+                if (value.deny !== 0) {
                   return Effect.succeed({ code: operation.code, status: Status.OPENMODE })
                 }
                 const target = value.claim === 4
@@ -1531,7 +1597,7 @@ export const makeNfs4Handler = (
                             existing.sequence
                           )
                           current = reference
-                          return Effect.succeed(openResult(existing.id, revision))
+                          return Effect.succeed(openResult(existing.id, revision, value.claim === 4))
                         }
                         if (opens.size >= options.limits.maxOpens) {
                           return Effect.succeed({ code: operation.code, status: Status.RESOURCE } satisfies ResultPart)
@@ -1550,7 +1616,7 @@ export const makeNfs4Handler = (
                               close: opened.close
                             })
                             current = reference
-                            return openResult(id, revision)
+                            return openResult(id, revision, value.claim === 4)
                           })
                         )
                       })
@@ -1559,10 +1625,10 @@ export const makeNfs4Handler = (
                   Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
                 )
 
-                function openResult(id: Uint8Array, revision: bigint): ResultPart {
+                function openResult(id: Uint8Array, revision: bigint, atomic: boolean): ResultPart {
                   currentStateid = id
                   const body = encodeStatusBody((writer) => {
-                    writer.fixedOpaque(id).boolean(true)
+                    writer.fixedOpaque(id).boolean(atomic)
                       .uint64(BigInt.asUintN(64, revision))
                       .uint64(BigInt.asUintN(64, revision)).uint32(0)
                     writeBitmap(writer, [])
@@ -1574,7 +1640,7 @@ export const makeNfs4Handler = (
               case "Read": {
                 const value = operation.value
                 if (current === undefined) return Effect.succeed(noCurrent())
-                if (value.count > options.limits.maxReadBytes) {
+                if (byteLength(value.count) > options.limits.maxReadBytes) {
                   return Effect.succeed({ code: operation.code, status: Status.RESOURCE })
                 }
                 if (isAllZero(value.stateid) || isAllOnes(value.stateid)) {
