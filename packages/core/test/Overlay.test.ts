@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { setObservationHook } from "../src/internal/overlayTesting.js"
+import { setObservationHook } from "../src/internal/virtualFileSystem/testHooks.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
 const text = (value: Uint8Array) => new TextDecoder().decode(value)

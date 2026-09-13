@@ -9,11 +9,13 @@ sources:
     title: Public snapshot model and limits
   - resource: ../../packages/core/src/internal/image.ts
     title: Snapshot image codec
+  - resource: ../../packages/core/src/internal/virtualFileSystem/fixture.ts
+    title: Fixture image builder
   - resource: ../../packages/core/test/Snapshot.test.ts
     title: Snapshot and restoration tests
   - resource: ../../packages/core/test/SnapshotDecoding.test.ts
     title: Hostile image decoding tests
-generated: { by: codex/okf, at: 2026-09-12T11:20:00Z }
+generated: { by: codex/okf, at: 2026-09-13T19:05:00+02:00 }
 ---
 
 # Snapshots and fixtures

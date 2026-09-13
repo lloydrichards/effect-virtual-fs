@@ -4,7 +4,7 @@ import {
   type ObservationEntry,
   type ObservationMetadata,
   type RawOverlayChange
-} from "../src/internal/overlayChanges.js"
+} from "../src/internal/virtualFileSystem/overlayDiff.js"
 
 const encoder = new TextEncoder()
 const path = (value: string): Uint8Array => encoder.encode(value)

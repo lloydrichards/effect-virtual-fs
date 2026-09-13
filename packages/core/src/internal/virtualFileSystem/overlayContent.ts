@@ -3,8 +3,8 @@
  *
  * @internal
  */
-import type { Snapshot } from "../Snapshot.js"
-import * as Image from "./image.js"
+import type { Snapshot } from "../../Snapshot.js"
+import * as Image from "../image.js"
 
 /** @internal */
 export interface Content {

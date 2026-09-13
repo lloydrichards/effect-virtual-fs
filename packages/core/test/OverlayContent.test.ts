@@ -1,8 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import * as Content from "../src/internal/content.js"
 import * as Image from "../src/internal/image.js"
+import * as Content from "../src/internal/virtualFileSystem/overlayContent.js"
 
 describe("overlay content storage", () => {
   it.effect("should detach promoted content while untouched siblings keep sharing the immutable base payload", () =>
