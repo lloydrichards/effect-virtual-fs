@@ -1,4 +1,4 @@
-/** Opaque snapshot-delta representation and authenticity checks. @internal */
+// Opaque snapshot-delta representation and authenticity checks.
 import type { SnapshotDelta } from "../SnapshotDelta.js"
 
 /** @internal */

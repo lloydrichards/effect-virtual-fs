@@ -1,4 +1,4 @@
-/** Fixture image construction. @internal */
+// Fixture image construction.
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -14,12 +14,7 @@ import {
 } from "../virtualFileSystem.js"
 import { attachedBuffer, decodeConfiguration, failure, nameBytes, preparePath, wellFormed } from "./path.js"
 
-/**
- * Builds a fresh volume from a validated final-state fixture.
- *
- * @category constructors
- * @since 0.1.0
- */
+/** @internal */
 export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
   function*(fixture: Fixture, options?: VolumeOptions) {
     const config = decodeConfiguration(VolumeOptionsSchema, options ?? {})

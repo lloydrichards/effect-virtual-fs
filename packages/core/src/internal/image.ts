@@ -1,8 +1,4 @@
-/**
- * Snapshot validation and serialization used by `VirtualFileSystem`.
- *
- * @internal
- */
+// Snapshot validation and serialization used by VirtualFileSystem.
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
@@ -16,6 +12,7 @@ class SnapshotImpl implements Snapshot {
 }
 
 const integer = Schema.String.check(Schema.isPattern(/^(?:0|-?[1-9][0-9]{0,127})(?![\s\S])/))
+
 /** @internal */
 export const StoredMetadata = Schema.Struct({
   uid: Schema.Natural,
@@ -26,9 +23,12 @@ export const StoredMetadata = Schema.Struct({
   ctimeNs: integer,
   birthtimeNs: integer
 })
+
 /** @internal */
 export type StoredMetadata = typeof StoredMetadata.Type
+
 const id = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128))
+
 /** @internal */
 export const Record = Schema.Union([
   Schema.Struct({
@@ -40,8 +40,10 @@ export const Record = Schema.Union([
   Schema.Struct({ id, kind: Schema.Literal("file"), metadata: StoredMetadata, data: Schema.String }),
   Schema.Struct({ id, kind: Schema.Literal("symlink"), metadata: StoredMetadata, target: Schema.String })
 ])
+
 /** @internal */
 export type Record = typeof Record.Type
+
 /** @internal */
 export const Document = Schema.Struct({
   format: Schema.Literal("effect-vfs"),
@@ -49,11 +51,15 @@ export const Document = Schema.Struct({
   root: id,
   records: Schema.Array(Record)
 })
+
 /** @internal */
 export type Document = typeof Document.Type
+
 const snapshots = new WeakMap<Snapshot, Document>()
+
 /** @internal */
 export const decodedLength = CanonicalBase64.decodedLength
+
 /** @internal */
 export const base64 = (input: Uint8Array): string => {
   // Effect's encoder concatenates individual characters. Join bounded chunks so snapshots
@@ -66,12 +72,15 @@ export const base64 = (input: Uint8Array): string => {
   }
   return chunks.join("")
 }
+
 const error = (code: ImageError["code"], field?: string) =>
   new ImageError({ code, ...(field === undefined ? {} : { field }) })
+
 /** @internal */
 export const bytes = (value: string): Uint8Array => {
   return CanonicalBase64.decodeTrusted(value)
 }
+
 /** @internal */
 export const inspect = (snapshot: Snapshot): Effect.Effect<Document, ImageError> =>
   Effect.suspend(() => {
@@ -161,6 +170,7 @@ export const encodeSnapshot = Effect.fn("VirtualFileSystem.encodeSnapshot")(func
   )
   return new TextEncoder().encode(text)
 })
+
 /** @internal */
 export const decodeSnapshot = Effect.fn("VirtualFileSystem.decodeSnapshot")(
   function*(input: Uint8Array, limits: DecodeLimits) {

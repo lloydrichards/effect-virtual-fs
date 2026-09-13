@@ -57,6 +57,7 @@ export type PathInput = string | BytePath
  * @since 0.1.0
  */
 export const FsCode: typeof VfsModel.FsCode = VfsModel.FsCode
+
 /**
  * A portable virtual filesystem error code.
  *
@@ -64,6 +65,7 @@ export const FsCode: typeof VfsModel.FsCode = VfsModel.FsCode
  * @since 0.1.0
  */
 export type FsCode = typeof FsCode.Type
+
 /**
  * Describes an expected filesystem operation failure.
  *
@@ -71,8 +73,10 @@ export type FsCode = typeof FsCode.Type
  * @since 0.1.0
  */
 export const FsError = VfsModel.FsError
+
 /** @internal */
 export interface FsError extends VfsModel.FsError {}
+
 /**
  * Describes an invalid volume or caller option and names the rejected field.
  *
@@ -80,6 +84,7 @@ export interface FsError extends VfsModel.FsError {}
  * @since 0.1.0
  */
 export const ConfigurationError = VfsModel.ConfigurationError
+
 /** @internal */
 export interface ConfigurationError extends VfsModel.ConfigurationError {}
 
@@ -90,6 +95,7 @@ export interface ConfigurationError extends VfsModel.ConfigurationError {}
  * @since 0.1.0
  */
 export const Identity: typeof VfsModel.Identity = VfsModel.Identity
+
 /**
  * A caller identity used for permission checks.
  *
@@ -97,6 +103,7 @@ export const Identity: typeof VfsModel.Identity = VfsModel.Identity
  * @since 0.1.0
  */
 export type Identity = typeof Identity.Type
+
 /**
  * Schema for root caller credentials and creation mask.
  *
@@ -104,6 +111,7 @@ export type Identity = typeof Identity.Type
  * @since 0.1.0
  */
 export const RootCallerOptions: typeof VfsModel.RootCallerOptions = VfsModel.RootCallerOptions
+
 /**
  * Options for creating a root caller on a volume.
  *
@@ -111,6 +119,7 @@ export const RootCallerOptions: typeof VfsModel.RootCallerOptions = VfsModel.Roo
  * @since 0.1.0
  */
 export type RootCallerOptions = typeof RootCallerOptions.Type
+
 /**
  * Schema for optional volume capacity and path limits.
  *
@@ -118,6 +127,7 @@ export type RootCallerOptions = typeof RootCallerOptions.Type
  * @since 0.1.0
  */
 export const VolumeOptions: typeof VfsModel.VolumeOptions = VfsModel.VolumeOptions
+
 /**
  * Capacity and path limits for a volume.
  *
@@ -133,6 +143,7 @@ export type VolumeOptions = typeof VolumeOptions.Type
  * @since 0.1.0
  */
 export const Metadata: typeof VfsModel.Metadata = VfsModel.Metadata
+
 /**
  * Metadata for a directory, regular file, or symbolic link.
  *
@@ -141,18 +152,33 @@ export const Metadata: typeof VfsModel.Metadata = VfsModel.Metadata
  */
 export type Metadata = typeof Metadata.Type
 
-/** An opaque identity for one object in one live volume. */
+/**
+ * An opaque identity for one object in one live volume.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface ObjectReference {
   readonly [ObjectReferenceId]: true
 }
 
-/** A value and the revision of the object from the same coordinated observation. */
+/**
+ * A value and the revision of the object from the same coordinated observation.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface ObjectObservation<A> {
   readonly value: A
   readonly revision: bigint
 }
 
-/** One owned directory name paired with the referenced child object. */
+/**
+ * One owned directory name paired with the referenced child object.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface DirectoryEntry {
   readonly name: Uint8Array
   readonly reference: ObjectReference
@@ -168,6 +194,7 @@ export interface RelativeOptions {
   /** Resolve relative paths from this live, same-volume handle instead of the caller's current directory. */
   readonly relativeTo?: DirectoryHandle
 }
+
 /**
  * Controls the base directory and whether metadata operations follow the final symbolic link.
  *
@@ -178,6 +205,7 @@ export interface MetadataOptions extends RelativeOptions {
   /** Follow the final symbolic link. Defaults to `true`. */
   readonly followFinalSymlink?: boolean
 }
+
 /**
  * Schema for an owner update. Omitted fields retain their existing values.
  *
@@ -185,6 +213,7 @@ export interface MetadataOptions extends RelativeOptions {
  * @since 0.1.0
  */
 export const OwnerUpdate: typeof VfsModel.OwnerUpdate = VfsModel.OwnerUpdate
+
 /**
  * An owner update for `chown` operations.
  *
@@ -192,6 +221,7 @@ export const OwnerUpdate: typeof VfsModel.OwnerUpdate = VfsModel.OwnerUpdate
  * @since 0.1.0
  */
 export type OwnerUpdate = typeof OwnerUpdate.Type
+
 /**
  * Schema for setting a timestamp to the clock, retaining it, or supplying nanoseconds.
  *
@@ -199,6 +229,7 @@ export type OwnerUpdate = typeof OwnerUpdate.Type
  * @since 0.1.0
  */
 export const TimeUpdate: typeof VfsModel.TimeUpdate = VfsModel.TimeUpdate
+
 /**
  * Schema for independent access and modification time updates.
  *
@@ -206,6 +237,7 @@ export const TimeUpdate: typeof VfsModel.TimeUpdate = VfsModel.TimeUpdate
  * @since 0.1.0
  */
 export const Times: typeof VfsModel.Times = VfsModel.Times
+
 /**
  * Access and modification time updates for `utimes` operations.
  *
@@ -213,6 +245,7 @@ export const Times: typeof VfsModel.Times = VfsModel.Times
  * @since 0.1.0
  */
 export type Times = typeof Times.Type
+
 /**
  * A scoped directory capability that can be used for metadata and relative lookup.
  *
@@ -221,11 +254,10 @@ export type Times = typeof Times.Type
  */
 export interface DirectoryHandle {
   readonly [DirectoryHandleId]: true
-  /** Reads metadata for the directory while the handle remains open. */
   readonly stat: Effect.Effect<Metadata, FsError>
-  /** Closes the handle. A repeated explicit close fails; scope cleanup remains safe. */
   readonly close: Effect.Effect<void, FsError>
 }
+
 /**
  * Schema for file seek origins, including dense-file data and hole queries.
  *
@@ -233,6 +265,7 @@ export interface DirectoryHandle {
  * @since 0.1.0
  */
 export const SeekMode: typeof VfsModel.SeekMode = VfsModel.SeekMode
+
 /**
  * The origin used by a file handle seek operation.
  *
@@ -240,6 +273,7 @@ export const SeekMode: typeof VfsModel.SeekMode = VfsModel.SeekMode
  * @since 0.1.0
  */
 export type SeekMode = typeof SeekMode.Type
+
 /**
  * Schema for file access, creation, append, truncate, and symlink behavior.
  *
@@ -247,6 +281,7 @@ export type SeekMode = typeof SeekMode.Type
  * @since 0.1.0
  */
 export const OpenSettings: typeof VfsModel.OpenSettings = VfsModel.OpenSettings
+
 /**
  * Options for acquiring a scoped file handle.
  *
@@ -262,6 +297,7 @@ export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
  * @since 0.1.0
  */
 export type WriteFileOptions = VfsModel.WriteFileOptions
+
 /**
  * A scoped regular-file capability with an independent bigint cursor.
  *
@@ -289,6 +325,7 @@ export interface FileHandle {
   /** Closes the handle. A repeated explicit close fails; scope cleanup remains safe. */
   readonly close: Effect.Effect<void, FsError>
 }
+
 /**
  * A filesystem caller with its own identity, creation mask, and current directory.
  *
@@ -320,9 +357,7 @@ export interface Caller {
     source: PathInput,
     destination: PathInput,
     options?: {
-      /** Base directory for a relative source path. */
       readonly sourceRelativeTo?: DirectoryHandle
-      /** Base directory for a relative destination path. */
       readonly destinationRelativeTo?: DirectoryHandle
     }
   ) => Effect.Effect<void, FsError>
@@ -353,11 +388,8 @@ export interface Caller {
     source: PathInput,
     destination: PathInput,
     options?: {
-      /** Base directory for a relative source path. */
       readonly sourceRelativeTo?: DirectoryHandle
-      /** Base directory for a relative destination path. */
       readonly destinationRelativeTo?: DirectoryHandle
-      /** Link to the final symbolic link's target instead of the link itself. */
       readonly followSourceSymlink?: boolean
     }
   ) => Effect.Effect<void, FsError>
@@ -388,7 +420,6 @@ export interface Caller {
   readonly mkdir: (
     path: PathInput,
     options?: RelativeOptions & {
-      /** Requested mode before applying the caller's umask. Defaults to `0o777`. */
       readonly mode?: number
     }
   ) => Effect.Effect<void, FsError>
@@ -400,6 +431,7 @@ export interface Caller {
     options?: RelativeOptions
   ) => Effect.Effect<DirectoryHandle, FsError, Scope.Scope>
 }
+
 /**
  * A committed namespace or content change emitted by a volume watch stream.
  *
@@ -412,6 +444,7 @@ export interface Change {
   /** Absolute path of the changed entry. */
   readonly path: BytePath
 }
+
 /**
  * Schema for the filesystem entry kinds reported by overlay summaries.
  *
@@ -419,6 +452,7 @@ export interface Change {
  * @since 0.1.0
  */
 export const OverlayNodeKind: typeof VfsModel.OverlayNodeKind = VfsModel.OverlayNodeKind
+
 /**
  * A filesystem entry kind reported by an overlay summary.
  *
@@ -426,6 +460,7 @@ export const OverlayNodeKind: typeof VfsModel.OverlayNodeKind = VfsModel.Overlay
  * @since 0.1.0
  */
 export type OverlayNodeKind = typeof OverlayNodeKind.Type
+
 /**
  * Schema for observable fields that can differ from an overlay's immutable base.
  *
@@ -433,6 +468,7 @@ export type OverlayNodeKind = typeof OverlayNodeKind.Type
  * @since 0.1.0
  */
 export const OverlayDifference: typeof VfsModel.OverlayDifference = VfsModel.OverlayDifference
+
 /**
  * A content, ownership, permission, or timestamp field that differs from the overlay base.
  *
@@ -440,6 +476,7 @@ export const OverlayDifference: typeof VfsModel.OverlayDifference = VfsModel.Ove
  * @since 0.1.0
  */
 export type OverlayDifference = typeof OverlayDifference.Type
+
 /**
  * Schema for a final-state overlay difference.
  *
@@ -452,6 +489,7 @@ export type OverlayDifference = typeof OverlayDifference.Type
  * @since 0.1.0
  */
 export const OverlayChange: typeof VfsModel.OverlayChange = VfsModel.OverlayChange
+
 /**
  * A path-oriented final-state difference from an overlay's immutable base.
  *
@@ -459,6 +497,7 @@ export const OverlayChange: typeof VfsModel.OverlayChange = VfsModel.OverlayChan
  * @since 0.1.0
  */
 export type OverlayChange = typeof OverlayChange.Type
+
 /**
  * Schema for overlay summary filtering.
  *
@@ -466,6 +505,7 @@ export type OverlayChange = typeof OverlayChange.Type
  * @since 0.1.0
  */
 export const OverlayChangesOptions: typeof VfsModel.OverlayChangesOptions = VfsModel.OverlayChangesOptions
+
 /**
  * Filtering options for an overlay final-difference summary.
  *
@@ -473,6 +513,7 @@ export const OverlayChangesOptions: typeof VfsModel.OverlayChangesOptions = VfsM
  * @since 0.1.0
  */
 export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
+
 /**
  * A complete snapshot and final-difference summary captured from one committed state.
  *
@@ -485,6 +526,7 @@ export interface OverlayCapture {
   /** Owned summary that describes the same state as `snapshot`. */
   readonly changes: ReadonlyArray<OverlayChange>
 }
+
 /**
  * An isolated virtual filesystem namespace that creates callers, snapshots, and watch streams.
  *
@@ -500,6 +542,7 @@ export interface Volume {
   /** Creates a caller rooted at `/` with independent credentials, umask, and current directory. */
   readonly caller: (options?: RootCallerOptions) => Effect.Effect<Caller, ConfigurationError>
 }
+
 /**
  * An ordinary volume with final-state inspection relative to one immutable snapshot base.
  *
@@ -516,6 +559,7 @@ export interface OverlayVolume extends Volume {
     options?: OverlayChangesOptions
   ) => Effect.Effect<OverlayCapture, ConfigurationError | ImageError>
 }
+
 /**
  * Optional Effect service for providing an existing filesystem caller.
  *
@@ -571,6 +615,9 @@ export const diffSnapshots = Effect.fn("VirtualFileSystem.diffSnapshots")(functi
 /**
  * Verifies an exact snapshot delta against its base and derives an owned path-oriented summary.
  * Requires the platform-neutral `Crypto.Crypto` service for base identity.
+ *
+ * @category snapshots
+ * @since 0.1.0
  */
 export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshotDelta")(function*(
   base: Snapshot,
@@ -608,6 +655,9 @@ const deltaSchemaIssue = (cause: ImageError, input: unknown, options: SchemaAST.
 /**
  * Creates an Effect Schema codec between owned bytes and opaque snapshot deltas.
  * Omission uses `SnapshotDeltaLimits.default`.
+ *
+ * @category schemas
+ * @since 0.1.0
  */
 export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
   const selected = Schema.decodeResult(SnapshotDeltaModel.SnapshotDeltaLimits, { onExcessProperty: "error" })(
@@ -665,6 +715,7 @@ export const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsError>
  * @since 0.1.0
  */
 export const Fixture: typeof VfsModel.Fixture = VfsModel.Fixture
+
 /**
  * A complete filesystem fixture accepted by `fromFixture`.
  *

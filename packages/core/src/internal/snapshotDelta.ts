@@ -1,4 +1,4 @@
-/** Exact snapshot delta construction, inspection, serialization, and application. @internal */
+// Exact snapshot delta construction, inspection, serialization, and application.
 import * as ByteSize from "effect/ByteSize"
 import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
@@ -22,10 +22,12 @@ import * as Image from "./image.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
 
 const Path = Schema.String
+
 const Payload = Schema.Union([
   Schema.TaggedStruct("Inline", { bytes: Schema.String }),
   Schema.TaggedStruct("Base", { path: Path })
 ])
+
 const Record = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("directory"), paths: Schema.Array(Path), metadata: Image.StoredMetadata }),
   Schema.Struct({
@@ -41,7 +43,9 @@ const Record = Schema.Union([
     payload: Payload
   })
 ])
+
 type Record = typeof Record.Type
+
 const Change = Schema.Union([
   Schema.TaggedStruct("Added", { path: Path, kind: SnapshotNodeKind }),
   Schema.TaggedStruct("Removed", { path: Path, kind: SnapshotNodeKind }),
@@ -52,7 +56,9 @@ const Change = Schema.Union([
     differences: Schema.Array(SnapshotDifference).check(Schema.isMinLength(1))
   })
 ])
+
 type Change = typeof Change.Type
+
 const Document = Schema.Struct({
   format: Schema.Literal("effect-vfs-delta"),
   version: Schema.Literal(1),
@@ -75,6 +81,7 @@ interface SnapshotView {
 }
 
 const timestampFields = new Set<SnapshotDifference>(["atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"])
+
 const differenceOrder = [
   "kind",
   "content",
@@ -88,11 +95,16 @@ const differenceOrder = [
   "ctimeNs",
   "birthtimeNs"
 ] as const
+
 const encoder = new TextEncoder()
+
 const Json = Schema.fromJsonString(Schema.Unknown)
+
 const failure = (code: ImageError["code"], field?: string) =>
   new ImageError({ code, ...(field === undefined ? {} : { field }) })
+
 const sameBytes = (a: Uint8Array | undefined, b: Uint8Array | undefined) => Equal.equals(a, b)
+
 const compareBytes = (a: Uint8Array, b: Uint8Array) => {
   for (let i = 0; i < Math.min(a.length, b.length); i++) {
     const d = a[i]! - b[i]!
@@ -100,7 +112,9 @@ const compareBytes = (a: Uint8Array, b: Uint8Array) => {
   }
   return a.length - b.length
 }
+
 const key = Encoding.encodeHex
+
 const join = (parent: Uint8Array, name: Uint8Array) => {
   const out = new Uint8Array(parent.length + (parent.length === 1 ? 0 : 1) + name.length)
   out.set(parent)
@@ -109,25 +123,32 @@ const join = (parent: Uint8Array, name: Uint8Array) => {
   out.set(name, offset)
   return out
 }
+
 const parentKey = (path: Uint8Array) => {
   let slash = path.length - 1
   while (slash > 0 && path[slash] !== 47) slash--
   return key(slash === 0 ? new Uint8Array([47]) : path.subarray(0, slash))
 }
+
 const basename = (path: Uint8Array) => {
   let slash = path.length - 1
   while (slash > 0 && path[slash] !== 47) slash--
   return path.subarray(slash + 1)
 }
+
 const decode64 = (s: string, field: string): Effect.Effect<Uint8Array, ImageError> =>
   CanonicalBase64.isCanonical(s) ? Effect.succeed(Image.bytes(s)) : Effect.fail(failure("InvalidEncoding", field))
+
 const safeAdd = (a: number, b: number) => {
   const n = a + b
   return Number.isSafeInteger(n) ? n : undefined
 }
+
 const encodedPayloadLength = (value: string) =>
   value.length / 4 * 3 - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0)
+
 const exceedsByteLimit = (value: number, limit: number | bigint) => BigInt(value) > BigInt(limit)
+
 const validPath = (path: Uint8Array) => {
   if (path.length === 0 || path[0] !== 47 || path.includes(0) || (path.length > 1 && path.at(-1) === 47)) return false
   if (path.length === 1) return true
@@ -220,11 +241,13 @@ const normalize = Effect.fnUntraced(
     return { objects, byPath }
   }
 )
+
 const u64 = (n: number) => {
   const out = new Uint8Array(8)
   new DataView(out.buffer).setBigUint64(0, BigInt(n), false)
   return out
 }
+
 // This is the versioned semantic identity encoding, not a generic byte builder.
 // Field framing, ordering, and the domain prefix are part of the persisted delta contract.
 const identityBytes = Effect.fnUntraced(function*(view: SnapshotView, limits: SnapshotDeltaLimits) {
@@ -270,11 +293,14 @@ const identityBytes = Effect.fnUntraced(function*(view: SnapshotView, limits: Sn
   }
   return output.slice(0, length)
 })
+
 const digest = Effect.fnUntraced(function*(view: SnapshotView, limits: SnapshotDeltaLimits) {
   const crypto = yield* Crypto.Crypto
   return yield* crypto.digest("SHA-256", yield* identityBytes(view, limits))
 })
+
 const samePaths = (a: ObjectView, b: ObjectView) => a.pathIdentity === b.pathIdentity
+
 const differences = (before: ObjectView, after: ObjectView): ReadonlyArray<SnapshotDifference> =>
   differenceOrder.filter((field) => {
     if (field === "kind") return before.kind !== after.kind
@@ -287,6 +313,7 @@ const differences = (before: ObjectView, after: ObjectView): ReadonlyArray<Snaps
     if (field === "hardLinks") return !samePaths(before, after)
     return before.metadata[field] !== after.metadata[field]
   })
+
 const compare = (base: SnapshotView, target: SnapshotView): ReadonlyArray<Change> => {
   const changes: Array<{ readonly change: Change; readonly path: Uint8Array }> = []
   const add = (change: Change, path: Uint8Array) => changes.push({ change, path })
@@ -328,6 +355,7 @@ const compare = (base: SnapshotView, target: SnapshotView): ReadonlyArray<Change
   changes.sort((a, b) => compareBytes(a.path, b.path))
   return changes.map(({ change }) => change)
 }
+
 const getDocument = (delta: SnapshotDelta): Effect.Effect<Document, ImageError> =>
   Effect.suspend(() => {
     const value = SnapshotDeltaModel.value(delta)
@@ -530,6 +558,7 @@ export const diffSnapshots = Effect.fnUntraced(
     return SnapshotDeltaModel.make(document)
   }
 )
+
 /** @internal */
 const verify = Effect.fnUntraced(function*(
   base: Snapshot,
@@ -571,6 +600,7 @@ export const inspectSnapshotDelta = Effect.fnUntraced(
     return Object.freeze(output)
   }
 )
+
 /** @internal */
 export const encodeSnapshotDelta = Effect.fnUntraced(function*(delta: SnapshotDelta, limits: SnapshotDeltaLimits) {
   const document = yield* getDocument(delta)
@@ -582,6 +612,7 @@ export const encodeSnapshotDelta = Effect.fnUntraced(function*(delta: SnapshotDe
   }
   return bytes
 })
+
 /** @internal */
 export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array, limits: SnapshotDeltaLimits) {
   if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) return yield* failure("InvalidEncoding")
@@ -602,6 +633,7 @@ export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array
   yield* validate(parsed.success, limits)
   return SnapshotDeltaModel.make(parsed.success)
 })
+
 /** @internal */
 export const applySnapshotDelta = Effect.fnUntraced(
   function*(base: Snapshot, delta: SnapshotDelta, limits: SnapshotDeltaLimits) {

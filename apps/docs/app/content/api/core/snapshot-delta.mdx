@@ -6,7 +6,97 @@ Added in v0.1.0
 
 ---
 
-## utils
+## errors
+
+### SnapshotDeltaError (class)
+
+A valid snapshot delta was inspected or applied against a valid but semantically different base.
+
+**Signature**
+
+```ts
+export declare class SnapshotDeltaError
+```
+
+Added in v0.1.0
+
+## models
+
+### SnapshotChange (type alias)
+
+A path-oriented semantic difference between two snapshots.
+
+**Signature**
+
+```ts
+export type SnapshotChange = typeof SnapshotChange.Type;
+```
+
+Added in v0.1.0
+
+### SnapshotChangesOptions (type alias)
+
+Filtering options for snapshot-delta inspection.
+
+**Signature**
+
+```ts
+export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type;
+```
+
+Added in v0.1.0
+
+### SnapshotDelta (interface)
+
+An immutable, opaque description of the exact difference between two snapshots.
+
+**Signature**
+
+```ts
+export interface SnapshotDelta {
+  readonly [SnapshotDeltaTypeId]: SnapshotDeltaTypeId;
+}
+```
+
+Added in v0.1.0
+
+### SnapshotDeltaLimits (type alias)
+
+Resource limits shared by delta creation, inspection, encoding, decoding, and application.
+
+**Signature**
+
+```ts
+export type SnapshotDeltaLimits = typeof SnapshotDeltaLimitsSchema.Type;
+```
+
+Added in v0.1.0
+
+### SnapshotDifference (type alias)
+
+A semantic field that differs between two snapshots.
+
+**Signature**
+
+```ts
+export type SnapshotDifference = typeof SnapshotDifference.Type;
+```
+
+Added in v0.1.0
+
+### SnapshotNodeKind (type alias)
+
+A filesystem entry kind reported by snapshot inspection.
+
+**Signature**
+
+```ts
+export type SnapshotNodeKind = typeof SnapshotNodeKind.Type;
+```
+
+Added in v0.1.0
+
+## schemas
 
 ### SnapshotChange
 
@@ -71,15 +161,7 @@ export declare const SnapshotChange: Schema.Union<
 >;
 ```
 
-### SnapshotChange (type alias)
-
-A path-oriented semantic difference between two snapshots.
-
-**Signature**
-
-```ts
-export type SnapshotChange = typeof SnapshotChange.Type;
-```
+Added in v0.1.0
 
 ### SnapshotChangesOptions
 
@@ -93,15 +175,7 @@ export declare const SnapshotChangesOptions: Schema.Struct<{
 }>;
 ```
 
-### SnapshotChangesOptions (type alias)
-
-Filtering options for snapshot-delta inspection.
-
-**Signature**
-
-```ts
-export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type;
-```
+Added in v0.1.0
 
 ### SnapshotDelta
 
@@ -116,27 +190,7 @@ export declare const SnapshotDelta: Schema.declare<
 >;
 ```
 
-### SnapshotDelta (interface)
-
-An immutable, opaque description of the exact difference between two snapshots.
-
-**Signature**
-
-```ts
-export interface SnapshotDelta {
-  readonly [SnapshotDeltaTypeId]: SnapshotDeltaTypeId;
-}
-```
-
-### SnapshotDeltaError (class)
-
-A valid snapshot delta was inspected or applied against a valid but semantically different base.
-
-**Signature**
-
-```ts
-export declare class SnapshotDeltaError
-```
+Added in v0.1.0
 
 ### SnapshotDeltaLimits
 
@@ -187,35 +241,7 @@ export declare const SnapshotDeltaLimits: Schema.Struct<{
 };
 ```
 
-### SnapshotDeltaLimits (type alias)
-
-Resource limits shared by delta creation, inspection, encoding, decoding, and application.
-
-**Signature**
-
-```ts
-export type SnapshotDeltaLimits = typeof SnapshotDeltaLimitsSchema.Type;
-```
-
-### SnapshotDeltaTypeId
-
-Type identifier for opaque snapshot deltas.
-
-**Signature**
-
-```ts
-export declare const SnapshotDeltaTypeId: "@effect-vfs/core/SnapshotDelta";
-```
-
-### SnapshotDeltaTypeId (type alias)
-
-Type identifier for opaque snapshot deltas.
-
-**Signature**
-
-```ts
-export type SnapshotDeltaTypeId = typeof SnapshotDeltaTypeId;
-```
+Added in v0.1.0
 
 ### SnapshotDifference
 
@@ -241,15 +267,7 @@ export declare const SnapshotDifference: Schema.Literals<
 >;
 ```
 
-### SnapshotDifference (type alias)
-
-A semantic field that differs between two snapshots.
-
-**Signature**
-
-```ts
-export type SnapshotDifference = typeof SnapshotDifference.Type;
-```
+Added in v0.1.0
 
 ### SnapshotNodeKind
 
@@ -263,12 +281,30 @@ export declare const SnapshotNodeKind: Schema.Literals<
 >;
 ```
 
-### SnapshotNodeKind (type alias)
+Added in v0.1.0
 
-A filesystem entry kind reported by snapshot inspection.
+## type ids
+
+### SnapshotDeltaTypeId
+
+Type identifier for opaque snapshot deltas.
 
 **Signature**
 
 ```ts
-export type SnapshotNodeKind = typeof SnapshotNodeKind.Type;
+export declare const SnapshotDeltaTypeId: "@effect-vfs/core/SnapshotDelta";
 ```
+
+Added in v0.1.0
+
+### SnapshotDeltaTypeId (type alias)
+
+Type identifier for opaque snapshot deltas.
+
+**Signature**
+
+```ts
+export type SnapshotDeltaTypeId = typeof SnapshotDeltaTypeId;
+```
+
+Added in v0.1.0

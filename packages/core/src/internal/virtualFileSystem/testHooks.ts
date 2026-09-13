@@ -1,4 +1,4 @@
-/** Package-internal synchronization hooks for deterministic volume tests. @internal */
+// Package-internal synchronization hooks for deterministic volume tests.
 
 import type * as Effect from "effect/Effect"
 import type { Snapshot } from "../../Snapshot.js"
