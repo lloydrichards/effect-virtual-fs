@@ -995,7 +995,7 @@ type VolumeSource =
   }
 
 /** Each execution constructs a fresh volume and captures its Clock. */
-const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
+const makeVolume = Effect.fnUntraced(
   function*(source: VolumeSource, options?: VolumeOptions) {
     const image = source._tag === "Empty" ? undefined : source.image
     const decoded = decodeConfiguration(VolumeOptions, options === undefined ? {} : options)
