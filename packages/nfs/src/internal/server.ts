@@ -1,9 +1,8 @@
-import * as BunSocketServer from "@effect/platform-bun/BunSocketServer"
 import * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Socket from "effect/unstable/socket/Socket"
-import type * as SocketServer from "effect/unstable/socket/SocketServer"
+import * as SocketServer from "effect/unstable/socket/SocketServer"
 import { encodeRecord, RecordDecoder, type RecordLimits, RecordMarkingError } from "./recordMarking.js"
 import { handleCall, type RpcHandlers, type RpcLimits } from "./rpc.js"
 
@@ -12,16 +11,7 @@ export interface ServerLimits extends RecordLimits, RpcLimits {
 }
 
 export interface ServerOptions {
-  readonly host: string
-  readonly port: number
   readonly limits: ServerLimits
-}
-
-export interface RunningServer {
-  readonly address: {
-    readonly host: string
-    readonly port: number
-  }
 }
 
 const handleConnection = (
@@ -58,24 +48,19 @@ const handleConnection = (
   )
 
 export const makeServer = (
+  server: SocketServer.SocketServer["Service"],
   options: ServerOptions,
   handlers: RpcHandlers
-): Effect.Effect<RunningServer, SocketServer.SocketServerError, Scope.Scope> =>
+): Effect.Effect<
+  void,
+  SocketServer.SocketServerError,
+  Scope.Scope
+> =>
   Effect.gen(function*() {
-    const server = yield* BunSocketServer.make({ host: options.host, port: options.port })
     const connections = yield* Semaphore.make(options.limits.maxConnections)
     yield* server.run((socket) =>
       Semaphore.withPermitsIfAvailable(connections, 1, handleConnection(socket, options.limits, handlers)).pipe(
         Effect.asVoid
       )
     ).pipe(Effect.forkScoped)
-    if (server.address._tag === "UnixPathAddress") {
-      return yield* Effect.die("TCP server returned a Unix-domain address")
-    }
-    return {
-      address: {
-        host: server.address.address.toString(),
-        port: server.address.port
-      }
-    }
   })

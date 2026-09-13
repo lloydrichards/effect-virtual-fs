@@ -6,19 +6,24 @@ This package runs a scoped TCP server and implements the bounded NFSv4.1 session
 
 <!-- TODO(gauntlet-29): Add the opt-in privileged Linux gate tracked by https://github.com/lloydrichards/effect-virtual-fs/issues/39. The equivalent macOS 26.6 gate passed manually on 2026-09-13. -->
 
-`NfsServer.make` and `NfsServer.layer` require the application to supply the live `Volume` and privileged virtual `Caller`. The server otherwise defaults to `127.0.0.1`, an ephemeral port, a 30-second lease, and a finite resource policy. Non-loopback addresses are rejected. Decoded `AUTH_SYS` fields are untrusted compatibility data; they never select or grant VFS authority. This is suitable only for a trusted, single-user local machine.
+`NfsServer.make` and `NfsServer.layer` require the application to supply the live `Volume`, privileged virtual `Caller`, and Effect `SocketServer`. The application chooses and binds the platform socket implementation. NFS accepts only a loopback TCP address. It defaults to a 30-second lease and a finite resource policy. Decoded `AUTH_SYS` fields are untrusted compatibility data; they never select or grant VFS authority. This is suitable only for a trusted, single-user local machine.
 
-`NfsServerConfig`, `NfsServerConfigOverrides`, `NfsServerLimits`, `NfsServerLimitOverrides`, and `NfsServerAddress` are public Effect schemas. Byte limits use `effect/ByteSize`, so their units are explicit and validated before the server converts them to the numeric representation used by XDR. Counts remain positive integers, and port `0` requests an ephemeral loopback port. `NfsServerConfig.default`, `NfsServerLimits.default`, and `NfsServerLimits.constrained` expose frozen complete policies. Callers can override only the settings they need. `Volume` and `Caller` remain live Effect capabilities rather than schema data.
+`NfsServerConfig`, `NfsServerConfigOverrides`, `NfsServerLimits`, `NfsServerLimitOverrides`, and `NfsServerAddress` are public Effect schemas. Byte limits use `effect/ByteSize`, so their units are explicit and validated before the server converts them to the numeric representation used by XDR. `NfsServerConfig.default`, `NfsServerLimits.default`, and `NfsServerLimits.constrained` expose frozen complete policies. Callers can override only the settings they need. `Volume`, `Caller`, and `SocketServer` remain live Effect capabilities rather than schema data.
 
 ```ts
+import * as BunSocketServer from "@effect/platform-bun/BunSocketServer"
 import * as ByteSize from "effect/ByteSize"
+import * as Effect from "effect/Effect"
 
-const server = yield* NfsServer.make({
-  volume,
-  caller,
-  port: 2049,
-  limits: { maxReadBytes: ByteSize.mebibytes(4) }
-})
+const program = Effect.scoped(
+  NfsServer.make({
+    volume,
+    caller,
+    limits: { maxReadBytes: ByteSize.mebibytes(4) }
+  })
+).pipe(
+  Effect.provide(BunSocketServer.layer({ host: "127.0.0.1", port: 2049 }))
+)
 ```
 
 The package never mounts a filesystem and never invokes `sudo`. The repository's standalone

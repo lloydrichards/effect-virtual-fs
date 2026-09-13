@@ -1,4 +1,5 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeSocketServer from "@effect/platform-node-shared/NodeSocketServer"
 import { assert, describe, it } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"
@@ -7,6 +8,8 @@ import * as Exit from "effect/Exit"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
+import * as NetAddress from "effect/unstable/net/NetAddress"
+import * as SocketServer from "effect/unstable/socket/SocketServer"
 import * as Net from "node:net"
 import {
   ConfigurationError,
@@ -129,15 +132,17 @@ const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
 
 const options = (
   volume: Vfs.Volume,
-  caller: Vfs.Caller,
-  port = 0
+  caller: Vfs.Caller
 ): NfsServerOptions => ({
   volume,
   caller,
-  host: "127.0.0.1",
-  port,
   leaseDurationSeconds: 30,
   limits
+})
+
+const testSocketServer = SocketServer.SocketServer.of({
+  address: NetAddress.inetAddressUnsafe(NetAddress.ipv4Loopback, 0),
+  run: () => Effect.never
 })
 
 describe("NfsServer", () => {
@@ -146,8 +151,6 @@ describe("NfsServer", () => {
     assert.isTrue(Object.isFrozen(NfsServerLimits.default))
     assert.isTrue(Object.isFrozen(NfsServerLimits.constrained))
     assert.isTrue(Object.isFrozen(NfsServerConfig.default))
-    assert.strictEqual(NfsServerConfig.default.host, "127.0.0.1")
-    assert.strictEqual(NfsServerConfig.default.port, 0)
     assert.strictEqual(NfsServerConfig.default.leaseDurationSeconds, 30)
     assert.isFalse(
       Schema.is(NfsServerLimits)({ ...limits, maxReadBytes: 1_024 })
@@ -172,25 +175,13 @@ describe("NfsServer", () => {
     )
     assert.isTrue(
       Schema.is(NfsServerConfig)({
-        host: "::1",
-        port: 0,
         leaseDurationSeconds: 30,
         limits
       })
     )
     assert.isFalse(
       Schema.is(NfsServerConfig)({
-        host: "localhost",
-        port: 0,
-        leaseDurationSeconds: 30,
-        limits
-      })
-    )
-    assert.isFalse(
-      Schema.is(NfsServerConfig)({
-        host: "127.0.0.1",
-        port: 65_536,
-        leaseDurationSeconds: 30,
+        leaseDurationSeconds: 0,
         limits
       })
     )
@@ -211,27 +202,19 @@ describe("NfsServer", () => {
   })
 
   it.effect(
-    "rejects non-loopback hosts and invalid explicit limits before binding",
+    "rejects transport options and invalid explicit limits before binding",
     () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.make()
         const caller = yield* volume.caller()
-        const invalidHost = yield* Effect.flip(
+        const transportOption = yield* Effect.flip(
           NfsServer.make({
             ...options(volume, caller),
             host: "0.0.0.0"
           } as unknown as NfsServerOptions)
         )
-        assert.instanceOf(invalidHost, ConfigurationError)
-        assert.strictEqual(invalidHost.option, "host")
-        const nullHost = yield* Effect.flip(
-          NfsServer.make({
-            ...options(volume, caller),
-            host: null
-          } as unknown as NfsServerOptions)
-        )
-        assert.instanceOf(nullHost, ConfigurationError)
-        assert.strictEqual(nullHost.option, "host")
+        assert.instanceOf(transportOption, ConfigurationError)
+        assert.strictEqual(transportOption.option, "host")
         const unknownOption = yield* Effect.flip(
           NfsServer.make({
             ...options(volume, caller),
@@ -278,8 +261,26 @@ describe("NfsServer", () => {
         )
         assert.instanceOf(closed, ConfigurationError)
         assert.strictEqual(closed.option, "caller")
-      })
+      }).pipe(
+        Effect.provideService(SocketServer.SocketServer, testSocketServer)
+      )
   )
+
+  it.effect("rejects a socket server that is not bound to loopback TCP", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      const nonLoopback = SocketServer.SocketServer.of({
+        address: NetAddress.inetAddressFromIpStringUnsafe("0.0.0.0", 2049),
+        run: () => Effect.never
+      })
+      const error = yield* NfsServer.make(options(volume, caller)).pipe(
+        Effect.provideService(SocketServer.SocketServer, nonLoopback),
+        Effect.flip
+      )
+      assert.instanceOf(error, ConfigurationError)
+      assert.strictEqual(error.option, "socketServer.address")
+    }))
 
   it.live(
     "binds an ephemeral loopback port, serves RPC, and releases the port with its scope",
@@ -288,11 +289,18 @@ describe("NfsServer", () => {
         const volume = yield* Vfs.make()
         const caller = yield* volume.caller()
         const firstScope = yield* Scope.make()
+        const firstSocketServer = yield* NodeSocketServer.make({
+          host: "127.0.0.1",
+          port: 0
+        }).pipe(Scope.provide(firstScope))
         const first = yield* NfsServer.make({
           volume,
           caller,
           limits: { maxFragmentBytes: limits.maxFragmentBytes }
-        }).pipe(Scope.provide(firstScope))
+        }).pipe(
+          Effect.provideService(SocketServer.SocketServer, firstSocketServer),
+          Scope.provide(firstScope)
+        )
         assert.strictEqual(first.address.host, "127.0.0.1")
         assert.notStrictEqual(first.address.port, 0)
         const responses = yield* exchange(
@@ -329,9 +337,16 @@ describe("NfsServer", () => {
         yield* Scope.close(firstScope, Exit.void)
 
         const secondScope = yield* Scope.make()
+        const secondSocketServer = yield* NodeSocketServer.make({
+          host: "127.0.0.1",
+          port: first.address.port
+        }).pipe(Scope.provide(secondScope))
         const second = yield* NfsServer.make(
-          options(volume, caller, first.address.port)
-        ).pipe(Scope.provide(secondScope))
+          options(volume, caller)
+        ).pipe(
+          Effect.provideService(SocketServer.SocketServer, secondSocketServer),
+          Scope.provide(secondScope)
+        )
         assert.strictEqual(second.address.port, first.address.port)
         yield* Scope.close(secondScope, Exit.void)
       })

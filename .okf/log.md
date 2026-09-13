@@ -2,6 +2,10 @@
 
 ## 2026-09-13
 
+- **NFS negotiated reply sizing**: Replaced worst-case reply rejection with minimum preflight bounds and encoded-size enforcement, allowing macOS compounds whose actual replies fit the negotiated channel.
+
+- **Platform-neutral NFS transport**: Changed NFS to require Effect's `SocketServer` service so applications choose the Bun, Node, or another platform implementation and binding, while NFS still rejects non-loopback addresses.
+
 - **Virtual filesystem module boundary**: Kept the documented capability API in the public facade while separating runtime models, path handling, the coordinated live-volume engine, and fixture construction into cohesive internal modules.
 
 - **Opaque snapshot TypeIds**: Aligned Snapshot and SnapshotDelta with Effect-style string TypeIds and moved snapshot-delta representation state behind the internal implementation seam.

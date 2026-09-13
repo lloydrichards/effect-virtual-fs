@@ -9,7 +9,7 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as SchemaIssue from "effect/SchemaIssue"
 import type * as Scope from "effect/Scope"
-import type * as SocketServer from "effect/unstable/socket/SocketServer"
+import * as SocketServer from "effect/unstable/socket/SocketServer"
 import { makeExport } from "./internal/export.js"
 import { makeNfs4Handler } from "./internal/nfs4.js"
 import { makeServer } from "./internal/server.js"
@@ -186,16 +186,12 @@ export type NfsServerLimitOverrides = typeof NfsServerLimitOverrides.Type
 
 /** Schema for configuration that can be validated without opening runtime capabilities. */
 const NfsServerConfigSchema = Schema.Struct({
-  host: LoopbackHost,
-  port: Port,
   leaseDurationSeconds: PositiveUint32,
   limits: NfsServerLimits
 })
 export type NfsServerConfig = typeof NfsServerConfigSchema.Type
 
 const defaultConfig: NfsServerConfig = Object.freeze({
-  host: "127.0.0.1",
-  port: 0,
   leaseDurationSeconds: 30,
   limits: NfsServerLimits.default
 })
@@ -207,8 +203,6 @@ export const NfsServerConfig = Object.assign(NfsServerConfigSchema, {
 
 /** Optional configuration accepted when constructing an NFS server. */
 export const NfsServerConfigOverrides = Schema.Struct({
-  host: Schema.optionalKey(LoopbackHost),
-  port: Schema.optionalKey(Port),
   leaseDurationSeconds: Schema.optionalKey(PositiveUint32),
   limits: Schema.optionalKey(NfsServerLimitOverrides)
 })
@@ -283,8 +277,6 @@ const decodeConfig = (
       : suppliedLimits
     return Schema.decodeUnknownResult(NfsServerConfig, { onExcessProperty: "error" })({
       ...supplied,
-      host: supplied.host === undefined ? NfsServerConfig.default.host : supplied.host,
-      port: supplied.port === undefined ? NfsServerConfig.default.port : supplied.port,
       leaseDurationSeconds: supplied.leaseDurationSeconds === undefined
         ? NfsServerConfig.default.leaseDurationSeconds
         : supplied.leaseDurationSeconds,
@@ -306,11 +298,28 @@ const make = (
 ): Effect.Effect<
   NfsServerShape,
   ConfigurationError | NfsServerError,
-  Scope.Scope
+  Scope.Scope | SocketServer.SocketServer
 > =>
   Effect.gen(function*() {
     const config = yield* decodeConfig(options)
     const limits = config.limits
+    const socketServer = yield* SocketServer.SocketServer
+    const socketAddress = socketServer.address
+    const address = yield* Schema.decodeUnknownEffect(NfsServerAddress)(
+      socketAddress._tag === "UnixPathAddress"
+        ? socketAddress
+        : {
+          host: socketAddress.address.toString(),
+          port: socketAddress.port
+        }
+    ).pipe(
+      Effect.mapError(() =>
+        configurationError(
+          "socketServer.address",
+          "socket server must bind a loopback TCP address"
+        )
+      )
+    )
     const volumeCaller = yield* options.volume
       .caller()
       .pipe(
@@ -342,15 +351,16 @@ const make = (
       limits,
       now: Date.now
     })
-    const running = yield* makeServer(
-      { host: config.host, port: config.port, limits },
+    yield* makeServer(
+      socketServer,
+      { limits },
       handler
     ).pipe(
       Effect.mapError(
         (cause: SocketServer.SocketServerError) => new NfsServerError({ cause })
       )
     )
-    return { address: { host: config.host, port: running.address.port } }
+    return { address }
   })
 
 export class NfsServer extends Context.Service<NfsServer, NfsServerShape>()(
@@ -359,5 +369,9 @@ export class NfsServer extends Context.Service<NfsServer, NfsServerShape>()(
   static readonly make = make
   static readonly layer = (
     options: NfsServerOptions
-  ): Layer.Layer<NfsServer, ConfigurationError | NfsServerError> => Layer.effect(this, make(options))
+  ): Layer.Layer<
+    NfsServer,
+    ConfigurationError | NfsServerError,
+    SocketServer.SocketServer
+  > => Layer.effect(this, make(options))
 }

@@ -33,10 +33,10 @@
     "effect": "4.0.0-rc.114"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.0-rc.114",
     "@effect-vfs/core": "workspace:*"
   },
   "devDependencies": {
+    "@effect/platform-node-shared": "4.0.0-rc.114",
     "@effect/vitest": "4.0.0-rc.114",
     "@repo/config-typescript": "workspace:*",
     "effect": "4.0.0-rc.114",
