@@ -525,7 +525,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
     })
 
     describe("file handles and open modes", () => {
-      // TODO: Add shared closed-handle failure coverage separately from error-tag normalization.
+      // TODO(#40): Add shared closed-handle failure coverage separately from error-tag normalization.
       // Node maps EBADF to Unknown; Deno maps BadResource. A common tag needs an adapter fix and regression coverage.
       it.effect("should keep read cursors independent when a file has multiple handles", () =>
         Effect.gen(function*() {
@@ -914,7 +914,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.strictEqual(decoder.decode(yield* readAllocUpTo(destinationHandle, 6)), "source")
         }))
 
-      // TODO: Decide whether overwrite: false must succeed or fail with AlreadyExists across adapters.
+      // TODO(#40): Decide whether overwrite: false must succeed or fail with AlreadyExists across adapters.
       // Node skips an existing destination; Deno rejects it. Until aligned, require only that its contents are preserved.
       it.effect("should preserve an existing copy destination when overwrite is false", () =>
         Effect.gen(function*() {
@@ -1006,7 +1006,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assertSystemError(error, { tag: "NotFound", method: "open", pathOrDescriptor: missing })
         }))
 
-      // TODO: Signal handle acquisition with a Deferred in trackedFs.open, interrupt the blocked stream or sink,
+      // TODO(#40): Signal handle acquisition with a Deferred in trackedFs.open, interrupt the blocked stream or sink,
       // and assert finalization. This is test work; no public synchronization hook is needed.
       it.effect("should finalize derived stream and sink handles when their operations succeed or fail", () =>
         Effect.gen(function*() {
@@ -1059,7 +1059,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
             ["rename", fs.rename(missing, destination)],
             ["stat", fs.stat(missing)],
             ["truncate", fs.truncate(missing)],
-            // TODO: Normalize Node's "utime" error method to "utimes" with a regression test and changeset,
+            // TODO(#40): Normalize Node's "utime" error method to "utimes" with a regression test and changeset,
             // then assert the method here. Deno and FileSystem.makeNoop already use "utimes".
             [undefined, fs.utimes(missing, 0, 0)]
           ] as const
@@ -1168,7 +1168,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assertSystemError(error, { method: "realPath", pathOrDescriptor: first })
         }))
 
-      // TODO: Add positive chmod/chown coverage gated by adapter and host support, including ownership privileges.
+      // TODO(#40): Add positive chmod/chown coverage gated by adapter and host support, including ownership privileges.
       // Deno already covers chmod through writeFile mode preservation; shared ownership-change coverage is still missing.
 
       it.effect("should report updated access and modification timestamps when metadata is available", () =>
@@ -1190,7 +1190,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           }
         }))
 
-      // TODO: Decide whether preserveTimestamps also guarantees atime. Keep mtime as the shared minimum until then.
+      // TODO(#40): Decide whether preserveTimestamps also guarantees atime. Keep mtime as the shared minimum until then.
       it.effect("should preserve the modification timestamp when copying with metadata preservation", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
@@ -1227,7 +1227,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.isTrue(matches.some((entry) => entry.endsWith("src/index.ts")))
         }))
 
-      // TODO: Add watcher readiness and cleanup coverage per adapter; Node's startWatch helper uses a sentinel event.
+      // TODO(#40): Add watcher readiness and cleanup coverage per adapter; Node's startWatch helper uses a sentinel event.
       // Specify portable event paths separately: Node emits filenames, while Deno forwards native event paths.
       // Do not require identical native event ordering to test cleanup.
 

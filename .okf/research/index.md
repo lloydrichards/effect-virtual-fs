@@ -6,7 +6,7 @@
 - [Overlay filesystem direction](overlay-filesystem.md) maps current implementation constraints, behavior evidence and unresolved planning cases to the accepted decisions.
 - [Snapshot delta representation research](overlay-changes.md) retains the wire-layout, measurement and validation work needed by the accepted public interface.
 
-- [Object references](object-references.md) proposes path-independent identity with caller authority.
-- [Mutation revisions](mutation-revisions.md) proposes reliable change tracking and coordinated observations.
+- [Object references](object-references.md) defines path-independent runtime identity with caller authority.
+- [Mutation revisions](mutation-revisions.md) defines reliable live change tracking and coordinated observations.
 
 Path-workload measurements are not a separate concept. Their durable conclusion is represented by the accepted optional total-path-limit decision: repository workloads do not justify a universal fixed cap.

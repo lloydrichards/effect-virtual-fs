@@ -1,42 +1,37 @@
 ---
-type: Design Proposal
+type: Contract
 title: Mutation revisions and coordinated observations
-description: Proposes per-object revisions published with mutations so adapters can validate cached data and directory observations across all writers.
-status: draft
+description: Defines runtime per-object revisions and coordinated owned observations for cache validation across all core writers.
+status: stable
 tags: [revisions, concurrency, observation]
 sources:
   - id: core
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Metadata, mutation gate and watch publication
   - id: metadata-tests
-    resource: ../../packages/core/test/Metadata.test.ts
-    title: Controlled clocks and metadata behavior
+    resource: ../../packages/core/test/MutationRevision.test.ts
+    title: Fixed-clock revision and runtime-only snapshot tests
   - id: replacement-tests
     resource: ../../packages/core/test/Replacement.test.ts
     title: Mutation rejection and replacement behavior
-generated: { by: codex/okf, at: 2026-09-10T08:47:21Z }
+generated: { by: codex/okf, at: 2026-09-13T09:24:00+02:00 }
 ---
 
 # Mutation revisions and coordinated observations
 
-Status: proposed, not accepted or implemented.
+Every live node has a runtime-only bigint revision updated alongside committed mutations under the volume's existing coordination gate. `observeMetadata` returns copied metadata and the node revision from one coordinated state. `observeDirectory` returns owned name bytes, canonical child references, and the directory revision from one coordinated state.[^core]
 
-Current metadata contains timestamps but no revision counter. Clock samples are not guaranteed to differ between mutations. Watches publish paths through a stream with no replay; consuming those events later cannot provide an authoritative revision for an earlier observation.[^core]
+This extends the [mutation and observation contract](/contracts/mutation-and-observation.md "refines") and uses [object references](object-references.md "depends on"). Protocol cookie encoding, replay caches and client cache policy remain adapter responsibilities. The contract does not introduce a general multi-operation transaction.
 
-Propose per-object revisions in core, updated alongside relevant mutations under the existing coordination gate. Direct core clients and adapters must participate in the same mechanism. A stat-like observation should return metadata and revision together. A directory observation should return owned names, object references and the corresponding directory revision from one coordinated read.
+## Advancement rules
 
-This extends the [mutation and observation contract](/contracts/mutation-and-observation.md "refines") and uses the proposed [object references](object-references.md "depends on"). Protocol cookie encoding, replay caches and client cache policy remain adapter responsibilities. This proposal does not introduce a general multi-operation transaction.
+Content writes, truncation, permission changes, ownership changes, explicit timestamp changes, and link-count changes advance the affected object. Namespace creation, removal, linking, and rename advance every affected parent directory; rename also advances the moved object. Cross-directory rename therefore changes both directory revisions.
 
-## Questions to settle
-
-- Which content, metadata and namespace operations advance which objects and parents?
-- How should atime-only changes, no-ops, failed operations and revision overflow behave?
-- Should mutation results include coordinated before/after directory revisions?
-- Should the first directory observation materialize all entries or support bounded pages with explicit invalidation?
+Read-only access-time updates do not advance revisions. Rejected operations and existing explicit no-op branches do not advance them. Directory observation is materialized in core; adapters own paging and invalidation. Revisions support equality and ordering only within one live volume. Callers cannot depend on the initial value, increment size, persistence, or continuity across restore.
 
 ## Acceptance evidence
 
-Use a fixed or backward-moving clock to prove that relevant changes remain distinguishable. Exercise same-length writes, hard-link aliases, rename across directories, permission changes, and mixed direct-core/adapter writers. Verify rejected operations preserve revisions, and observations never pair old metadata with a new revision. Existing tests ground current mutation behavior but do not prove this proposed counter.[^metadata-tests][^replacement-tests]
+Focused fixed-clock tests cover same-length writes, hard-link aliases, metadata changes, cross-directory rename, reads, rejections, no-op branches, owned observations, and exclusion from snapshot version 1.[^metadata-tests]
 
 [^core]: Inspect `Metadata`, `Volume.watch`, the private coordination gate, timestamp sampling and directory reads.
 

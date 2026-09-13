@@ -48,6 +48,7 @@ const VolumeId = Symbol("@effect-vfs/core/Volume")
 const CallerId = Symbol("@effect-vfs/core/Caller")
 const FileHandleId = Symbol("@effect-vfs/core/FileHandle")
 const DirectoryHandleId = Symbol("@effect-vfs/core/DirectoryHandle")
+const ObjectReferenceId = Symbol("@effect-vfs/core/ObjectReference")
 /**
  * A UTF-8 string path or an opaque byte-preserving path.
  *
@@ -70,6 +71,9 @@ export const FsCode = Schema.Literals([
   "AccessDenied",
   "InvalidHandle",
   "ForeignHandle",
+  "InvalidReference",
+  "ForeignReference",
+  "StaleReference",
   "ClosedCaller",
   "InvalidArgument",
   "InvalidPathEncoding",
@@ -228,6 +232,23 @@ export const Metadata = Schema.Struct({
  * @since 0.1.0
  */
 export type Metadata = typeof Metadata.Type
+
+/** An opaque identity for one object in one live volume. */
+export interface ObjectReference {
+  readonly [ObjectReferenceId]: true
+}
+
+/** A value and the revision of the object from the same coordinated observation. */
+export interface ObjectObservation<A> {
+  readonly value: A
+  readonly revision: bigint
+}
+
+/** One owned directory name paired with the referenced child object. */
+export interface DirectoryEntry {
+  readonly name: Uint8Array
+  readonly reference: ObjectReference
+}
 
 /**
  * Resolves a relative path from a live directory handle instead of the caller's directory.
@@ -391,6 +412,22 @@ export interface FileHandle {
  */
 export interface Caller {
   readonly [CallerId]: true
+  /** Returns the stable reference for this volume's root directory. */
+  readonly rootReference: Effect.Effect<ObjectReference, FsError>
+  /** Looks up one byte-preserving child name from a referenced directory. */
+  readonly lookupReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<ObjectReference, FsError>
+  /** Returns a referenced directory's current parent. The root is its own parent. */
+  readonly parentReference: (directory: ObjectReference) => Effect.Effect<ObjectReference, FsError>
+  /** Reads metadata and its matching live revision. */
+  readonly observeMetadata: (reference: ObjectReference) => Effect.Effect<ObjectObservation<Metadata>, FsError>
+  /** Reads owned directory entries and their matching directory revision. */
+  readonly observeDirectory: (
+    reference: ObjectReference
+  ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsError>
+  /** Reads an owned symbolic-link target through a stable reference. */
+  readonly readLinkReference: (reference: ObjectReference) => Effect.Effect<Uint8Array, FsError>
+  /** Opens a referenced regular file for reading. */
+  readonly openReference: (reference: ObjectReference) => Effect.Effect<FileHandle, FsError, Scope.Scope>
   /** Reads metadata, following the final symbolic link by default. */
   readonly stat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>
   /** Atomically moves an entry within this volume without replacing a non-empty directory. */
@@ -805,6 +842,8 @@ interface Directory {
   parent: Directory | undefined
   readonly entries: Map<string, Node>
   metadata: Metadata
+  revision: bigint
+  objectReference: ObjectReference | undefined
 }
 interface RegularFile {
   readonly kind: "file"
@@ -812,14 +851,23 @@ interface RegularFile {
   data: Content.Content
   openCount: number
   metadata: Metadata
+  revision: bigint
+  objectReference: ObjectReference | undefined
 }
 interface SymbolicLink {
   readonly kind: "symlink"
   readonly lineage: string | undefined
   readonly target: Uint8Array
   metadata: Metadata
+  revision: bigint
+  objectReference: ObjectReference | undefined
 }
 type Node = Directory | RegularFile | SymbolicLink
+interface ObjectReferenceState {
+  readonly volume: symbol
+  node: Node | undefined
+}
+const objectReferences = new WeakMap<ObjectReference, ObjectReferenceState>()
 interface FileReference {
   readonly volume: symbol
   file: RegularFile | undefined
@@ -965,12 +1013,16 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
       })
     const volumeIdentity = Symbol()
     const gate = Semaphore.makeUnsafe(1)
+    let revisionCounter = 0n
+    const nextRevision = () => ++revisionCounter
     const root: Directory = {
       kind: "directory",
       lineage: image?.root,
       parent: undefined,
       entries: new Map(),
-      metadata: directoryMetadata(1n, 0, 0, 0o755, initialTime)
+      metadata: directoryMetadata(1n, 0, 0, 0o755, initialTime),
+      revision: nextRevision(),
+      objectReference: undefined
     }
     let nextInode = 2n
     let entries = 0
@@ -1014,7 +1066,15 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
         if (record.kind === "directory") {
           const node: Directory = record.id === image.root
             ? root
-            : { kind: "directory", lineage: record.id, parent: undefined, entries: new Map(), metadata }
+            : {
+              kind: "directory",
+              lineage: record.id,
+              parent: undefined,
+              entries: new Map(),
+              metadata,
+              revision: nextRevision(),
+              objectReference: undefined
+            }
           node.metadata = metadata
           incoming.set(record.id, node)
         } else if (record.kind === "file") {
@@ -1024,7 +1084,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             lineage: record.id,
             data,
             openCount: 0,
-            metadata: { ...metadata, size: BigInt(data.bytes.length) }
+            metadata: { ...metadata, size: BigInt(data.bytes.length) },
+            revision: nextRevision(),
+            objectReference: undefined
           })
         } else {
           const target = Image.bytes(record.target)
@@ -1032,7 +1094,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             kind: "symlink",
             lineage: record.id,
             target,
-            metadata: { ...metadata, size: BigInt(target.length) }
+            metadata: { ...metadata, size: BigInt(target.length) },
+            revision: nextRevision(),
+            objectReference: undefined
           })
         }
       }
@@ -1159,6 +1223,23 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
 
     // Permit waits stay interruptible. State transitions and resource registration do not.
     const coordinated = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(Effect.uninterruptible(effect))
+    const advanceRevision = (node: Node) => {
+      node.revision = nextRevision()
+    }
+    const referenceFor = (node: Node): ObjectReference => {
+      if (node.objectReference !== undefined) return node.objectReference
+      const reference = Object.freeze({ [ObjectReferenceId]: true as const })
+      objectReferences.set(reference, { volume: volumeIdentity, node })
+      node.objectReference = reference
+      return reference
+    }
+    const invalidateReference = (node: Node) => {
+      const reference = node.objectReference
+      if (reference === undefined) return
+      const state = objectReferences.get(reference)
+      if (state !== undefined) state.node = undefined
+      node.objectReference = undefined
+    }
     const release = (reference: DirectoryReference) =>
       coordinated(Effect.sync(() => {
         reference.directory = undefined
@@ -1181,16 +1262,23 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
       if (file.metadata.nlink === 0 && file.openCount === 0) {
         usedBytes -= BigInt(file.data.bytes.length)
         file.data = Content.empty()
+        invalidateReference(file)
       }
     }
     const detach = (node: Node, now: bigint) => {
       if (node.kind === "directory") {
         node.parent = undefined
         node.metadata = { ...node.metadata, nlink: 0, ctimeNs: now }
+        advanceRevision(node)
+        invalidateReference(node)
       } else {
         node.metadata = { ...node.metadata, nlink: node.metadata.nlink - 1, ctimeNs: now }
+        advanceRevision(node)
         if (node.kind === "file") reclaim(node)
-        else if (node.metadata.nlink === 0) usedBytes -= BigInt(node.target.length)
+        else if (node.metadata.nlink === 0) {
+          usedBytes -= BigInt(node.target.length)
+          invalidateReference(node)
+        }
       }
     }
     const releaseFile = (ref: FileReference) => {
@@ -1223,6 +1311,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
         mtimeNs: now,
         ctimeNs: now
       }
+      advanceRevision(file)
       publishNode(file)
     })
     const fileHandle = (ref: FileReference): FileHandle => {
@@ -1285,6 +1374,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             mtimeNs: now,
             ctimeNs: now
           }
+          advanceRevision(file)
           publishNode(file)
           if (position === undefined) ref.offset = offset + BigInt(count)
           return count
@@ -1339,6 +1429,15 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
     }
 
     const createCaller = (reference: DirectoryReference, identity: Identity, umask: number): Caller => {
+      const referencedNode = Effect.fnUntraced(function*(target: ObjectReference, operation: string) {
+        if (reference.directory === undefined) return yield* failure("ClosedCaller", operation)
+        if (typeof target !== "object" || target === null) return yield* failure("InvalidReference", operation)
+        const state = objectReferences.get(target)
+        if (state === undefined) return yield* failure("InvalidReference", operation)
+        if (state.volume !== volumeIdentity) return yield* failure("ForeignReference", operation)
+        if (state.node === undefined) return yield* failure("StaleReference", operation)
+        return state.node
+      })
       const lookup = Effect.fnUntraced(function*(
         path: PreparedPath,
         base: DirectoryHandle | undefined,
@@ -1541,6 +1640,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               mode: permitted,
               ctimeNs: (yield* timestamp("chmod"))
             }
+            advanceRevision(node)
             publishNode(node)
           }))
         }
@@ -1568,6 +1668,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               mode: node.kind === "file" ? node.metadata.mode & ~0o6000 : node.metadata.mode,
               ctimeNs: (yield* timestamp("chown"))
             }
+            advanceRevision(node)
             publishNode(node)
           }))
         }
@@ -1601,6 +1702,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                 : modification.nanoseconds,
               ctimeNs: now
             }
+            advanceRevision(node)
             publishNode(node)
           }))
         }
@@ -1614,6 +1716,81 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
 
       return Object.freeze({
         [CallerId]: true as const,
+        rootReference: coordinated(Effect.gen(function*() {
+          if (reference.directory === undefined) return yield* failure("ClosedCaller", "rootReference")
+          return referenceFor(root)
+        })).pipe(Effect.withSpan("Caller.rootReference")),
+        lookupReference: Effect.fn("Caller.lookupReference")(function*(directoryReference, name) {
+          if (
+            !(name instanceof Uint8Array) || !(name.buffer instanceof ArrayBuffer) || !attachedBuffer(name) ||
+            name.length === 0 || name.length > 255 || name.includes(0) || name.includes(47)
+          ) return yield* failure("InvalidArgument", "lookupReference")
+          const key = Encoding.encodeHex(new Uint8Array(name))
+          if (key === "2e" || key === "2e2e") return yield* failure("InvalidArgument", "lookupReference")
+          return yield* coordinated(Effect.gen(function*() {
+            const directory = yield* referencedNode(directoryReference, "lookupReference")
+            if (directory.kind !== "directory") return yield* failure("NotDirectory", "lookupReference")
+            yield* authorize(directory, identity, 1, "lookupReference", "/")
+            const child = directory.entries.get(key)
+            if (child === undefined) return yield* failure("NotFound", "lookupReference")
+            return referenceFor(child)
+          }))
+        }),
+        parentReference: Effect.fn("Caller.parentReference")(function*(directoryReference) {
+          return yield* coordinated(Effect.gen(function*() {
+            const directory = yield* referencedNode(directoryReference, "parentReference")
+            if (directory.kind !== "directory") return yield* failure("NotDirectory", "parentReference")
+            yield* authorize(directory, identity, 1, "parentReference", "/")
+            return referenceFor(directory.parent ?? directory)
+          }))
+        }),
+        observeMetadata: Effect.fn("Caller.observeMetadata")(function*(objectReference) {
+          return yield* coordinated(Effect.gen(function*() {
+            const node = yield* referencedNode(objectReference, "observeMetadata")
+            return Object.freeze({ value: Object.freeze({ ...node.metadata }), revision: node.revision })
+          }))
+        }),
+        observeDirectory: Effect.fn("Caller.observeDirectory")(function*(directoryReference) {
+          return yield* coordinated(Effect.gen(function*() {
+            const directory = yield* referencedNode(directoryReference, "observeDirectory")
+            if (directory.kind !== "directory") return yield* failure("NotDirectory", "observeDirectory")
+            yield* authorize(directory, identity, 4, "observeDirectory", "/")
+            const value = Object.freeze(
+              [...directory.entries].map(([name, node]) =>
+                Object.freeze({ name: nameBytes(name), reference: referenceFor(node) })
+              )
+            )
+            return Object.freeze({ value, revision: directory.revision })
+          }))
+        }),
+        readLinkReference: Effect.fn("Caller.readLinkReference")(function*(objectReference) {
+          return yield* coordinated(Effect.gen(function*() {
+            const node = yield* referencedNode(objectReference, "readLinkReference")
+            if (node.kind !== "symlink") return yield* failure("InvalidArgument", "readLinkReference")
+            return new Uint8Array(node.target)
+          }))
+        }),
+        openReference: Effect.fn("Caller.openReference")(function*(objectReference) {
+          const acquired: FileReference = {
+            volume: volumeIdentity,
+            file: undefined,
+            closed: false,
+            offset: 0n,
+            access: "read",
+            append: false
+          }
+          yield* Effect.addFinalizer(() => coordinated(Effect.sync(() => releaseFile(acquired))))
+          return yield* coordinated(Effect.gen(function*() {
+            if (acquired.closed) return yield* Effect.interrupt
+            const node = yield* referencedNode(objectReference, "openReference")
+            if (node.kind !== "file") return yield* failure("IsDirectory", "openReference")
+            if (node.metadata.nlink === 0) return yield* failure("StaleReference", "openReference")
+            yield* authorize(node, identity, 4, "openReference", "/")
+            node.openCount += 1
+            acquired.file = node
+            return fileHandle(acquired)
+          }))
+        }),
         readFile: Effect.fn("Caller.readFile")(function*(input: PathInput, options?: RelativeOptions) {
           const prepared = preparePath(input, "readFile", settings.maxPathBytes)
           const base = options?.relativeTo
@@ -1714,7 +1891,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                     ),
                     kind: "file",
                     nlink: 1
-                  }
+                  },
+                  revision: nextRevision(),
+                  objectReference: undefined
                 }
               node.data = Content.make(data)
               node.metadata = {
@@ -1724,11 +1903,13 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                 mtimeNs: now,
                 ctimeNs: now
               }
+              advanceRevision(node)
               usedBytes += BigInt(size - previous)
               if (file === undefined) {
                 if (replaced !== undefined) detach(replaced, now)
                 parent.entries.set(name, node)
                 parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
+                advanceRevision(parent)
                 if (replaced === undefined) entries += 1
                 publishEntry(replaced === undefined ? "Create" : "Update", parent, name)
               } else publishNode(node)
@@ -1822,6 +2003,8 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               parent.entries.set(name, node)
               parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
               node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
+              advanceRevision(parent)
+              advanceRevision(node)
               entries += 1
               publishEntry("Create", parent, name)
             }))
@@ -1863,10 +2046,13 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                 kind: "symlink",
                 nlink: 1,
                 size: BigInt(bytes.length)
-              }
+              },
+              revision: nextRevision(),
+              objectReference: undefined
             }
             parent.entries.set(name, node)
             parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
+            advanceRevision(parent)
             nextInode += 1n
             entries += 1
             usedBytes += BigInt(bytes.length)
@@ -1966,10 +2152,13 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                   ),
                   kind: "file",
                   nlink: 1
-                }
+                },
+                revision: nextRevision(),
+                objectReference: undefined
               }
               parent.entries.set(name, file)
               parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
+              advanceRevision(parent)
               entries += 1
               nextInode += 1n
               publishEntry("Create", parent, name)
@@ -2010,6 +2199,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             const now = yield* timestamp("unlink")
             parent.entries.delete(name)
             parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
+            advanceRevision(parent)
             detach(child, now)
             entries -= 1
             publishEntry("Remove", parent, name)
@@ -2089,6 +2279,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               ctimeNs: now
             }
             child.metadata = { ...child.metadata, ctimeNs: now }
+            advanceRevision(oldParent)
+            if (newParent !== oldParent) advanceRevision(newParent)
+            advanceRevision(child)
             if (replaced !== undefined) {
               detach(replaced, now)
               entries -= 1
@@ -2118,6 +2311,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
             parent.metadata = { ...parent.metadata, nlink: parent.metadata.nlink - 1, mtimeNs: now, ctimeNs: now }
             child.parent = undefined
             child.metadata = { ...child.metadata, nlink: 0, ctimeNs: now }
+            advanceRevision(parent)
+            advanceRevision(child)
+            invalidateReference(child)
             entries -= 1
             publishEntry("Remove", parent, name)
           }))
@@ -2160,7 +2356,9 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
                   parent.metadata.gid,
                   (mode & 0o777 & ~umask) | (mode & 0o1000),
                   now
-                )
+                ),
+                revision: nextRevision(),
+                objectReference: undefined
               }
               const parentMetadata = {
                 ...parent.metadata,
@@ -2171,6 +2369,7 @@ const makeVolume = Effect.fn("VirtualFileSystem.makeVolume")(
               // No Effect yield or expected failure between these publication writes.
               parent.entries.set(name, child)
               parent.metadata = parentMetadata
+              advanceRevision(parent)
               nextInode += 1n
               entries += 1
               publishEntry("Create", parent, name)

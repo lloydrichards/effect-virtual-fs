@@ -1,45 +1,42 @@
 ---
-type: Design Proposal
+type: Contract
 title: Object references independent of paths
-description: Proposes volume-local object references that survive rename while preserving caller authority and existing open-handle lifetimes.
-status: draft
+description: Defines opaque volume-local object identity, caller-authorized reference operations, and deletion lifetime.
+status: stable
 tags: [identity, references, authority]
 sources:
   - id: core
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Runtime node identity and public capabilities
   - id: file-tests
-    resource: ../../packages/core/test/File.test.ts
-    title: Independent handles and open-unlinked file behavior
+    resource: ../../packages/core/test/ObjectReference.test.ts
+    title: Object-reference identity, authority, and lifetime tests
   - id: link-tests
     resource: ../../packages/core/test/Links.test.ts
     title: Hard-link and rename behavior
-generated: { by: codex/okf, at: 2026-09-10T08:47:21Z }
+generated: { by: codex/okf, at: 2026-09-13T09:24:00+02:00 }
 ---
 
 # Object references independent of paths
 
-Status: proposed, not accepted or implemented.
+Core exposes canonical opaque `ObjectReference` values for runtime files, directories, and symbolic links. Hard-link aliases and renamed paths return the same reference; replacing a reused path returns a different reference. References are local to one live volume and are excluded from snapshot version 1.[^core][^file-tests]
 
-Core retains runtime object identity through rename and hard links, but exposes no generic reference for locating an existing file, directory or symlink independently of its path.[^core] A path-based adapter can address the wrong object after `/a` is renamed and another file takes its place.
+`Caller` owns reference operations for the volume root, single-component byte-name lookup, directory parent lookup, metadata observation, directory observation, symbolic-link target reads, and scoped read-only file opening. Wire encoding and export identifiers remain adapter responsibilities.
 
-Propose opaque, volume-local references in core. A credential-bound object interface would support lookup of one directory component, stat, parent lookup, reading a symlink target, and opening a regular file by reference. Wire encoding and export identifiers remain adapter responsibilities.
+The reference identifies an object; it does not carry the authority of the caller that obtained it. Traversal, directory reads, and file opening check the invoking caller. Operations preserve the [resource and authority contract](/contracts/resources-and-authority.md "constrained by"). Restore constructs fresh references under [snapshot-local identity](/decisions/snapshot-local-file-identity.md "constrained by").
 
-The reference identifies an object; it does not grant the access of the caller that obtained it. Operations must preserve the [resource and authority contract](/contracts/resources-and-authority.md "constrained by"). References must not promise identity across restore, as required by [snapshot-local identity](/decisions/snapshot-local-file-identity.md "constrained by").
+## Lifetime and failure
 
-## Questions to settle
+Forged values fail with `InvalidReference`; a valid reference presented to another volume fails with `ForeignReference`; and a deleted object whose reference lifetime has ended fails with `StaleReference`. A removed directory stales immediately. A moved directory follows its current parent, and the root is its own parent.
 
-- Should a reference remain usable after the final directory entry is removed, and for which operations?
-- How can references avoid retaining deleted contents indefinitely while open handles preserve their current lifetime?
-- Which errors distinguish foreign-volume, stale and invalid references?
-- How should directory parent lookup behave after removal or movement?
+A regular file's reference remains observable after final unlink only while a file handle that was already open retains it. The existing handle can finish reading, but the reference cannot open another reader after unlink. Final handle close reclaims content and stales the reference. This avoids allowing an externally held reference to retain deleted content indefinitely.[^file-tests]
 
 ## Acceptance evidence
 
-Demonstrate that rename followed by path reuse never redirects a reference; hard-link aliases identify the same object; symlinks retain their own identity; foreign and stale references fail predictably; and different callers cannot inherit one another's authority. Existing independent-handle and open-unlinked behavior must remain intact.[^file-tests][^link-tests]
+Focused tests demonstrate rename followed by path reuse, hard-link identity, owned symbolic-link bytes, moved and removed directory parents, distinct reference failures, caller authority, and open-unlinked lifetime.[^file-tests]
 
 [^core]: Inspect `Metadata`, `Caller`, `FileHandle`, `DirectoryHandle`, internal Node records and rename in the current implementation.
 
-[^file-tests]: Existing file tests cover independent handles and retention of unlinked contents while handles remain open.
+[^file-tests]: `ObjectReference.test.ts` exercises the public reference interface and deletion lifetime.
 
 [^link-tests]: Existing link tests ground alias and rename behavior; they do not validate the proposed reference interface.
