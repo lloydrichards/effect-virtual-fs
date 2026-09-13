@@ -139,6 +139,29 @@ describe("overlay agent harness", () => {
       }
     }))
 
+  it.effect("reports malformed UTF-8 as a failed read without recording a successful observation", () =>
+    Effect.gen(function*() {
+      const project = yield* Vfs.fromFixture({
+        entries: [{ kind: "file", path: "/invalid.txt", bytes: new Uint8Array([0xff]) }]
+      })
+      const caller = yield* (yield* Vfs.makeOverlay(yield* project.snapshot)).caller()
+      const requests: Array<LanguageModel.ProviderOptions> = []
+      const observed = yield* collectObservations
+      const result = yield* runAgent({
+        caller,
+        observe: observed.observe,
+        role: "planner",
+        task: "Read invalid.txt."
+      }).pipe(Effect.provide(scriptedModel([
+        call("invalid-utf8", "read_file", { path: "invalid.txt" }),
+        text("The file is not valid UTF-8.")
+      ], requests)))
+
+      assert.strictEqual(result.response, "The file is not valid UTF-8.")
+      assert.deepStrictEqual(yield* Ref.get(observed.observations), [])
+      assert.match(promptText(requestAt(requests, 1)), /Invalid UTF-8 file: invalid\.txt/)
+    }))
+
   it.effect("lets separate callers collaborate and captures their stable result", () =>
     Effect.gen(function*() {
       const workspace = yield* Vfs.makeOverlay(yield* projectSnapshot)
