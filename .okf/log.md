@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Atomic watch registration**: Coordinated subscriber activation with volume mutations so committed events cannot be dropped while a watch is registering.
+
 - **Byte path value semantics**: Defined opaque `BytePath` equality and hashing by its ordered bytes and added Effect-style pipe composition without exposing its representation.
 
 - **Effect file-handle input compatibility**: Aligned negative-seek cursor preservation and required `readAlloc` runtime validation with the installed Effect `FileSystem` contract while retaining zero-default truncation.

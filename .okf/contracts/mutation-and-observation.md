@@ -13,7 +13,9 @@ sources:
     title: Watch and lifecycle tests
   - resource: ../../packages/core/test/MutationRevision.test.ts
     title: Revision and coordinated observation tests
-generated: { by: codex/okf, at: 2026-09-13T09:24:00+02:00 }
+  - resource: ../../packages/core/test/Watch.test.ts
+    title: Watch registration and delivery tests
+generated: { by: codex/okf, at: 2026-09-13T17:40:00+02:00 }
 ---
 
 # Mutation and observation
@@ -22,6 +24,6 @@ One volume coordinates mutations, observations, snapshot capture, and resource r
 
 Runtime-only per-object revisions distinguish committed content, metadata, link-count, and namespace changes even when clock values repeat. Metadata observations pair copied metadata with its revision. Directory observations pair owned entry names and stable child references with the directory revision from one state. Reads, rejected changes, and explicit no-op branches do not advance revisions.
 
-Watches stream committed create, update, and remove paths through a scoped unbounded buffer. They have no replay and do not silently drop committed events. Aliases observe changes to the same underlying file. Multi-call adapter helpers are compositions, not transactions.
+Watches stream committed create, update, and remove paths through a scoped unbounded buffer. Registration is coordinated with mutations, so a committed event cannot be lost between subscribing and becoming active. Watches have no replay and do not silently drop committed events. Aliases observe changes to the same underlying file. Multi-call adapter helpers are compositions, not transactions.
 
 These choices [implement the remaining implementation policy](/decisions/remaining-implementation-profile.md "implements") and [depend on the resource and authority model](/contracts/resources-and-authority.md "depends on").
