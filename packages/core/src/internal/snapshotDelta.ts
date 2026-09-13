@@ -496,7 +496,7 @@ const validate = Effect.fnUntraced(
 )
 
 /** @internal */
-export const diffSnapshots = Effect.fn("VirtualFileSystem.diffSnapshots")(
+export const diffSnapshots = Effect.fnUntraced(
   function*(base: Snapshot, target: Snapshot, limits: SnapshotDeltaLimits) {
     const before = yield* normalize(base, limits, "base")
     const after = yield* normalize(target, limits, "target")
@@ -569,7 +569,7 @@ const verify = Effect.fnUntraced(function*(
 })
 
 /** @internal */
-export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshotDelta")(
+export const inspectSnapshotDelta = Effect.fnUntraced(
   function*(base: Snapshot, delta: SnapshotDelta, options: SnapshotChangesOptions, limits: SnapshotDeltaLimits) {
     const output: Array<SnapshotChange> = []
     const { changes } = yield* verify(base, yield* getDocument(delta), limits)
@@ -618,7 +618,7 @@ export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array
   return makeSnapshotDelta(parsed.success)
 })
 /** @internal */
-export const applySnapshotDelta = Effect.fn("VirtualFileSystem.applySnapshotDelta")(
+export const applySnapshotDelta = Effect.fnUntraced(
   function*(base: Snapshot, delta: SnapshotDelta, limits: SnapshotDeltaLimits) {
     return (yield* verify(base, yield* getDocument(delta), limits)).target
   }
