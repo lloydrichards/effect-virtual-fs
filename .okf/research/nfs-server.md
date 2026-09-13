@@ -11,6 +11,9 @@ sources:
   - id: core
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Current core interfaces and implementation
+  - id: nfs-preview
+    resource: ../../packages/nfs/README.md
+    title: Experimental NFS preview profile and mount example
   - id: checkpoints
     resource: ../../packages/persistence/src/CheckpointStore.ts
     title: Explicit checkpoint storage
@@ -26,18 +29,24 @@ sources:
   - id: xdr
     resource: https://www.rfc-editor.org/rfc/rfc4506.html
     title: RFC 4506 XDR
-generated: { by: codex/okf, at: 2026-09-10T08:47:21Z }
+generated: { by: codex/okf, at: 2026-09-13T16:01:01+02:00 }
 ---
 
 # NFSv4.1 server direction
 
-No NFS design or implementation is accepted. The recommended experiment is a separate `@effect-vfs/nfs` package that depends on core and exposes a live volume read-only. Prove a real NFSv4.1 mount and read workload before committing to the protocol surface or writable access.
+The accepted first implementation is a private, experimental `@effect-vfs/nfs` package that exposes one live volume read-only to a trusted local user. The application supplies the volume and privileged virtual caller; the package owns a loopback-only scoped server, while the user or operating system owns mounting. Server restarts require a remount. Windows, writable NFS, callbacks, delegations, locking, multi-user deployment, and full RFC conformance remain outside this preview.
 
-Core already supplies runtime file identity, byte-preserving paths, scoped open handles, positional I/O, permissions, and coordinated mutation.[^core] The proposed reusable core additions are developed in [object references](object-references.md "refined by") and [mutation revisions](mutation-revisions.md "refined by"). Selected atomic metadata or creation results may also be needed after the client experiment. Protocol-specific filehandles, RPC, sessions, authentication, leases, replay, resource limits, and recovery belong in the NFS package.
+Core supplies runtime file identity, byte-preserving paths, scoped open handles, positional I/O, permissions, coordinated mutation, stable [object references](object-references.md "refined by"), and live [mutation revisions](mutation-revisions.md "refined by"). Protocol-specific filehandles, RPC, sessions, authentication, leases, replay, resource limits, and recovery belong in the NFS package.
 
 Writable NFS is a separate decision. Volatile `sync` and explicit SQLite checkpoints do not justify durable NFS write acknowledgements.[^core][^checkpoints] Sharing rules must also account for direct core writers; server-only bookkeeping cannot enforce mandatory restrictions across all consumers.
 
-Successful mount evidence remains open. The next gate is a reference-server mount with retained operation traces for listing, reading, reopen-after-change, and unmount on a pinned Linux client and the target Mac. Record experiment results and planning estimates in the issue discussion; keep this concept focused on the direction, constraints, and acceptance gate.[^issue]
+On 2026-09-13 a macOS client completed AUTH_SYS NFSv4.1 `EXCHANGE_ID`, `CREATE_SESSION`, `SEQUENCE`, `RECLAIM_COMPLETE`, root filehandle discovery, metadata and access probes, `DESTROY_SESSION`, and `DESTROY_CLIENTID` against Linux nfsd. Every ordinary post-creation compound began with `SEQUENCE`; absent Finder probe names returned `NFS4ERR_NOENT`. Docker Desktop's export harness then blocked the directory workload before `READDIR`.[^issue]
+
+The retained macOS result records a successful mount of this implementation, including directory listing, regular-file reads, symlink traversal, equal inode identity for two hard-link names, VFS-side file replacement after the configured one-second attribute-cache window, protocol-level write rejection, restart-required remount behavior, and clean unmount.[^linux-gate] Protocol tests cover the required non-pNFS `EXCHANGE_ID` role, structured `AUTH_SYS` callback credentials, downward `CREATE_SESSION` limit negotiation, compound-local `SAVEFH` and `RESTOREFH`, and read-only `OPEN` with `CLAIM_FH`.[^nfs-tests] The repeatable privileged Linux-client mount remains an implementation gate.[^linux-gate][^nfs-preview]
+
+The package's public configuration, resource limits, limit overrides, and bound address are Effect schemas. The constructor supplies loopback, ephemeral-port, lease, and finite resource defaults while accepting selective overrides. Byte budgets use `Schema.ByteSize`, count and protocol fields carry explicit numeric bounds, and startup validates the complete resolved policy before the only conversion into the private number-based XDR limits. Live `Volume` and `Caller` values remain capability contracts and are checked effectfully. Public declarations do not depend on the package-blocked protocol modules under `internal`.[^nfs-preview]
+
+The bounded preview also models confirmed and pending client incarnations separately, limits pending restart replacements explicitly, enforces negotiated session channels, preserves slot replay identity across retries and teardown, and uses RFC stateid and directory-cookie forms for read interoperability. Stateful compounds complete atomically after acquiring the server state gate; this deliberately favors replay correctness over prompt cancellation because the accepted deployment is a local in-memory volume with bounded operations.
 
 If the experiment proceeds, define an explicitly bounded preview profile. A successful `ls` is insufficient, and the preview must not be called a conformant NFSv4.1 server without accounting for every applicable mandatory operation, attribute, security, and recovery obligation. NFS object references must not weaken [explicit caller privilege](/decisions/explicit-caller-privilege.md "constrained by") or change [snapshot local identity](/decisions/snapshot-local-file-identity.md "constrained by").
 
@@ -45,4 +54,6 @@ If the experiment proceeds, define an explicitly bounded preview profile. A succ
 
 [^checkpoints]: `CheckpointStore` saves explicitly supplied snapshots; it is not a live-write commit barrier.
 
-[^issue]: Issue #11 owns the research milestone and discussion; no successful mount is claimed here.
+[^issue]: Issue #11 owns the research milestone and discussion.
+
+[^nfs-preview]: The package README defines the experimental scope, manual mount command, and remaining privileged Linux gate.
