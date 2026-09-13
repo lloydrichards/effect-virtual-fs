@@ -1,7 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
+import * as ByteSize from "effect/ByteSize"
 import { Reader, Writer, XdrDecodeError } from "../src/internal/xdr.js"
 
-const limits = { maxOpaqueBytes: 16, maxStringBytes: 8, maxArrayElements: 3 }
+const limits = {
+  maxOpaqueBytes: ByteSize.bytes(16),
+  maxStringBytes: ByteSize.bytes(8),
+  maxArrayElements: 3
+}
 
 describe("XDR", () => {
   it("tracks encoded length without materializing the result", () => {
@@ -80,7 +85,7 @@ describe("XDR", () => {
     const reader = new Reader(new Writer().uint32(1).uint32(2).bytes(), limits)
     reader.uint32()
     assert.throws(() => reader.finish(), XdrDecodeError)
-    assert.throws(() => new Reader(new Uint8Array(), { ...limits, maxOpaqueBytes: -1 }), RangeError)
+    assert.throws(() => ByteSize.bytes(-1), Error)
   })
 
   it("encodes and decodes a one-mebibyte opaque value without argument expansion", () => {
@@ -89,7 +94,7 @@ describe("XDR", () => {
     value[value.length - 1] = 2
     const encoded = new Writer().opaque(value).bytes()
     assert.strictEqual(encoded.length, value.length + 4)
-    const reader = new Reader(encoded, { ...limits, maxOpaqueBytes: value.length })
+    const reader = new Reader(encoded, { ...limits, maxOpaqueBytes: ByteSize.bytes(value.length) })
     assert.deepStrictEqual(reader.opaque(), value)
     reader.finish()
   })

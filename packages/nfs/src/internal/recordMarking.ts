@@ -1,6 +1,6 @@
 export interface RecordLimits {
-  readonly maxFragmentBytes: number
-  readonly maxRecordBytes: number
+  readonly maxFragmentBytes: ByteSize.ByteSize
+  readonly maxRecordBytes: ByteSize.ByteSize
   readonly maxFragmentsPerRecord: number
 }
 
@@ -40,8 +40,8 @@ export class RecordDecoder {
   #recordFragmentCount = 0
 
   constructor(limits: RecordLimits) {
-    validate("maxFragmentBytes", limits.maxFragmentBytes)
-    validate("maxRecordBytes", limits.maxRecordBytes)
+    validate("maxFragmentBytes", ByteSize.toNumberUnsafe(limits.maxFragmentBytes))
+    validate("maxRecordBytes", ByteSize.toNumberUnsafe(limits.maxRecordBytes))
     validate("maxFragmentsPerRecord", limits.maxFragmentsPerRecord)
     this.#limits = limits
   }
@@ -75,10 +75,10 @@ export class RecordDecoder {
           this.#fragmentLast = (marker & 0x8000_0000) !== 0
           this.#fragmentLength = marker & 0x7fff_ffff
           this.#headerLength = 0
-          if (this.#fragmentLength > this.#limits.maxFragmentBytes) {
+          if (BigInt(this.#fragmentLength) > this.#limits.maxFragmentBytes) {
             throw new RecordMarkingError("RPC fragment exceeds its byte limit")
           }
-          if (this.#recordBytes + this.#fragmentLength > this.#limits.maxRecordBytes) {
+          if (BigInt(this.#recordBytes + this.#fragmentLength) > this.#limits.maxRecordBytes) {
             throw new RecordMarkingError("RPC record exceeds its byte limit")
           }
           if (this.#recordFragmentCount >= this.#limits.maxFragmentsPerRecord) {
@@ -127,4 +127,5 @@ export const encodeRecord = (record: Uint8Array): Uint8Array => {
   result.set(record, 4)
   return result
 }
+import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"

@@ -78,8 +78,8 @@ const exchange = (
   Effect.callback((resume) => {
     const socket = Net.createConnection({ host: "127.0.0.1", port })
     const decoder = new RecordDecoder({
-      maxFragmentBytes: ByteSize.toNumberUnsafe(limits.maxFragmentBytes),
-      maxRecordBytes: ByteSize.toNumberUnsafe(limits.maxRecordBytes),
+      maxFragmentBytes: limits.maxFragmentBytes,
+      maxRecordBytes: limits.maxRecordBytes,
       maxFragmentsPerRecord: limits.maxFragmentsPerRecord
     })
     const received: Array<Uint8Array> = []
@@ -224,6 +224,21 @@ describe("NfsServer", () => {
         )
         assert.instanceOf(invalidHost, ConfigurationError)
         assert.strictEqual(invalidHost.option, "host")
+        const nullHost = yield* Effect.flip(
+          NfsServer.make({
+            ...options(volume, caller),
+            host: null
+          } as unknown as NfsServerOptions)
+        )
+        assert.instanceOf(nullHost, ConfigurationError)
+        assert.strictEqual(nullHost.option, "host")
+        const unknownOption = yield* Effect.flip(
+          NfsServer.make({
+            ...options(volume, caller),
+            unexpected: true
+          } as unknown as NfsServerOptions)
+        )
+        assert.instanceOf(unknownOption, ConfigurationError)
         const invalidLimit = yield* Effect.flip(
           NfsServer.make({
             volume,

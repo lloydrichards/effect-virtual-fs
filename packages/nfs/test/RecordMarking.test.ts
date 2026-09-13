@@ -1,7 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
+import * as ByteSize from "effect/ByteSize"
 import { encodeRecord, RecordDecoder, RecordMarkingError } from "../src/internal/recordMarking.js"
 
-const limits = { maxFragmentBytes: 32, maxRecordBytes: 64, maxFragmentsPerRecord: 8 }
+const limits = {
+  maxFragmentBytes: ByteSize.bytes(32),
+  maxRecordBytes: ByteSize.bytes(64),
+  maxFragmentsPerRecord: 8
+}
 const fragment = (last: boolean, bytes: Uint8Array): Uint8Array => {
   const result = new Uint8Array(bytes.length + 4)
   new DataView(result.buffer).setUint32(0, (last ? 0x8000_0000 : 0) | bytes.length)
@@ -40,7 +45,11 @@ describe("ONC RPC record marking", () => {
   })
 
   it("bounds fragments and assembled records before retaining their bodies and resets after failure", () => {
-    const decoder = new RecordDecoder({ maxFragmentBytes: 3, maxRecordBytes: 4, maxFragmentsPerRecord: 2 })
+    const decoder = new RecordDecoder({
+      maxFragmentBytes: ByteSize.bytes(3),
+      maxRecordBytes: ByteSize.bytes(4),
+      maxFragmentsPerRecord: 2
+    })
     assert.throws(() => decoder.push(fragment(true, new Uint8Array(4))), RecordMarkingError)
     assert.strictEqual(decoder.bufferedByteLength, 0)
     assert.throws(
@@ -52,7 +61,11 @@ describe("ONC RPC record marking", () => {
   })
 
   it("decodes a record delivered one byte at a time", () => {
-    const decoder = new RecordDecoder({ maxFragmentBytes: 1024, maxRecordBytes: 1024, maxFragmentsPerRecord: 1 })
+    const decoder = new RecordDecoder({
+      maxFragmentBytes: ByteSize.bytes(1024),
+      maxRecordBytes: ByteSize.bytes(1024),
+      maxFragmentsPerRecord: 1
+    })
     const encoded = encodeRecord(new Uint8Array(512))
     const records = []
     for (const byte of encoded) records.push(...decoder.push(Uint8Array.of(byte)))
@@ -61,7 +74,11 @@ describe("ONC RPC record marking", () => {
   })
 
   it("bounds zero-length non-final fragments and resets after rejection", () => {
-    const decoder = new RecordDecoder({ maxFragmentBytes: 0, maxRecordBytes: 0, maxFragmentsPerRecord: 2 })
+    const decoder = new RecordDecoder({
+      maxFragmentBytes: ByteSize.bytes(0),
+      maxRecordBytes: ByteSize.bytes(0),
+      maxFragmentsPerRecord: 2
+    })
     assert.deepStrictEqual(decoder.push(fragment(false, new Uint8Array())), [])
     assert.deepStrictEqual(decoder.push(fragment(false, new Uint8Array())), [])
     assert.throws(() => decoder.push(fragment(false, new Uint8Array())), RecordMarkingError)

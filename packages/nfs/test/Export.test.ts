@@ -1,10 +1,12 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
+import * as ByteSize from "effect/ByteSize"
 import { InvalidFilehandleError, InvalidNameError, makeExport, validateName } from "../src/internal/export.js"
 
 const generation = (value: number) => new Uint8Array(16).fill(value)
 const utf8 = (value: string) => new TextEncoder().encode(value)
+const maxNameBytes = ByteSize.bytes(255)
 
 describe("NFS export identity", () => {
   it.effect("keeps handles opaque and stable across hard-link and rename aliases", () =>
@@ -15,7 +17,7 @@ describe("NFS export identity", () => {
       const root = yield* caller.rootReference
       const original = yield* caller.lookupReference(root, utf8("original"))
       const alias = yield* caller.lookupReference(root, utf8("alias"))
-      const export_ = makeExport(caller, generation(1), { maxFilehandles: 4, maxNameBytes: 255 })
+      const export_ = makeExport(caller, generation(1), { maxFilehandles: 4, maxNameBytes })
       const before = yield* export_.handleFor(original)
       assert.deepStrictEqual(yield* export_.handleFor(alias), before)
       yield* caller.rename("/original", "/renamed")
@@ -27,8 +29,8 @@ describe("NFS export identity", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const root = yield* caller.rootReference
-      const oldExport = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes: 255 })
-      const nextExport = makeExport(caller, generation(2), { maxFilehandles: 2, maxNameBytes: 255 })
+      const oldExport = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
+      const nextExport = makeExport(caller, generation(2), { maxFilehandles: 2, maxNameBytes })
       const failure = yield* Effect.flip(nextExport.resolve(yield* oldExport.handleFor(root)))
       assert.instanceOf(failure, InvalidFilehandleError)
       assert.strictEqual(failure.reason, "WrongGeneration")
@@ -40,7 +42,7 @@ describe("NFS export identity", () => {
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const root = yield* caller.rootReference
       const reference = yield* caller.lookupReference(root, utf8("file"))
-      const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes: 255 })
+      const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
       const handle = yield* export_.handleFor(reference)
       yield* caller.unlink("/file")
       const failure = yield* Effect.flip(export_.resolve(handle))
@@ -53,7 +55,7 @@ describe("NFS export identity", () => {
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const root = yield* caller.rootReference
       const reference = yield* caller.lookupReference(root, utf8("file"))
-      const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes: 255 })
+      const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
       const handle = yield* export_.handleFor(reference)
       const opened = yield* export_.open(reference)
       yield* caller.unlink("/file")
@@ -68,7 +70,7 @@ describe("NFS export identity", () => {
       yield* caller.writeFile("/old", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const root = yield* caller.rootReference
       const old = yield* caller.lookupReference(root, utf8("old"))
-      const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes: 255 })
+      const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
       const rootHandle = yield* export_.handleFor(root)
       const oldHandle = yield* export_.handleFor(old)
       yield* caller.unlink("/old")
@@ -81,10 +83,10 @@ describe("NFS export identity", () => {
 
   it("accepts exact UTF-8 without normalizing and rejects unsafe components", () => {
     const decomposed = utf8("e\u0301")
-    assert.strictEqual(validateName(decomposed, 255), "e\u0301")
-    assert.deepStrictEqual(new TextEncoder().encode(validateName(decomposed, 255)), decomposed)
+    assert.strictEqual(validateName(decomposed, maxNameBytes), "e\u0301")
+    assert.deepStrictEqual(new TextEncoder().encode(validateName(decomposed, maxNameBytes)), decomposed)
     for (const name of [new Uint8Array(), utf8("a/b"), new Uint8Array([0]), new Uint8Array([0xff]), utf8("..")]) {
-      assert.throws(() => validateName(name, 255), InvalidNameError)
+      assert.throws(() => validateName(name, maxNameBytes), InvalidNameError)
     }
   })
 })

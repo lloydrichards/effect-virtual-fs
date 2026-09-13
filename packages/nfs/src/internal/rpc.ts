@@ -1,10 +1,11 @@
+import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import { type DecodeLimits, Reader, Writer, XdrDecodeError } from "./xdr.js"
 
 export interface RpcLimits extends DecodeLimits {
-  readonly maxAuthBytes: number
-  readonly maxMachineNameBytes: number
+  readonly maxAuthBytes: ByteSize.ByteSize
+  readonly maxMachineNameBytes: ByteSize.ByteSize
   readonly maxSupplementaryGroups: number
 }
 
@@ -23,6 +24,7 @@ export interface CompoundCall {
   /** Untrusted identity claims. Only the caller configured on `NfsServer` supplies VFS authority. */
   readonly credentials: Credentials
   readonly arguments: Uint8Array
+  readonly requestBytes?: number
 }
 
 export interface RpcHandlers {
@@ -50,7 +52,7 @@ class VerifierError extends Data.TaggedError("VerifierError")<{ readonly detail:
 
 const decodeAuth = (reader: Reader, limits: RpcLimits): Credentials => {
   const flavor = reader.uint32()
-  const body = reader.opaque(Math.min(limits.maxAuthBytes, 400))
+  const body = reader.opaque(ByteSize.min(limits.maxAuthBytes, ByteSize.bytes(400)))
   const auth = new Reader(body, limits)
   if (flavor === 0) {
     auth.finish()
@@ -77,7 +79,7 @@ const decodeAuth = (reader: Reader, limits: RpcLimits): Credentials => {
 const decodeVerifier = (reader: Reader, limits: RpcLimits): void => {
   try {
     const flavor = reader.uint32()
-    const body = reader.opaque(Math.min(limits.maxAuthBytes, 400))
+    const body = reader.opaque(ByteSize.min(limits.maxAuthBytes, ByteSize.bytes(400)))
     if (flavor !== 0 || body.length !== 0) throw new VerifierError("Only an empty AUTH_NONE verifier is accepted")
   } catch (error) {
     if (error instanceof XdrDecodeError) throw new VerifierError(error.message)
@@ -144,7 +146,7 @@ export const handleCall = (
       }
       if (procedure !== 1) return Effect.succeed(accepted(xid, 3))
       const arguments_ = message.slice(message.length - reader.remaining)
-      return handlers.compound({ credentials, arguments: arguments_ }).pipe(
+      return handlers.compound({ credentials, arguments: arguments_, requestBytes: message.length }).pipe(
         Effect.map((payload) => accepted(xid, 0, payload))
       )
     } catch (error) {

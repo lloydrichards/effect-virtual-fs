@@ -1,4 +1,5 @@
 import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -10,7 +11,7 @@ const HANDLE_BYTES = 25
 
 export interface ExportLimits {
   readonly maxFilehandles: number
-  readonly maxNameBytes: number
+  readonly maxNameBytes: ByteSize.ByteSize
 }
 
 export interface OpenedFile {
@@ -81,8 +82,8 @@ const decodeUtf8 = (bytes: Uint8Array): string => {
   }
 }
 
-export const validateName = (bytes: Uint8Array, maxNameBytes: number): string => {
-  if (bytes.length === 0 || bytes.length > maxNameBytes) throw new InvalidNameError("Name length is invalid")
+export const validateName = (bytes: Uint8Array, maxNameBytes: ByteSize.ByteSize): string => {
+  if (bytes.length === 0 || BigInt(bytes.length) > maxNameBytes) throw new InvalidNameError("Name length is invalid")
   if (bytes.includes(0) || bytes.includes(0x2f)) throw new InvalidNameError("Name contains a forbidden byte")
   const decoded = decodeUtf8(bytes)
   if (decoded === "." || decoded === "..") throw new InvalidNameError("Reserved path components are not names")
@@ -103,7 +104,7 @@ export const makeExport = (
 ): NfsExport => {
   validateGeneration(generation)
   assertPositiveInteger("maxFilehandles", limits.maxFilehandles)
-  assertPositiveInteger("maxNameBytes", limits.maxNameBytes)
+  assertPositiveInteger("maxNameBytes", ByteSize.toNumberUnsafe(limits.maxNameBytes))
 
   const generationCopy = new Uint8Array(generation)
   const referencesById = new Map<bigint, Vfs.ObjectReference>()

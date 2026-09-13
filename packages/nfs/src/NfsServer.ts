@@ -273,12 +273,22 @@ const configurationField = (issue: SchemaIssue.Issue): string => {
 const decodeConfig = (
   options: NfsServerOptions
 ): Effect.Effect<NfsServerConfig, ConfigurationError> =>
-  Effect.suspend(() =>
-    Schema.decodeResult(NfsServerConfig, { onExcessProperty: "error" })({
-      host: options.host ?? NfsServerConfig.default.host,
-      port: options.port ?? NfsServerConfig.default.port,
-      leaseDurationSeconds: options.leaseDurationSeconds ?? NfsServerConfig.default.leaseDurationSeconds,
-      limits: { ...NfsServerLimits.default, ...options.limits }
+  Effect.suspend(() => {
+    const { caller: _caller, volume: _volume, ...supplied } = options
+    const suppliedLimits: unknown = supplied.limits
+    const limits = suppliedLimits === undefined
+      ? NfsServerLimits.default
+      : typeof suppliedLimits === "object" && suppliedLimits !== null
+      ? { ...NfsServerLimits.default, ...suppliedLimits }
+      : suppliedLimits
+    return Schema.decodeUnknownResult(NfsServerConfig, { onExcessProperty: "error" })({
+      ...supplied,
+      host: supplied.host === undefined ? NfsServerConfig.default.host : supplied.host,
+      port: supplied.port === undefined ? NfsServerConfig.default.port : supplied.port,
+      leaseDurationSeconds: supplied.leaseDurationSeconds === undefined
+        ? NfsServerConfig.default.leaseDurationSeconds
+        : supplied.leaseDurationSeconds,
+      limits
     }).pipe(
       Result.mapError((error) => {
         const option = configurationField(error.issue)
@@ -289,37 +299,7 @@ const decodeConfig = (
       }),
       Result.match({ onFailure: Effect.fail, onSuccess: Effect.succeed })
     )
-  )
-
-const bytes = (size: ByteSize.ByteSize): number => ByteSize.toNumberUnsafe(size)
-const normalizeLimits = (limits: NfsServerLimits) => ({
-  maxConnections: limits.maxConnections,
-  maxFragmentBytes: bytes(limits.maxFragmentBytes),
-  maxRecordBytes: bytes(limits.maxRecordBytes),
-  maxFragmentsPerRecord: limits.maxFragmentsPerRecord,
-  maxOpaqueBytes: bytes(limits.maxOpaqueBytes),
-  maxStringBytes: bytes(limits.maxStringBytes),
-  maxArrayElements: limits.maxArrayElements,
-  maxAuthBytes: bytes(limits.maxAuthBytes),
-  maxMachineNameBytes: bytes(limits.maxMachineNameBytes),
-  maxSupplementaryGroups: limits.maxSupplementaryGroups,
-  maxCompoundBytes: bytes(limits.maxCompoundBytes),
-  maxOperations: limits.maxOperations,
-  maxBitmapWords: limits.maxBitmapWords,
-  maxClients: limits.maxClients,
-  maxPendingClientReplacements: limits.maxPendingClientReplacements,
-  maxSessions: limits.maxSessions,
-  maxSlotsPerSession: limits.maxSlotsPerSession,
-  maxReplayBytes: bytes(limits.maxReplayBytes),
-  maxOpens: limits.maxOpens,
-  maxOwnerBytes: bytes(limits.maxOwnerBytes),
-  maxReadBytes: bytes(limits.maxReadBytes),
-  maxWriteBytes: bytes(limits.maxWriteBytes),
-  maxReaddirEntries: limits.maxReaddirEntries,
-  maxReaddirReplyBytes: bytes(limits.maxReaddirReplyBytes),
-  maxNameBytes: bytes(limits.maxNameBytes),
-  maxFilehandles: limits.maxFilehandles
-})
+  })
 
 const make = (
   options: NfsServerOptions
@@ -330,7 +310,7 @@ const make = (
 > =>
   Effect.gen(function*() {
     const config = yield* decodeConfig(options)
-    const limits = normalizeLimits(config.limits)
+    const limits = config.limits
     const volumeCaller = yield* options.volume
       .caller()
       .pipe(
