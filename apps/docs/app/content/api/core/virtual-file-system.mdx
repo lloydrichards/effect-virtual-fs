@@ -854,6 +854,33 @@ A filesystem caller with its own identity, creation mask, and current directory.
 ```ts
 export interface Caller {
   readonly [CallerId]: true;
+  /** Returns the stable reference for this volume's root directory. */
+  readonly rootReference: Effect.Effect<ObjectReference, FsError>;
+  /** Looks up one byte-preserving child name from a referenced directory. */
+  readonly lookupReference: (
+    directory: ObjectReference,
+    name: Uint8Array,
+  ) => Effect.Effect<ObjectReference, FsError>;
+  /** Returns a referenced directory's current parent. The root is its own parent. */
+  readonly parentReference: (
+    directory: ObjectReference,
+  ) => Effect.Effect<ObjectReference, FsError>;
+  /** Reads metadata and its matching live revision. */
+  readonly observeMetadata: (
+    reference: ObjectReference,
+  ) => Effect.Effect<ObjectObservation<Metadata>, FsError>;
+  /** Reads owned directory entries and their matching directory revision. */
+  readonly observeDirectory: (
+    reference: ObjectReference,
+  ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsError>;
+  /** Reads an owned symbolic-link target through a stable reference. */
+  readonly readLinkReference: (
+    reference: ObjectReference,
+  ) => Effect.Effect<Uint8Array, FsError>;
+  /** Opens a referenced regular file for reading. */
+  readonly openReference: (
+    reference: ObjectReference,
+  ) => Effect.Effect<FileHandle, FsError, Scope.Scope>;
   /** Reads metadata, following the final symbolic link by default. */
   readonly stat: (
     path: PathInput,
@@ -1495,6 +1522,9 @@ export declare const FsCode: Schema.Literals<
     "AccessDenied",
     "InvalidHandle",
     "ForeignHandle",
+    "InvalidReference",
+    "ForeignReference",
+    "StaleReference",
     "ClosedCaller",
     "InvalidArgument",
     "InvalidPathEncoding",
@@ -2173,6 +2203,44 @@ export declare const diffSnapshots: (
 Added in v0.1.0
 
 ## utils
+
+### DirectoryEntry (interface)
+
+One owned directory name paired with the referenced child object.
+
+**Signature**
+
+```ts
+export interface DirectoryEntry {
+  readonly name: Uint8Array;
+  readonly reference: ObjectReference;
+}
+```
+
+### ObjectObservation (interface)
+
+A value and the revision of the object from the same coordinated observation.
+
+**Signature**
+
+```ts
+export interface ObjectObservation<A> {
+  readonly value: A;
+  readonly revision: bigint;
+}
+```
+
+### ObjectReference (interface)
+
+An opaque identity for one object in one live volume.
+
+**Signature**
+
+```ts
+export interface ObjectReference {
+  readonly [ObjectReferenceId]: true;
+}
+```
 
 ### SnapshotDeltaFromBytes
 

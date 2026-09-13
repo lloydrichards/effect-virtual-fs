@@ -9,6 +9,26 @@ import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
+export const references = (caller: Vfs.Caller) =>
+  Effect.gen(function*() {
+    const root: Vfs.ObjectReference = yield* caller.rootReference
+    const child: Vfs.ObjectReference = yield* caller.lookupReference(root, new Uint8Array([102]))
+    const parent: Vfs.ObjectReference = yield* caller.parentReference(root)
+    const metadata: Vfs.ObjectObservation<Vfs.Metadata> = yield* caller.observeMetadata(child)
+    const directory: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>> = yield* caller.observeDirectory(parent)
+    const target: Uint8Array = yield* caller.readLinkReference(child)
+    return { root, child, metadata, directory, target }
+  }) satisfies Effect.Effect<{
+    readonly root: Vfs.ObjectReference
+    readonly child: Vfs.ObjectReference
+    readonly metadata: Vfs.ObjectObservation<Vfs.Metadata>
+    readonly directory: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>>
+    readonly target: Uint8Array
+  }, Vfs.FsError>
+
+export const referencedFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
+  caller.openReference(reference) satisfies Effect.Effect<Vfs.FileHandle, Vfs.FsError, Scope.Scope>
+
 export const rootCaller = Effect.gen(function*() {
   const volume = yield* Vfs.make({ maxEntries: 10, maxPathBytes: ByteSize.kibibytes(1) })
   return yield* volume.caller()
@@ -43,6 +63,8 @@ export const rejected = (caller: Vfs.Caller) => {
   caller.stat(".", { relativeTo: 1 })
   // @ts-expect-error Root callers have no public close method.
   caller.close()
+  // @ts-expect-error Object references cannot be structurally constructed.
+  const reference: Vfs.ObjectReference = {}
   return unscoped
 }
 
@@ -54,6 +76,12 @@ export const scopedFile = (caller: Vfs.Caller) =>
     yield* file.seek(0n, "start")
     return yield* file.read(2)
   }))
+
+export const rejectedReferenceFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) => {
+  // @ts-expect-error Reference-based file acquisition still requires Scope.
+  const unscoped: Effect.Effect<Vfs.FileHandle, Vfs.FsError> = caller.openReference(reference)
+  return unscoped
+}
 
 export const persistence = Effect.gen(function*() {
   const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/file", bytes: new Uint8Array([1]) }] })

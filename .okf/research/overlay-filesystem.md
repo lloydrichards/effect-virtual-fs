@@ -47,7 +47,7 @@ sources:
   - id: oci
     resource: https://specs.opencontainers.org/image-spec/layer/
     title: OCI image layer changesets
-generated: { by: codex/okf, at: 2026-09-10T14:35:31Z }
+generated: { by: codex/okf, at: 2026-09-13T09:24:00+02:00 }
 ---
 
 # Overlay filesystem direction
@@ -84,7 +84,7 @@ Linux OverlayFS demonstrates upper precedence, merged directories, whiteouts and
 
 OCI describes serialized changesets, not live volume behavior. Whiteouts hide lower entries and opaque markers hide inherited children. Its reserved `.wh.` names are a reason to keep deletion bookkeeping outside this project's user namespace.[^oci] [Deferred delta research](overlay-changes.md "refined by") owns later serialization questions.
 
-Public [object references](object-references.md "related to") and [mutation revisions](mutation-revisions.md "related to") remain separate draft proposals, not overlay prerequisites. Internal lineage can support overlay comparison without accepting those APIs.
+Public [object references](object-references.md "related to") and [mutation revisions](mutation-revisions.md "related to") are separate live-core contracts, not overlay prerequisites. Internal lineage supports overlay comparison independently of those APIs.
 
 ## Behavior evidence to preserve
 
