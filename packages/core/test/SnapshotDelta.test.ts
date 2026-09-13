@@ -17,9 +17,9 @@ const snapshotDocument = (snapshot: Vfs.Snapshot) =>
 const deltaLimitsWith = (
   field: "maxIdentityBytes" | "maxDecodedDeltaBytes" | "maxOutputBytes",
   value: number
-): Vfs.SnapshotDeltaLimits => {
+): Effect.Effect<Vfs.SnapshotDeltaLimits, Schema.SchemaError> => {
   const current = Vfs.SnapshotDeltaLimits.default[field]
-  return Schema.decodeSync(Vfs.SnapshotDeltaLimits)({
+  return Schema.decodeEffect(Vfs.SnapshotDeltaLimits)({
     ...Vfs.SnapshotDeltaLimits.default,
     [field]: typeof current === "bigint" ? BigInt(value) : value
   })
@@ -293,7 +293,7 @@ describe("snapshot deltas", () => {
       const targetVolume = yield* Vfs.fromFixture({ entries: [] })
       const base = yield* baseVolume.snapshot
       const target = yield* targetVolume.snapshot
-      const limits = deltaLimitsWith("maxOutputBytes", 0)
+      const limits = yield* deltaLimitsWith("maxOutputBytes", 0)
 
       const delta = yield* Vfs.diffSnapshots(base, target, limits)
       assert.strictEqual((yield* Vfs.inspectSnapshotDelta(base, delta, undefined, limits)).length, 1)
@@ -318,21 +318,21 @@ describe("snapshot deltas", () => {
       })).snapshot
 
       const basePayloadError = yield* Effect.flip(
-        Vfs.diffSnapshots(payload, empty, deltaLimitsWith("maxIdentityBytes", 127))
+        Vfs.diffSnapshots(payload, empty, yield* deltaLimitsWith("maxIdentityBytes", 127))
       )
       assert.instanceOf(basePayloadError, Vfs.ImageError)
       assert.strictEqual(basePayloadError.code, "LimitExceeded")
       assert.strictEqual(basePayloadError.field, "identityBytes")
 
       const targetPathError = yield* Effect.flip(
-        Vfs.diffSnapshots(empty, nested, deltaLimitsWith("maxDecodedDeltaBytes", 2))
+        Vfs.diffSnapshots(empty, nested, yield* deltaLimitsWith("maxDecodedDeltaBytes", 2))
       )
       assert.instanceOf(targetPathError, Vfs.ImageError)
       assert.strictEqual(targetPathError.code, "LimitExceeded")
       assert.strictEqual(targetPathError.field, "decodedDeltaBytes")
 
       const targetPayloadError = yield* Effect.flip(
-        Vfs.diffSnapshots(empty, payload, deltaLimitsWith("maxOutputBytes", 127))
+        Vfs.diffSnapshots(empty, payload, yield* deltaLimitsWith("maxOutputBytes", 127))
       )
       assert.instanceOf(targetPayloadError, Vfs.ImageError)
       assert.strictEqual(targetPayloadError.code, "LimitExceeded")

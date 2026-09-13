@@ -89,7 +89,7 @@ const exchange = (
     socket.on("connect", () => socket.write(request))
     socket.on("data", (chunk) => {
       try {
-        received.push(...decoder.push(chunk))
+        received.push(...decoder.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk))
         if (received.length < expectedRecords) return
         socket.end()
         resume(Effect.succeed(received))

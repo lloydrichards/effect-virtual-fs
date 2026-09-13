@@ -1,54 +1,67 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { ByteSize, Effect, Schema } from "effect"
-// External measurement reads host files directly; core itself has no host filesystem dependency.
-// oxlint-disable-next-line effecttsgo/node-builtin-import
-import * as Fs from "node:fs/promises"
-// oxlint-disable-next-line effecttsgo/node-builtin-import
-import * as Path from "node:path"
-import { fileURLToPath } from "node:url"
+import { BunRuntime, BunServices } from "@effect/platform-bun"
+import { ByteSize, Clock, Console, Effect, FileSystem, Path, Schema } from "effect"
 
-// External benchmark input preparation, not a host-tree API in core or a build source fallback.
-const preparationStarted = performance.now()
-const beforePreparationRssBytes = process.memoryUsage().rss
-const packages: Array<{ name: string; version: string }> = []
-const entries: Array<Vfs.Fixture["entries"][number]> = [{ kind: "directory", path: "/node_modules" }]
-let sourceBytes = 0
-let files = 0
-for (const name of ["effect", "vite", "rolldown"]) {
-  const root = Path.dirname(fileURLToPath(import.meta.resolve(`${name}/package.json`)))
-  const manifest = Schema.decodeSync(Schema.fromJsonString(Schema.Struct({ version: Schema.String })))(
-    await Fs.readFile(Path.join(root, "package.json"), "utf8")
-  )
-  packages.push({ name, version: manifest.version })
-  const pending = [{ host: root, virtual: `/node_modules/${name}` }]
-  while (pending.length > 0) {
-    const directory = pending.pop()
-    if (directory === undefined) break
-    entries.push({ kind: "directory", path: directory.virtual })
-    const children = await Fs.readdir(directory.host, { withFileTypes: true })
-    children.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
-    for (const item of children) {
-      if (item.name === "node_modules") continue
-      const host = Path.join(directory.host, item.name)
-      const path = `${directory.virtual}/${item.name}`
-      if (item.isDirectory()) pending.push({ host, virtual: path })
-      else if (item.isFile()) {
-        const bytes = await Fs.readFile(host)
-        sourceBytes += bytes.length
-        files++
-        entries.push({ kind: "file", path, bytes })
+const PackageManifest = Schema.fromJsonString(Schema.Struct({ version: Schema.String }))
+const Json = Schema.fromJsonString(Schema.Unknown, { space: 2 })
+const packageNames = ["effect", "vite", "rolldown"] as const
+
+const program = Effect.gen(function*() {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const preparationStarted = yield* Clock.monotonicTimeNanos
+  const beforePreparationRssBytes = yield* Effect.sync(() => process.memoryUsage().rss)
+  const packages: Array<{ name: string; version: string }> = []
+  const entries: Array<Vfs.Fixture["entries"][number]> = [{ kind: "directory", path: "/node_modules" }]
+  let sourceBytes = 0
+  let files = 0
+
+  for (const name of packageNames) {
+    const manifestPath = yield* path.fromFileUrl(new URL(import.meta.resolve(`${name}/package.json`)))
+    const root = path.dirname(manifestPath)
+    const manifest = yield* fileSystem.readFileString(manifestPath).pipe(
+      Effect.flatMap(Schema.decodeEffect(PackageManifest))
+    )
+    packages.push({ name, version: manifest.version })
+
+    const pending = [{ host: root, virtual: `/node_modules/${name}` }]
+    while (pending.length > 0) {
+      const directory = pending.pop()
+      if (directory === undefined) break
+      entries.push({ kind: "directory", path: directory.virtual })
+      const children = yield* fileSystem.readDirectory(directory.host)
+      children.sort()
+
+      for (const child of children) {
+        if (child === "node_modules") continue
+        const host = path.join(directory.host, child)
+        const canonicalHost = yield* fileSystem.realPath(host)
+        if (path.normalize(canonicalHost) !== path.normalize(host)) continue
+
+        const virtualPath = `${directory.virtual}/${child}`
+        const metadata = yield* fileSystem.stat(host)
+        if (metadata.type === "Directory") {
+          pending.push({ host, virtual: virtualPath })
+        } else if (metadata.type === "File") {
+          const bytes = yield* fileSystem.readFile(host)
+          sourceBytes += bytes.length
+          files++
+          entries.push({ kind: "file", path: virtualPath, bytes })
+        }
       }
     }
   }
-}
-const timings: Record<string, number> = { preparationMs: Number((performance.now() - preparationStarted).toFixed(2)) }
-const measure = Effect.fnUntraced(function*<A, E>(name: string, effect: Effect.Effect<A, E>) {
-  const start = performance.now()
-  const value = yield* effect
-  timings[name] = Number((performance.now() - start).toFixed(2))
-  return value
-})
-const result = await Effect.runPromise(Effect.gen(function*() {
+
+  const timings: Record<string, number> = {
+    preparationMs: Number((Number((yield* Clock.monotonicTimeNanos) - preparationStarted) / 1_000_000).toFixed(2))
+  }
+  const measure = Effect.fnUntraced(function*<A, E, R>(name: string, effect: Effect.Effect<A, E, R>) {
+    const start = yield* Clock.monotonicTimeNanos
+    const value = yield* effect
+    timings[name] = Number((Number((yield* Clock.monotonicTimeNanos) - start) / 1_000_000).toFixed(2))
+    return value
+  })
+
   const volume = yield* measure("fixtureMs", Vfs.fromFixture({ entries }))
   const snapshot = yield* measure("captureMs", volume.snapshot)
   const encoded = yield* measure("encodeMs", Vfs.encodeSnapshot(snapshot))
@@ -64,7 +77,17 @@ const result = await Effect.runPromise(Effect.gen(function*() {
   const restored = yield* measure("restoreMs", Vfs.fromSnapshot(decoded))
   const caller = yield* restored.caller()
   const metadata = yield* caller.stat("/node_modules/vite/package.json")
-  return {
+  const runtime = yield* Effect.sync(() => ({
+    afterRestorationRssBytes: process.memoryUsage().rss,
+    peakRssBytes: process.versions["bun"] === undefined ? process.resourceUsage().maxRSS * 1024 : null,
+    peakSource: process.versions["bun"] === undefined
+      ? "Node process.resourceUsage().maxRSS (KiB) multiplied by 1024"
+      : "Unavailable: run with Node for the verified peak RSS metric",
+    name: process.versions["bun"] === undefined ? `Node ${process.version}` : `Bun ${process.versions["bun"]}`,
+    platform: `${process.platform}-${process.arch}`
+  }))
+
+  const report = {
     packages,
     workload: "Selected installed package trees; nested node_modules and nonregular entries excluded",
     files,
@@ -76,16 +99,16 @@ const result = await Effect.runPromise(Effect.gen(function*() {
     timings,
     memory: {
       beforePreparationRssBytes,
-      afterRestorationRssBytes: process.memoryUsage().rss,
-      peakRssBytes: process.versions["bun"] === undefined ? process.resourceUsage().maxRSS * 1024 : null,
-      peakSource: process.versions["bun"] === undefined
-        ? "Node process.resourceUsage().maxRSS (KiB) multiplied by 1024"
-        : "Unavailable: run with Node for the verified peak RSS metric",
+      afterRestorationRssBytes: runtime.afterRestorationRssBytes,
+      peakRssBytes: runtime.peakRssBytes,
+      peakSource: runtime.peakSource,
       peakScope: "Process lifetime through restoration, including imports, host fixture preparation and all phases",
       collection: "No forced garbage collection; fixture input and pipeline values coexist as runtime liveness permits"
     },
-    runtime: process.versions["bun"] === undefined ? `Node ${process.version}` : `Bun ${process.versions["bun"]}`,
-    platform: `${process.platform}-${process.arch}`
+    runtime: runtime.name,
+    platform: runtime.platform
   }
-}))
-process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+  yield* Console.log(yield* Schema.encodeEffect(Json)(report))
+})
+
+program.pipe(Effect.provide(BunServices.layer), BunRuntime.runMain)

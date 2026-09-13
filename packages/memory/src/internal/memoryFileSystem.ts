@@ -55,7 +55,7 @@ const info = Effect.fnUntraced(function*(
   const date = (field: "atimeNs" | "mtimeNs" | "birthtimeNs") => {
     const result = DateTime.make(Number(value[field] / 1_000_000n))
     return Option.isSome(result)
-      ? Effect.succeed(Option.some(DateTime.toDateUtc(result.value)))
+      ? Effect.succeedSome(DateTime.toDateUtc(result.value))
       : Effect.fail(systemError({
         module: "FileSystem",
         method: "stat",

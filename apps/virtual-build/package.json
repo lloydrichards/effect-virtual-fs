@@ -12,8 +12,9 @@
   },
   "dependencies": {
     "@effect-vfs/core": "workspace:*",
+    "@effect/platform-bun": "4.0.0-rc.114",
     "effect": "4.0.0-rc.114",
-    "vite": "8.2.2"
+    "vite": "8.3.0"
   },
   "devDependencies": {
     "@effect/vitest": "4.0.0-rc.114",

@@ -14,12 +14,20 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./CheckpointStore": { "types": "./dist/CheckpointStore.d.ts", "import": "./dist/CheckpointStore.js" },
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./CheckpointStore": {
+      "types": "./dist/CheckpointStore.d.ts",
+      "import": "./dist/CheckpointStore.js"
+    },
     "./package.json": "./package.json"
   },
   "files": ["dist/**", "README.md", "LICENSE"],
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "clean": "rm -rf dist",
     "build": "tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json",
@@ -36,7 +44,7 @@
     "@effect/sql-sqlite-bun": "4.0.0-rc.114",
     "@effect/vitest": "4.0.0-rc.114",
     "@repo/config-typescript": "workspace:*",
-    "@types/node": "26.5.0",
+    "@types/node": "26.5.1",
     "effect": "4.0.0-rc.114"
   }
 }
