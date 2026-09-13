@@ -5,7 +5,21 @@ export const apiPages = [
     label: "Core · VirtualFileSystem",
     href: "/api/core/virtual-file-system",
     routePath: "core/virtual-file-system",
-    contentPath: "content/api/core/virtual-file-system.mdx"
+    contentPath: "content/api/core/virtual-file-system.mdx",
+    relatedLinks: [
+      {
+        label: "Volumes, callers, and handles",
+        href: "/concepts/filesystem-model"
+      },
+      {
+        label: "Build and transport filesystem snapshots",
+        href: "/guides/fixtures-and-snapshots"
+      },
+      {
+        label: "Create an isolated overlay workspace",
+        href: "/guides/overlay-filesystems"
+      }
+    ]
   },
   {
     packageDir: "packages/core",
@@ -45,6 +59,12 @@ export const apiPages = [
     label: "Persistence · CheckpointStore",
     href: "/api/persistence/checkpoint-store",
     routePath: "persistence/checkpoint-store",
-    contentPath: "content/api/persistence/checkpoint-store.mdx"
+    contentPath: "content/api/persistence/checkpoint-store.mdx",
+    relatedLinks: [
+      {
+        label: "Save and restore SQLite checkpoints",
+        href: "/guides/sqlite-checkpoints"
+      }
+    ]
   }
 ] as const
