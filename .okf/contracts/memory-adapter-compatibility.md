@@ -13,7 +13,7 @@ sources:
     title: Effect compatibility tests
   - resource: ../../packages/memory/test/CoreBinding.test.ts
     title: Shared core binding tests
-generated: { by: codex/okf, at: 2026-09-12T10:45:54Z }
+generated: { by: codex/okf, at: 2026-09-13T14:53:40Z }
 ---
 
 # Memory adapter compatibility
@@ -23,5 +23,7 @@ generated: { by: codex/okf, at: 2026-09-12T10:45:54Z }
 Bindings share namespace and contents while retaining independent callers, descriptor tables, file cursors, and lifetimes. The adapter preserves Effect cursor and convenience behavior where it intentionally differs from the POSIX-oriented core, and maps expected core failures to `PlatformError`.
 
 The adapter follows Effect's byte and cursor types at its public boundary. File metadata exposes exact `ByteSize.ByteSize` values, reads and writes return byte counts as numbers, and seeks accept and return bigint positions.
+Seeks before the start fail with `BadArgument` without changing the cursor, and
+`readAlloc` rejects missing, coerced, negative, and non-integer runtime sizes.
 
 This contract [depends on](/contracts/resources-and-authority.md "depends on") core capabilities, [implements package boundaries](/decisions/package-boundaries.md "implements"), and is [grounded in the Effect compatibility research](/research/effect-compatibility.md "grounded in").

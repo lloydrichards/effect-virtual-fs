@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Effect file-handle input compatibility**: Aligned negative-seek cursor preservation and required `readAlloc` runtime validation with the installed Effect `FileSystem` contract while retaining zero-default truncation.
+
 - **NFS review corrections**: Grounded the macOS interoperability summary in issue #39 and the protocol claims in focused tests; removed the unsupported packet-trace claim.
 
 - **Standalone NFS preview app**: Moved the runnable fixture out of the library package into a private workspace app with macOS mount, verification, troubleshooting, and cleanup instructions.

@@ -14,7 +14,7 @@ sources:
   - id: core-binding-tests
     resource: ../../packages/memory/test/CoreBinding.test.ts
     title: Core binding compatibility tests
-generated: { by: codex/okf, at: 2026-09-10T12:00:00Z }
+generated: { by: codex/okf, at: 2026-09-13T14:53:40Z }
 ---
 
 # Effect adapter compatibility
@@ -22,6 +22,10 @@ generated: { by: codex/okf, at: 2026-09-10T12:00:00Z }
 `@effect-vfs/core` owns runtime-neutral filesystem semantics. `@effect-vfs/memory` adapts those semantics to Effect's `FileSystem` service and owns string conversion, `PlatformError` translation, derived helpers, and cursor differences required by that interface. Core does not depend on the adapter.
 
 Bindings to one volume share namespace and bytes but retain independent caller and handle state. Separate opens have independent positions. Adapter append preserves its cursor even though the core handle append operation advances its own offset; positional core I/O lets the adapter preserve this distinction without splitting append placement from the write.
+Effect's `File` boundary rejects a seek before the start without changing the
+cursor and validates required `readAlloc` sizes without runtime coercion. The
+adapter retains the separate Effect convention that omitted `truncate` lengths
+default to zero.
 
 The adapter must preserve current observable behavior for final-symlink handling, copy into existing destination identity, deep trees, scoped cleanup, watch delivery, and normalized errors. Mutations made through another caller or binding must still reach adapter watchers, so event publication belongs at the shared volume coordination boundary rather than in one wrapper.
 
