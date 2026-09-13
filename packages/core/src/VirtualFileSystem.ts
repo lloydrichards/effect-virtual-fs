@@ -16,7 +16,6 @@ export { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "./Snaps
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
-import * as PubSub from "effect/PubSub"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as SchemaAST from "effect/SchemaAST"
@@ -33,6 +32,8 @@ import * as Image from "./internal/image.js"
 import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./internal/overlayChanges.js"
 import * as OverlayTesting from "./internal/overlayTesting.js"
 import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
+import * as WatchHub from "./internal/watchHub.js"
+import * as WatchTesting from "./internal/watchTesting.js"
 import * as SnapshotDeltaModel from "./SnapshotDelta.js"
 export {
   SnapshotChange,
@@ -1030,6 +1031,8 @@ const makeVolume = Effect.fnUntraced(
     let usedBytes = 0n
     // The schema caps this value at uint32, so this boundary conversion is exact.
     const maxFileBytes = Number(ByteSize.toBigInt(settings.maxFileBytes ?? ByteSize.bytes(0xffffffff)))
+    // Permit waits stay interruptible. State transitions and resource registration do not.
+    const coordinated = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(Effect.uninterruptible(effect))
 
     if (image !== undefined) {
       const incoming = new Map<string, Node>()
@@ -1119,8 +1122,7 @@ const makeVolume = Effect.fnUntraced(
       usedBytes = content
     }
 
-    const events = yield* PubSub.unbounded<Change>()
-    let subscribers = 0
+    const watchHub = yield* WatchHub.make<Change>(coordinated)
     const directoryHex = (directory: Directory): string => {
       const names: Array<string> = []
       let current = directory
@@ -1134,28 +1136,32 @@ const makeVolume = Effect.fnUntraced(
       return "2f" + names.reverse().join("2f")
     }
     const publishEntry = (_tag: Change["_tag"], parent: Directory, name: string) => {
-      if (subscribers === 0) return
-      const prefix = directoryHex(parent)
-      PubSub.publishUnsafe(events, { _tag, path: ownedPath(nameBytes(prefix + (prefix === "2f" ? "" : "2f") + name)) })
+      watchHub.publishUnsafe(() => {
+        const prefix = directoryHex(parent)
+        return { _tag, path: ownedPath(nameBytes(prefix + (prefix === "2f" ? "" : "2f") + name)) }
+      })
     }
     const publishNode = (target: Node) => {
-      if (subscribers === 0) return
-      if (target === root) {
-        PubSub.publishUnsafe(events, { _tag: "Update" as const, path: ownedPath(new Uint8Array([47])) })
-      }
-      const pending: Array<readonly [Directory, string]> = [[root, "2f"]]
-      while (pending.length > 0) {
-        const next = pending.pop()
-        if (next === undefined) break
-        const [directory, prefix] = next
-        for (const [name, node] of directory.entries) {
-          const path = prefix + name
-          if (node === target) {
-            PubSub.publishUnsafe(events, { _tag: "Update" as const, path: ownedPath(nameBytes(path)) })
-          }
-          if (node.kind === "directory") pending.push([node, path + "2f"])
+      watchHub.publishManyUnsafe(() => {
+        const changes: Array<Change> = []
+        if (target === root) {
+          changes.push({ _tag: "Update", path: ownedPath(new Uint8Array([47])) })
         }
-      }
+        const pending: Array<readonly [Directory, string]> = [[root, "2f"]]
+        while (pending.length > 0) {
+          const next = pending.pop()
+          if (next === undefined) break
+          const [directory, prefix] = next
+          for (const [name, node] of directory.entries) {
+            const path = prefix + name
+            if (node === target) {
+              changes.push({ _tag: "Update", path: ownedPath(nameBytes(path)) })
+            }
+            if (node.kind === "directory") pending.push([node, path + "2f"])
+          }
+        }
+        return changes
+      })
     }
 
     const captureSnapshot = Effect.fnUntraced(function*() {
@@ -1222,8 +1228,6 @@ const makeVolume = Effect.fnUntraced(
       return { snapshot, observation: observeChanges() }
     })
 
-    // Permit waits stay interruptible. State transitions and resource registration do not.
-    const coordinated = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(Effect.uninterruptible(effect))
     const advanceRevision = (node: Node) => {
       node.revision = nextRevision()
     }
@@ -2261,9 +2265,8 @@ const makeVolume = Effect.fnUntraced(
             }
             const now = yield* timestamp("rename")
             // All rejection checks precede namespace, ancestry, quota, and metadata publication.
-            const oldEvent = subscribers > 0
-              ? ownedPath(nameBytes(directoryHex(oldParent) + (oldParent === root ? "" : "2f") + oldName))
-              : undefined
+            const oldEvent = () =>
+              ownedPath(nameBytes(directoryHex(oldParent) + (oldParent === root ? "" : "2f") + oldName))
             oldParent.entries.delete(oldName)
             newParent.entries.set(newName, child)
             if (child.kind === "directory") child.parent = newParent
@@ -2287,7 +2290,7 @@ const makeVolume = Effect.fnUntraced(
               detach(replaced, now)
               entries -= 1
             }
-            if (oldEvent !== undefined) PubSub.publishUnsafe(events, { _tag: "Remove" as const, path: oldEvent })
+            watchHub.publishUnsafe(() => ({ _tag: "Remove" as const, path: oldEvent() }))
             publishEntry("Create", newParent, newName)
           }))
         }),
@@ -2429,14 +2432,8 @@ const makeVolume = Effect.fnUntraced(
     const volume: Volume = Object.freeze({
       [VolumeId]: true as const,
       watch: Effect.gen(function*() {
-        const subscription = yield* PubSub.subscribe(events)
-        subscribers += 1
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => {
-            subscribers -= 1
-          })
-        )
-        return Stream.fromEffectRepeat(PubSub.take(subscription))
+        const hook = WatchTesting.getRegistrationHook(volume)
+        return yield* watchHub.subscribe(hook?.afterSubscribe)
       }).pipe(Effect.withSpan("Volume.watch")),
       snapshot: coordinated(captureSnapshot()).pipe(Effect.withSpan("Volume.snapshot")),
 
