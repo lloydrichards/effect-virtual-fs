@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { setRegistrationHook } from "../src/internal/watchTesting.js"
+import { setRegistrationHook } from "../src/internal/virtualFileSystem/testHooks.js"
 
 describe("volume watch", () => {
   it.effect("does not lose a change while a watcher is registering", () =>

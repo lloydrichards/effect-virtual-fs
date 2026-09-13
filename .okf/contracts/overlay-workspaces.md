@@ -9,7 +9,7 @@ sources:
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Overlay construction, content promotion and capture
   - id: comparison
-    resource: ../../packages/core/src/internal/overlayChanges.ts
+    resource: ../../packages/core/src/internal/virtualFileSystem/overlayDiff.ts
     title: Identity-based final-state comparison
   - id: behavior
     resource: ../../packages/core/test/Overlay.test.ts

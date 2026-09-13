@@ -21,340 +21,9 @@ Builds a fresh volume from a validated final-state fixture.
 
 ```ts
 export declare const fromFixture: (
-  fixture: {
-    readonly entries: readonly (
-      | {
-          readonly kind: "directory";
-          readonly path: string | BytePath;
-          readonly metadata?: {
-            readonly uid?: number;
-            readonly gid?: number;
-            readonly mode?: number;
-            readonly atimeNs?: bigint;
-            readonly mtimeNs?: bigint;
-            readonly ctimeNs?: bigint;
-            readonly birthtimeNs?: bigint;
-          };
-        }
-      | {
-          readonly kind: "file";
-          readonly bytes: any;
-          readonly path: string | BytePath;
-          readonly metadata?: {
-            readonly uid?: number;
-            readonly gid?: number;
-            readonly mode?: number;
-            readonly atimeNs?: bigint;
-            readonly mtimeNs?: bigint;
-            readonly ctimeNs?: bigint;
-            readonly birthtimeNs?: bigint;
-          };
-        }
-      | {
-          readonly kind: "symlink";
-          readonly path: string | BytePath;
-          readonly target: string | BytePath;
-          readonly metadata?: {
-            readonly uid?: number;
-            readonly gid?: number;
-            readonly mode?: number;
-            readonly atimeNs?: bigint;
-            readonly mtimeNs?: bigint;
-            readonly ctimeNs?: bigint;
-            readonly birthtimeNs?: bigint;
-          };
-        }
-      | {
-          readonly kind: "hardLink";
-          readonly path: string | BytePath;
-          readonly target: string | BytePath;
-        }
-    )[];
-    readonly rootMetadata?: {
-      readonly uid?: number;
-      readonly gid?: number;
-      readonly mode?: number;
-      readonly atimeNs?: bigint;
-      readonly mtimeNs?: bigint;
-      readonly ctimeNs?: bigint;
-      readonly birthtimeNs?: bigint;
-    };
-  },
-  options?: {
-    readonly maxEntries?: number;
-    readonly maxBytes?: ByteSize.ByteSize;
-    readonly maxFileBytes?: ByteSize.ByteSize;
-    readonly maxPathBytes?: ByteSize.ByteSize;
-  },
-) => Effect.Effect<
-  Volume,
-  [
-    | Effect.Effect<Snapshot, ImageError, never>
-    | Effect.Effect<
-        | { _tag: "Volume"; volume: Volume }
-        | { _tag: "Overlay"; volume: OverlayVolume },
-        ImageError | ConfigurationError,
-        never
-      >
-    | Effect.Effect<
-        {
-          readonly format: "effect-vfs";
-          readonly version: 1;
-          readonly root: string;
-          readonly records: readonly (
-            | {
-                readonly id: string;
-                readonly kind: "directory";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly entries: readonly {
-                  readonly name: string;
-                  readonly target: string;
-                }[];
-              }
-            | {
-                readonly id: string;
-                readonly kind: "file";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly data: string;
-              }
-            | {
-                readonly id: string;
-                readonly kind: "symlink";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly target: string;
-              }
-          )[];
-        },
-        ImageError,
-        never
-      >,
-  ] extends [never]
-    ? never
-    : [
-          | Effect.Effect<Snapshot, ImageError, never>
-          | Effect.Effect<
-              | { _tag: "Volume"; volume: Volume }
-              | { _tag: "Overlay"; volume: OverlayVolume },
-              ImageError | ConfigurationError,
-              never
-            >
-          | Effect.Effect<
-              {
-                readonly format: "effect-vfs";
-                readonly version: 1;
-                readonly root: string;
-                readonly records: readonly (
-                  | {
-                      readonly id: string;
-                      readonly kind: "directory";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly entries: readonly {
-                        readonly name: string;
-                        readonly target: string;
-                      }[];
-                    }
-                  | {
-                      readonly id: string;
-                      readonly kind: "file";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly data: string;
-                    }
-                  | {
-                      readonly id: string;
-                      readonly kind: "symlink";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly target: string;
-                    }
-                )[];
-              },
-              ImageError,
-              never
-            >,
-        ] extends [Effect.Effect<infer _A, infer E, infer _R>]
-      ? E
-      : never,
-  [
-    | Effect.Effect<Snapshot, ImageError, never>
-    | Effect.Effect<
-        | { _tag: "Volume"; volume: Volume }
-        | { _tag: "Overlay"; volume: OverlayVolume },
-        ImageError | ConfigurationError,
-        never
-      >
-    | Effect.Effect<
-        {
-          readonly format: "effect-vfs";
-          readonly version: 1;
-          readonly root: string;
-          readonly records: readonly (
-            | {
-                readonly id: string;
-                readonly kind: "directory";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly entries: readonly {
-                  readonly name: string;
-                  readonly target: string;
-                }[];
-              }
-            | {
-                readonly id: string;
-                readonly kind: "file";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly data: string;
-              }
-            | {
-                readonly id: string;
-                readonly kind: "symlink";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly target: string;
-              }
-          )[];
-        },
-        ImageError,
-        never
-      >,
-  ] extends [never]
-    ? never
-    : [
-          | Effect.Effect<Snapshot, ImageError, never>
-          | Effect.Effect<
-              | { _tag: "Volume"; volume: Volume }
-              | { _tag: "Overlay"; volume: OverlayVolume },
-              ImageError | ConfigurationError,
-              never
-            >
-          | Effect.Effect<
-              {
-                readonly format: "effect-vfs";
-                readonly version: 1;
-                readonly root: string;
-                readonly records: readonly (
-                  | {
-                      readonly id: string;
-                      readonly kind: "directory";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly entries: readonly {
-                        readonly name: string;
-                        readonly target: string;
-                      }[];
-                    }
-                  | {
-                      readonly id: string;
-                      readonly kind: "file";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly data: string;
-                    }
-                  | {
-                      readonly id: string;
-                      readonly kind: "symlink";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly target: string;
-                    }
-                )[];
-              },
-              ImageError,
-              never
-            >,
-        ] extends [Effect.Effect<infer _A, infer _E, infer R>]
-      ? R
-      : never
->;
+  fixture: Fixture,
+  options?: VolumeOptions,
+) => Effect.Effect<Volume, ConfigurationError | ImageError>;
 ```
 
 Added in v0.1.0
@@ -368,277 +37,8 @@ Restores a fresh volume from an opaque snapshot under the supplied destination l
 ```ts
 export declare const fromSnapshot: (
   snapshot: Snapshot,
-  options?: {
-    readonly maxEntries?: number;
-    readonly maxBytes?: ByteSize.ByteSize;
-    readonly maxFileBytes?: ByteSize.ByteSize;
-    readonly maxPathBytes?: ByteSize.ByteSize;
-  },
-) => Effect.Effect<
-  Volume,
-  [
-    | Effect.Effect<
-        | { _tag: "Volume"; volume: Volume }
-        | { _tag: "Overlay"; volume: OverlayVolume },
-        ImageError | ConfigurationError,
-        never
-      >
-    | Effect.Effect<
-        {
-          readonly format: "effect-vfs";
-          readonly version: 1;
-          readonly root: string;
-          readonly records: readonly (
-            | {
-                readonly id: string;
-                readonly kind: "directory";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly entries: readonly {
-                  readonly name: string;
-                  readonly target: string;
-                }[];
-              }
-            | {
-                readonly id: string;
-                readonly kind: "file";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly data: string;
-              }
-            | {
-                readonly id: string;
-                readonly kind: "symlink";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly target: string;
-              }
-          )[];
-        },
-        ImageError,
-        never
-      >,
-  ] extends [never]
-    ? never
-    : [
-          | Effect.Effect<
-              | { _tag: "Volume"; volume: Volume }
-              | { _tag: "Overlay"; volume: OverlayVolume },
-              ImageError | ConfigurationError,
-              never
-            >
-          | Effect.Effect<
-              {
-                readonly format: "effect-vfs";
-                readonly version: 1;
-                readonly root: string;
-                readonly records: readonly (
-                  | {
-                      readonly id: string;
-                      readonly kind: "directory";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly entries: readonly {
-                        readonly name: string;
-                        readonly target: string;
-                      }[];
-                    }
-                  | {
-                      readonly id: string;
-                      readonly kind: "file";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly data: string;
-                    }
-                  | {
-                      readonly id: string;
-                      readonly kind: "symlink";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly target: string;
-                    }
-                )[];
-              },
-              ImageError,
-              never
-            >,
-        ] extends [Effect.Effect<infer _A, infer E, infer _R>]
-      ? E
-      : never,
-  [
-    | Effect.Effect<
-        | { _tag: "Volume"; volume: Volume }
-        | { _tag: "Overlay"; volume: OverlayVolume },
-        ImageError | ConfigurationError,
-        never
-      >
-    | Effect.Effect<
-        {
-          readonly format: "effect-vfs";
-          readonly version: 1;
-          readonly root: string;
-          readonly records: readonly (
-            | {
-                readonly id: string;
-                readonly kind: "directory";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly entries: readonly {
-                  readonly name: string;
-                  readonly target: string;
-                }[];
-              }
-            | {
-                readonly id: string;
-                readonly kind: "file";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly data: string;
-              }
-            | {
-                readonly id: string;
-                readonly kind: "symlink";
-                readonly metadata: {
-                  readonly uid: number;
-                  readonly gid: number;
-                  readonly mode: number;
-                  readonly atimeNs: string;
-                  readonly mtimeNs: string;
-                  readonly ctimeNs: string;
-                  readonly birthtimeNs: string;
-                };
-                readonly target: string;
-              }
-          )[];
-        },
-        ImageError,
-        never
-      >,
-  ] extends [never]
-    ? never
-    : [
-          | Effect.Effect<
-              | { _tag: "Volume"; volume: Volume }
-              | { _tag: "Overlay"; volume: OverlayVolume },
-              ImageError | ConfigurationError,
-              never
-            >
-          | Effect.Effect<
-              {
-                readonly format: "effect-vfs";
-                readonly version: 1;
-                readonly root: string;
-                readonly records: readonly (
-                  | {
-                      readonly id: string;
-                      readonly kind: "directory";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly entries: readonly {
-                        readonly name: string;
-                        readonly target: string;
-                      }[];
-                    }
-                  | {
-                      readonly id: string;
-                      readonly kind: "file";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly data: string;
-                    }
-                  | {
-                      readonly id: string;
-                      readonly kind: "symlink";
-                      readonly metadata: {
-                        readonly uid: number;
-                        readonly gid: number;
-                        readonly mode: number;
-                        readonly atimeNs: string;
-                        readonly mtimeNs: string;
-                        readonly ctimeNs: string;
-                        readonly birthtimeNs: string;
-                      };
-                      readonly target: string;
-                    }
-                )[];
-              },
-              ImageError,
-              never
-            >,
-        ] extends [Effect.Effect<infer _A, infer _E, infer R>]
-      ? R
-      : never
->;
+  options?: VolumeOptions,
+) => Effect.Effect<Volume, ConfigurationError | ImageError>;
 ```
 
 Added in v0.1.0
@@ -655,52 +55,9 @@ arise because this constructor does not accept persisted input.
 **Signature**
 
 ```ts
-export declare const make: (options?: {
-  readonly maxEntries?: number;
-  readonly maxBytes?: ByteSize.ByteSize;
-  readonly maxFileBytes?: ByteSize.ByteSize;
-  readonly maxPathBytes?: ByteSize.ByteSize;
-}) => Effect.Effect<
-  Volume,
-  [
-    Effect.Effect<
-      | { _tag: "Volume"; volume: Volume }
-      | { _tag: "Overlay"; volume: OverlayVolume },
-      ConfigurationError,
-      never
-    >,
-  ] extends [never]
-    ? never
-    : [
-          Effect.Effect<
-            | { _tag: "Volume"; volume: Volume }
-            | { _tag: "Overlay"; volume: OverlayVolume },
-            ConfigurationError,
-            never
-          >,
-        ] extends [Effect.Effect<infer _A, infer E, infer _R>]
-      ? E
-      : never,
-  [
-    Effect.Effect<
-      | { _tag: "Volume"; volume: Volume }
-      | { _tag: "Overlay"; volume: OverlayVolume },
-      ConfigurationError,
-      never
-    >,
-  ] extends [never]
-    ? never
-    : [
-          Effect.Effect<
-            | { _tag: "Volume"; volume: Volume }
-            | { _tag: "Overlay"; volume: OverlayVolume },
-            ConfigurationError,
-            never
-          >,
-        ] extends [Effect.Effect<infer _A, infer _E, infer R>]
-      ? R
-      : never
->;
+export declare const make: (
+  options?: VolumeOptions,
+) => Effect.Effect<Volume, ConfigurationError>;
 ```
 
 Added in v0.1.0
@@ -724,29 +81,8 @@ with `ConfigurationError`. Each execution creates a fresh workspace.
 ```ts
 export declare const makeOverlay: (
   base: Snapshot,
-  options?: {
-    readonly maxEntries?: number;
-    readonly maxBytes?: ByteSize.ByteSize;
-    readonly maxFileBytes?: ByteSize.ByteSize;
-    readonly maxPathBytes?: ByteSize.ByteSize;
-  },
-) => Effect.Effect<
-  OverlayVolume,
-  [Effect.Effect<any, ImageError | ConfigurationError, never>] extends [never]
-    ? never
-    : [Effect.Effect<any, ImageError | ConfigurationError, never>] extends [
-          Effect.Effect<infer _A, infer E, infer _R>,
-        ]
-      ? E
-      : never,
-  [Effect.Effect<any, ImageError | ConfigurationError, never>] extends [never]
-    ? never
-    : [Effect.Effect<any, ImageError | ConfigurationError, never>] extends [
-          Effect.Effect<infer _A, infer _E, infer R>,
-        ]
-      ? R
-      : never
->;
+  options?: VolumeOptions,
+) => Effect.Effect<OverlayVolume, ConfigurationError | ImageError>;
 ```
 
 Added in v0.1.0
@@ -764,49 +100,33 @@ Shared-memory-backed and detached views fail with `InvalidArgument`.
 ```ts
 export declare const pathFromBytes: (
   bytes: Uint8Array,
-) => Effect.Effect<
-  BytePath,
-  [Effect.Effect<never, FsError, never>] extends [never]
-    ? never
-    : [Effect.Effect<never, FsError, never>] extends [
-          Effect.Effect<infer _A, infer E, infer _R>,
-        ]
-      ? E
-      : never,
-  [Effect.Effect<never, FsError, never>] extends [never]
-    ? never
-    : [Effect.Effect<never, FsError, never>] extends [
-          Effect.Effect<infer _A, infer _E, infer R>,
-        ]
-      ? R
-      : never
->;
+) => Effect.Effect<BytePath, FsError>;
 ```
 
 Added in v0.1.0
 
 ## errors
 
-### ConfigurationError (class)
+### ConfigurationError
 
 Describes an invalid volume or caller option and names the rejected field.
 
 **Signature**
 
 ```ts
-export declare class ConfigurationError
+export declare const ConfigurationError: typeof VfsModel.ConfigurationError;
 ```
 
 Added in v0.1.0
 
-### FsError (class)
+### FsError
 
 Describes an expected filesystem operation failure.
 
 **Signature**
 
 ```ts
-export declare class FsError
+export declare const FsError: typeof VfsModel.FsError;
 ```
 
 Added in v0.1.0
@@ -822,23 +142,7 @@ Copies the bytes held by an opaque byte path.
 ```ts
 export declare const pathToBytes: (
   path: BytePath,
-) => Effect.Effect<
-  Uint8Array,
-  [Effect.Effect<never, FsError, never>] extends [never]
-    ? never
-    : [Effect.Effect<never, FsError, never>] extends [
-          Effect.Effect<infer _A, infer E, infer _R>,
-        ]
-      ? E
-      : never,
-  [Effect.Effect<never, FsError, never>] extends [never]
-    ? never
-    : [Effect.Effect<never, FsError, never>] extends [
-          Effect.Effect<infer _A, infer _E, infer R>,
-        ]
-      ? R
-      : never
->;
+) => Effect.Effect<Uint8Array, FsError>;
 ```
 
 Added in v0.1.0
@@ -1401,7 +705,7 @@ Options for an atomic whole-file write, including replacement and final mode con
 **Signature**
 
 ```ts
-export type WriteFileOptions = typeof WriteFileSettings.Type & RelativeOptions;
+export type WriteFileOptions = VfsModel.WriteFileOptions;
 ```
 
 Added in v0.1.0
@@ -1920,14 +1224,14 @@ Added in v0.1.0
 
 ## services
 
-### CurrentFileSystem (class)
+### CurrentFileSystem
 
 Optional Effect service for providing an existing filesystem caller.
 
 **Signature**
 
 ```ts
-export declare class CurrentFileSystem
+export declare const CurrentFileSystem: typeof VfsModel.CurrentFileSystem;
 ```
 
 Added in v0.1.0
@@ -1946,32 +1250,32 @@ export declare const applySnapshotDelta: (
   base: Snapshot,
   delta: SnapshotDeltaModel.SnapshotDelta,
   limits?: {
-    readonly maxEncodedBytes: ByteSize.ByteSize;
-    readonly maxIdentityBytes: ByteSize.ByteSize;
+    readonly maxEncodedBytes: ByteSize;
+    readonly maxIdentityBytes: ByteSize;
     readonly maxDeltaRecords: number;
-    readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+    readonly maxDecodedDeltaBytes: ByteSize;
     readonly maxBaseRecords: number;
     readonly maxTargetRecords: number;
     readonly maxEntries: number;
     readonly maxOutputRecords: number;
-    readonly maxOutputBytes: ByteSize.ByteSize;
+    readonly maxOutputBytes: ByteSize;
     readonly maxInheritedRecords: number;
   },
 ) => Effect.Effect<
   Snapshot,
   [
-    | Effect.Effect<never, ConfigurationError, never>
+    | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize.ByteSize;
-          readonly maxIdentityBytes: ByteSize.ByteSize;
+          readonly maxEncodedBytes: ByteSize;
+          readonly maxIdentityBytes: ByteSize;
           readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+          readonly maxDecodedDeltaBytes: ByteSize;
           readonly maxBaseRecords: number;
           readonly maxTargetRecords: number;
           readonly maxEntries: number;
           readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize.ByteSize;
+          readonly maxOutputBytes: ByteSize;
           readonly maxInheritedRecords: number;
         },
         never,
@@ -1985,18 +1289,18 @@ export declare const applySnapshotDelta: (
   ] extends [never]
     ? never
     : [
-          | Effect.Effect<never, ConfigurationError, never>
+          | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize.ByteSize;
-                readonly maxIdentityBytes: ByteSize.ByteSize;
+                readonly maxEncodedBytes: ByteSize;
+                readonly maxIdentityBytes: ByteSize;
                 readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+                readonly maxDecodedDeltaBytes: ByteSize;
                 readonly maxBaseRecords: number;
                 readonly maxTargetRecords: number;
                 readonly maxEntries: number;
                 readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize.ByteSize;
+                readonly maxOutputBytes: ByteSize;
                 readonly maxInheritedRecords: number;
               },
               never,
@@ -2013,18 +1317,18 @@ export declare const applySnapshotDelta: (
       ? E
       : never,
   [
-    | Effect.Effect<never, ConfigurationError, never>
+    | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize.ByteSize;
-          readonly maxIdentityBytes: ByteSize.ByteSize;
+          readonly maxEncodedBytes: ByteSize;
+          readonly maxIdentityBytes: ByteSize;
           readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+          readonly maxDecodedDeltaBytes: ByteSize;
           readonly maxBaseRecords: number;
           readonly maxTargetRecords: number;
           readonly maxEntries: number;
           readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize.ByteSize;
+          readonly maxOutputBytes: ByteSize;
           readonly maxInheritedRecords: number;
         },
         never,
@@ -2038,18 +1342,18 @@ export declare const applySnapshotDelta: (
   ] extends [never]
     ? never
     : [
-          | Effect.Effect<never, ConfigurationError, never>
+          | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize.ByteSize;
-                readonly maxIdentityBytes: ByteSize.ByteSize;
+                readonly maxEncodedBytes: ByteSize;
+                readonly maxIdentityBytes: ByteSize;
                 readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+                readonly maxDecodedDeltaBytes: ByteSize;
                 readonly maxBaseRecords: number;
                 readonly maxTargetRecords: number;
                 readonly maxEntries: number;
                 readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize.ByteSize;
+                readonly maxOutputBytes: ByteSize;
                 readonly maxInheritedRecords: number;
               },
               never,
@@ -2082,32 +1386,32 @@ export declare const diffSnapshots: (
   base: Snapshot,
   target: Snapshot,
   limits?: {
-    readonly maxEncodedBytes: ByteSize.ByteSize;
-    readonly maxIdentityBytes: ByteSize.ByteSize;
+    readonly maxEncodedBytes: ByteSize;
+    readonly maxIdentityBytes: ByteSize;
     readonly maxDeltaRecords: number;
-    readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+    readonly maxDecodedDeltaBytes: ByteSize;
     readonly maxBaseRecords: number;
     readonly maxTargetRecords: number;
     readonly maxEntries: number;
     readonly maxOutputRecords: number;
-    readonly maxOutputBytes: ByteSize.ByteSize;
+    readonly maxOutputBytes: ByteSize;
     readonly maxInheritedRecords: number;
   },
 ) => Effect.Effect<
   SnapshotDeltaModel.SnapshotDelta,
   [
-    | Effect.Effect<never, ConfigurationError, never>
+    | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize.ByteSize;
-          readonly maxIdentityBytes: ByteSize.ByteSize;
+          readonly maxEncodedBytes: ByteSize;
+          readonly maxIdentityBytes: ByteSize;
           readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+          readonly maxDecodedDeltaBytes: ByteSize;
           readonly maxBaseRecords: number;
           readonly maxTargetRecords: number;
           readonly maxEntries: number;
           readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize.ByteSize;
+          readonly maxOutputBytes: ByteSize;
           readonly maxInheritedRecords: number;
         },
         never,
@@ -2121,18 +1425,18 @@ export declare const diffSnapshots: (
   ] extends [never]
     ? never
     : [
-          | Effect.Effect<never, ConfigurationError, never>
+          | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize.ByteSize;
-                readonly maxIdentityBytes: ByteSize.ByteSize;
+                readonly maxEncodedBytes: ByteSize;
+                readonly maxIdentityBytes: ByteSize;
                 readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+                readonly maxDecodedDeltaBytes: ByteSize;
                 readonly maxBaseRecords: number;
                 readonly maxTargetRecords: number;
                 readonly maxEntries: number;
                 readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize.ByteSize;
+                readonly maxOutputBytes: ByteSize;
                 readonly maxInheritedRecords: number;
               },
               never,
@@ -2147,18 +1451,18 @@ export declare const diffSnapshots: (
       ? E
       : never,
   [
-    | Effect.Effect<never, ConfigurationError, never>
+    | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize.ByteSize;
-          readonly maxIdentityBytes: ByteSize.ByteSize;
+          readonly maxEncodedBytes: ByteSize;
+          readonly maxIdentityBytes: ByteSize;
           readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+          readonly maxDecodedDeltaBytes: ByteSize;
           readonly maxBaseRecords: number;
           readonly maxTargetRecords: number;
           readonly maxEntries: number;
           readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize.ByteSize;
+          readonly maxOutputBytes: ByteSize;
           readonly maxInheritedRecords: number;
         },
         never,
@@ -2172,18 +1476,18 @@ export declare const diffSnapshots: (
   ] extends [never]
     ? never
     : [
-          | Effect.Effect<never, ConfigurationError, never>
+          | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize.ByteSize;
-                readonly maxIdentityBytes: ByteSize.ByteSize;
+                readonly maxEncodedBytes: ByteSize;
+                readonly maxIdentityBytes: ByteSize;
                 readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+                readonly maxDecodedDeltaBytes: ByteSize;
                 readonly maxBaseRecords: number;
                 readonly maxTargetRecords: number;
                 readonly maxEntries: number;
                 readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize.ByteSize;
+                readonly maxOutputBytes: ByteSize;
                 readonly maxInheritedRecords: number;
               },
               never,
@@ -2276,15 +1580,15 @@ export declare const inspectSnapshotDelta: (
   delta: SnapshotDeltaModel.SnapshotDelta,
   options?: { readonly includeTimestamps?: boolean },
   limits?: {
-    readonly maxEncodedBytes: ByteSize.ByteSize;
-    readonly maxIdentityBytes: ByteSize.ByteSize;
+    readonly maxEncodedBytes: ByteSize;
+    readonly maxIdentityBytes: ByteSize;
     readonly maxDeltaRecords: number;
-    readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+    readonly maxDecodedDeltaBytes: ByteSize;
     readonly maxBaseRecords: number;
     readonly maxTargetRecords: number;
     readonly maxEntries: number;
     readonly maxOutputRecords: number;
-    readonly maxOutputBytes: ByteSize.ByteSize;
+    readonly maxOutputBytes: ByteSize;
     readonly maxInheritedRecords: number;
   },
 ) => Effect.Effect<
@@ -2320,18 +1624,18 @@ export declare const inspectSnapshotDelta: (
       }
   )[],
   [
-    | Effect.Effect<never, ConfigurationError, never>
+    | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize.ByteSize;
-          readonly maxIdentityBytes: ByteSize.ByteSize;
+          readonly maxEncodedBytes: ByteSize;
+          readonly maxIdentityBytes: ByteSize;
           readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+          readonly maxDecodedDeltaBytes: ByteSize;
           readonly maxBaseRecords: number;
           readonly maxTargetRecords: number;
           readonly maxEntries: number;
           readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize.ByteSize;
+          readonly maxOutputBytes: ByteSize;
           readonly maxInheritedRecords: number;
         },
         never,
@@ -2375,18 +1679,18 @@ export declare const inspectSnapshotDelta: (
   ] extends [never]
     ? never
     : [
-          | Effect.Effect<never, ConfigurationError, never>
+          | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize.ByteSize;
-                readonly maxIdentityBytes: ByteSize.ByteSize;
+                readonly maxEncodedBytes: ByteSize;
+                readonly maxIdentityBytes: ByteSize;
                 readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+                readonly maxDecodedDeltaBytes: ByteSize;
                 readonly maxBaseRecords: number;
                 readonly maxTargetRecords: number;
                 readonly maxEntries: number;
                 readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize.ByteSize;
+                readonly maxOutputBytes: ByteSize;
                 readonly maxInheritedRecords: number;
               },
               never,
@@ -2433,18 +1737,18 @@ export declare const inspectSnapshotDelta: (
       ? E
       : never,
   [
-    | Effect.Effect<never, ConfigurationError, never>
+    | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize.ByteSize;
-          readonly maxIdentityBytes: ByteSize.ByteSize;
+          readonly maxEncodedBytes: ByteSize;
+          readonly maxIdentityBytes: ByteSize;
           readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+          readonly maxDecodedDeltaBytes: ByteSize;
           readonly maxBaseRecords: number;
           readonly maxTargetRecords: number;
           readonly maxEntries: number;
           readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize.ByteSize;
+          readonly maxOutputBytes: ByteSize;
           readonly maxInheritedRecords: number;
         },
         never,
@@ -2488,18 +1792,18 @@ export declare const inspectSnapshotDelta: (
   ] extends [never]
     ? never
     : [
-          | Effect.Effect<never, ConfigurationError, never>
+          | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize.ByteSize;
-                readonly maxIdentityBytes: ByteSize.ByteSize;
+                readonly maxEncodedBytes: ByteSize;
+                readonly maxIdentityBytes: ByteSize;
                 readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
+                readonly maxDecodedDeltaBytes: ByteSize;
                 readonly maxBaseRecords: number;
                 readonly maxTargetRecords: number;
                 readonly maxEntries: number;
                 readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize.ByteSize;
+                readonly maxOutputBytes: ByteSize;
                 readonly maxInheritedRecords: number;
               },
               never,

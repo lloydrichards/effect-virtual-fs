@@ -7,8 +7,11 @@ tags: [architecture, state, authority, resources]
 sources:
   - id: core-source
     resource: ../../packages/core/src/VirtualFileSystem.ts
-    title: Core public implementation
-generated: { by: codex/okf, at: 2026-09-10T00:00:00+00:00 }
+    title: Core public contracts
+  - id: volume-engine
+    resource: ../../packages/core/src/internal/virtualFileSystem.ts
+    title: Internal virtual filesystem implementation
+generated: { by: codex/okf, at: 2026-09-13T19:05:00+02:00 }
 ---
 
 # Volume, caller, and handle model
@@ -20,5 +23,7 @@ A `Caller` carries independent credentials, supplementary groups, umask, and cur
 A `FileHandle` is a scoped capability tied to one volume and open file. It owns its access mode, bigint cursor, and lifetime. Separate opens have independent cursors. A `DirectoryHandle` is a scoped directory capability used for metadata and as a relative lookup base. Open files may remain usable after rename or unlink until their final handle closes.
 
 Explicit close reports a repeated-close error, while scope cleanup is idempotent. The capability's reusable `stat`, `sync`, and `close` effects observe current state each time; volume `watch` and `snapshot` effects also acquire or observe fresh state on execution.
+
+The public module owns the documented capability contracts. The internal live-volume engine keeps the shared graph, coordination gate, quotas, revisions, handles, clock, and watch state together so each mutation remains one coordinated state transition.
 
 The model is [constrained by schema and capability modeling](/decisions/schema-data-and-capability-interfaces.md "constrained by"), [independent resource lifetimes](/decisions/independent-resource-lifetimes.md "constrained by"), [explicit close semantics](/decisions/explicit-close-and-scope-cleanup.md "constrained by"), [scope-free root callers](/decisions/scope-free-root-callers.md "constrained by"), and [reusable capability effects](/decisions/reusable-capability-effects.md "constrained by"). Detailed rules belong to the [resource and authority contract](/contracts/resources-and-authority.md "refined by"), [regular-file I/O contract](/contracts/regular-file-io.md "refined by"), [permissions and metadata contract](/contracts/permissions-and-metadata.md "refined by"), and [mutation and observation contract](/contracts/mutation-and-observation.md "refined by").
