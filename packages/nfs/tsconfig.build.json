@@ -1,0 +1,10 @@
+{
+  "extends": "@repo/config-typescript/library.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "emitDeclarationOnly": false,
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src/**/*.ts"]
+}
