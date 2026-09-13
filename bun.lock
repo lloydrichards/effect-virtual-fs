@@ -138,6 +138,23 @@
         "effect": "4.0.0-rc.114",
       },
     },
+    "packages/nfs": {
+      "name": "@effect-vfs/nfs",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect-vfs/core": "workspace:*",
+        "@effect/platform-bun": "4.0.0-rc.114",
+      },
+      "devDependencies": {
+        "@effect/vitest": "4.0.0-rc.114",
+        "@repo/config-typescript": "workspace:*",
+        "effect": "4.0.0-rc.114",
+        "vitest": "^5.0.0",
+      },
+      "peerDependencies": {
+        "effect": "4.0.0-rc.114",
+      },
+    },
     "packages/persistence": {
       "name": "@effect-vfs/persistence",
       "version": "0.1.0",
@@ -291,6 +308,8 @@
     "@effect-vfs/docs": ["@effect-vfs/docs@workspace:apps/docs"],
 
     "@effect-vfs/memory": ["@effect-vfs/memory@workspace:packages/memory"],
+
+    "@effect-vfs/nfs": ["@effect-vfs/nfs@workspace:packages/nfs"],
 
     "@effect-vfs/persistence": ["@effect-vfs/persistence@workspace:packages/persistence"],
 

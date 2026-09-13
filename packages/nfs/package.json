@@ -1,0 +1,45 @@
+{
+  "name": "@effect-vfs/nfs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Experimental read-only NFSv4.1 server for one live Effect VFS volume.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./NfsServer": {
+      "types": "./dist/NfsServer.d.ts",
+      "import": "./dist/NfsServer.js"
+    },
+    "./internal/*": null,
+    "./index": null,
+    "./*/index": null,
+    "./package.json": "./package.json"
+  },
+  "files": ["dist/**", "README.md"],
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "clean": "git clean -xdf dist node_modules tsconfig.tsbuildinfo",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-rc.114"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.0-rc.114",
+    "@effect-vfs/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-rc.114",
+    "@repo/config-typescript": "workspace:*",
+    "effect": "4.0.0-rc.114",
+    "vitest": "^5.0.0"
+  }
+}
