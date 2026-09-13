@@ -117,7 +117,7 @@ export class CheckpointStore extends Context.Service<CheckpointStore, Checkpoint
       return yield* Vfs.decodeSnapshot(row.image, ownedLimits)
     })
 
-    return { save, load } satisfies CheckpointStoreShape
+    return CheckpointStore.of({ save, load })
   })
 
   /** Provides a store using the application-supplied SQLite client. Does not run migrations. */
