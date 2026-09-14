@@ -1,11 +1,13 @@
-import { defineConfig } from "tsup"
+import { defineConfig } from "tsdown"
 
 export default defineConfig({
-  clean: true,
   dts: false,
   entry: ["src/index.ts", "src/MemoryFileSystem.ts"],
-  external: ["effect"],
+  deps: {
+    neverBundle: ["effect"]
+  },
   format: ["esm"],
+  outExtensions: () => ({ js: ".js" }),
   sourcemap: false,
   target: "es2022"
 })

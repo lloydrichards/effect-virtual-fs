@@ -41,7 +41,7 @@
     "directory": "packages/memory"
   },
   "scripts": {
-    "build": "tsup && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser && node compatibility/browser/check.mjs",
+    "build": "tsdown && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser && node compatibility/browser/check.mjs",
     "clean": "git clean -xdf .cache .turbo dist node_modules tsconfig.tsbuildinfo",
     "test": "vitest run",
     "type-check": "tsc --noEmit"
@@ -53,7 +53,7 @@
     "@effect/vitest": "4.0.0-rc.114",
     "@repo/config-typescript": "workspace:*",
     "effect": "4.0.0-rc.114",
-    "tsup": "8.5.1"
+    "tsdown": "^0.23.0"
   },
   "dependencies": {
     "@effect-vfs/core": "^0.3.0"
