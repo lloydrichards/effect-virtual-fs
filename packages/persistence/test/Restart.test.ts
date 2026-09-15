@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 const run = promisify(execFile)
+
 const worker = fileURLToPath(new URL("./fixtures/restart.ts", import.meta.url))
 
 describe("checkpoint process restart", () => {
@@ -19,6 +20,7 @@ describe("checkpoint process restart", () => {
           Effect.promise(() => Fs.mkdtemp(Path.join(Os.tmpdir(), "effect-vfs-restart-"))),
           (path) => Effect.promise(() => Fs.rm(path, { recursive: true, force: true }))
         )
+
         const database = Path.join(directory, "checkpoints.sqlite")
         const saved = yield* Effect.promise(() => run("bun", [worker, "save", database], { timeout: 5_000 }))
         assert.include(saved.stdout, "saved")

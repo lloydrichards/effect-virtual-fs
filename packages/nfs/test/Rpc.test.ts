@@ -12,7 +12,9 @@ const limits = {
   maxMachineNameBytes: ByteSize.bytes(12),
   maxSupplementaryGroups: 2
 }
+
 const none = new Writer().uint32(0).opaque(new Uint8Array()).bytes()
+
 const call = (options: {
   xid?: number
   rpcVersion?: number
@@ -27,21 +29,28 @@ const call = (options: {
     .uint32(options.xid ?? 42).uint32(0).uint32(options.rpcVersion ?? 2)
     .uint32(options.program ?? 100003).uint32(options.version ?? 4).uint32(options.procedure ?? 0)
     .bytes()
+
   const parts = [header, options.credential ?? none, options.verifier ?? none, options.body ?? new Uint8Array()]
   const output = new Uint8Array(parts.reduce((size, part) => size + part.length, 0))
   let offset = 0
+
   for (const part of parts) {
     output.set(part, offset)
     offset += part.length
   }
+
   return output
 }
+
 const fields = (reply: Uint8Array): ReadonlyArray<number> => {
   const reader = new Reader(reply, limits)
   const result: Array<number> = []
+
   while (reader.remaining >= 4) result.push(reader.uint32())
+
   return result
 }
+
 const handler = { compound: ({ arguments: value }: { readonly arguments: Uint8Array }) => Effect.succeed(value) }
 
 describe("ONC RPC", () => {
@@ -116,11 +125,13 @@ describe("ONC RPC", () => {
         [20, 80],
         (writer, value) => writer.uint32(value)
       ).bytes()
+
       const credential = new Writer().uint32(1).opaque(authBody).bytes()
       let observed: unknown
       yield* handleCall(call({ procedure: 1, credential }), limits, {
         compound: (value) => {
           observed = value.credentials
+
           return Effect.succeed(new Uint8Array())
         }
       })
@@ -137,8 +148,10 @@ describe("ONC RPC", () => {
         [1, 2, 3],
         (writer, value) => writer.uint32(value)
       ).bytes()
+
       const rejected =
         (yield* handleCall(call({ credential: new Writer().uint32(1).opaque(tooMany).bytes() }), limits, handler))!
+
       assert.deepStrictEqual(fields(rejected), [42, 1, 1, 1, 1])
     }))
 

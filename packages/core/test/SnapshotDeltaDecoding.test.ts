@@ -5,6 +5,7 @@ import * as ByteSize from "effect/ByteSize"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const encoder = new TextEncoder()
+
 const decoder = new TextDecoder()
 
 interface StoredRecord {
@@ -13,11 +14,20 @@ interface StoredRecord {
   payload?: { _tag: string; bytes?: string; path?: string }
 }
 
+interface StoredChange {
+  readonly _tag: string
+  readonly path: string
+  readonly kind?: string
+  readonly beforeKind?: string
+  readonly afterKind?: string
+  readonly differences?: ReadonlyArray<string>
+}
+
 interface StoredDocument {
   readonly base: { readonly digest: string }
   readonly version: number
   readonly records: ReadonlyArray<StoredRecord>
-  readonly changes: ReadonlyArray<Record<string, unknown>>
+  readonly changes: ReadonlyArray<StoredChange>
 }
 
 const snapshots = Effect.gen(function*() {
@@ -26,6 +36,7 @@ const snapshots = Effect.gen(function*() {
   const base = yield* volume.snapshot
   yield* caller.writeFile("/f", new Uint8Array([1, 2, 3]), { access: "write", create: "ifMissing" })
   const target = yield* volume.snapshot
+
   return { base, target }
 })
 
@@ -33,15 +44,22 @@ const encodedDelta = Effect.gen(function*() {
   const pair = yield* snapshots
   const delta = yield* Vfs.diffSnapshots(pair.base, pair.target)
   const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
+
   return { ...pair, encoded }
 })
 
-const document = (input: Uint8Array): StoredDocument => JSON.parse(decoder.decode(input)) as StoredDocument
-const encodeDocument = (value: unknown): Uint8Array => encoder.encode(JSON.stringify(value))
+const document = (input: Uint8Array): StoredDocument => {
+  // SAFETY: The helper only reads snapshots encoded by this package in the test setup.
+  return JSON.parse(decoder.decode(input)) as StoredDocument
+}
+
+const encodeDocument = (value: typeof Schema.Unknown.Type): Uint8Array => encoder.encode(JSON.stringify(value))
+
 const customLimits = (overrides: Partial<Vfs.SnapshotDeltaLimits>): Vfs.SnapshotDeltaLimits => ({
   ...Vfs.SnapshotDeltaLimits.default,
   ...overrides
 })
+
 const reject = (input: Uint8Array, limits = Vfs.SnapshotDeltaLimits.default) =>
   Effect.flip(Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes(limits))(input))
 
@@ -68,6 +86,7 @@ describe("snapshot delta Schema codec", () => {
     Effect.gen(function*() {
       const { encoded } = yield* encodedDelta
       const source = document(encoded)
+
       const cases = [
         new Uint8Array([0xc3, 0x28]),
         encoder.encode("{"),
@@ -75,6 +94,7 @@ describe("snapshot delta Schema codec", () => {
         encodeDocument({ ...source, base: { ...source.base, unexpected: true } }),
         encodeDocument({ ...source, version: 2 })
       ]
+
       for (const input of cases) assert.isDefined(yield* reject(input))
     }).pipe(Effect.provide(BunCrypto.layer)))
 
@@ -82,6 +102,7 @@ describe("snapshot delta Schema codec", () => {
     Effect.gen(function*() {
       const { encoded } = yield* encodedDelta
       const source = document(encoded)
+
       const cases = [
         { ...source, base: { ...source.base, digest: "A" } },
         { ...source, base: { ...source.base, digest: `${source.base.digest.slice(0, -2)}h==` } },
@@ -89,6 +110,7 @@ describe("snapshot delta Schema codec", () => {
         { ...source, records: [source.records[0], { ...source.records[1], paths: ["Zg=="] }] },
         { ...source, records: [source.records[0], { ...source.records[1], payload: { _tag: "Inline", bytes: "AQI" } }] }
       ]
+
       for (const value of cases) assert.isDefined(yield* reject(encodeDocument(value)))
     }).pipe(Effect.provide(BunCrypto.layer)))
 
@@ -111,6 +133,7 @@ describe("snapshot delta Schema codec", () => {
       const inconsistent = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(
         encodeDocument({ ...source, changes: [] })
       )
+
       const inspectionError = yield* Effect.flip(Vfs.inspectSnapshotDelta(base, inconsistent))
       assert.instanceOf(inspectionError, Vfs.ImageError)
       assert.strictEqual(inspectionError.code, "InvalidStructure")
@@ -127,6 +150,7 @@ describe("snapshot delta Schema codec", () => {
       const source = document(encoded)
       const change = source.changes[0]!
       const reordered = Object.fromEntries(Object.entries(change).reverse())
+
       const delta = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(
         encodeDocument({ ...source, changes: [reordered] })
       )
@@ -139,6 +163,7 @@ describe("snapshot delta Schema codec", () => {
       const { encoded } = yield* encodedDelta
       const source = document(encoded)
       const decodedBytes = 32 + 1 + 2 + 3 + 2
+
       const boundaries: ReadonlyArray<readonly [Vfs.SnapshotDeltaLimits, Vfs.SnapshotDeltaLimits]> = [
         [
           customLimits({ maxEncodedBytes: ByteSize.bytes(encoded.length) }),
@@ -172,12 +197,14 @@ describe("snapshot delta Schema codec", () => {
     Effect.gen(function*() {
       const { base, target } = yield* snapshots
       const exactLimit = ByteSize.bytes(BigInt(Number.MAX_SAFE_INTEGER) + 1n)
+
       const limits = customLimits({
         maxEncodedBytes: exactLimit,
         maxIdentityBytes: exactLimit,
         maxDecodedDeltaBytes: exactLimit,
         maxOutputBytes: exactLimit
       })
+
       const delta = yield* Vfs.diffSnapshots(base, target, limits)
       const codec = Vfs.SnapshotDeltaFromBytes(limits)
       const encoded = yield* Schema.encodeEffect(codec)(delta)
@@ -239,6 +266,7 @@ describe("snapshot delta Schema codec", () => {
           { kind: "file", path: "/b", bytes: new Uint8Array([2]) }
         ]
       })
+
       const base = yield* volume.snapshot
       const delta = yield* Vfs.diffSnapshots(base, base)
       const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)

@@ -2,6 +2,7 @@ import { apiPages } from "./api-pages"
 import { contentPages } from "./content-pages"
 
 export type NavItem = { readonly label: string; readonly href: string }
+
 export type NavSection = {
   readonly title: string
   readonly items: ReadonlyArray<NavItem>
@@ -11,6 +12,7 @@ const contentNavigation = contentPages.reduce<Array<NavSection>>(
   (sections, page) => {
     const current = sections.at(-1)
     const item = { label: page.label, href: page.href }
+
     if (current?.title === page.section) {
       sections[sections.length - 1] = {
         title: current.title,
@@ -19,6 +21,7 @@ const contentNavigation = contentPages.reduce<Array<NavSection>>(
     } else {
       sections.push({ title: page.section, items: [item] })
     }
+
     return sections
   },
   []

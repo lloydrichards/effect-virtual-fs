@@ -28,6 +28,7 @@ describe("memory adapter compatibility", () => {
         yield* fs.writeFileString("/source/file", "copied")
         yield* fs.writeFileString("/external", "untouched")
         yield* fs.symlink("/external", "/destination/file")
+
         if (nested) yield* fs.copy("/source", "/destination", { overwrite: true })
         else yield* fs.copy("/source/file", "/destination/file", { overwrite: true })
         assert.strictEqual(yield* fs.readFileString("/external"), "untouched")
@@ -43,11 +44,13 @@ describe("memory adapter compatibility", () => {
       yield* fs.writeFileString("/source", "x".repeat(32))
       yield* fs.writeFileString("/external", "safe")
       yield* fs.symlink("/external", "/destination")
+
       const watched = yield* fs.watch("/").pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
+
       const error = yield* Effect.flip(fs.copy("/source", "/destination", { overwrite: true }))
       assert.strictEqual(error.reason._tag, "BadResource")
       assert.strictEqual(yield* fs.readLink("/destination"), "/external")
@@ -64,11 +67,13 @@ describe("memory adapter compatibility", () => {
       yield* fs.writeFileString("/source", "copied")
       yield* fs.writeFileString("/external", "safe")
       yield* fs.symlink("/external", "/destination")
+
       const watched = yield* fs.watch("/").pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* fs.copy("/source", "/destination", { overwrite: true })
       assert.strictEqual(yield* fs.readFileString("/destination"), "copied")
       assert.strictEqual(yield* fs.readFileString("/external"), "safe")
@@ -86,11 +91,13 @@ describe("memory adapter compatibility", () => {
       yield* fs.link("/destination", "/alias")
       const handle = yield* fs.open("/destination")
       const before = yield* fs.stat("/destination")
+
       const watched = yield* fs.watch("/").pipe(
         Stream.take(3),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* fs.copyFile("/source", "/destination")
       const after = yield* fs.stat("/destination")
       assert.strictEqual(after.mode & 0o7777, 0o600)
@@ -109,17 +116,21 @@ describe("memory adapter compatibility", () => {
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
       const owner = yield* Memory.bind(volume)
+
       const guest = yield* Memory.bind(volume, {
         identity: { uid: 1, gid: 1, groups: [], privileged: false }
       })
+
       yield* owner.writeFileString("/source", "copied", { mode: 0o644 })
       yield* owner.writeFileString("/destination", "keep", { mode: 0o666 })
       const before = yield* owner.stat("/destination")
+
       const watched = yield* owner.watch("/").pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
+
       const error = yield* Effect.flip(guest.copyFile("/source", "/destination"))
       assert.strictEqual(error.reason._tag, "PermissionDenied")
       assert.deepStrictEqual(yield* owner.stat("/destination"), before)
@@ -134,11 +145,13 @@ describe("memory adapter compatibility", () => {
       yield* fs.writeFileString("/source", "unchanged", { mode: 0o600 })
       yield* fs.link("/source", "/alias")
       const before = yield* fs.stat("/source")
+
       const watched = yield* fs.watch("/").pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* fs.copyFile("/source", "/source")
       yield* fs.copyFile("/source", "/alias")
       assert.deepStrictEqual(yield* fs.stat("/source"), before)

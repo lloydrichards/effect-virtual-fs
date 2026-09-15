@@ -6,5 +6,6 @@ export const smoke = () =>
   Effect.runPromise(Effect.gen(function*() {
     const fs = yield* MemoryFileSystem.make
     yield* fs.writeFileString("/smoke", "browser bundle")
+
     return yield* fs.readFileString("/smoke")
   }))

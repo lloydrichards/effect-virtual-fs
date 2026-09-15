@@ -28,6 +28,7 @@ export function useActiveHeading(ids: string[]): string {
 
     for (const id of ids) {
       const el = document.getElementById(id)
+
       if (el) observer.observe(el)
     }
 

@@ -1,15 +1,22 @@
 import { assert, describe, it } from "@effect/vitest"
-import { DateTime, Effect, type Layer, Option, Ref, Result, Stream } from "effect"
+import { Data, DateTime, Effect, type Layer, Option, Ref, Result, Stream } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import * as FileSystem from "effect/FileSystem"
 import * as PlatformError from "effect/PlatformError"
+import * as Predicate from "effect/Predicate"
 
 const encoder = new TextEncoder()
+
 const decoder = new TextDecoder()
+
+class ExpectedScopeFailure extends Data.TaggedError("ExpectedScopeFailure")<{
+  readonly directory: string
+}> {}
 
 const makeTestContext = Effect.gen(function*() {
   const fs = yield* FileSystem.FileSystem
   const root = yield* fs.makeTempDirectoryScoped({ prefix: "effect-filesystem-test-" })
+
   return {
     fs,
     path: (...segments: ReadonlyArray<string>) => [root, ...segments].join("/")
@@ -18,36 +25,45 @@ const makeTestContext = Effect.gen(function*() {
 
 const fillBuffer = Effect.fnUntraced(function*(file: FileSystem.File, buffer: Uint8Array) {
   let offset = 0
+
   while (offset < buffer.length) {
     const bytesRead = Number(yield* file.read(buffer.subarray(offset)))
     assert.isTrue(bytesRead >= 0)
     assert.isTrue(bytesRead <= buffer.length - offset)
+
     if (bytesRead === 0) {
       break
     }
+
     offset += bytesRead
   }
+
   return offset
 })
 
 const readAllocUpTo = Effect.fnUntraced(function*(file: FileSystem.File, size: number) {
   const bytes = new Uint8Array(size)
   let offset = 0
+
   while (offset < size) {
     const chunk = yield* file.readAlloc(size - offset)
+
     if (Option.isNone(chunk)) {
       break
     }
+
     assert.isTrue(chunk.value.length > 0)
     assert.isTrue(chunk.value.length <= size - offset)
     bytes.set(chunk.value, offset)
     offset += chunk.value.length
   }
+
   return bytes.subarray(0, offset)
 })
 
 const writeUsingWrite = Effect.fnUntraced(function*(file: FileSystem.File, bytes: Uint8Array) {
   let offset = 0
+
   while (offset < bytes.length) {
     const bytesWritten = Number(yield* file.write(bytes.subarray(offset)))
     assert.isTrue(bytesWritten > 0)
@@ -65,19 +81,25 @@ const assertSystemError = (
   }
 ): PlatformError.SystemError => {
   assert.strictEqual(error._tag, "PlatformError")
+
   if (!(error.reason instanceof PlatformError.SystemError)) {
     return assert.fail("Expected a SystemError")
   }
+
   assert.strictEqual(error.reason.module, "FileSystem")
+
   if (expected.method !== undefined) {
     assert.strictEqual(error.reason.method, expected.method)
   }
+
   if (expected.pathOrDescriptor !== undefined) {
     assert.strictEqual(error.reason.pathOrDescriptor, expected.pathOrDescriptor)
   }
+
   if (expected.tag !== undefined) {
     assert.strictEqual(error.reason._tag, expected.tag)
   }
+
   return error.reason
 }
 
@@ -86,12 +108,15 @@ const assertBadArgument = (
   expected: { readonly method: string; readonly description: string }
 ): PlatformError.BadArgument => {
   assert.strictEqual(error._tag, "PlatformError")
+
   if (!(error.reason instanceof PlatformError.BadArgument)) {
     return assert.fail("Expected a BadArgument")
   }
+
   assert.strictEqual(error.reason.module, "FileSystem")
   assert.strictEqual(error.reason.method, expected.method)
   assert.strictEqual(error.reason.description, expected.description)
+
   return error.reason
 }
 
@@ -102,10 +127,12 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
         Effect.gen(function*() {
           const fs = yield* FileSystem.FileSystem
           const workingDirectory = yield* fs.realPath(".")
+
           const directory = yield* fs.makeTempDirectoryScoped({
             directory: workingDirectory,
             prefix: "effect-filesystem-relative-"
           })
+
           const directoryName = directory.replaceAll("\\", "/").split("/").at(-1)!
           const relativePath = `./${directoryName}/file.txt`
           const absolutePath = `${directory}/file.txt`
@@ -436,13 +463,16 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
       it.effect("should clean up scoped temporary resources when their scope closes", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
+
           const directory = yield* Effect.scoped(
             Effect.gen(function*() {
               const directory = yield* fs.makeTempDirectory({ directory: path() })
               assert.strictEqual((yield* fs.stat(directory)).type, "Directory")
+
               return directory
             })
           )
+
           assert.strictEqual((yield* fs.stat(directory)).type, "Directory")
           yield* fs.remove(directory, { recursive: true })
 
@@ -460,9 +490,11 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
               yield* fs.makeDirectory(`${directory}/nested`)
               yield* fs.writeFileString(`${directory}/nested/file.txt`, "content")
               assert.strictEqual((yield* fs.stat(directory)).type, "Directory")
+
               return directory
             })
           )
+
           const scopedDirectoryError = yield* Effect.flip(fs.stat(scopedDirectory))
           assertSystemError(scopedDirectoryError, {
             tag: "NotFound",
@@ -477,11 +509,14 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
                 prefix: "scoped-",
                 suffix: ".txt"
               })
+
               assert.strictEqual((yield* fs.stat(file)).type, "File")
               assert.isTrue(file.endsWith(".txt"))
+
               return file
             })
           )
+
           const scopedFileError = yield* Effect.flip(fs.stat(scopedFile))
           assertSystemError(scopedFileError, { tag: "NotFound", method: "stat", pathOrDescriptor: scopedFile })
         }))
@@ -498,6 +533,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
             offset: 6,
             bytesToRead: 3
           }).pipe(Stream.runCollect)
+
           const chunks = yield* fs.stream(file, {
             offset: 2,
             bytesToRead: 5,
@@ -706,6 +742,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
       it.effect("should apply open flags consistently when high-level writes target existing and missing paths", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
+
           const cases = [
             { flag: "r", existing: "rejects", missing: "rejects" },
             { flag: "r+", existing: "xeed", missing: "rejects" },
@@ -725,11 +762,14 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
             yield* fs.writeFileString(existing, "seed")
 
             const existingResult = yield* Effect.result(fs.writeFileString(existing, "x", { flag }))
+
             if (expectedExisting === "rejects") {
               assert.isTrue(Result.isFailure(existingResult))
+
               if (Result.isFailure(existingResult)) {
                 assertSystemError(existingResult.failure, { method: "writeFile", pathOrDescriptor: existing })
               }
+
               assert.strictEqual(yield* fs.readFileString(existing), "seed")
             } else {
               assert.isTrue(Result.isSuccess(existingResult))
@@ -737,8 +777,10 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
             }
 
             const missingResult = yield* Effect.result(fs.writeFileString(missing, "x", { flag }))
+
             if (expectedMissing === "rejects") {
               assert.isTrue(Result.isFailure(missingResult))
+
               if (Result.isFailure(missingResult)) {
                 assertSystemError(missingResult.failure, {
                   tag: "NotFound",
@@ -860,14 +902,20 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           const filePath = path("invalid-read-size.txt")
           yield* fs.writeFileString(filePath, "content")
           const file = yield* fs.open(filePath, { flag: "r+" })
+
+          type InvalidReadSize = null | string | number | undefined
+
+          // SAFETY: This test deliberately bypasses the public type to verify runtime validation.
+          // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- Runtime validation requires an invalid typed input.
           const readAlloc = file.readAlloc as unknown as (
-            size?: unknown
+            size?: InvalidReadSize
           ) => Effect.Effect<Option.Option<Uint8Array>, PlatformError.PlatformError>
 
           assertBadArgument(yield* Effect.flip(readAlloc()), {
             method: "readAlloc",
             description: "size must be a non-negative integer"
           })
+
           for (const input of [null, "1", 1.5, -1]) {
             const error = yield* Effect.flip(readAlloc(input))
             assertBadArgument(error, {
@@ -980,6 +1028,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           yield* fs.writeFileString(destination, "destination")
 
           const result = yield* Effect.result(fs.copy(source, destination, { overwrite: false }))
+
           if (Result.isFailure(result)) {
             assertSystemError(result.failure, {
               tag: "AlreadyExists",
@@ -1013,19 +1062,24 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
       it.effect("should clean up scoped temporary resources when their scope fails", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
+
           const result = yield* Effect.scoped(
             Effect.gen(function*() {
               const directory = yield* fs.makeTempDirectoryScoped({ directory: path(), prefix: "failed-" })
               yield* fs.writeFileString(`${directory}/file.txt`, "content")
-              return yield* Effect.fail({ _tag: "ExpectedScopeFailure" as const, directory })
+
+              return yield* new ExpectedScopeFailure({ directory })
             })
           ).pipe(Effect.result)
+
           if (Result.isSuccess(result)) {
             return assert.fail("Expected the scoped operation to fail")
           }
-          if (result.failure._tag === "PlatformError") {
+
+          if (Predicate.isTagged(result.failure, "PlatformError")) {
             return yield* result.failure
           }
+
           const directory = result.failure.directory
 
           const error = yield* Effect.flip(fs.stat(directory))
@@ -1070,6 +1124,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           const sunk = path("finalized-sink.txt")
           const failed = path("failed-sink.txt")
           const finalized = yield* Ref.make<Array<string>>([])
+
           const trackedFs = FileSystem.make({
             ...fs,
             open: (path, options) =>
@@ -1078,10 +1133,12 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
                 () => Ref.update(finalized, (paths) => [...paths, path])
               )
           })
+
           yield* fs.writeFileString(streamed, "content")
 
           yield* trackedFs.stream(streamed).pipe(Stream.runDrain)
           yield* Stream.run(Stream.make(encoder.encode("content")), trackedFs.sink(sunk))
+
           const failedResult = yield* Stream.make(encoder.encode("content")).pipe(
             Stream.concat(Stream.fail("expected failure")),
             Stream.run(trackedFs.sink(failed)),
@@ -1089,9 +1146,11 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           )
 
           assert.isTrue(Result.isFailure(failedResult))
+
           if (Result.isFailure(failedResult)) {
             assert.strictEqual(failedResult.failure, "expected failure")
           }
+
           assert.deepStrictEqual(yield* Ref.get(finalized), [streamed, sunk, failed])
         }))
     })
@@ -1102,6 +1161,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           const { fs, path } = yield* makeTestContext
           const missing = path("missing-primitive")
           const destination = path("destination")
+
           const operations = [
             ["chmod", fs.chmod(missing, 0o600)],
             ["chown", fs.chown(missing, 0, 0)],
@@ -1152,12 +1212,15 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.strictEqual(yield* fs.readFileString(source), "linked")
           const sourceInfo = yield* fs.stat(source)
           const linkedInfo = yield* fs.stat(linked)
+
           if (Option.isSome(sourceInfo.ino) && Option.isSome(linkedInfo.ino)) {
             assert.strictEqual(sourceInfo.ino.value, linkedInfo.ino.value)
           }
+
           if (Option.isSome(sourceInfo.nlink)) {
             assert.strictEqual(sourceInfo.nlink.value, 2)
           }
+
           if (Option.isSome(linkedInfo.nlink)) {
             assert.strictEqual(linkedInfo.nlink.value, 2)
           }
@@ -1177,6 +1240,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.isFalse(yield* fs.exists(source))
           assert.strictEqual(yield* fs.readFileString(alias), "original")
           const linkedInfo = yield* fs.stat(alias)
+
           if (Option.isSome(linkedInfo.nlink)) {
             assert.strictEqual(linkedInfo.nlink.value, 1)
           }
@@ -1240,6 +1304,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           if (Option.isSome(info.atime)) {
             assert.strictEqual(info.atime.value.getTime(), atime.getTime())
           }
+
           if (Option.isSome(info.mtime)) {
             assert.strictEqual(info.mtime.value.getTime(), mtime.getTime())
           }

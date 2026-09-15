@@ -5,7 +5,9 @@ import * as ByteSize from "effect/ByteSize"
 import { InvalidFilehandleError, InvalidNameError, makeExport, validateName } from "../src/internal/export.js"
 
 const generation = (value: number) => new Uint8Array(16).fill(value)
+
 const utf8 = (value: string) => new TextEncoder().encode(value)
+
 const maxNameBytes = ByteSize.bytes(255)
 
 describe("NFS export identity", () => {
@@ -85,6 +87,7 @@ describe("NFS export identity", () => {
     const decomposed = utf8("e\u0301")
     assert.strictEqual(validateName(decomposed, maxNameBytes), "e\u0301")
     assert.deepStrictEqual(new TextEncoder().encode(validateName(decomposed, maxNameBytes)), decomposed)
+
     for (const name of [new Uint8Array(), utf8("a/b"), new Uint8Array([0]), new Uint8Array([0xff]), utf8("..")]) {
       assert.throws(() => validateName(name, maxNameBytes), InvalidNameError)
     }

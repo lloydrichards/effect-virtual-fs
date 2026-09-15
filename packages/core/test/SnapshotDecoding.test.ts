@@ -4,6 +4,7 @@ import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const encodedFile = (data: string) => {
   const metadata = { uid: 0, gid: 0, mode: 0o644, atimeNs: "0", mtimeNs: "0", ctimeNs: "0", birthtimeNs: "0" }
+
   return new TextEncoder().encode(JSON.stringify({
     format: "effect-vfs",
     version: 1,
@@ -14,6 +15,7 @@ const encodedFile = (data: string) => {
     ]
   }))
 }
+
 const limits = {
   maxEncodedBytes: ByteSize.megabytes(17),
   maxRecords: 2,

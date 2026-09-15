@@ -11,6 +11,7 @@ describe("overlay memory binding", () => {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/f", bytes: bytes.encode("base") }]
       })).snapshot
+
       const overlay = yield* Vfs.makeOverlay(base)
       const core = yield* overlay.caller()
       const adapter = yield* Memory.bind(overlay)
@@ -27,6 +28,7 @@ describe("overlay memory binding", () => {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/f", bytes: bytes.encode("same") }]
       })).snapshot
+
       const a = yield* Memory.bind(yield* Vfs.makeOverlay(base))
       const b = yield* Memory.bind(yield* Vfs.makeOverlay(base))
       yield* a.writeFileString("/f", "edit")
@@ -43,9 +45,11 @@ describe("overlay memory binding", () => {
           { kind: "file", path: "/destination", bytes: bytes.encode("destination") }
         ]
       })).snapshot
+
       const overlay = yield* Vfs.makeOverlay(base)
       const core = yield* overlay.caller()
       const adapter = yield* Memory.bind(overlay)
+
       const watched = yield* adapter.watch("/").pipe(
         Stream.take(4),
         Stream.runCollect,

@@ -22,25 +22,14 @@ export class CheckpointError extends Data.TaggedError("CheckpointError")<{
   readonly cause?: unknown
 }> {}
 
-/**
- * Named checkpoints with no implicit capture, replacement, or live-write persistence.
- *
- * @category models
- * @since 0.1.0
- */
-export interface CheckpointStoreShape {
-  /** Saves a new name. A duplicate fails without modifying the existing checkpoint. */
-  readonly save: (name: string, snapshot: Vfs.Snapshot) => Effect.Effect<void, CheckpointError | Vfs.ImageError>
-  /** Loads a validated snapshot. A missing name fails with `NotFound`. */
-  readonly load: (name: string) => Effect.Effect<Vfs.Snapshot, CheckpointError | Vfs.ImageError>
-}
-
 const checkName = (name: string, operation: "save" | "load") =>
   Effect.suspend(() => {
-    if (typeof name !== "string" || name.length === 0 || name.length > 255 || name.includes("\0")) {
+    if (name.length === 0 || name.length > 255 || name.includes("\0")) {
       return Effect.fail(new CheckpointError({ code: "InvalidName", operation }))
     }
+
     const bytes = new TextEncoder().encode(name)
+
     // Reject lone surrogates rather than allowing SQLite's UTF-8 boundary to alias names.
     return bytes.length > 255 || new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes) !== name
       ? Effect.fail(new CheckpointError({ code: "InvalidName", operation }))
@@ -60,7 +49,12 @@ const StoredRow = Schema.Struct({
  * @category services
  * @since 0.1.0
  */
-export class CheckpointStore extends Context.Service<CheckpointStore, CheckpointStoreShape>()(
+export class CheckpointStore extends Context.Service<CheckpointStore, {
+  /** Saves a new name. A duplicate fails without modifying the existing checkpoint. */
+  readonly save: (name: string, snapshot: Vfs.Snapshot) => Effect.Effect<void, CheckpointError | Vfs.ImageError>
+  /** Loads a validated snapshot. A missing name fails with `NotFound`. */
+  readonly load: (name: string) => Effect.Effect<Vfs.Snapshot, CheckpointError | Vfs.ImageError>
+}>()(
   "@effect-vfs/persistence/CheckpointStore"
 ) {
   /**
@@ -71,6 +65,7 @@ export class CheckpointStore extends Context.Service<CheckpointStore, Checkpoint
     const ownedLimits = yield* Schema.decodeEffect(Vfs.DecodeLimits, { onExcessProperty: "error" })(limits).pipe(
       Effect.mapError(() => new Vfs.ImageError({ code: "InvalidStructure", field: "limits" }))
     )
+
     const sql = (yield* SqlClient).withoutTransforms()
     const maxEncodedBytes = ByteSize.toBigInt(ownedLimits.maxEncodedBytes)
 
@@ -104,16 +99,21 @@ export class CheckpointStore extends Context.Service<CheckpointStore, Checkpoint
       ))
 
       if (rows.length === 0) return yield* new CheckpointError({ code: "NotFound", operation: "load", name })
+
       const row = yield* Schema.decodeUnknownEffect(StoredRow)(rows[0]).pipe(
         Effect.mapError(() => new Vfs.ImageError({ code: "InvalidStructure", field: "row" }))
       )
+
       if (row.kind !== "blob" || row.size === null) {
         return yield* new Vfs.ImageError({ code: "InvalidStructure", field: "image" })
       }
+
       if (BigInt(row.size) > maxEncodedBytes) {
         return yield* new Vfs.ImageError({ code: "LimitExceeded", field: "encodedBytes" })
       }
+
       if (row.image === null) return yield* new Vfs.ImageError({ code: "InvalidStructure", field: "image" })
+
       return yield* Vfs.decodeSnapshot(row.image, ownedLimits)
     })
 

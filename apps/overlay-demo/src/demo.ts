@@ -1,5 +1,5 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { Cause, Console, Effect, Queue, Ref, Stream } from "effect"
+import { Cause, Console, Effect, Predicate, Queue, Ref, Stream } from "effect"
 import { LanguageModelLive, type ObserveTool, runAgent, type ToolObservation } from "./agent.js"
 import {
   pacing,
@@ -15,6 +15,7 @@ import {
 } from "./presentation.js"
 
 const encode = (value: string) => new TextEncoder().encode(value)
+
 const decode = (value: Uint8Array) => new TextDecoder().decode(value)
 
 const program = Effect.scoped(Effect.gen(function*() {
@@ -29,6 +30,7 @@ const program = Effect.scoped(Effect.gen(function*() {
       }
     ]
   })
+
   const base = yield* template.snapshot
 
   yield* showStage(
@@ -41,6 +43,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   yield* pacing
 
   const actions = yield* Ref.make<ReadonlyArray<ToolObservation>>([])
+
   const observe: ObserveTool = (action) =>
     Ref.update(actions, (current) => [...current, action]).pipe(
       Effect.andThen(showToolAction({ actor: action.role, tool: action.operation, path: action.path }))
@@ -54,6 +57,7 @@ const program = Effect.scoped(Effect.gen(function*() {
     "DISPOSABLE PLANNER",
     "The planner receives its own overlay. Its proposal will be inspected, then discarded."
   )
+
   const plannerResult = yield* runAgent({
     caller: privatePlanner,
     observe,
@@ -64,6 +68,7 @@ const program = Effect.scoped(Effect.gen(function*() {
       "You must use the tools."
     ].join(" ")
   })
+
   const privateProposal = decode(yield* privatePlanner.readFile("/proposal.md"))
   const templateReader = yield* (yield* Vfs.fromSnapshot(base)).caller()
   const proposalInTemplate = yield* templateReader.readFile("/proposal.md").pipe(Effect.option)
@@ -71,7 +76,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   yield* showFile("PRIVATE", "proposal.md", privateProposal)
   yield* showMessage(
     "TEMPLATE",
-    proposalInTemplate._tag === "None" ? "proposal.md does not exist" : "unexpected change"
+    Predicate.isTagged(proposalInTemplate, "None") ? "proposal.md does not exist" : "unexpected change"
   )
   yield* pacing
 
@@ -90,6 +95,7 @@ const program = Effect.scoped(Effect.gen(function*() {
     "AUTHOR AND REVIEWER SHARE AN OVERLAY",
     "Separate callers share files, while the model sessions remain independent."
   )
+
   const authorResult = yield* runAgent({
     caller: author,
     observe,
@@ -100,6 +106,7 @@ const program = Effect.scoped(Effect.gen(function*() {
       "You must use the tools."
     ].join(" ")
   })
+
   const reviewerResult = yield* runAgent({
     caller: reviewer,
     observe,
@@ -113,9 +120,11 @@ const program = Effect.scoped(Effect.gen(function*() {
   })
 
   const recordedActions = yield* Ref.get(actions)
+
   const reviewerReadAuthorFile = recordedActions.some((action) =>
     action.role === "reviewer" && action.operation === "read" && action.path === "release-plan.md"
   )
+
   if (!reviewerReadAuthorFile) {
     return yield* Effect.die(new Error("Reviewer finished without reading the author's release-plan.md"))
   }
@@ -123,6 +132,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   const sharedWrites = recordedActions.filter((action) =>
     action.role !== "planner" && action.operation === "write"
   ).length
+
   yield* Queue.takeN(watchQueue, sharedWrites)
   yield* showMessage("AUTHOR", `${authorResult.response} (${authorResult.turns} turns)`)
   yield* showMessage("REVIEWER", `${reviewerResult.response} (${reviewerResult.turns} turns)`)
@@ -137,6 +147,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   const liveReview = decode(yield* reviewer.readFile("/REVIEW.md"))
   const planLines = livePlan.trim().split("\n")
   const reviewLines = liveReview.trim().split("\n")
+
   if (
     planLines.length !== 3 ||
     planLines.some((line) => !line.startsWith("-")) ||
@@ -146,6 +157,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   ) {
     return yield* Effect.die(new Error("The model did not produce the requested compact output files"))
   }
+
   const captured = yield* sharedWorkspace.capture()
   yield* showMessage("ORCHESTRATOR", "capture complete; mutate the live workspace once more")
   yield* author.writeFile("/release-plan.md", encode("A later live edit."), {

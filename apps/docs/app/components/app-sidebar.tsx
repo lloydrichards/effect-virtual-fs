@@ -20,6 +20,7 @@ import { navigation } from "~/nav.config"
 export function AppSidebar() {
   const location = useLocation()
   const { isMobile, setOpenMobile } = useSidebar()
+
   const closeMobileSidebar = () => {
     if (isMobile) setOpenMobile(false)
   }

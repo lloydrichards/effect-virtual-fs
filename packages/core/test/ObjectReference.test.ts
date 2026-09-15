@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const bytes = (...values: Array<number>) => new Uint8Array(values)
+
 const name = (value: string) => new TextEncoder().encode(value)
 
 describe("object references", () => {
@@ -32,6 +33,7 @@ describe("object references", () => {
       const other = yield* second.caller()
       const root = yield* fs.rootReference
       assert.strictEqual((yield* Effect.flip(other.observeMetadata(root))).code, "ForeignReference")
+      // SAFETY: The forged reference deliberately bypasses the static contract to test runtime authenticity.
       assert.strictEqual(
         (yield* Effect.flip(fs.observeMetadata({} as Vfs.ObjectReference))).code,
         "InvalidReference"
@@ -123,6 +125,7 @@ describe("object references", () => {
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
       const root = yield* fs.rootReference
+
       const invalid = [
         new Uint8Array(),
         name("."),
@@ -131,10 +134,14 @@ describe("object references", () => {
         new Uint8Array([0]),
         new Uint8Array(256)
       ]
+
       for (const component of invalid) {
         assert.strictEqual((yield* Effect.flip(fs.lookupReference(root, component))).code, "InvalidArgument")
       }
+
+      // SAFETY: The string deliberately bypasses the byte-array contract to test runtime validation.
       assert.strictEqual(
+        // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- Runtime validation requires an invalid typed input.
         (yield* Effect.flip(fs.lookupReference(root, "name" as unknown as Uint8Array))).code,
         "InvalidArgument"
       )

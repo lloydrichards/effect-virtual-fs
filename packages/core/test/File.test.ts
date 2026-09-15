@@ -103,9 +103,11 @@ describe("regular files", () => {
       const fs = yield* (yield* Vfs.make()).caller()
       const scope = yield* Scope.make()
       yield* Scope.close(scope, Exit.void)
+
       const result = yield* Effect.exit(
         fs.open("/f", { access: "write", create: "exclusive" }).pipe(Scope.provide(scope))
       )
+
       assert.isTrue(Exit.isFailure(result))
       assert.strictEqual((yield* Effect.flip(fs.stat("/f"))).code, "NotFound")
       const liveScope = yield* Scope.make()

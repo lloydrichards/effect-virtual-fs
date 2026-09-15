@@ -4,6 +4,7 @@ import { ByteSize, Effect, Exit, Fiber, Option, Scope, Stream } from "effect"
 import * as Memory from "../src/MemoryFileSystem.js"
 
 const bytes = new TextEncoder()
+
 describe("core-backed memory bindings", () => {
   it.effect("shares direct core writes and independent adapter cursors between bindings", () =>
     Effect.gen(function*() {
@@ -35,11 +36,13 @@ describe("core-backed memory bindings", () => {
       const adapter = yield* Memory.bind(volume)
       yield* core.writeFile("/f", bytes.encode("old"), { access: "write", create: "exclusive" })
       yield* core.link("/f", "/alias")
+
       const watch = yield* adapter.watch("/").pipe(
         Stream.take(4),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* core.writeFile("/f", bytes.encode("new"), { access: "write", truncate: true })
       yield* core.rename("/alias", "/renamed")
       assert.deepStrictEqual(yield* Fiber.join(watch), [
@@ -57,11 +60,13 @@ describe("core-backed memory bindings", () => {
       const adapter = yield* Memory.bind(volume)
       yield* adapter.writeFileString("/f", "old")
       const before = yield* core.stat("/f")
+
       const watch = yield* adapter.watch("/").pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* Effect.flip(adapter.writeFileString("/f", "too long"))
       assert.deepStrictEqual(yield* core.stat("/f"), before)
       assert.strictEqual(yield* adapter.readFileString("/f"), "old")
@@ -75,11 +80,13 @@ describe("core-backed memory bindings", () => {
       const core = yield* volume.caller()
       const adapter = yield* Memory.bind(volume)
       yield* core.mkdir("/watched")
+
       const watch = yield* adapter.watch("/watched").pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* core.mkdir(yield* Vfs.pathFromBytes(new Uint8Array([47, 255])))
       yield* core.mkdir("/watched/child")
       assert.deepStrictEqual(yield* Fiber.join(watch), [{ _tag: "Create", path: "/watched/child" }])
