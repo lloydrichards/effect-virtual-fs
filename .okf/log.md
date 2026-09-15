@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-09-15
+
+- **NFS profile ladder and coverage ledgers**: Accepted the two-axis model of capability profiles (read-only-local, read-only-networked, writable, stateful) and maturity labels (experimental, preview, stable) with an evidence ladder; added the read-only-local profile and three ledgers mapping RFC 8881 operations, attributes, cross-cutting rules, errata, and clients to current status; recorded the undefined `NFS4ERR_RESOURCE` code as a gap; pointed deferred capabilities and the NFS research at the ladder.
+
 ## 2026-09-13
 
 - **NFS negotiated reply sizing**: Replaced worst-case reply rejection with minimum preflight bounds and encoded-size enforcement, allowing macOS compounds whose actual replies fit the negotiated channel.
