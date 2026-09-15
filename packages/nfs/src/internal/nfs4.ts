@@ -28,9 +28,13 @@ export const Status = {
   NOTSUPP: 10004,
   TOOSMALL: 10005,
   SERVERFAULT: 10006,
+  DELAY: 10008,
+  SAME: 10009,
   EXPIRED: 10011,
+  LOCKED: 10012,
   FHEXPIRED: 10014,
-  RESOURCE: 10018,
+  SHARE_DENIED: 10015,
+  CLID_INUSE: 10017,
   NOFILEHANDLE: 10020,
   MINOR_VERS_MISMATCH: 10021,
   STALE_CLIENTID: 10022,
@@ -38,9 +42,12 @@ export const Status = {
   BAD_STATEID: 10025,
   BAD_SEQID: 10026,
   NOT_SAME: 10027,
+  SYMLINK: 10029,
   ATTRNOTSUPP: 10032,
+  NO_GRACE: 10033,
   BADXDR: 10036,
-  OPENMODE: 10038,
+  LOCKS_HELD: 10037,
+  BADCHAR: 10040,
   BADNAME: 10041,
   OP_ILLEGAL: 10044,
   BADSESSION: 10052,
@@ -57,38 +64,203 @@ export const Status = {
   CLIENTID_BUSY: 10074,
   SEQ_FALSE_RETRY: 10076,
   BAD_HIGH_SLOT: 10077,
-  NOT_ONLY_OP: 10081
+  ENCR_ALG_UNSUPP: 10079,
+  NOT_ONLY_OP: 10081,
+  WRONG_TYPE: 10083
 } as const
 
 export const Operation = {
   ACCESS: 3,
   CLOSE: 4,
+  COMMIT: 5,
   CREATE: 6,
+  DELEGPURGE: 7,
+  DELEGRETURN: 8,
   GETATTR: 9,
   GETFH: 10,
   LINK: 11,
+  LOCK: 12,
+  LOCKT: 13,
+  LOCKU: 14,
   LOOKUP: 15,
   LOOKUPP: 16,
+  NVERIFY: 17,
   OPEN: 18,
+  OPENATTR: 19,
+  OPEN_CONFIRM: 20,
+  OPEN_DOWNGRADE: 21,
   PUTFH: 22,
+  PUTPUBFH: 23,
   PUTROOTFH: 24,
   READ: 25,
   READDIR: 26,
   READLINK: 27,
   REMOVE: 28,
   RENAME: 29,
+  RENEW: 30,
   RESTOREFH: 31,
   SAVEFH: 32,
+  SECINFO: 33,
   SETATTR: 34,
+  SETCLIENTID: 35,
+  SETCLIENTID_CONFIRM: 36,
+  VERIFY: 37,
   WRITE: 38,
+  RELEASE_LOCKOWNER: 39,
+  BACKCHANNEL_CTL: 40,
+  BIND_CONN_TO_SESSION: 41,
   EXCHANGE_ID: 42,
   CREATE_SESSION: 43,
   DESTROY_SESSION: 44,
+  FREE_STATEID: 45,
+  GET_DIR_DELEGATION: 46,
+  GETDEVICEINFO: 47,
+  GETDEVICELIST: 48,
+  LAYOUTCOMMIT: 49,
+  LAYOUTGET: 50,
+  LAYOUTRETURN: 51,
+  SECINFO_NO_NAME: 52,
   SEQUENCE: 53,
+  SET_SSV: 54,
+  TEST_STATEID: 55,
+  WANT_DELEGATION: 56,
   DESTROY_CLIENTID: 57,
   RECLAIM_COMPLETE: 58,
   ILLEGAL: 10044
 } as const
+
+/**
+ * NFSv4.0 operations that RFC 8881 Section 8.8 says an NFSv4.1 server MUST NOT
+ * implement and MUST answer with NFS4ERR_NOTSUPP.
+ */
+const mustNotImplementOperations: ReadonlySet<number> = new Set([
+  Operation.OPEN_CONFIRM,
+  Operation.RENEW,
+  Operation.SETCLIENTID,
+  Operation.SETCLIENTID_CONFIRM,
+  Operation.RELEASE_LOCKOWNER
+])
+
+/**
+ * OPTIONAL and RECOMMENDED operations this server does not implement. RFC 8881
+ * Section 17 requires NFS4ERR_NOTSUPP for them. Their arguments are not decoded
+ * because the compound stops at the failing operation.
+ */
+const unsupportedOptionalOperations: ReadonlySet<number> = new Set([
+  Operation.DELEGPURGE,
+  Operation.DELEGRETURN,
+  Operation.OPENATTR,
+  Operation.GET_DIR_DELEGATION,
+  Operation.GETDEVICEINFO,
+  Operation.GETDEVICELIST,
+  Operation.LAYOUTCOMMIT,
+  Operation.LAYOUTGET,
+  Operation.LAYOUTRETURN,
+  Operation.WANT_DELEGATION
+])
+
+/** channel_dir_from_server4: this server binds every connection to the fore channel only. */
+const CDFS4_FORE = 1
+
+/** channel_dir_from_client4 values that ask for a fore-channel binding (RFC 8881 Section 18.34.1). */
+const CDFC4_FORE = 0x1
+
+const CDFC4_FORE_OR_BOTH = 0x3
+
+const CDFC4_BACK_OR_BOTH = 0x7
+
+/** RPCSEC_GSS in callback_sec_parms4; this server never issues the handles it would name. */
+const RPCSEC_GSS = 6
+
+const SECINFO_STYLE4_CURRENT_FH = 0
+
+const SECINFO_STYLE4_PARENT = 1
+
+/**
+ * Smallest COMPOUND a session can carry: an RPC call header with AUTH_NONE plus a
+ * SEQUENCE-only compound. A fore channel that cannot fit it can never be used.
+ */
+const MIN_FORE_REQUEST_BYTES = 40 + 48
+
+/** Smallest reply a session can carry: an RPC reply header plus a SEQUENCE-only compound. */
+const MIN_FORE_RESPONSE_BYTES = 24 + 12 + 8 + 36
+
+/** PERSIST, CONN_BACK_CHAN, and CONN_RDMA are the only defined csa_flags bits. */
+const CREATE_SESSION4_KNOWN_FLAGS = 0x7
+
+const ACCESS4_READ = 0x01
+
+const ACCESS4_LOOKUP = 0x02
+
+const ACCESS4_MODIFY = 0x04
+
+const ACCESS4_EXTEND = 0x08
+
+const ACCESS4_DELETE = 0x10
+
+const ACCESS4_EXECUTE = 0x20
+
+const AUTH_NONE = 0
+
+const AUTH_SYS = 1
+
+/** The export accepts and generates only UTF-8 names (RFC 8881 Section 14.4). */
+const FSCHARSET_CAP4_ALLOWS_ONLY_UTF8 = 0x2
+
+const SP4_NONE = 0
+
+const SP4_MACH_CRED = 1
+
+const SP4_SSV = 2
+
+const OPEN4_SHARE_ACCESS_READ = 0x0001
+
+const OPEN4_SHARE_ACCESS_WRITE = 0x0002
+
+const OPEN4_SHARE_ACCESS_MASK = 0x0003
+
+const OPEN4_SHARE_DENY_READ = 0x0001
+
+const OPEN4_SHARE_DENY_BOTH = 0x0003
+
+/** open_claim_type4 values that reclaim state after a restart or a delegation. */
+const CLAIM_PREVIOUS = 1
+
+const CLAIM_DELEGATE_CUR = 2
+
+const CLAIM_DELEGATE_PREV = 3
+
+const CLAIM_DELEG_CUR_FH = 5
+
+const CLAIM_DELEG_PREV_FH = 6
+
+/**
+ * Worst-case encoded GETATTR result: the largest attribute set this server can return for a
+ * 25-byte filehandle is about 300 bytes; recheck when `supportedAttributes` grows.
+ */
+const MAX_GETATTR_REPLY_BYTES = 512
+
+/** WRITE_LT and WRITEW_LT are the lock types that modify a read-only file system's state. */
+const WRITE_LOCK_TYPES: ReadonlySet<number> = new Set([2, 4])
+
+const OPEN4_SHARE_ACCESS_WANT_DELEG_MASK = 0xff00
+
+const OPEN4_SHARE_ACCESS_WANT_NO_DELEG = 0x0400
+
+const OPEN4_SHARE_ACCESS_WANT_CANCEL = 0x0500
+
+/** SIGNAL_DELEG_WHEN_RESRC_AVAIL and PUSH_DELEG_WHEN_UNCONTENDED are registration hints. */
+const OPEN4_SHARE_ACCESS_WANT_HINT_MASK = 0x0003_0000
+
+const OPEN_DELEGATE_NONE = 0
+
+const OPEN_DELEGATE_NONE_EXT = 3
+
+const WND4_NOT_WANTED = 0
+
+const WND4_NOT_SUPP_FTYPE = 3
+
+const WND4_CANCELLED = 7
 
 const EXCHGID4_FLAG_USE_NON_PNFS = 0x0001_0000
 
@@ -224,6 +396,8 @@ type ParsedOperation =
       readonly flags: number
       readonly fore: ChannelAttrs
       readonly back: ChannelAttrs
+      /** csa_sec_parms named an RPCSEC_GSS handle, which cannot exist here (Section 18.36.3). */
+      readonly gssCallback: boolean
     }
   }
   | { readonly kind: "DestroySession"; readonly code: typeof Operation.DESTROY_SESSION; readonly value: Uint8Array }
@@ -240,7 +414,53 @@ type ParsedOperation =
   }
   | { readonly kind: "DestroyClient"; readonly code: typeof Operation.DESTROY_CLIENTID; readonly value: bigint }
   | { readonly kind: "ReclaimComplete"; readonly code: typeof Operation.RECLAIM_COMPLETE; readonly value: boolean }
+  | {
+    readonly kind: "Commit"
+    readonly code: typeof Operation.COMMIT
+    readonly value: { readonly offset: bigint; readonly count: number }
+  }
+  | { readonly kind: "Lock"; readonly code: typeof Operation.LOCK; readonly value: { readonly lockType: number } }
+  | { readonly kind: "Lockt"; readonly code: typeof Operation.LOCKT; readonly value: { readonly lockType: number } }
+  | { readonly kind: "Locku"; readonly code: typeof Operation.LOCKU; readonly value: Uint8Array }
+  | {
+    readonly kind: "Verify"
+    readonly code: typeof Operation.VERIFY | typeof Operation.NVERIFY
+    readonly value: { readonly bitmap: ReadonlyArray<number>; readonly values: Uint8Array }
+  }
+  | {
+    readonly kind: "OpenDowngrade"
+    readonly code: typeof Operation.OPEN_DOWNGRADE
+    readonly value: {
+      readonly stateid: Uint8Array
+      readonly sequence: number
+      readonly access: number
+      readonly deny: number
+    }
+  }
+  | { readonly kind: "Putpubfh"; readonly code: typeof Operation.PUTPUBFH; readonly value: undefined }
+  | { readonly kind: "Secinfo"; readonly code: typeof Operation.SECINFO; readonly value: Uint8Array }
+  | { readonly kind: "SecinfoNoName"; readonly code: typeof Operation.SECINFO_NO_NAME; readonly value: number }
+  | { readonly kind: "FreeStateid"; readonly code: typeof Operation.FREE_STATEID; readonly value: Uint8Array }
+  | { readonly kind: "SetSsv"; readonly code: typeof Operation.SET_SSV; readonly value: undefined }
+  | {
+    readonly kind: "TestStateid"
+    readonly code: typeof Operation.TEST_STATEID
+    readonly value: ReadonlyArray<Uint8Array>
+  }
+  | {
+    readonly kind: "BackchannelCtl"
+    readonly code: typeof Operation.BACKCHANNEL_CTL
+    readonly value: { readonly gssCallback: boolean }
+  }
+  | {
+    readonly kind: "BindConnToSession"
+    readonly code: typeof Operation.BIND_CONN_TO_SESSION
+    readonly value: { readonly session: Uint8Array; readonly direction: number }
+  }
+  | { readonly kind: "NotSupported"; readonly code: number; readonly value: undefined }
   | { readonly kind: "Unknown"; readonly code: number; readonly value: undefined }
+  /** A known operation whose arguments did not decode; it answers NFS4ERR_BADXDR in place. */
+  | { readonly kind: "Malformed"; readonly code: number; readonly value: undefined }
 
 type ResultPart = { readonly code: number; readonly status: number; readonly body?: Uint8Array }
 
@@ -250,6 +470,8 @@ interface ClientState {
   readonly id: bigint
   readonly owner: string
   readonly verifier: string
+  /** The RPC principal that established the record (RFC 8881 Section 18.35.4). */
+  readonly principal: string
   readonly previous: ClientState | undefined
   sequence: number
   leaseExpiresAt: number
@@ -257,13 +479,13 @@ interface ClientState {
   confirmed: boolean
   createSessionReplay: {
     readonly sequence: number
-    readonly request: Uint8Array
-    readonly credentials: string
     readonly status: number
     readonly body?: Uint8Array
     readonly retainedBytes: ByteSize.ByteSize
   } | undefined
 }
+
+type CreateSessionReplay = NonNullable<ClientState["createSessionReplay"]>
 
 interface ReplaySlot {
   sequence: number
@@ -283,6 +505,8 @@ interface SessionState {
 interface OpenState {
   id: Uint8Array
   sequence: number
+  /** Share reservation held by this open-owner; access is always OPEN4_SHARE_ACCESS_READ. */
+  deny: number
   readonly owner: string
   readonly client: ClientState
   readonly reference: Vfs.ObjectReference
@@ -300,8 +524,8 @@ const assertOptions = (options: Nfs4Options): void => {
   if (options.generation.length !== 16) throw new RangeError("generation must contain exactly 16 bytes")
 
   for (const [name, value] of Object.entries(options.limits)) {
-    if (ByteSize.isByteSize(value)) {
-      if (ByteSize.isZero(value)) throw new RangeError(`${name} must be a positive byte size`)
+    if (Predicate.isBigInt(value)) {
+      if (value <= 0n) throw new RangeError(`${name} must be a positive byte size`)
     } else if (!Number.isSafeInteger(value) || value <= 0) {
       throw new RangeError(`${name} must be a positive safe integer`)
     }
@@ -324,11 +548,19 @@ const bytesKey = (bytes: Uint8Array): string => {
 }
 
 const credentialsKey = (credentials: CompoundCall["credentials"]): string =>
-  Predicate.isTagged(credentials, "Sys")
-    ? `sys:${credentials.uid}:${credentials.gid}:${credentials.machineName}:${
+  !Predicate.isTagged(credentials, "Sys")
+    ? "none"
+    : `sys:${credentials.uid}:${credentials.gid}:${credentials.machineName}:${
       credentials.supplementaryGroups.join(",")
     }`
-    : "none"
+
+/**
+ * The principal of an RPC credential for client-record ownership. AUTH_SYS has no
+ * verified identity, so this only serializes EXCHANGE_ID and CREATE_SESSION
+ * ownership; it never grants VFS authority.
+ */
+const principalKey = (credentials: CompoundCall["credentials"]): string =>
+  !Predicate.isTagged(credentials, "Sys") ? "none" : `sys:${credentials.uid}`
 
 const sameRequest = (left: Uint8Array | undefined, right: Uint8Array): boolean => {
   if (left === undefined || left.length !== right.length) return false
@@ -386,6 +618,11 @@ const readAttributes = (reader: Reader, limits: Nfs4Limits) => {
   return { bitmap: words, values }
 }
 
+const readStateOwner = (reader: Reader, limits: Nfs4Limits): void => {
+  reader.uint64()
+  reader.opaque(limits.maxOwnerBytes)
+}
+
 interface ChannelAttrs {
   readonly headerPadding: number
   readonly maxRequest: number
@@ -441,9 +678,40 @@ const writeChannelAttrs = (
     .array(attrs.rdmaIrd, (item, value) => item.uint32(value))
 }
 
-const decodeOperation = (reader: Reader, limits: Nfs4Limits): ParsedOperation => {
-  const code = reader.uint32()
+/** state_protect_ops4: the operations a client wants enforced and allowed under the protection. */
+const readStateProtectOps = (reader: Reader, limits: Nfs4Limits): void => {
+  bitmap(reader, limits.maxBitmapWords)
+  bitmap(reader, limits.maxBitmapWords)
+}
 
+const readStateProtection = (reader: Reader, limits: Nfs4Limits): number => {
+  const how = reader.uint32()
+
+  if (how === SP4_MACH_CRED) {
+    readStateProtectOps(reader, limits)
+  } else if (how === SP4_SSV) {
+    // ssv_sp_parms4: ops, hash and encryption algorithm lists, window, and GSS handle count.
+    readStateProtectOps(reader, limits)
+    reader.array((item) => item.opaque(limits.maxOpaqueBytes), limits.maxArrayElements)
+    reader.array((item) => item.opaque(limits.maxOpaqueBytes), limits.maxArrayElements)
+    reader.uint32()
+    reader.uint32()
+  } else if (how !== SP4_NONE) {
+    throw new XdrDecodeError("Invalid state protection discriminant")
+  }
+
+  return how
+}
+
+const readLockType = (reader: Reader): number => {
+  const lockType = reader.uint32()
+
+  if (lockType < 1 || lockType > 4) throw new XdrDecodeError("Invalid lock type")
+
+  return lockType
+}
+
+const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): ParsedOperation => {
   switch (code) {
     case Operation.ACCESS:
       return { kind: "Access", code, value: reader.uint32() }
@@ -452,13 +720,13 @@ const decodeOperation = (reader: Reader, limits: Nfs4Limits): ParsedOperation =>
     case Operation.CREATE: {
       const kind = reader.uint32()
 
-      if (kind === 5) reader.string(limits.maxNameBytes)
+      if (kind === 5) reader.string(limits.maxStringBytes)
       else if (kind === 3 || kind === 4) {
         reader.uint32()
         reader.uint32()
       }
 
-      const name = reader.opaque(limits.maxNameBytes)
+      const name = reader.opaque(limits.maxOpaqueBytes)
       const attrs = readAttributes(reader, limits)
 
       return { kind: "Create", code, value: { kind, name, attrs } }
@@ -479,11 +747,11 @@ const decodeOperation = (reader: Reader, limits: Nfs4Limits): ParsedOperation =>
     case Operation.SAVEFH:
       return { kind: "Savefh", code, value: undefined }
     case Operation.LINK:
-      return { kind: "Link", code, value: reader.opaque(limits.maxNameBytes) }
+      return { kind: "Link", code, value: reader.opaque(limits.maxOpaqueBytes) }
     case Operation.LOOKUP:
-      return { kind: "Lookup", code, value: reader.opaque(limits.maxNameBytes) }
+      return { kind: "Lookup", code, value: reader.opaque(limits.maxOpaqueBytes) }
     case Operation.REMOVE:
-      return { kind: "Remove", code, value: reader.opaque(limits.maxNameBytes) }
+      return { kind: "Remove", code, value: reader.opaque(limits.maxOpaqueBytes) }
     case Operation.OPEN: {
       const sequence = reader.uint32()
       const access = reader.uint32()
@@ -512,11 +780,11 @@ const decodeOperation = (reader: Reader, limits: Nfs4Limits): ParsedOperation =>
       const claim = reader.uint32()
       let name: Uint8Array = empty
 
-      if (claim === 0 || claim === 3) name = reader.opaque(limits.maxNameBytes)
+      if (claim === 0 || claim === 3) name = reader.opaque(limits.maxOpaqueBytes)
       else if (claim === 1) reader.uint32()
       else if (claim === 2) {
         reader.fixedOpaque(16)
-        name = reader.opaque(limits.maxNameBytes)
+        name = reader.opaque(limits.maxOpaqueBytes)
       } else if (claim === 5) reader.fixedOpaque(16)
       else if (claim !== 4 && claim !== 6) throw new XdrDecodeError("Invalid OPEN claim")
 
@@ -547,7 +815,7 @@ const decodeOperation = (reader: Reader, limits: Nfs4Limits): ParsedOperation =>
       return {
         code,
         kind: "Rename",
-        value: { oldName: reader.opaque(limits.maxNameBytes), newName: reader.opaque(limits.maxNameBytes) }
+        value: { oldName: reader.opaque(limits.maxOpaqueBytes), newName: reader.opaque(limits.maxOpaqueBytes) }
       }
     case Operation.SETATTR:
       return {
@@ -573,21 +841,15 @@ const decodeOperation = (reader: Reader, limits: Nfs4Limits): ParsedOperation =>
       const verifier = reader.fixedOpaque(8)
       const owner = reader.opaque(limits.maxOwnerBytes)
       const flags = reader.uint32()
-      const protection = reader.uint32()
+      const protection = readStateProtection(reader, limits)
 
-      if (protection === 1) {
-        bitmap(reader, limits.maxBitmapWords)
-        bitmap(reader, limits.maxBitmapWords)
-      } else if (protection !== 0) {
-        throw new XdrDecodeError("Unsupported state protection")
-      }
-
+      // eia_client_impl_id<1>: at most one implementation record (RFC 5662).
       reader.array((item) => {
         item.string(limits.maxStringBytes)
         item.string(limits.maxStringBytes)
         item.uint64()
         item.uint32()
-      }, limits.maxArrayElements)
+      }, 1)
 
       return { kind: "ExchangeId", code, value: { verifier, owner, flags, protection } }
     }
@@ -599,9 +861,13 @@ const decodeOperation = (reader: Reader, limits: Nfs4Limits): ParsedOperation =>
       const fore = readChannelAttrs(reader)
       const back = readChannelAttrs(reader)
       reader.uint32()
-      reader.array((item) => readCallbackSecurity(item, limits), limits.maxArrayElements)
+      const flavors = reader.array((item) => readCallbackSecurity(item, limits), limits.maxArrayElements)
 
-      return { kind: "CreateSession", code, value: { client, sequence, flags, fore, back } }
+      return {
+        kind: "CreateSession",
+        code,
+        value: { client, sequence, flags, fore, back, gssCallback: flavors.includes(RPCSEC_GSS) }
+      }
     }
 
     case Operation.DESTROY_SESSION:
@@ -622,7 +888,115 @@ const decodeOperation = (reader: Reader, limits: Nfs4Limits): ParsedOperation =>
       return { kind: "DestroyClient", code, value: reader.uint64() }
     case Operation.RECLAIM_COMPLETE:
       return { kind: "ReclaimComplete", code, value: reader.boolean() }
+    case Operation.COMMIT:
+      return { kind: "Commit", code, value: { offset: reader.uint64(), count: reader.uint32() } }
+    case Operation.LOCK: {
+      const lockType = readLockType(reader)
+      reader.boolean()
+      reader.uint64()
+      reader.uint64()
+
+      if (reader.boolean()) {
+        reader.uint32()
+        reader.fixedOpaque(16)
+        reader.uint32()
+        readStateOwner(reader, limits)
+      } else {
+        reader.fixedOpaque(16)
+        reader.uint32()
+      }
+
+      return { kind: "Lock", code, value: { lockType } }
+    }
+
+    case Operation.LOCKT: {
+      const lockType = readLockType(reader)
+      reader.uint64()
+      reader.uint64()
+      readStateOwner(reader, limits)
+
+      return { kind: "Lockt", code, value: { lockType } }
+    }
+
+    case Operation.LOCKU: {
+      readLockType(reader)
+      reader.uint32()
+      const stateid = reader.fixedOpaque(16)
+      reader.uint64()
+      reader.uint64()
+
+      return { kind: "Locku", code, value: stateid }
+    }
+
+    case Operation.NVERIFY:
+    case Operation.VERIFY:
+      return {
+        kind: "Verify",
+        code,
+        value: { bitmap: bitmap(reader, limits.maxBitmapWords), values: reader.opaque(limits.maxOpaqueBytes) }
+      }
+    case Operation.OPEN_DOWNGRADE:
+      return {
+        kind: "OpenDowngrade",
+        code,
+        value: {
+          stateid: reader.fixedOpaque(16),
+          sequence: reader.uint32(),
+          access: reader.uint32(),
+          deny: reader.uint32()
+        }
+      }
+    case Operation.PUTPUBFH:
+      return { kind: "Putpubfh", code, value: undefined }
+    case Operation.SECINFO:
+      return { kind: "Secinfo", code, value: reader.opaque(limits.maxOpaqueBytes) }
+    case Operation.SECINFO_NO_NAME: {
+      const style = reader.uint32()
+
+      if (style !== SECINFO_STYLE4_CURRENT_FH && style !== SECINFO_STYLE4_PARENT) {
+        throw new XdrDecodeError("Invalid SECINFO_NO_NAME style")
+      }
+
+      return { kind: "SecinfoNoName", code, value: style }
+    }
+
+    case Operation.FREE_STATEID:
+      return { kind: "FreeStateid", code, value: reader.fixedOpaque(16) }
+    case Operation.BACKCHANNEL_CTL:
+      reader.uint32()
+      const flavors = reader.array((item) => readCallbackSecurity(item, limits), limits.maxArrayElements)
+
+      return { kind: "BackchannelCtl", code, value: { gssCallback: flavors.includes(RPCSEC_GSS) } }
+    case Operation.BIND_CONN_TO_SESSION: {
+      const session = reader.fixedOpaque(16)
+      const direction = reader.uint32()
+
+      // channel_dir_from_client4: FORE (1), BACK (2), FORE_OR_BOTH (3), or BACK_OR_BOTH (7).
+      if (direction < CDFC4_FORE || (direction > CDFC4_FORE_OR_BOTH && direction !== CDFC4_BACK_OR_BOTH)) {
+        throw new XdrDecodeError("Invalid channel direction")
+      }
+
+      reader.boolean()
+
+      return { kind: "BindConnToSession", code, value: { session, direction } }
+    }
+
+    case Operation.SET_SSV:
+      reader.opaque(limits.maxOpaqueBytes)
+      reader.opaque(limits.maxOpaqueBytes)
+
+      return { kind: "SetSsv", code, value: undefined }
+    case Operation.TEST_STATEID:
+      return {
+        kind: "TestStateid",
+        code,
+        value: reader.array((item) => item.fixedOpaque(16), limits.maxArrayElements)
+      }
     default:
+      if (mustNotImplementOperations.has(code) || unsupportedOptionalOperations.has(code)) {
+        return { kind: "NotSupported", code, value: undefined }
+      }
+
       return { kind: "Unknown", code, value: undefined }
   }
 }
@@ -639,21 +1013,37 @@ const parseCompound = (bytes: Uint8Array, limits: Nfs4Limits) => {
   }
 
   const operations: Array<ParsedOperation> = []
-  let unknown = false
+  let stopped = false
 
   for (let index = 0; index < count; index++) {
-    const operation = decodeOperation(reader, limits)
+    const code = reader.uint32()
+    const operation = decodeOperation_(code)
     operations.push(operation)
 
-    if (operation.kind === "Unknown") {
-      unknown = true
+    // The compound fails at an undecoded operation, so later bytes are never interpreted.
+    if (operation.kind === "Unknown" || operation.kind === "NotSupported" || operation.kind === "Malformed") {
+      stopped = true
       break
     }
   }
 
-  if (!unknown) reader.finish()
+  if (!stopped) reader.finish()
 
-  return { tag, minor, operations }
+  return { tag, minor, count, operations }
+
+  /**
+   * Section 15.1.1.1 defines NFS4ERR_BADXDR per operation: the operations before a
+   * malformed one are still processed and reported.
+   */
+  function decodeOperation_(code: number): ParsedOperation {
+    try {
+      return decodeOperation(code, reader, limits)
+    } catch (error) {
+      if (!(error instanceof XdrDecodeError)) throw error
+
+      return { kind: "Malformed", code, value: undefined }
+    }
+  }
 }
 
 const encodeCompound = (
@@ -718,22 +1108,31 @@ const supportedAttributes = [
   9,
   10,
   11,
+  16,
+  17,
   19,
   20,
+  26,
   29,
   30,
   31,
   33,
+  34,
   35,
   36,
   37,
   45,
   47,
+  51,
   52,
   53,
   55,
-  75
+  75,
+  76
 ]
+
+/** Attributes that VERIFY and NVERIFY may not compare (RFC 8881 Section 18.31.3). */
+const nonComparableAttributes: ReadonlySet<number> = new Set([11, 48, 54])
 
 const wordsFor = (attributes: ReadonlyArray<number>): ReadonlyArray<number> => {
   if (attributes.length === 0) return []
@@ -782,7 +1181,7 @@ const encodeTime = (writer: Writer, nanoseconds: bigint): boolean => {
   return true
 }
 
-const encodeAttributes = (
+const encodeAttributeValues = (
   requested: ReadonlyArray<number>,
   observation: Vfs.ObjectObservation<Vfs.Metadata>,
   filehandle: Uint8Array,
@@ -813,10 +1212,20 @@ const encodeAttributes = (
       case 5:
       case 6:
       case 9:
+      case 17:
+      case 26:
+      case 34:
         values.boolean(true)
         break
       case 7:
+      case 16:
         values.boolean(false)
+        break
+      case 51:
+        values.uint64(0n).uint32(1)
+        break
+      case 76:
+        values.uint32(FSCHARSET_CAP4_ALLOWS_ONLY_UTF8)
         break
       case 8:
         values.uint64(export_.fsid[0]).uint64(export_.fsid[1])
@@ -873,10 +1282,81 @@ const encodeAttributes = (
     }
   }
 
+  return values.bytes()
+}
+
+const encodeAttributes = (
+  requested: ReadonlyArray<number>,
+  observation: Vfs.ObjectObservation<Vfs.Metadata>,
+  filehandle: Uint8Array,
+  export_: NfsExport,
+  options: Nfs4Options
+): Uint8Array | undefined => {
+  const values = encodeAttributeValues(requested, observation, filehandle, export_, options)
+
+  if (values === undefined) return undefined
+
   return encodeStatusBody((writer) => {
     writeBitmap(writer, wordsFor(requested))
-    writer.opaque(values.bytes())
+    writer.opaque(values)
   })
+}
+
+/** Encodes a READDIR entry's attributes as only `rdattr_error` (RFC 8881 Section 18.23.3). */
+const encodeReaddirError = (status: number): Uint8Array =>
+  encodeStatusBody((writer) => {
+    writeBitmap(writer, wordsFor([11]))
+    writer.opaque(new Writer().uint32(status).bytes())
+  })
+
+const supportedAccessMask = (kind: Vfs.Metadata["kind"]): number => {
+  switch (kind) {
+    case "directory":
+      return ACCESS4_READ | ACCESS4_LOOKUP | ACCESS4_MODIFY | ACCESS4_EXTEND | ACCESS4_DELETE
+    case "file":
+      return ACCESS4_READ | ACCESS4_MODIFY | ACCESS4_EXTEND | ACCESS4_EXECUTE
+    default:
+      return ACCESS4_READ | ACCESS4_MODIFY | ACCESS4_EXTEND
+  }
+}
+
+/**
+ * Evaluates mode bits against the decoded RPC identity for reporting only. The
+ * identity never selects VFS authority; a read-only export grants no write-class
+ * bit regardless of mode.
+ */
+const grantedAccess = (
+  supported: number,
+  metadata: Vfs.Metadata,
+  credentials: CompoundCall["credentials"]
+): number => {
+  const mode = metadata.mode
+  const anyExecute = (mode & 0o111) !== 0
+  let read: boolean
+  let execute: boolean
+
+  if (Predicate.isTagged(credentials, "Sys") && credentials.uid === 0) {
+    read = true
+    execute = metadata.kind === "directory" || anyExecute
+  } else {
+    const shift = Predicate.isTagged(credentials, "Sys") && credentials.uid === metadata.uid
+      ? 6
+      : Predicate.isTagged(credentials, "Sys") &&
+          (credentials.gid === metadata.gid || credentials.supplementaryGroups.includes(metadata.gid))
+      ? 3
+      : 0
+
+    read = ((mode >>> shift) & 0o4) !== 0
+    execute = ((mode >>> shift) & 0o1) !== 0
+  }
+
+  let granted = 0
+
+  if (read) granted |= ACCESS4_READ
+
+  if (execute) granted |= metadata.kind === "directory" ? ACCESS4_LOOKUP : ACCESS4_EXECUTE
+
+  return granted & supported
 }
 
 const makeOpaqueId = (generation: Uint8Array, serial: bigint): Uint8Array => {
@@ -916,27 +1396,84 @@ const makeCookieVerifier = (generation: Uint8Array, revision: bigint): Uint8Arra
   return result
 }
 
+/**
+ * Operations that change server state before the reply size is known. READ belongs here
+ * because reading updates the file's access time, which a slot rollback cannot undo.
+ */
+const stateChangingKinds: ReadonlySet<ParsedOperation["kind"]> = new Set([
+  "Read",
+  "Open",
+  "Close",
+  "OpenDowngrade",
+  "ExchangeId",
+  "CreateSession",
+  "DestroySession",
+  "DestroyClient",
+  "ReclaimComplete"
+])
+
+/**
+ * Lower bound on the encoded reply so SEQUENCE can reject a request that could never fit.
+ * Variable-size results are bounded optimistically so small actual replies still fit a small
+ * channel, and the slot is rolled back if the encoded reply proves too large. When the compound
+ * also changes state, every variable result uses its worst case instead, because a rollback
+ * cannot undo the state change.
+ */
 const replayReplyBound = (
   operations: ReadonlyArray<ParsedOperation>,
-  tagBytes: number
+  tagBytes: number,
+  limits: Nfs4Limits
 ): number => {
   let bytes = 12 + tagBytes + (4 - tagBytes % 4) % 4
+  const worstCase = operations.some((operation) => stateChangingKinds.has(operation.kind))
+  const maxReadBytes = ByteSize.toNumberUnsafe(limits.maxReadBytes)
+  const maxReaddirReplyBytes = ByteSize.toNumberUnsafe(limits.maxReaddirReplyBytes)
+  const maxStringBytes = ByteSize.toNumberUnsafe(limits.maxStringBytes)
 
+  // Each bound covers the 8-byte operation header plus the result body.
   for (const operation of operations) {
-    if (operation.kind === "Read") {
-      bytes += 32
-    } else if (operation.kind === "Readdir") {
-      bytes += 32
-    } else if (operation.kind === "Getattr") {
-      bytes += 32
-    } else if (operation.kind === "Getfh") {
-      bytes += 64
-    } else if (operation.kind === "Readlink") {
-      bytes += 32
-    } else if (operation.kind === "Sequence") {
-      bytes += 44
-    } else {
-      bytes += 16
+    switch (operation.kind) {
+      case "Read":
+        bytes += worstCase ? 16 + Math.min(operation.value.count, maxReadBytes) + 4 : 32
+        break
+      case "Readdir":
+        bytes += worstCase ? 16 + Math.min(operation.value.maxcount, maxReaddirReplyBytes) + 8 : 32
+        break
+      case "Getattr":
+        bytes += worstCase ? MAX_GETATTR_REPLY_BYTES : 32
+        break
+      case "Readlink":
+        bytes += worstCase ? 12 + maxStringBytes + 4 : 32
+        break
+      case "Getfh":
+        bytes += 64
+        break
+      case "Sequence":
+        bytes += 44
+        break
+      case "ExchangeId":
+        bytes += 8 + 8 + 4 + 4 + 4 + 8 + 20 + 20 + 4
+        break
+      case "CreateSession":
+        bytes += 8 + 16 + 4 + 4 + 28 + 32
+        break
+      case "Open":
+        bytes += 8 + 16 + 4 + 16 + 4 + 8 + 8
+        break
+      case "Close":
+      case "OpenDowngrade":
+        bytes += 8 + 16
+        break
+      case "TestStateid":
+        bytes += 12 + 4 * operation.value.length
+        break
+      case "Secinfo":
+      case "SecinfoNoName":
+      case "BindConnToSession":
+        bytes += 32
+        break
+      default:
+        bytes += 16
     }
 
     if (bytes > Number.MAX_SAFE_INTEGER) return Number.MAX_SAFE_INTEGER
@@ -1014,6 +1551,27 @@ export const makeNfs4Handler = (
 
     yield* Effect.addFinalizer(() => Effect.forEach(opens.values(), (open) => open.close, { discard: true }))
 
+    /** Reads only the leading SEQUENCE of a compound to find its session, tolerating later decode errors. */
+    const sequenceSessionOf = (
+      bytes: Uint8Array
+    ): { readonly session: SessionState; readonly operationCount: number } | undefined => {
+      try {
+        const reader = new Reader(bytes, options.limits)
+        reader.opaque(options.limits.maxStringBytes)
+        const minor = reader.uint32()
+        const operationCount = reader.uint32()
+
+        if (minor !== 1 || reader.uint32() !== Operation.SEQUENCE) return undefined
+
+        const session = sessions.get(bytesKey(reader.fixedOpaque(16)))
+
+        return session === undefined ? undefined : { session, operationCount }
+      } catch (error) {
+        if (error instanceof XdrDecodeError) return undefined
+        throw error
+      }
+    }
+
     const executeCompound = (call: CompoundCall): Effect.Effect<Uint8Array> =>
       Effect.suspend(() => {
         let parsed: ReturnType<typeof parseCompound>
@@ -1033,6 +1591,21 @@ export const makeNfs4Handler = (
             }
           })()
 
+          // Section 2.10.6.4: an oversized request is reported as such even when later
+          // operations fail to decode.
+          const oversized = sequenceSessionOf(call.arguments)
+
+          if (
+            oversized !== undefined &&
+            (call.requestBytes ?? call.arguments.length) > oversized.session.fore.maxRequest
+          ) {
+            return Effect.succeed(encodeCompound(tag, [{ code: Operation.SEQUENCE, status: Status.REQ_TOO_BIG }]))
+          }
+
+          if (oversized !== undefined && oversized.operationCount > oversized.session.fore.maxOperations) {
+            return Effect.succeed(encodeCompound(tag, [{ code: Operation.SEQUENCE, status: Status.TOO_MANY_OPS }]))
+          }
+
           return Effect.succeed(encodeCompound(tag, [], Status.BADXDR))
         }
 
@@ -1040,25 +1613,40 @@ export const makeNfs4Handler = (
           return Effect.succeed(encodeCompound(parsed.tag, [], Status.MINOR_VERS_MISMATCH))
         }
 
-        const misplacedSequence = parsed.operations.findIndex((operation) => operation.code === Operation.SEQUENCE)
+        const first = parsed.operations[0]
+        const firstCode = first?.code
 
-        if (misplacedSequence > 0) {
-          return Effect.succeed(
-            encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.SEQUENCE_POS }])
-          )
-        }
+        // Section 18.46.3: the operations that may start a compound without SEQUENCE.
+        const isBootstrap = firstCode === Operation.EXCHANGE_ID || firstCode === Operation.CREATE_SESSION ||
+          firstCode === Operation.DESTROY_SESSION || firstCode === Operation.DESTROY_CLIENTID ||
+          firstCode === Operation.BIND_CONN_TO_SESSION
 
-        const firstCode = parsed.operations[0]?.code
+        const isSoleBootstrap = parsed.operations.length === 1 && isBootstrap
 
-        const isSoleBootstrap = parsed.operations.length === 1 && (
-          firstCode === Operation.EXCHANGE_ID || firstCode === Operation.CREATE_SESSION ||
-          firstCode === Operation.DESTROY_SESSION || firstCode === Operation.DESTROY_CLIENTID
-        )
+        if (first !== undefined && firstCode !== Operation.SEQUENCE && !isSoleBootstrap) {
+          // Sections 15.2 and 18.52: an illegal opcode answers as OP_ILLEGAL whether or not a
+          // session exists, and arguments are decoded before any session check.
+          if (first.kind === "Unknown") {
+            return Effect.succeed(
+              encodeCompound(parsed.tag, [{ code: Operation.ILLEGAL, status: Status.OP_ILLEGAL }])
+            )
+          }
 
-        if (parsed.operations.length > 0 && firstCode !== Operation.SEQUENCE && !isSoleBootstrap) {
-          if (firstCode === Operation.DESTROY_SESSION) {
+          if (first.kind === "Malformed") {
+            return Effect.succeed(encodeCompound(parsed.tag, [{ code: first.code, status: Status.BADXDR }]))
+          }
+
+          // Sections 18.34.3, 18.35.3, 18.36.3, 18.37.3, and 18.50.3: these MUST be the only operation.
+          if (isBootstrap) {
             return Effect.succeed(
               encodeCompound(parsed.tag, [{ code: firstCode, status: Status.NOT_ONLY_OP }])
+            )
+          }
+
+          // Section 15.2 allows only NFS4ERR_NOTSUPP for the NFSv4.0 operations.
+          if (mustNotImplementOperations.has(firstCode!)) {
+            return Effect.succeed(
+              encodeCompound(parsed.tag, [{ code: firstCode!, status: Status.NOTSUPP }])
             )
           }
 
@@ -1066,8 +1654,6 @@ export const makeNfs4Handler = (
             encodeCompound(parsed.tag, [{ code: firstCode!, status: Status.OP_NOT_IN_SESSION }])
           )
         }
-
-        const first = parsed.operations[0]
 
         if (first?.kind === "Sequence") {
           const value = first.value
@@ -1094,7 +1680,10 @@ export const makeNfs4Handler = (
           const parts: Array<ResultPart> = []
           let current: CurrentObject | undefined
           let saved: CurrentObject | undefined
+          // Section 16.2.3.1.2: the current and saved stateids travel with their filehandles.
+          // `undefined` is the all-zeros special stateid.
           let currentStateid: Uint8Array | undefined
+          let savedStateid: Uint8Array | undefined
           let activeSession: SessionState | undefined
           let activeSlot: ReplaySlot | undefined
           let shouldCache = false
@@ -1139,7 +1728,7 @@ export const makeNfs4Handler = (
               rollbackSequence?.()
               rollbackSequence = undefined
 
-              return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.RESOURCE }])
+              return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.REP_TOO_BIG_TO_CACHE }])
             }
 
             replayBytes = subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0))
@@ -1165,7 +1754,7 @@ export const makeNfs4Handler = (
               rollbackSequence?.()
               rollbackSequence = undefined
 
-              return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.RESOURCE }])
+              return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.DELAY }])
             }
 
             activeSlot.response = replay
@@ -1207,6 +1796,94 @@ export const makeNfs4Handler = (
             const requireAttributes = (attributes: Uint8Array | undefined): Effect.Effect<Uint8Array, number> =>
               attributes === undefined ? Effect.fail(Status.SERVERFAULT) : Effect.succeed(attributes)
 
+            /** Registers a filehandle only when the `filehandle` attribute (19) is requested. */
+            const filehandleFor = (
+              reference: Vfs.ObjectReference,
+              requested: ReadonlyArray<number>
+            ): Effect.Effect<Uint8Array, number> =>
+              requested.includes(19)
+                ? export_.handleFor(reference).pipe(Effect.mapError(() => Status.SERVERFAULT))
+                : Effect.succeed(empty)
+
+            /**
+             * Requires a directory. Only operations whose Section 15.2 error list includes
+             * NFS4ERR_SYMLINK may report a symbolic link as such; the others say NOTDIR.
+             */
+            const requireDirectory = (
+              reference: Vfs.ObjectReference,
+              symlinkStatus: number
+            ): Effect.Effect<void, number> =>
+              mapFs(export_.observeMetadata(reference)).pipe(
+                Effect.flatMap((observation) =>
+                  observation.value.kind === "directory"
+                    ? Effect.void
+                    : Effect.fail(observation.value.kind === "symlink" ? symlinkStatus : Status.NOTDIR)
+                )
+              )
+
+            const parentOfDirectory = (
+              reference: Vfs.ObjectReference,
+              symlinkStatus: number
+            ): Effect.Effect<Vfs.ObjectReference, number> =>
+              requireDirectory(reference, symlinkStatus).pipe(Effect.flatMap(() => parentOf(reference)))
+
+            /** Requires a regular file, naming the offending type as Sections 18.16.4 and 18.22.3 do. */
+            const requireRegularFile = (reference: Vfs.ObjectReference): Effect.Effect<void, number> =>
+              mapFs(export_.observeMetadata(reference)).pipe(
+                Effect.flatMap((observation) => {
+                  switch (observation.value.kind) {
+                    case "file":
+                      return Effect.void
+                    case "directory":
+                      return Effect.fail(Status.ISDIR)
+                    case "symlink":
+                      return Effect.fail(Status.SYMLINK)
+                    default:
+                      // The core has no other object kinds today; this keeps the switch exhaustive.
+                      return Effect.fail(Status.WRONG_TYPE)
+                  }
+                })
+              )
+
+            /**
+             * Validates a mutating operation's filehandles and names before the read-only
+             * rejection, so structural errors keep their RFC 8881 precedence over NFS4ERR_ROFS.
+             */
+            const rejectMutation = (
+              names: ReadonlyArray<Uint8Array>,
+              savedRequirement: "none" | "object" | "directory",
+              symlinkStatus: number
+            ): Effect.Effect<ResultPart> => {
+              if (current === undefined) return Effect.succeed(noCurrent())
+
+              if (savedRequirement !== "none" && saved === undefined) return Effect.succeed(noCurrent())
+              const savedDirectory = saved
+
+              const checks = requireDirectory(current, symlinkStatus).pipe(
+                Effect.flatMap(() =>
+                  savedRequirement === "directory" && savedDirectory !== undefined
+                    ? requireDirectory(savedDirectory, symlinkStatus)
+                    : Effect.void
+                ),
+                Effect.flatMap(() =>
+                  Effect.suspend(() => {
+                    for (const name of names) {
+                      try {
+                        validateName(name, options.limits.maxNameBytes)
+                      } catch (error) {
+                        if (error instanceof InvalidNameError) return Effect.fail(nameStatus(error))
+                        throw error
+                      }
+                    }
+
+                    return Effect.fail(Status.ROFS)
+                  })
+                )
+              )
+
+              return statusResult(checks)
+            }
+
             switch (operation.kind) {
               case "ExchangeId": {
                 const value = operation.value
@@ -1215,79 +1892,132 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.INVAL })
                 }
 
+                // Section 18.35.3: SP4_MACH_CRED requires an RPCSEC_GSS integrity-protected
+                // EXCHANGE_ID, which AUTH_SYS cannot provide, and no SSV algorithm is offered.
+                // These are the answers Linux nfsd gives in the same situation.
+                if (value.protection === SP4_MACH_CRED) {
+                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                }
+
+                if (value.protection === SP4_SSV) {
+                  return Effect.succeed({ code: operation.code, status: Status.ENCR_ALG_UNSUPP })
+                }
+
                 const owner = bytesKey(value.owner)
                 const verifier = bytesKey(value.verifier)
+                const principal = principalKey(call.credentials)
                 const updateConfirmed = (value.flags & 0x4000_0000) !== 0
+
+                const confirmedRecord = [...clients.values()].find((candidate) =>
+                  candidate.owner === owner && candidate.confirmed
+                )
+
                 let client: ClientState | undefined
 
                 if (updateConfirmed) {
-                  const confirmed = [...clients.values()].find((candidate) =>
-                    candidate.owner === owner && candidate.confirmed
-                  )
-
-                  if (confirmed === undefined) {
+                  // Section 18.35.4 cases 6 to 9.
+                  if (confirmedRecord === undefined) {
                     return Effect.succeed({ code: operation.code, status: Status.NOENT })
                   }
 
-                  if (confirmed.verifier !== verifier) {
+                  if (confirmedRecord.verifier !== verifier) {
                     return Effect.succeed({ code: operation.code, status: Status.NOT_SAME })
                   }
 
-                  client = confirmed
-                } else {
-                  client = [...clients.values()].find((candidate) =>
-                    candidate.owner === owner && candidate.verifier === verifier
-                  )
+                  // Case 9 prescribes NFS4ERR_PERM even though the Section 15.2 list for
+                  // EXCHANGE_ID omits it; the normative case description wins.
+                  if (confirmedRecord.principal !== principal) {
+                    return Effect.succeed({ code: operation.code, status: Status.PERM })
+                  }
+
+                  client = confirmedRecord
+                } else if (
+                  confirmedRecord !== undefined && confirmedRecord.verifier === verifier &&
+                  confirmedRecord.principal === principal
+                ) {
+                  // Case 2: a retry or trunking probe against the confirmed record.
+                  client = confirmedRecord
                 }
 
                 if (client === undefined) {
-                  const currentClient = clientsByOwner.get(owner)
+                  return Effect.gen(function*() {
+                    const currentClient = clientsByOwner.get(owner)
 
-                  if (currentClient === undefined && clientsByOwner.size >= options.limits.maxClients) {
-                    return Effect.succeed({ code: operation.code, status: Status.RESOURCE })
-                  }
+                    if (currentClient === undefined && clientsByOwner.size >= options.limits.maxClients) {
+                      return { code: operation.code, status: Status.DELAY } satisfies ResultPart
+                    }
 
-                  if (
-                    currentClient?.confirmed === true &&
-                    [...clients.values()].filter((candidate) =>
-                        !candidate.confirmed && candidate.previous !== undefined
-                      )
-                        .length >= options.limits.maxPendingClientReplacements
-                  ) {
-                    return Effect.succeed({ code: operation.code, status: Status.RESOURCE })
-                  }
+                    let previous: ClientState | undefined
 
-                  const previous = currentClient?.confirmed === true ? currentClient : currentClient?.previous
+                    if (confirmedRecord !== undefined && confirmedRecord.principal !== principal) {
+                      // Case 3: owner collision with another principal. Live state protects the
+                      // confirmed record; otherwise it is replaced outright.
+                      const hasState = [...sessions.values()].some((session) => session.client === confirmedRecord) ||
+                        [...opens.values()].some((open) => open.client === confirmedRecord)
 
-                  if (currentClient !== undefined && !currentClient.confirmed) {
-                    clients.delete(currentClient.id)
-                  }
+                      if (hasState && options.now() <= confirmedRecord.leaseExpiresAt) {
+                        return { code: operation.code, status: Status.CLID_INUSE } satisfies ResultPart
+                      }
 
-                  client = {
-                    id: clientSerial++,
-                    owner,
-                    verifier,
-                    previous,
-                    sequence: 1,
-                    leaseExpiresAt: options.now() + options.leaseDurationSeconds * 1000,
-                    reclaimed: false,
-                    confirmed: false,
-                    createSessionReplay: undefined
-                  }
-                  clients.set(client.id, client)
-                  clientsByOwner.set(owner, client)
+                      yield* revokeClient(confirmedRecord)
+                      removeClientRecord(confirmedRecord)
+                    } else if (confirmedRecord !== undefined) {
+                      // Case 5: client restart. The confirmed record survives until CREATE_SESSION.
+                      if (
+                        [...clients.values()].filter((candidate) =>
+                            !candidate.confirmed && candidate.previous !== undefined
+                          )
+                            .length >= options.limits.maxPendingClientReplacements &&
+                        !(currentClient !== undefined && !currentClient.confirmed)
+                      ) {
+                        return { code: operation.code, status: Status.DELAY } satisfies ResultPart
+                      }
+
+                      previous = confirmedRecord
+                    }
+
+                    // Case 4: any unconfirmed record for this owner is replaced by a new client ID.
+                    const unconfirmed = clientsByOwner.get(owner)
+
+                    if (unconfirmed !== undefined && !unconfirmed.confirmed) {
+                      releaseCreateSessionReplay(unconfirmed)
+                      clients.delete(unconfirmed.id)
+                    }
+
+                    const created: ClientState = {
+                      id: clientSerial++,
+                      owner,
+                      verifier,
+                      principal,
+                      previous,
+                      sequence: 1,
+                      leaseExpiresAt: options.now() + options.leaseDurationSeconds * 1000,
+                      reclaimed: false,
+                      confirmed: false,
+                      createSessionReplay: undefined
+                    }
+
+                    clients.set(created.id, created)
+                    clientsByOwner.set(owner, created)
+
+                    return exchangeIdResult(created)
+                  })
                 }
 
-                const body = encodeStatusBody((writer) => {
-                  const flags = EXCHGID4_FLAG_USE_NON_PNFS |
-                    (client!.confirmed ? EXCHGID4_FLAG_CONFIRMED_R : 0)
+                return Effect.succeed(exchangeIdResult(client))
 
-                  writer.uint64(client!.id).uint32(client!.sequence).uint32(flags >>> 0).uint32(0)
-                  writer.uint64(export_.fsid[0]).opaque(options.generation).opaque(options.generation)
-                  writer.array([], () => undefined)
-                })
+                function exchangeIdResult(client: ClientState): ResultPart {
+                  const body = encodeStatusBody((writer) => {
+                    const flags = EXCHGID4_FLAG_USE_NON_PNFS |
+                      (client.confirmed ? EXCHGID4_FLAG_CONFIRMED_R : 0)
 
-                return Effect.succeed({ code: operation.code, status: Status.OK, body })
+                    writer.uint64(client.id).uint32(client.sequence).uint32(flags >>> 0).uint32(0)
+                    writer.uint64(export_.fsid[0]).opaque(options.generation).opaque(options.generation)
+                    writer.array([], () => undefined)
+                  })
+
+                  return { code: operation.code, status: Status.OK, body }
+                }
               }
 
               case "CreateSession": {
@@ -1298,51 +2028,40 @@ export const makeNfs4Handler = (
                 const replay = client.createSessionReplay
 
                 if (replay?.sequence === value.sequence) {
-                  if (
-                    sameRequest(replay.request, call.arguments) &&
-                    replay.credentials === credentialsKey(call.credentials)
-                  ) {
-                    return Effect.succeed(
-                      replay.body === undefined
-                        ? { code: operation.code, status: replay.status }
-                        : { code: operation.code, status: replay.status, body: new Uint8Array(replay.body) }
-                    )
-                  }
+                  // Section 18.36.4 phase 2: an equal csa_sequence identifies a retry, which may
+                  // arrive with or without a preceding SEQUENCE; the cached result is returned
+                  // before any argument validation.
+                  const result: ResultPart = replay.body === undefined
+                    ? { code: operation.code, status: replay.status }
+                    : { code: operation.code, status: replay.status, body: new Uint8Array(replay.body) }
 
-                  return Effect.succeed({ code: operation.code, status: Status.SEQ_MISORDERED })
+                  return Effect.succeed(result)
                 }
 
                 if (value.sequence !== client.sequence) {
                   return Effect.succeed({ code: operation.code, status: Status.SEQ_MISORDERED })
                 }
 
+                // Section 18.36.4 phase 2: a request with the expected csa_sequence consumes the
+                // slot and its result is cached, whether or not a session is created. Two outcomes
+                // leave the slot alone: NFS4ERR_DELAY asks for the same request again later, and
+                // NFS4ERR_CLID_INUSE comes from a principal that does not own the record.
                 const complete = (status: number, body?: Uint8Array): ResultPart => {
                   const previousRetainedBytes = client.createSessionReplay?.retainedBytes ?? ByteSize.bytes(0)
-
-                  const retainedBytes = addBytes(
-                    byteLength(call.arguments.length),
-                    byteLength(body?.length ?? 0)
-                  )
-
+                  const retainedBytes = byteLength(body?.length ?? 0)
                   replayBytes = subtractBytes(replayBytes, previousRetainedBytes)
                   replayBytes = addBytes(replayBytes, retainedBytes)
                   client.sequence = nextSequenceId(client.sequence)
+
+                  const nextReplay: CreateSessionReplay = {
+                    sequence: value.sequence,
+                    status,
+                    retainedBytes
+                  }
+
                   client.createSessionReplay = body === undefined
-                    ? {
-                      sequence: value.sequence,
-                      request: new Uint8Array(call.arguments),
-                      credentials: credentialsKey(call.credentials),
-                      status,
-                      retainedBytes
-                    }
-                    : {
-                      sequence: value.sequence,
-                      request: new Uint8Array(call.arguments),
-                      credentials: credentialsKey(call.credentials),
-                      status,
-                      retainedBytes,
-                      body: new Uint8Array(body)
-                    }
+                    ? nextReplay
+                    : { ...nextReplay, body: new Uint8Array(body) }
 
                   return body === undefined
                     ? { code: operation.code, status }
@@ -1352,31 +2071,20 @@ export const makeNfs4Handler = (
                 return Effect.gen(function*() {
                   const previousRetainedBytes = client.createSessionReplay?.retainedBytes ?? ByteSize.bytes(0)
 
-                  if (
-                    addBytes(byteLength(call.arguments.length), ByteSize.bytes(80)) >
-                      subtractBytes(options.limits.maxReplayBytes, subtractBytes(replayBytes, previousRetainedBytes))
-                  ) {
-                    return { code: operation.code, status: Status.RESOURCE }
+                  // Section 18.36.4 phase 3: an unconfirmed record belongs to the principal that
+                  // created it. A confirmed client may create sessions from any principal.
+                  if (!client.confirmed && client.principal !== principalKey(call.credentials)) {
+                    return { code: operation.code, status: Status.CLID_INUSE }
                   }
 
-                  if (client.previous !== undefined) {
-                    const previousSessions = [...sessions.values()].filter((session) =>
-                      session.client === client.previous
-                    ).length
+                  if ((value.flags & ~CREATE_SESSION4_KNOWN_FLAGS) !== 0) return complete(Status.INVAL)
 
-                    if (sessions.size - previousSessions >= options.limits.maxSessions) {
-                      return complete(Status.RESOURCE)
-                    }
-
-                    yield* revokeClient(client.previous)
-                    removeClientRecord(client.previous)
-                  } else if (sessions.size >= options.limits.maxSessions) {
-                    return complete(Status.RESOURCE)
-                  }
+                  // Section 18.36.3: a callback security entry naming an RPCSEC_GSS handle the
+                  // server did not issue is NFS4ERR_NOENT.
+                  if (value.gssCallback) return complete(Status.NOENT)
 
                   const requestedSlots = Math.max(1, value.fore.maxRequests)
                   const slotCount = Math.min(requestedSlots, options.limits.maxSlotsPerSession)
-                  const id = makeOpaqueId(options.generation, sessionSerial++)
 
                   const fore: ChannelAttrs = {
                     headerPadding: 0,
@@ -1391,6 +2099,48 @@ export const makeNfs4Handler = (
                     rdmaIrd: []
                   }
 
+                  const id = makeOpaqueId(options.generation, sessionSerial++)
+
+                  const body = encodeStatusBody((writer) => {
+                    writer.fixedOpaque(id).uint32(value.sequence).uint32(0)
+                    writeChannelAttrs(writer, fore)
+                    writeChannelAttrs(writer, value.back)
+                  })
+
+                  // Section 18.36.3: a channel that can never carry a SEQUENCE compound in either
+                  // direction, or fewer than two operations, is too small to be used.
+                  if (
+                    fore.maxRequest < MIN_FORE_REQUEST_BYTES || fore.maxResponse < MIN_FORE_RESPONSE_BYTES ||
+                    value.back.maxRequest < MIN_FORE_REQUEST_BYTES ||
+                    value.back.maxResponse < MIN_FORE_RESPONSE_BYTES ||
+                    fore.maxOperations < 2
+                  ) {
+                    return complete(Status.TOOSMALL)
+                  }
+
+                  // The cached reply is charged against the replay budget; reserve it from the encoded body.
+                  if (
+                    byteLength(body.length) >
+                      subtractBytes(options.limits.maxReplayBytes, subtractBytes(replayBytes, previousRetainedBytes))
+                  ) {
+                    return { code: operation.code, status: Status.DELAY }
+                  }
+
+                  if (client.previous !== undefined) {
+                    const previousSessions = [...sessions.values()].filter((session) =>
+                      session.client === client.previous
+                    ).length
+
+                    if (sessions.size - previousSessions >= options.limits.maxSessions) {
+                      return { code: operation.code, status: Status.DELAY }
+                    }
+
+                    yield* revokeClient(client.previous)
+                    removeClientRecord(client.previous)
+                  } else if (sessions.size >= options.limits.maxSessions) {
+                    return { code: operation.code, status: Status.DELAY }
+                  }
+
                   sessions.set(bytesKey(id), {
                     id,
                     client,
@@ -1398,12 +2148,7 @@ export const makeNfs4Handler = (
                     slots: Array.from({ length: slotCount }, () => ({ sequence: 0 }))
                   })
                   client.confirmed = true
-
-                  const body = encodeStatusBody((writer) => {
-                    writer.fixedOpaque(id).uint32(value.sequence).uint32(0)
-                    writeChannelAttrs(writer, fore)
-                    writeChannelAttrs(writer, value.back)
-                  })
+                  client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
 
                   return complete(Status.OK, body)
                 })
@@ -1436,11 +2181,13 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.REQ_TOO_BIG })
                 }
 
-                if (parsed.operations.length > session.fore.maxOperations) {
+                // The header count is checked, so a malformed later operation cannot hide an
+                // oversized compound.
+                if (parsed.count > session.fore.maxOperations) {
                   return Effect.succeed({ code: operation.code, status: Status.TOO_MANY_OPS })
                 }
 
-                const replyBound = replayReplyBound(parsed.operations, parsed.tag.length)
+                const replyBound = replayReplyBound(parsed.operations, parsed.tag.length, options.limits)
                 const rpcReplyBound = addBytes(byteLength(replyBound), rpcReplyOverheadBytes)
 
                 if (rpcReplyBound > byteLength(session.fore.maxResponse)) {
@@ -1468,7 +2215,12 @@ export const makeNfs4Handler = (
                     subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
                   )
                 ) {
-                  return Effect.succeed({ code: operation.code, status: Status.RESOURCE })
+                  // Replay memory is a server policy limit: a cached reply is "too big to cache",
+                  // and an uncached request can only be retried later.
+                  return Effect.succeed({
+                    code: operation.code,
+                    status: value.cache ? Status.REP_TOO_BIG_TO_CACHE : Status.DELAY
+                  })
                 }
 
                 const previousSlot = {
@@ -1479,9 +2231,10 @@ export const makeNfs4Handler = (
                   retainedBytes: slot.retainedBytes
                 }
 
-                const previousReplayBytes = replayBytes
                 rollbackSequence = () => {
-                  replayBytes = previousReplayBytes
+                  // Restore only this slot's accounting; other operations in the compound may have
+                  // changed the shared counter legitimately.
+                  replayBytes = addBytes(replayBytes, previousSlot.retainedBytes ?? ByteSize.bytes(0))
                   slot.sequence = previousSlot.sequence
 
                   if (previousSlot.response === undefined) delete slot.response
@@ -1504,7 +2257,6 @@ export const makeNfs4Handler = (
                 delete slot.credentials
                 delete slot.retainedBytes
                 session.client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
-                releaseCreateSessionReplay(session.client)
                 activeSession = session
                 activeSlot = slot
                 shouldCache = value.cache
@@ -1522,6 +2274,14 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
                 }
 
+                if (operation.value) {
+                  // rca_one_fs applies to the current filehandle's file system only and does not
+                  // complete the global reclaim (RFC 8881 Section 18.51.3).
+                  return Effect.succeed(
+                    current === undefined ? noCurrent() : { code: operation.code, status: Status.OK }
+                  )
+                }
+
                 if (activeSession.client.reclaimed) {
                   return Effect.succeed({ code: operation.code, status: Status.COMPLETE_ALREADY })
                 }
@@ -1531,6 +2291,40 @@ export const makeNfs4Handler = (
                 return Effect.succeed({ code: operation.code, status: Status.OK })
               }
 
+              case "BindConnToSession": {
+                // Section 18.34.3: MUST be the only operation. Every connection is already the
+                // session's fore channel, so binding it again is answered with the fore direction.
+                if (parsed.operations.length !== 1) {
+                  return Effect.succeed({ code: operation.code, status: Status.NOT_ONLY_OP })
+                }
+
+                const session = sessions.get(bytesKey(operation.value.session))
+
+                if (session === undefined) return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+
+                // A request for a back channel demands a change this server cannot make; Section
+                // 18.34.3 answers such demands with NFS4ERR_INVAL.
+                if (
+                  operation.value.direction !== CDFC4_FORE && operation.value.direction !== CDFC4_FORE_OR_BOTH
+                ) {
+                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                }
+
+                return Effect.succeed({
+                  code: operation.code,
+                  status: Status.OK,
+                  body: new Writer().fixedOpaque(session.id).uint32(CDFS4_FORE).boolean(false).bytes()
+                })
+              }
+
+              case "BackchannelCtl":
+                // No backchannel exists to reconfigure; AUTH_NONE and AUTH_SYS parameters are
+                // accepted as Linux nfsd does, and an RPCSEC_GSS handle can never exist here
+                // (Section 18.33.3).
+                return Effect.succeed({
+                  code: operation.code,
+                  status: operation.value.gssCallback ? Status.NOENT : Status.OK
+                })
               case "DestroySession": {
                 const key = bytesKey(operation.value)
                 const session = sessions.get(key)
@@ -1539,6 +2333,8 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
                 }
 
+                // Section 18.37.3: only the active session's own DESTROY_SESSION must be final;
+                // another session's may appear in any position after SEQUENCE.
                 if (
                   session === activeSession &&
                   parsed.operations[parsed.operations.length - 1] !== operation
@@ -1581,15 +2377,17 @@ export const makeNfs4Handler = (
               }
 
               case "Putrootfh":
+              case "Putpubfh":
+                // The public filehandle is the root filehandle (RFC 8881 Section 18.20.3).
                 return statusResult(mapFs(export_.root), (reference) => {
-                  current = reference
+                  setCurrent(reference)
 
                   return undefined
                 })
               case "Putfh":
                 return export_.resolve(operation.value).pipe(
                   Effect.map((reference): ResultPart => {
-                    current = reference
+                    setCurrent(reference)
 
                     return { code: operation.code, status: Status.OK }
                   }),
@@ -1613,45 +2411,77 @@ export const makeNfs4Handler = (
                     status: Status.OK,
                     body: new Writer().opaque(handle).bytes()
                   })),
-                  Effect.orElseSucceed(() => ({ code: operation.code, status: Status.RESOURCE }))
+                  Effect.orElseSucceed(() => ({ code: operation.code, status: Status.SERVERFAULT }))
                 )
               case "Savefh":
                 if (current === undefined) return Effect.succeed(noCurrent())
                 saved = current
+                savedStateid = currentStateid
 
                 return Effect.succeed({ code: operation.code, status: Status.OK })
               case "Restorefh":
                 if (saved === undefined) return Effect.succeed(noCurrent())
                 current = saved
+                currentStateid = savedStateid
 
                 return Effect.succeed({ code: operation.code, status: Status.OK })
               case "Lookup":
+                // Section 15.1.2.8: a symbolic link as the current filehandle is NFS4ERR_SYMLINK.
                 return statusResult(
                   withCurrent((reference) =>
-                    export_.lookup(reference, operation.value).pipe(
-                      Effect.mapError((error) => error instanceof InvalidNameError ? Status.INVAL : failureForFs(error))
+                    requireDirectory(reference, Status.SYMLINK).pipe(
+                      Effect.andThen(export_.lookup(reference, operation.value).pipe(Effect.mapError(nameStatus)))
                     )
                   ),
                   (reference) => {
-                    current = reference
+                    setCurrent(reference)
 
                     return undefined
                   }
                 )
-              case "Lookupp":
-                return statusResult(withCurrent((reference) => mapFs(export_.parent(reference))), (reference) => {
-                  current = reference
+              case "Secinfo":
+                // SECINFO consumes the current filehandle (RFC 8881 Section 18.29.3).
+                return statusResult(
+                  withCurrent((reference) =>
+                    export_.lookup(reference, operation.value).pipe(Effect.mapError(nameStatus))
+                  ),
+                  () => {
+                    setCurrent(undefined)
 
-                  return undefined
-                })
+                    return new Writer().array([AUTH_SYS, AUTH_NONE], (writer, flavor) => writer.uint32(flavor)).bytes()
+                  }
+                )
+              case "Lookupp":
+                return statusResult(
+                  withCurrent((reference) => parentOfDirectory(reference, Status.SYMLINK)),
+                  (reference) => {
+                    setCurrent(reference)
+
+                    return undefined
+                  }
+                )
+              case "SecinfoNoName":
+                // Like SECINFO, this consumes the current filehandle (RFC 8881 Section 18.45.3).
+                // Its error list has NOTDIR but not SYMLINK.
+                return statusResult(
+                  withCurrent((reference) =>
+                    operation.value === SECINFO_STYLE4_PARENT
+                      ? parentOfDirectory(reference, Status.NOTDIR)
+                      : Effect.succeed(reference)
+                  ),
+                  () => {
+                    setCurrent(undefined)
+
+                    return new Writer().array([AUTH_SYS, AUTH_NONE], (writer, flavor) => writer.uint32(flavor)).bytes()
+                  }
+                )
               case "Getattr": {
                 if (current === undefined) return Effect.succeed(noCurrent())
                 const reference = current
                 const requested = requestedAttributes(operation.value)
                 const supportedRequested = requested.filter((attribute) => supportedAttributes.includes(attribute))
 
-                const attributes = export_.handleFor(reference).pipe(
-                  Effect.mapError(() => Status.RESOURCE),
+                const attributes = filehandleFor(reference, supportedRequested).pipe(
                   Effect.flatMap((filehandle) =>
                     mapFs(export_.observeMetadata(reference)).pipe(
                       Effect.flatMap((observation) =>
@@ -1666,24 +2496,83 @@ export const makeNfs4Handler = (
                 return statusResult(attributes, (value) => value)
               }
 
+              case "Verify": {
+                if (current === undefined) return Effect.succeed(noCurrent())
+                const reference = current
+                const requested = requestedAttributes(operation.value.bitmap)
+
+                // Write-only attributes are INVAL before the supported-set check (Section 18.31.3).
+                if (requested.some((attribute) => nonComparableAttributes.has(attribute))) {
+                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                }
+
+                if (requested.some((attribute) => !supportedAttributes.includes(attribute))) {
+                  return Effect.succeed({ code: operation.code, status: Status.ATTRNOTSUPP })
+                }
+
+                const comparison = filehandleFor(reference, requested).pipe(
+                  Effect.flatMap((filehandle) =>
+                    mapFs(export_.observeMetadata(reference)).pipe(
+                      Effect.flatMap((observation) =>
+                        requireAttributes(
+                          encodeAttributeValues(requested, observation, filehandle, export_, options)
+                        )
+                      )
+                    )
+                  ),
+                  Effect.flatMap((actual) => {
+                    const same = sameRequest(actual, operation.value.values)
+
+                    if (operation.code === Operation.VERIFY) {
+                      return same ? Effect.void : Effect.fail(Status.NOT_SAME)
+                    }
+
+                    return same ? Effect.fail(Status.SAME) : Effect.void
+                  })
+                )
+
+                return statusResult(comparison)
+              }
+
               case "Access": {
                 if (current === undefined) return Effect.succeed(noCurrent())
                 const requested = operation.value
-                const supported = requested & (1 | 2 | 32)
 
                 return statusResult(
                   mapFs(export_.observeMetadata(current)),
-                  () => new Writer().uint32(supported).uint32(supported).bytes()
+                  (observation) => {
+                    const supported = requested & supportedAccessMask(observation.value.kind)
+                    const granted = grantedAccess(supported, observation.value, call.credentials)
+
+                    return new Writer().uint32(supported).uint32(granted).bytes()
+                  }
+                )
+              }
+
+              case "Commit": {
+                if (current === undefined) return Effect.succeed(noCurrent())
+
+                // A read-only export never holds unstable data, so COMMIT succeeds with the
+                // server's write verifier once the target is confirmed to be a regular file.
+                return statusResult(
+                  requireRegularFile(current),
+                  () => new Writer().fixedOpaque(options.generation.subarray(0, 8)).bytes()
                 )
               }
 
               case "Readlink":
+                // Section 18.24.4: an object that is not a symbolic link is NFS4ERR_WRONG_TYPE.
                 return statusResult(
                   withCurrent((reference) =>
-                    mapFs(export_.readLink(reference)).pipe(
+                    mapFs(export_.observeMetadata(reference)).pipe(
+                      Effect.filterOrFail(
+                        (observation) => observation.value.kind === "symlink",
+                        () => Status.WRONG_TYPE
+                      ),
+                      Effect.andThen(mapFs(export_.readLink(reference))),
                       Effect.filterOrFail(
                         (target) => byteLength(target.length) <= options.limits.maxStringBytes,
-                        () => Status.RESOURCE
+                        () => Status.SERVERFAULT
                       )
                     )
                   ),
@@ -1745,8 +2634,7 @@ export const makeNfs4Handler = (
 
                         const attrs = supportedRequested.length === 0
                           ? new Writer().uint32(0).uint32(0).bytes()
-                          : yield* export_.handleFor(entry.reference).pipe(
-                            Effect.mapError(() => Status.RESOURCE),
+                          : yield* filehandleFor(entry.reference, supportedRequested).pipe(
                             Effect.flatMap((handle) =>
                               mapFs(export_.observeMetadata(entry.reference)).pipe(
                                 Effect.flatMap((metadata) =>
@@ -1755,6 +2643,13 @@ export const makeNfs4Handler = (
                                   )
                                 )
                               )
+                            ),
+                            // With rdattr_error requested, a failing entry reports its own error
+                            // instead of failing the whole READDIR (RFC 8881 Section 18.23.3).
+                            Effect.catch((status) =>
+                              supportedRequested.includes(11)
+                                ? Effect.succeed(encodeReaddirError(status))
+                                : Effect.fail(status)
                             )
                           )
 
@@ -1789,49 +2684,72 @@ export const makeNfs4Handler = (
               }
 
               case "Open": {
-                if (activeSession === undefined || current === undefined) {
+                if (activeSession === undefined) {
                   return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
                 }
 
+                if (current === undefined) return Effect.succeed(noCurrent())
                 const directory = current
                 const value = operation.value
 
-                if (value.client !== activeSession.client.id) {
-                  return Effect.succeed({ code: operation.code, status: Status.STALE_CLIENTID })
+                // The owner's clientid MAY hold any value; the client ID comes from the session
+                // (RFC 8881 Section 18.16.3), so it is never checked.
+
+                // No state survives a restart and no delegation is ever granted, so a reclaim finds
+                // no grace period and a delegation stateid can never be valid (Section 15.1.9.3).
+                if (
+                  value.claim === CLAIM_PREVIOUS || value.claim === CLAIM_DELEGATE_PREV ||
+                  value.claim === CLAIM_DELEG_PREV_FH
+                ) {
+                  return Effect.succeed({ code: operation.code, status: Status.NO_GRACE })
                 }
 
-                if (value.openHow !== 0) return Effect.succeed({ code: operation.code, status: Status.ROFS })
-
-                if (value.claim !== 0 && value.claim !== 4) {
-                  return Effect.succeed({ code: operation.code, status: Status.NOTSUPP })
+                if (value.claim === CLAIM_DELEGATE_CUR || value.claim === CLAIM_DELEG_CUR_FH) {
+                  return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
                 }
 
-                if (value.access === 0 || (value.access & ~3) !== 0) {
+                // share_access carries the access mode in its low bits and optional delegation
+                // "want" hints above them (RFC 8881 Section 18.16.3). Hints are honored with an
+                // extended no-delegation answer because this server grants no delegations.
+                const accessMode = value.access & OPEN4_SHARE_ACCESS_MASK
+                const delegationWant = value.access & OPEN4_SHARE_ACCESS_WANT_DELEG_MASK
+
+                const unknownBits = value.access &
+                  ~(OPEN4_SHARE_ACCESS_MASK | OPEN4_SHARE_ACCESS_WANT_DELEG_MASK | OPEN4_SHARE_ACCESS_WANT_HINT_MASK)
+
+                if (
+                  accessMode === 0 || unknownBits !== 0 || delegationWant > OPEN4_SHARE_ACCESS_WANT_CANCEL ||
+                  value.deny > OPEN4_SHARE_DENY_BOTH
+                ) {
                   return Effect.succeed({ code: operation.code, status: Status.INVAL })
                 }
 
-                if ((value.access & 2) !== 0) {
-                  return Effect.succeed({ code: operation.code, status: Status.ROFS })
-                }
+                const wantsWrite = (accessMode & OPEN4_SHARE_ACCESS_WRITE) !== 0
 
-                if (value.deny !== 0) {
-                  return Effect.succeed({ code: operation.code, status: Status.OPENMODE })
+                if (value.openHow !== 0) {
+                  // Section 18.16.3: OPEN4_CREATE needs CLAIM_NULL here (the delegation claims
+                  // were answered above). Structural errors keep their precedence over ROFS.
+                  if (value.claim !== 0) return Effect.succeed({ code: operation.code, status: Status.INVAL })
+
+                  return rejectMutation([value.name], "none", Status.SYMLINK)
                 }
 
                 const target = value.claim === 4
                   ? Effect.succeed({ revision: 0n, reference: directory })
-                  : mapFs(export_.observeDirectory(directory)).pipe(
+                  : requireDirectory(directory, Status.SYMLINK).pipe(
+                    Effect.andThen(mapFs(export_.observeDirectory(directory))),
                     Effect.flatMap((directoryObservation) =>
                       export_.lookup(directory, value.name).pipe(
-                        Effect.mapError((error) =>
-                          error instanceof InvalidNameError ? Status.INVAL : failureForFs(error)
-                        ),
+                        Effect.mapError(nameStatus),
                         Effect.map((reference) => ({ revision: directoryObservation.revision, reference }))
                       )
                     )
                   )
 
                 return target.pipe(
+                  Effect.tap(({ reference }) => requireRegularFile(reference)),
+                  // Write access is refused only once the target is known to be a regular file.
+                  Effect.tap(() => wantsWrite ? Effect.fail(Status.ROFS) : Effect.void),
                   Effect.flatMap(({ revision, reference }) =>
                     Effect.uninterruptibleMask((restore) =>
                       Effect.suspend(() => {
@@ -1841,20 +2759,30 @@ export const makeNfs4Handler = (
                           open.client === activeSession!.client && open.owner === owner && open.reference === reference
                         )
 
-                        if (existing !== undefined) {
-                          existing.sequence += 1
-                          existing.id = makeStateId(
-                            options.generation,
-                            new DataView(existing.id.buffer, existing.id.byteOffset + 8, 8).getBigUint64(0),
-                            existing.sequence
+                        // Section 18.16.3: a share reservation of another open-owner denies this
+                        // access, or this deny mode collides with an access already granted.
+                        const denied = [...opens.values()].some((open) =>
+                          open !== existing && open.reference === reference &&
+                          ((open.deny & accessMode) !== 0 || (value.deny & OPEN4_SHARE_DENY_READ) !== 0)
+                        )
+
+                        if (denied) {
+                          return Effect.succeed(
+                            { code: operation.code, status: Status.SHARE_DENIED } satisfies ResultPart
                           )
+                        }
+
+                        if (existing !== undefined) {
+                          // The same open-owner upgrades its reservation (Section 9.7).
+                          existing.deny |= value.deny
+                          advanceStateId(existing)
                           current = reference
 
                           return Effect.succeed(openResult(existing.id, revision, value.claim === 4))
                         }
 
                         if (opens.size >= options.limits.maxOpens) {
-                          return Effect.succeed({ code: operation.code, status: Status.RESOURCE } satisfies ResultPart)
+                          return Effect.succeed({ code: operation.code, status: Status.DELAY } satisfies ResultPart)
                         }
 
                         const serial = openSerial++
@@ -1865,6 +2793,7 @@ export const makeNfs4Handler = (
                             opens.set(stateIdKey(id), {
                               id,
                               sequence: 1,
+                              deny: value.deny,
                               owner,
                               client: activeSession!.client,
                               reference,
@@ -1890,7 +2819,21 @@ export const makeNfs4Handler = (
                       .uint64(BigInt.asUintN(64, revision))
                       .uint64(BigInt.asUintN(64, revision)).uint32(0)
                     writeBitmap(writer, [])
-                    writer.uint32(0)
+
+                    if (delegationWant === 0) {
+                      writer.uint32(OPEN_DELEGATE_NONE)
+                    } else {
+                      // Section 18.16.3: a want that is not satisfied MUST be answered with
+                      // OPEN_DELEGATE_NONE_EXT and a reason. NOT_WANTED and CANCELLED carry no body,
+                      // and NOT_SUPP_FTYPE is the honest reason for a server without delegations.
+                      const why = delegationWant === OPEN4_SHARE_ACCESS_WANT_NO_DELEG
+                        ? WND4_NOT_WANTED
+                        : delegationWant === OPEN4_SHARE_ACCESS_WANT_CANCEL
+                        ? WND4_CANCELLED
+                        : WND4_NOT_SUPP_FTYPE
+
+                      writer.uint32(OPEN_DELEGATE_NONE_EXT).uint32(why)
+                    }
                   })
 
                   return { code: operation.code, status: Status.OK, body }
@@ -1898,22 +2841,33 @@ export const makeNfs4Handler = (
               }
 
               case "Read": {
-                const value = operation.value
+                // RFC 8881 Section 18.22.3 lets the server return fewer bytes than requested.
+                const value = {
+                  ...operation.value,
+                  count: Math.min(operation.value.count, ByteSize.toNumberUnsafe(options.limits.maxReadBytes))
+                }
 
                 if (current === undefined) return Effect.succeed(noCurrent())
-
-                if (byteLength(value.count) > options.limits.maxReadBytes) {
-                  return Effect.succeed({ code: operation.code, status: Status.RESOURCE })
-                }
 
                 if (isAllZero(value.stateid) || isAllOnes(value.stateid)) {
                   const reference = current
 
-                  return Effect.acquireUseRelease(
-                    mapFs(export_.open(reference)),
-                    (opened) => readFrom(opened.handle),
-                    (opened) => opened.close
-                  ).pipe(
+                  // Section 9.1.2: the anonymous stateid must still respect a deny-read share
+                  // reservation; the READ-bypass stateid (all ones) may ignore it.
+                  const denied = isAllZero(value.stateid) &&
+                    [...opens.values()].some((open) =>
+                      open.reference === reference && (open.deny & OPEN4_SHARE_DENY_READ) !== 0
+                    )
+
+                  return requireRegularFile(reference).pipe(
+                    Effect.andThen(denied ? Effect.fail(Status.LOCKED) : Effect.void),
+                    Effect.andThen(
+                      Effect.acquireUseRelease(
+                        mapFs(export_.open(reference)),
+                        (opened) => readFrom(opened.handle),
+                        (opened) => opened.close
+                      )
+                    ),
                     Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
                   )
                 }
@@ -1960,34 +2914,127 @@ export const makeNfs4Handler = (
                 }
               }
 
-              case "Close": {
+              case "OpenDowngrade": {
+                if (current === undefined) return Effect.succeed(noCurrent())
                 const value = operation.value
-                const key = stateIdKey(value.stateid)
+                // Section 16.2.3: the special current stateid refers to a preceding OPEN.
+                const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+
+                if (stateid === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                const open = opens.get(stateIdKey(stateid))
+
+                if (open === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                const stateidStatus = checkOpenStateId(stateid, open)
+
+                if (stateidStatus !== Status.OK) return Effect.succeed({ code: operation.code, status: stateidStatus })
+
+                // Section 18.18.3: delegation want bits are masked off, and the new modes must be
+                // non-empty subsets of what is held. Only read access is ever held here.
+                const access = value.access & ~OPEN4_SHARE_ACCESS_WANT_DELEG_MASK
+
+                if (access !== OPEN4_SHARE_ACCESS_READ || (value.deny & ~open.deny) !== 0) {
+                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                }
+
+                open.deny = value.deny
+                advanceStateId(open)
+                currentStateid = open.id
+
+                return Effect.succeed({
+                  code: operation.code,
+                  status: Status.OK,
+                  body: new Writer().fixedOpaque(open.id).bytes()
+                })
+              }
+
+              case "FreeStateid": {
+                if (activeSession === undefined) {
+                  return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+                }
+
+                const open = isSpecialStateId(operation.value) ? undefined : opens.get(stateIdKey(operation.value))
+
+                // An open stateid still backs a live open, so it cannot be freed (Section 18.38.3).
+                return Effect.succeed({
+                  code: operation.code,
+                  status: open === undefined || open.client !== activeSession.client
+                    ? Status.BAD_STATEID
+                    : Status.LOCKS_HELD
+                })
+              }
+
+              case "TestStateid": {
+                if (activeSession === undefined) {
+                  return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+                }
+
+                const session = activeSession
+
+                // TEST_STATEID checks stateids alone; it does not involve the current filehandle.
+                const results = operation.value.map((stateid) => {
+                  if (isSpecialStateId(stateid)) return Status.BAD_STATEID
+                  const open = opens.get(stateIdKey(stateid))
+
+                  if (open === undefined || open.client !== session.client) return Status.BAD_STATEID
+
+                  return checkStateIdSequence(stateid, open)
+                })
+
+                return Effect.succeed({
+                  code: operation.code,
+                  status: Status.OK,
+                  body: new Writer().array(results, (writer, status) => writer.uint32(status)).bytes()
+                })
+              }
+
+              case "SetSsv":
+                // State protection is always SP4_NONE (RFC 8881 Section 18.47.3).
+                return Effect.succeed({ code: operation.code, status: Status.INVAL })
+              case "Lock":
+                // Byte-range lock state arrives with the stateful profile. A write lock on a
+                // read-only file system is NFS4ERR_ROFS; a read lock cannot be recorded either, and
+                // ROFS is the only listed error that says so without inventing a conflict.
+                return statusResult(
+                  withCurrent(requireRegularFile).pipe(Effect.andThen(Effect.fail(Status.ROFS)))
+                )
+              case "Lockt":
+                // No lock exists, so a read-lock test finds no conflict; a write-lock test
+                // reports the read-only file system.
+                return statusResult(
+                  withCurrent(requireRegularFile).pipe(
+                    Effect.andThen(
+                      WRITE_LOCK_TYPES.has(operation.value.lockType) ? Effect.fail(Status.ROFS) : Effect.void
+                    )
+                  )
+                )
+              case "Locku":
+                // No lock stateid can exist, so any supplied one is invalid. LOCKU's error list
+                // has no object-type errors, so only the filehandle is checked first.
+                return statusResult(withCurrent(() => Effect.fail(Status.BAD_STATEID)))
+              case "Close": {
+                if (current === undefined) return Effect.succeed(noCurrent())
+                const value = operation.value
+                // Section 16.2.3: the special current stateid refers to a preceding OPEN.
+                const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+
+                if (stateid === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                const key = stateIdKey(stateid)
                 const open = opens.get(key)
 
                 if (open === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                const suppliedSequence = stateIdSequence(value.stateid)
+                const stateidStatus = checkOpenStateId(stateid, open)
 
-                if (suppliedSequence !== 0 && suppliedSequence < open.sequence) {
-                  return Effect.succeed({ code: operation.code, status: Status.OLD_STATEID })
-                }
-
-                if (suppliedSequence > open.sequence) {
-                  return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                }
-
-                if (
-                  activeSession === undefined || current === undefined || open.client !== activeSession.client ||
-                  open.reference !== current
-                ) {
-                  return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                }
-
+                if (stateidStatus !== Status.OK) return Effect.succeed({ code: operation.code, status: stateidStatus })
                 const closedStateid = new Uint8Array(open.id)
                 new DataView(closedStateid.buffer).setUint32(0, open.sequence + 1)
 
                 return Effect.uninterruptible(open.close).pipe(
-                  Effect.tap(() => Effect.sync(() => opens.delete(key))),
+                  Effect.tap(() =>
+                    Effect.sync(() => {
+                      opens.delete(key)
+                      currentStateid = closedStateid
+                    })
+                  ),
                   Effect.as({
                     code: operation.code,
                     status: Status.OK,
@@ -1998,14 +3045,97 @@ export const makeNfs4Handler = (
 
               case "Setattr":
               case "Write":
+                return Effect.succeed(
+                  current === undefined ? noCurrent() : { code: operation.code, status: Status.ROFS }
+                )
+              // Section 15.2 lists NFS4ERR_SYMLINK for LINK but not for CREATE, REMOVE, or RENAME.
               case "Create":
+                return rejectMutation([operation.value.name], "none", Status.NOTDIR)
               case "Remove":
+                return rejectMutation([operation.value], "none", Status.NOTDIR)
               case "Rename":
+                return rejectMutation([operation.value.oldName, operation.value.newName], "directory", Status.NOTDIR)
               case "Link":
-                return Effect.succeed({ code: operation.code, status: Status.ROFS })
+                return rejectMutation([operation.value], "object", Status.SYMLINK)
+              case "NotSupported":
+                return Effect.succeed({ code: operation.code, status: Status.NOTSUPP })
               case "Unknown":
                 return Effect.succeed({ code: Operation.ILLEGAL, status: Status.OP_ILLEGAL })
+              case "Malformed":
+                return Effect.succeed({ code: operation.code, status: Status.BADXDR })
             }
+          }
+
+          /** Sets the current filehandle without a returned stateid (RFC 8881 Section 16.2.3.1.2). */
+          function setCurrent(reference: CurrentObject | undefined): void {
+            current = reference
+            currentStateid = undefined
+          }
+
+          function parentOf(reference: Vfs.ObjectReference): Effect.Effect<Vfs.ObjectReference, number> {
+            // The root has no parent in this export (RFC 8881 Section 18.14.3).
+            return export_.parent(reference).pipe(
+              Effect.mapError(failureForFs),
+              Effect.filterOrFail((parent) => parent !== reference, () => Status.NOENT)
+            )
+          }
+
+          function nameStatus(error: Vfs.FsError | InvalidNameError): number {
+            if (error instanceof InvalidNameError) {
+              // RFC 8881 Section 14.5: reserved components are BADNAME, over-long names NAMETOOLONG,
+              // valid UTF-8 the file system cannot store (a slash or NUL) BADCHAR, and other
+              // invalid names INVAL.
+              switch (error.reason) {
+                case "Reserved":
+                  return Status.BADNAME
+                case "TooLong":
+                  return Status.NAMETOOLONG
+                case "ForbiddenByte":
+                  return Status.BADCHAR
+                default:
+                  return Status.INVAL
+              }
+            }
+
+            return failureForFs(error)
+          }
+
+          function isSpecialStateId(stateid: Uint8Array): boolean {
+            return isAllZero(stateid) || isAllOnes(stateid) || isCurrentStateId(stateid)
+          }
+
+          function checkStateIdSequence(stateid: Uint8Array, open: OpenState): number {
+            const suppliedSequence = stateIdSequence(stateid)
+
+            if (suppliedSequence !== 0 && suppliedSequence < open.sequence) return Status.OLD_STATEID
+
+            if (suppliedSequence > open.sequence) return Status.BAD_STATEID
+
+            return Status.OK
+          }
+
+          function checkOpenStateId(stateid: Uint8Array, open: OpenState): number {
+            const sequenceStatus = checkStateIdSequence(stateid, open)
+
+            if (sequenceStatus !== Status.OK) return sequenceStatus
+
+            if (
+              activeSession === undefined || current === undefined || open.client !== activeSession.client ||
+              open.reference !== current
+            ) {
+              return Status.BAD_STATEID
+            }
+
+            return Status.OK
+          }
+
+          function advanceStateId(open: OpenState): void {
+            open.sequence += 1
+            open.id = makeStateId(
+              options.generation,
+              new DataView(open.id.buffer, open.id.byteOffset + 8, 8).getBigUint64(0),
+              open.sequence
+            )
           }
         }).pipe(
           Effect.onInterrupt(() => Effect.sync(() => rollbackSequence?.()))

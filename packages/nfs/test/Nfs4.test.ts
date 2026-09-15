@@ -3,169 +3,24 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Exit, Scope } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import { makeExport } from "../src/internal/export.js"
-import {
-  makeNfs4Handler,
-  nextSequenceId,
-  type Nfs4Handler,
-  type Nfs4Limits,
-  Operation,
-  Status
-} from "../src/internal/nfs4.js"
+import { makeNfs4Handler, nextSequenceId, Operation, Status } from "../src/internal/nfs4.js"
 import { Reader, Writer } from "../src/internal/xdr.js"
 
-const generation = new Uint8Array(16).fill(7)
-
-const limits: Nfs4Limits = {
-  maxOpaqueBytes: ByteSize.bytes(65_536),
-  maxStringBytes: ByteSize.bytes(1_024),
-  maxArrayElements: 128,
-  maxRecordBytes: ByteSize.bytes(65_536),
-  maxCompoundBytes: ByteSize.bytes(65_536),
-  maxOperations: 32,
-  maxBitmapWords: 4,
-  maxClients: 4,
-  maxPendingClientReplacements: 1,
-  maxSessions: 4,
-  maxSlotsPerSession: 4,
-  maxReplayBytes: ByteSize.bytes(65_536),
-  maxOpens: 8,
-  maxOwnerBytes: ByteSize.bytes(1_024),
-  maxReadBytes: ByteSize.bytes(4_096),
-  maxWriteBytes: ByteSize.bytes(4_096),
-  maxReaddirEntries: 32,
-  maxReaddirReplyBytes: ByteSize.bytes(16_384),
-  maxNameBytes: ByteSize.bytes(255)
-}
-
-const call = (operations: ReadonlyArray<(writer: Writer) => void>, tag = "probe") => {
-  const writer = new Writer().string(tag).uint32(1).uint32(operations.length)
-
-  for (const operation of operations) operation(writer)
-
-  return { credentials: { _tag: "None" } as const, arguments: writer.bytes() }
-}
-
-const statuses = (response: Uint8Array) => {
-  const reader = new Reader(response, limits)
-  const status = reader.uint32()
-  const tag = reader.string()
-  const count = reader.uint32()
-  const operations: Array<readonly [number, number]> = []
-
-  for (let index = 0; index < count; index++) {
-    const code = reader.uint32()
-    const operationStatus = reader.uint32()
-    operations.push([code, operationStatus])
-
-    if (operationStatus === Status.OK && code === Operation.GETFH) reader.opaque()
-
-    if (operationStatus === Status.OK && code === Operation.SEQUENCE) {
-      reader.fixedOpaque(16)
-
-      for (let field = 0; field < 5; field++) reader.uint32()
-    }
-  }
-
-  return { status, tag, operations }
-}
-
-const exchangeId = (owner: string, verifier = new Uint8Array(8)) => (writer: Writer) => {
-  writer.uint32(Operation.EXCHANGE_ID).fixedOpaque(verifier).string(owner).uint32(0).uint32(0).uint32(0)
-}
-
-const channel = (
-  writer: Writer,
-  slots: number,
-  options: Partial<{
-    readonly maxRequest: number
-    readonly maxResponse: number
-    readonly maxCachedResponse: number
-    readonly maxOperations: number
-  }> = {}
-) => {
-  writer.uint32(0).uint32(options.maxRequest ?? 65_536).uint32(options.maxResponse ?? 65_536)
-    .uint32(options.maxCachedResponse ?? 65_536).uint32(options.maxOperations ?? 32).uint32(slots).uint32(0)
-}
-
-const authSysCallback = (writer: Writer) => {
-  writer.uint32(1).uint32(0x6aa6_6b2d).string("Lloyds-Mech.local").uint32(0).uint32(0)
-    .array(Array.from({ length: 16 }, (_, index) => index), (item, group) => item.uint32(group))
-}
-
-const startSession = (
-  handler: Nfs4Handler,
-  owner: string,
-  fore: Parameters<typeof channel>[2] = {},
-  verifier = new Uint8Array(8)
-) =>
-  Effect.gen(function*() {
-    const exchange = new Reader(yield* handler.compound(call([exchangeId(owner, verifier)])), limits)
-    assert.strictEqual(exchange.uint32(), Status.OK)
-    exchange.string()
-    exchange.uint32()
-    exchange.uint32()
-    exchange.uint32()
-    const client = exchange.uint64()
-
-    const create = yield* handler.compound(call([(writer) => {
-      writer.uint32(Operation.CREATE_SESSION).uint64(client).uint32(1).uint32(0)
-      channel(writer, 2, fore)
-      channel(writer, 0)
-      writer.uint32(0).uint32(0)
-    }]))
-
-    const response = new Reader(create, limits)
-    assert.strictEqual(response.uint32(), Status.OK)
-    response.string()
-    response.uint32()
-    response.uint32()
-    response.uint32()
-
-    return { client, session: response.fixedOpaque(16) }
-  })
-
-const sequence = (session: Uint8Array, sequence: number, cache = false, slot = 0) => (writer: Writer) =>
-  writer.uint32(Operation.SEQUENCE).fixedOpaque(session).uint32(sequence).uint32(slot).uint32(1).boolean(cache)
-
-const openByName = (client: bigint, name: string, access = 1, deny = 0) => (writer: Writer) =>
-  writer.uint32(Operation.OPEN).uint32(0).uint32(access).uint32(deny).uint64(client).string("owner")
-    .uint32(0).uint32(0).string(name)
-
-const openReadOnly = (client: bigint, name: string) => openByName(client, name)
-
-const parseOpen = (bytes: Uint8Array) => {
-  const reader = new Reader(bytes, limits)
-  assert.strictEqual(reader.uint32(), Status.OK)
-  reader.string()
-  reader.uint32()
-  assert.strictEqual(reader.uint32(), Operation.SEQUENCE)
-  assert.strictEqual(reader.uint32(), Status.OK)
-  reader.fixedOpaque(16)
-
-  for (let field = 0; field < 5; field++) reader.uint32()
-  assert.strictEqual(reader.uint32(), Operation.PUTROOTFH)
-  assert.strictEqual(reader.uint32(), Status.OK)
-  assert.strictEqual(reader.uint32(), Operation.OPEN)
-  assert.strictEqual(reader.uint32(), Status.OK)
-  const stateid = reader.fixedOpaque(16)
-  const atomic = reader.boolean()
-  reader.uint64()
-  reader.uint64()
-  reader.uint32()
-  reader.array((item) => item.uint32())
-  reader.uint32()
-  assert.strictEqual(reader.uint32(), Operation.GETFH)
-  assert.strictEqual(reader.uint32(), Status.OK)
-
-  return { stateid, atomic, filehandle: reader.opaque() }
-}
-
-const stateidWithSequence = (stateid: Uint8Array, sequence: number) => {
-  const copy = new Uint8Array(stateid)
-  new DataView(copy.buffer).setUint32(0, sequence)
-
-  return copy
-}
+import {
+  authSysCallback,
+  call,
+  channel,
+  exchangeId,
+  generation,
+  limits,
+  openByName,
+  openReadOnly,
+  parseOpen,
+  sequence,
+  startSession,
+  stateidWithSequence,
+  statuses
+} from "./support/harness.js"
 
 describe("NFSv4.1 COMPOUND", () => {
   it("wraps client sequence IDs at the uint32 boundary", () => {
@@ -450,6 +305,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const { session } = yield* startSession(handler, "writer")
 
       const write = call([sequence(session, 1), (writer) =>
+        writer.uint32(Operation.PUTROOTFH), (writer) =>
         writer.uint32(Operation.WRITE).fixedOpaque(new Uint8Array(16))
           .uint64(0n).uint32(0).opaque(new Uint8Array([1]))])
 
@@ -579,10 +435,8 @@ describe("NFSv4.1 COMPOUND", () => {
         }
       }
 
-      assert.strictEqual(
-        new Reader(yield* handler.compound(changedCredentials), limits).uint32(),
-        Status.SEQ_MISORDERED
-      )
+      // RFC 8881 Section 18.36.4 phase 2: an equal csa_sequence is a replay regardless of principal.
+      assert.deepStrictEqual(yield* handler.compound(changedCredentials), first)
       assert.deepStrictEqual(yield* handler.compound(request), first)
     }))
 
@@ -694,7 +548,7 @@ describe("NFSv4.1 COMPOUND", () => {
         (writer) => writer.uint32(Operation.PUTROOTFH)
       ], "x".repeat(80))
 
-      assert.strictEqual(new Reader(yield* handler.compound(second), limits).uint32(), Status.RESOURCE)
+      assert.strictEqual(new Reader(yield* handler.compound(second), limits).uint32(), Status.DELAY)
     }))
 
   it.effect("rejects a different request that reuses a cached slot sequence", () =>
@@ -876,7 +730,7 @@ describe("NFSv4.1 COMPOUND", () => {
           yield* handler.compound(call([exchangeId("pending-b", new Uint8Array(8).fill(1))])),
           constrained
         ).uint32(),
-        Status.RESOURCE
+        Status.DELAY
       )
       assert.strictEqual(
         new Reader(
@@ -1044,17 +898,27 @@ describe("NFSv4.1 COMPOUND", () => {
 
       assert.strictEqual(new Reader(yield* handler.compound(writeAccess), limits).uint32(), Status.ROFS)
 
+      // Deny modes are share reservations, not an error on a read-only export; only undefined
+      // values are rejected (RFC 8881 Section 18.16.3).
       const denyRead = call([
         sequence(client.session, 2),
         (writer) => writer.uint32(Operation.PUTROOTFH),
         openByName(client.client, "file", 1, 1)
       ])
 
-      assert.strictEqual(new Reader(yield* handler.compound(denyRead), limits).uint32(), Status.OPENMODE)
+      assert.strictEqual(new Reader(yield* handler.compound(denyRead), limits).uint32(), Status.OK)
+
+      const undefinedDeny = call([
+        sequence(client.session, 3),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        openByName(client.client, "file", 1, 4)
+      ])
+
+      assert.strictEqual(new Reader(yield* handler.compound(undefinedDeny), limits).uint32(), Status.INVAL)
 
       const opened = parseOpen(
         yield* handler.compound(call([
-          sequence(client.session, 3),
+          sequence(client.session, 4),
           (writer) => writer.uint32(Operation.PUTROOTFH),
           openReadOnly(client.client, "file"),
           (writer) => writer.uint32(Operation.GETFH)
@@ -1079,12 +943,16 @@ describe("NFSv4.1 COMPOUND", () => {
         Status.OP_NOT_IN_SESSION
       )
 
+      // Section 18.46.3: the first operation is judged on its own; a SEQUENCE later in the
+      // compound is only reached when the operations before it succeed.
       const misplaced = call([
         (writer) => writer.uint32(Operation.PUTROOTFH),
         sequence(new Uint8Array(16), 1)
       ])
 
-      assert.strictEqual(new Reader(yield* handler.compound(misplaced), limits).uint32(), Status.SEQUENCE_POS)
+      assert.deepStrictEqual(statuses(yield* handler.compound(misplaced)).operations, [
+        [Operation.PUTROOTFH, Status.OP_NOT_IN_SESSION]
+      ])
 
       const a = yield* startSession(handler, "a")
 
@@ -1252,7 +1120,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(browseResponse.uint32(), Status.OK)
       assert.deepStrictEqual(browseResponse.array((reader) => reader.uint32()), [7])
       const attributeValues = new Reader(browseResponse.opaque(), limits)
-      assert.deepStrictEqual(attributeValues.array((reader) => reader.uint32()), [3759673343, 11575354, 2048])
+      assert.deepStrictEqual(attributeValues.array((reader) => reader.uint32()), [3826978815, 12099646, 6144])
       assert.strictEqual(attributeValues.uint32(), 2)
       assert.strictEqual(attributeValues.uint32(), 0x3)
       attributeValues.finish()
@@ -1368,7 +1236,7 @@ describe("NFSv4.1 COMPOUND", () => {
         (writer) => writer.uint32(Operation.READLINK)
       ], "link"))
 
-      assert.strictEqual(new Reader(response, constrained).uint32(), Status.RESOURCE)
+      assert.strictEqual(new Reader(response, constrained).uint32(), Status.SERVERFAULT)
       assert.strictEqual(
         new Reader(yield* handler.compound(call([sequence(session, 2)], "next")), constrained).uint32(),
         Status.OK
@@ -1637,7 +1505,7 @@ describe("NFSv4.1 COMPOUND", () => {
           ])),
           limits
         ).uint32(),
-        Status.RESOURCE
+        Status.OK
       )
       assert.strictEqual(
         new Reader(
@@ -1714,7 +1582,7 @@ describe("NFSv4.1 COMPOUND", () => {
       })
 
       const { session } = yield* startSession(handler, "all-attributes")
-      const requested = [3_759_673_343, 11_575_354, 2_048]
+      const requested = [3_826_978_815, 12_099_646, 6_144]
 
       const response = new Reader(
         yield* handler.compound(call([
@@ -1754,30 +1622,42 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.isTrue(values.boolean())
       assert.strictEqual(values.uint32(), 30)
       assert.strictEqual(values.uint32(), Status.OK)
+      assert.isFalse(values.boolean(), "case_insensitive")
+      assert.isTrue(values.boolean(), "case_preserving")
       assert.deepStrictEqual(values.opaque(), expectedHandle)
       assert.strictEqual(values.uint64(), observation.value.ino)
+      assert.isTrue(values.boolean(), "homogeneous")
       assert.strictEqual(values.uint32(), ByteSize.toNumberUnsafe(limits.maxNameBytes))
       assert.strictEqual(values.uint64(), BigInt(limits.maxReadBytes))
       assert.strictEqual(values.uint64(), BigInt(limits.maxWriteBytes))
       assert.strictEqual(values.uint32(), 0o640)
+      assert.isTrue(values.boolean(), "no_trunc")
       assert.strictEqual(values.uint32(), 2)
       assert.strictEqual(values.string(), "501")
       assert.strictEqual(values.string(), "20")
       assert.strictEqual(values.uint64(), 3n)
 
-      for (
-        const timestamp of [
-          observation.value.atimeNs,
-          observation.value.ctimeNs,
-          observation.value.mtimeNs
-        ]
-      ) {
-        assert.strictEqual(values.uint64(), timestamp / 1_000_000_000n)
-        assert.strictEqual(values.uint32(), Number(timestamp % 1_000_000_000n))
+      const readTime = () => {
+        const seconds = values.uint64()
+        const nanoseconds = values.uint32()
+
+        return { seconds, nanoseconds }
       }
 
+      const expectTime = (timestamp: bigint) => {
+        assert.deepStrictEqual(readTime(), {
+          seconds: timestamp / 1_000_000_000n,
+          nanoseconds: Number(timestamp % 1_000_000_000n)
+        })
+      }
+
+      expectTime(observation.value.atimeNs)
+      assert.deepStrictEqual(readTime(), { seconds: 0n, nanoseconds: 1 }, "time_delta")
+      expectTime(observation.value.ctimeNs)
+      expectTime(observation.value.mtimeNs)
       assert.strictEqual(values.uint64(), observation.value.ino)
       assert.deepStrictEqual(values.array((item) => item.uint32()), [])
+      assert.strictEqual(values.uint32(), 0x2, "fs_charset_cap: FSCHARSET_CAP4_ALLOWS_ONLY_UTF8")
       values.finish()
       response.finish()
     }))
@@ -1908,7 +1788,11 @@ describe("NFSv4.1 COMPOUND", () => {
         eof: true,
         bytes: new Uint8Array()
       })
-      assert.strictEqual(parse(yield* read(6, 0n, 4)).status, Status.RESOURCE)
+      assert.deepStrictEqual(parse(yield* read(6, 0n, 4)), {
+        status: Status.OK,
+        eof: false,
+        bytes: new Uint8Array([0, 1, 2])
+      })
     }))
 
   it.effect("rejects every decoded mutation as read-only without changing the volume", () =>
@@ -1945,8 +1829,14 @@ describe("NFSv4.1 COMPOUND", () => {
             writer.uint32(Operation.CREATE).uint32(2).string("created").uint32(0).opaque(new Uint8Array())
         },
         { operation: (writer) => writer.uint32(Operation.REMOVE).string("file") },
-        { operation: (writer) => writer.uint32(Operation.RENAME).string("file").string("renamed") },
-        { operation: (writer) => writer.uint32(Operation.LINK).string("linked") }
+        {
+          setup: (writer) => writer.uint32(Operation.SAVEFH),
+          operation: (writer) => writer.uint32(Operation.RENAME).string("file").string("renamed")
+        },
+        {
+          setup: (writer) => writer.uint32(Operation.SAVEFH),
+          operation: (writer) => writer.uint32(Operation.LINK).string("linked")
+        }
       ]
 
       for (let index = 0; index < mutations.length; index++) {
@@ -2061,7 +1951,7 @@ describe("NFSv4.1 COMPOUND", () => {
         }])
 
       const failedCreate = createSecond(1)
-      assert.strictEqual(new Reader(yield* handler.compound(failedCreate), constrained).uint32(), Status.RESOURCE)
+      assert.strictEqual(new Reader(yield* handler.compound(failedCreate), constrained).uint32(), Status.DELAY)
       assert.strictEqual(
         new Reader(
           yield* handler.compound(
@@ -2071,8 +1961,8 @@ describe("NFSv4.1 COMPOUND", () => {
         ).uint32(),
         Status.OK
       )
-      assert.strictEqual(new Reader(yield* handler.compound(failedCreate), constrained).uint32(), Status.RESOURCE)
-      const created = new Reader(yield* handler.compound(createSecond(2)), constrained)
+      // The failed attempt did not consume the sequence slot, so the same request now succeeds.
+      const created = new Reader(yield* handler.compound(failedCreate), constrained)
       assert.strictEqual(created.uint32(), Status.OK)
       created.string()
       created.uint32()
@@ -2097,7 +1987,7 @@ describe("NFSv4.1 COMPOUND", () => {
             .uint32(0).uint32(0).string("file")
       ])
 
-      assert.strictEqual(new Reader(yield* handler.compound(full), constrained).uint32(), Status.RESOURCE)
+      assert.strictEqual(new Reader(yield* handler.compound(full), constrained).uint32(), Status.DELAY)
       assert.strictEqual(
         new Reader(
           yield* handler.compound(call([
