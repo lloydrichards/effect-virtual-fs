@@ -55,9 +55,14 @@ export class InvalidFilehandleError extends Data.TaggedError("InvalidFilehandleE
   }
 }
 
-export class InvalidNameError extends Data.TaggedError("InvalidNameError")<{ readonly detail: string }> {
-  constructor(message: string) {
-    super({ detail: message })
+export type InvalidNameReason = "Empty" | "TooLong" | "ForbiddenByte" | "Encoding" | "Reserved"
+
+export class InvalidNameError extends Data.TaggedError("InvalidNameError")<{
+  readonly detail: string
+  readonly reason: InvalidNameReason
+}> {
+  constructor(message: string, reason: InvalidNameReason) {
+    super({ detail: message, reason })
   }
 }
 
@@ -82,21 +87,28 @@ const decodeUtf8 = (bytes: Uint8Array): string => {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
   } catch {
-    throw new InvalidNameError("Name is not valid UTF-8")
+    throw new InvalidNameError("Name is not valid UTF-8", "Encoding")
   }
 }
 
 export const validateName = (bytes: Uint8Array, maxNameBytes: ByteSize.ByteSize): string => {
-  if (bytes.length === 0 || BigInt(bytes.length) > maxNameBytes) throw new InvalidNameError("Name length is invalid")
+  if (bytes.length === 0) throw new InvalidNameError("Name is empty", "Empty")
 
-  if (bytes.includes(0) || bytes.includes(0x2f)) throw new InvalidNameError("Name contains a forbidden byte")
+  if (BigInt(bytes.length) > maxNameBytes) throw new InvalidNameError("Name is too long", "TooLong")
+
+  if (bytes.includes(0) || bytes.includes(0x2f)) {
+    throw new InvalidNameError("Name contains a forbidden byte", "ForbiddenByte")
+  }
+
   const decoded = decodeUtf8(bytes)
 
-  if (decoded === "." || decoded === "..") throw new InvalidNameError("Reserved path components are not names")
+  if (decoded === "." || decoded === "..") {
+    throw new InvalidNameError("Reserved path components are not names", "Reserved")
+  }
 
   // A fatal decode plus byte-for-byte re-encoding prevents replacement or normalization.
   if (!sameBytes(bytes, new TextEncoder().encode(decoded))) {
-    throw new InvalidNameError("Name cannot be represented exactly")
+    throw new InvalidNameError("Name cannot be represented exactly", "Encoding")
   }
 
   return decoded
