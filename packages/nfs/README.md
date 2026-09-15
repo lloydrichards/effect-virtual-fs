@@ -1,8 +1,21 @@
 # @effect-vfs/nfs
 
-Private, experimental read-only NFSv4.1 interoperability preview for exposing one live Effect VFS volume to local native tools.
+Experimental read-only NFSv4.1 export for exposing one live Effect VFS volume to local native tools.
 
-This package runs a scoped TCP server and implements the bounded NFSv4.1 session, metadata, directory, symlink, and regular-file read path needed by the preview. It is not a conformant NFSv4.1 server. Among other omissions, it does not implement RPCSEC_GSS, callbacks, backchannels, delegations, locking, layouts, migration, recovery, or the full RFC-required operation set. Mutating operations that the preview decodes return `NFS4ERR_ROFS`.
+This package runs a scoped TCP server and implements the bounded NFSv4.1 session, metadata, directory, symlink, and regular-file read path. It is not a conformant NFSv4.1 server. RFC 8881 requires RPCSEC_GSS with Kerberos, backchannels, and connection trunking that this package does not implement, and it also omits delegations, locking, layouts, migration, and recovery. Mutating operations return `NFS4ERR_ROFS`.
+
+## Supported profile and maturity
+
+The package describes what it does with a capability profile and how well that is evidenced with a maturity label. The two are tracked separately; see the [NFS profile ladder](../../.okf/decisions/nfs-profile-ladder.md) for definitions and the evidence each maturity level requires.
+
+| Profile               | What it adds                                                                                       | Maturity     |
+| --------------------- | -------------------------------------------------------------------------------------------------- | ------------ |
+| `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted | experimental |
+| `read-only-networked` | backchannel, connection binding, trusted identity mapping, non-loopback binding behind policy      | not started  |
+| `writable`            | create, write, rename, remove, `COMMIT` semantics, explicit durability statement                   | not started  |
+| `stateful`            | share reservations, byte-range locks, grace and reclaim, persistent filehandles                    | not started  |
+
+`read-only-local` is currently `experimental`: the protocol test suite passes and a manual macOS 26.6 mount succeeded, but the pinned external-suite run and the repeatable Linux client mount that `preview` requires do not exist yet. Per-requirement status against RFC 8881 lives in the [operations](../../.okf/research/nfs-operations-ledger.md), [attributes](../../.okf/research/nfs-attributes-ledger.md), and [protocol rules](../../.okf/research/nfs-protocol-rules-ledger.md) ledgers. NFSv4.0 and NFSv4.2 are out of scope; mount with `vers=4.1` explicitly.
 
 <!-- TODO(gauntlet-29): Add the opt-in privileged Linux gate tracked by https://github.com/lloydrichards/effect-virtual-fs/issues/39. The equivalent macOS 26.6 gate passed manually on 2026-09-13. -->
 

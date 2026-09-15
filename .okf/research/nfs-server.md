@@ -35,7 +35,7 @@ sources:
   - id: xdr
     resource: https://www.rfc-editor.org/rfc/rfc4506.html
     title: RFC 4506 XDR
-generated: { by: codex/okf, at: 2026-09-13T19:57:00+02:00 }
+generated: { by: claude/okf, at: 2026-09-15T17:30:00+02:00 }
 ---
 
 # NFSv4.1 server direction
@@ -54,7 +54,7 @@ The package's public configuration, resource limits, limit overrides, and bound 
 
 The bounded preview also models confirmed and pending client incarnations separately, limits pending restart replacements explicitly, enforces negotiated session channels against actual encoded replies, preserves slot replay identity across retries and teardown, and uses RFC stateid and directory-cookie forms for read interoperability. Minimum preflight bounds allow small `SEQUENCE` and `READDIR` results when a request's maximum possible reply exceeds the channel; the server rolls the slot back if the encoded result is actually too large. Stateful compounds complete atomically after acquiring the server state gate; this deliberately favors replay correctness over prompt cancellation because the accepted deployment is a local in-memory volume with bounded operations.
 
-If the experiment proceeds, define an explicitly bounded preview profile. A successful `ls` is insufficient, and the preview must not be called a conformant NFSv4.1 server without accounting for every applicable mandatory operation, attribute, security, and recovery obligation. NFS object references must not weaken [explicit caller privilege](/decisions/explicit-caller-privilege.md "constrained by") or change [snapshot local identity](/decisions/snapshot-local-file-identity.md "constrained by").
+The bounded profile this research asked for is now defined. The [NFS profile ladder](/decisions/nfs-profile-ladder.md "superseded by") names the capability profiles and maturity evidence, the [read-only-local profile](/profiles/nfs-read-only-local.md "refined by") states the first supported boundary, and the coverage ledgers account for every mandatory operation, attribute, and cross-cutting obligation. This concept retains the accepted direction, the design constraints above, and the macOS interoperability result. NFS object references must not weaken [explicit caller privilege](/decisions/explicit-caller-privilege.md "constrained by") or change [snapshot local identity](/decisions/snapshot-local-file-identity.md "constrained by").
 
 [^core]: Current public capabilities, mutation coordination and memory-only `FileHandle.sync` are defined in the core implementation.
 
