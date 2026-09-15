@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, Schema } from "effect"
+import { ByteSize, Effect, Predicate, Schema } from "effect"
 import { BytePathId } from "../src/BytePath.js"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
@@ -9,16 +9,53 @@ const limits = {
   maxEntries: 100,
   maxDecodedBytes: ByteSize.kilobytes(100)
 }
-const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
+
+const encode = (value: typeof Schema.Unknown.Type) => new TextEncoder().encode(JSON.stringify(value))
+
+const MutableMetadata = Schema.Struct({
+  uid: Schema.Finite,
+  gid: Schema.Finite,
+  mode: Schema.Finite,
+  atimeNs: Schema.String,
+  mtimeNs: Schema.mutableKey(Schema.String),
+  ctimeNs: Schema.String,
+  birthtimeNs: Schema.String,
+  extra: Schema.mutableKey(Schema.optionalKey(Schema.Finite))
+})
+
+const SnapshotJson = Schema.fromJsonString(Schema.Struct({
+  format: Schema.String,
+  version: Schema.mutableKey(Schema.Finite),
+  root: Schema.String,
+  records: Schema.mutable(Schema.Tuple([
+    Schema.Struct({
+      id: Schema.String,
+      kind: Schema.Literal("directory"),
+      metadata: Schema.mutableKey(MutableMetadata),
+      entries: Schema.mutableKey(Schema.mutable(Schema.Array(Schema.Struct({
+        name: Schema.String,
+        target: Schema.mutableKey(Schema.String)
+      }))))
+    }),
+    Schema.Struct({
+      id: Schema.mutableKey(Schema.String),
+      kind: Schema.Literal("file"),
+      metadata: Schema.mutableKey(MutableMetadata),
+      data: Schema.mutableKey(Schema.String)
+    })
+  ])),
+  extra: Schema.mutableKey(Schema.optionalKey(Schema.Boolean))
+}))
 
 describe("fixtures and snapshots", () => {
   it("rejects objects that forge the public BytePath symbol", () => {
     const forged = Object.freeze({ [BytePathId]: BytePathId })
+
     const decoded = Schema.decodeUnknownResult(Vfs.Fixture)({
       entries: [{ kind: "directory", path: forged }]
     })
 
-    assert.isTrue(decoded._tag === "Failure")
+    assert.isTrue(Predicate.isTagged("Failure")(decoded))
   })
 
   it.effect("should preserve canonical payloads and bytes when files span encoding chunks", () =>
@@ -28,11 +65,12 @@ describe("fixtures and snapshots", () => {
           { length: 24_576 + tail },
           (_, index) => index % 3 === 0 ? 0 : index % 3 === 1 ? 255 : 127
         )
+
         const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: input }] })
         const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
-        const document = JSON.parse(new TextDecoder().decode(encoded))
+        const document = yield* Schema.decodeEffect(SnapshotJson)(new TextDecoder().decode(encoded))
         assert.strictEqual(
-          document.records.find((record: { kind: string }) => record.kind === "file").data,
+          document.records[1].data,
           "AP9/".repeat(8_192) + suffix
         )
         const restored = yield* Vfs.fromSnapshot(yield* Vfs.decodeSnapshot(encoded, limits))
@@ -43,6 +81,7 @@ describe("fixtures and snapshots", () => {
   it.effect("loads order-independent fixtures with forward hard links and fixed metadata", () =>
     Effect.gen(function*() {
       const input = new Uint8Array([1, 2])
+
       const volume = yield* Vfs.fromFixture({
         entries: [
           { kind: "hardLink", path: "/alias", target: "/dir/file" },
@@ -51,6 +90,7 @@ describe("fixtures and snapshots", () => {
           { kind: "symlink", path: "/dangling", target: "absent" }
         ]
       })
+
       input[0] = 9
       const fs = yield* volume.caller()
       const f = yield* fs.open("/alias", { access: "read" })
@@ -104,7 +144,11 @@ describe("fixtures and snapshots", () => {
   it.effect("rejects malformed graphs, unknown fields and noncanonical encodings", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([102]) }] })
-      const original = JSON.parse(new TextDecoder().decode(yield* Vfs.encodeSnapshot(yield* volume.snapshot)))
+
+      const original = yield* Schema.decodeEffect(SnapshotJson)(
+        new TextDecoder().decode(yield* Vfs.encodeSnapshot(yield* volume.snapshot))
+      )
+
       const mutations: Array<(image: typeof original) => void> = [
         (image) => {
           image.extra = true
@@ -122,23 +166,25 @@ describe("fixtures and snapshots", () => {
           image.records[1].id = image.records[0].id
         },
         (image) => {
-          image.records[0].entries[0].target = "missing"
+          image.records[0].entries[0]!.target = "missing"
         },
         (image) => {
-          image.records[0].entries.push(image.records[0].entries[0])
+          image.records[0].entries.push(image.records[0].entries[0]!)
         },
         (image) => {
-          image.records[0].entries[0].target = image.root
+          image.records[0].entries[0]!.target = image.root
         },
         (image) => {
           image.records[0].entries = []
         }
       ]
+
       for (const mutate of mutations) {
         const image = structuredClone(original)
         mutate(image)
         yield* Effect.flip(Vfs.decodeSnapshot(encode(image), limits))
       }
+
       original.version = 2
       assert.strictEqual((yield* Effect.flip(Vfs.decodeSnapshot(encode(original), limits))).code, "UnsupportedVersion")
       assert.strictEqual(
@@ -159,11 +205,13 @@ describe("fixtures and snapshots", () => {
       const volume = yield* Vfs.make()
       const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
       const exactLimit = ByteSize.bytes(BigInt(Number.MAX_SAFE_INTEGER) + 1n)
+
       const decoded = yield* Vfs.decodeSnapshot(encoded, {
         ...limits,
         maxEncodedBytes: exactLimit,
         maxDecodedBytes: exactLimit
       })
+
       const restored = yield* Vfs.fromSnapshot(decoded)
       assert.deepStrictEqual(yield* (yield* restored.caller()).readDirectory("/"), [])
     }))
@@ -173,14 +221,18 @@ describe("fixtures and snapshots", () => {
       const volume = yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/before", bytes: new Uint8Array([1, 2, 3]) }]
       })
+
       const fs = yield* volume.caller()
+
       const [snapshot] = yield* Effect.all([volume.snapshot, fs.rename("/before", "/after")], {
         concurrency: "unbounded"
       })
+
       const restored = yield* (yield* Vfs.fromSnapshot(snapshot)).caller()
       const names = yield* restored.readDirectory("/")
       assert.isTrue(names.join() === "before" || names.join() === "after")
       const encoded = yield* Vfs.encodeSnapshot(snapshot)
+
       for (
         const bound of [
           { ...limits, maxRecords: 1 },
@@ -200,13 +252,16 @@ describe("fixtures and snapshots", () => {
         { entries: [{ kind: "hardLink", path: "/a", target: "/b" }, { kind: "hardLink", path: "/b", target: "/a" }] },
         { entries: [{ kind: "directory", path: "/a" }, { kind: "hardLink", path: "/b", target: "/a" }] }
       ]
+
       for (const fixture of invalid) yield* Effect.flip(Vfs.fromFixture(fixture))
+
       const limit = yield* Effect.flip(
         Vfs.fromFixture(
           { entries: [{ kind: "file", path: "/f", bytes: new Uint8Array(2) }] },
           { maxBytes: ByteSize.bytes(1) }
         )
       )
+
       assert.instanceOf(limit, Vfs.ImageError)
       assert.strictEqual(limit.code, "LimitExceeded")
     }))

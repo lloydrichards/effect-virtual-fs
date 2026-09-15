@@ -22,11 +22,15 @@ export const empty = (): Content => make(new Uint8Array(0))
 /** @internal */
 export const forOverlay = (snapshot: Snapshot, image: Image.Document): ReadonlyMap<string, Content> => {
   const cached = overlayContents.get(snapshot)
+
   if (cached !== undefined) return cached
   const decoded = new Map<string, Content>()
+
   for (const record of image.records) {
     if (record.kind === "file") decoded.set(record.id, make(Image.bytes(record.data)))
   }
+
   overlayContents.set(snapshot, decoded)
+
   return decoded
 }

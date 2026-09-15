@@ -1,5 +1,7 @@
+import * as Data from "effect/Data"
 import * as Encoding from "effect/Encoding"
 import * as Equal from "effect/Equal"
+import * as Predicate from "effect/Predicate"
 
 /** @internal */
 export interface ObservationMetadata {
@@ -49,7 +51,10 @@ export type RawOverlayChange =
     readonly differences: ReadonlyArray<OverlayDifference>
   }
 
+const RawOverlayChange = Data.taggedEnum<RawOverlayChange>()
+
 const timestampFields = new Set<OverlayDifference>(["atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"])
+
 const differenceOrder = [
   "content",
   "mode",
@@ -60,6 +65,7 @@ const differenceOrder = [
   "ctimeNs",
   "birthtimeNs"
 ] as const
+
 const tagOrder: Record<RawOverlayChange["_tag"], number> = {
   Added: 0,
   Removed: 1,
@@ -72,10 +78,13 @@ const key = Encoding.encodeHex
 
 const comparePaths = (left: Uint8Array, right: Uint8Array): number => {
   const length = Math.min(left.length, right.length)
+
   for (let index = 0; index < length; index++) {
     const difference = left[index]! - right[index]!
+
     if (difference !== 0) return difference
   }
+
   return left.length - right.length
 }
 
@@ -86,42 +95,50 @@ const sameBytes = (left: Uint8Array | undefined, right: Uint8Array | undefined):
 const differences = (before: ObservationEntry, after: ObservationEntry, includeTimestamps: boolean) =>
   differenceOrder.filter((field) => {
     if (!includeTimestamps && timestampFields.has(field)) return false
+
     if (field === "content") return before.kind !== after.kind || !sameBytes(before.content, after.content)
+
     return before.metadata[field] !== after.metadata[field]
   })
 
 const byLineage = (entries: ReadonlyArray<ObservationEntry>): Map<string, Map<string, ObservationEntry>> => {
   const result = new Map<string, Map<string, ObservationEntry>>()
+
   for (const entry of entries) {
     if (entry.lineage === undefined) continue
     const group = result.get(entry.lineage)
+
     if (group === undefined) result.set(entry.lineage, new Map([[key(entry.path), entry]]))
     else group.set(key(entry.path), entry)
   }
+
   return result
 }
 
-const copyChange = (change: RawOverlayChange): RawOverlayChange => {
-  switch (change._tag) {
-    case "Added":
-    case "Removed":
-      return Object.freeze({ ...change, path: change.path.slice() })
-    case "Replaced":
-    case "Updated":
-      return Object.freeze({
+const copyChange = (change: RawOverlayChange): RawOverlayChange =>
+  RawOverlayChange.$match(change, {
+    Added: (change) => Object.freeze(RawOverlayChange.Added({ ...change, path: change.path.slice() })),
+    Removed: (change) => Object.freeze(RawOverlayChange.Removed({ ...change, path: change.path.slice() })),
+    Replaced: (change) =>
+      Object.freeze(RawOverlayChange.Replaced({
         ...change,
         path: change.path.slice(),
         differences: Object.freeze([...change.differences])
-      })
-    case "Renamed":
-      return Object.freeze({
+      })),
+    Updated: (change) =>
+      Object.freeze(RawOverlayChange.Updated({
+        ...change,
+        path: change.path.slice(),
+        differences: Object.freeze([...change.differences])
+      })),
+    Renamed: (change) =>
+      Object.freeze(RawOverlayChange.Renamed({
         ...change,
         from: change.from.slice(),
         to: change.to.slice(),
         differences: Object.freeze([...change.differences])
-      })
-  }
-}
+      }))
+  })
 
 /** @internal */
 export const compareOverlay = (
@@ -139,61 +156,85 @@ export const compareOverlay = (
 
   for (const [lineage, beforeEntries] of baseLineages) {
     const afterEntries = currentLineages.get(lineage)
+
     if (afterEntries === undefined) continue
-    const removed = [...beforeEntries].filter(([pathKey]) => !afterEntries.has(pathKey)).map(([, entry]) => entry)
-    const added = [...afterEntries].filter(([pathKey]) => !beforeEntries.has(pathKey)).map(([, entry]) => entry)
+    const removed: Array<ObservationEntry> = []
+
+    for (const [pathKey, entry] of beforeEntries) {
+      if (!afterEntries.has(pathKey)) removed.push(entry)
+    }
+
+    const added: Array<ObservationEntry> = []
+
+    for (const [pathKey, entry] of afterEntries) {
+      if (!beforeEntries.has(pathKey)) added.push(entry)
+    }
+
     if (removed.length !== 1 || added.length !== 1) continue
     const before = removed[0]!
     const after = added[0]!
     consumedBase.add(key(before.path))
     consumedCurrent.add(key(after.path))
-    changes.push({
-      _tag: "Renamed",
+    changes.push(RawOverlayChange.Renamed({
       from: before.path,
       to: after.path,
       kind: after.kind,
       differences: differences(before, after, includeTimestamps)
-    })
+    }))
   }
 
   for (const before of base) {
     const pathKey = key(before.path)
+
     if (consumedBase.has(pathKey)) continue
     const after = currentPaths.get(pathKey)
+
     if (after === undefined || consumedCurrent.has(pathKey)) {
-      changes.push({ _tag: "Removed", path: before.path, kind: before.kind })
+      changes.push(RawOverlayChange.Removed({ path: before.path, kind: before.kind }))
       continue
     }
+
     consumedCurrent.add(pathKey)
+
     if (before.lineage === undefined || before.lineage !== after.lineage) {
-      changes.push({
-        _tag: "Replaced",
+      changes.push(RawOverlayChange.Replaced({
         path: before.path,
         beforeKind: before.kind,
         afterKind: after.kind,
         differences: differences(before, after, includeTimestamps)
-      })
+      }))
       continue
     }
+
     const changed = differences(before, after, includeTimestamps)
-    if (changed.length > 0) changes.push({ _tag: "Updated", path: before.path, kind: after.kind, differences: changed })
+
+    if (changed.length > 0) {
+      changes.push(RawOverlayChange.Updated({ path: before.path, kind: after.kind, differences: changed }))
+    }
   }
 
   for (const after of current) {
     const pathKey = key(after.path)
+
     if (!consumedCurrent.has(pathKey) && (!basePaths.has(pathKey) || consumedBase.has(pathKey))) {
-      changes.push({ _tag: "Added", path: after.path, kind: after.kind })
+      changes.push(RawOverlayChange.Added({ path: after.path, kind: after.kind }))
     }
   }
 
   changes.sort((left, right) => {
-    const leftPath = left._tag === "Renamed" ? left.from : left.path
-    const rightPath = right._tag === "Renamed" ? right.from : right.path
+    const leftPath = Predicate.isTagged("Renamed")(left) ? left.from : left.path
+    const rightPath = Predicate.isTagged("Renamed")(right) ? right.from : right.path
     const pathOrder = comparePaths(leftPath, rightPath)
+
     if (pathOrder !== 0) return pathOrder
     const typeOrder = tagOrder[left._tag] - tagOrder[right._tag]
+
     if (typeOrder !== 0) return typeOrder
-    return left._tag === "Renamed" && right._tag === "Renamed" ? comparePaths(left.to, right.to) : 0
+
+    return Predicate.isTagged("Renamed")(left) && Predicate.isTagged("Renamed")(right)
+      ? comparePaths(left.to, right.to)
+      : 0
   })
+
   return Object.freeze(changes.map(copyChange))
 }

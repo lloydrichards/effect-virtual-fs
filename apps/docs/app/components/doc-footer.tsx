@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router"
 import { navigation } from "~/nav.config"
 
 const REPO_URL = "https://github.com/lloydrichards/effect-virtual-fs"
+
 const CONTENT_BASE = "blob/main/apps/docs/app/content"
 
 /** Flattened nav items in reading order */
@@ -10,6 +11,7 @@ const flatNav = navigation.flatMap((section) => section.items)
 
 function getContentPath(pathname: string): string {
   if (pathname === "/") return "index.mdx"
+
   return `${pathname.replace(/^\/+|\/+$/g, "")}.mdx`
 }
 
@@ -19,6 +21,7 @@ export function DocFooter() {
 
   const currentIndex = flatNav.findIndex((item) => item.href === normalizedPathname)
   const prev = currentIndex > 0 ? flatNav[currentIndex - 1] : null
+
   const next = currentIndex >= 0 && currentIndex < flatNav.length - 1
     ? flatNav[currentIndex + 1]
     : null

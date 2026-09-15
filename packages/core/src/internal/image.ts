@@ -52,6 +52,11 @@ export const Document = Schema.Struct({
   records: Schema.Array(Record)
 })
 
+const VersionProbe = Schema.Struct({
+  format: Schema.Literal("effect-vfs"),
+  version: Schema.Unknown
+})
+
 /** @internal */
 export type Document = typeof Document.Type
 
@@ -67,14 +72,16 @@ export const base64 = (input: Uint8Array): string => {
   // keeps padding in the final chunk only, preserving canonical base64.
   const chunkBytes = 12_288
   const chunks: Array<string> = []
+
   for (let offset = 0; offset < input.length; offset += chunkBytes) {
     chunks.push(Encoding.encodeBase64(input.subarray(offset, offset + chunkBytes)))
   }
+
   return chunks.join("")
 }
 
 const error = (code: ImageError["code"], field?: string) =>
-  new ImageError({ code, ...(field === undefined ? {} : { field }) })
+  field === undefined ? new ImageError({ code }) : new ImageError({ code, field })
 
 /** @internal */
 export const bytes = (value: string): Uint8Array => {
@@ -85,56 +92,72 @@ export const bytes = (value: string): Uint8Array => {
 export const inspect = (snapshot: Snapshot): Effect.Effect<Document, ImageError> =>
   Effect.suspend(() => {
     const document = snapshots.get(snapshot)
+
     return document === undefined ? Effect.fail(error("InvalidStructure", "snapshot")) : Effect.succeed(document)
   })
 
 /** @internal */
-export const capture = Effect.fnUntraced(function*(input: unknown, limits?: DecodeLimits) {
+export const capture = Effect.fnUntraced(function*(input: typeof Schema.Unknown.Type, limits?: DecodeLimits) {
   const decoded = Schema.decodeUnknownResult(Document, { onExcessProperty: "error" })(input)
+
   if (Result.isFailure(decoded)) return yield* error("InvalidStructure")
   const document = decoded.success
   const records = new Map<string, Record>()
   let entries = 0
   let payload = ByteSize.zero
+
   if (limits !== undefined && document.records.length > limits.maxRecords) {
     return yield* error("LimitExceeded", "records")
   }
+
   for (const record of document.records) {
     if (records.has(record.id)) return yield* error("InvalidStructure", "id")
     records.set(record.id, record)
+
     if (record.kind === "directory") entries += record.entries.length
   }
+
   if (limits !== undefined && entries > limits.maxEntries) return yield* error("LimitExceeded", "entries")
+
   // Count every payload before allocating any decoded payload buffer.
   for (const record of document.records) {
     const values = record.kind === "directory"
       ? record.entries.map((entry) => entry.name)
       : [record.kind === "file" ? record.data : record.target]
+
     for (const value of values) {
       if (!CanonicalBase64.isCanonical(value)) return yield* error("InvalidEncoding", record.id)
       payload = ByteSize.sum(payload, ByteSize.bytes(decodedLength(value)))
+
       if (limits !== undefined && ByteSize.isGreaterThan(payload, limits.maxDecodedBytes)) {
         return yield* error("LimitExceeded", "bytes")
       }
     }
   }
+
   const root = records.get(document.root)
+
   if (root?.kind !== "directory") return yield* error("InvalidStructure", "root")
   const parents = new Map<string, number>()
+
   for (const record of document.records) {
     if (record.kind === "directory") {
       const names = new Set<string>()
+
       for (const entry of record.entries) {
         if (names.has(entry.name) || decodedLength(entry.name) < 1 || decodedLength(entry.name) > 255) {
           return yield* error("InvalidStructure", "name")
         }
+
         names.add(entry.name)
         const name = bytes(entry.name)
+
         if (
           name.includes(0) || name.includes(47) || (name.length === 1 && name[0] === 46) ||
           (name.length === 2 && name[0] === 46 && name[1] === 46)
         ) return yield* error("InvalidStructure", "name")
         const target = records.get(entry.target)
+
         if (target === undefined) return yield* error("InvalidStructure", "target")
         parents.set(target.id, (parents.get(target.id) ?? 0) + 1)
       }
@@ -142,24 +165,32 @@ export const capture = Effect.fnUntraced(function*(input: unknown, limits?: Deco
       return yield* error("InvalidStructure", "symlink")
     }
   }
+
   if (parents.has(root.id)) return yield* error("InvalidStructure", "root")
+
   for (const record of document.records) {
     if (record !== root && (record.kind === "directory" ? parents.get(record.id) !== 1 : !parents.has(record.id))) {
       return yield* error("InvalidStructure", "parent")
     }
   }
+
   const visited = new Set<string>()
   const pending = [root.id]
+
   while (pending.length > 0) {
     const next = pending.pop()
+
     if (next === undefined || visited.has(next)) continue
     visited.add(next)
     const record = records.get(next)
+
     if (record?.kind === "directory") { for (const entry of record.entries) pending.push(entry.target) }
   }
+
   if (visited.size !== records.size) return yield* error("InvalidStructure", "reachability")
   const snapshot: Snapshot = Object.freeze(new SnapshotImpl())
   snapshots.set(snapshot, document)
+
   return snapshot
 })
 
@@ -168,6 +199,7 @@ export const encodeSnapshot = Effect.fn("VirtualFileSystem.encodeSnapshot")(func
   const text = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(yield* inspect(snapshot)).pipe(
     Effect.mapError(() => error("InvalidStructure"))
   )
+
   return new TextEncoder().encode(text)
 })
 
@@ -175,22 +207,28 @@ export const encodeSnapshot = Effect.fn("VirtualFileSystem.encodeSnapshot")(func
 export const decodeSnapshot = Effect.fn("VirtualFileSystem.decodeSnapshot")(
   function*(input: Uint8Array, limits: DecodeLimits) {
     const checked = Schema.decodeResult(DecodeLimits, { onExcessProperty: "error" })(limits)
+
     if (Result.isFailure(checked)) return yield* error("InvalidStructure", "limits")
+
     if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) return yield* error("InvalidEncoding")
+
     if (ByteSize.isGreaterThan(ByteSize.bytes(input.byteLength), checked.success.maxEncodedBytes)) {
       return yield* error("LimitExceeded", "encodedBytes")
     }
+
     const text = yield* Effect.try({
       try: () => new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(input)),
       catch: () => error("InvalidEncoding")
     })
+
     const value = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
       Effect.mapError(() => error("InvalidEncoding"))
     )
-    if (
-      typeof value === "object" && value !== null && "format" in value && value.format === "effect-vfs" &&
-      "version" in value && value.version !== 1
-    ) return yield* error("UnsupportedVersion")
+
+    const version = Schema.decodeUnknownResult(VersionProbe)(value)
+
+    if (Result.isSuccess(version) && version.success.version !== 1) return yield* error("UnsupportedVersion")
+
     return yield* capture(value, checked.success)
   }
 )

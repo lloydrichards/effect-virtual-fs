@@ -15,6 +15,10 @@ import {
 } from "~/components/tokens/typeface"
 import { cn } from "~/lib/utils"
 
+interface InlineCodeProps extends React.HTMLAttributes<HTMLElement> {
+  readonly "data-language"?: string
+}
+
 export const proseComponents = {
   h1: ({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
     <h1
@@ -109,6 +113,7 @@ export const proseComponents = {
         </Link>
       )
     }
+
     if (href?.startsWith("#")) {
       return (
         <a href={href} className={typefaceAnchor(className)} {...props}>
@@ -116,6 +121,7 @@ export const proseComponents = {
         </a>
       )
     }
+
     return (
       <a
         href={href}
@@ -167,11 +173,12 @@ export const proseComponents = {
       {children}
     </CodeBlock>
   ),
-  code: ({ className, ...props }: React.HTMLAttributes<HTMLElement>) => {
+  code: ({ className, ...props }: InlineCodeProps) => {
     // Code inside pre has data-language from rehype-pretty-code; skip styling
-    if ((props as Record<string, unknown>)["data-language"]) {
+    if (props["data-language"]) {
       return <code className={className} {...props} />
     }
+
     return (
       <code
         className={cn(

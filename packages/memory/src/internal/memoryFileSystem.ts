@@ -14,22 +14,23 @@ import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { badArgument, type PlatformError, systemError, type SystemErrorTag } from "effect/PlatformError"
+import * as Predicate from "effect/Predicate"
+import * as Result from "effect/Result"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import { compileGlobPatterns, matchesGlob } from "./glob.js"
 
 const argumentError = (method: string, description: string) =>
   badArgument({ module: "FileSystem", method, description })
+
 const resourceError = (method: string, pathOrDescriptor: string | number, description?: string) =>
-  systemError({
-    module: "FileSystem",
-    method,
-    pathOrDescriptor,
-    _tag: "BadResource",
-    ...(description === undefined ? {} : { description })
-  })
+  description === undefined
+    ? systemError({ module: "FileSystem", method, pathOrDescriptor, _tag: "BadResource" })
+    : systemError({ module: "FileSystem", method, pathOrDescriptor, _tag: "BadResource", description })
+
 const translate = (error: Vfs.FsError, method: string, pathOrDescriptor: string | number): PlatformError => {
   if (error.code === "InvalidArgument") return argumentError(method, error.code)
+
   const tags: Partial<Record<Vfs.FsCode, SystemErrorTag>> = {
     NotFound: "NotFound",
     AlreadyExists: "AlreadyExists",
@@ -38,6 +39,7 @@ const translate = (error: Vfs.FsError, method: string, pathOrDescriptor: string 
     UnrepresentableName: "InvalidData",
     PathTooLong: "InvalidData"
   }
+
   return systemError({
     module: "FileSystem",
     method,
@@ -46,14 +48,17 @@ const translate = (error: Vfs.FsError, method: string, pathOrDescriptor: string 
     description: error.code
   })
 }
+
 const mapped = <A, R>(effect: Effect.Effect<A, Vfs.FsError, R>, method: string, path: string | number) =>
   effect.pipe(Effect.mapError((error) => translate(error, method, path)))
+
 const info = Effect.fnUntraced(function*(
   value: Vfs.Metadata,
   pathOrDescriptor: string | number
 ): Effect.fn.Return<FileSystem.File.Info, PlatformError> {
   const date = (field: "atimeNs" | "mtimeNs" | "birthtimeNs") => {
     const result = DateTime.make(Number(value[field] / 1_000_000n))
+
     return Option.isSome(result)
       ? Effect.succeedSome(DateTime.toDateUtc(result.value))
       : Effect.fail(systemError({
@@ -64,6 +69,7 @@ const info = Effect.fnUntraced(function*(
         description: `${field} cannot be represented as a JavaScript Date`
       }))
   }
+
   return {
     type: value.kind === "file" ? "File" : value.kind === "directory" ? "Directory" : "SymbolicLink",
     ino: Option.some(Number(value.ino)),
@@ -81,33 +87,48 @@ const info = Effect.fnUntraced(function*(
     birthtime: yield* date("birthtimeNs")
   }
 })
+
 const validateMode = (mode: number | undefined, method: string) =>
   mode === undefined || (Number.isInteger(mode) && mode >= 0 && mode <= 0xffffffff)
     ? Effect.void
     : Effect.fail(argumentError(method, "mode must be an unsigned 32-bit integer"))
+
 const sizeInput = (size: number | undefined, method: string, defaultValue?: number) => {
   const number = size === undefined ? defaultValue : size
-  return typeof number === "number" && Number.isSafeInteger(number) && number >= 0
+
+  return Predicate.isNumber(number) && Number.isSafeInteger(number) && number >= 0
     ? Effect.succeed(BigInt(number))
     : Effect.fail(argumentError(method, "size must be a non-negative integer"))
 }
+
 const openOptions = Effect.fnUntraced(function*(flag: FileSystem.OpenFlag, mode: number | undefined, method: string) {
   if (!["r", "r+", "w", "wx", "w+", "wx+", "a", "ax", "a+", "ax+"].includes(flag)) {
     return yield* argumentError(method, "Unsupported open flag")
   }
+
   yield* validateMode(mode, method)
   const create = flag.startsWith("w") || flag.startsWith("a")
-  return {
-    access: flag === "r" ? "read" : flag.endsWith("+") ? "readWrite" : "write",
-    create: create ? flag.includes("x") ? "exclusive" : "ifMissing" : "never",
-    ...(create ? { mode: (mode ?? 0o644) & 0o7777 } : {}),
-    append: flag.startsWith("a"),
-    truncate: flag.startsWith("w")
-  } satisfies Vfs.OpenOptions
+
+  const access = flag === "r" ? "read" : flag.endsWith("+") ? "readWrite" : "write"
+  const append = flag.startsWith("a")
+  const truncate = flag.startsWith("w")
+
+  return create
+    ? {
+      access,
+      create: flag.includes("x") ? "exclusive" : "ifMissing",
+      mode: (mode ?? 0o644) & 0o7777,
+      append,
+      truncate
+    } satisfies Vfs.OpenOptions
+    : { access, create: "never", append, truncate } satisfies Vfs.OpenOptions
 })
+
 const childPath = (parent: string, name: string) => parent === "/" ? `/${name}` : `${parent}/${name}`
+
 const textPath = Effect.fnUntraced(function*(path: Vfs.BytePath, method: string) {
   const bytes = yield* Vfs.pathToBytes(path)
+
   return yield* Effect.try({
     try: () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
     catch: () => new Vfs.FsError({ code: "UnrepresentableName", operation: method })
@@ -119,19 +140,25 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
   const caller = yield* volume.caller({ ...options, umask: options?.umask ?? 0 })
   let nextDescriptor = 3
   let nextTemporary = 1
+
   const makeDirectory = Effect.fn("MemoryFileSystem.makeDirectory")(
     function*(path: string, options?: { recursive?: boolean | undefined; mode?: number | undefined }) {
       yield* validateMode(options?.mode, "makeDirectory")
       const mode = (options?.mode ?? 0o755) & 0o7777
+
       if (!options?.recursive) return yield* mapped(caller.mkdir(path, { mode }), "makeDirectory", path)
+
       return yield* mapped(
         Effect.scoped(Effect.gen(function*() {
           if (path === "") return yield* new Vfs.FsError({ code: "NotFound", operation: "makeDirectory" })
           let base = yield* caller.openDirectory("/")
           const components = path.split("/").filter((part) => part.length > 0)
+
           for (const [index, name] of components.entries()) {
             const result = yield* Effect.result(caller.mkdir(name, { relativeTo: base, mode }))
-            if (result._tag === "Failure" && result.failure.code !== "AlreadyExists") return yield* result.failure
+
+            if (Result.isFailure(result) && result.failure.code !== "AlreadyExists") return yield* result.failure
+
             const next = yield* caller.openDirectory(name, { relativeTo: base }).pipe(
               Effect.mapError((error) =>
                 error.code === "NotDirectory" && index === components.length - 1
@@ -139,6 +166,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
                   : error
               )
             )
+
             yield* base.close
             base = next
           }
@@ -148,6 +176,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       )
     }
   )
+
   const open: FileSystem.FileSystem["open"] = Effect.fn("MemoryFileSystem.open")(function*(path, options) {
     const chosen = yield* openOptions(options?.flag ?? "r", options?.mode, "open")
     const handle = yield* mapped(caller.open(path, chosen), "open", path)
@@ -161,37 +190,51 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
         closed = true
       }))
     )
+
     const read = Effect.fnUntraced(function*(length: number, method: string) {
       if (closed) return yield* resourceError(method, fd)
+
       if (length > 0 && (position < 0n || position > BigInt(Number.MAX_SAFE_INTEGER))) {
         return yield* resourceError(method, fd, "Invalid file position")
       }
+
       const bytes = yield* mapped(handle.pread(length, length === 0 ? 0n : position), method, fd)
       position += BigInt(bytes.length)
+
       return bytes
     })
+
     const write = Effect.fnUntraced(function*(input: Uint8Array, method: string, all: boolean) {
       // Copy the view so writes accept ArrayBuffer- and SharedArrayBuffer-backed input.
       const bytes = new Uint8Array(input)
+
       return yield* locked(Effect.gen(function*() {
         if (closed) return yield* resourceError(method, fd)
+
         if (bytes.length > 0 && (position < 0n || position > BigInt(Number.MAX_SAFE_INTEGER))) {
           return yield* resourceError(method, fd, "Invalid file position")
         }
+
         let total = 0
+
         do {
           const part = bytes.subarray(total)
+
           const written = yield* mapped(
             chosen.append ? handle.write(part) : handle.pwrite(part, bytes.length === 0 ? 0n : position),
             method,
             fd
           )
+
           total += written
+
           if (!chosen.append) position += BigInt(written)
         } while (all && total < bytes.length)
+
         return total
       }))
     })
+
     return {
       [FileSystem.FileTypeId]: FileSystem.FileTypeId,
       stat: mapped(handle.stat, "stat", fd).pipe(Effect.flatMap((value) => info(value, fd))),
@@ -200,10 +243,13 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
         return yield* locked(Effect.gen(function*() {
           if (closed) return 0n
           const next = from === "start" ? offset : position + offset
+
           if (next < 0n) {
             return yield* argumentError("seek", "Cannot seek before the start of the file")
           }
+
           position = next
+
           return next
         }))
       }),
@@ -211,11 +257,13 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
         return yield* locked(Effect.gen(function*() {
           const bytes = yield* read(buffer.length, "read")
           buffer.set(bytes)
+
           return bytes.length
         }))
       }),
       readAlloc: Effect.fn("MemoryFile.readAlloc")(function*(size) {
         const length = yield* sizeInput(size, "readAlloc")
+
         return yield* locked(
           Effect.map(
             read(Number(length), "readAlloc"),
@@ -225,8 +273,10 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       }),
       truncate: Effect.fn("MemoryFile.truncate")(function*(length) {
         const size = yield* sizeInput(length, "truncate", 0)
+
         return yield* locked(Effect.gen(function*() {
           yield* mapped(handle.truncate(size), "truncate", fd)
+
           if (!chosen.append && position > size) position = size
         }))
       }),
@@ -234,37 +284,50 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       writeAll: (buffer) => Effect.asVoid(write(buffer, "writeAll", true))
     } satisfies FileSystem.File
   })
+
   const walk = Effect.fnUntraced(function*(path: string) {
     const root = yield* caller.openDirectory(path)
     const pending: Array<{ base: Vfs.DirectoryHandle; prefix: string }> = [{ base: root, prefix: "" }]
     const output: Array<{ relative: string; base: Vfs.DirectoryHandle; name: string; metadata: Vfs.Metadata }> = []
+
     while (pending.length > 0) {
       const next = pending.pop()
+
       if (next === undefined) break
       const names = yield* caller.readDirectory(".", { relativeTo: next.base })
+
       for (const name of names) {
         const relative = next.prefix === "" ? name : `${next.prefix}/${name}`
         const metadata = yield* caller.lstat(name, { relativeTo: next.base })
         output.push({ relative, base: next.base, name, metadata })
+
         if (metadata.kind === "directory") {
           pending.push({ base: yield* caller.openDirectory(name, { relativeTo: next.base }), prefix: relative })
         }
       }
     }
+
     return output
   })
+
   const remove: FileSystem.FileSystem["remove"] = Effect.fn("MemoryFileSystem.remove")(function*(path, options) {
     const name = path.split("/").filter((part) => part.length > 0).at(-1)
+
     if (name === undefined || name === "." || name === "..") {
       return yield* resourceError("remove", path, "Cannot remove root or dot entries")
     }
+
     const action = Effect.scoped(Effect.gen(function*() {
       const node = yield* caller.lstat(path)
+
       if (node.kind !== "directory") return yield* caller.unlink(path)
+
       if (options?.recursive) {
         const entries = yield* walk(path)
+
         for (let i = entries.length - 1; i >= 0; i--) {
           const entry = entries[i]
+
           if (entry === undefined) continue
           const relative = { relativeTo: entry.base }
           yield* entry.metadata.kind === "directory"
@@ -272,14 +335,17 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
             : caller.unlink(entry.name, relative)
         }
       }
+
       yield* caller.rmdir(path)
     }))
+
     return yield* mapped(
       options?.force ? action.pipe(Effect.catchIf((error) => error.code === "NotFound", () => Effect.void)) : action,
       "remove",
       path
     )
   })
+
   const readDirectory: FileSystem.FileSystem["readDirectory"] = Effect.fn("MemoryFileSystem.readDirectory")(
     function*(path, options) {
       return yield* mapped(
@@ -291,6 +357,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       )
     }
   )
+
   const writeCopiedFile = (
     destination: Vfs.PathInput,
     bytes: Uint8Array,
@@ -304,19 +371,24 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       mode,
       finalMode: mode
     })
+
   const copy: FileSystem.FileSystem["copy"] = Effect.fn("MemoryFileSystem.copy")(
     function*(source, destination, options) {
       return yield* mapped(
         Effect.scoped(Effect.gen(function*() {
           const sourceNode = yield* caller.lstat(source)
           const existing = yield* Effect.result(caller.lstat(destination))
-          if (existing._tag === "Failure" && existing.failure.code !== "NotFound") return yield* existing.failure
-          if (existing._tag === "Success" && existing.success.ino === sourceNode.ino) {
+
+          if (Result.isFailure(existing) && existing.failure.code !== "NotFound") return yield* existing.failure
+
+          if (Result.isSuccess(existing) && existing.success.ino === sourceNode.ino) {
             return yield* new Vfs.FsError({ code: "InvalidArgument", operation: "copy" })
           }
-          if (existing._tag === "Success" && !options?.overwrite) {
+
+          if (Result.isSuccess(existing) && !options?.overwrite) {
             return yield* new Vfs.FsError({ code: "AlreadyExists", operation: "copy" })
           }
+
           if (sourceNode.kind === "file") {
             const bytes = yield* caller.readFile(source)
             yield* writeCopiedFile(destination, bytes, sourceNode.mode, {
@@ -324,9 +396,10 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
               replaceFinalSymlink: true
             })
           } else if (sourceNode.kind === "symlink") {
-            if (existing._tag === "Success") {
+            if (Result.isSuccess(existing)) {
               yield* caller.unlink(destination)
             }
+
             yield* caller.symlink(yield* caller.readLink(source), destination)
           } else {
             const canonicalSource = yield* caller.realPath(source)
@@ -334,35 +407,46 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
             const slash = trimmed.lastIndexOf("/")
             const parentPath = slash <= 0 ? "/" : trimmed.slice(0, slash)
             const parent = yield* caller.realPath(parentPath)
+
             if (parent === canonicalSource || parent.startsWith(`${canonicalSource}/`)) {
               return yield* new Vfs.FsError({ code: "InvalidArgument", operation: "copy" })
             }
+
             const entries = yield* walk(source)
-            if (existing._tag === "Failure") {
+
+            if (Result.isFailure(existing)) {
               yield* caller.mkdir(destination, { mode: sourceNode.mode })
             } else if (existing.success.kind !== "directory") {
               return yield* new Vfs.FsError({ code: "NotDirectory", operation: "copy" })
             }
+
             const copiedNodes = new Map<bigint, { base: Vfs.DirectoryHandle; name: string }>()
             const directoryTimes: Array<{ base: Vfs.DirectoryHandle; name: string; metadata: Vfs.Metadata }> = []
             const bases = new Map<string, Vfs.DirectoryHandle>([["", yield* caller.openDirectory(destination)]])
+
             for (const entry of entries) {
               const split = entry.relative.lastIndexOf("/")
               const parent = bases.get(split < 0 ? "" : entry.relative.slice(0, split))
+
               if (parent === undefined) {
                 return yield* new Vfs.FsError({ code: "NotFound", operation: "copy" })
               }
+
               const relative = { relativeTo: parent }
+
               if (entry.metadata.kind === "directory") {
                 const made = yield* Effect.result(caller.mkdir(entry.name, { ...relative, mode: entry.metadata.mode }))
-                if (made._tag === "Failure" && (!options?.overwrite || made.failure.code !== "AlreadyExists")) {
+
+                if (Result.isFailure(made) && (!options?.overwrite || made.failure.code !== "AlreadyExists")) {
                   return yield* made.failure
                 }
+
                 bases.set(entry.relative, yield* caller.openDirectory(entry.name, relative))
               } else if (entry.metadata.kind === "file") {
                 const previous = copiedNodes.get(entry.metadata.ino)
                 const existing = yield* Effect.result(caller.lstat(entry.name, relative))
-                if (previous !== undefined && existing._tag === "Failure" && existing.failure.code === "NotFound") {
+
+                if (previous !== undefined && Result.isFailure(existing) && existing.failure.code === "NotFound") {
                   yield* caller.link(previous.name, entry.name, {
                     sourceRelativeTo: previous.base,
                     destinationRelativeTo: parent
@@ -383,12 +467,15 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
               } else {
                 const previous = copiedNodes.get(entry.metadata.ino)
                 const existing = yield* Effect.result(caller.lstat(entry.name, relative))
-                if (existing._tag === "Success") {
+
+                if (Result.isSuccess(existing)) {
                   if (!options?.overwrite) {
                     return yield* new Vfs.FsError({ code: "AlreadyExists", operation: "copy" })
                   }
+
                   yield* caller.unlink(entry.name, relative)
                 } else if (existing.failure.code !== "NotFound") return yield* existing.failure
+
                 if (previous !== undefined) {
                   yield* caller.link(previous.name, entry.name, {
                     sourceRelativeTo: previous.base,
@@ -403,9 +490,11 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
                   copiedNodes.set(entry.metadata.ino, { base: parent, name: entry.name })
                 }
               }
+
               if (options?.preserveTimestamps && entry.metadata.kind === "directory") {
                 directoryTimes.push({ base: parent, name: entry.name, metadata: entry.metadata })
               }
+
               if (options?.preserveTimestamps && entry.metadata.kind !== "directory") {
                 yield* caller.utimes(entry.name, {
                   access: { kind: "value", nanoseconds: entry.metadata.atimeNs },
@@ -413,6 +502,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
                 }, { ...relative, followFinalSymlink: false })
               }
             }
+
             for (const directory of directoryTimes.reverse()) {
               yield* caller.utimes(directory.name, {
                 access: { kind: "value", nanoseconds: directory.metadata.atimeNs },
@@ -420,6 +510,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
               }, { relativeTo: directory.base })
             }
           }
+
           if (options?.preserveTimestamps) {
             yield* caller.utimes(destination, {
               access: { kind: "value", nanoseconds: sourceNode.atimeNs },
@@ -432,14 +523,17 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       )
     }
   )
+
   const copyFile: FileSystem.FileSystem["copyFile"] = Effect.fn("MemoryFileSystem.copyFile")(
     function*(source, destination) {
       return yield* mapped(
         Effect.gen(function*() {
           const metadata = yield* caller.stat(source)
+
           if (metadata.kind !== "file") return yield* new Vfs.FsError({ code: "IsDirectory", operation: "copyFile" })
           const target = yield* Effect.result(caller.stat(destination))
-          if (target._tag === "Success" && target.success.ino === metadata.ino) return
+
+          if (Result.isSuccess(target) && target.success.ino === metadata.ino) return
           yield* writeCopiedFile(destination, yield* caller.readFile(source), metadata.mode, { create: "ifMissing" })
         }),
         "copyFile",
@@ -447,6 +541,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       )
     }
   )
+
   const temp = Effect.fnUntraced(
     function*(
       method: string,
@@ -458,17 +553,23 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
           return yield* argumentError(method, "temporary fragments cannot contain separators")
         }
       }
+
       const parent = yield* mapped(caller.realPath(options?.directory ?? "/tmp"), method, options?.directory ?? "/tmp")
+
       while (true) {
         const directory = childPath(
           parent,
           `${options?.prefix ?? ""}${(nextTemporary++).toString(36).padStart(8, "0")}`
         )
+
         const result = yield* Effect.result(caller.mkdir(directory))
-        if (result._tag === "Failure") {
+
+        if (Result.isFailure(result)) {
           if (result.failure.code === "AlreadyExists") continue
+
           return yield* translate(result.failure, method, directory)
         }
+
         if (!file) return directory
         const path = childPath(directory, `${(nextTemporary++).toString(36).padStart(8, "0")}${options?.suffix ?? ""}`)
         yield* mapped(
@@ -476,10 +577,12 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
           method,
           path
         ).pipe(Effect.onError(() => remove(directory, { recursive: true, force: true }).pipe(Effect.orDie)))
+
         return path
       }
     }
   )
+
   return FileSystem.make({
     access: (path) => mapped(Effect.asVoid(caller.stat(path)), "access", path),
     stat: (path) => mapped(caller.stat(path), "stat", path).pipe(Effect.flatMap((value) => info(value, path))),
@@ -491,14 +594,17 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       if (![uid, gid].every((id) => Number.isInteger(id) && id >= 0 && id <= 0xffffffff)) {
         return yield* argumentError("chown", "owner IDs must be unsigned 32-bit integers")
       }
+
       yield* mapped(caller.chown(path, { uid, gid }), "chown", path)
     }),
     utimes: Effect.fn("MemoryFileSystem.utimes")(function*(path, atime, mtime) {
-      const access = typeof atime === "number" ? atime * 1000 : atime.getTime()
-      const modification = typeof mtime === "number" ? mtime * 1000 : mtime.getTime()
+      const access = Predicate.isNumber(atime) ? atime * 1000 : atime.getTime()
+      const modification = Predicate.isNumber(mtime) ? mtime * 1000 : mtime.getTime()
+
       if (![access, modification].every((value) => Number.isFinite(value) && Math.abs(value) <= 8.64e15)) {
         return yield* argumentError("utimes", "timestamps must be valid dates")
       }
+
       yield* mapped(
         caller.utimes(path, {
           access: { kind: "value", nanoseconds: BigInt(Math.trunc(access)) * 1_000_000n },
@@ -525,9 +631,11 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
     rename: Effect.fn("MemoryFileSystem.rename")(
       function*(source, destination) {
         const sourceInfo = yield* caller.lstat(source)
+
         const target = sourceInfo.kind === "directory" && destination.endsWith("/")
           ? destination.replace(/\/+$/, "") || "/"
           : destination
+
         yield* caller.rename(source, target)
       },
       (effect, source) => mapped(effect, "rename", source)
@@ -554,13 +662,17 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
         const stream = yield* volume.watch
         const resolved = yield* mapped(caller.realPath(path), "stat", path)
         const prefix = new TextEncoder().encode(resolved)
+
         return stream.pipe(
           Stream.filterEffect((event) =>
             mapped(Vfs.pathToBytes(event.path), "watch", path).pipe(Effect.map((bytes) => {
               if (!prefix.every((byte, index) => bytes[index] === byte)) return false
+
               if (bytes.length === prefix.length) return true
               const start = resolved === "/" ? 1 : prefix.length + 1
+
               if (resolved !== "/" && bytes[prefix.length] !== 47) return false
+
               return options?.recursive === true || !bytes.subarray(start).includes(47)
             }))
           ),
@@ -573,25 +685,33 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       })),
     glob: Effect.fn("MemoryFileSystem.glob")(function*(pattern, options) {
       const include = yield* compileGlobPatterns("glob", pattern)
+
       const exclude = (yield* Effect.forEach(options?.exclude ?? [], (pattern) => compileGlobPatterns("glob", pattern)))
         .flat()
+
       return yield* mapped(
         Effect.scoped(Effect.gen(function*() {
           const entries = yield* walk(options?.root ?? "/")
+
           if (exclude.some((pattern) => matchesGlob(pattern, [], true))) return []
           const output = include.some((pattern) => matchesGlob(pattern, [], true)) ? ["."] : []
           const excludedDirectories: Array<string> = []
+
           for (const entry of entries) {
             const parts = entry.relative.split("/")
             const directory = entry.metadata.kind === "directory"
+
             const excluded = excludedDirectories.some((prefix) => entry.relative.startsWith(`${prefix}/`)) ||
               exclude.some((pattern) => matchesGlob(pattern, parts, directory))
+
             if (excluded) {
               if (directory) excludedDirectories.push(entry.relative)
               continue
             }
+
             if (include.some((pattern) => matchesGlob(pattern, parts, directory))) output.push(entry.relative)
           }
+
           return output.sort()
         })),
         "glob",
@@ -604,6 +724,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
 /** @internal */
 export const make: Effect.Effect<FileSystem.FileSystem> = Effect.gen(function*() {
   const volume = yield* Vfs.fromFixture({ entries: [{ kind: "directory", path: "/tmp" }] })
+
   return yield* bind(volume)
 }).pipe(Effect.orDie)
 

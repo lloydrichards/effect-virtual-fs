@@ -11,6 +11,7 @@ describe("mutation revisions", () => {
       const volume = yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([1]) }]
       })
+
       const fs = yield* volume.caller()
       const before = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
       const root = yield* fs.rootReference

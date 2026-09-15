@@ -11,10 +11,13 @@ const limits = {
   maxEntries: 100,
   maxDecodedBytes: ByteSize.kilobytes(10)
 }
+
 const snapshot = Effect.gen(function*() {
   const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([0, 255, 1]) }] })
+
   return yield* volume.snapshot
 })
+
 const database = <A, E>(effect: Effect.Effect<A, E, SqlClient>) =>
   effect.pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" })))
 
@@ -39,9 +42,11 @@ describe("SQLite checkpoints", () => {
       const store = yield* CheckpointStore.make(limits)
       const a = yield* snapshot
       const b = yield* (yield* Vfs.make()).snapshot
+
       const results = yield* Effect.forEach([store.save("race", a), store.save("race", b)], Effect.result, {
         concurrency: "unbounded"
       })
+
       assert.strictEqual(results.filter(Result.isSuccess).length, 1)
       const failures = results.filter(Result.isFailure)
       assert.strictEqual(failures.length, 1)
@@ -73,6 +78,7 @@ describe("SQLite checkpoints", () => {
       yield* CheckpointStore.migrate
       const store = yield* CheckpointStore.make(limits)
       const image = yield* snapshot
+
       for (const name of ["", "a".repeat(256), "é".repeat(128), "nul\0name", "\ud800"]) {
         for (const operation of [store.save(name, image), store.load(name)]) {
           const error = yield* Effect.flip(operation)
@@ -80,6 +86,7 @@ describe("SQLite checkpoints", () => {
           assert.strictEqual(error.code, "InvalidName")
         }
       }
+
       for (const name of ["../run/'", "é".repeat(127) + "a", "é", "e\u0301", "\ufeffrun"]) {
         yield* store.save(name, image)
         assert.deepStrictEqual(yield* Vfs.encodeSnapshot(yield* store.load(name)), yield* Vfs.encodeSnapshot(image))
@@ -96,13 +103,16 @@ describe("SQLite checkpoints", () => {
       yield* CheckpointStore.migrate
       yield* store.load("kept")
       const exactLimit = ByteSize.bytes(BigInt(Number.MAX_SAFE_INTEGER) + 1n)
+
       const exactStore = yield* CheckpointStore.make({
         ...limits,
         maxEncodedBytes: exactLimit,
         maxDecodedBytes: exactLimit
       })
+
       yield* exactStore.save("exact", yield* snapshot)
       yield* exactStore.load("exact")
+
       for (const invalid of [{ ...limits, maxRecords: -1 }, { ...limits, extra: true }]) {
         const error = yield* Effect.flip(CheckpointStore.make(invalid))
         assert.strictEqual(error.code, "InvalidStructure")
@@ -136,6 +146,7 @@ describe("SQLite checkpoints", () => {
       yield* CheckpointStore.migrate
       const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
+
       for (
         const [name, text, code] of [
           ["corrupt", "not json", "InvalidEncoding"],
@@ -149,6 +160,7 @@ describe("SQLite checkpoints", () => {
         assert.instanceOf(error, Vfs.ImageError)
         assert.strictEqual(error.code, code)
       }
+
       const oversized = ByteSize.toBigInt(limits.maxEncodedBytes) + 1n
       yield* sql`INSERT INTO effect_vfs_checkpoints VALUES ('oversized', zeroblob(${oversized}))`
       const error = yield* Effect.flip(store.load("oversized"))
@@ -218,10 +230,13 @@ describe("SQLite checkpoints", () => {
       const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
       const image = yield* snapshot
+
       const error = yield* Effect.flip(sql.withTransaction(Effect.gen(function*() {
         yield* store.save("rolled-back", image)
+
         return yield* Effect.fail("abort")
       })))
+
       assert.strictEqual(error, "abort")
       assert.strictEqual((yield* Effect.flip(store.load("rolled-back"))).code, "NotFound")
       yield* store.save("rolled-back", image)

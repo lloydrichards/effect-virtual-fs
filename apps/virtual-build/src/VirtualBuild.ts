@@ -3,33 +3,42 @@ import { Data, Effect, Schema } from "effect"
 import { build, type Plugin } from "vite"
 
 export class BuildError extends Data.TaggedError("BuildError")<{ readonly cause: unknown }> {}
+
 class VirtualModuleError extends Data.TaggedError("VirtualModuleError")<{ readonly message: string }> {}
+
 const prefix = "\0effect-vfs:"
+
 const PackageManifest = Schema.Struct({ type: Schema.Literal("module"), exports: Schema.String })
 
 /** Bounded demonstration: explicit JS files and root node_modules packages with a string exports entry. */
 export const buildVirtual = Effect.fn("VirtualBuild.build")(function*(caller: Vfs.Caller, entry: string) {
   const reads: Array<string> = []
+
   const source = Effect.fnUntraced(function*(path: string) {
     const bytes = yield* caller.readFile(path)
     reads.push(path)
+
     return yield* Effect.try({
       try: () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
       catch: () => new Vfs.FsError({ code: "InvalidPathEncoding", operation: "build", path })
     })
   })
+
   const runPromise = Effect.runPromiseWith(yield* Effect.context<never>())
+
   // Vite invokes these callbacks outside the Effect fiber; preserve its service context.
   const run = <A>(effect: Effect.Effect<A, Vfs.FsError>, path: string) =>
     runPromise(effect.pipe(
       Effect.mapError((error) => new VirtualModuleError({ message: `Virtual module ${path}: ${error.code}` }))
     ))
+
   const plugin: Plugin = {
     name: "effect-vfs-demonstration",
     enforce: "pre",
     resolveId(specifier, importer) {
       return runPromise(Effect.gen(function*() {
         let path: string
+
         if (specifier.startsWith("effect-vfs:")) path = specifier.slice("effect-vfs:".length)
         else if (importer?.startsWith(prefix)) {
           if (specifier.startsWith(".")) {
@@ -40,9 +49,11 @@ export const buildVirtual = Effect.fn("VirtualBuild.build")(function*(caller: Vf
             if (!/^(?:@[A-Za-z0-9_-]+\/)?[A-Za-z0-9_-]+$/.test(specifier)) {
               return yield* new VirtualModuleError({ message: `Unsupported virtual package specifier: ${specifier}` })
             }
+
             const manifestPath = `/node_modules/${specifier}/package.json`
             const json = yield* source(manifestPath)
             const manifest = yield* Schema.decodeEffect(Schema.fromJsonString(PackageManifest))(json)
+
             if (
               !manifest.exports.startsWith("./") || manifest.exports.split("/").includes("..") ||
               !manifest.exports.endsWith(".js")
@@ -50,6 +61,7 @@ export const buildVirtual = Effect.fn("VirtualBuild.build")(function*(caller: Vf
             path = `/node_modules/${specifier}/${manifest.exports.slice(2)}`
           }
         } else return null
+
         return prefix +
           (yield* caller.realPath(path).pipe(
             Effect.mapError((error) => new VirtualModuleError({ message: `Virtual module ${path}: ${error.code}` }))
@@ -59,9 +71,11 @@ export const buildVirtual = Effect.fn("VirtualBuild.build")(function*(caller: Vf
     load(id) {
       if (!id.startsWith(prefix)) return null
       const path = id.slice(prefix.length)
+
       return run(source(path), path)
     }
   }
+
   const result = yield* Effect.tryPromise({
     try: () =>
       build({
@@ -79,16 +93,22 @@ export const buildVirtual = Effect.fn("VirtualBuild.build")(function*(caller: Vf
       }),
     catch: (cause) => new BuildError({ cause })
   })
+
   const outputs = Array.isArray(result) ? result : [result]
+
   const chunks = outputs.flatMap((output) =>
     "output" in output ? output.output.filter((chunk) => chunk.type === "chunk") : []
   )
+
   if (chunks.length !== 1 || chunks[0] === undefined) {
     return yield* new BuildError({ cause: "The bounded demo requires exactly one output chunk" })
   }
+
   return { code: chunks[0].code, reads }
 })
+
 const text = (value: string) => new TextEncoder().encode(value)
+
 export const demoFixture: Vfs.Fixture = {
   entries: [
     { kind: "directory", path: "/__effect_vfs_demo__" },

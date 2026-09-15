@@ -27,6 +27,7 @@ export const make = Effect.fnUntraced(function*<A>(coordinate: Coordinator): Eff
 
   const publishManyUnsafe = (events: () => Iterable<A>): void => {
     if (activeSubscribers === 0) return
+
     for (const event of events()) PubSub.publishUnsafe(pubsub, event)
   }
 
@@ -34,15 +35,19 @@ export const make = Effect.fnUntraced(function*<A>(coordinate: Coordinator): Eff
     Effect.uninterruptible(Effect.gen(function*() {
       const subscription = yield* coordinate(Effect.gen(function*() {
         const subscription = yield* PubSub.subscribe(pubsub)
+
         if (afterSubscribe !== undefined) yield* afterSubscribe
         activeSubscribers += 1
+
         return subscription
       }))
+
       yield* Effect.addFinalizer(() =>
         coordinate(Effect.sync(() => {
           activeSubscribers -= 1
         }))
       )
+
       return Stream.fromSubscription(subscription)
     }))
 

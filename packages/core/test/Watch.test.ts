@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Deferred, Effect, Exit, Fiber, Scope, Stream } from "effect"
+import { Deferred, Effect, Exit, Fiber, Predicate, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { setRegistrationHook } from "../src/internal/virtualFileSystem/testHooks.js"
 
@@ -10,25 +10,31 @@ describe("volume watch", () => {
       const caller = yield* volume.caller()
       const subscribed = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
+
       const clearHook = setRegistrationHook(volume, {
         afterSubscribe: Deferred.succeed(subscribed, undefined).pipe(Effect.andThen(Deferred.await(release)))
       })
+
       yield* Effect.addFinalizer(() => Effect.sync(clearHook))
 
       const watcher = yield* volume.watch.pipe(
         Effect.flatMap(Stream.runHead),
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* Deferred.await(subscribed)
+
       const mutation = yield* caller.mkdir("/during-registration").pipe(
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* Deferred.succeed(release, undefined)
 
       yield* Fiber.join(mutation)
       const event = yield* Fiber.join(watcher)
       assert.strictEqual(event._tag, "Some")
-      if (event._tag === "None") return
+
+      if (Predicate.isTagged("None")(event)) return
       assert.strictEqual(event.value._tag, "Create")
       assert.deepStrictEqual(
         yield* Vfs.pathToBytes(event.value.path),

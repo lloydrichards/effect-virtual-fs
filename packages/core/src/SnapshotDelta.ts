@@ -183,6 +183,7 @@ const constrained = makeSnapshotDeltaLimits({
   maxOutputBytes: ByteSize.kibibytes(256),
   maxInheritedRecords: 6_500
 })
+
 const defaultLimits = makeSnapshotDeltaLimits({
   maxEncodedBytes: ByteSize.mebibytes(16),
   maxIdentityBytes: ByteSize.mebibytes(32),

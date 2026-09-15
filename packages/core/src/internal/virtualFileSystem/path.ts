@@ -2,6 +2,7 @@
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
+import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as SchemaIssue from "effect/SchemaIssue"
@@ -12,7 +13,7 @@ import { ConfigurationError, type FsCode, FsError } from "./errors.js"
 
 /** @internal */
 export const failure = (code: FsCode, operation: string, path?: PathInput) =>
-  new FsError({ code, operation, ...(path === undefined ? {} : { path }) })
+  path === undefined ? new FsError({ code, operation }) : new FsError({ code, operation, path })
 
 /** @internal */
 export const ownedPath = (bytes: Uint8Array): BytePath => {
@@ -36,6 +37,7 @@ export const nameBytes = (name: string): Uint8Array => {
 export const attachedBuffer = (bytes: Uint8Array): boolean => {
   try {
     new Uint8Array(bytes.buffer, bytes.byteOffset, 0)
+
     return true
   } catch (error) {
     if (error instanceof TypeError) return false
@@ -48,16 +50,21 @@ export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(functi
   if (!(bytes instanceof Uint8Array) || !(bytes.buffer instanceof ArrayBuffer)) {
     return yield* failure("InvalidArgument", "pathFromBytes")
   }
+
   if (!attachedBuffer(bytes)) return yield* failure("InvalidArgument", "pathFromBytes")
   const owned = new Uint8Array(bytes)
+
   if (owned.length === 0 || owned.includes(0)) return yield* failure("InvalidArgument", "pathFromBytes")
+
   return makeBytePath(owned)
 })
 
 /** @internal */
 export const pathToBytes = Effect.fn("VirtualFileSystem.pathToBytes")(function*(path: BytePath) {
   const bytes = getBytePathBytes(path)
+
   if (bytes === undefined) return yield* failure("InvalidArgument", "pathToBytes")
+
   return new Uint8Array(bytes)
 })
 
@@ -82,11 +89,14 @@ export interface PreparedPath {
 export const wellFormed = (value: string): boolean => {
   for (let index = 0; index < value.length; index++) {
     const code = value.charCodeAt(index)
+
     if (code >= 0xd800 && code <= 0xdbff) {
       const next = value.charCodeAt(++index)
+
       if (!(next >= 0xdc00 && next <= 0xdfff)) return false
     } else if (code >= 0xdc00 && code <= 0xdfff) return false
   }
+
   return true
 }
 
@@ -97,31 +107,41 @@ export const preparePath = (
   maxPathBytes: ByteSize.ByteSize | undefined
 ): Result.Result<PreparedPath, FsError> => {
   let bytes: Uint8Array | undefined
-  if (typeof input === "string") {
+
+  if (Schema.is(Schema.String)(input)) {
     if (!wellFormed(input)) return Result.fail(failure("InvalidPathEncoding", operation, input))
     bytes = new TextEncoder().encode(input)
-  } else if (typeof input === "object" && input !== null) {
+  } else {
     bytes = getBytePathBytes(input)
   }
+
   if (bytes === undefined) return Result.fail(failure("InvalidArgument", operation))
+
   if (bytes.length === 0) return Result.fail(failure("NotFound", operation, input))
+
   if (bytes.includes(0)) return Result.fail(failure("InvalidArgument", operation, input))
+
   if (maxPathBytes !== undefined && ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxPathBytes)) {
     return Result.fail(failure("PathTooLong", operation, input))
   }
+
   const components: Array<string> = []
   const suffixes: Array<Uint8Array> = []
   let start = 0
+
   for (let index = 0; index <= bytes.length; index++) {
     if (index !== bytes.length && bytes[index] !== 47) continue
+
     if (index > start) {
       // Provisional component bound from decision 0019; names are compared as bytes.
       if (index - start > 255) return Result.fail(failure("PathTooLong", operation, input))
       components.push(Encoding.encodeHex(bytes.subarray(start, index)))
       suffixes.push(bytes.subarray(index))
     }
+
     start = index + 1
   }
+
   return Result.succeed({
     input,
     absolute: bytes[0] === 47,
@@ -133,13 +153,15 @@ export const preparePath = (
 }
 
 const configurationField = (issue: SchemaIssue.Issue): string => {
-  if (issue._tag === "Pointer") return issue.path.map(String).join(".")
-  if (issue._tag === "Composite") return configurationField(issue.issues[0])
+  if (Predicate.isTagged("Pointer")(issue)) return issue.path.map(String).join(".")
+
+  if (Predicate.isTagged("Composite")(issue)) return configurationField(issue.issues[0])
+
   return "options"
 }
 
 /** @internal */
-export const decodeConfiguration = <A>(schema: Schema.Codec<A>, value: unknown) =>
+export const decodeConfiguration = <A>(schema: Schema.Codec<A>, value: typeof Schema.Unknown.Type) =>
   Schema.decodeUnknownResult(schema, { onExcessProperty: "error" })(value).pipe(
     Result.mapError((error) => new ConfigurationError({ field: configurationField(error.issue) }))
   )

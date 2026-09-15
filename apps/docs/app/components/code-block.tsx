@@ -13,6 +13,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
 
   const getValue = useCallback(() => {
     if (!preRef.current) return ""
+
     return preRef.current.textContent ?? ""
   }, [])
 

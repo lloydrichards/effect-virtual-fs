@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Effect, Predicate } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
@@ -78,11 +78,13 @@ describe("directory namespace", () => {
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
       yield* fs.mkdir("/a")
+
       for (const path of ["/a/.", "/a/..", "/"]) {
         assert.strictEqual((yield* Effect.flip(fs.rename(path, "/b"))).code, "InvalidArgument")
         assert.strictEqual((yield* Effect.flip(fs.rename("/a", path))).code, "InvalidArgument")
         assert.strictEqual((yield* Effect.flip(fs.rmdir(path))).code, "InvalidArgument")
       }
+
       assert.strictEqual((yield* Effect.flip(fs.rename("/a", "/b/"))).code, "NotFound")
       yield* fs.stat("/a")
     }))
@@ -152,11 +154,13 @@ describe("directory namespace", () => {
       yield* fs.mkdir("/b")
       yield* fs.mkdir("/a/work")
       yield* TestClock.adjust("1 second")
+
       const results = yield* Effect.all([
         Effect.result(fs.rename("/a/work", "/b/first")),
         Effect.result(fs.rename("/a/work", "/b/second"))
       ], { concurrency: "unbounded" })
-      assert.strictEqual(results.filter((result) => result._tag === "Success").length, 1)
+
+      assert.strictEqual(results.filter(Predicate.isTagged("Success")).length, 1)
       const a = yield* fs.stat("/a")
       const b = yield* fs.stat("/b")
       assert.strictEqual(a.nlink, 2)

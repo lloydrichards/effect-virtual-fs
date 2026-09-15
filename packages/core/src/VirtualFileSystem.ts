@@ -17,15 +17,20 @@ import * as SchemaTransformation from "effect/SchemaTransformation"
 import type * as Scope from "effect/Scope"
 import type * as Stream from "effect/Stream"
 import { BytePath } from "./BytePath.js"
+
 export { BytePath } from "./BytePath.js"
+
 import { DecodeLimits, ImageError, type Snapshot } from "./Snapshot.js"
+
 export { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
+
 import * as Image from "./internal/image.js"
 import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
 import * as VfsModel from "./internal/virtualFileSystem.js"
 import * as FixtureInternal from "./internal/virtualFileSystem/fixture.js"
 import * as Path from "./internal/virtualFileSystem/path.js"
 import * as SnapshotDeltaModel from "./SnapshotDelta.js"
+
 export {
   SnapshotChange,
   SnapshotChangesOptions,
@@ -36,10 +41,15 @@ export {
   SnapshotDifference,
   SnapshotNodeKind
 } from "./SnapshotDelta.js"
+
 const VolumeId: typeof VfsModel.VolumeId = VfsModel.VolumeId
+
 const CallerId: typeof VfsModel.CallerId = VfsModel.CallerId
+
 const FileHandleId: typeof VfsModel.FileHandleId = VfsModel.FileHandleId
+
 const DirectoryHandleId: typeof VfsModel.DirectoryHandleId = VfsModel.DirectoryHandleId
+
 const ObjectReferenceId: typeof VfsModel.ObjectReferenceId = VfsModel.ObjectReferenceId
 
 /**
@@ -567,6 +577,7 @@ export interface OverlayVolume extends Volume {
  * @since 0.1.0
  */
 export const CurrentFileSystem = VfsModel.CurrentFileSystem
+
 /** @internal */
 export type CurrentFileSystem = VfsModel.CurrentFileSystem
 
@@ -594,6 +605,7 @@ const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
     SnapshotDeltaModel.SnapshotDeltaLimits,
     limits ?? SnapshotDeltaModel.SnapshotDeltaLimits.default
   )
+
   return Result.isFailure(decoded) ? Effect.fail(decoded.failure) : Effect.succeed(decoded.success)
 }
 
@@ -626,7 +638,9 @@ export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshot
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) {
   const decoded = Path.decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {})
+
   if (Result.isFailure(decoded)) return yield* decoded.failure
+
   return yield* SnapshotDeltaInternal.inspectSnapshotDelta(base, delta, decoded.success, yield* deltaLimits(limits))
 })
 
@@ -645,7 +659,7 @@ export const applySnapshotDelta = Effect.fn("VirtualFileSystem.applySnapshotDelt
   return yield* SnapshotDeltaInternal.applySnapshotDelta(base, delta, yield* deltaLimits(limits))
 })
 
-const deltaSchemaIssue = (cause: ImageError, input: unknown, options: SchemaAST.ParseOptions) =>
+const deltaSchemaIssue = (cause: ImageError, input: typeof Schema.Unknown.Type, options: SchemaAST.ParseOptions) =>
   new SchemaIssue.InvalidValue(
     { message: `Snapshot delta ${cause.code}${cause.field === undefined ? "" : ` at ${cause.field}`}` },
     input,
@@ -663,6 +677,7 @@ export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDelta
   const selected = Schema.decodeResult(SnapshotDeltaModel.SnapshotDeltaLimits, { onExcessProperty: "error" })(
     limits ?? SnapshotDeltaModel.SnapshotDeltaLimits.default
   )
+
   return Schema.Uint8Array.pipe(
     Schema.decodeTo(
       SnapshotDeltaModel.SnapshotDelta,

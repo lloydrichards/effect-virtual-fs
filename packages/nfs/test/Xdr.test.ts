@@ -18,6 +18,7 @@ describe("XDR", () => {
   it("round trips big-endian integer width boundaries and golden bytes", () => {
     const bytes = new Writer().uint32(0xffff_ffff).int32(-0x8000_0000).uint64(0xffff_ffff_ffff_ffffn).boolean(true)
       .bytes()
+
     assert.deepStrictEqual([...bytes], [
       255,
       255,
@@ -56,6 +57,7 @@ describe("XDR", () => {
       [7, 8],
       (writer, value) => writer.uint32(value)
     ).uint32(2).bytes()
+
     const reader = new Reader(bytes, limits)
     assert.deepStrictEqual(reader.opaque(), new Uint8Array([1, 2, 3]))
     assert.strictEqual(reader.string(), "hi")

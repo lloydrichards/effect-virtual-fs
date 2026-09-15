@@ -5,7 +5,9 @@ import { ByteSize, Effect } from "effect"
 import * as assert from "node:assert/strict"
 
 const mode = process.argv[2]
+
 const filename = process.argv[3]
+
 if (filename === undefined || (mode !== "save" && mode !== "restore")) {
   throw new Error("Expected save or restore and a database filename")
 }
@@ -16,7 +18,9 @@ const limits = {
   maxEntries: 20,
   maxDecodedBytes: ByteSize.kilobytes(1)
 }
+
 const metadata = { uid: 7, gid: 11, mode: 0o640, atimeNs: 13n, mtimeNs: 17n, ctimeNs: 19n, birthtimeNs: 23n }
+
 const content = new Uint8Array([0, 255, 128, 1])
 
 const program = Effect.gen(function*() {
@@ -36,11 +40,13 @@ const program = Effect.gen(function*() {
         { kind: "hardLink", path: "/link-alias", target: "/link" }
       ]
     })
+
     yield* store.save("before", yield* volume.snapshot)
     const caller = yield* volume.caller()
     yield* caller.writeFile("/alias", new Uint8Array([9]), { access: "write", truncate: true })
     yield* caller.unlink("/link")
     yield* Effect.log("saved")
+
     return
   }
 
@@ -49,9 +55,11 @@ const program = Effect.gen(function*() {
   assert.equal((yield* caller.stat("/")).mode, 0o751)
   assert.equal((yield* caller.stat("/dir")).mode, 0o750)
   const file = yield* caller.stat(binaryPath)
+
   for (const field of ["uid", "gid", "mode", "atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"] as const) {
     assert.equal(file[field], metadata[field])
   }
+
   assert.equal(file.ino, (yield* caller.stat("/alias")).ino)
   assert.equal(file.nlink, 2)
   assert.deepEqual(yield* caller.readFile(binaryPath), content)

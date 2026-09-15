@@ -1,11 +1,12 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Fiber, Layer, Ref, Stream } from "effect"
+import { Effect, Fiber, Layer, Predicate, Ref, Stream } from "effect"
 import { LanguageModel, Response } from "effect/unstable/ai"
 import { AgentTurnLimitExceeded, runAgent, type ToolObservation } from "../src/agent.js"
 import { escapeBlock, escapeInline } from "../src/presentation.js"
 
 const encode = (value: string) => new TextEncoder().encode(value)
+
 const decode = (value: Uint8Array) => new TextDecoder().decode(value)
 
 const projectSnapshot = Effect.gen(function*() {
@@ -14,10 +15,13 @@ const projectSnapshot = Effect.gen(function*() {
       { kind: "file", path: "/BRIEF.md", bytes: encode("Prepare a Friday release.") }
     ]
   })
+
   return yield* project.snapshot
 })
 
 type ModelStep = Array<Response.PartEncoded>
+
+type JsonValue = string | number | boolean | null | ReadonlyArray<JsonValue> | { readonly [key: string]: JsonValue }
 
 const scriptedModel = (
   steps: ReadonlyArray<ModelStep>,
@@ -29,13 +33,14 @@ const scriptedModel = (
       generateText: (options) => {
         requests.push(options)
         const step = steps[requests.length - 1]
+
         return Effect.succeed(step ?? [{ type: "text", text: "Done." }])
       },
       streamText: () => Stream.empty
     })
   )
 
-const call = (id: string, name: string, params: Record<string, unknown>): ModelStep => [{
+const call = (id: string, name: string, params: Readonly<Record<string, JsonValue>>): ModelStep => [{
   type: "tool-call",
   id,
   name,
@@ -45,23 +50,18 @@ const call = (id: string, name: string, params: Record<string, unknown>): ModelS
 
 const text = (value: string): ModelStep => [{ type: "text", text: value }]
 
-const stringLeaves = (value: unknown): ReadonlyArray<string> => {
-  if (typeof value === "string") return [value]
-  if (Array.isArray(value)) return value.flatMap(stringLeaves)
-  if (typeof value === "object" && value !== null) return Object.values(value).flatMap(stringLeaves)
-  return []
-}
-
-const promptText = (request: LanguageModel.ProviderOptions) => stringLeaves(request.prompt).join(" ")
+const promptText = (request: LanguageModel.ProviderOptions) => JSON.stringify(request.prompt)
 
 const requestAt = (requests: ReadonlyArray<LanguageModel.ProviderOptions>, index: number) => {
   const request = requests[index]
   assert.isDefined(request)
+
   return request
 }
 
 const collectObservations = Effect.gen(function*() {
   const observations = yield* Ref.make<ReadonlyArray<ToolObservation>>([])
+
   return {
     observations,
     observe: (observation: ToolObservation) => Ref.update(observations, (current) => [...current, observation])
@@ -81,6 +81,7 @@ describe("overlay agent harness", () => {
       const siblingCaller = yield* (yield* Vfs.makeOverlay(base)).caller()
       const requests: Array<LanguageModel.ProviderOptions> = []
       const observed = yield* collectObservations
+
       const model = scriptedModel([
         call("read-1", "read_file", { path: "BRIEF.md" }),
         call("write-1", "write_file", { path: "proposal.md", content: "Ship Friday after tests pass." }),
@@ -119,10 +120,12 @@ describe("overlay agent harness", () => {
         const caller = yield* (yield* Vfs.makeOverlay(base)).caller()
         const requests: Array<LanguageModel.ProviderOptions> = []
         const observed = yield* collectObservations
+
         const model = scriptedModel([
           call("invalid-1", "read_file", { path: invalidPath }),
           text("Rejected.")
         ], requests)
+
         const result = yield* runAgent({
           caller,
           observe: observed.observe,
@@ -144,9 +147,11 @@ describe("overlay agent harness", () => {
       const project = yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/invalid.txt", bytes: new Uint8Array([0xff]) }]
       })
+
       const caller = yield* (yield* Vfs.makeOverlay(yield* project.snapshot)).caller()
       const requests: Array<LanguageModel.ProviderOptions> = []
       const observed = yield* collectObservations
+
       const result = yield* runAgent({
         caller,
         observe: observed.observe,
@@ -168,6 +173,7 @@ describe("overlay agent harness", () => {
       const author = yield* workspace.caller()
       const reviewer = yield* workspace.caller()
       const observed = yield* collectObservations
+
       const watched = yield* (yield* workspace.watch).pipe(
         Stream.take(2),
         Stream.runCollect,
@@ -208,13 +214,17 @@ describe("overlay agent harness", () => {
       assert.strictEqual(decode(yield* author.readFile("/release-plan.md")), "Later live edit.")
       assert.match(promptText(requestAt(reviewerRequests, 1)), /Ship Friday after tests pass\./)
       const watchEvents = Array.from(yield* Fiber.join(watched))
+
       const observedPaths = yield* Effect.forEach(watchEvents, (event) =>
         Vfs.pathToBytes(event.path).pipe(Effect.map((path) => `${event._tag}:${decode(path)}`)))
+
       assert.deepStrictEqual(observedPaths, ["Create:/release-plan.md", "Create:/REVIEW.md"])
+
       const capturedPaths = yield* Effect.forEach(capture.changes, (change) =>
-        change._tag === "Renamed"
+        Predicate.isTagged(change, "Renamed")
           ? Effect.succeed(change._tag)
           : Vfs.pathToBytes(change.path).pipe(Effect.map(decode)))
+
       assert.deepStrictEqual(capturedPaths, ["/REVIEW.md", "/release-plan.md"])
       assert.deepStrictEqual(
         (yield* Ref.get(observed.observations)).filter((entry) =>
@@ -232,10 +242,12 @@ describe("overlay agent harness", () => {
       const caller = yield* (yield* Vfs.makeOverlay(yield* projectSnapshot)).caller()
       const requests: Array<LanguageModel.ProviderOptions> = []
       const observed = yield* collectObservations
+
       const steps = Array.from(
         { length: 9 },
         (_, index) => call(`read-${index + 1}`, "read_file", { path: "BRIEF.md" })
       )
+
       const failure = yield* runAgent({
         caller,
         observe: observed.observe,
