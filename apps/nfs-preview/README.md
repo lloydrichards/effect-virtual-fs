@@ -43,7 +43,7 @@ In another terminal:
 
 ```sh
 sudo mkdir -p /Volumes/effect-vfs-nfs-preview
-sudo mount_nfs -o vers=4.1,tcp,sec=sys,port=2049,actimeo=1,noowners,ro \
+sudo mount_nfs -o vers=4.1,tcp,sec=sys,port=2049,actimeo=1,noowners \
   127.0.0.1:/ /Volumes/effect-vfs-nfs-preview
 ```
 
@@ -53,7 +53,7 @@ The options have specific jobs:
 - `port=2049` connects to the app's fixed loopback port;
 - `actimeo=1` asks macOS to refresh cached attributes after about one second;
 - `noowners` prevents the preview's numeric owner strings from being treated as macOS identities;
-- `ro` makes the native mount read-only.
+- the mount stays writable on the client on purpose, so that rejected writes are the server's `NFS4ERR_ROFS` rather than the local kernel's read-only flag.
 
 ## Try the filesystem
 
@@ -92,6 +92,24 @@ be unmounted and mounted again.
 
 If a failed run leaves a stale mount, unmount it before retrying. If the mountpoint directory was removed, recreate
 it with the `mkdir` command above.
+
+## Scripted verification
+
+With the app running and the volume mounted, run the read-side checks without `sudo`:
+
+```sh
+bun run --filter @repo/nfs-preview verify-mount
+```
+
+Pass a different mountpoint as the first argument if you did not use the default. The script checks listing, file
+reads, symlink traversal, hard-link identity, the live update after the cache window, reopening, and that writes are
+rejected. It prints one line per check and exits non-zero on any failure. Unmounting stays a manual `sudo umount`.
+
+## External suite
+
+`bun run --filter @repo/nfs-preview conformance` serves a pynfs-shaped fixture with generous client and session
+limits. [CONFORMANCE.md](CONFORMANCE.md) records the pinned pynfs run, how to repeat it, and why each remaining
+failure is expected.
 
 ## Scope
 
