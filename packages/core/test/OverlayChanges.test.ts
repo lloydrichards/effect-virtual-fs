@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import { Predicate, Schema } from "effect"
 import {
   compareOverlay,
   type ObservationEntry,
@@ -7,8 +8,11 @@ import {
 } from "../src/internal/virtualFileSystem/overlayDiff.js"
 
 const encoder = new TextEncoder()
+
 const path = (value: string): Uint8Array => encoder.encode(value)
+
 const content = (value: string): Uint8Array => encoder.encode(value)
+
 const metadata = (overrides: Partial<ObservationMetadata> = {}): ObservationMetadata => ({
   uid: 0,
   gid: 0,
@@ -19,30 +23,31 @@ const metadata = (overrides: Partial<ObservationMetadata> = {}): ObservationMeta
   birthtimeNs: "4",
   ...overrides
 })
+
 const entry = (
   name: string | Uint8Array,
   lineage: string | undefined,
   overrides: Partial<Omit<ObservationEntry, "path" | "lineage">> = {}
 ): ObservationEntry => ({
-  path: typeof name === "string" ? path(name) : name,
+  path: Schema.is(Schema.String)(name) ? path(name) : name,
   lineage,
   kind: "file",
   content: content("same"),
   metadata: metadata(),
   ...overrides
 })
+
 const printable = (changes: ReadonlyArray<RawOverlayChange>) =>
   changes.map((change) => {
-    switch (change._tag) {
-      case "Added":
-      case "Removed":
-        return { ...change, path: [...change.path] }
-      case "Replaced":
-      case "Updated":
-        return { ...change, path: [...change.path], differences: [...change.differences] }
-      case "Renamed":
-        return { ...change, from: [...change.from], to: [...change.to], differences: [...change.differences] }
+    if (Predicate.isTagged("Renamed")(change)) {
+      return { ...change, from: [...change.from], to: [...change.to], differences: [...change.differences] }
     }
+
+    if (Predicate.isTagged("Replaced")(change) || Predicate.isTagged("Updated")(change)) {
+      return { ...change, path: [...change.path], differences: [...change.differences] }
+    }
+
+    return { ...change, path: [...change.path] }
   })
 
 describe("overlay comparison", () => {
@@ -61,6 +66,7 @@ describe("overlay comparison", () => {
       [entry("/from", "moving"), entry("/to", "displaced")],
       [entry("/to", "moving")]
     )
+
     assert.deepStrictEqual(printable(changes), [
       { _tag: "Renamed", from: [...path("/from")], to: [...path("/to")], kind: "file", differences: [] },
       { _tag: "Removed", path: [...path("/to")], kind: "file" }
@@ -188,11 +194,13 @@ describe("overlay comparison", () => {
 
   it("should sort unsigned raw paths bytewise with prefixes first", () => {
     const slash = 47
+
     const changes = compareOverlay([], [
       entry(new Uint8Array([slash, 255]), "high"),
       entry(new Uint8Array([slash, 1, 0]), "long"),
       entry(new Uint8Array([slash, 1]), "short")
     ])
+
     assert.deepStrictEqual(printable(changes).map((change) => "path" in change ? change.path : []), [
       [slash, 1],
       [slash, 1, 0],
@@ -206,6 +214,7 @@ describe("overlay comparison", () => {
       content: undefined,
       metadata: metadata({ mode: 0o755 })
     })
+
     assert.deepStrictEqual(printable(compareOverlay([], [directory, entry("/dir/file", "file")])), [
       { _tag: "Added", path: [...path("/dir")], kind: "directory" },
       { _tag: "Added", path: [...path("/dir/file")], kind: "file" }

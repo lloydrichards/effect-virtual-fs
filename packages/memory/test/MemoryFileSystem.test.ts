@@ -13,6 +13,7 @@ const watchEvents = Effect.fnUntraced(function*(
   options?: FileSystem.WatchOptions
 ) {
   const fs = yield* FileSystem.FileSystem
+
   const events = yield* fs.watch(path, options).pipe(
     Stream.take(count),
     Stream.runCollect,
@@ -20,6 +21,7 @@ const watchEvents = Effect.fnUntraced(function*(
   )
 
   yield* mutation
+
   return Array.from(yield* Fiber.join(events))
 })
 
@@ -104,6 +106,7 @@ it.layer(MemoryFileSystem.layer)("FileSystem (memory-specific)", (it) => {
 
       const existsInFreshVolume = yield* Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
+
         return yield* fs.exists("/shared.txt")
       }).pipe(Effect.provide(Layer.fresh(MemoryFileSystem.layer)))
 
@@ -148,6 +151,7 @@ it.layer(MemoryFileSystem.layer)("FileSystem (memory-specific)", (it) => {
       for (const size of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
         const result = yield* Effect.result(file.truncate(size))
         assert.isTrue(Result.isFailure(result))
+
         if (Result.isFailure(result)) {
           assert.strictEqual(result.failure.reason._tag, "BadArgument")
           assert.strictEqual(result.failure.reason.method, "truncate")
@@ -227,18 +231,22 @@ it.layer(MemoryFileSystem.layer)("FileSystem (memory-specific)", (it) => {
       yield* fs.makeDirectory("/d".repeat(6_000), { recursive: true })
 
       const written = yield* Effect.exit(file.writeAll(encoder.encode("AFTER!")))
+
       const withoutWatchers = {
         succeeded: Exit.isSuccess(written),
         contents: yield* fs.readFileString("/file.txt"),
         position: yield* file.seek(0n, "current")
       }
+
       const watcher = yield* fs.watch("/file.txt").pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* file.seek(0n, "start")
       const watchedWrite = yield* Effect.exit(file.writeAll(encoder.encode("second")))
+
       const withWatcher = {
         succeeded: Exit.isSuccess(watchedWrite),
         contents: yield* fs.readFileString("/file.txt"),
@@ -261,10 +269,12 @@ it.layer(MemoryFileSystem.layer)("FileSystem (memory-specific)", (it) => {
         copy: Exit.isFailure(copied) ? Cause.pretty(copied.cause) : undefined,
         rename: Exit.isFailure(moved) ? Cause.pretty(moved.cause) : undefined
       }, { listing: undefined, copy: undefined, rename: undefined })
+
       if (Exit.isSuccess(listed)) {
         assert.strictEqual(listed.value.length, 5_999)
         assert.strictEqual(listed.value[5_998], Array(5_999).fill("d").join("/"))
       }
+
       assert.isFalse(yield* fs.exists("/d"))
       assert.strictEqual((yield* fs.stat(`/copy${"/d".repeat(5_999)}`)).type, "Directory")
       assert.strictEqual((yield* fs.stat(`/moved${"/d".repeat(5_999)}`)).type, "Directory")
@@ -274,6 +284,7 @@ it.layer(MemoryFileSystem.layer)("FileSystem (memory-specific)", (it) => {
     it.effect(`should publish directory creation when recursive mkdir ends in ${suffix}`, () =>
       Effect.gen(function*() {
         const fs = yield* MemoryFileSystem.make
+
         const events = yield* watchEvents(
           "/",
           1,

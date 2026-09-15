@@ -149,9 +149,11 @@ describe("directory volumes", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.mkdir("work")
+
       const read = Effect.gen(function*() {
         return yield* (yield* Vfs.CurrentFileSystem).stat("work")
       })
+
       const direct = yield* read.pipe(Effect.provideService(Vfs.CurrentFileSystem, caller))
       const layered = yield* read.pipe(Effect.provideService(Vfs.CurrentFileSystem, caller))
       assert.deepStrictEqual(direct, layered)
@@ -166,10 +168,12 @@ describe("input and mutation boundaries", () => {
         assert.strictEqual(error._tag, "ConfigurationError")
         assert.strictEqual(error.field, "maxEntries")
       }
+
       for (const maxPathBytes of [0, -1, 1.5, Infinity]) {
         // @ts-expect-error exercises runtime rejection outside the public ByteSize contract
         assert.strictEqual((yield* Effect.flip(Vfs.make({ maxPathBytes }))).field, "maxPathBytes")
       }
+
       assert.strictEqual((yield* Effect.flip(Vfs.make({ maxPathBytes: ByteSize.zero }))).field, "maxPathBytes")
       assert.strictEqual(
         (yield* Effect.flip(Vfs.make({ maxFileBytes: ByteSize.bytes(0x1_0000_0000) }))).field,
@@ -192,6 +196,7 @@ describe("input and mutation boundaries", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const before = yield* caller.stat("/")
+
       for (
         const [path, code] of [["", "NotFound"], ["a\0b", "InvalidArgument"], ["\ud800", "InvalidPathEncoding"], [
           "a\udc00",
@@ -203,9 +208,11 @@ describe("input and mutation boundaries", () => {
         assert.strictEqual(error.operation, "mkdir")
         assert.strictEqual(error.path, path)
       }
+
       for (const mode of [-1, 0o10000, 0.5, Infinity]) {
         assert.strictEqual((yield* Effect.flip(caller.mkdir("bad", { mode }))).code, "InvalidArgument")
       }
+
       assert.deepStrictEqual(yield* caller.stat("/"), before)
     }))
 
@@ -217,9 +224,11 @@ describe("input and mutation boundaries", () => {
       const detached = new Uint8Array([47, 98])
       structuredClone(detached.buffer, { transfer: [detached.buffer] })
       assert.strictEqual((yield* Effect.flip(Vfs.pathFromBytes(detached))).code, "InvalidArgument")
+
       for (const input of [new Uint8Array(), new Uint8Array([47, 0])]) {
         assert.strictEqual((yield* Effect.flip(Vfs.pathFromBytes(input))).code, "InvalidArgument")
       }
+
       const input = new Uint8Array([0, 47, 97, 0])
       const path = yield* Vfs.pathFromBytes(input.subarray(1, 3))
       input[2] = 98
@@ -229,16 +238,20 @@ describe("input and mutation boundaries", () => {
   it.effect("preserves literal names and resolves dot components through existing directories", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
+
       for (const name of ["work", "back\\slash", "%2f", "é", "e\u0301", "line\nfeed", "😀"]) yield* caller.mkdir(name)
       const work = yield* caller.stat("work")
+
       for (const path of ["/../work", "//work", "///work/", "./work", "/work/../work"]) {
         assert.strictEqual((yield* caller.stat(path)).ino, work.ino)
       }
+
       assert.notStrictEqual((yield* caller.stat("é")).ino, (yield* caller.stat("e\u0301")).ino)
       assert.strictEqual((yield* Effect.flip(caller.stat("/missing/../work"))).code, "NotFound")
       yield* caller.mkdir("/work/child/")
       const relative = yield* caller.withDirectory("work")
       assert.strictEqual((yield* relative.stat("child")).ino, (yield* caller.stat("/work/child")).ino)
+
       for (const path of ["/", ".", "/work/..", "/work/.", "/work/"]) {
         assert.strictEqual((yield* Effect.flip(caller.mkdir(path))).code, "AlreadyExists")
       }
@@ -249,14 +262,18 @@ describe("input and mutation boundaries", () => {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.mkdir("a".repeat(255))
       yield* caller.mkdir("é".repeat(127))
+
       for (const path of ["a".repeat(256), "é".repeat(128)]) {
         assert.strictEqual((yield* Effect.flip(caller.mkdir(path))).code, "PathTooLong")
       }
+
       let path = ""
+
       for (let index = 0; index < 20; index++) {
         path += "/" + "x".repeat(250)
         yield* caller.mkdir(path)
       }
+
       assert.isAbove(new TextEncoder().encode(path).length, 4096)
       const base = yield* caller.withDirectory(path)
       assert.strictEqual((yield* base.stat(".")).ino, (yield* caller.stat(path)).ino)
@@ -277,9 +294,11 @@ describe("input and mutation boundaries", () => {
   it.effect("serializes competing creates and quota accounting", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make({ maxEntries: 1 })).caller()
+
       const results = yield* Effect.forEach([caller.mkdir("/same"), caller.mkdir("/same")], Effect.result, {
         concurrency: "unbounded"
       })
+
       assert.strictEqual(results.filter(Result.isSuccess).length, 1)
       assert.deepStrictEqual(results.filter(Result.isFailure).map((result) => result.failure.code), ["AlreadyExists"])
       assert.strictEqual((yield* caller.stat("/")).nlink, 3)
@@ -306,11 +325,13 @@ describe("authority, time, and resource lifetime", () => {
       const original = yield* Clock.clockWith(Effect.succeed)
       let time = 10n
       let samples = 0
+
       const clock: Clock.Clock = {
         currentTimeMillisUnsafe: () => Number(time / 1_000_000n),
         currentTimeMillis: Effect.sync(() => Number(time / 1_000_000n)),
         currentTimeNanosUnsafe: () => {
           samples += 1
+
           return time
         },
         currentTimeNanos: Effect.sync(() => time),
@@ -318,6 +339,7 @@ describe("authority, time, and resource lifetime", () => {
         monotonicTimeNanos: original.monotonicTimeNanos,
         sleep: (duration) => original.sleep(duration)
       }
+
       const volume = yield* Vfs.make().pipe(Effect.provideService(Clock.Clock, clock))
       const caller = yield* volume.caller()
       const initialSamples = samples
@@ -365,11 +387,14 @@ describe("authority, time, and resource lifetime", () => {
       const handle = yield* caller.openDirectory("/").pipe(Scope.provide(scope))
       yield* Scope.close(scope, Exit.void)
       assert.strictEqual((yield* Effect.flip(handle.stat)).code, "InvalidHandle")
+
       const early = yield* Effect.scoped(Effect.gen(function*() {
         const handle = yield* caller.openDirectory("/")
         yield* handle.close
+
         return handle
       }))
+
       assert.strictEqual((yield* Effect.flip(early.close)).code, "InvalidHandle")
     }))
 
@@ -378,11 +403,13 @@ describe("authority, time, and resource lifetime", () => {
       const caller = yield* (yield* Vfs.make()).caller()
       const ready = yield* Deferred.make<void>()
       const proceed = yield* Deferred.make<void>()
+
       const worker = yield* Effect.gen(function*() {
         yield* Deferred.succeed(ready, undefined)
         yield* Deferred.await(proceed)
         yield* caller.mkdir("/cancelled")
       }).pipe(Effect.forkChild)
+
       yield* Deferred.await(ready)
       yield* Fiber.interrupt(worker)
       assert.strictEqual((yield* Effect.flip(caller.stat("/cancelled"))).code, "NotFound")
@@ -392,12 +419,15 @@ describe("authority, time, and resource lifetime", () => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const acquired = yield* Deferred.make<Vfs.DirectoryHandle>()
+
       const worker = yield* Effect.scoped(Effect.gen(function*() {
         yield* caller.mkdir("/committed")
         const handle = yield* caller.openDirectory("/committed")
         yield* Deferred.succeed(acquired, handle)
+
         return yield* Effect.never
       })).pipe(Effect.forkChild)
+
       const handle = yield* Deferred.await(acquired)
       yield* Fiber.interrupt(worker)
       yield* caller.stat("/committed")
@@ -412,6 +442,7 @@ it.effect("does not retain a directory or deadlock when the acquisition scope is
     yield* Scope.close(scope, Exit.void)
     const result = yield* caller.openDirectory("/").pipe(Scope.provide(scope), Effect.exit)
     assert.isTrue(Exit.isFailure(result))
+
     if (Exit.isFailure(result)) assert.isTrue(Cause.hasInterruptsOnly(result.cause))
     yield* caller.mkdir("/after")
     assert.strictEqual((yield* caller.stat("/")).nlink, 3)
@@ -420,18 +451,22 @@ it.effect("does not retain a directory or deadlock when the acquisition scope is
 it.effect("coordinates scope closure with acquisition without returning a live escaped reference", () =>
   Effect.gen(function*() {
     const caller = yield* (yield* Vfs.make()).caller()
+
     for (let attempt = 0; attempt < 10; attempt++) {
       const scope = yield* Scope.make()
+
       const [acquisition] = yield* Effect.all([
         caller.openDirectory("/").pipe(Scope.provide(scope), Effect.exit),
         Scope.close(scope, Exit.void)
       ], { concurrency: "unbounded" })
+
       if (Exit.isSuccess(acquisition)) {
         assert.strictEqual((yield* Effect.flip(acquisition.value.stat)).code, "InvalidHandle")
       } else {
         assert.isTrue(Cause.hasInterruptsOnly(acquisition.cause))
       }
     }
+
     yield* caller.mkdir("/still-usable")
   }).pipe(Effect.provideService(Scheduler.MaxOpsBeforeYield, 64)))
 
@@ -439,10 +474,12 @@ it.effect("orders handle observation against explicit close", () =>
   Effect.gen(function*() {
     const caller = yield* (yield* Vfs.make()).caller()
     const handle = yield* caller.openDirectory("/")
+
     const [observation] = yield* Effect.all([
       handle.stat.pipe(Effect.result),
       handle.close
     ], { concurrency: "unbounded" })
+
     if (Result.isFailure(observation)) assert.strictEqual(observation.failure.code, "InvalidHandle")
     else assert.strictEqual(observation.success.ino, (yield* caller.stat("/")).ino)
     assert.strictEqual((yield* Effect.flip(handle.stat)).code, "InvalidHandle")

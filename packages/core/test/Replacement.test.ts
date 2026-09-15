@@ -9,11 +9,13 @@ describe("whole-file symlink replacement", () => {
       const fs = yield* volume.caller()
       yield* fs.writeFile("/target", new Uint8Array([42]), { access: "write", create: "exclusive" })
       yield* fs.symlink("/target", "/link")
+
       const watcher = yield* (yield* volume.watch).pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* fs.writeFile("/link", new Uint8Array(7), {
         access: "write",
         create: "ifMissing",
@@ -39,12 +41,14 @@ describe("whole-file symlink replacement", () => {
       yield* fs.link("/a", "/b")
       const before = yield* fs.lstat("/a")
       const root = yield* fs.stat("/")
+
       const failure = yield* Effect.flip(fs.writeFile("/a", new Uint8Array([1]), {
         access: "write",
         create: "ifMissing",
         truncate: true,
         replaceFinalSymlink: true
       }))
+
       assert.strictEqual(failure.code, "NoSpace")
       assert.deepStrictEqual(yield* fs.lstat("/a"), before)
       assert.deepStrictEqual(yield* fs.stat("/"), root)

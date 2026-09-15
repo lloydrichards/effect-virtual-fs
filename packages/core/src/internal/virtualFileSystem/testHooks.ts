@@ -17,6 +17,7 @@ export const getObservationHook = (snapshot: Snapshot): ObservationHook | undefi
 /** @internal */
 export const setObservationHook = (snapshot: Snapshot, hook: ObservationHook): () => void => {
   observationHooks.set(snapshot, hook)
+
   return () => {
     if (observationHooks.get(snapshot) === hook) observationHooks.delete(snapshot)
   }
@@ -35,6 +36,7 @@ export const getRegistrationHook = (volume: Volume): RegistrationHook | undefine
 /** @internal */
 export const setRegistrationHook = (volume: Volume, hook: RegistrationHook): () => void => {
   registrationHooks.set(volume, hook)
+
   return () => {
     if (registrationHooks.get(volume) === hook) registrationHooks.delete(volume)
   }

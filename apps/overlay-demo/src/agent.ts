@@ -5,6 +5,7 @@ import { Chat, LanguageModel, Tool, Toolkit } from "effect/unstable/ai"
 import { FetchHttpClient } from "effect/unstable/http"
 
 const encoder = new TextEncoder()
+
 const decoder = new TextDecoder("utf-8", { fatal: true })
 
 export type AgentRole = "planner" | "author" | "reviewer"
@@ -52,11 +53,15 @@ const projectPath = (input: string) => {
   if (input.startsWith("/")) {
     return Effect.fail("Use a path relative to the project root, not an absolute path")
   }
+
   const segments = input.split("/")
+
   if (segments.includes("..")) {
     return Effect.fail("Path traversal outside the project root is not allowed")
   }
+
   const normalized = segments.filter((segment) => segment !== "" && segment !== ".").join("/")
+
   return Effect.succeed(normalized === "" ? "." : normalized)
 }
 
@@ -73,11 +78,14 @@ export const makeWorkspaceToolkit = Effect.fn("Agent.makeWorkspaceToolkit")(func
     read_file: Effect.fn("WorkspaceTools.readFile")(function*({ path }) {
       const relativePath = yield* projectPath(path)
       const bytes = yield* caller.readFile(relativePath).pipe(Effect.mapError(fsFailure))
+
       const content = yield* Effect.try({
         try: () => decoder.decode(bytes),
         catch: () => `Invalid UTF-8 file: ${relativePath}`
       })
+
       yield* observed("read", relativePath)
+
       return content
     }),
     write_file: Effect.fn("WorkspaceTools.writeFile")(function*({ content, path }) {
@@ -88,12 +96,14 @@ export const makeWorkspaceToolkit = Effect.fn("Agent.makeWorkspaceToolkit")(func
         truncate: true
       }).pipe(Effect.mapError(fsFailure))
       yield* observed("write", relativePath)
+
       return `Wrote ${relativePath}`
     }),
     list_directory: Effect.fn("WorkspaceTools.listDirectory")(function*({ path }) {
       const relativePath = yield* projectPath(path)
       const entries = yield* caller.readDirectory(relativePath).pipe(Effect.mapError(fsFailure))
       yield* observed("list", relativePath)
+
       return [...entries]
     })
   }))))
@@ -113,6 +123,7 @@ export const runAgent = Effect.fn("Agent.run")(function*({
   readonly task: string
 }) {
   const toolkit = yield* makeWorkspaceToolkit(caller, role, observe)
+
   const chat = yield* Chat.fromPrompt([
     {
       role: "system",
@@ -132,6 +143,7 @@ export const runAgent = Effect.fn("Agent.run")(function*({
       toolkit,
       concurrency: 1
     })
+
     if (response.toolCalls.length === 0) {
       return { response: response.text, turns: turn }
     }
@@ -148,6 +160,7 @@ export const LanguageModelLive = Layer.effect(
   LanguageModel.LanguageModel,
   Effect.gen(function*() {
     const model = yield* Config.String("OPENAI_MODEL").pipe(Config.withDefault("gpt-5-mini"))
+
     return yield* OpenAiLanguageModel.make({ model })
   })
 ).pipe(Layer.provide(OpenAiClientLive))

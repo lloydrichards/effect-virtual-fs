@@ -24,8 +24,10 @@ const handleConnection = (
       const pull = yield* Socket.readerBytes(socket)
       const writer = yield* socket.writer
       const decoder = new RecordDecoder(limits)
+
       while (true) {
         const chunks = yield* pull
+
         for (const chunk of chunks) {
           const records = yield* Effect.suspend(() => {
             try {
@@ -35,8 +37,10 @@ const handleConnection = (
               throw cause
             }
           })
+
           for (const record of records) {
             const response = yield* handleCall(record, limits, handlers)
+
             if (response !== undefined) yield* writer.write(encodeRecord(response))
           }
         }
@@ -44,10 +48,10 @@ const handleConnection = (
     })
   ).pipe(
     Effect.catchTag("RecordMarkingError", () => Effect.void),
-    Effect.catchIf((error) => error.reason._tag === "SocketCloseError", () => Effect.void)
+    Effect.catchReason("SocketError", "SocketCloseError", () => Effect.void)
   )
 
-export const makeServer = (
+export const startServer = (
   server: SocketServer.SocketServer["Service"],
   options: ServerOptions,
   handlers: RpcHandlers

@@ -15,10 +15,12 @@ const program = Effect.scoped(
         { kind: "symlink", path: "/latest", target: "notes/live.txt" }
       ]
     })
+
     const caller = yield* volume.caller()
     yield* Effect.forkScoped(
       Effect.gen(function*() {
         let revision = 1
+
         while (true) {
           yield* Effect.sleep("2 seconds")
           revision += 1
@@ -31,6 +33,7 @@ const program = Effect.scoped(
       })
     )
     yield* caller.rootReference
+
     const server = yield* NfsServer.make({
       volume,
       caller
@@ -43,6 +46,7 @@ const program = Effect.scoped(
     yield* Effect.log(
       "sudo mount_nfs -o vers=4.1,tcp,sec=sys,port=2049,actimeo=1,noowners,ro 127.0.0.1:/ /Volumes/effect-vfs-nfs-preview"
     )
+
     return yield* Effect.never
   })
 ).pipe(

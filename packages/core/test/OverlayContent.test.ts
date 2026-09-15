@@ -10,6 +10,7 @@ describe("overlay content storage", () => {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/file", bytes: new Uint8Array([1, 2, 3]) }]
       })).snapshot
+
       const image = yield* Image.inspect(base)
       assert.isFalse(Content.hasOverlayContents(base))
       // @ts-expect-error exercises runtime rejection of a value outside the public ByteSize contract

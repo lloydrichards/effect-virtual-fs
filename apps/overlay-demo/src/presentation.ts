@@ -1,5 +1,5 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { Console, Effect } from "effect"
+import { Console, Effect, Predicate } from "effect"
 import * as Ansi from "effect-boxes/Ansi"
 import * as Box from "effect-boxes/Box"
 
@@ -31,6 +31,7 @@ const escapeText = (value: string, allowNewlines: boolean) =>
   Array.from(value, (character) => {
     const codePoint = character.codePointAt(0) ?? 0
     const isControl = codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)
+
     return !isControl || (allowNewlines && character === "\n") ? character : visibleControl(character)
   }).join("")
 
@@ -63,17 +64,19 @@ const blockRow = (label: string, value: string, color: Ansi.AnsiAnnotation = Ans
 const pathText = (path: Vfs.BytePath) => Vfs.pathToBytes(path).pipe(Effect.map(decode))
 
 const changeText = Effect.fnUntraced(function*(change: Vfs.OverlayChange) {
-  switch (change._tag) {
-    case "Added":
-    case "Removed":
-      return `${change._tag} ${yield* pathText(change.path)}`
-    case "Replaced":
-      return `Replaced ${yield* pathText(change.path)} (${change.beforeKind} → ${change.afterKind})`
-    case "Renamed":
-      return `Renamed ${yield* pathText(change.from)} → ${yield* pathText(change.to)}`
-    case "Updated":
-      return `Updated ${yield* pathText(change.path)} (${change.differences.join(", ")})`
+  if (Predicate.isTagged(change, "Added") || Predicate.isTagged(change, "Removed")) {
+    return `${change._tag} ${yield* pathText(change.path)}`
   }
+
+  if (Predicate.isTagged(change, "Replaced")) {
+    return `Replaced ${yield* pathText(change.path)} (${change.beforeKind} → ${change.afterKind})`
+  }
+
+  if (Predicate.isTagged(change, "Renamed")) {
+    return `Renamed ${yield* pathText(change.from)} → ${yield* pathText(change.to)}`
+  }
+
+  return `Updated ${yield* pathText(change.path)} (${change.differences.join(", ")})`
 })
 
 export const pacing = Effect.sleep("350 millis")
@@ -119,6 +122,7 @@ export const showFile = (label: string, path: string, content: string) =>
 
 export const showToolAction = (action: ToolAction) => {
   const detail = action.detail === undefined ? "" : ` · ${action.detail}`
+
   return render(
     row(
       action.actor.toUpperCase(),

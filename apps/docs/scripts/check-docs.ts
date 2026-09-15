@@ -8,12 +8,15 @@ import { navigation } from "../app/nav.config"
 import routes from "../app/routes"
 
 const root = path.resolve(import.meta.dirname, "../../..")
+
 const contentDir = path.join(root, "apps/docs/app/content")
 
 const walk = async (directory: string): Promise<Array<string>> => {
   const entries = await readdir(directory, { withFileTypes: true })
+
   return (await Promise.all(entries.map((entry) => {
     const absolute = path.join(directory, entry.name)
+
     return entry.isDirectory() ? walk(absolute) : Promise.resolve([absolute])
   }))).flat()
 }
@@ -23,10 +26,12 @@ const expectedContent = [
   ...contentPages.map(({ contentPath }) => contentPath.replace("content/", "")),
   ...apiPages.map(({ contentPath }) => contentPath.replace("content/", ""))
 ].sort()
+
 const actualContent = (await walk(contentDir))
   .map((file) => path.relative(contentDir, file))
   .filter((file) => file.endsWith(".mdx"))
   .sort()
+
 const expectedRoutes = [...contentPages, ...apiPages].map(({ href }) => href).sort()
 
 const assertEqual = (label: string, actual: ReadonlyArray<string>, expected: ReadonlyArray<string>): void => {
@@ -36,11 +41,13 @@ const assertEqual = (label: string, actual: ReadonlyArray<string>, expected: Rea
 }
 
 assertEqual("Content", actualContent, expectedContent)
+
 assertEqual(
   "Routes",
   routes.filter((entry) => "path" in entry).map((entry) => `/${entry.path}`).sort(),
   expectedRoutes
 )
+
 assertEqual("Navigation", navigation.flatMap(({ items }) => items.map(({ href }) => href)).sort(), expectedRoutes)
 
 console.log(

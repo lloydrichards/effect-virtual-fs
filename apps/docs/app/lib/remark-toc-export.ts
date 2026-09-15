@@ -21,6 +21,7 @@ const remarkTocExport: () => (tree: any) => void = () => {
     visit(tree, "heading", (node: any) => {
       if (node.depth >= 2 && node.depth <= 4) {
         const value = toString(node)
+
         // Generate slug matching rehype-slug (github-slugger style)
         const id = value
           .toLowerCase()

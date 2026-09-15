@@ -5,13 +5,16 @@ import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const traced = <A, E, R>(effect: Effect.Effect<A, E, R>) => {
   const spans: Array<Tracer.NativeSpan> = []
+
   const tracer = Tracer.make({
     span(options) {
       const span = new Tracer.NativeSpan(options)
       spans.push(span)
+
       return span
     }
   })
+
   return effect.pipe(
     Effect.withTracer(tracer),
     Effect.map((value) => ({ value, names: spans.map((span) => span.name) }))

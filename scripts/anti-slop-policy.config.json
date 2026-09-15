@@ -1,0 +1,17 @@
+{
+  "jsPlugins": [
+    {
+      "name": "anti-slop",
+      "specifier": "../tools/oxlint/anti-slop/index.ts"
+    },
+    {
+      "name": "anti-slop-effect",
+      "specifier": "../tools/oxlint/anti-slop/effect/index.ts"
+    }
+  ],
+  "rules": {
+    "anti-slop/no-shape-in-symbol-names": "error",
+    "anti-slop-effect/no-manual-tagged-construction": "error",
+    "anti-slop-effect/prefer-effect-match": "error"
+  }
+}

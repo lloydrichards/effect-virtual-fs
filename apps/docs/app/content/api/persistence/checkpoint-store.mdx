@@ -21,30 +21,6 @@ export declare class CheckpointError
 
 Added in v0.1.0
 
-## models
-
-### CheckpointStoreShape (interface)
-
-Named checkpoints with no implicit capture, replacement, or live-write persistence.
-
-**Signature**
-
-```ts
-export interface CheckpointStoreShape {
-  /** Saves a new name. A duplicate fails without modifying the existing checkpoint. */
-  readonly save: (
-    name: string,
-    snapshot: Vfs.Snapshot,
-  ) => Effect.Effect<void, CheckpointError | Vfs.ImageError>;
-  /** Loads a validated snapshot. A missing name fails with `NotFound`. */
-  readonly load: (
-    name: string,
-  ) => Effect.Effect<Vfs.Snapshot, CheckpointError | Vfs.ImageError>;
-}
-```
-
-Added in v0.1.0
-
 ## services
 
 ### CheckpointStore (class)

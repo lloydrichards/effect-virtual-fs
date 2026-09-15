@@ -5,6 +5,7 @@ import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
@@ -58,6 +59,7 @@ const limits: NfsServerLimits = {
 
 const rpcNull = (xid: number): Uint8Array => {
   const none = new Writer().uint32(0).opaque(new Uint8Array()).bytes()
+
   const header = new Writer()
     .uint32(xid)
     .uint32(0)
@@ -66,10 +68,12 @@ const rpcNull = (xid: number): Uint8Array => {
     .uint32(4)
     .uint32(0)
     .bytes()
+
   const result = new Uint8Array(header.length + none.length * 2)
   result.set(header)
   result.set(none, header.length)
   result.set(none, header.length + none.length)
+
   return encodeRecord(result)
 }
 
@@ -80,16 +84,19 @@ const exchange = (
 ): Effect.Effect<ReadonlyArray<Uint8Array>, TestSocketError> =>
   Effect.callback((resume) => {
     const socket = Net.createConnection({ host: "127.0.0.1", port })
+
     const decoder = new RecordDecoder({
       maxFragmentBytes: limits.maxFragmentBytes,
       maxRecordBytes: limits.maxRecordBytes,
       maxFragmentsPerRecord: limits.maxFragmentsPerRecord
     })
+
     const received: Array<Uint8Array> = []
     socket.on("connect", () => socket.write(request))
     socket.on("data", (chunk) => {
       try {
-        received.push(...decoder.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk))
+        received.push(...decoder.push(Predicate.isString(chunk) ? Buffer.from(chunk) : chunk))
+
         if (received.length < expectedRecords) return
         socket.end()
         resume(Effect.succeed(received))
@@ -99,6 +106,7 @@ const exchange = (
       }
     })
     socket.on("error", (cause) => resume(Effect.fail(new TestSocketError({ cause }))))
+
     return Effect.sync(() => socket.destroy())
   })
 
@@ -111,10 +119,12 @@ const awaitRejectedConnection = (
     socket.on("connect", () => socket.write(request))
     socket.on("close", () => resume(Effect.void))
     socket.on("error", (cause) => {
+      // SAFETY: Node's socket error event emits ErrnoException values with an optional code.
       if ((cause as NodeJS.ErrnoException).code === "ECONNRESET") {
         resume(Effect.void)
       } else resume(Effect.fail(new TestSocketError({ cause })))
     })
+
     return Effect.sync(() => socket.destroy())
   })
 
@@ -122,11 +132,14 @@ const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
   const result = new Uint8Array(
     parts.reduce((size, part) => size + part.length, 0)
   )
+
   let offset = 0
+
   for (const part of parts) {
     result.set(part, offset)
     offset += part.length
   }
+
   return result
 }
 
@@ -185,6 +198,7 @@ describe("NfsServer", () => {
         limits
       })
     )
+
     const withUnknownField = {
       host: "127.0.0.1" as const,
       port: 0,
@@ -192,6 +206,7 @@ describe("NfsServer", () => {
       limits,
       unknown: true
     }
+
     assert.isTrue(
       Result.isFailure(
         Schema.decodeResult(NfsServerConfig, { onExcessProperty: "error" })(
@@ -207,21 +222,34 @@ describe("NfsServer", () => {
       Effect.gen(function*() {
         const volume = yield* Vfs.make()
         const caller = yield* volume.caller()
+
         const transportOption = yield* Effect.flip(
-          NfsServer.make({
-            ...options(volume, caller),
-            host: "0.0.0.0"
-          } as unknown as NfsServerOptions)
+          NfsServer.make(
+            // SAFETY: This test deliberately supplies an unsupported property to test boundary validation.
+            // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- Runtime validation requires an invalid typed input.
+            {
+              ...options(volume, caller),
+              host: "0.0.0.0"
+            } as unknown as NfsServerOptions
+          )
         )
+
         assert.instanceOf(transportOption, ConfigurationError)
         assert.strictEqual(transportOption.option, "host")
+
         const unknownOption = yield* Effect.flip(
-          NfsServer.make({
-            ...options(volume, caller),
-            unexpected: true
-          } as unknown as NfsServerOptions)
+          NfsServer.make(
+            // SAFETY: This test deliberately supplies an unknown property to test boundary validation.
+            // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- Runtime validation requires an invalid typed input.
+            {
+              ...options(volume, caller),
+              unexpected: true
+            } as unknown as NfsServerOptions
+          )
         )
+
         assert.instanceOf(unknownOption, ConfigurationError)
+
         const invalidLimit = yield* Effect.flip(
           NfsServer.make({
             volume,
@@ -229,8 +257,10 @@ describe("NfsServer", () => {
             limits: { maxConnections: 0 }
           })
         )
+
         assert.instanceOf(invalidLimit, ConfigurationError)
         assert.strictEqual(invalidLimit.option, "limits.maxConnections")
+
         const invalidPendingReplacements = yield* Effect.flip(
           NfsServer.make({
             volume,
@@ -238,6 +268,7 @@ describe("NfsServer", () => {
             limits: { maxPendingClientReplacements: 0 }
           })
         )
+
         assert.instanceOf(invalidPendingReplacements, ConfigurationError)
         assert.strictEqual(
           invalidPendingReplacements.option,
@@ -245,20 +276,26 @@ describe("NfsServer", () => {
         )
 
         const otherVolume = yield* Vfs.make()
+
         const mismatched = yield* Effect.flip(
           NfsServer.make(options(volume, yield* otherVolume.caller()))
         )
+
         assert.instanceOf(mismatched, ConfigurationError)
         assert.strictEqual(mismatched.option, "caller")
 
         const callerScope = yield* Scope.make()
+
         const scopedCaller = yield* caller
           .withDirectory("/")
           .pipe(Scope.provide(callerScope))
+
         yield* Scope.close(callerScope, Exit.void)
+
         const closed = yield* Effect.flip(
           NfsServer.make(options(volume, scopedCaller))
         )
+
         assert.instanceOf(closed, ConfigurationError)
         assert.strictEqual(closed.option, "caller")
       }).pipe(
@@ -270,14 +307,17 @@ describe("NfsServer", () => {
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
       const caller = yield* volume.caller()
+
       const nonLoopback = SocketServer.SocketServer.of({
         address: NetAddress.inetAddressFromIpStringUnsafe("0.0.0.0", 2049),
         run: () => Effect.never
       })
+
       const error = yield* NfsServer.make(options(volume, caller)).pipe(
         Effect.provideService(SocketServer.SocketServer, nonLoopback),
         Effect.flip
       )
+
       assert.instanceOf(error, ConfigurationError)
       assert.strictEqual(error.option, "socketServer.address")
     }))
@@ -289,10 +329,12 @@ describe("NfsServer", () => {
         const volume = yield* Vfs.make()
         const caller = yield* volume.caller()
         const firstScope = yield* Scope.make()
+
         const firstSocketServer = yield* NodeSocketServer.make({
           host: "127.0.0.1",
           port: 0
         }).pipe(Scope.provide(firstScope))
+
         const first = yield* NfsServer.make({
           volume,
           caller,
@@ -301,13 +343,16 @@ describe("NfsServer", () => {
           Effect.provideService(SocketServer.SocketServer, firstSocketServer),
           Scope.provide(firstScope)
         )
+
         assert.strictEqual(first.address.host, "127.0.0.1")
         assert.notStrictEqual(first.address.port, 0)
+
         const responses = yield* exchange(
           first.address.port,
           concat(rpcNull(91), rpcNull(92)),
           2
         )
+
         assert.deepStrictEqual(
           responses.map((response) =>
             new DataView(
@@ -337,16 +382,19 @@ describe("NfsServer", () => {
         yield* Scope.close(firstScope, Exit.void)
 
         const secondScope = yield* Scope.make()
+
         const secondSocketServer = yield* NodeSocketServer.make({
           host: "127.0.0.1",
           port: first.address.port
         }).pipe(Scope.provide(secondScope))
+
         const second = yield* NfsServer.make(
           options(volume, caller)
         ).pipe(
           Effect.provideService(SocketServer.SocketServer, secondSocketServer),
           Scope.provide(secondScope)
         )
+
         assert.strictEqual(second.address.port, first.address.port)
         yield* Scope.close(secondScope, Exit.void)
       })

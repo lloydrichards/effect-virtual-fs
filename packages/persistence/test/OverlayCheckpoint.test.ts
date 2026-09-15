@@ -11,6 +11,7 @@ const limits = {
   maxEntries: 100,
   maxDecodedBytes: ByteSize.kilobytes(10)
 }
+
 const database = <A, E>(effect: Effect.Effect<A, E, SqlClient>) =>
   effect.pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" })))
 
@@ -20,6 +21,7 @@ describe("overlay checkpoints", () => {
       yield* CheckpointStore.migrate
       const store = yield* CheckpointStore.make(limits)
       const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))
+
       const source = yield* Vfs.fromFixture({
         rootMetadata: { mode: 0o751, uid: 7, gid: 11 },
         entries: [
@@ -29,6 +31,7 @@ describe("overlay checkpoints", () => {
           { kind: "hardLink", path: "/link-alias", target: "/link" }
         ]
       })
+
       const overlay = yield* Vfs.makeOverlay(yield* source.snapshot)
       const fs = yield* overlay.caller()
       yield* fs.writeFile("/alias", new Uint8Array([9, 8, 7]), { access: "write", truncate: true })

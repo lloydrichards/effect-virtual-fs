@@ -5,6 +5,7 @@ import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as SchemaIssue from "effect/SchemaIssue"
@@ -12,36 +13,43 @@ import type * as Scope from "effect/Scope"
 import * as SocketServer from "effect/unstable/socket/SocketServer"
 import { makeExport } from "./internal/export.js"
 import { makeNfs4Handler } from "./internal/nfs4.js"
-import { makeServer } from "./internal/server.js"
+import { startServer } from "./internal/server.js"
 
 const PositiveSafeInteger = Schema.Finite.check(
   Schema.isInt(),
   Schema.isGreaterThanOrEqualTo(1),
   Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
 )
+
 const Uint32 = Schema.Finite.check(
   Schema.isInt(),
   Schema.isGreaterThanOrEqualTo(0),
   Schema.isLessThanOrEqualTo(0xffff_ffff)
 )
+
 const PositiveUint32 = Uint32.check(Schema.isGreaterThanOrEqualTo(1))
+
 const PositiveByteSize = Schema.ByteSize.check(
   Schema.makeFilter((size) => size > 0n ? undefined : "must be at least 1 byte"),
   Schema.makeFilter((size) => size <= 0xffff_ffffn ? undefined : "must be at most 4294967295 bytes")
 )
+
 const FragmentByteSize = PositiveByteSize.check(
   Schema.makeFilter((size) => size <= 0x7fff_ffffn ? undefined : "must be at most 2147483647 bytes")
 )
+
 const NameByteSize = PositiveByteSize.check(
   Schema.makeFilter((size) => size <= 255n ? undefined : "must be at most 255 bytes")
 )
 
 /** Schema for a literal IPv4 or IPv6 loopback address. */
 export const LoopbackHost = Schema.Literals(["127.0.0.1", "::1"])
+
 export type LoopbackHost = typeof LoopbackHost.Type
 
 /** Schema for a TCP port, including `0` for an ephemeral port. */
 export const Port = Uint32.check(Schema.isLessThanOrEqualTo(65_535))
+
 export type Port = typeof Port.Type
 
 const NfsServerLimitsSchema = Schema.Struct({
@@ -72,6 +80,7 @@ const NfsServerLimitsSchema = Schema.Struct({
   maxNameBytes: NameByteSize,
   maxFilehandles: PositiveSafeInteger
 })
+
 export type NfsServerLimits = typeof NfsServerLimitsSchema.Type
 
 const makeNfsServerLimits = (limits: NfsServerLimits): NfsServerLimits => Object.freeze({ ...limits })
@@ -104,6 +113,7 @@ const constrained = makeNfsServerLimits({
   maxNameBytes: ByteSize.bytes(255),
   maxFilehandles: 512
 })
+
 const defaultLimits = makeNfsServerLimits({
   maxConnections: 16,
   maxFragmentBytes: ByteSize.mebibytes(1),
@@ -182,6 +192,7 @@ export const NfsServerLimitOverrides = Schema.Struct({
   maxNameBytes: Schema.optionalKey(NfsServerLimits.fields.maxNameBytes),
   maxFilehandles: Schema.optionalKey(NfsServerLimits.fields.maxFilehandles)
 })
+
 export type NfsServerLimitOverrides = typeof NfsServerLimitOverrides.Type
 
 /** Schema for configuration that can be validated without opening runtime capabilities. */
@@ -189,6 +200,7 @@ const NfsServerConfigSchema = Schema.Struct({
   leaseDurationSeconds: PositiveUint32,
   limits: NfsServerLimits
 })
+
 export type NfsServerConfig = typeof NfsServerConfigSchema.Type
 
 const defaultConfig: NfsServerConfig = Object.freeze({
@@ -206,6 +218,7 @@ export const NfsServerConfigOverrides = Schema.Struct({
   leaseDurationSeconds: Schema.optionalKey(PositiveUint32),
   limits: Schema.optionalKey(NfsServerLimitOverrides)
 })
+
 export type NfsServerConfigOverrides = typeof NfsServerConfigOverrides.Type
 
 /** Schema for the bound server address. */
@@ -213,17 +226,13 @@ export const NfsServerAddress = Schema.Struct({
   host: LoopbackHost,
   port: Port
 })
+
 export type NfsServerAddress = typeof NfsServerAddress.Type
 
 /** Validated configuration paired with the live volume and caller capabilities. */
 export type NfsServerOptions = NfsServerConfigOverrides & {
   readonly volume: Vfs.Volume
   readonly caller: Vfs.Caller
-}
-
-/** Runtime service contract for a bound server. */
-export interface NfsServerShape {
-  readonly address: NfsServerAddress
 }
 
 export class ConfigurationError extends Data.TaggedError("ConfigurationError")<{
@@ -247,20 +256,24 @@ const configurationError = (
 const configurationPath = (
   issue: SchemaIssue.Issue
 ): ReadonlyArray<PropertyKey> => {
-  if (issue._tag === "Pointer") {
+  if (Predicate.isTagged(issue, "Pointer")) {
     return [...issue.path, ...configurationPath(issue.issue)]
   }
-  if (issue._tag === "Composite" || issue._tag === "AnyOf") {
+
+  if (Predicate.isTagged(issue, "Composite") || Predicate.isTagged(issue, "AnyOf")) {
     return issue.issues.length === 0 ? [] : configurationPath(issue.issues[0]!)
   }
-  if (issue._tag === "Filter" || issue._tag === "Encoding") {
+
+  if (Predicate.isTagged(issue, "Filter") || Predicate.isTagged(issue, "Encoding")) {
     return configurationPath(issue.issue)
   }
+
   return []
 }
 
 const configurationField = (issue: SchemaIssue.Issue): string => {
   const path = configurationPath(issue)
+
   return path.length === 0 ? "options" : path.map(String).join(".")
 }
 
@@ -270,11 +283,13 @@ const decodeConfig = (
   Effect.suspend(() => {
     const { caller: _caller, volume: _volume, ...supplied } = options
     const suppliedLimits: unknown = supplied.limits
+
     const limits = suppliedLimits === undefined
       ? NfsServerLimits.default
-      : typeof suppliedLimits === "object" && suppliedLimits !== null
+      : Predicate.isObject(suppliedLimits)
       ? { ...NfsServerLimits.default, ...suppliedLimits }
       : suppliedLimits
+
     return Schema.decodeUnknownResult(NfsServerConfig, { onExcessProperty: "error" })({
       ...supplied,
       leaseDurationSeconds: supplied.leaseDurationSeconds === undefined
@@ -284,6 +299,7 @@ const decodeConfig = (
     }).pipe(
       Result.mapError((error) => {
         const option = configurationField(error.issue)
+
         return configurationError(
           option,
           `Invalid NFS server configuration at ${option}`
@@ -296,7 +312,7 @@ const decodeConfig = (
 const make = (
   options: NfsServerOptions
 ): Effect.Effect<
-  NfsServerShape,
+  NfsServer["Service"],
   ConfigurationError | NfsServerError,
   Scope.Scope | SocketServer.SocketServer
 > =>
@@ -305,8 +321,9 @@ const make = (
     const limits = config.limits
     const socketServer = yield* SocketServer.SocketServer
     const socketAddress = socketServer.address
+
     const address = yield* Schema.decodeUnknownEffect(NfsServerAddress)(
-      socketAddress._tag === "UnixPathAddress"
+      Predicate.isTagged(socketAddress, "UnixPathAddress")
         ? socketAddress
         : {
           host: socketAddress.address.toString(),
@@ -320,11 +337,13 @@ const make = (
         )
       )
     )
+
     const volumeCaller = yield* options.volume
       .caller()
       .pipe(
         Effect.mapError(() => configurationError("volume", "volume could not create a caller"))
       )
+
     const [volumeRoot, callerRoot] = yield* Effect.all([
       volumeCaller.rootReference,
       options.caller.rootReference
@@ -336,6 +355,7 @@ const make = (
         )
       )
     )
+
     if (volumeRoot !== callerRoot) {
       return yield* configurationError(
         "caller",
@@ -345,13 +365,15 @@ const make = (
 
     const generation = globalThis.crypto.getRandomValues(new Uint8Array(16))
     const export_ = makeExport(options.caller, generation, limits)
+
     const handler = yield* makeNfs4Handler(export_, {
       generation,
       leaseDurationSeconds: config.leaseDurationSeconds,
       limits,
       now: Date.now
     })
-    yield* makeServer(
+
+    yield* startServer(
       socketServer,
       { limits },
       handler
@@ -360,10 +382,13 @@ const make = (
         (cause: SocketServer.SocketServerError) => new NfsServerError({ cause })
       )
     )
+
     return { address }
   })
 
-export class NfsServer extends Context.Service<NfsServer, NfsServerShape>()(
+export class NfsServer extends Context.Service<NfsServer, {
+  readonly address: NfsServerAddress
+}>()(
   "@effect-vfs/nfs/NfsServer"
 ) {
   static readonly make = make

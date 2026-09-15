@@ -9,12 +9,15 @@ const limits = {
   maxEntries: 100,
   maxDecodedBytes: ByteSize.kilobytes(10)
 }
+
 export const live: Layer.Layer<CheckpointStore, Vfs.ImageError, SqlClient> = CheckpointStore.layer(limits)
+
 export const program: Effect.Effect<
   Vfs.Volume,
   CheckpointError | Vfs.ImageError | Vfs.ConfigurationError,
   CheckpointStore
 > = Effect.gen(function*() {
   const store = yield* CheckpointStore
+
   return yield* Vfs.fromSnapshot(yield* store.load("run"))
 })

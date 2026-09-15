@@ -1,18 +1,22 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Deferred, Effect, Exit, Fiber, Scope, Stream } from "effect"
+import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { setObservationHook } from "../src/internal/virtualFileSystem/testHooks.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
+
 const text = (value: Uint8Array) => new TextDecoder().decode(value)
+
 const pathText = (path: Vfs.BytePath) => Vfs.pathToBytes(path).pipe(Effect.map(text))
+
 const changePaths = (changes: ReadonlyArray<Vfs.OverlayChange>) =>
   Effect.forEach(changes, (change): Effect.Effect<string, Vfs.FsError> => {
-    if (change._tag === "Renamed") {
+    if (Predicate.isTagged("Renamed")(change)) {
       return Effect.all({ from: pathText(change.from), to: pathText(change.to) }).pipe(
         Effect.map(({ from, to }) => `${change._tag}:${from}->${to}`)
       )
     }
+
     return pathText(change.path).pipe(Effect.map((path) => `${change._tag}:${path}`))
   })
 
@@ -25,6 +29,7 @@ describe("overlay volumes", () => {
           { kind: "hardLink", path: "/alias", target: "/shared" }
         ]
       })
+
       const base = yield* source.snapshot
       const first = yield* Vfs.makeOverlay(base)
       const second = yield* Vfs.makeOverlay(base)
@@ -73,6 +78,7 @@ describe("overlay volumes", () => {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/f", bytes: bytes("abcd") }]
       })).snapshot
+
       const cases: ReadonlyArray<readonly [string, (fs: Vfs.Caller) => Effect.Effect<void, Vfs.FsError, Scope.Scope>]> =
         [
           ["handle write", (fs) =>
@@ -94,6 +100,7 @@ describe("overlay volumes", () => {
           ["writeFile", (fs) => fs.writeFile("/f", bytes("WXYZ"), { access: "write", truncate: true })],
           ["open truncate", (fs) => Effect.asVoid(fs.open("/f", { access: "write", truncate: true }))]
         ]
+
       for (const [label, mutate] of cases) {
         const changed = yield* Vfs.makeOverlay(base)
         const sibling = yield* Vfs.makeOverlay(base)
@@ -112,14 +119,17 @@ describe("overlay volumes", () => {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/held", bytes: bytes("abc") }]
       })).snapshot
+
       const overlay = yield* Vfs.makeOverlay(base, { maxBytes: ByteSize.bytes(3) })
       const fs = yield* overlay.caller()
       const scope = yield* Scope.make()
       const held = yield* fs.open("/held", { access: "read" }).pipe(Scope.provide(scope))
       yield* fs.unlink("/held")
+
       const blocked = yield* Effect.flip(
         fs.writeFile("/new", bytes("x"), { access: "write", create: "exclusive" })
       )
+
       assert.strictEqual(blocked.code, "NoSpace")
       assert.strictEqual(text(yield* held.pread(3, 0n)), "abc")
       yield* Scope.close(scope, Exit.void)
@@ -132,6 +142,7 @@ describe("overlay volumes", () => {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/private", bytes: bytes("secret"), metadata: { mode: 0o600, uid: 7 } }]
       })).snapshot
+
       const first = yield* Vfs.makeOverlay(base)
       const second = yield* Vfs.makeOverlay(base)
       const owner = yield* first.caller({ identity: { uid: 7, gid: 7, groups: [], privileged: false } })
@@ -145,22 +156,26 @@ describe("overlay volumes", () => {
   it.effect("treats raw names and .wh. names literally", () =>
     Effect.gen(function*() {
       const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))
+
       const base = yield* (yield* Vfs.fromFixture({
         entries: [
           { kind: "file", path: raw, bytes: bytes("raw") },
           { kind: "file", path: "/.wh.hidden", bytes: bytes("literal") }
         ]
       })).snapshot
+
       const overlay = yield* Vfs.makeOverlay(base)
       const fs = yield* overlay.caller()
       yield* fs.unlink(raw)
       yield* fs.writeFile("/.wh.hidden", bytes("changed"), { access: "write", truncate: true })
       const changes = yield* overlay.changes()
-      const removed = changes.find((change) => change._tag === "Removed")
+      const removed = changes.find(Predicate.isTagged("Removed"))
       assert.isDefined(removed)
+
+      if (!Predicate.isTagged("Removed")(removed)) return yield* Effect.die("expected a removed change")
       assert.deepStrictEqual(yield* Vfs.pathToBytes(removed.path), new Uint8Array([47, 255]))
       assert.strictEqual(text(yield* fs.readFile("/.wh.hidden")), "changed")
-      assert.deepStrictEqual(yield* changePaths(changes.filter((change) => change._tag !== "Removed")), [
+      assert.deepStrictEqual(yield* changePaths(changes.filter((change) => !Predicate.isTagged("Removed")(change))), [
         "Updated:/.wh.hidden"
       ])
     }))
@@ -173,6 +188,7 @@ describe("overlay volumes", () => {
           { kind: "hardLink", path: "/alias", target: "/f" }
         ]
       })).snapshot
+
       const overlay = yield* Vfs.makeOverlay(base)
       const fs = yield* overlay.caller()
       const preexistingAlias = yield* fs.open("/alias", { access: "readWrite" })
@@ -194,23 +210,28 @@ describe("overlay volumes", () => {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/before", bytes: bytes("value") }]
       })).snapshot
+
       const observationReady = yield* Deferred.make<void>()
       const releaseObservation = yield* Deferred.make<void>()
+
       const clearHook = setObservationHook(base, {
         betweenSnapshotAndSummary: Deferred.succeed(observationReady, undefined).pipe(
           Effect.andThen(Deferred.await(releaseObservation))
         )
       })
+
       yield* Effect.addFinalizer(() => Effect.sync(clearHook))
       const overlay = yield* Vfs.makeOverlay(base)
       const fs = yield* overlay.caller()
       const captureFiber = yield* overlay.capture().pipe(Effect.forkChild({ startImmediately: true }))
       yield* Deferred.await(observationReady)
       const renameStarted = yield* Deferred.make<void>()
+
       const renameFiber = yield* Deferred.succeed(renameStarted, undefined).pipe(
         Effect.andThen(fs.rename("/before", "/after")),
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* Deferred.await(renameStarted)
       yield* Effect.yieldNow
       assert.isUndefined(renameFiber.pollUnsafe())
@@ -227,13 +248,16 @@ describe("overlay volumes", () => {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/file", bytes: bytes("base") }]
       })).snapshot
+
       const observationReady = yield* Deferred.make<void>()
       const releaseObservation = yield* Deferred.make<void>()
+
       const clearHook = setObservationHook(base, {
         betweenSnapshotAndSummary: Deferred.succeed(observationReady, undefined).pipe(
           Effect.andThen(Deferred.await(releaseObservation))
         )
       })
+
       yield* Effect.addFinalizer(() => Effect.sync(clearHook))
       const overlay = yield* Vfs.makeOverlay(base)
       const fs = yield* overlay.caller()
@@ -241,10 +265,12 @@ describe("overlay volumes", () => {
       const captureFiber = yield* overlay.capture().pipe(Effect.forkChild({ startImmediately: true }))
       yield* Deferred.await(observationReady)
       const writeStarted = yield* Deferred.make<void>()
+
       const writeFiber = yield* Deferred.succeed(writeStarted, undefined).pipe(
         Effect.andThen(handle.pwrite(bytes("EDIT"), 0n)),
         Effect.forkChild({ startImmediately: true })
       )
+
       yield* Deferred.await(writeStarted)
       yield* Effect.yieldNow
       assert.isUndefined(writeFiber.pollUnsafe())
@@ -260,15 +286,22 @@ describe("overlay volumes", () => {
     Effect.gen(function*() {
       const base = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: bytes("base") }] }))
         .snapshot
+
       const overlay = yield* Vfs.makeOverlay(base)
+
+      // SAFETY: These deliberately malformed objects exercise runtime option validation.
       const invalid = [
+        // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- Runtime validation requires an invalid typed input.
         { includeTimestamps: "yes" } as unknown as Vfs.OverlayChangesOptions,
+        // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- Runtime validation requires an invalid typed input.
         { unexpected: true } as unknown as Vfs.OverlayChangesOptions
       ]
+
       for (const options of invalid) {
         assert.instanceOf(yield* Effect.flip(overlay.changes(options)), Vfs.ConfigurationError)
         assert.instanceOf(yield* Effect.flip(overlay.capture(options)), Vfs.ConfigurationError)
       }
+
       assert.deepStrictEqual(yield* overlay.changes(), [])
       assert.strictEqual(text(yield* (yield* overlay.caller()).readFile("/f")), "base")
     }))
@@ -281,6 +314,7 @@ describe("overlay volumes", () => {
           { kind: "file", path: "/to", bytes: bytes("displaced") }
         ]
       })).snapshot
+
       const overlay = yield* Vfs.makeOverlay(base)
       yield* (yield* overlay.caller()).rename("/from", "/to")
       assert.deepStrictEqual(yield* changePaths(yield* overlay.changes()), [
@@ -297,6 +331,7 @@ describe("overlay volumes", () => {
           { kind: "file", path: "/b", bytes: bytes("two") }
         ]
       })).snapshot
+
       const overlay = yield* Vfs.makeOverlay(base)
       const fs = yield* overlay.caller()
       yield* fs.rename("/a", "/temporary")
@@ -316,6 +351,7 @@ describe("overlay volumes", () => {
           { kind: "hardLink", path: "/b", target: "/a" }
         ]
       })).snapshot
+
       const overlay = yield* Vfs.makeOverlay(base)
       const fs = yield* overlay.caller()
       yield* fs.rename("/a", "/c")
@@ -332,6 +368,7 @@ describe("overlay volumes", () => {
     Effect.gen(function*() {
       const base = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/x", bytes: bytes("same") }] }))
         .snapshot
+
       const overlay = yield* Vfs.makeOverlay(base)
       const fs = yield* overlay.caller()
       yield* fs.unlink("/x")
@@ -344,6 +381,7 @@ describe("overlay volumes", () => {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/f", bytes: bytes("value") }]
       })).snapshot
+
       const overlay = yield* Vfs.makeOverlay(base)
       const fs = yield* overlay.caller()
       yield* fs.utimes("/f", {
@@ -358,14 +396,17 @@ describe("overlay volumes", () => {
     Effect.gen(function*() {
       const base = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: bytes("base") }] }))
         .snapshot
+
       const old = yield* Vfs.makeOverlay(base)
       const oldCaller = yield* old.caller()
       const oldHandle = yield* oldCaller.open("/f", { access: "readWrite" })
+
       const oldWatch = yield* (yield* old.watch).pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
       )
+
       const fresh = yield* Vfs.makeOverlay(base)
       const freshCaller = yield* fresh.caller()
       yield* freshCaller.writeFile("/f", bytes("new"), { access: "write", truncate: true })

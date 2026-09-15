@@ -15,6 +15,7 @@ export function CopyButton({ getValue, className }: CopyButtonProps) {
   const handleCopy = useCallback(() => {
     void navigator.clipboard.writeText(getValue()).catch(() => setCopied(false))
     setCopied(true)
+
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     timeoutRef.current = setTimeout(() => setCopied(false), 2000)
   }, [getValue])

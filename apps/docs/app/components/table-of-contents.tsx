@@ -100,11 +100,13 @@ function TOCList({
     (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
       e.preventDefault()
       const el = document.getElementById(id)
+
       if (el) {
         const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
         el.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" })
         history.replaceState(null, "", `#${id}`)
       }
+
       onClick?.()
     },
     [onClick]

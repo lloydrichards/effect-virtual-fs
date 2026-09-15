@@ -86,6 +86,7 @@ export default function App() {
   const matches = useMatches()
   const location = useLocation()
   const lastMatch = matches[matches.length - 1]
+  // SAFETY: React Router leaves route handles application-defined; this app only reads its optional TOC export.
   // biome-ignore lint/suspicious/noExplicitAny: React Router's useMatches handle is untyped
   const routeToc: TOCItem[] = (lastMatch?.handle as any)?.toc ?? []
   const [toc, setToc] = useState(routeToc)
@@ -96,6 +97,7 @@ export default function App() {
         "main h2[id], main h3[id], main h4[id]"
       )
     )
+
     setToc(
       headings.map((heading) => ({
         id: heading.id,
@@ -106,6 +108,7 @@ export default function App() {
   }, [location.pathname])
 
   const hasToc = toc.length > 0
+
   return (
     <MDXProvider components={proseComponents}>
       {hasToc && <TableOfContents toc={toc} />}
@@ -122,6 +125,7 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   let message = "Oops!"
   let details = "An unexpected error occurred."
   let stack: string | undefined
+
   if (isRouteErrorResponse(error)) {
     message = error.status === 404 ? "404" : "Error"
     details = error.status === 404
@@ -131,6 +135,7 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
     details = error.message
     stack = error.stack
   }
+
   return (
     <main className="container mx-auto p-4 pt-16">
       <h1>{message}</h1>
@@ -147,6 +152,7 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 function SiteHeader() {
   const { state, isMobile } = useSidebar()
   const sidebarVisible = state === "expanded" && !isMobile
+
   return (
     <header className="sticky top-0 z-10 flex items-center gap-3 border-border/60 border-b bg-background/85 px-5 py-3.5 backdrop-blur-xl sm:px-8">
       <SidebarTrigger className="size-11 md:size-8" />
