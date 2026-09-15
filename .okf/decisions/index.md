@@ -32,3 +32,4 @@ Accepted architectural and behavioral decisions for the virtual filesystem:
 - [Overlay content sharing](./overlay-content-sharing.md)
 - [Overlay final-difference summary](./overlay-final-difference-summary.md)
 - [Portable snapshot delta interface](./portable-snapshot-deltas.md)
+- [NFS profile ladder](./nfs-profile-ladder.md) separates NFSv4.1 capability profiles from maturity labels and fixes the evidence each level requires.
