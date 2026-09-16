@@ -4,6 +4,7 @@ import { transformerNotationDiff, transformerNotationFocus, transformerNotationH
 import tailwindcss from "@tailwindcss/vite"
 import path from "node:path"
 import rehypeAutolinkHeadings from "rehype-autolink-headings"
+// oxlint-disable-next-line import/no-named-as-default -- the default export is the documented entry point
 import rehypePrettyCode from "rehype-pretty-code"
 import rehypeSlug from "rehype-slug"
 import remarkGfm from "remark-gfm"

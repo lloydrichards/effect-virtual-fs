@@ -2,7 +2,7 @@ import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect } from "effect"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
+import type { SqlClient } from "effect/unstable/sql/SqlClient"
 import { CheckpointStore } from "../src/index.js"
 
 const limits = {

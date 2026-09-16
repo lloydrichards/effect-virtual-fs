@@ -1,9 +1,11 @@
+/** @internal */
 export interface RecordLimits {
   readonly maxFragmentBytes: ByteSize.ByteSize
   readonly maxRecordBytes: ByteSize.ByteSize
   readonly maxFragmentsPerRecord: number
 }
 
+/** @internal */
 export class RecordMarkingError extends Data.TaggedError("RecordMarkingError")<{ readonly detail: string }> {
   constructor(message: string) {
     super({ detail: message })
@@ -30,6 +32,7 @@ const join = (chunks: ReadonlyArray<Uint8Array>, size: number): Uint8Array => {
   return result
 }
 
+/** @internal */
 export class RecordDecoder {
   readonly #limits: RecordLimits
   #header = new Uint8Array(4)
@@ -134,6 +137,7 @@ export class RecordDecoder {
   }
 }
 
+/** @internal */
 export const encodeRecord = (record: Uint8Array): Uint8Array => {
   if (record.length > 0x7fff_ffff) throw new RangeError("RPC record is too large for one fragment")
   const result = new Uint8Array(record.length + 4)

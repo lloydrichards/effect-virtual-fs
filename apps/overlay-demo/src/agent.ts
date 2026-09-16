@@ -1,4 +1,4 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
 import { Config, Data, Effect, Layer, Schema } from "effect"
 import { Chat, LanguageModel, Tool, Toolkit } from "effect/unstable/ai"

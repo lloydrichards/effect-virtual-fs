@@ -4,12 +4,14 @@ import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
 import { type DecodeLimits, Reader, Writer, XdrDecodeError } from "./xdr.js"
 
+/** @internal */
 export interface RpcLimits extends DecodeLimits {
   readonly maxAuthBytes: ByteSize.ByteSize
   readonly maxMachineNameBytes: ByteSize.ByteSize
   readonly maxSupplementaryGroups: number
 }
 
+/** @internal */
 export type Credentials =
   | { readonly _tag: "None" }
   | {
@@ -27,6 +29,8 @@ const Credentials = Data.taggedEnum<Credentials>()
  * One transport connection, identified by object identity. A session records the connections
  * associated with its channels (RFC 8881 Section 2.10.5), so the identity must outlive a single
  * call and end when the connection does.
+ *
+ * @internal
  */
 export interface Connection {
   readonly id: number
@@ -39,6 +43,7 @@ export interface Connection {
   readonly send: (message: Uint8Array) => Effect.Effect<boolean>
 }
 
+/** @internal */
 export interface CompoundCall {
   /** The connection the call arrived on. */
   readonly connection: Connection
@@ -48,6 +53,7 @@ export interface CompoundCall {
   readonly requestBytes?: number
 }
 
+/** @internal */
 export interface RpcHandlers {
   readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array>
   /** Called once when a connection ends, however it ended. */
@@ -162,6 +168,7 @@ const denied = (xid: number, status: number, detail: number | readonly [number, 
   return writer.bytes()
 }
 
+/** @internal */
 export const handleCall = (
   connection: Connection,
   message: Uint8Array,

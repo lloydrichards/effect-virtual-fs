@@ -24,7 +24,7 @@ export const buildVirtual = Effect.fn("VirtualBuild.build")(function*(caller: Vf
     })
   })
 
-  const runPromise = Effect.runPromiseWith(yield* Effect.context<never>())
+  const runPromise = Effect.runPromiseWith(yield* Effect.context())
 
   // Vite invokes these callbacks outside the Effect fiber; preserve its service context.
   const run = <A>(effect: Effect.Effect<A, Vfs.FsError>, path: string) =>

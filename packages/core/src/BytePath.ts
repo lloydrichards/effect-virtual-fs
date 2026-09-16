@@ -1,3 +1,11 @@
+/**
+ * Opaque, byte-preserving filesystem paths.
+ *
+ * A `BytePath` stores the exact bytes of a path component so that names which
+ * are not valid UTF-8 survive a round trip through the virtual filesystem.
+ *
+ * @since 0.1.0
+ */
 import type * as Equal from "effect/Equal"
 import type { Pipeable } from "effect/Pipeable"
 import * as Schema from "effect/Schema"
@@ -6,7 +14,7 @@ import * as Internal from "./internal/bytePath.js"
 /**
  * Type identifier for opaque byte-preserving filesystem paths.
  *
- * @category type ids
+ * @category type IDs
  * @since 0.1.0
  */
 export const BytePathId: "@effect-vfs/core/BytePath" = Internal.BytePathId
@@ -14,7 +22,7 @@ export const BytePathId: "@effect-vfs/core/BytePath" = Internal.BytePathId
 /**
  * Type identifier for opaque byte-preserving filesystem paths.
  *
- * @category type ids
+ * @category type IDs
  * @since 0.1.0
  */
 export type BytePathId = typeof BytePathId

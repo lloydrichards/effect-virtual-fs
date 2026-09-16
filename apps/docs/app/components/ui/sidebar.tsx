@@ -81,6 +81,7 @@ function SidebarProvider({
 
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
+      // oxlint-disable-next-line unicorn/no-instanceof-builtins -- React setState accepts a value or an updater function
       const openState = value instanceof Function ? value(open) : value
 
       if (setOpenProp) {
@@ -547,7 +548,7 @@ function SidebarMenuButton({
 
   if (isStringTooltip(tooltip)) {
     tooltip = {
-      children: String(tooltip)
+      children: tooltip
     }
   }
 

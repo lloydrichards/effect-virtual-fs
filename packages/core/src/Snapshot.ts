@@ -13,7 +13,7 @@ import * as Schema from "effect/Schema"
 /**
  * Type identifier for opaque filesystem snapshots.
  *
- * @category type ids
+ * @category type IDs
  * @since 0.1.0
  */
 export const SnapshotTypeId = "@effect-vfs/core/Snapshot" as const
@@ -21,7 +21,7 @@ export const SnapshotTypeId = "@effect-vfs/core/Snapshot" as const
 /**
  * Type identifier for opaque filesystem snapshots.
  *
- * @category type ids
+ * @category type IDs
  * @since 0.1.0
  */
 export type SnapshotTypeId = typeof SnapshotTypeId

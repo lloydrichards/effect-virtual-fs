@@ -27,7 +27,7 @@ const fillBuffer = Effect.fnUntraced(function*(file: FileSystem.File, buffer: Ui
   let offset = 0
 
   while (offset < buffer.length) {
-    const bytesRead = Number(yield* file.read(buffer.subarray(offset)))
+    const bytesRead = yield* file.read(buffer.subarray(offset))
     assert.isTrue(bytesRead >= 0)
     assert.isTrue(bytesRead <= buffer.length - offset)
 
@@ -65,7 +65,7 @@ const writeUsingWrite = Effect.fnUntraced(function*(file: FileSystem.File, bytes
   let offset = 0
 
   while (offset < bytes.length) {
-    const bytesWritten = Number(yield* file.write(bytes.subarray(offset)))
+    const bytesWritten = yield* file.write(bytes.subarray(offset))
     assert.isTrue(bytesWritten > 0)
     assert.isTrue(bytesWritten <= bytes.length - offset)
     offset += bytesWritten

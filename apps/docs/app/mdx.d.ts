@@ -7,5 +7,5 @@ declare module "*.mdx" {
 
   const Component: ComponentType
   export default Component
-  export const toc: TOCItem[]
+  export const toc: Array<TOCItem>
 }

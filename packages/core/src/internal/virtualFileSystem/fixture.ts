@@ -9,7 +9,7 @@ import { getBytes as getBytePathBytes } from "../bytePath.js"
 import * as Image from "../image.js"
 import {
   Fixture as FixtureSchema,
-  FixtureMetadata,
+  type FixtureMetadata,
   makeVolume,
   VolumeOptions as VolumeOptionsSchema,
   VolumeSource

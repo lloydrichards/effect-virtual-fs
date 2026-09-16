@@ -7,7 +7,7 @@
 /**
  * Virtual filesystem contracts, schemas, errors, and constructors.
  *
- * @category exports
+ * @category re-exports
  * @since 0.1.0
  */
 export * as VirtualFileSystem from "./VirtualFileSystem.js"

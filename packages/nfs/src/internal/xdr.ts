@@ -1,9 +1,11 @@
+/** @internal */
 export interface DecodeLimits {
   readonly maxOpaqueBytes: ByteSize.ByteSize
   readonly maxStringBytes: ByteSize.ByteSize
   readonly maxArrayElements: number
 }
 
+/** @internal */
 export class XdrDecodeError extends Data.TaggedError("XdrDecodeError")<{ readonly detail: string }> {
   constructor(message: string) {
     super({ detail: message })
@@ -20,6 +22,7 @@ const assertLimit = (name: string, value: number): void => {
   if (!Number.isSafeInteger(value) || value < 0) throw new RangeError(`${name} must be a non-negative safe integer`)
 }
 
+/** @internal */
 export class Reader {
   readonly #view: DataView
   #offset = 0
@@ -140,6 +143,7 @@ export class Reader {
   }
 }
 
+/** @internal */
 export class Writer {
   readonly #chunks: Array<Uint8Array> = []
   #length = 0

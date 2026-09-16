@@ -88,7 +88,7 @@ export default function App() {
   const lastMatch = matches[matches.length - 1]
   // SAFETY: React Router leaves route handles application-defined; this app only reads its optional TOC export.
   // biome-ignore lint/suspicious/noExplicitAny: React Router's useMatches handle is untyped
-  const routeToc: TOCItem[] = (lastMatch?.handle as any)?.toc ?? []
+  const routeToc: Array<TOCItem> = (lastMatch?.handle as any)?.toc ?? []
   const [toc, setToc] = useState(routeToc)
 
   useEffect(() => {

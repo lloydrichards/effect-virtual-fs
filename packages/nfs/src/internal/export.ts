@@ -11,16 +11,19 @@ const HANDLE_VERSION = 1
 
 const HANDLE_BYTES = 25
 
+/** @internal */
 export interface ExportLimits {
   readonly maxFilehandles: number
   readonly maxNameBytes: ByteSize.ByteSize
 }
 
+/** @internal */
 export interface OpenedFile {
   readonly handle: Vfs.FileHandle
   readonly close: Effect.Effect<void>
 }
 
+/** @internal */
 export interface NfsExport {
   readonly root: Effect.Effect<Vfs.ObjectReference, Vfs.FsError>
   readonly handleFor: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, ExportCapacityError>
@@ -41,12 +44,14 @@ export interface NfsExport {
   readonly fsid: readonly [bigint, bigint]
 }
 
+/** @internal */
 export class ExportCapacityError extends Data.TaggedError("ExportCapacityError")<{ readonly detail: string }> {
   constructor(message: string) {
     super({ detail: message })
   }
 }
 
+/** @internal */
 export class InvalidFilehandleError extends Data.TaggedError("InvalidFilehandleError")<{
   readonly reason: "Malformed" | "WrongGeneration" | "Stale" | "Unknown"
 }> {
@@ -55,8 +60,10 @@ export class InvalidFilehandleError extends Data.TaggedError("InvalidFilehandleE
   }
 }
 
+/** @internal */
 export type InvalidNameReason = "Empty" | "TooLong" | "ForbiddenByte" | "Encoding" | "Reserved"
 
+/** @internal */
 export class InvalidNameError extends Data.TaggedError("InvalidNameError")<{
   readonly detail: string
   readonly reason: InvalidNameReason
@@ -91,6 +98,7 @@ const decodeUtf8 = (bytes: Uint8Array): string => {
   }
 }
 
+/** @internal */
 export const validateName = (bytes: Uint8Array, maxNameBytes: ByteSize.ByteSize): string => {
   if (bytes.length === 0) throw new InvalidNameError("Name is empty", "Empty")
 
@@ -117,6 +125,7 @@ export const validateName = (bytes: Uint8Array, maxNameBytes: ByteSize.ByteSize)
 const uint64From = (bytes: Uint8Array, offset: number): bigint =>
   new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(offset)
 
+/** @internal */
 export const makeExport = (
   caller: Vfs.Caller,
   generation: Uint8Array,
@@ -135,7 +144,7 @@ export const makeExport = (
   const handleFor = (reference: Vfs.ObjectReference): Effect.Effect<Uint8Array, ExportCapacityError> =>
     registryGate.withPermit(Effect.gen(function*() {
       // SAFETY: ObjectReference values are opaque object identities created by the core volume.
-      let id = idsByReference.get(reference as object)
+      let id = idsByReference.get(reference)
 
       if (id === undefined) {
         if (referencesById.size >= limits.maxFilehandles) {
@@ -145,7 +154,7 @@ export const makeExport = (
             if (Result.isFailure(result) && result.failure.code === "StaleReference") {
               referencesById.delete(candidateId)
               // SAFETY: ObjectReference values are opaque object identities created by the core volume.
-              idsByReference.delete(candidate as object)
+              idsByReference.delete(candidate)
             }
           }
 
@@ -156,7 +165,7 @@ export const makeExport = (
 
         id = nextId++
         // SAFETY: ObjectReference values are opaque object identities created by the core volume.
-        idsByReference.set(reference as object, id)
+        idsByReference.set(reference, id)
         referencesById.set(id, reference)
       }
 

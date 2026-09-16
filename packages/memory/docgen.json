@@ -1,8 +1,11 @@
 {
   "srcDir": "src",
   "outDir": "docs",
-  "enforceVersion": false,
+  "enforceVersion": true,
   "enforceExamples": false,
-  "exclude": ["src/internal/**/*.ts", "src/index.ts"],
+  "exclude": [
+    "src/internal/**/*.ts",
+    "src/index.ts"
+  ],
   "parseCompilerOptions": "tsconfig.docgen.json"
 }

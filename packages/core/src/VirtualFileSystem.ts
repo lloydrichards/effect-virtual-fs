@@ -16,11 +16,11 @@ import * as SchemaIssue from "effect/SchemaIssue"
 import * as SchemaTransformation from "effect/SchemaTransformation"
 import type * as Scope from "effect/Scope"
 import type * as Stream from "effect/Stream"
-import { BytePath } from "./BytePath.js"
+import type { BytePath } from "./BytePath.js"
 
 export { BytePath } from "./BytePath.js"
 
-import { DecodeLimits, ImageError, type Snapshot } from "./Snapshot.js"
+import type { DecodeLimits, ImageError, Snapshot } from "./Snapshot.js"
 
 export { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 
