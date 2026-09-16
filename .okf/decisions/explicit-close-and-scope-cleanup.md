@@ -4,6 +4,10 @@ title: Explicit close and scope cleanup
 description: Makes repeated explicit close fail while automatic scope cleanup remains safe after early release.
 status: stable
 tags: [resources, lifetimes, scope]
+sources:
+  - id: core
+    resource: ../../packages/core/src/VirtualFileSystem.ts
+    title: Handle close and scoped acquisition
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

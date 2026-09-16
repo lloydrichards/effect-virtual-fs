@@ -4,6 +4,10 @@ title: Explicit caller privilege
 description: Models privilege independently from user and group identity and never inherits it from the host process.
 status: stable
 tags: [authority, callers, permissions]
+sources:
+  - id: core
+    resource: ../../packages/core/src/internal/virtualFileSystem.ts
+    title: Identity schema and authorization
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

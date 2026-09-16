@@ -4,6 +4,13 @@ title: Strict snapshot version 1 decoding
 description: Requires canonical base64 and integer spelling and rejects unknown fields throughout snapshot v1.
 status: stable
 tags: [snapshots, decoding, validation]
+sources:
+  - id: base64
+    resource: ../../packages/core/src/internal/canonicalBase64.ts
+    title: Canonical base64 decoding
+  - id: images
+    resource: ../../packages/core/src/internal/image.ts
+    title: Strict version 1 decoding
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

@@ -4,6 +4,10 @@ title: Reusable capability effects
 description: Exposes zero-argument capabilities as reusable Effect properties whose executions observe fresh state.
 status: stable
 tags: [effect, api, resources]
+sources:
+  - id: core
+    resource: ../../packages/core/src/VirtualFileSystem.ts
+    title: Reusable Effect-valued capabilities
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

@@ -4,6 +4,10 @@ title: Virtual package resolution acceptance
 description: Adds a bounded virtual node_modules import milestone after the basic relative-dependency build case.
 status: stable
 tags: [consumer, builds, packages]
+sources:
+  - id: build-tests
+    resource: ../../apps/virtual-build/test/VirtualBuild.test.ts
+    title: Virtual package import acceptance test
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

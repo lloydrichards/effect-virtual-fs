@@ -1,5 +1,5 @@
 ---
-type: Behavioral Contract
+type: Contract
 title: Portable snapshot deltas
 description: Defines exact base-dependent snapshot reconstruction, deterministic inspection, Schema encoding and finite work limits.
 status: stable

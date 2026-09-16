@@ -23,14 +23,17 @@ sources:
   - id: persistence-package
     resource: ../../packages/persistence/package.json
     title: Persistence package manifest
-generated: { by: codex/okf, at: 2026-09-10T12:00:00Z }
+  - id: nfs-package
+    resource: ../../packages/nfs/package.json
+    title: NFS package manifest
+generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 ---
 
 # Release readiness
 
-Core is the publication root. Memory and persistence depend on core, so `@effect-vfs/core` must be available before consumers that reference its released range. Changesets keeps core, memory, and persistence in one fixed version group and updates internal dependencies at patch level.
+Core is the publication root. Memory, persistence, and nfs depend on core, so `@effect-vfs/core` must be available before consumers that reference its released range. Changesets keeps core, memory, persistence, and nfs in one fixed version group and updates internal dependencies at patch level.
 
-Before publishing, use the same ordering as pull-request validation: frozen install, format check, build, lint, Effect-aware lint, type check, and tests, plus any documentation or model checks still maintained in the repository. Build must precede type-aware lint because workspace packages expose declarations from `dist/`.
+Before publishing, use the same ordering as pull-request validation: frozen install, format check, build, the API-reference staleness check, lint, Effect-aware lint, type check, and tests. Build must precede type-aware lint because workspace packages expose declarations from `dist/`, and it must precede the staleness check because the docs prebuild regenerates the committed API reference.
 
 Package-specific build gates matter. Core and persistence check emitted NodeNext consumption. Memory additionally bundles a browser-target entry and runs a Node smoke against that artifact. These establish export, module-resolution, and bundling compatibility; they do not establish full browser or worker runtime filesystem behavior.
 

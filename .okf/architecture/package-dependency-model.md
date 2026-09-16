@@ -14,7 +14,10 @@ sources:
   - id: persistence-package
     resource: ../../packages/persistence/package.json
     title: Persistence package manifest
-generated: { by: codex/okf, at: 2026-09-10T00:00:00+00:00 }
+  - id: nfs-package
+    resource: ../../packages/nfs/package.json
+    title: NFS package manifest
+generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 ---
 
 # Package dependency model
@@ -25,9 +28,10 @@ The dependency direction is:
 applications and build integrations
 ├── @effect-vfs/memory ──────┐
 ├── @effect-vfs/persistence ─┼──> @effect-vfs/core ──> effect
+├── @effect-vfs/nfs ─────────┤
 └── @effect-vfs/core ────────┘
 ```
 
-Core is the runtime-neutral behavioral authority. Memory depends on core and exposes an Effect `FileSystem` adapter; persistence depends on core and owns checkpoint storage I/O. Memory and persistence do not depend on one another. Applications provide platform layers such as the SQLite client and decide how packages are composed.
+Core is the runtime-neutral behavioral authority. Memory depends on core and exposes an Effect `FileSystem` adapter; persistence depends on core and owns checkpoint storage I/O; nfs depends on core and serves one volume to NFSv4.1 clients over an application-provided `SocketServer`. Memory, persistence, and nfs do not depend on one another. Applications provide platform layers such as the SQLite client or the socket server and decide how packages are composed.
 
-Core must remain usable without either adapter and without host filesystem access. This direction is [established by the package boundary decision](/decisions/package-boundaries.md "implements") and extended by [named checkpoint persistence](/decisions/named-checkpoint-persistence.md "implements"). See [system boundaries](system-boundaries.md "refined by") for responsibility ownership.
+Core must remain usable without either adapter and without host filesystem access. This direction is [established by the package boundary decision](/decisions/package-boundaries.md "implements") and extended by [named checkpoint persistence](/decisions/named-checkpoint-persistence.md "implements") and the [NFS profile ladder](/decisions/nfs-profile-ladder.md "implements"). See [system boundaries](system-boundaries.md "refined by") for responsibility ownership.

@@ -4,6 +4,10 @@ title: JSON and base64 snapshots
 description: Selects a versioned JSON snapshot encoding with base64 byte fields while keeping the logical image separate.
 status: stable
 tags: [snapshots, encoding, json]
+sources:
+  - id: images
+    resource: ../../packages/core/src/internal/image.ts
+    title: Snapshot version 1 codec
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

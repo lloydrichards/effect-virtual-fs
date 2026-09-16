@@ -4,6 +4,10 @@ title: Volume capacity accounting
 description: Accounts content once per inode and directory entries once per name, retaining charges for open unlinked files.
 status: stable
 tags: [capacity, storage, hard-links]
+sources:
+  - id: core
+    resource: ../../packages/core/src/internal/virtualFileSystem.ts
+    title: Quota counters and limits
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

@@ -1,7 +1,7 @@
 ---
 type: Implementation Profile
 title: Implemented filesystem
-description: Summarizes the current public core, Effect adapter, snapshot, build-consumer, and named-checkpoint capabilities without reproducing detailed contracts.
+description: Summarizes the current public core, Effect adapter, snapshot, overlay, delta, NFS export, build-consumer, and named-checkpoint capabilities without reproducing detailed contracts.
 status: stable
 tags: [profile, implementation, filesystem]
 sources:
@@ -14,12 +14,15 @@ sources:
   - id: persistence-source
     resource: ../../packages/persistence/src/CheckpointStore.ts
     title: Checkpoint store public implementation
-generated: { by: codex/okf, at: 2026-09-13T09:24:00+02:00 }
+  - id: nfs-source
+    resource: ../../packages/nfs/src/NfsServer.ts
+    title: NFS server public implementation
+generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 ---
 
 # Implemented filesystem
 
-The repository implements a runtime-neutral Effect filesystem core for regular files, directories, symbolic links, and hard links. The public core includes volume construction, callers, directory-relative lookup, file and directory handles, byte-preserving paths, metadata and permission operations, watches, fixtures, and isolated versioned snapshots. It also exposes runtime-only [object references](/research/object-references.md "refined by") and [mutation revisions](/research/mutation-revisions.md "refined by") for stable identity and coherent live observations.
+The repository implements a runtime-neutral Effect filesystem core for regular files, directories, symbolic links, and hard links. The public core includes volume construction, callers, directory-relative lookup, file and directory handles, byte-preserving paths, metadata and permission operations, watches, fixtures, and isolated versioned snapshots. It also exposes runtime-only [object references](/contracts/object-references.md "refined by") and [mutation revisions](/contracts/mutation-revisions.md "refined by") for stable identity and coherent live observations.
 
 The core also creates writable [overlay workspaces](/contracts/overlay-workspaces.md "refined by") from immutable snapshots. They share untouched regular-file payloads, retain private writable state, expose identity-based final-difference summaries, and capture a matching summary plus complete version 1 snapshot.
 
@@ -32,5 +35,7 @@ Snapshots use a strict version 1 JSON/base64 representation. Capture and restore
 The core can also create, inspect, Schema-encode, decode, and apply [portable snapshot deltas](/contracts/snapshot-deltas.md "refined by"). A delta reconstructs an exact target only from a semantically matching immutable base. Path-oriented summaries do not infer renames, and finite shared policies bound creation, codec, and application work.
 
 `@effect-vfs/persistence` adds named, create-only SQLite checkpoints over encoded snapshots. Applications supply the SQLite client and run the migration explicitly. Loading returns an opaque snapshot for restoration into a fresh volume. This implements the [checkpoint persistence decision](/decisions/named-checkpoint-persistence.md "implements") and is specified by the [checkpoint persistence contract](/contracts/checkpoint-persistence.md "refined by").
+
+`@effect-vfs/nfs` exports one live volume read-only to NFSv4.1 clients on the same host, over loopback TCP or a UNIX-domain socket that the application binds. It is protocol-complete for reads and interoperable with the Linux and macOS kernel clients, not conformant, as specified by the [NFS read-only-local profile](nfs-read-only-local.md "refined by").
 
 Anything beyond this summary must be checked against the focused contract or current source. The intentionally unsupported surface is listed in [deferred capabilities](deferred-capabilities.md "excludes").

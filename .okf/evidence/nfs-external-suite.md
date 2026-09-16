@@ -45,7 +45,7 @@ A native-client run followed on 2026-09-15: the macOS 26.6.2 `mount_nfs` client 
 That run mounted with the client-side `ro` option, so its rejected-write checks were answered by the kernel. A second run on 2026-09-16, after the Section 15.2 audit, mounted writable on the client and passed all sixteen checks of the current script, including `touch`, `mkdir`, and append refused by the server's `NFS4ERR_ROFS` with the file unchanged afterwards.
 
 A Linux kernel-client run followed on 2026-09-16, and is now repeatable rather than manual. The
-[mount gate](../../apps/nfs-preview/scripts/linux-mount-gate.sh "supports") starts the preview server, mounts
+mount gate script starts the preview server, mounts
 `127.0.0.1:/` with `nfsvers=4.1,tcp,sec=sys,port=2049,actimeo=1`, runs the same sixteen scripted checks the macOS run
 used, and passed all sixteen against kernel `6.17.0-1022-azure` on Ubuntu 24.04.5 LTS with `nfs-utils` 2.6.4 (runner
 image `ubuntu24` 20260907.300.1). Nothing in the read path behaved differently from macOS; the one substantive

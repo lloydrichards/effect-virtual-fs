@@ -15,6 +15,9 @@ sources:
     title: Revision and coordinated observation tests
   - resource: ../../packages/core/test/Watch.test.ts
     title: Watch registration and delivery tests
+  - id: tracing-tests
+    resource: ../../packages/core/test/Tracing.test.ts
+    title: Public tracing boundary tests
 generated: { by: codex/okf, at: 2026-09-13T17:40:00+02:00 }
 ---
 

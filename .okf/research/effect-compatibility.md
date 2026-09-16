@@ -1,7 +1,7 @@
 ---
-type: Design
+type: Research Report
 title: Effect adapter compatibility
-description: Defines the durable compatibility boundary between the runtime-neutral core and Effect's FileSystem adapter.
+description: Retains the design reasoning behind the compatibility boundary between the runtime-neutral core and Effect's FileSystem adapter; the contract now owns the rules.
 status: stable
 tags: [effect, adapter, compatibility]
 sources:
@@ -14,7 +14,7 @@ sources:
   - id: core-binding-tests
     resource: ../../packages/memory/test/CoreBinding.test.ts
     title: Core binding compatibility tests
-generated: { by: codex/okf, at: 2026-09-13T14:53:40Z }
+generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 ---
 
 # Effect adapter compatibility
@@ -31,4 +31,4 @@ The adapter must preserve current observable behavior for final-symlink handling
 
 Byte-valued core observations are converted strictly. String observations fail when names cannot be represented without loss; they must not silently normalize or merge distinct names. The default memory adapter remains permissive in its historical permission behavior even though the core supports explicit caller authority.
 
-The shared adapter suite and focused binding tests are executable compatibility evidence, not proof of full Effect or platform compatibility. The maintained behavior is summarized by [memory adapter compatibility](/contracts/memory-adapter-compatibility.md "implemented by"). Apply the [evidence and validation workflow](/workflows/evidence-and-validation.md "validated by") and preserve the package boundary established by [package boundaries](/decisions/package-boundaries.md "constrained by").
+The shared adapter suite and focused binding tests are executable compatibility evidence, not proof of full Effect or platform compatibility. The maintained rules are owned by the [memory adapter compatibility contract](/contracts/memory-adapter-compatibility.md "superseded by"); this concept retains the reasoning. Apply the [evidence and validation workflow](/workflows/evidence-and-validation.md "validated by") and preserve the package boundary established by [package boundaries](/decisions/package-boundaries.md "constrained by").

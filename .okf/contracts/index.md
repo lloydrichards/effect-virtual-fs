@@ -13,3 +13,5 @@
 - [Virtual build consumer](./virtual-build-consumer.md) - Build and package-import acceptance boundary.
 - [Checkpoint persistence](./checkpoint-persistence.md) - Explicit SQLite-backed named checkpoints.
 - [Overlay workspaces](./overlay-workspaces.md) - Snapshot-based writable branches, shared contents, summaries, and capture.
+- [Object references](./object-references.md) - Path-independent runtime identity, reference operations, and deletion lifetime.
+- [Mutation revisions](./mutation-revisions.md) - Per-object revisions and coordinated owned observations.

@@ -4,6 +4,10 @@ title: Package boundaries
 description: Separates the standalone core, Effect FileSystem compatibility adapter, and future bindings.
 status: stable
 tags: [architecture, packages]
+sources:
+  - id: workspace
+    resource: ../../package.json
+    title: Workspace package list
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 
