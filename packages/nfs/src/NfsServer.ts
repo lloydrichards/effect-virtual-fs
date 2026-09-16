@@ -302,15 +302,50 @@ export const NfsServerConfigOverrides = Schema.Struct({
 export type NfsServerConfigOverrides = typeof NfsServerConfigOverrides.Type
 
 /**
- * Schema for the bound server address.
+ * Schema for a bound loopback TCP address.
  *
  * @category schemas
  * @since 0.1.0
  */
-export const NfsServerAddress = Schema.Struct({
+export const NfsServerTcpAddress = Schema.Struct({
   host: LoopbackHost,
   port: Port
 })
+
+/**
+ * A bound loopback TCP address.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type NfsServerTcpAddress = typeof NfsServerTcpAddress.Type
+
+/**
+ * Schema for a bound UNIX-domain socket path. A filesystem socket is reachable only from the
+ * same host, so it counts as a local address alongside loopback TCP.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
+export const NfsServerUnixAddress = Schema.Struct({
+  path: Schema.NonEmptyString
+})
+
+/**
+ * A bound UNIX-domain socket path.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type NfsServerUnixAddress = typeof NfsServerUnixAddress.Type
+
+/**
+ * Schema for the bound server address: loopback TCP or a UNIX-domain socket path.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
+export const NfsServerAddress = Schema.Union([NfsServerTcpAddress, NfsServerUnixAddress])
 
 /**
  * The bound server address.
@@ -437,7 +472,7 @@ const make = (
 
     const address = yield* Schema.decodeUnknownEffect(NfsServerAddress)(
       Predicate.isTagged(socketAddress, "UnixPathAddress")
-        ? socketAddress
+        ? { path: socketAddress.path }
         : {
           host: socketAddress.address.toString(),
           port: socketAddress.port
@@ -446,7 +481,7 @@ const make = (
       Effect.mapError(() =>
         configurationError(
           "socketServer.address",
-          "socket server must bind a loopback TCP address"
+          "socket server must bind a loopback TCP address or a UNIX-domain socket path"
         )
       )
     )

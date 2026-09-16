@@ -39,9 +39,11 @@ const program = Effect.scoped(
       caller
     })
 
-    yield* Effect.log(
-      `NFS preview listening at ${server.address.host}:${server.address.port}`
-    )
+    const listening = "path" in server.address
+      ? server.address.path
+      : `${server.address.host}:${String(server.address.port)}`
+
+    yield* Effect.log(`NFS preview listening at ${listening}`)
     yield* Effect.log("Mount separately on macOS:")
     yield* Effect.log(
       "sudo mount_nfs -o vers=4.1,tcp,sec=sys,port=2049,actimeo=1,noowners 127.0.0.1:/ /Volumes/effect-vfs-nfs-preview"

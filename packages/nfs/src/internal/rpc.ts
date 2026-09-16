@@ -85,9 +85,25 @@ const NFS_PROGRAM = 100003
 
 const NFS_VERSION = 4
 
-class CredentialError extends Data.TaggedError("CredentialError")<{ readonly detail: string }> {
-  constructor(message: string) {
-    super({ detail: message })
+const AUTH_NONE = 0
+
+const AUTH_SYS = 1
+
+const RPCSEC_GSS = 6
+
+/** RFC 5531 Section 9 `auth_stat` values this server emits. */
+const AUTH_BADCRED = 1
+
+const AUTH_BADVERF = 3
+
+const AUTH_TOOWEAK = 5
+
+class CredentialError extends Data.TaggedError("CredentialError")<{
+  readonly detail: string
+  readonly status: typeof AUTH_BADCRED | typeof AUTH_TOOWEAK
+}> {
+  constructor(message: string, status: typeof AUTH_BADCRED | typeof AUTH_TOOWEAK = AUTH_BADCRED) {
+    super({ detail: message, status })
   }
 }
 
@@ -102,13 +118,18 @@ const decodeAuth = (reader: Reader, limits: RpcLimits): Credentials => {
   const body = reader.opaque(ByteSize.min(limits.maxAuthBytes, ByteSize.bytes(400)))
   const auth = new Reader(body, limits)
 
-  if (flavor === 0) {
+  if (flavor === AUTH_NONE) {
     auth.finish()
 
     return Credentials.None()
   }
 
-  if (flavor !== 1) throw new CredentialError("Unsupported RPC authentication flavor")
+  // RPCSEC_GSS is a flavor this server understands but does not implement, so the reply says
+  // "server requires different authentication" (AUTH_TOOWEAK) rather than "credential is
+  // malformed". Nothing ever falls back to a broader identity: the compound is never dispatched.
+  if (flavor === RPCSEC_GSS) throw new CredentialError("RPCSEC_GSS is not implemented", AUTH_TOOWEAK)
+
+  if (flavor !== AUTH_SYS) throw new CredentialError("Unsupported RPC authentication flavor")
 
   try {
     const value = Credentials.Sys({
@@ -133,7 +154,9 @@ const decodeVerifier = (reader: Reader, limits: RpcLimits): void => {
     const flavor = reader.uint32()
     const body = reader.opaque(ByteSize.min(limits.maxAuthBytes, ByteSize.bytes(400)))
 
-    if (flavor !== 0 || body.length !== 0) throw new VerifierError("Only an empty AUTH_NONE verifier is accepted")
+    if (flavor !== AUTH_NONE || body.length !== 0) {
+      throw new VerifierError("Only an empty AUTH_NONE verifier is accepted")
+    }
   } catch (error) {
     if (error instanceof XdrDecodeError) throw new VerifierError(error.message)
     throw error
@@ -196,11 +219,11 @@ export const handleCall = (
         credentials = decodeAuth(reader, limits)
         decodeVerifier(reader, limits)
       } catch (error) {
-        if (error instanceof VerifierError) return Effect.succeed(denied(xid, 1, 3))
+        if (error instanceof VerifierError) return Effect.succeed(denied(xid, 1, AUTH_BADVERF))
 
-        if (error instanceof CredentialError || error instanceof XdrDecodeError) {
-          return Effect.succeed(denied(xid, 1, 1))
-        }
+        if (error instanceof CredentialError) return Effect.succeed(denied(xid, 1, error.status))
+
+        if (error instanceof XdrDecodeError) return Effect.succeed(denied(xid, 1, AUTH_BADCRED))
 
         throw error
       }

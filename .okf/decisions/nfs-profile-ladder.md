@@ -23,7 +23,7 @@ sources:
   - id: pynfs
     resource: https://github.com/kofemann/pynfs
     title: pynfs NFSv4.1 server tester
-generated: { by: claude/okf, at: 2026-09-16T12:30:00+02:00 }
+generated: { by: claude/okf, at: 2026-09-16T21:30:00+02:00 }
 ---
 
 # NFS profile ladder
@@ -39,7 +39,7 @@ Profiles, in delivery order:
 | Profile               | Adds                                                                                                                                          | Owning issues |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
 | `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted, backchannel, connection binding, trunking | #43, #39, #44 |
-| `read-only-networked` | trusted `AUTH_SYS` identity mapped by application policy, non-loopback binding behind that policy                                             | #45           |
+| `read-only-networked` | trusted `AUTH_SYS` identity mapped to VFS callers by application policy, non-loopback binding behind that policy and an explicit opt-in       | #74, #75      |
 | `writable`            | create, write, rename, remove, `COMMIT` semantics, explicit durability statement                                                              | #46, #48, #49 |
 | `stateful`            | share reservations, byte-range locks, grace and reclaim, restart model, persistent filehandles                                                | #47, #50      |
 
@@ -47,13 +47,13 @@ Maturity labels are `experimental`, `preview`, and `stable`.
 
 ## Wording
 
-RFC 8881 defines no read-only server profile; its read-only allowance in Section 17 applies to clients.[^rfc8881] Servers MUST support RPCSEC_GSS with Kerberos V5 and MUST support backchannels and trunking. Backchannels and trunking landed in `read-only-local` (#44) because the Linux client needs them to mount cleanly, so Kerberos is the one MUST still unmet. `read-only-local` is therefore described as a _protocol-complete read-only export_ or as _interoperable_, never as conformant. Only `read-only-networked` and later profiles may use "conformant", and only once those MUSTs are met.
+RFC 8881 defines no read-only server profile; its read-only allowance in Section 17 applies to clients.[^rfc8881] Servers MUST support RPCSEC_GSS with Kerberos V5 and MUST support backchannels and trunking. Backchannels and trunking landed in `read-only-local` (#44) because the Linux client needs them to mount cleanly. Kerberos is the one MUST still unmet, and the [authentication and export policy decision](nfs-authentication-and-export-policy.md "refined by") excludes it permanently. Every profile is therefore described as a _protocol-complete read-only export_, _interoperable_, or similar, never as conformant.
 
 ## Scope exclusions
 
 - NFSv4.0 and NFSv4.2 are excluded. Section 2.7 rule 11 recommends supporting earlier minor versions; the ledger records this SHOULD as deliberately unmet. Unsupported minor versions keep returning `NFS4ERR_MINOR_VERS_MISMATCH` so the Linux client ladder reaches 4.1.
 - Filehandles stay volatile through `read-only-networked` and `writable`. Persistent handles are a `stateful` requirement and depend on durable identity work, which must not weaken [snapshot-local file identity](snapshot-local-file-identity.md "constrained by").
-- `AUTH_SYS` is the security floor for both read-only profiles. Kerberos is recorded as an unmet MUST whose fate issue #45 decides. Unsupported flavors fail closed; `SP4_MACH_CRED` must be honored or rejected, never accepted and ignored.
+- `AUTH_SYS` is the security floor for every profile. Kerberos is a permanently unmet MUST. RPCSEC_GSS fails closed with `AUTH_TOOWEAK`, other unsupported flavors with `AUTH_BADCRED`, and `SP4_MACH_CRED` and `SP4_SSV` are rejected because they require RPCSEC_GSS integrity.
 
 ## Publication
 

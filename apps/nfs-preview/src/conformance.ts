@@ -38,6 +38,10 @@ const program = Effect.scoped(
       }
     })
 
+    if ("path" in server.address) {
+      return yield* Effect.die(new Error("pynfs needs a TCP port, but the fixture is bound to a UNIX-domain socket"))
+    }
+
     yield* Effect.log(`NFS conformance fixture listening at ${server.address.host}:${server.address.port}`)
     yield* Effect.log(
       `pynfs: nfs4.1/testserver.py 127.0.0.1:${server.address.port}/ --minorversion 1 --security sys --noinit --nocleanup --force all noreboot nocourteous`

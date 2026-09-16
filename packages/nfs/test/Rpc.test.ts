@@ -98,6 +98,11 @@ describe("ONC RPC", () => {
           1
         ]
       )
+      const gss = new Writer().uint32(6).opaque(new Uint8Array([0, 0, 0, 1])).bytes()
+      assert.deepStrictEqual(
+        fields((yield* handleCall(connection, call({ credential: gss, procedure: 1 }), limits, handler))!),
+        [42, 1, 1, 1, 5]
+      )
       const invalidVerifier = new Writer().uint32(1).opaque(new Uint8Array()).bytes()
       assert.deepStrictEqual(
         fields((yield* handleCall(connection, call({ verifier: invalidVerifier }), limits, handler))!),
