@@ -16,6 +16,13 @@ import { ConfigurationError, type FsCode, FsError } from "./errors.js"
 export const SLASH_HEX = "2f"
 
 /** @internal */
+export const SLASH_BYTE = 47
+
+// POSIX NAME_MAX: the longest single path component.
+/** @internal */
+export const MAX_NAME_BYTES = 255
+
+/** @internal */
 export const DOT_HEX = "2e"
 
 /** @internal */
