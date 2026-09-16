@@ -2,10 +2,10 @@ import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
-import * as Scope from "effect/Scope"
+import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
-import { InvalidFilehandleError, InvalidNameError, type NfsExport, validateName } from "./export.js"
-import type { CompoundCall } from "./rpc.js"
+import { type InvalidFilehandleError, InvalidNameError, type NfsExport, validateName } from "./export.js"
+import type { CompoundCall, Connection } from "./rpc.js"
 import { type DecodeLimits, Reader, Writer, XdrDecodeError } from "./xdr.js"
 
 export const Status = {
@@ -53,6 +53,7 @@ export const Status = {
   BADSESSION: 10052,
   BADSLOT: 10053,
   COMPLETE_ALREADY: 10054,
+  CONN_NOT_BOUND_TO_SESSION: 10055,
   SEQ_MISORDERED: 10063,
   SEQUENCE_POS: 10064,
   REQ_TOO_BIG: 10065,
@@ -296,6 +297,7 @@ export interface Nfs4Options {
 
 export interface Nfs4Handler {
   readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array>
+  readonly disconnect: (connection: Connection) => Effect.Effect<void>
 }
 
 export const nextSequenceId = (sequence: number): number => (sequence + 1) >>> 0
@@ -500,6 +502,11 @@ interface SessionState {
   readonly client: ClientState
   readonly slots: Array<ReplaySlot>
   readonly fore: ChannelAttrs
+  /**
+   * Connections carrying this session's fore channel. Section 2.10.5 allows a session to be
+   * reached over several connections, so this is a set rather than a single connection.
+   */
+  readonly connections: Set<Connection>
 }
 
 interface OpenState {
@@ -1670,6 +1677,11 @@ export const makeNfs4Handler = (
               )
             }
 
+            // Section 2.10.3.1 ties association to SEQUENCE being transmitted, and a retry is
+            // transmitted like any other request. A client that reconnects after a reset and
+            // retransmits must end up associated, or its next DESTROY_SESSION would be refused.
+            session.connections.add(call.connection)
+
             return Effect.succeed(new Uint8Array(slot.response))
           }
         }
@@ -2141,11 +2153,14 @@ export const makeNfs4Handler = (
                     return { code: operation.code, status: Status.DELAY }
                   }
 
+                  // Section 18.36.3: the connection CREATE_SESSION arrived on is associated with
+                  // the session's fore channel without a further BIND_CONN_TO_SESSION.
                   sessions.set(bytesKey(id), {
                     id,
                     client,
                     fore,
-                    slots: Array.from({ length: slotCount }, () => ({ sequence: 0 }))
+                    slots: Array.from({ length: slotCount }, () => ({ sequence: 0 })),
+                    connections: new Set([call.connection])
                   })
                   client.confirmed = true
                   client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
@@ -2166,6 +2181,11 @@ export const makeNfs4Handler = (
                     Effect.as({ code: operation.code, status: Status.BADSESSION })
                   )
                 }
+
+                // Section 2.10.3.1: under SP4_NONE the connection a SEQUENCE is transmitted on is
+                // associated with the session's fore channel. Association follows transmission, so
+                // it happens before the slot and size checks that may still reject this request.
+                session.connections.add(call.connection)
 
                 if (value.slot >= session.slots.length) {
                   return Effect.succeed({ code: operation.code, status: Status.BADSLOT })
@@ -2292,8 +2312,8 @@ export const makeNfs4Handler = (
               }
 
               case "BindConnToSession": {
-                // Section 18.34.3: MUST be the only operation. Every connection is already the
-                // session's fore channel, so binding it again is answered with the fore direction.
+                // Section 18.34.3: MUST be the only operation. Only the fore channel can be
+                // bound, so every accepted binding is answered with the fore direction.
                 if (parsed.operations.length !== 1) {
                   return Effect.succeed({ code: operation.code, status: Status.NOT_ONLY_OP })
                 }
@@ -2309,6 +2329,8 @@ export const makeNfs4Handler = (
                 ) {
                   return Effect.succeed({ code: operation.code, status: Status.INVAL })
                 }
+
+                session.connections.add(call.connection)
 
                 return Effect.succeed({
                   code: operation.code,
@@ -2342,10 +2364,18 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.NOT_ONLY_OP })
                 }
 
+                // Section 18.37.3: "DESTROY_SESSION MUST be invoked on a connection that is
+                // associated with the session being destroyed." Without this a second connection
+                // could destroy a session it never carried, using only an observed session id.
+                if (!session.connections.has(call.connection)) {
+                  return Effect.succeed({ code: operation.code, status: Status.CONN_NOT_BOUND_TO_SESSION })
+                }
+
                 for (const slot of session.slots) {
                   replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
                 }
 
+                session.connections.clear()
                 sessions.delete(key)
 
                 if (session === activeSession) {
@@ -3146,6 +3176,17 @@ export const makeNfs4Handler = (
       compound: (call) =>
         stateGate.withPermit(
           Effect.uninterruptible(sweepExpired.pipe(Effect.andThen(executeCompound(call))))
+        ),
+      disconnect: (connection) =>
+        stateGate.withPermit(
+          Effect.sync(() => {
+            // Section 2.10.5: losing one connection does not end a session that others still
+            // reach, and never ends the lease, which expires on its own schedule.
+            // FIX(#69): nothing reclaims a client whose last connection went away — the lease
+            // correctly survives, but opens and replay budget stay pinned until the scope closes.
+            // https://github.com/lloydrichards/effect-virtual-fs/issues/69
+            for (const session of sessions.values()) session.connections.delete(connection)
+          })
         )
     }
   })

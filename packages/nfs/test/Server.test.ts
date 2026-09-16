@@ -21,8 +21,9 @@ import {
   NfsServerLimits,
   type NfsServerOptions
 } from "../src/index.js"
+import { Operation, Status } from "../src/internal/nfs4.js"
 import { encodeRecord, RecordDecoder } from "../src/internal/recordMarking.js"
-import { Writer } from "../src/internal/xdr.js"
+import { Reader, Writer } from "../src/internal/xdr.js"
 
 class TestSocketError extends Data.TaggedError("TestSocketError")<{
   readonly cause: unknown
@@ -142,6 +143,90 @@ const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
 
   return result
 }
+
+/** An AUTH_NONE COMPOUND call, record-marked, ready to write to a socket. */
+const rpcCompound = (xid: number, operations: ReadonlyArray<(writer: Writer) => void>): Uint8Array => {
+  const args = new Writer().string("conn").uint32(1).uint32(operations.length)
+
+  for (const operation of operations) operation(args)
+
+  const header = new Writer()
+    .uint32(xid).uint32(0).uint32(2).uint32(100003).uint32(4).uint32(1)
+    .uint32(0).opaque(new Uint8Array())
+    .uint32(0).opaque(new Uint8Array())
+    .bytes()
+
+  return encodeRecord(concat(header, args.bytes()))
+}
+
+/** Skips the RPC accepted-reply header and returns a reader positioned at the COMPOUND result. */
+const compoundReply = (record: Uint8Array): Reader => {
+  const reader = new Reader(record, limits)
+  reader.uint32()
+
+  for (let field = 0; field < 5; field++) reader.uint32()
+
+  return reader
+}
+
+const firstOperationStatus = (record: Uint8Array): number => {
+  const reader = compoundReply(record)
+  reader.uint32()
+  reader.string()
+  reader.uint32()
+  reader.uint32()
+
+  return reader.uint32()
+}
+
+interface OpenConnection {
+  readonly send: (request: Uint8Array, expectedRecords?: number) => Effect.Effect<ReadonlyArray<Uint8Array>>
+  readonly close: Effect.Effect<void>
+}
+
+/** A socket held open across several requests, so two connections can overlap in time. */
+const openConnection = (port: number): Effect.Effect<OpenConnection, TestSocketError> =>
+  Effect.callback((resume) => {
+    const socket = Net.createConnection({ host: "127.0.0.1", port })
+
+    const decoder = new RecordDecoder({
+      maxFragmentBytes: limits.maxFragmentBytes,
+      maxRecordBytes: limits.maxRecordBytes,
+      maxFragmentsPerRecord: limits.maxFragmentsPerRecord
+    })
+
+    let received: Array<Uint8Array> = []
+    let wanted = 0
+    let deliver: ((records: ReadonlyArray<Uint8Array>) => void) | undefined
+
+    socket.on("data", (chunk) => {
+      received.push(...decoder.push(Predicate.isString(chunk) ? Buffer.from(chunk) : chunk))
+
+      if (deliver === undefined || received.length < wanted) return
+      const batch = received
+      const settle = deliver
+      received = []
+      deliver = undefined
+      settle(batch)
+    })
+
+    socket.on("connect", () =>
+      resume(Effect.succeed({
+        send: (request: Uint8Array, expectedRecords = 1) =>
+          Effect.callback<ReadonlyArray<Uint8Array>>((settle) => {
+            wanted = expectedRecords
+            deliver = (records) => settle(Effect.succeed(records))
+            socket.write(request)
+
+            return Effect.void
+          }),
+        close: Effect.sync(() => socket.destroy())
+      })))
+
+    socket.on("error", (cause) => resume(Effect.fail(new TestSocketError({ cause }))))
+
+    return Effect.sync(() => socket.destroy())
+  })
 
 const options = (
   volume: Vfs.Volume,
@@ -399,4 +484,66 @@ describe("NfsServer", () => {
         yield* Scope.close(secondScope, Exit.void)
       })
   )
+
+  it.effect("gives each concurrently open socket its own connection identity", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      const scope = yield* Scope.make()
+
+      const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 }).pipe(Scope.provide(scope))
+
+      const server = yield* NfsServer.make(options(volume, caller)).pipe(
+        Effect.provideService(SocketServer.SocketServer, socketServer),
+        Scope.provide(scope)
+      )
+
+      const exchangeId = (owner: string) => (writer: Writer) =>
+        writer.uint32(Operation.EXCHANGE_ID).fixedOpaque(new Uint8Array(8)).string(owner)
+          .uint32(0).uint32(0).uint32(0)
+
+      const createSession = (client: bigint) => (writer: Writer) => {
+        writer.uint32(Operation.CREATE_SESSION).uint64(client).uint32(1).uint32(0)
+
+        for (const slots of [2, 0]) {
+          writer.uint32(0).uint32(1_024).uint32(1_024).uint32(1_024).uint32(8).uint32(slots).uint32(0)
+        }
+
+        writer.uint32(0).uint32(0)
+      }
+
+      const destroySession = (session: Uint8Array) => (writer: Writer) =>
+        writer.uint32(Operation.DESTROY_SESSION).fixedOpaque(session)
+
+      const afterHeader = (record: Uint8Array): Reader => {
+        const reader = compoundReply(record)
+        reader.uint32()
+        reader.string()
+
+        for (let field = 0; field < 3; field++) reader.uint32()
+
+        return reader
+      }
+
+      // Both sockets stay open for the whole test, so neither one's close can mask the other's
+      // identity by disassociating it early.
+      const owner = yield* openConnection(server.address.port)
+      const stranger = yield* openConnection(server.address.port)
+
+      const client = afterHeader((yield* owner.send(rpcCompound(1, [exchangeId("owner")])))[0]!).uint64()
+      const session = afterHeader((yield* owner.send(rpcCompound(2, [createSession(client)])))[0]!).fixedOpaque(16)
+
+      // The stranger socket presents a valid session id it never carried. If every socket shared
+      // one Connection this would answer NFS4_OK.
+      const refused = yield* stranger.send(rpcCompound(3, [destroySession(session)]))
+      assert.strictEqual(firstOperationStatus(refused[0]!), Status.CONN_NOT_BOUND_TO_SESSION)
+
+      // The socket that created the session may destroy it.
+      const accepted = yield* owner.send(rpcCompound(4, [destroySession(session)]))
+      assert.strictEqual(firstOperationStatus(accepted[0]!), Status.OK)
+
+      yield* owner.close
+      yield* stranger.close
+      yield* Scope.close(scope, Exit.void)
+    }))
 })

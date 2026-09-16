@@ -10,6 +10,7 @@ import {
   authSysCallback,
   call,
   channel,
+  connection,
   exchangeId,
   generation,
   limits,
@@ -295,7 +296,7 @@ describe("NFSv4.1 COMPOUND", () => {
       ).bytes()
 
       const reader = new Reader(
-        yield* handler.compound({ credentials: { _tag: "None" }, arguments: malformed }),
+        yield* handler.compound({ connection: connection(), credentials: { _tag: "None" }, arguments: malformed }),
         limits
       )
 
@@ -326,7 +327,7 @@ describe("NFSv4.1 COMPOUND", () => {
       trailing.set(valid)
 
       const malformed = new Reader(
-        yield* handler.compound({ credentials: { _tag: "None" }, arguments: trailing }),
+        yield* handler.compound({ connection: connection(), credentials: { _tag: "None" }, arguments: trailing }),
         limits
       )
 
@@ -335,7 +336,7 @@ describe("NFSv4.1 COMPOUND", () => {
       const wrongMinor = new Writer().string("minor").uint32(0).uint32(0).bytes()
 
       const response = new Reader(
-        yield* handler.compound({ credentials: { _tag: "None" }, arguments: wrongMinor }),
+        yield* handler.compound({ connection: connection(), credentials: { _tag: "None" }, arguments: wrongMinor }),
         limits
       )
 
@@ -2137,5 +2138,138 @@ describe("NFSv4.1 COMPOUND", () => {
       ])
 
       assert.strictEqual(new Reader(yield* handler.compound(malformed), limits).uint32(), Status.BADXDR)
+    }))
+
+  const connectionHandler = Effect.gen(function*() {
+    const caller = yield* (yield* Vfs.make()).caller()
+
+    return yield* makeNfs4Handler(
+      makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+      { leaseDurationSeconds: 30, generation, now: () => 0, limits }
+    )
+  })
+
+  const destroySession = (id: Uint8Array) => (writer: Writer) =>
+    writer.uint32(Operation.DESTROY_SESSION).fixedOpaque(id)
+
+  const bindToSession = (id: Uint8Array) => (writer: Writer) =>
+    writer.uint32(Operation.BIND_CONN_TO_SESSION).fixedOpaque(id).uint32(1).boolean(false)
+
+  it.effect("refuses DESTROY_SESSION from a connection the session was never carried on", () =>
+    Effect.gen(function*() {
+      const handler = yield* connectionHandler
+      const owner = connection(1)
+      const stranger = connection(2)
+      const { session } = yield* startSession(handler, "destroy", {}, new Uint8Array(8), owner)
+
+      // Section 18.37.3: DESTROY_SESSION MUST be invoked on a connection associated with the
+      // session. Otherwise any second connection could kill a mount using an observed session id.
+      const refused = yield* handler.compound(call([destroySession(session)], "probe", stranger))
+      assert.deepStrictEqual(statuses(refused).operations, [
+        [Operation.DESTROY_SESSION, Status.CONN_NOT_BOUND_TO_SESSION]
+      ])
+
+      // The session is untouched and the connection that created it may still destroy it.
+      const accepted = yield* handler.compound(call([destroySession(session)], "probe", owner))
+      assert.deepStrictEqual(statuses(accepted).operations, [[Operation.DESTROY_SESSION, Status.OK]])
+    }))
+
+  it.effect("associates a connection that only ever carried a SEQUENCE", () =>
+    Effect.gen(function*() {
+      const handler = yield* connectionHandler
+      const owner = connection(1)
+      const bySequence = connection(2)
+      const { session } = yield* startSession(handler, "associate", {}, new Uint8Array(8), owner)
+
+      // Before any SEQUENCE this connection is a stranger to the session.
+      assert.deepStrictEqual(
+        statuses(yield* handler.compound(call([destroySession(session)], "probe", bySequence))).operations,
+        [[Operation.DESTROY_SESSION, Status.CONN_NOT_BOUND_TO_SESSION]]
+      )
+
+      // Section 2.10.3.1: under SP4_NONE the SEQUENCE itself associates it.
+      assert.strictEqual(
+        statuses(yield* handler.compound(call([sequence(session, 1)], "probe", bySequence))).status,
+        Status.OK
+      )
+
+      assert.deepStrictEqual(
+        statuses(yield* handler.compound(call([destroySession(session)], "probe", bySequence))).operations,
+        [[Operation.DESTROY_SESSION, Status.OK]]
+      )
+    }))
+
+  it.effect("lets a connection associated only by BIND_CONN_TO_SESSION destroy the session", () =>
+    Effect.gen(function*() {
+      const handler = yield* connectionHandler
+      const owner = connection(1)
+      const byBind = connection(3)
+      const { session } = yield* startSession(handler, "bind-assoc", {}, new Uint8Array(8), owner)
+
+      // Before binding, the connection is a stranger.
+      assert.deepStrictEqual(
+        statuses(yield* handler.compound(call([destroySession(session)], "probe", byBind))).operations,
+        [[Operation.DESTROY_SESSION, Status.CONN_NOT_BOUND_TO_SESSION]]
+      )
+
+      assert.strictEqual(
+        statuses(yield* handler.compound(call([bindToSession(session)], "probe", byBind))).status,
+        Status.OK
+      )
+
+      // Section 18.34.3 binding is what makes the connection eligible.
+      assert.deepStrictEqual(
+        statuses(yield* handler.compound(call([destroySession(session)], "probe", byBind))).operations,
+        [[Operation.DESTROY_SESSION, Status.OK]]
+      )
+    }))
+
+  it.effect("associates a reconnecting client that retransmits a cached SEQUENCE", () =>
+    Effect.gen(function*() {
+      const handler = yield* connectionHandler
+      const owner = connection(1)
+      const reconnected = connection(5)
+      const { session } = yield* startSession(handler, "replay", {}, new Uint8Array(8), owner)
+
+      const cached = call([sequence(session, 1, true), (writer) => writer.uint32(Operation.PUTROOTFH)], "replay", owner)
+      assert.strictEqual(statuses(yield* handler.compound(cached)).status, Status.OK)
+
+      // The same bytes arriving on a new connection hit the reply cache and never reach the
+      // SEQUENCE handler, but Section 2.10.3.1 still associates the connection.
+      const retransmitted = call(
+        [sequence(session, 1, true), (writer) => writer.uint32(Operation.PUTROOTFH)],
+        "replay",
+        reconnected
+      )
+
+      assert.strictEqual(statuses(yield* handler.compound(retransmitted)).status, Status.OK)
+      assert.deepStrictEqual(
+        statuses(yield* handler.compound(call([destroySession(session)], "probe", reconnected))).operations,
+        [[Operation.DESTROY_SESSION, Status.OK]]
+      )
+    }))
+
+  it.effect("drops a connection's association when it disconnects, without ending the session", () =>
+    Effect.gen(function*() {
+      const handler = yield* connectionHandler
+      const owner = connection(1)
+      const second = connection(2)
+      const { session } = yield* startSession(handler, "disconnect", {}, new Uint8Array(8), owner)
+
+      yield* handler.compound(call([sequence(session, 1)], "probe", second))
+      yield* handler.disconnect(second)
+
+      // The session survives: the connection that created it still works.
+      assert.strictEqual(
+        statuses(yield* handler.compound(call([sequence(session, 2)], "probe", owner))).status,
+        Status.OK
+      )
+
+      // But the disconnected connection is no longer associated. Re-using that identity, as a
+      // fresh socket reaching the same handler would, is refused.
+      assert.deepStrictEqual(
+        statuses(yield* handler.compound(call([destroySession(session)], "probe", second))).operations,
+        [[Operation.DESTROY_SESSION, Status.CONN_NOT_BOUND_TO_SESSION]]
+      )
     }))
 })
