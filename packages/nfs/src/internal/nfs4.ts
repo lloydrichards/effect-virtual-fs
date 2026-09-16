@@ -1586,16 +1586,27 @@ const callbackAccepted = (
     if (reader.uint32() !== Status.OK) return false
     reader.string(limits.maxStringBytes)
 
-    if (reader.uint32() < 1) return false
+    // Exactly one result: this server sends a CB_SEQUENCE-only CB_COMPOUND, so anything else is
+    // not an answer to what it asked.
+    if (reader.uint32() !== 1) return false
 
     if (reader.uint32() !== OP_CB_SEQUENCE) return false
 
     if (reader.uint32() !== Status.OK) return false
 
     // The client echoes what it was given; anything else means it answered a different callback.
-    return bytesKey(reader.fixedOpaque(16)) === bytesKey(session) &&
+    const echoed = bytesKey(reader.fixedOpaque(16)) === bytesKey(session) &&
       reader.uint32() === sequence &&
       reader.uint32() === slot
+
+    // csr_highest_slotid and csr_target_highest_slotid are mandatory, and nothing may follow the
+    // one result. Reading them out and finishing rejects a truncated or padded reply, which would
+    // otherwise pass as a working callback path.
+    reader.uint32()
+    reader.uint32()
+    reader.finish()
+
+    return echoed
   } catch (error) {
     if (error instanceof XdrDecodeError) return false
     throw error
