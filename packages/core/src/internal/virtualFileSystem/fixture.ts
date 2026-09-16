@@ -13,7 +13,15 @@ import {
   VolumeOptions as VolumeOptionsSchema,
   VolumeSource
 } from "../virtualFileSystem.js"
-import { attachedBuffer, decodeConfiguration, failure, nameBytes, preparePath, wellFormed } from "./path.js"
+import {
+  attachedBuffer,
+  decodeConfiguration,
+  failure,
+  isDotComponent,
+  nameBytes,
+  preparePath,
+  wellFormed
+} from "./path.js"
 
 /** @internal */
 export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
@@ -62,7 +70,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
       preparePath(input, "fixture", config.success.maxPathBytes).pipe(
         Result.flatMap((path) =>
           !path.absolute || path.components.length === 0 ||
-            path.components.some((name) => name === "2e" || name === "2e2e")
+            path.components.some(isDotComponent)
             ? Result.fail(failure("InvalidArgument", "fixture", input)) :
             Result.succeed(path.components)
         )

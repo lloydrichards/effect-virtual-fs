@@ -31,12 +31,16 @@ import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./
 import {
   attachedBuffer,
   decodeConfiguration,
+  DOT_DOT_HEX,
+  DOT_HEX,
   failure,
+  isDotComponent,
   type LookupOptions,
   nameBytes,
   ownedPath,
   type PreparedPath,
   preparePath,
+  SLASH_HEX,
   strictString,
   wellFormed
 } from "./virtualFileSystem/path.js"
@@ -556,14 +560,14 @@ export const makeVolume = Effect.fnUntraced(
         current = parent
       }
 
-      return "2f" + names.reverse().join("2f")
+      return SLASH_HEX + names.reverse().join(SLASH_HEX)
     }
 
     const publishEntry = (_tag: Change["_tag"], parent: Directory, name: string) => {
       watchHub.publishUnsafe(() => {
         const prefix = directoryHex(parent)
 
-        return { _tag, path: ownedPath(nameBytes(prefix + (prefix === "2f" ? "" : "2f") + name)) }
+        return { _tag, path: ownedPath(nameBytes(prefix + (prefix === SLASH_HEX ? "" : SLASH_HEX) + name)) }
       })
     }
 
@@ -575,7 +579,7 @@ export const makeVolume = Effect.fnUntraced(
           changes.push(UpdateChange.make({ path: ownedPath(new Uint8Array([47])) }))
         }
 
-        const pending: Array<readonly [Directory, string]> = [[root, "2f"]]
+        const pending: Array<readonly [Directory, string]> = [[root, SLASH_HEX]]
 
         while (pending.length > 0) {
           const next = pending.pop()
@@ -590,7 +594,7 @@ export const makeVolume = Effect.fnUntraced(
               changes.push(UpdateChange.make({ path: ownedPath(nameBytes(path)) }))
             }
 
-            if (node.kind === "directory") pending.push([node, path + "2f"])
+            if (node.kind === "directory") pending.push([node, path + SLASH_HEX])
           }
         }
 
@@ -981,9 +985,9 @@ export const makeVolume = Effect.fnUntraced(
 
           if (component === undefined) break
 
-          if (component === "2e") continue
+          if (component === DOT_HEX) continue
 
-          if (component === "2e2e") {
+          if (component === DOT_DOT_HEX) {
             current = current.parent ?? current
             parent = undefined
             name = undefined
@@ -1137,7 +1141,7 @@ export const makeVolume = Effect.fnUntraced(
             directory = parent
           }
 
-          return nameBytes("2f" + components.reverse().join("2f"))
+          return nameBytes(SLASH_HEX + components.reverse().join(SLASH_HEX))
         }))
       })
 
@@ -1297,7 +1301,7 @@ export const makeVolume = Effect.fnUntraced(
           ) return yield* failure("InvalidArgument", "lookupReference")
           const key = Encoding.encodeHex(new Uint8Array(name))
 
-          if (key === "2e" || key === "2e2e") return yield* failure("InvalidArgument", "lookupReference")
+          if (isDotComponent(key)) return yield* failure("InvalidArgument", "lookupReference")
 
           return yield* coordinated(Effect.gen(function*() {
             const directory = yield* referencedNode(directoryReference, "lookupReference")
@@ -1623,7 +1627,7 @@ export const makeVolume = Effect.fnUntraced(
               yield* authorize(parent, identity, 3, "link", destination)
               const name = path.components.at(-1)
 
-              if (name === undefined || name === "2e" || name === "2e2e" || parent.entries.has(name)) {
+              if (isDotComponent(name) || parent.entries.has(name)) {
                 return yield* failure("AlreadyExists", "link", destination)
               }
 
@@ -1669,7 +1673,7 @@ export const makeVolume = Effect.fnUntraced(
             yield* authorize(parent, identity, 3, "symlink", input)
             const name = path.components.at(-1)
 
-            if (name === undefined || name === "2e" || name === "2e2e" || parent.entries.has(name)) {
+            if (isDotComponent(name) || parent.entries.has(name)) {
               return yield* failure("AlreadyExists", "symlink", input)
             }
 
@@ -1779,7 +1783,7 @@ export const makeVolume = Effect.fnUntraced(
             if (parent === undefined) return yield* failure("IsDirectory", "open", input)
             const name = resolved.name
 
-            if (name === undefined || name === "2e" || name === "2e2e") {
+            if (isDotComponent(name)) {
               return yield* failure("IsDirectory", "open", input)
             }
 
@@ -1860,7 +1864,7 @@ export const makeVolume = Effect.fnUntraced(
             yield* authorize(parent, identity, 3, "unlink", input)
             const name = path.components.at(-1)
 
-            if (name === undefined || name === "2e" || name === "2e2e") {
+            if (isDotComponent(name)) {
               return yield* failure("IsDirectory", "unlink", input)
             }
 
@@ -1902,8 +1906,7 @@ export const makeVolume = Effect.fnUntraced(
             const newName = newPath.components.at(-1)
 
             if (
-              oldName === undefined || newName === undefined || oldName === "2e" || oldName === "2e2e" ||
-              newName === "2e" || newName === "2e2e"
+              isDotComponent(oldName) || isDotComponent(newName)
             ) {
               return yield* failure("InvalidArgument", "rename", source)
             }
@@ -1952,7 +1955,7 @@ export const makeVolume = Effect.fnUntraced(
 
             // All rejection checks precede namespace, ancestry, quota, and metadata publication.
             const oldEvent = () =>
-              ownedPath(nameBytes(directoryHex(oldParent) + (oldParent === root ? "" : "2f") + oldName))
+              ownedPath(nameBytes(directoryHex(oldParent) + (oldParent === root ? "" : SLASH_HEX) + oldName))
 
             oldParent.entries.delete(oldName)
             newParent.entries.set(newName, child)
@@ -1995,7 +1998,7 @@ export const makeVolume = Effect.fnUntraced(
             yield* authorize(parent, identity, 3, "rmdir", input)
             const name = path.components.at(-1)
 
-            if (name === undefined || name === "2e" || name === "2e2e") {
+            if (isDotComponent(name)) {
               return yield* failure("InvalidArgument", "rmdir", input)
             }
 
@@ -2044,7 +2047,7 @@ export const makeVolume = Effect.fnUntraced(
               yield* authorize(parent, identity, 3, "mkdir", input)
               const name = path.components.at(-1)
 
-              if (name === undefined || name === "2e" || name === "2e2e" || parent.entries.has(name)) {
+              if (isDotComponent(name) || parent.entries.has(name)) {
                 return yield* failure("AlreadyExists", "mkdir", input)
               }
 
