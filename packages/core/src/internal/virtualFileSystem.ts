@@ -83,7 +83,14 @@ const SET_ID_BITS = 0o6000
 // Sticky: only the owner of an entry or of its directory may remove it.
 const STICKY_BIT = 0o1000
 
+// Largest signed 64-bit file offset, as POSIX off_t.
+const MAX_FILE_OFFSET = 0x7fffffffffffffffn
+
 const Mode = Schema.Natural.check(Schema.isLessThanOrEqualTo(0o7777))
+
+const isMode = Schema.is(Mode)
+
+const isNatural = Schema.is(Schema.Natural)
 
 /** @internal */
 export const Identity = Schema.Struct({
@@ -136,6 +143,8 @@ const Timestamp = Schema.BigInt.check(
   Schema.isLessThanOrEqualToBigInt(timestampLimit)
 )
 
+const isTimestamp = Schema.is(Timestamp)
+
 /** @internal */
 export const Metadata = Schema.Struct({
   kind: Schema.Literals(["directory", "file", "symlink"]),
@@ -182,6 +191,8 @@ export const SeekMode = Schema.Literals(["start", "current", "end", "data", "hol
 /** @internal */
 export type SeekMode = typeof SeekMode.Type
 
+const isSeekMode = Schema.is(SeekMode)
+
 /** @internal */
 export const OpenSettings = Schema.Struct({
   access: Schema.Literals(["read", "write", "readWrite"]),
@@ -203,6 +214,14 @@ const WriteFileSettings = Schema.Struct({
 
 /** @internal */
 export type WriteFileOptions = typeof WriteFileSettings.Type & RelativeOptions
+
+const decodeOwnerUpdate = Schema.decodeResult(OwnerUpdate, { onExcessProperty: "error" })
+
+const decodeTimes = Schema.decodeResult(Times, { onExcessProperty: "error" })
+
+const decodeWriteFileSettings = Schema.decodeResult(WriteFileSettings, { onExcessProperty: "error" })
+
+const decodeOpenSettings = Schema.decodeResult(OpenSettings, { onExcessProperty: "error" })
 
 /** @internal */
 export const OverlayNodeKind = Schema.Literals(["directory", "file", "symlink"])
@@ -424,7 +443,7 @@ export const makeVolume = Effect.fnUntraced(
     const clock = yield* Clock.clockWith(Effect.succeed)
     const initialTime = clock.currentTimeNanosUnsafe()
 
-    if (!Schema.is(Timestamp)(initialTime)) {
+    if (!isTimestamp(initialTime)) {
       return yield* new ConfigurationError({ field: "clock.currentTimeNanos" })
     }
 
@@ -432,7 +451,7 @@ export const makeVolume = Effect.fnUntraced(
       Effect.suspend(() => {
         const now = clock.currentTimeNanosUnsafe()
 
-        return Schema.is(Timestamp)(now) ? Effect.succeed(now) : Effect.fail(failure("InvalidArgument", operation))
+        return isTimestamp(now) ? Effect.succeed(now) : Effect.fail(failure("InvalidArgument", operation))
       })
 
     const volumeIdentity = Symbol()
@@ -793,7 +812,7 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const resize = Effect.fnUntraced(function*(file: RegularFile, length: bigint, operation: string) {
-      if (!Schema.is(Schema.BigInt)(length) || length < 0n) return yield* failure("InvalidArgument", operation)
+      if (!Predicate.isBigInt(length) || length < 0n) return yield* failure("InvalidArgument", operation)
 
       if (length > BigInt(maxFileBytes)) return yield* failure("FileTooLarge", operation)
       const size = Number(length)
@@ -831,10 +850,10 @@ export const makeVolume = Effect.fnUntraced(
       const read = Effect.fnUntraced(function*(maximum: number, position?: bigint) {
         const file = yield* get(position === undefined ? "read" : "pread", "read")
 
-        if (!Schema.is(Schema.Natural)(maximum)) return yield* failure("InvalidArgument", "read")
+        if (!isNatural(maximum)) return yield* failure("InvalidArgument", "read")
         const offset = position ?? ref.offset
 
-        if (!Schema.is(Schema.BigInt)(offset) || offset < 0n || offset > 0x7fffffffffffffffn) {
+        if (!Predicate.isBigInt(offset) || offset < 0n || offset > MAX_FILE_OFFSET) {
           return yield* failure("InvalidArgument", "read")
         }
 
@@ -861,7 +880,7 @@ export const makeVolume = Effect.fnUntraced(
           const file = yield* get(position === undefined ? "write" : "pwrite", "write")
           const offset = position ?? (ref.append ? file.metadata.size : ref.offset)
 
-          if (!Schema.is(Schema.BigInt)(offset) || offset < 0n || offset > 0x7fffffffffffffffn) {
+          if (!Predicate.isBigInt(offset) || offset < 0n || offset > MAX_FILE_OFFSET) {
             return yield* failure("InvalidArgument", "write")
           }
 
@@ -924,13 +943,13 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(Effect.gen(function*() {
             const file = yield* get("seek")
 
-            if (!Schema.is(Schema.BigInt)(offset) || !Schema.is(SeekMode)(mode)) {
+            if (!Predicate.isBigInt(offset) || !isSeekMode(mode)) {
               return yield* failure("InvalidArgument", "seek")
             }
 
             let next = mode === "current" ? ref.offset + offset : mode === "end" ? file.metadata.size + offset : offset
 
-            if (next < 0n || next > 0x7fffffffffffffffn) return yield* failure("InvalidArgument", "seek")
+            if (next < 0n || next > MAX_FILE_OFFSET) return yield* failure("InvalidArgument", "seek")
 
             if (mode === "data" || mode === "hole") {
               if (offset >= file.metadata.size) return yield* failure("NoData", "seek")
@@ -1221,7 +1240,7 @@ export const makeVolume = Effect.fnUntraced(
 
       const changeMode = Effect.fnUntraced(
         function*(target: PathInput | FileHandle | DirectoryHandle, mode: number, options?: MetadataOptions) {
-          if (!Schema.is(Mode)(mode)) return yield* failure("InvalidArgument", "chmod")
+          if (!isMode(mode)) return yield* failure("InvalidArgument", "chmod")
           const chosen = options === undefined ? undefined : { ...options }
 
           return yield* coordinated(Effect.gen(function*() {
@@ -1240,7 +1259,7 @@ export const makeVolume = Effect.fnUntraced(
 
       const changeOwner = Effect.fnUntraced(
         function*(target: PathInput | FileHandle | DirectoryHandle, owner: OwnerUpdate, options?: MetadataOptions) {
-          const decoded = Schema.decodeResult(OwnerUpdate, { onExcessProperty: "error" })(owner)
+          const decoded = decodeOwnerUpdate(owner)
 
           if (Result.isFailure(decoded)) return yield* failure("InvalidArgument", "chown")
           const update = { ...decoded.success }
@@ -1273,7 +1292,7 @@ export const makeVolume = Effect.fnUntraced(
 
       const changeTimes = Effect.fnUntraced(
         function*(target: PathInput | FileHandle | DirectoryHandle, times: Times, options?: MetadataOptions) {
-          const decoded = Schema.decodeResult(Times, { onExcessProperty: "error" })(times)
+          const decoded = decodeTimes(times)
 
           if (Result.isFailure(decoded)) return yield* failure("InvalidArgument", "utimes")
           const access = { ...decoded.success.access }
@@ -1438,7 +1457,7 @@ export const makeVolume = Effect.fnUntraced(
 
             const captured = new Uint8Array(bytes)
             const { relativeTo: base, ...raw } = options
-            const decoded = Schema.decodeResult(WriteFileSettings, { onExcessProperty: "error" })(raw)
+            const decoded = decodeWriteFileSettings(raw)
 
             if (Result.isFailure(decoded)) return yield* failure("InvalidArgument", "writeFile", input)
             const chosen = decoded.success
@@ -1688,11 +1707,11 @@ export const makeVolume = Effect.fnUntraced(
         symlink: Effect.fn("Caller.symlink")(function*(target: PathInput, input: PathInput, options?: RelativeOptions) {
           const prepared = preparePath(input, "symlink", settings.maxPathBytes)
 
-          if (Schema.is(Schema.String)(target) && !wellFormed(target)) {
+          if (Predicate.isString(target) && !wellFormed(target)) {
             return yield* failure("InvalidPathEncoding", "symlink", target)
           }
 
-          const rawTarget = Schema.is(Schema.String)(target)
+          const rawTarget = Predicate.isString(target)
             ? new TextEncoder().encode(target)
             : getBytePathBytes(target)
 
@@ -1767,7 +1786,7 @@ export const makeVolume = Effect.fnUntraced(
         open: Effect.fn("Caller.open")(function*(input: PathInput, options: OpenOptions) {
           const prepared = preparePath(input, "open", settings.maxPathBytes)
           const { relativeTo: base, ...raw } = options
-          const decoded = Schema.decodeResult(OpenSettings, { onExcessProperty: "error" })(raw)
+          const decoded = decodeOpenSettings(raw)
 
           if (Result.isFailure(decoded)) return yield* failure("InvalidArgument", "open", input)
           const chosen = { ...decoded.success }
@@ -2072,7 +2091,7 @@ export const makeVolume = Effect.fnUntraced(
             const base = options?.relativeTo
             const mode = options?.mode === undefined ? 0o777 : options.mode
 
-            if (!Schema.is(Mode)(mode)) return yield* failure("InvalidArgument", "mkdir", input)
+            if (!isMode(mode)) return yield* failure("InvalidArgument", "mkdir", input)
 
             return yield* coordinated(Effect.gen(function*() {
               const path = yield* Effect.fromResult(prepared)
