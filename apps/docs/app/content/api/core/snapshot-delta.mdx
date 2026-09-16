@@ -29,7 +29,7 @@ A path-oriented semantic difference between two snapshots.
 **Signature**
 
 ```ts
-export type SnapshotChange = typeof SnapshotChange.Type;
+export type SnapshotChange = typeof SnapshotChange.Type
 ```
 
 Added in v0.1.0
@@ -41,7 +41,7 @@ Filtering options for snapshot-delta inspection.
 **Signature**
 
 ```ts
-export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type;
+export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type
 ```
 
 Added in v0.1.0
@@ -54,7 +54,7 @@ An immutable, opaque description of the exact difference between two snapshots.
 
 ```ts
 export interface SnapshotDelta {
-  readonly [SnapshotDeltaTypeId]: SnapshotDeltaTypeId;
+  readonly [SnapshotDeltaTypeId]: SnapshotDeltaTypeId
 }
 ```
 
@@ -67,7 +67,7 @@ Resource limits shared by delta creation, inspection, encoding, decoding, and ap
 **Signature**
 
 ```ts
-export type SnapshotDeltaLimits = typeof SnapshotDeltaLimitsSchema.Type;
+export type SnapshotDeltaLimits = typeof SnapshotDeltaLimitsSchema.Type
 ```
 
 Added in v0.1.0
@@ -79,7 +79,7 @@ A semantic field that differs between two snapshots.
 **Signature**
 
 ```ts
-export type SnapshotDifference = typeof SnapshotDifference.Type;
+export type SnapshotDifference = typeof SnapshotDifference.Type
 ```
 
 Added in v0.1.0
@@ -91,7 +91,7 @@ A filesystem entry kind reported by snapshot inspection.
 **Signature**
 
 ```ts
-export type SnapshotNodeKind = typeof SnapshotNodeKind.Type;
+export type SnapshotNodeKind = typeof SnapshotNodeKind.Type
 ```
 
 Added in v0.1.0
@@ -113,31 +113,23 @@ export declare const SnapshotChange: Schema.Union<
     Schema.TaggedStruct<
       "Added",
       {
-        readonly path: Schema.declare<BytePath, BytePath>;
-        readonly kind: Schema.Literals<
-          readonly ["directory", "file", "symlink"]
-        >;
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
       }
     >,
     Schema.TaggedStruct<
       "Removed",
       {
-        readonly path: Schema.declare<BytePath, BytePath>;
-        readonly kind: Schema.Literals<
-          readonly ["directory", "file", "symlink"]
-        >;
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
       }
     >,
     Schema.TaggedStruct<
       "Updated",
       {
-        readonly path: Schema.declare<BytePath, BytePath>;
-        readonly beforeKind: Schema.Literals<
-          readonly ["directory", "file", "symlink"]
-        >;
-        readonly afterKind: Schema.Literals<
-          readonly ["directory", "file", "symlink"]
-        >;
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly beforeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+        readonly afterKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
         readonly differences: Schema.$Array<
           Schema.Literals<
             readonly [
@@ -151,14 +143,14 @@ export declare const SnapshotChange: Schema.Union<
               "atimeNs",
               "mtimeNs",
               "ctimeNs",
-              "birthtimeNs",
+              "birthtimeNs"
             ]
           >
-        >;
+        >
       }
-    >,
+    >
   ]
->;
+>
 ```
 
 Added in v0.1.0
@@ -171,8 +163,8 @@ Schema for snapshot-delta inspection options.
 
 ```ts
 export declare const SnapshotChangesOptions: Schema.Struct<{
-  readonly includeTimestamps: Schema.optionalKey<Schema.Boolean>;
-}>;
+  readonly includeTimestamps: Schema.optionalKey<Schema.Boolean>
+}>
 ```
 
 Added in v0.1.0
@@ -184,10 +176,7 @@ Schema for an already validated opaque snapshot delta.
 **Signature**
 
 ```ts
-export declare const SnapshotDelta: Schema.declare<
-  SnapshotDelta,
-  SnapshotDelta
->;
+export declare const SnapshotDelta: Schema.declare<SnapshotDelta, SnapshotDelta>
 ```
 
 Added in v0.1.0
@@ -203,42 +192,42 @@ default preset permits larger snapshots and payloads while remaining finite.
 
 ```ts
 export declare const SnapshotDeltaLimits: Schema.Struct<{
-  readonly maxEncodedBytes: Schema.ByteSize;
-  readonly maxIdentityBytes: Schema.ByteSize;
-  readonly maxDeltaRecords: Schema.Natural;
-  readonly maxDecodedDeltaBytes: Schema.ByteSize;
-  readonly maxBaseRecords: Schema.Natural;
-  readonly maxTargetRecords: Schema.Natural;
-  readonly maxEntries: Schema.Natural;
-  readonly maxOutputRecords: Schema.Natural;
-  readonly maxOutputBytes: Schema.ByteSize;
-  readonly maxInheritedRecords: Schema.Natural;
+  readonly maxEncodedBytes: Schema.ByteSize
+  readonly maxIdentityBytes: Schema.ByteSize
+  readonly maxDeltaRecords: Schema.Natural
+  readonly maxDecodedDeltaBytes: Schema.ByteSize
+  readonly maxBaseRecords: Schema.Natural
+  readonly maxTargetRecords: Schema.Natural
+  readonly maxEntries: Schema.Natural
+  readonly maxOutputRecords: Schema.Natural
+  readonly maxOutputBytes: Schema.ByteSize
+  readonly maxInheritedRecords: Schema.Natural
 }> & {
   constrained: {
-    readonly maxEncodedBytes: ByteSize.ByteSize;
-    readonly maxIdentityBytes: ByteSize.ByteSize;
-    readonly maxDeltaRecords: number;
-    readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
-    readonly maxBaseRecords: number;
-    readonly maxTargetRecords: number;
-    readonly maxEntries: number;
-    readonly maxOutputRecords: number;
-    readonly maxOutputBytes: ByteSize.ByteSize;
-    readonly maxInheritedRecords: number;
-  };
+    readonly maxEncodedBytes: ByteSize.ByteSize
+    readonly maxIdentityBytes: ByteSize.ByteSize
+    readonly maxDeltaRecords: number
+    readonly maxDecodedDeltaBytes: ByteSize.ByteSize
+    readonly maxBaseRecords: number
+    readonly maxTargetRecords: number
+    readonly maxEntries: number
+    readonly maxOutputRecords: number
+    readonly maxOutputBytes: ByteSize.ByteSize
+    readonly maxInheritedRecords: number
+  }
   default: {
-    readonly maxEncodedBytes: ByteSize.ByteSize;
-    readonly maxIdentityBytes: ByteSize.ByteSize;
-    readonly maxDeltaRecords: number;
-    readonly maxDecodedDeltaBytes: ByteSize.ByteSize;
-    readonly maxBaseRecords: number;
-    readonly maxTargetRecords: number;
-    readonly maxEntries: number;
-    readonly maxOutputRecords: number;
-    readonly maxOutputBytes: ByteSize.ByteSize;
-    readonly maxInheritedRecords: number;
-  };
-};
+    readonly maxEncodedBytes: ByteSize.ByteSize
+    readonly maxIdentityBytes: ByteSize.ByteSize
+    readonly maxDeltaRecords: number
+    readonly maxDecodedDeltaBytes: ByteSize.ByteSize
+    readonly maxBaseRecords: number
+    readonly maxTargetRecords: number
+    readonly maxEntries: number
+    readonly maxOutputRecords: number
+    readonly maxOutputBytes: ByteSize.ByteSize
+    readonly maxInheritedRecords: number
+  }
+}
 ```
 
 Added in v0.1.0
@@ -262,9 +251,9 @@ export declare const SnapshotDifference: Schema.Literals<
     "atimeNs",
     "mtimeNs",
     "ctimeNs",
-    "birthtimeNs",
+    "birthtimeNs"
   ]
->;
+>
 ```
 
 Added in v0.1.0
@@ -276,9 +265,7 @@ Schema for filesystem entry kinds reported by snapshot inspection.
 **Signature**
 
 ```ts
-export declare const SnapshotNodeKind: Schema.Literals<
-  readonly ["directory", "file", "symlink"]
->;
+export declare const SnapshotNodeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
 ```
 
 Added in v0.1.0
@@ -292,7 +279,7 @@ Type identifier for opaque snapshot deltas.
 **Signature**
 
 ```ts
-export declare const SnapshotDeltaTypeId: "@effect-vfs/core/SnapshotDelta";
+export declare const SnapshotDeltaTypeId: "@effect-vfs/core/SnapshotDelta"
 ```
 
 Added in v0.1.0
@@ -304,7 +291,7 @@ Type identifier for opaque snapshot deltas.
 **Signature**
 
 ```ts
-export type SnapshotDeltaTypeId = typeof SnapshotDeltaTypeId;
+export type SnapshotDeltaTypeId = typeof SnapshotDeltaTypeId
 ```
 
 Added in v0.1.0

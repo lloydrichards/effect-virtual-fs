@@ -22,8 +22,8 @@ Builds a fresh volume from a validated final-state fixture.
 ```ts
 export declare const fromFixture: (
   fixture: Fixture,
-  options?: VolumeOptions,
-) => Effect.Effect<Volume, ConfigurationError | ImageError>;
+  options?: VolumeOptions
+) => Effect.Effect<Volume, ConfigurationError | ImageError>
 ```
 
 Added in v0.1.0
@@ -37,8 +37,8 @@ Restores a fresh volume from an opaque snapshot under the supplied destination l
 ```ts
 export declare const fromSnapshot: (
   snapshot: Snapshot,
-  options?: VolumeOptions,
-) => Effect.Effect<Volume, ConfigurationError | ImageError>;
+  options?: VolumeOptions
+) => Effect.Effect<Volume, ConfigurationError | ImageError>
 ```
 
 Added in v0.1.0
@@ -55,9 +55,7 @@ arise because this constructor does not accept persisted input.
 **Signature**
 
 ```ts
-export declare const make: (
-  options?: VolumeOptions,
-) => Effect.Effect<Volume, ConfigurationError>;
+export declare const make: (options?: VolumeOptions) => Effect.Effect<Volume, ConfigurationError>
 ```
 
 Added in v0.1.0
@@ -81,8 +79,8 @@ with `ConfigurationError`. Each execution creates a fresh workspace.
 ```ts
 export declare const makeOverlay: (
   base: Snapshot,
-  options?: VolumeOptions,
-) => Effect.Effect<OverlayVolume, ConfigurationError | ImageError>;
+  options?: VolumeOptions
+) => Effect.Effect<OverlayVolume, ConfigurationError | ImageError>
 ```
 
 Added in v0.1.0
@@ -98,9 +96,7 @@ Shared-memory-backed and detached views fail with `InvalidArgument`.
 **Signature**
 
 ```ts
-export declare const pathFromBytes: (
-  bytes: Uint8Array,
-) => Effect.Effect<BytePath, FsError>;
+export declare const pathFromBytes: (bytes: Uint8Array) => Effect.Effect<BytePath, FsError>
 ```
 
 Added in v0.1.0
@@ -114,7 +110,7 @@ Describes an invalid volume or caller option and names the rejected field.
 **Signature**
 
 ```ts
-export declare const ConfigurationError: typeof VfsModel.ConfigurationError;
+export declare const ConfigurationError: typeof VfsModel.ConfigurationError
 ```
 
 Added in v0.1.0
@@ -126,7 +122,7 @@ Describes an expected filesystem operation failure.
 **Signature**
 
 ```ts
-export declare const FsError: typeof VfsModel.FsError;
+export declare const FsError: typeof VfsModel.FsError
 ```
 
 Added in v0.1.0
@@ -140,9 +136,7 @@ Copies the bytes held by an opaque byte path.
 **Signature**
 
 ```ts
-export declare const pathToBytes: (
-  path: BytePath,
-) => Effect.Effect<Uint8Array, FsError>;
+export declare const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsError>
 ```
 
 Added in v0.1.0
@@ -157,187 +151,103 @@ A filesystem caller with its own identity, creation mask, and current directory.
 
 ```ts
 export interface Caller {
-  readonly [CallerId]: true;
+  readonly [CallerId]: true
   /** Returns the stable reference for this volume's root directory. */
-  readonly rootReference: Effect.Effect<ObjectReference, FsError>;
+  readonly rootReference: Effect.Effect<ObjectReference, FsError>
   /** Looks up one byte-preserving child name from a referenced directory. */
-  readonly lookupReference: (
-    directory: ObjectReference,
-    name: Uint8Array,
-  ) => Effect.Effect<ObjectReference, FsError>;
+  readonly lookupReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<ObjectReference, FsError>
   /** Returns a referenced directory's current parent. The root is its own parent. */
-  readonly parentReference: (
-    directory: ObjectReference,
-  ) => Effect.Effect<ObjectReference, FsError>;
+  readonly parentReference: (directory: ObjectReference) => Effect.Effect<ObjectReference, FsError>
   /** Reads metadata and its matching live revision. */
-  readonly observeMetadata: (
-    reference: ObjectReference,
-  ) => Effect.Effect<ObjectObservation<Metadata>, FsError>;
+  readonly observeMetadata: (reference: ObjectReference) => Effect.Effect<ObjectObservation<Metadata>, FsError>
   /** Reads owned directory entries and their matching directory revision. */
   readonly observeDirectory: (
-    reference: ObjectReference,
-  ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsError>;
+    reference: ObjectReference
+  ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsError>
   /** Reads an owned symbolic-link target through a stable reference. */
-  readonly readLinkReference: (
-    reference: ObjectReference,
-  ) => Effect.Effect<Uint8Array, FsError>;
+  readonly readLinkReference: (reference: ObjectReference) => Effect.Effect<Uint8Array, FsError>
   /** Opens a referenced regular file for reading. */
-  readonly openReference: (
-    reference: ObjectReference,
-  ) => Effect.Effect<FileHandle, FsError, Scope.Scope>;
+  readonly openReference: (reference: ObjectReference) => Effect.Effect<FileHandle, FsError, Scope.Scope>
   /** Reads metadata, following the final symbolic link by default. */
-  readonly stat: (
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<Metadata, FsError>;
+  readonly stat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>
   /** Atomically moves an entry within this volume without replacing a non-empty directory. */
   readonly rename: (
     source: PathInput,
     destination: PathInput,
     options?: {
-      readonly sourceRelativeTo?: DirectoryHandle;
-      readonly destinationRelativeTo?: DirectoryHandle;
-    },
-  ) => Effect.Effect<void, FsError>;
+      readonly sourceRelativeTo?: DirectoryHandle
+      readonly destinationRelativeTo?: DirectoryHandle
+    }
+  ) => Effect.Effect<void, FsError>
   /** Reads and returns an owned copy of a regular file's complete contents. */
-  readonly readFile: (
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<Uint8Array, FsError>;
+  readonly readFile: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsError>
   /** Atomically writes a complete regular file according to the replacement options. */
-  readonly writeFile: (
-    path: PathInput,
-    bytes: Uint8Array,
-    options: WriteFileOptions,
-  ) => Effect.Effect<void, FsError>;
+  readonly writeFile: (path: PathInput, bytes: Uint8Array, options: WriteFileOptions) => Effect.Effect<void, FsError>
   /** Checks the requested permission bits without opening the entry. */
-  readonly access: (
-    path: PathInput,
-    bits?: number,
-    options?: RelativeOptions,
-  ) => Effect.Effect<void, FsError>;
+  readonly access: (path: PathInput, bits?: number, options?: RelativeOptions) => Effect.Effect<void, FsError>
   /** Sets a regular file's length. Extending creates a zero-filled region. */
-  readonly truncate: (
-    path: PathInput,
-    length: bigint,
-    options?: RelativeOptions,
-  ) => Effect.Effect<void, FsError>;
+  readonly truncate: (path: PathInput, length: bigint, options?: RelativeOptions) => Effect.Effect<void, FsError>
   /** Changes permission bits, following the final symbolic link by default. */
-  readonly chmod: (
-    path: PathInput,
-    mode: number,
-    options?: MetadataOptions,
-  ) => Effect.Effect<void, FsError>;
+  readonly chmod: (path: PathInput, mode: number, options?: MetadataOptions) => Effect.Effect<void, FsError>
   /** Changes uid, gid, or both, following the final symbolic link by default. */
-  readonly chown: (
-    path: PathInput,
-    owner: OwnerUpdate,
-    options?: MetadataOptions,
-  ) => Effect.Effect<void, FsError>;
+  readonly chown: (path: PathInput, owner: OwnerUpdate, options?: MetadataOptions) => Effect.Effect<void, FsError>
   /** Updates access and modification times, following the final symbolic link by default. */
-  readonly utimes: (
-    path: PathInput,
-    times: Times,
-    options?: MetadataOptions,
-  ) => Effect.Effect<void, FsError>;
+  readonly utimes: (path: PathInput, times: Times, options?: MetadataOptions) => Effect.Effect<void, FsError>
   /** Changes permission bits through a live, same-volume handle. */
-  readonly chmodHandle: (
-    handle: FileHandle | DirectoryHandle,
-    mode: number,
-  ) => Effect.Effect<void, FsError>;
+  readonly chmodHandle: (handle: FileHandle | DirectoryHandle, mode: number) => Effect.Effect<void, FsError>
   /** Changes uid, gid, or both through a live, same-volume handle. */
-  readonly chownHandle: (
-    handle: FileHandle | DirectoryHandle,
-    owner: OwnerUpdate,
-  ) => Effect.Effect<void, FsError>;
+  readonly chownHandle: (handle: FileHandle | DirectoryHandle, owner: OwnerUpdate) => Effect.Effect<void, FsError>
   /** Updates access and modification times through a live, same-volume handle. */
-  readonly utimesHandle: (
-    handle: FileHandle | DirectoryHandle,
-    times: Times,
-  ) => Effect.Effect<void, FsError>;
+  readonly utimesHandle: (handle: FileHandle | DirectoryHandle, times: Times) => Effect.Effect<void, FsError>
   /** Reads metadata without following the final symbolic link. */
-  readonly lstat: (
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<Metadata, FsError>;
+  readonly lstat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>
   /** Creates a hard link to an existing non-directory entry. */
   readonly link: (
     source: PathInput,
     destination: PathInput,
     options?: {
-      readonly sourceRelativeTo?: DirectoryHandle;
-      readonly destinationRelativeTo?: DirectoryHandle;
-      readonly followSourceSymlink?: boolean;
-    },
-  ) => Effect.Effect<void, FsError>;
+      readonly sourceRelativeTo?: DirectoryHandle
+      readonly destinationRelativeTo?: DirectoryHandle
+      readonly followSourceSymlink?: boolean
+    }
+  ) => Effect.Effect<void, FsError>
   /** Creates a symbolic link. The target bytes are stored without resolving them. */
-  readonly symlink: (
-    target: PathInput,
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<void, FsError>;
+  readonly symlink: (target: PathInput, path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
   /** Reads a symbolic-link target as UTF-8, failing with `UnrepresentableName` for other bytes. */
-  readonly readLink: (
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<string, FsError>;
+  readonly readLink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsError>
   /** Reads a symbolic-link target as owned bytes. */
-  readonly readLinkBytes: (
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<Uint8Array, FsError>;
+  readonly readLinkBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsError>
   /** Reads directory names as UTF-8, failing if any name is not representable. */
-  readonly readDirectory: (
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<ReadonlyArray<string>, FsError>;
+  readonly readDirectory: (path: PathInput, options?: RelativeOptions) => Effect.Effect<ReadonlyArray<string>, FsError>
   /** Reads directory names as owned byte arrays. */
   readonly readDirectoryBytes: (
     path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<ReadonlyArray<Uint8Array>, FsError>;
+    options?: RelativeOptions
+  ) => Effect.Effect<ReadonlyArray<Uint8Array>, FsError>
   /** Resolves links and normalizes a path as UTF-8. */
-  readonly realPath: (
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<string, FsError>;
+  readonly realPath: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsError>
   /** Resolves links and normalizes a path without requiring UTF-8 names. */
-  readonly realPathBytes: (
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<BytePath, FsError>;
+  readonly realPathBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<BytePath, FsError>
   /** Opens a scoped regular-file handle. The surrounding scope closes it automatically. */
-  readonly open: (
-    path: PathInput,
-    options: OpenOptions,
-  ) => Effect.Effect<FileHandle, FsError, Scope.Scope>;
+  readonly open: (path: PathInput, options: OpenOptions) => Effect.Effect<FileHandle, FsError, Scope.Scope>
   /** Removes a non-directory entry. Open handles remain usable until closed. */
-  readonly unlink: (
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<void, FsError>;
+  readonly unlink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
   /** Removes an empty directory. */
-  readonly rmdir: (
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<void, FsError>;
+  readonly rmdir: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
   /** Creates one directory. Parent directories must already exist. */
   readonly mkdir: (
     path: PathInput,
     options?: RelativeOptions & {
-      readonly mode?: number;
-    },
-  ) => Effect.Effect<void, FsError>;
+      readonly mode?: number
+    }
+  ) => Effect.Effect<void, FsError>
   /** Creates a scoped caller whose current directory is the resolved directory identity. */
-  readonly withDirectory: (
-    path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<Caller, FsError, Scope.Scope>;
+  readonly withDirectory: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Caller, FsError, Scope.Scope>
   /** Opens a scoped directory handle for metadata and relative path resolution. */
   readonly openDirectory: (
     path: PathInput,
-    options?: RelativeOptions,
-  ) => Effect.Effect<DirectoryHandle, FsError, Scope.Scope>;
+    options?: RelativeOptions
+  ) => Effect.Effect<DirectoryHandle, FsError, Scope.Scope>
 }
 ```
 
@@ -352,9 +262,9 @@ A committed namespace or content change emitted by a volume watch stream.
 ```ts
 export interface Change {
   /** Kind of committed namespace or content change. */
-  readonly _tag: "Create" | "Update" | "Remove";
+  readonly _tag: "Create" | "Update" | "Remove"
   /** Absolute path of the changed entry. */
-  readonly path: BytePath;
+  readonly path: BytePath
 }
 ```
 
@@ -368,8 +278,8 @@ One owned directory name paired with the referenced child object.
 
 ```ts
 export interface DirectoryEntry {
-  readonly name: Uint8Array;
-  readonly reference: ObjectReference;
+  readonly name: Uint8Array
+  readonly reference: ObjectReference
 }
 ```
 
@@ -383,9 +293,9 @@ A scoped directory capability that can be used for metadata and relative lookup.
 
 ```ts
 export interface DirectoryHandle {
-  readonly [DirectoryHandleId]: true;
-  readonly stat: Effect.Effect<Metadata, FsError>;
-  readonly close: Effect.Effect<void, FsError>;
+  readonly [DirectoryHandleId]: true
+  readonly stat: Effect.Effect<Metadata, FsError>
+  readonly close: Effect.Effect<void, FsError>
 }
 ```
 
@@ -399,34 +309,25 @@ A scoped regular-file capability with an independent bigint cursor.
 
 ```ts
 export interface FileHandle {
-  readonly [FileHandleId]: true;
+  readonly [FileHandleId]: true
   /** Reads up to `maximumBytes` from the cursor and advances it by the returned length. */
-  readonly read: (maximumBytes: number) => Effect.Effect<Uint8Array, FsError>;
+  readonly read: (maximumBytes: number) => Effect.Effect<Uint8Array, FsError>
   /** Reads at `offset` without changing the cursor. */
-  readonly pread: (
-    maximumBytes: number,
-    offset: bigint,
-  ) => Effect.Effect<Uint8Array, FsError>;
+  readonly pread: (maximumBytes: number, offset: bigint) => Effect.Effect<Uint8Array, FsError>
   /** Writes at the cursor and advances it, or writes at end of file when opened for append. */
-  readonly write: (bytes: Uint8Array) => Effect.Effect<number, FsError>;
+  readonly write: (bytes: Uint8Array) => Effect.Effect<number, FsError>
   /** Writes at `offset` without changing the cursor. Append mode does not affect positional writes. */
-  readonly pwrite: (
-    bytes: Uint8Array,
-    offset: bigint,
-  ) => Effect.Effect<number, FsError>;
+  readonly pwrite: (bytes: Uint8Array, offset: bigint) => Effect.Effect<number, FsError>
   /** Moves the cursor and returns its new offset. `data` finds content and `hole` finds end of file. */
-  readonly seek: (
-    offset: bigint,
-    mode: SeekMode,
-  ) => Effect.Effect<bigint, FsError>;
+  readonly seek: (offset: bigint, mode: SeekMode) => Effect.Effect<bigint, FsError>
   /** Sets the file length without changing the cursor. */
-  readonly truncate: (length: bigint) => Effect.Effect<void, FsError>;
+  readonly truncate: (length: bigint) => Effect.Effect<void, FsError>
   /** Reads metadata for the open file. */
-  readonly stat: Effect.Effect<Metadata, FsError>;
+  readonly stat: Effect.Effect<Metadata, FsError>
   /** Checks handle liveness. In-memory storage has no host or crash durability to flush. */
-  readonly sync: Effect.Effect<void, FsError>;
+  readonly sync: Effect.Effect<void, FsError>
   /** Closes the handle. A repeated explicit close fails; scope cleanup remains safe. */
-  readonly close: Effect.Effect<void, FsError>;
+  readonly close: Effect.Effect<void, FsError>
 }
 ```
 
@@ -439,7 +340,7 @@ A complete filesystem fixture accepted by `fromFixture`.
 **Signature**
 
 ```ts
-export type Fixture = typeof Fixture.Type;
+export type Fixture = typeof Fixture.Type
 ```
 
 Added in v0.1.0
@@ -451,7 +352,7 @@ A portable virtual filesystem error code.
 **Signature**
 
 ```ts
-export type FsCode = typeof FsCode.Type;
+export type FsCode = typeof FsCode.Type
 ```
 
 Added in v0.1.0
@@ -463,7 +364,7 @@ A caller identity used for permission checks.
 **Signature**
 
 ```ts
-export type Identity = typeof Identity.Type;
+export type Identity = typeof Identity.Type
 ```
 
 Added in v0.1.0
@@ -475,7 +376,7 @@ Metadata for a directory, regular file, or symbolic link.
 **Signature**
 
 ```ts
-export type Metadata = typeof Metadata.Type;
+export type Metadata = typeof Metadata.Type
 ```
 
 Added in v0.1.0
@@ -489,7 +390,7 @@ Controls the base directory and whether metadata operations follow the final sym
 ```ts
 export interface MetadataOptions extends RelativeOptions {
   /** Follow the final symbolic link. Defaults to `true`. */
-  readonly followFinalSymlink?: boolean;
+  readonly followFinalSymlink?: boolean
 }
 ```
 
@@ -503,8 +404,8 @@ A value and the revision of the object from the same coordinated observation.
 
 ```ts
 export interface ObjectObservation<A> {
-  readonly value: A;
-  readonly revision: bigint;
+  readonly value: A
+  readonly revision: bigint
 }
 ```
 
@@ -518,7 +419,7 @@ An opaque identity for one object in one live volume.
 
 ```ts
 export interface ObjectReference {
-  readonly [ObjectReferenceId]: true;
+  readonly [ObjectReferenceId]: true
 }
 ```
 
@@ -531,7 +432,7 @@ Options for acquiring a scoped file handle.
 **Signature**
 
 ```ts
-export type OpenOptions = typeof OpenSettings.Type & RelativeOptions;
+export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
 ```
 
 Added in v0.1.0
@@ -545,9 +446,9 @@ A complete snapshot and final-difference summary captured from one committed sta
 ```ts
 export interface OverlayCapture {
   /** Complete version 1 snapshot owned by this capture. */
-  readonly snapshot: Snapshot;
+  readonly snapshot: Snapshot
   /** Owned summary that describes the same state as `snapshot`. */
-  readonly changes: ReadonlyArray<OverlayChange>;
+  readonly changes: ReadonlyArray<OverlayChange>
 }
 ```
 
@@ -560,7 +461,7 @@ A path-oriented final-state difference from an overlay's immutable base.
 **Signature**
 
 ```ts
-export type OverlayChange = typeof OverlayChange.Type;
+export type OverlayChange = typeof OverlayChange.Type
 ```
 
 Added in v0.1.0
@@ -572,7 +473,7 @@ Filtering options for an overlay final-difference summary.
 **Signature**
 
 ```ts
-export type OverlayChangesOptions = typeof OverlayChangesOptions.Type;
+export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
 ```
 
 Added in v0.1.0
@@ -584,7 +485,7 @@ A content, ownership, permission, or timestamp field that differs from the overl
 **Signature**
 
 ```ts
-export type OverlayDifference = typeof OverlayDifference.Type;
+export type OverlayDifference = typeof OverlayDifference.Type
 ```
 
 Added in v0.1.0
@@ -596,7 +497,7 @@ A filesystem entry kind reported by an overlay summary.
 **Signature**
 
 ```ts
-export type OverlayNodeKind = typeof OverlayNodeKind.Type;
+export type OverlayNodeKind = typeof OverlayNodeKind.Type
 ```
 
 Added in v0.1.0
@@ -611,15 +512,10 @@ An ordinary volume with final-state inspection relative to one immutable snapsho
 export interface OverlayVolume extends Volume {
   /** Computes final differences from the immutable base when this reusable effect executes. */
   readonly changes: (
-    options?: OverlayChangesOptions,
-  ) => Effect.Effect<
-    ReadonlyArray<OverlayChange>,
-    ConfigurationError | ImageError
-  >;
+    options?: OverlayChangesOptions
+  ) => Effect.Effect<ReadonlyArray<OverlayChange>, ConfigurationError | ImageError>
   /** Captures one committed state when this reusable effect executes. */
-  readonly capture: (
-    options?: OverlayChangesOptions,
-  ) => Effect.Effect<OverlayCapture, ConfigurationError | ImageError>;
+  readonly capture: (options?: OverlayChangesOptions) => Effect.Effect<OverlayCapture, ConfigurationError | ImageError>
 }
 ```
 
@@ -632,7 +528,7 @@ An owner update for `chown` operations.
 **Signature**
 
 ```ts
-export type OwnerUpdate = typeof OwnerUpdate.Type;
+export type OwnerUpdate = typeof OwnerUpdate.Type
 ```
 
 Added in v0.1.0
@@ -644,7 +540,7 @@ A UTF-8 string path or an opaque byte-preserving path.
 **Signature**
 
 ```ts
-export type PathInput = string | BytePath;
+export type PathInput = string | BytePath
 ```
 
 Added in v0.1.0
@@ -658,7 +554,7 @@ Resolves a relative path from a live directory handle instead of the caller's di
 ```ts
 export interface RelativeOptions {
   /** Resolve relative paths from this live, same-volume handle instead of the caller's current directory. */
-  readonly relativeTo?: DirectoryHandle;
+  readonly relativeTo?: DirectoryHandle
 }
 ```
 
@@ -671,7 +567,7 @@ Options for creating a root caller on a volume.
 **Signature**
 
 ```ts
-export type RootCallerOptions = typeof RootCallerOptions.Type;
+export type RootCallerOptions = typeof RootCallerOptions.Type
 ```
 
 Added in v0.1.0
@@ -683,7 +579,7 @@ The origin used by a file handle seek operation.
 **Signature**
 
 ```ts
-export type SeekMode = typeof SeekMode.Type;
+export type SeekMode = typeof SeekMode.Type
 ```
 
 Added in v0.1.0
@@ -695,7 +591,7 @@ Access and modification time updates for `utimes` operations.
 **Signature**
 
 ```ts
-export type Times = typeof Times.Type;
+export type Times = typeof Times.Type
 ```
 
 Added in v0.1.0
@@ -709,14 +605,12 @@ An isolated virtual filesystem namespace that creates callers, snapshots, and wa
 ```ts
 export interface Volume {
   /** Opens a scoped stream of future committed changes. Events are not replayed. */
-  readonly watch: Effect.Effect<Stream.Stream<Change>, never, Scope.Scope>;
+  readonly watch: Effect.Effect<Stream.Stream<Change>, never, Scope.Scope>
   /** Captures an isolated snapshot of the reachable namespace and metadata. */
-  readonly snapshot: Effect.Effect<Snapshot, ImageError>;
-  readonly [VolumeId]: true;
+  readonly snapshot: Effect.Effect<Snapshot, ImageError>
+  readonly [VolumeId]: true
   /** Creates a caller rooted at `/` with independent credentials, umask, and current directory. */
-  readonly caller: (
-    options?: RootCallerOptions,
-  ) => Effect.Effect<Caller, ConfigurationError>;
+  readonly caller: (options?: RootCallerOptions) => Effect.Effect<Caller, ConfigurationError>
 }
 ```
 
@@ -729,7 +623,7 @@ Capacity and path limits for a volume.
 **Signature**
 
 ```ts
-export type VolumeOptions = typeof VolumeOptions.Type;
+export type VolumeOptions = typeof VolumeOptions.Type
 ```
 
 Added in v0.1.0
@@ -741,7 +635,7 @@ Options for an atomic whole-file write, including replacement and final mode con
 **Signature**
 
 ```ts
-export type WriteFileOptions = VfsModel.WriteFileOptions;
+export type WriteFileOptions = VfsModel.WriteFileOptions
 ```
 
 Added in v0.1.0
@@ -762,86 +656,74 @@ Fixture paths must be absolute, unique, and explicitly include their parent dire
 export declare const Fixture: Schema.Struct<{
   readonly rootMetadata: Schema.optionalKey<
     Schema.Struct<{
-      readonly uid: Schema.optionalKey<Schema.Natural>;
-      readonly gid: Schema.optionalKey<Schema.Natural>;
-      readonly mode: Schema.optionalKey<Schema.Natural>;
-      readonly atimeNs: Schema.optionalKey<Schema.BigInt>;
-      readonly mtimeNs: Schema.optionalKey<Schema.BigInt>;
-      readonly ctimeNs: Schema.optionalKey<Schema.BigInt>;
-      readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>;
+      readonly uid: Schema.optionalKey<Schema.Natural>
+      readonly gid: Schema.optionalKey<Schema.Natural>
+      readonly mode: Schema.optionalKey<Schema.Natural>
+      readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+      readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+      readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+      readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
     }>
-  >;
+  >
   readonly entries: Schema.$Array<
     Schema.Union<
       readonly [
         Schema.Struct<{
-          readonly kind: Schema.Literal<"directory">;
-          readonly path: Schema.Union<
-            readonly [Schema.String, Schema.declare<BytePath, BytePath>]
-          >;
+          readonly kind: Schema.Literal<"directory">
+          readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
           readonly metadata: Schema.optionalKey<
             Schema.Struct<{
-              readonly uid: Schema.optionalKey<Schema.Natural>;
-              readonly gid: Schema.optionalKey<Schema.Natural>;
-              readonly mode: Schema.optionalKey<Schema.Natural>;
-              readonly atimeNs: Schema.optionalKey<Schema.BigInt>;
-              readonly mtimeNs: Schema.optionalKey<Schema.BigInt>;
-              readonly ctimeNs: Schema.optionalKey<Schema.BigInt>;
-              readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>;
+              readonly uid: Schema.optionalKey<Schema.Natural>
+              readonly gid: Schema.optionalKey<Schema.Natural>
+              readonly mode: Schema.optionalKey<Schema.Natural>
+              readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
             }>
-          >;
+          >
         }>,
         Schema.Struct<{
-          readonly kind: Schema.Literal<"file">;
-          readonly path: Schema.Union<
-            readonly [Schema.String, Schema.declare<BytePath, BytePath>]
-          >;
-          readonly bytes: Schema.Uint8Array;
+          readonly kind: Schema.Literal<"file">
+          readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+          readonly bytes: Schema.Uint8Array
           readonly metadata: Schema.optionalKey<
             Schema.Struct<{
-              readonly uid: Schema.optionalKey<Schema.Natural>;
-              readonly gid: Schema.optionalKey<Schema.Natural>;
-              readonly mode: Schema.optionalKey<Schema.Natural>;
-              readonly atimeNs: Schema.optionalKey<Schema.BigInt>;
-              readonly mtimeNs: Schema.optionalKey<Schema.BigInt>;
-              readonly ctimeNs: Schema.optionalKey<Schema.BigInt>;
-              readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>;
+              readonly uid: Schema.optionalKey<Schema.Natural>
+              readonly gid: Schema.optionalKey<Schema.Natural>
+              readonly mode: Schema.optionalKey<Schema.Natural>
+              readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
             }>
-          >;
+          >
         }>,
         Schema.Struct<{
-          readonly kind: Schema.Literal<"symlink">;
-          readonly path: Schema.Union<
-            readonly [Schema.String, Schema.declare<BytePath, BytePath>]
-          >;
-          readonly target: Schema.Union<
-            readonly [Schema.String, Schema.declare<BytePath, BytePath>]
-          >;
+          readonly kind: Schema.Literal<"symlink">
+          readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+          readonly target: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
           readonly metadata: Schema.optionalKey<
             Schema.Struct<{
-              readonly uid: Schema.optionalKey<Schema.Natural>;
-              readonly gid: Schema.optionalKey<Schema.Natural>;
-              readonly mode: Schema.optionalKey<Schema.Natural>;
-              readonly atimeNs: Schema.optionalKey<Schema.BigInt>;
-              readonly mtimeNs: Schema.optionalKey<Schema.BigInt>;
-              readonly ctimeNs: Schema.optionalKey<Schema.BigInt>;
-              readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>;
+              readonly uid: Schema.optionalKey<Schema.Natural>
+              readonly gid: Schema.optionalKey<Schema.Natural>
+              readonly mode: Schema.optionalKey<Schema.Natural>
+              readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
             }>
-          >;
+          >
         }>,
         Schema.Struct<{
-          readonly kind: Schema.Literal<"hardLink">;
-          readonly path: Schema.Union<
-            readonly [Schema.String, Schema.declare<BytePath, BytePath>]
-          >;
-          readonly target: Schema.Union<
-            readonly [Schema.String, Schema.declare<BytePath, BytePath>]
-          >;
-        }>,
+          readonly kind: Schema.Literal<"hardLink">
+          readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+          readonly target: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+        }>
       ]
     >
-  >;
-}>;
+  >
+}>
 ```
 
 Added in v0.1.0
@@ -874,9 +756,9 @@ export declare const FsCode: Schema.Literals<
     "FileTooLarge",
     "NoData",
     "SymlinkLoop",
-    "UnrepresentableName",
+    "UnrepresentableName"
   ]
->;
+>
 ```
 
 Added in v0.1.0
@@ -889,11 +771,11 @@ Schema for a caller's numeric identity, supplementary groups, and explicit privi
 
 ```ts
 export declare const Identity: Schema.Struct<{
-  readonly uid: Schema.Natural;
-  readonly gid: Schema.Natural;
-  readonly groups: Schema.$Array<Schema.Natural>;
-  readonly privileged: Schema.Boolean;
-}>;
+  readonly uid: Schema.Natural
+  readonly gid: Schema.Natural
+  readonly groups: Schema.$Array<Schema.Natural>
+  readonly privileged: Schema.Boolean
+}>
 ```
 
 Added in v0.1.0
@@ -906,18 +788,18 @@ Schema for filesystem node metadata with bigint inode, size, and nanosecond fiel
 
 ```ts
 export declare const Metadata: Schema.Struct<{
-  readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>;
-  readonly ino: Schema.BigInt;
-  readonly nlink: Schema.Natural;
-  readonly size: Schema.BigInt;
-  readonly uid: Schema.Natural;
-  readonly gid: Schema.Natural;
-  readonly mode: Schema.Natural;
-  readonly atimeNs: Schema.BigInt;
-  readonly mtimeNs: Schema.BigInt;
-  readonly ctimeNs: Schema.BigInt;
-  readonly birthtimeNs: Schema.BigInt;
-}>;
+  readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+  readonly ino: Schema.BigInt
+  readonly nlink: Schema.Natural
+  readonly size: Schema.BigInt
+  readonly uid: Schema.Natural
+  readonly gid: Schema.Natural
+  readonly mode: Schema.Natural
+  readonly atimeNs: Schema.BigInt
+  readonly mtimeNs: Schema.BigInt
+  readonly ctimeNs: Schema.BigInt
+  readonly birthtimeNs: Schema.BigInt
+}>
 ```
 
 Added in v0.1.0
@@ -930,15 +812,13 @@ Schema for file access, creation, append, truncate, and symlink behavior.
 
 ```ts
 export declare const OpenSettings: Schema.Struct<{
-  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>;
-  readonly create: Schema.optionalKey<
-    Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>
-  >;
-  readonly mode: Schema.optionalKey<Schema.Natural>;
-  readonly append: Schema.optionalKey<Schema.Boolean>;
-  readonly truncate: Schema.optionalKey<Schema.Boolean>;
-  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>;
-}>;
+  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
+  readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly append: Schema.optionalKey<Schema.Boolean>
+  readonly truncate: Schema.optionalKey<Schema.Boolean>
+  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
+}>
 ```
 
 Added in v0.1.0
@@ -960,96 +840,51 @@ export declare const OverlayChange: Schema.Union<
     Schema.TaggedStruct<
       "Added",
       {
-        readonly path: Schema.declare<BytePath, BytePath>;
-        readonly kind: Schema.Literals<
-          readonly ["directory", "file", "symlink"]
-        >;
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
       }
     >,
     Schema.TaggedStruct<
       "Removed",
       {
-        readonly path: Schema.declare<BytePath, BytePath>;
-        readonly kind: Schema.Literals<
-          readonly ["directory", "file", "symlink"]
-        >;
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
       }
     >,
     Schema.TaggedStruct<
       "Replaced",
       {
-        readonly path: Schema.declare<BytePath, BytePath>;
-        readonly beforeKind: Schema.Literals<
-          readonly ["directory", "file", "symlink"]
-        >;
-        readonly afterKind: Schema.Literals<
-          readonly ["directory", "file", "symlink"]
-        >;
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly beforeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+        readonly afterKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
         readonly differences: Schema.$Array<
-          Schema.Literals<
-            readonly [
-              "content",
-              "mode",
-              "uid",
-              "gid",
-              "atimeNs",
-              "mtimeNs",
-              "ctimeNs",
-              "birthtimeNs",
-            ]
-          >
-        >;
+          Schema.Literals<readonly ["content", "mode", "uid", "gid", "atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"]>
+        >
       }
     >,
     Schema.TaggedStruct<
       "Renamed",
       {
-        readonly from: Schema.declare<BytePath, BytePath>;
-        readonly to: Schema.declare<BytePath, BytePath>;
-        readonly kind: Schema.Literals<
-          readonly ["directory", "file", "symlink"]
-        >;
+        readonly from: Schema.declare<BytePath, BytePath>
+        readonly to: Schema.declare<BytePath, BytePath>
+        readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
         readonly differences: Schema.$Array<
-          Schema.Literals<
-            readonly [
-              "content",
-              "mode",
-              "uid",
-              "gid",
-              "atimeNs",
-              "mtimeNs",
-              "ctimeNs",
-              "birthtimeNs",
-            ]
-          >
-        >;
+          Schema.Literals<readonly ["content", "mode", "uid", "gid", "atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"]>
+        >
       }
     >,
     Schema.TaggedStruct<
       "Updated",
       {
-        readonly path: Schema.declare<BytePath, BytePath>;
-        readonly kind: Schema.Literals<
-          readonly ["directory", "file", "symlink"]
-        >;
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
         readonly differences: Schema.$Array<
-          Schema.Literals<
-            readonly [
-              "content",
-              "mode",
-              "uid",
-              "gid",
-              "atimeNs",
-              "mtimeNs",
-              "ctimeNs",
-              "birthtimeNs",
-            ]
-          >
-        >;
+          Schema.Literals<readonly ["content", "mode", "uid", "gid", "atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"]>
+        >
       }
-    >,
+    >
   ]
->;
+>
 ```
 
 Added in v0.1.0
@@ -1062,8 +897,8 @@ Schema for overlay summary filtering.
 
 ```ts
 export declare const OverlayChangesOptions: Schema.Struct<{
-  readonly includeTimestamps: Schema.optionalKey<Schema.Boolean>;
-}>;
+  readonly includeTimestamps: Schema.optionalKey<Schema.Boolean>
+}>
 ```
 
 Added in v0.1.0
@@ -1076,17 +911,8 @@ Schema for observable fields that can differ from an overlay's immutable base.
 
 ```ts
 export declare const OverlayDifference: Schema.Literals<
-  readonly [
-    "content",
-    "mode",
-    "uid",
-    "gid",
-    "atimeNs",
-    "mtimeNs",
-    "ctimeNs",
-    "birthtimeNs",
-  ]
->;
+  readonly ["content", "mode", "uid", "gid", "atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"]
+>
 ```
 
 Added in v0.1.0
@@ -1098,9 +924,7 @@ Schema for the filesystem entry kinds reported by overlay summaries.
 **Signature**
 
 ```ts
-export declare const OverlayNodeKind: Schema.Literals<
-  readonly ["directory", "file", "symlink"]
->;
+export declare const OverlayNodeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
 ```
 
 Added in v0.1.0
@@ -1113,9 +937,9 @@ Schema for an owner update. Omitted fields retain their existing values.
 
 ```ts
 export declare const OwnerUpdate: Schema.Struct<{
-  readonly uid: Schema.optionalKey<Schema.Natural>;
-  readonly gid: Schema.optionalKey<Schema.Natural>;
-}>;
+  readonly uid: Schema.optionalKey<Schema.Natural>
+  readonly gid: Schema.optionalKey<Schema.Natural>
+}>
 ```
 
 Added in v0.1.0
@@ -1130,14 +954,14 @@ Schema for root caller credentials and creation mask.
 export declare const RootCallerOptions: Schema.Struct<{
   readonly identity: Schema.optionalKey<
     Schema.Struct<{
-      readonly uid: Schema.Natural;
-      readonly gid: Schema.Natural;
-      readonly groups: Schema.$Array<Schema.Natural>;
-      readonly privileged: Schema.Boolean;
+      readonly uid: Schema.Natural
+      readonly gid: Schema.Natural
+      readonly groups: Schema.$Array<Schema.Natural>
+      readonly privileged: Schema.Boolean
     }>
-  >;
-  readonly umask: Schema.optionalKey<Schema.Natural>;
-}>;
+  >
+  readonly umask: Schema.optionalKey<Schema.Natural>
+}>
 ```
 
 Added in v0.1.0
@@ -1149,9 +973,7 @@ Schema for file seek origins, including dense-file data and hole queries.
 **Signature**
 
 ```ts
-export declare const SeekMode: Schema.Literals<
-  readonly ["start", "current", "end", "data", "hole"]
->;
+export declare const SeekMode: Schema.Literals<readonly ["start", "current", "end", "data", "hole"]>
 ```
 
 Added in v0.1.0
@@ -1165,16 +987,13 @@ Omission uses `SnapshotDeltaLimits.default`.
 
 ```ts
 export declare const SnapshotDeltaFromBytes: (
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits,
+  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) => Schema.decodeTo<
-  Schema.declare<
-    SnapshotDeltaModel.SnapshotDelta,
-    SnapshotDeltaModel.SnapshotDelta
-  >,
+  Schema.declare<SnapshotDeltaModel.SnapshotDelta, SnapshotDeltaModel.SnapshotDelta>,
   Schema.Uint8Array,
   never,
   never
->;
+>
 ```
 
 Added in v0.1.0
@@ -1190,12 +1009,9 @@ export declare const TimeUpdate: Schema.Union<
   readonly [
     Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
     Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
-    Schema.Struct<{
-      readonly kind: Schema.Literal<"value">;
-      readonly nanoseconds: Schema.BigInt;
-    }>,
+    Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
   ]
->;
+>
 ```
 
 Added in v0.1.0
@@ -1212,23 +1028,17 @@ export declare const Times: Schema.Struct<{
     readonly [
       Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
       Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
-      Schema.Struct<{
-        readonly kind: Schema.Literal<"value">;
-        readonly nanoseconds: Schema.BigInt;
-      }>,
+      Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
     ]
-  >;
+  >
   readonly modification: Schema.Union<
     readonly [
       Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
       Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
-      Schema.Struct<{
-        readonly kind: Schema.Literal<"value">;
-        readonly nanoseconds: Schema.BigInt;
-      }>,
+      Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
     ]
-  >;
-}>;
+  >
+}>
 ```
 
 Added in v0.1.0
@@ -1241,11 +1051,11 @@ Schema for optional volume capacity and path limits.
 
 ```ts
 export declare const VolumeOptions: Schema.Struct<{
-  readonly maxEntries: Schema.optionalKey<Schema.Natural>;
-  readonly maxBytes: Schema.optionalKey<Schema.ByteSize>;
-  readonly maxFileBytes: Schema.optionalKey<Schema.ByteSize>;
-  readonly maxPathBytes: Schema.optionalKey<Schema.ByteSize>;
-}>;
+  readonly maxEntries: Schema.optionalKey<Schema.Natural>
+  readonly maxBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxFileBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxPathBytes: Schema.optionalKey<Schema.ByteSize>
+}>
 ```
 
 Added in v0.1.0
@@ -1259,10 +1069,7 @@ Decodes version 1 snapshot bytes while enforcing explicit input and payload limi
 **Signature**
 
 ```ts
-export declare const decodeSnapshot: (
-  input: Uint8Array,
-  limits: DecodeLimits,
-) => Effect.Effect<Snapshot, ImageError>;
+export declare const decodeSnapshot: (input: Uint8Array, limits: DecodeLimits) => Effect.Effect<Snapshot, ImageError>
 ```
 
 Added in v0.1.0
@@ -1274,9 +1081,7 @@ Encodes a snapshot as owned UTF-8 JSON bytes using the version 1 snapshot format
 **Signature**
 
 ```ts
-export declare const encodeSnapshot: (
-  snapshot: Snapshot,
-) => Effect.Effect<Uint8Array, ImageError>;
+export declare const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, ImageError>
 ```
 
 Added in v0.1.0
@@ -1290,7 +1095,7 @@ Optional Effect service for providing an existing filesystem caller.
 **Signature**
 
 ```ts
-export declare const CurrentFileSystem: typeof VfsModel.CurrentFileSystem;
+export declare const CurrentFileSystem: typeof VfsModel.CurrentFileSystem
 ```
 
 Added in v0.1.0
@@ -1309,69 +1114,59 @@ export declare const applySnapshotDelta: (
   base: Snapshot,
   delta: SnapshotDeltaModel.SnapshotDelta,
   limits?: {
-    readonly maxEncodedBytes: ByteSize;
-    readonly maxIdentityBytes: ByteSize;
-    readonly maxDeltaRecords: number;
-    readonly maxDecodedDeltaBytes: ByteSize;
-    readonly maxBaseRecords: number;
-    readonly maxTargetRecords: number;
-    readonly maxEntries: number;
-    readonly maxOutputRecords: number;
-    readonly maxOutputBytes: ByteSize;
-    readonly maxInheritedRecords: number;
-  },
+    readonly maxEncodedBytes: ByteSize
+    readonly maxIdentityBytes: ByteSize
+    readonly maxDeltaRecords: number
+    readonly maxDecodedDeltaBytes: ByteSize
+    readonly maxBaseRecords: number
+    readonly maxTargetRecords: number
+    readonly maxEntries: number
+    readonly maxOutputRecords: number
+    readonly maxOutputBytes: ByteSize
+    readonly maxInheritedRecords: number
+  }
 ) => Effect.Effect<
   Snapshot,
   [
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize;
-          readonly maxIdentityBytes: ByteSize;
-          readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize;
-          readonly maxBaseRecords: number;
-          readonly maxTargetRecords: number;
-          readonly maxEntries: number;
-          readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize;
-          readonly maxInheritedRecords: number;
+          readonly maxEncodedBytes: ByteSize
+          readonly maxIdentityBytes: ByteSize
+          readonly maxDeltaRecords: number
+          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxBaseRecords: number
+          readonly maxTargetRecords: number
+          readonly maxEntries: number
+          readonly maxOutputRecords: number
+          readonly maxOutputBytes: ByteSize
+          readonly maxInheritedRecords: number
         },
         never,
         never
       >
-    | Effect.Effect<
-        Snapshot,
-        ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-        Crypto
-      >,
+    | Effect.Effect<Snapshot, ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError, Crypto>
   ] extends [never]
     ? never
     : [
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize;
-                readonly maxIdentityBytes: ByteSize;
-                readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize;
-                readonly maxBaseRecords: number;
-                readonly maxTargetRecords: number;
-                readonly maxEntries: number;
-                readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize;
-                readonly maxInheritedRecords: number;
+                readonly maxEncodedBytes: ByteSize
+                readonly maxIdentityBytes: ByteSize
+                readonly maxDeltaRecords: number
+                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxBaseRecords: number
+                readonly maxTargetRecords: number
+                readonly maxEntries: number
+                readonly maxOutputRecords: number
+                readonly maxOutputBytes: ByteSize
+                readonly maxInheritedRecords: number
               },
               never,
               never
             >
-          | Effect.Effect<
-              Snapshot,
-              | ImageError
-              | PlatformError
-              | SnapshotDeltaModel.SnapshotDeltaError,
-              Crypto
-            >,
+          | Effect.Effect<Snapshot, ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError, Crypto>
         ] extends [Effect.Effect<infer _A, infer E, infer _R>]
       ? E
       : never,
@@ -1379,56 +1174,46 @@ export declare const applySnapshotDelta: (
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize;
-          readonly maxIdentityBytes: ByteSize;
-          readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize;
-          readonly maxBaseRecords: number;
-          readonly maxTargetRecords: number;
-          readonly maxEntries: number;
-          readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize;
-          readonly maxInheritedRecords: number;
+          readonly maxEncodedBytes: ByteSize
+          readonly maxIdentityBytes: ByteSize
+          readonly maxDeltaRecords: number
+          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxBaseRecords: number
+          readonly maxTargetRecords: number
+          readonly maxEntries: number
+          readonly maxOutputRecords: number
+          readonly maxOutputBytes: ByteSize
+          readonly maxInheritedRecords: number
         },
         never,
         never
       >
-    | Effect.Effect<
-        Snapshot,
-        ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-        Crypto
-      >,
+    | Effect.Effect<Snapshot, ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError, Crypto>
   ] extends [never]
     ? never
     : [
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize;
-                readonly maxIdentityBytes: ByteSize;
-                readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize;
-                readonly maxBaseRecords: number;
-                readonly maxTargetRecords: number;
-                readonly maxEntries: number;
-                readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize;
-                readonly maxInheritedRecords: number;
+                readonly maxEncodedBytes: ByteSize
+                readonly maxIdentityBytes: ByteSize
+                readonly maxDeltaRecords: number
+                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxBaseRecords: number
+                readonly maxTargetRecords: number
+                readonly maxEntries: number
+                readonly maxOutputRecords: number
+                readonly maxOutputBytes: ByteSize
+                readonly maxInheritedRecords: number
               },
               never,
               never
             >
-          | Effect.Effect<
-              Snapshot,
-              | ImageError
-              | PlatformError
-              | SnapshotDeltaModel.SnapshotDeltaError,
-              Crypto
-            >,
+          | Effect.Effect<Snapshot, ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError, Crypto>
         ] extends [Effect.Effect<infer _A, infer _E, infer R>]
       ? R
       : never
->;
+>
 ```
 
 Added in v0.1.0
@@ -1445,67 +1230,59 @@ export declare const diffSnapshots: (
   base: Snapshot,
   target: Snapshot,
   limits?: {
-    readonly maxEncodedBytes: ByteSize;
-    readonly maxIdentityBytes: ByteSize;
-    readonly maxDeltaRecords: number;
-    readonly maxDecodedDeltaBytes: ByteSize;
-    readonly maxBaseRecords: number;
-    readonly maxTargetRecords: number;
-    readonly maxEntries: number;
-    readonly maxOutputRecords: number;
-    readonly maxOutputBytes: ByteSize;
-    readonly maxInheritedRecords: number;
-  },
+    readonly maxEncodedBytes: ByteSize
+    readonly maxIdentityBytes: ByteSize
+    readonly maxDeltaRecords: number
+    readonly maxDecodedDeltaBytes: ByteSize
+    readonly maxBaseRecords: number
+    readonly maxTargetRecords: number
+    readonly maxEntries: number
+    readonly maxOutputRecords: number
+    readonly maxOutputBytes: ByteSize
+    readonly maxInheritedRecords: number
+  }
 ) => Effect.Effect<
   SnapshotDeltaModel.SnapshotDelta,
   [
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize;
-          readonly maxIdentityBytes: ByteSize;
-          readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize;
-          readonly maxBaseRecords: number;
-          readonly maxTargetRecords: number;
-          readonly maxEntries: number;
-          readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize;
-          readonly maxInheritedRecords: number;
+          readonly maxEncodedBytes: ByteSize
+          readonly maxIdentityBytes: ByteSize
+          readonly maxDeltaRecords: number
+          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxBaseRecords: number
+          readonly maxTargetRecords: number
+          readonly maxEntries: number
+          readonly maxOutputRecords: number
+          readonly maxOutputBytes: ByteSize
+          readonly maxInheritedRecords: number
         },
         never,
         never
       >
-    | Effect.Effect<
-        SnapshotDeltaModel.SnapshotDelta,
-        ImageError | PlatformError,
-        Crypto
-      >,
+    | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError, Crypto>
   ] extends [never]
     ? never
     : [
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize;
-                readonly maxIdentityBytes: ByteSize;
-                readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize;
-                readonly maxBaseRecords: number;
-                readonly maxTargetRecords: number;
-                readonly maxEntries: number;
-                readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize;
-                readonly maxInheritedRecords: number;
+                readonly maxEncodedBytes: ByteSize
+                readonly maxIdentityBytes: ByteSize
+                readonly maxDeltaRecords: number
+                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxBaseRecords: number
+                readonly maxTargetRecords: number
+                readonly maxEntries: number
+                readonly maxOutputRecords: number
+                readonly maxOutputBytes: ByteSize
+                readonly maxInheritedRecords: number
               },
               never,
               never
             >
-          | Effect.Effect<
-              SnapshotDeltaModel.SnapshotDelta,
-              ImageError | PlatformError,
-              Crypto
-            >,
+          | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError, Crypto>
         ] extends [Effect.Effect<infer _A, infer E, infer _R>]
       ? E
       : never,
@@ -1513,54 +1290,46 @@ export declare const diffSnapshots: (
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize;
-          readonly maxIdentityBytes: ByteSize;
-          readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize;
-          readonly maxBaseRecords: number;
-          readonly maxTargetRecords: number;
-          readonly maxEntries: number;
-          readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize;
-          readonly maxInheritedRecords: number;
+          readonly maxEncodedBytes: ByteSize
+          readonly maxIdentityBytes: ByteSize
+          readonly maxDeltaRecords: number
+          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxBaseRecords: number
+          readonly maxTargetRecords: number
+          readonly maxEntries: number
+          readonly maxOutputRecords: number
+          readonly maxOutputBytes: ByteSize
+          readonly maxInheritedRecords: number
         },
         never,
         never
       >
-    | Effect.Effect<
-        SnapshotDeltaModel.SnapshotDelta,
-        ImageError | PlatformError,
-        Crypto
-      >,
+    | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError, Crypto>
   ] extends [never]
     ? never
     : [
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize;
-                readonly maxIdentityBytes: ByteSize;
-                readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize;
-                readonly maxBaseRecords: number;
-                readonly maxTargetRecords: number;
-                readonly maxEntries: number;
-                readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize;
-                readonly maxInheritedRecords: number;
+                readonly maxEncodedBytes: ByteSize
+                readonly maxIdentityBytes: ByteSize
+                readonly maxDeltaRecords: number
+                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxBaseRecords: number
+                readonly maxTargetRecords: number
+                readonly maxEntries: number
+                readonly maxOutputRecords: number
+                readonly maxOutputBytes: ByteSize
+                readonly maxInheritedRecords: number
               },
               never,
               never
             >
-          | Effect.Effect<
-              SnapshotDeltaModel.SnapshotDelta,
-              ImageError | PlatformError,
-              Crypto
-            >,
+          | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError, Crypto>
         ] extends [Effect.Effect<infer _A, infer _E, infer R>]
       ? R
       : never
->;
+>
 ```
 
 Added in v0.1.0
@@ -1578,34 +1347,26 @@ export declare const inspectSnapshotDelta: (
   delta: SnapshotDeltaModel.SnapshotDelta,
   options?: { readonly includeTimestamps?: boolean },
   limits?: {
-    readonly maxEncodedBytes: ByteSize;
-    readonly maxIdentityBytes: ByteSize;
-    readonly maxDeltaRecords: number;
-    readonly maxDecodedDeltaBytes: ByteSize;
-    readonly maxBaseRecords: number;
-    readonly maxTargetRecords: number;
-    readonly maxEntries: number;
-    readonly maxOutputRecords: number;
-    readonly maxOutputBytes: ByteSize;
-    readonly maxInheritedRecords: number;
-  },
+    readonly maxEncodedBytes: ByteSize
+    readonly maxIdentityBytes: ByteSize
+    readonly maxDeltaRecords: number
+    readonly maxDecodedDeltaBytes: ByteSize
+    readonly maxBaseRecords: number
+    readonly maxTargetRecords: number
+    readonly maxEntries: number
+    readonly maxOutputRecords: number
+    readonly maxOutputBytes: ByteSize
+    readonly maxInheritedRecords: number
+  }
 ) => Effect.Effect<
   readonly (
+    | { readonly _tag: "Added"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
+    | { readonly _tag: "Removed"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
     | {
-        readonly _tag: "Added";
-        readonly path: BytePath;
-        readonly kind: "directory" | "file" | "symlink";
-      }
-    | {
-        readonly _tag: "Removed";
-        readonly path: BytePath;
-        readonly kind: "directory" | "file" | "symlink";
-      }
-    | {
-        readonly _tag: "Updated";
-        readonly path: BytePath;
-        readonly beforeKind: "directory" | "file" | "symlink";
-        readonly afterKind: "directory" | "file" | "symlink";
+        readonly _tag: "Updated"
+        readonly path: BytePath
+        readonly beforeKind: "directory" | "file" | "symlink"
+        readonly afterKind: "directory" | "file" | "symlink"
         readonly differences: readonly (
           | "kind"
           | "uid"
@@ -1618,44 +1379,36 @@ export declare const inspectSnapshotDelta: (
           | "content"
           | "target"
           | "hardLinks"
-        )[];
+        )[]
       }
   )[],
   [
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize;
-          readonly maxIdentityBytes: ByteSize;
-          readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize;
-          readonly maxBaseRecords: number;
-          readonly maxTargetRecords: number;
-          readonly maxEntries: number;
-          readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize;
-          readonly maxInheritedRecords: number;
+          readonly maxEncodedBytes: ByteSize
+          readonly maxIdentityBytes: ByteSize
+          readonly maxDeltaRecords: number
+          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxBaseRecords: number
+          readonly maxTargetRecords: number
+          readonly maxEntries: number
+          readonly maxOutputRecords: number
+          readonly maxOutputBytes: ByteSize
+          readonly maxInheritedRecords: number
         },
         never,
         never
       >
     | Effect.Effect<
         readonly (
+          | { readonly _tag: "Added"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
+          | { readonly _tag: "Removed"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
           | {
-              readonly _tag: "Added";
-              readonly path: BytePath;
-              readonly kind: "directory" | "file" | "symlink";
-            }
-          | {
-              readonly _tag: "Removed";
-              readonly path: BytePath;
-              readonly kind: "directory" | "file" | "symlink";
-            }
-          | {
-              readonly _tag: "Updated";
-              readonly path: BytePath;
-              readonly beforeKind: "directory" | "file" | "symlink";
-              readonly afterKind: "directory" | "file" | "symlink";
+              readonly _tag: "Updated"
+              readonly path: BytePath
+              readonly beforeKind: "directory" | "file" | "symlink"
+              readonly afterKind: "directory" | "file" | "symlink"
               readonly differences: readonly (
                 | "kind"
                 | "uid"
@@ -1668,49 +1421,41 @@ export declare const inspectSnapshotDelta: (
                 | "content"
                 | "target"
                 | "hardLinks"
-              )[];
+              )[]
             }
         )[],
         ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
         Crypto
-      >,
+      >
   ] extends [never]
     ? never
     : [
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize;
-                readonly maxIdentityBytes: ByteSize;
-                readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize;
-                readonly maxBaseRecords: number;
-                readonly maxTargetRecords: number;
-                readonly maxEntries: number;
-                readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize;
-                readonly maxInheritedRecords: number;
+                readonly maxEncodedBytes: ByteSize
+                readonly maxIdentityBytes: ByteSize
+                readonly maxDeltaRecords: number
+                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxBaseRecords: number
+                readonly maxTargetRecords: number
+                readonly maxEntries: number
+                readonly maxOutputRecords: number
+                readonly maxOutputBytes: ByteSize
+                readonly maxInheritedRecords: number
               },
               never,
               never
             >
           | Effect.Effect<
               readonly (
+                | { readonly _tag: "Added"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
+                | { readonly _tag: "Removed"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
                 | {
-                    readonly _tag: "Added";
-                    readonly path: BytePath;
-                    readonly kind: "directory" | "file" | "symlink";
-                  }
-                | {
-                    readonly _tag: "Removed";
-                    readonly path: BytePath;
-                    readonly kind: "directory" | "file" | "symlink";
-                  }
-                | {
-                    readonly _tag: "Updated";
-                    readonly path: BytePath;
-                    readonly beforeKind: "directory" | "file" | "symlink";
-                    readonly afterKind: "directory" | "file" | "symlink";
+                    readonly _tag: "Updated"
+                    readonly path: BytePath
+                    readonly beforeKind: "directory" | "file" | "symlink"
+                    readonly afterKind: "directory" | "file" | "symlink"
                     readonly differences: readonly (
                       | "kind"
                       | "uid"
@@ -1723,14 +1468,12 @@ export declare const inspectSnapshotDelta: (
                       | "content"
                       | "target"
                       | "hardLinks"
-                    )[];
+                    )[]
                   }
               )[],
-              | ImageError
-              | PlatformError
-              | SnapshotDeltaModel.SnapshotDeltaError,
+              ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
               Crypto
-            >,
+            >
         ] extends [Effect.Effect<infer _A, infer E, infer _R>]
       ? E
       : never,
@@ -1738,37 +1481,29 @@ export declare const inspectSnapshotDelta: (
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize;
-          readonly maxIdentityBytes: ByteSize;
-          readonly maxDeltaRecords: number;
-          readonly maxDecodedDeltaBytes: ByteSize;
-          readonly maxBaseRecords: number;
-          readonly maxTargetRecords: number;
-          readonly maxEntries: number;
-          readonly maxOutputRecords: number;
-          readonly maxOutputBytes: ByteSize;
-          readonly maxInheritedRecords: number;
+          readonly maxEncodedBytes: ByteSize
+          readonly maxIdentityBytes: ByteSize
+          readonly maxDeltaRecords: number
+          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxBaseRecords: number
+          readonly maxTargetRecords: number
+          readonly maxEntries: number
+          readonly maxOutputRecords: number
+          readonly maxOutputBytes: ByteSize
+          readonly maxInheritedRecords: number
         },
         never,
         never
       >
     | Effect.Effect<
         readonly (
+          | { readonly _tag: "Added"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
+          | { readonly _tag: "Removed"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
           | {
-              readonly _tag: "Added";
-              readonly path: BytePath;
-              readonly kind: "directory" | "file" | "symlink";
-            }
-          | {
-              readonly _tag: "Removed";
-              readonly path: BytePath;
-              readonly kind: "directory" | "file" | "symlink";
-            }
-          | {
-              readonly _tag: "Updated";
-              readonly path: BytePath;
-              readonly beforeKind: "directory" | "file" | "symlink";
-              readonly afterKind: "directory" | "file" | "symlink";
+              readonly _tag: "Updated"
+              readonly path: BytePath
+              readonly beforeKind: "directory" | "file" | "symlink"
+              readonly afterKind: "directory" | "file" | "symlink"
               readonly differences: readonly (
                 | "kind"
                 | "uid"
@@ -1781,49 +1516,41 @@ export declare const inspectSnapshotDelta: (
                 | "content"
                 | "target"
                 | "hardLinks"
-              )[];
+              )[]
             }
         )[],
         ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
         Crypto
-      >,
+      >
   ] extends [never]
     ? never
     : [
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize;
-                readonly maxIdentityBytes: ByteSize;
-                readonly maxDeltaRecords: number;
-                readonly maxDecodedDeltaBytes: ByteSize;
-                readonly maxBaseRecords: number;
-                readonly maxTargetRecords: number;
-                readonly maxEntries: number;
-                readonly maxOutputRecords: number;
-                readonly maxOutputBytes: ByteSize;
-                readonly maxInheritedRecords: number;
+                readonly maxEncodedBytes: ByteSize
+                readonly maxIdentityBytes: ByteSize
+                readonly maxDeltaRecords: number
+                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxBaseRecords: number
+                readonly maxTargetRecords: number
+                readonly maxEntries: number
+                readonly maxOutputRecords: number
+                readonly maxOutputBytes: ByteSize
+                readonly maxInheritedRecords: number
               },
               never,
               never
             >
           | Effect.Effect<
               readonly (
+                | { readonly _tag: "Added"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
+                | { readonly _tag: "Removed"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
                 | {
-                    readonly _tag: "Added";
-                    readonly path: BytePath;
-                    readonly kind: "directory" | "file" | "symlink";
-                  }
-                | {
-                    readonly _tag: "Removed";
-                    readonly path: BytePath;
-                    readonly kind: "directory" | "file" | "symlink";
-                  }
-                | {
-                    readonly _tag: "Updated";
-                    readonly path: BytePath;
-                    readonly beforeKind: "directory" | "file" | "symlink";
-                    readonly afterKind: "directory" | "file" | "symlink";
+                    readonly _tag: "Updated"
+                    readonly path: BytePath
+                    readonly beforeKind: "directory" | "file" | "symlink"
+                    readonly afterKind: "directory" | "file" | "symlink"
                     readonly differences: readonly (
                       | "kind"
                       | "uid"
@@ -1836,18 +1563,16 @@ export declare const inspectSnapshotDelta: (
                       | "content"
                       | "target"
                       | "hardLinks"
-                    )[];
+                    )[]
                   }
               )[],
-              | ImageError
-              | PlatformError
-              | SnapshotDeltaModel.SnapshotDeltaError,
+              ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
               Crypto
-            >,
+            >
         ] extends [Effect.Effect<infer _A, infer _E, infer R>]
       ? R
       : never
->;
+>
 ```
 
 Added in v0.1.0
