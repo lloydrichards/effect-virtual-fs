@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, Predicate, Schema } from "effect"
+import { ByteSize, Effect, Fiber, Predicate, Schema } from "effect"
 import { BytePathId } from "../src/BytePath.js"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
@@ -264,5 +264,43 @@ describe("fixtures and snapshots", () => {
 
       assert.instanceOf(limit, Vfs.ImageError)
       assert.strictEqual(limit.code, "LimitExceeded")
+    }))
+
+  // Real scheduling: the assertion compares wall-clock durations, so virtual time would not measure
+  // anything. Interruption is signalled by another fiber rather than a timer, because timer latency
+  // on a loaded CI runner can exceed the walk itself.
+  it.live("releases the volume after a snapshot is interrupted mid-walk", () =>
+    Effect.gen(function*() {
+      const bytes = new Uint8Array(64)
+      const entries: Array<Vfs.Fixture["entries"][number]> = []
+
+      for (let directory = 0; directory < 100; directory++) {
+        entries.push({ kind: "directory", path: `/d${directory}` })
+
+        for (let file = 0; file < 100; file++) entries.push({ kind: "file", path: `/d${directory}/f${file}`, bytes })
+      }
+
+      const volume = yield* Vfs.fromFixture({ entries })
+      const caller = yield* volume.caller()
+      const started = performance.now()
+
+      yield* volume.snapshot
+      const full = performance.now() - started
+
+      // The walk yields periodically and the read is interruptible, so interrupting it returns at the
+      // next yield instead of waiting for the whole tree. An uninterruptible read measures near `full`.
+      const fiber = yield* Effect.forkChild(volume.snapshot)
+
+      yield* Effect.yieldNow
+      const interruptStarted = performance.now()
+
+      yield* Fiber.interrupt(fiber)
+      assert.isBelow(performance.now() - interruptStarted, full / 4)
+
+      yield* caller.writeFile("/after", bytes, { access: "write", create: "ifMissing" })
+      const restored = yield* (yield* Vfs.fromSnapshot(yield* volume.snapshot)).caller()
+
+      assert.strictEqual((yield* restored.lstat("/after")).kind, "file")
+      assert.strictEqual((yield* restored.lstat("/d99/f99")).kind, "file")
     }))
 })

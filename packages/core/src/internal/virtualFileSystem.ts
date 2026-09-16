@@ -83,6 +83,10 @@ const SET_ID_BITS = 0o6000
 // Sticky: only the owner of an entry or of its directory may remove it.
 const STICKY_BIT = 0o1000
 
+// Nodes walked between yields. Whole-tree reads are one synchronous tick otherwise, which
+// starves the event loop and leaves nothing for interruption to act on.
+const WALK_YIELD_INTERVAL = 128
+
 // Largest signed 64-bit file offset, as POSIX off_t.
 const MAX_FILE_OFFSET = 0x7fffffffffffffffn
 
@@ -477,6 +481,10 @@ export const makeVolume = Effect.fnUntraced(
     // Permit waits stay interruptible. State transitions and resource registration do not.
     const coordinated = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(Effect.uninterruptible(effect))
 
+    // Read-only walks hold the permit but mutate nothing, so abandoning one midway loses only
+    // local state. Interruptible so a cancelled snapshot actually stops.
+    const coordinatedRead = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(effect)
+
     if (image !== undefined) {
       const incoming = new Map<string, Node>()
       let content = 0n
@@ -645,6 +653,7 @@ export const makeVolume = Effect.fnUntraced(
       const records: Array<Image.Record> = []
 
       for (let index = 0; index < pending.length; index++) {
+        if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
         const node = pending[index]
 
         if (node === undefined) continue
@@ -677,11 +686,12 @@ export const makeVolume = Effect.fnUntraced(
       return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records }, undefined, true)
     })
 
-    const observeChanges = () => {
+    const observeChanges = Effect.fnUntraced(function*() {
       const observation: Array<ObservationEntry> = []
       const paths: Array<readonly [Node, Uint8Array]> = [[root, new Uint8Array([SLASH_BYTE])]]
 
       for (let index = 0; index < paths.length; index++) {
+        if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
         const current = paths[index]
 
         if (current === undefined) continue
@@ -709,14 +719,14 @@ export const makeVolume = Effect.fnUntraced(
       }
 
       return observation
-    }
+    })
 
     const captureState = Effect.fnUntraced(function*(hook?: TestHooks.ObservationHook) {
       const snapshot = yield* captureSnapshot()
 
       if (hook !== undefined) yield* hook.betweenSnapshotAndSummary
 
-      return { snapshot, observation: observeChanges() }
+      return { snapshot, observation: yield* observeChanges() }
     })
 
     const advanceRevision = (node: Node) => {
@@ -2167,7 +2177,7 @@ export const makeVolume = Effect.fnUntraced(
       })
     }
 
-    const baseObservation = Predicate.isTagged("Overlay")(source) ? observeChanges() : undefined
+    const baseObservation = Predicate.isTagged("Overlay")(source) ? yield* observeChanges() : undefined
 
     const publicChange = (change: RawOverlayChange): OverlayChange =>
       Predicate.isTagged("Renamed")(change)
@@ -2194,7 +2204,7 @@ export const makeVolume = Effect.fnUntraced(
 
         return yield* watchHub.subscribe(hook?.afterSubscribe)
       }).pipe(Effect.withSpan("Volume.watch")),
-      snapshot: coordinated(captureSnapshot()).pipe(Effect.withSpan("Volume.snapshot")),
+      snapshot: coordinatedRead(captureSnapshot()).pipe(Effect.withSpan("Volume.snapshot")),
 
       caller: Effect.fn("Volume.caller")(function*(options?: RootCallerOptions) {
         const decoded = decodeConfiguration(RootCallerOptions, options === undefined ? {} : options)
@@ -2222,13 +2232,13 @@ export const makeVolume = Effect.fnUntraced(
       ...volume,
       changes: Effect.fn("OverlayVolume.changes")(function*(options?: OverlayChangesOptions) {
         const selected = yield* changeOptions(options)
-        const current = yield* coordinated(Effect.sync(observeChanges))
+        const current = yield* coordinatedRead(observeChanges())
 
         return publicChanges(compareOverlay(baseObservation, current, selected.includeTimestamps ?? false))
       }),
       capture: Effect.fn("OverlayVolume.capture")(function*(options?: OverlayChangesOptions) {
         const selected = yield* changeOptions(options)
-        const current = yield* coordinated(captureState(hook))
+        const current = yield* coordinatedRead(captureState(hook))
 
         return Object.freeze({
           snapshot: current.snapshot,
