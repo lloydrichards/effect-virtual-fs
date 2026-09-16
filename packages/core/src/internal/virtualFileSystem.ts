@@ -36,10 +36,12 @@ import {
   failure,
   isDotComponent,
   type LookupOptions,
+  MAX_NAME_BYTES,
   nameBytes,
   ownedPath,
   type PreparedPath,
   preparePath,
+  SLASH_BYTE,
   SLASH_HEX,
   strictString,
   wellFormed
@@ -64,6 +66,22 @@ export const ObjectReferenceId = Symbol("@effect-vfs/core/ObjectReference")
 
 /** @internal */
 export { ConfigurationError, FsCodeSchema as FsCode, FsError }
+
+// POSIX permission bits, masked against mode once it is shifted to the caller's class.
+const EXECUTE = 0o1
+
+const WRITE = 0o2
+
+const READ = 0o4
+
+// Execute for every class; a file with none is not executable by anyone.
+const ANY_EXECUTE = 0o111
+
+// setuid and setgid, cleared whenever a file's contents or ownership change.
+const SET_ID_BITS = 0o6000
+
+// Sticky: only the owner of an entry or of its directory may remove it.
+const STICKY_BIT = 0o1000
 
 const Mode = Schema.Natural.check(Schema.isLessThanOrEqualTo(0o7777))
 
@@ -573,7 +591,7 @@ export const makeVolume = Effect.fnUntraced(
         const changes: Array<Change> = []
 
         if (target === root) {
-          changes.push(UpdateChange.make({ path: ownedPath(new Uint8Array([47])) }))
+          changes.push(UpdateChange.make({ path: ownedPath(new Uint8Array([SLASH_BYTE])) }))
         }
 
         const pending: Array<readonly [Directory, string]> = [[root, SLASH_HEX]]
@@ -639,7 +657,7 @@ export const makeVolume = Effect.fnUntraced(
 
     const observeChanges = () => {
       const observation: Array<ObservationEntry> = []
-      const paths: Array<readonly [Node, Uint8Array]> = [[root, new Uint8Array([47])]]
+      const paths: Array<readonly [Node, Uint8Array]> = [[root, new Uint8Array([SLASH_BYTE])]]
 
       for (let index = 0; index < paths.length; index++) {
         const current = paths[index]
@@ -662,7 +680,7 @@ export const makeVolume = Effect.fnUntraced(
           childPath.set(path)
           let offset = path.length
 
-          if (path.length !== 1) childPath[offset++] = 47
+          if (path.length !== 1) childPath[offset++] = SLASH_BYTE
           childPath.set(bytes, offset)
           paths.push([child, childPath])
         }
@@ -792,7 +810,7 @@ export const makeVolume = Effect.fnUntraced(
       file.metadata = {
         ...file.metadata,
         size: length,
-        mode: file.metadata.mode & ~0o6000,
+        mode: file.metadata.mode & ~SET_ID_BITS,
         mtimeNs: now,
         ctimeNs: now
       }
@@ -872,7 +890,7 @@ export const makeVolume = Effect.fnUntraced(
           file.metadata = {
             ...file.metadata,
             size: BigInt(size),
-            mode: file.metadata.mode & ~0o6000,
+            mode: file.metadata.mode & ~SET_ID_BITS,
             mtimeNs: now,
             ctimeNs: now
           }
@@ -978,7 +996,7 @@ export const makeVolume = Effect.fnUntraced(
 
           if (target.directory === undefined) return yield* failure("InvalidHandle", operation, path.input)
           current = target.directory
-          yield* authorize(current, identity, 1, operation, path.input)
+          yield* authorize(current, identity, EXECUTE, operation, path.input)
         }
 
         if (current.metadata.nlink === 0) return yield* failure("NotFound", operation, path.input)
@@ -989,7 +1007,7 @@ export const makeVolume = Effect.fnUntraced(
 
         for (let index = 0; index < work.components.length - (parentOnly ? 1 : 0); index++) {
           if (current.kind !== "directory") return yield* failure("NotDirectory", operation, path.input)
-          yield* authorize(current, identity, 1, operation, path.input)
+          yield* authorize(current, identity, EXECUTE, operation, path.input)
           const component = work.components[index]
 
           if (component === undefined) break
@@ -1093,7 +1111,7 @@ export const makeVolume = Effect.fnUntraced(
             if (acquired.closed) return yield* Effect.interrupt
             const path = yield* Effect.fromResult(prepared)
             const directory = yield* locate(path, base, operation)
-            yield* authorize(directory, identity, 1, operation, input)
+            yield* authorize(directory, identity, EXECUTE, operation, input)
             acquired.directory = directory
 
             return acquired
@@ -1107,7 +1125,7 @@ export const makeVolume = Effect.fnUntraced(
 
         return yield* coordinated(Effect.gen(function*() {
           const directory = yield* locate(yield* Effect.fromResult(prepared), base, "readDirectory")
-          yield* authorize(directory, identity, 4, "readDirectory", input)
+          yield* authorize(directory, identity, READ, "readDirectory", input)
           const result = [...directory.entries.keys()].map(nameBytes)
           directory.metadata = { ...directory.metadata, atimeNs: (yield* timestamp("readDirectory")) }
 
@@ -1241,7 +1259,7 @@ export const makeVolume = Effect.fnUntraced(
               ...node.metadata,
               uid: update.uid ?? node.metadata.uid,
               gid: update.gid ?? node.metadata.gid,
-              mode: node.kind === "file" ? node.metadata.mode & ~0o6000 : node.metadata.mode,
+              mode: node.kind === "file" ? node.metadata.mode & ~SET_ID_BITS : node.metadata.mode,
               ctimeNs: (yield* timestamp("chown"))
             }
             advanceRevision(node)
@@ -1266,7 +1284,7 @@ export const makeVolume = Effect.fnUntraced(
 
             if (!identity.privileged && identity.uid !== node.metadata.uid) {
               if (access.kind !== "now" || modification.kind !== "now") return yield* failure("AccessDenied", "utimes")
-              yield* authorize(node, identity, 2, "utimes", "/")
+              yield* authorize(node, identity, WRITE, "utimes", "/")
             }
 
             const now = yield* timestamp("utimes")
@@ -1291,7 +1309,7 @@ export const makeVolume = Effect.fnUntraced(
       )
 
       const authorizeRemoval = (parent: Directory, child: Node, operation: string, input: PathInput) =>
-        (parent.metadata.mode & 0o1000) !== 0 && !identity.privileged &&
+        (parent.metadata.mode & STICKY_BIT) !== 0 && !identity.privileged &&
           identity.uid !== parent.metadata.uid && identity.uid !== child.metadata.uid
           ? Effect.fail(failure("AccessDenied", operation, input))
           : Effect.void
@@ -1306,7 +1324,7 @@ export const makeVolume = Effect.fnUntraced(
         lookupReference: Effect.fn("Caller.lookupReference")(function*(directoryReference, name) {
           if (
             !(name instanceof Uint8Array) || !(name.buffer instanceof ArrayBuffer) || !attachedBuffer(name) ||
-            name.length === 0 || name.length > 255 || name.includes(0) || name.includes(47)
+            name.length === 0 || name.length > MAX_NAME_BYTES || name.includes(0) || name.includes(SLASH_BYTE)
           ) return yield* failure("InvalidArgument", "lookupReference")
           const key = Encoding.encodeHex(new Uint8Array(name))
 
@@ -1316,7 +1334,7 @@ export const makeVolume = Effect.fnUntraced(
             const directory = yield* referencedNode(directoryReference, "lookupReference")
 
             if (directory.kind !== "directory") return yield* failure("NotDirectory", "lookupReference")
-            yield* authorize(directory, identity, 1, "lookupReference", "/")
+            yield* authorize(directory, identity, EXECUTE, "lookupReference", "/")
             const child = directory.entries.get(key)
 
             if (child === undefined) return yield* failure("NotFound", "lookupReference")
@@ -1329,7 +1347,7 @@ export const makeVolume = Effect.fnUntraced(
             const directory = yield* referencedNode(directoryReference, "parentReference")
 
             if (directory.kind !== "directory") return yield* failure("NotDirectory", "parentReference")
-            yield* authorize(directory, identity, 1, "parentReference", "/")
+            yield* authorize(directory, identity, EXECUTE, "parentReference", "/")
 
             return referenceFor(directory.parent ?? directory)
           }))
@@ -1346,7 +1364,7 @@ export const makeVolume = Effect.fnUntraced(
             const directory = yield* referencedNode(directoryReference, "observeDirectory")
 
             if (directory.kind !== "directory") return yield* failure("NotDirectory", "observeDirectory")
-            yield* authorize(directory, identity, 4, "observeDirectory", "/")
+            yield* authorize(directory, identity, READ, "observeDirectory", "/")
 
             const value = Object.freeze(
               [...directory.entries].map(([name, node]) =>
@@ -1385,7 +1403,7 @@ export const makeVolume = Effect.fnUntraced(
             if (node.kind !== "file") return yield* failure("IsDirectory", "openReference")
 
             if (node.metadata.nlink === 0) return yield* failure("StaleReference", "openReference")
-            yield* authorize(node, identity, 4, "openReference", "/")
+            yield* authorize(node, identity, READ, "openReference", "/")
             node.openCount += 1
             acquired.file = node
 
@@ -1400,7 +1418,7 @@ export const makeVolume = Effect.fnUntraced(
             const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "readFile")
 
             if (node.kind !== "file") return yield* failure("IsDirectory", "readFile", input)
-            yield* authorize(node, identity, 4, "readFile", input)
+            yield* authorize(node, identity, READ, "readFile", input)
             const data = new Uint8Array(node.data.bytes)
             node.metadata = { ...node.metadata, atimeNs: (yield* timestamp("readFile")) }
 
@@ -1459,14 +1477,20 @@ export const makeVolume = Effect.fnUntraced(
               const file = resolved.node?.kind === "file" ? resolved.node : undefined
 
               if (file === undefined) {
-                yield* authorize(parent, identity, 3, "writeFile", input)
+                yield* authorize(parent, identity, WRITE | EXECUTE, "writeFile", input)
 
                 if (replaced !== undefined) yield* authorizeRemoval(parent, replaced, "writeFile", input)
 
                 if (replaced === undefined && settings.maxEntries !== undefined && entries >= settings.maxEntries) {
                   return yield* failure("NoSpace", "writeFile", input)
                 }
-              } else yield* authorize(file, identity, chosen.access === "readWrite" ? 6 : 2, "writeFile", input)
+              } else {yield* authorize(
+                  file,
+                  identity,
+                  chosen.access === "readWrite" ? READ | WRITE : WRITE,
+                  "writeFile",
+                  input
+                )}
 
               const finalMode = chosen.finalMode === undefined ? undefined : yield* permittedMode(
                 file?.metadata ?? { kind: "file", uid: identity.uid, gid: parent.metadata.gid },
@@ -1530,7 +1554,7 @@ export const makeVolume = Effect.fnUntraced(
               node.data = Content.make(data)
               node.metadata = {
                 ...node.metadata,
-                mode: finalMode ?? node.metadata.mode & ~0o6000,
+                mode: finalMode ?? node.metadata.mode & ~SET_ID_BITS,
                 size: BigInt(size),
                 mtimeNs: now,
                 ctimeNs: now
@@ -1572,12 +1596,14 @@ export const makeVolume = Effect.fnUntraced(
           const prepared = preparePath(input, "access", settings.maxPathBytes)
           const base = options?.relativeTo
 
-          if (!Number.isInteger(bits) || bits < 0 || bits > 7) return yield* failure("InvalidArgument", "access", input)
+          if (!Number.isInteger(bits) || bits < 0 || bits > (READ | WRITE | EXECUTE)) {
+            return yield* failure("InvalidArgument", "access", input)
+          }
 
           return yield* coordinated(Effect.gen(function*() {
             const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "access")
 
-            if (node.kind === "file" && (bits & 1) !== 0 && (node.metadata.mode & 0o111) === 0) {
+            if (node.kind === "file" && (bits & EXECUTE) !== 0 && (node.metadata.mode & ANY_EXECUTE) === 0) {
               return yield* failure("AccessDenied", "access", input)
             }
 
@@ -1592,7 +1618,7 @@ export const makeVolume = Effect.fnUntraced(
             const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "truncate")
 
             if (node.kind !== "file") return yield* failure("IsDirectory", "truncate", input)
-            yield* authorize(node, identity, 2, "truncate", input)
+            yield* authorize(node, identity, WRITE, "truncate", input)
             yield* resize(node, length, "truncate")
           }))
         }),
@@ -1632,7 +1658,7 @@ export const makeVolume = Effect.fnUntraced(
               if (node.kind === "directory") return yield* failure("IsDirectory", "link", source)
               const path = yield* Effect.fromResult(b)
               const parent = yield* locate(path, destinationBase, "link", { parentOnly: true })
-              yield* authorize(parent, identity, 3, "link", destination)
+              yield* authorize(parent, identity, WRITE | EXECUTE, "link", destination)
               const name = path.components.at(-1)
 
               if (isDotComponent(name) || parent.entries.has(name)) {
@@ -1676,7 +1702,7 @@ export const makeVolume = Effect.fnUntraced(
             const path = yield* Effect.fromResult(prepared)
             const bytes = targetBytes
             const parent = yield* locate(path, base, "symlink", { parentOnly: true })
-            yield* authorize(parent, identity, 3, "symlink", input)
+            yield* authorize(parent, identity, WRITE | EXECUTE, "symlink", input)
             const name = path.components.at(-1)
 
             if (isDotComponent(name) || parent.entries.has(name)) {
@@ -1791,7 +1817,7 @@ export const makeVolume = Effect.fnUntraced(
               return yield* failure("IsDirectory", "open", input)
             }
 
-            yield* authorize(parent, identity, 1, "open", input)
+            yield* authorize(parent, identity, EXECUTE, "open", input)
             let file = resolved.node
 
             if (file !== undefined && chosen.create === "exclusive") {
@@ -1803,7 +1829,7 @@ export const makeVolume = Effect.fnUntraced(
                 return yield* failure("NotFound", "open", input)
               }
 
-              yield* authorize(parent, identity, 3, "open", input)
+              yield* authorize(parent, identity, WRITE | EXECUTE, "open", input)
 
               if (settings.maxEntries !== undefined && entries >= settings.maxEntries) {
                 return yield* failure("NoSpace", "open", input)
@@ -1842,7 +1868,7 @@ export const makeVolume = Effect.fnUntraced(
               yield* authorize(
                 file,
                 identity,
-                chosen.access === "read" ? 4 : chosen.access === "write" ? 2 : 6,
+                chosen.access === "read" ? READ : chosen.access === "write" ? WRITE : READ | WRITE,
                 "open",
                 input
               )
@@ -1863,7 +1889,7 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(Effect.gen(function*() {
             const path = yield* Effect.fromResult(prepared)
             const parent = yield* locate(path, base, "unlink", { parentOnly: true })
-            yield* authorize(parent, identity, 3, "unlink", input)
+            yield* authorize(parent, identity, WRITE | EXECUTE, "unlink", input)
             const name = path.components.at(-1)
 
             if (isDotComponent(name)) {
@@ -1902,8 +1928,8 @@ export const makeVolume = Effect.fnUntraced(
             const newPath = yield* Effect.fromResult(newPrepared)
             const oldParent = yield* locate(oldPath, oldBase, "rename", { parentOnly: true })
             const newParent = yield* locate(newPath, newBase, "rename", { parentOnly: true })
-            yield* authorize(oldParent, identity, 3, "rename", source)
-            yield* authorize(newParent, identity, 3, "rename", destination)
+            yield* authorize(oldParent, identity, WRITE | EXECUTE, "rename", source)
+            yield* authorize(newParent, identity, WRITE | EXECUTE, "rename", destination)
             const oldName = oldPath.components.at(-1)
             const newName = newPath.components.at(-1)
 
@@ -1997,7 +2023,7 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(Effect.gen(function*() {
             const path = yield* Effect.fromResult(prepared)
             const parent = yield* locate(path, base, "rmdir", { parentOnly: true })
-            yield* authorize(parent, identity, 3, "rmdir", input)
+            yield* authorize(parent, identity, WRITE | EXECUTE, "rmdir", input)
             const name = path.components.at(-1)
 
             if (isDotComponent(name)) {
@@ -2046,7 +2072,7 @@ export const makeVolume = Effect.fnUntraced(
             return yield* coordinated(Effect.gen(function*() {
               const path = yield* Effect.fromResult(prepared)
               const parent = yield* locate(path, base, "mkdir", { parentOnly: true })
-              yield* authorize(parent, identity, 3, "mkdir", input)
+              yield* authorize(parent, identity, WRITE | EXECUTE, "mkdir", input)
               const name = path.components.at(-1)
 
               if (isDotComponent(name) || parent.entries.has(name)) {
@@ -2068,7 +2094,7 @@ export const makeVolume = Effect.fnUntraced(
                   nextInode,
                   identity.uid,
                   parent.metadata.gid,
-                  (mode & 0o777 & ~umask) | (mode & 0o1000),
+                  (mode & 0o777 & ~umask) | (mode & STICKY_BIT),
                   now
                 ),
                 revision: nextRevision(),
