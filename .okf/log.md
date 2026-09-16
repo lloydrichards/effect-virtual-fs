@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-09-17
+
+- **Snapshot delta entry order**: Applying a delta now orders directory entries by raw name bytes instead of `localeCompare`, so ICU and non-ICU Node builds reconstruct the same order from the same delta. The comparator sorts the basename bytes it already holds rather than decoding base64 on every comparison. Recorded the applied-order guarantee in the snapshot-deltas contract and covered it with an unsorted apply assertion.
+
 ## 2026-09-16
 
 - **NFS connection binding and backchannels**: Sessions now record which connections carry which channel, `DESTROY_SESSION` enforces that association, and the server sends CB_COMPOUND callbacks using the credential the client authorized in `csa_sec_parms`. Backchannels, connection binding, and trunking moved from `read-only-networked` into `read-only-local`, leaving Kerberos as that ladder's only unmet MUST. The operations and protocol-rules ledgers, the profile, and the package README were updated together.

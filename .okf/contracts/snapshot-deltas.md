@@ -38,7 +38,7 @@ The identity includes the complete reachable namespace, raw byte paths, node kin
 
 One complete `SnapshotDeltaLimits` policy applies to creation, inspection, encoding, decoding and application. Omitting it uses the frozen `SnapshotDeltaLimits.default`; `SnapshotDeltaLimits.constrained` is the frozen memory-sensitive preset. A custom policy must provide every field. Byte budgets use Effect's exact `ByteSize.ByteSize` type, while record and entry counts remain numbers. Limits bound encoded and decoded bytes, canonical identity bytes, base, target, delta and output records, namespace entries, output payload bytes and inherited-record work.[^models]
 
-The delta stores the target object graph. Unchanged regular-file and symbolic-link payloads may refer to a same-path object in the verified base; other payloads are inline. Directory and hard-link topology is reconstructed and validated as a complete snapshot before publication.[^implementation]
+The delta stores the target object graph. Unchanged regular-file and symbolic-link payloads may refer to a same-path object in the verified base; other payloads are inline. Directory and hard-link topology is reconstructed and validated as a complete snapshot before publication. Applying a delta orders each directory's entries by the raw bytes of their names, so the same delta reconstructs the same entry order on every runtime, including Node builds without ICU. A delta never carries entry order itself.[^implementation][^behavior-tests]
 
 [^api]: `VirtualFileSystem.ts` exposes the reusable Effect operations and Schema codec.
 
