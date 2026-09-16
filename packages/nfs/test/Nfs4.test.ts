@@ -2341,7 +2341,11 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(reader.uint32(), 1, "callback program version")
       assert.strictEqual(reader.uint32(), 1, "CB_COMPOUND procedure")
 
-      for (let field = 0; field < 4; field++) reader.uint32()
+      // The client authorized AUTH_NONE, so that is what the callback carries.
+      assert.strictEqual(reader.uint32(), 0, "credential flavor")
+      assert.strictEqual(reader.opaque().length, 0, "empty AUTH_NONE credential")
+      reader.uint32()
+      reader.opaque()
 
       assert.strictEqual(reader.string(), "probe", "CB_COMPOUND tag")
       assert.strictEqual(reader.uint32(), 1, "minorversion")
@@ -2476,5 +2480,64 @@ describe("NFSv4.1 COMPOUND", () => {
           Status.OK
         )
       }
+    }))
+
+  it.effect("carries the AUTH_SYS credential the client authorized for callbacks", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("2 seconds")
+      let sent: Uint8Array | undefined
+
+      const client = connection(1, (message) => {
+        sent = message
+
+        return true
+      })
+
+      // csa_sec_parms offering AUTH_SYS only: Section 18.36.3 authorizes the server to use
+      // AUTH_SYS on callbacks with exactly this cbsp_sys_cred, and nothing else.
+      const { session } = yield* startSession(
+        handler,
+        "authsys",
+        {},
+        new Uint8Array(8),
+        client,
+        2,
+        (writer) => writer.array([undefined], (item) => authSysCallback(item))
+      )
+
+      yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+
+      assert.isDefined(sent)
+      const reader = new Reader(sent, limits)
+
+      for (let field = 0; field < 6; field++) reader.uint32()
+
+      assert.strictEqual(reader.uint32(), 1, "AUTH_SYS credential flavor")
+      const credential = new Reader(reader.opaque(), limits)
+      assert.strictEqual(credential.uint32(), 0x6aa6_6b2d, "stamp from cbsp_sys_cred")
+      assert.strictEqual(credential.string(), "Lloyds-Mech.local", "machine name from cbsp_sys_cred")
+    }))
+
+  it.effect("sends no callback when the client authorized no credential it can encode", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("2 seconds")
+
+      const client = connection(1, () => {
+        throw new Error("no credential was authorized, so no callback may be sent")
+      })
+
+      // An empty csa_sec_parms authorizes nothing; the backchannel is bound but unusable.
+      const { session } = yield* startSession(
+        handler,
+        "unauthorized",
+        {},
+        new Uint8Array(8),
+        client,
+        2,
+        (writer) => writer.array([], () => undefined)
+      )
+
+      assert.isFalse(yield* handler.probeBackChannel(session))
     }))
 })

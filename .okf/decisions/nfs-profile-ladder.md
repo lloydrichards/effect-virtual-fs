@@ -36,18 +36,18 @@ A **capability profile** states what the server does. A **maturity** label state
 
 Profiles, in delivery order:
 
-| Profile               | Adds                                                                                                                                         | Owning issues |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted                                           | #43, #39      |
-| `read-only-networked` | backchannel, connection binding, trunking, trusted `AUTH_SYS` identity mapped by application policy, non-loopback binding behind that policy | #44, #45      |
-| `writable`            | create, write, rename, remove, `COMMIT` semantics, explicit durability statement                                                             | #46, #48, #49 |
-| `stateful`            | share reservations, byte-range locks, grace and reclaim, restart model, persistent filehandles                                               | #47, #50      |
+| Profile               | Adds                                                                                                                                          | Owning issues |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted, backchannel, connection binding, trunking | #43, #39, #44 |
+| `read-only-networked` | trusted `AUTH_SYS` identity mapped by application policy, non-loopback binding behind that policy                                             | #45           |
+| `writable`            | create, write, rename, remove, `COMMIT` semantics, explicit durability statement                                                              | #46, #48, #49 |
+| `stateful`            | share reservations, byte-range locks, grace and reclaim, restart model, persistent filehandles                                                | #47, #50      |
 
 Maturity labels are `experimental`, `preview`, and `stable`.
 
 ## Wording
 
-RFC 8881 defines no read-only server profile; its read-only allowance in Section 17 applies to clients.[^rfc8881] Servers MUST support RPCSEC_GSS with Kerberos V5 and MUST support backchannels and trunking. `read-only-local` therefore is described as a _protocol-complete read-only export_ or as _interoperable_, never as conformant. Only `read-only-networked` and later profiles may use "conformant", and only once those MUSTs are met.
+RFC 8881 defines no read-only server profile; its read-only allowance in Section 17 applies to clients.[^rfc8881] Servers MUST support RPCSEC_GSS with Kerberos V5 and MUST support backchannels and trunking. Backchannels and trunking landed in `read-only-local` (#44) because the Linux client needs them to mount cleanly, so Kerberos is the one MUST still unmet. `read-only-local` is therefore described as a _protocol-complete read-only export_ or as _interoperable_, never as conformant. Only `read-only-networked` and later profiles may use "conformant", and only once those MUSTs are met.
 
 ## Scope exclusions
 
@@ -69,7 +69,7 @@ Claims stay no broader than their evidence, following the [evidence and validati
 
 [^issue]: Issue #42 holds the original questions and the decision summary.
 
-[^rfc8881]: Sections 2.2.1.1.1, 2.10.3, 2.10.5, and 17 state the server MUSTs that a read-only loopback server cannot meet.
+[^rfc8881]: Sections 2.2.1.1.1 and 17 state the server MUSTs still unmet. Sections 2.10.3 and 2.10.5, backchannels and trunking, were met by #44.
 
 [^nfs-package]: The manifest currently declares the package private at version 0.0.0.
 

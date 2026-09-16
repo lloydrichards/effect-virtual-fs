@@ -22,14 +22,14 @@ generated: { by: claude/okf, at: 2026-09-15T23:00:00+02:00 }
 
 # NFS read-only-local profile
 
-`read-only-local` is the first profile in the [NFS profile ladder](/decisions/nfs-profile-ladder.md "implements"). It is a protocol-complete read-only NFSv4.1 export of one live volume for a trusted local user. It is not a conformant NFSv4.1 server; RFC 8881 requires Kerberos, backchannels, and trunking that this profile excludes.[^rfc8881]
+`read-only-local` is the first profile in the [NFS profile ladder](/decisions/nfs-profile-ladder.md "implements"). It is a protocol-complete read-only NFSv4.1 export of one live volume for a trusted local user. It is not a conformant NFSv4.1 server; RFC 8881 requires Kerberos, which this profile excludes.[^rfc8881]
 
 ## Boundary
 
 - Binds only to `127.0.0.1` or `::1`; the application owns the socket and platform adapter.[^server]
 - One application-supplied privileged caller performs every volume operation. `AUTH_NONE` and `AUTH_SYS` credentials are decoded and never trusted; `RPCSEC_GSS` is refused.
 - Sessions, client ids, and filehandles are volatile per server process. Restart requires a client remount.
-- No backchannel, no delegations, no locks, no grace period, no pNFS.
+- No delegations, no locks, no grace period, no pNFS. A backchannel is negotiated and usable when the client asks for one, but nothing is ever recalled over it, so the profile neither needs nor promises callbacks.
 
 ## Required behavior
 

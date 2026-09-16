@@ -435,6 +435,8 @@ type ParsedOperation =
       readonly back: ChannelAttrs
       /** csa_cb_program: the RPC program number the client listens for callbacks on. */
       readonly callbackProgram: number
+      /** csa_sec_parms: the credentials the client authorized for callbacks. */
+      readonly security: ReadonlyArray<CallbackSecurity>
       /** csa_sec_parms named an RPCSEC_GSS handle, which cannot exist here (Section 18.36.3). */
       readonly gssCallback: boolean
     }
@@ -489,7 +491,11 @@ type ParsedOperation =
   | {
     readonly kind: "BackchannelCtl"
     readonly code: typeof Operation.BACKCHANNEL_CTL
-    readonly value: { readonly program: number; readonly gssCallback: boolean }
+    readonly value: {
+      readonly program: number
+      readonly security: ReadonlyArray<CallbackSecurity>
+      readonly gssCallback: boolean
+    }
   }
   | {
     readonly kind: "BindConnToSession"
@@ -556,6 +562,11 @@ interface SessionState {
 interface BackChannel {
   /** csa_cb_program from CREATE_SESSION, updatable by BACKCHANNEL_CTL (Section 18.33). */
   program: number
+  /**
+   * The credential callbacks carry, chosen from csa_sec_parms. Undefined when the client
+   * authorized nothing this server can encode, in which case no callback is ever sent.
+   */
+  security: CallbackSecurity | undefined
   readonly attrs: ChannelAttrs
   readonly slots: Array<CallbackSlot>
   /** False once a callback goes unanswered, which Section 18.37.3 reports as CB_PATH_DOWN. */
@@ -715,19 +726,36 @@ const readChannelAttrs = (reader: Reader): ChannelAttrs => ({
   rdmaIrd: reader.array((item) => item.uint32(), 1)
 })
 
-const readCallbackSecurity = (reader: Reader, limits: Nfs4Limits): number => {
+/**
+ * One entry of csa_sec_parms. Section 18.36.3 calls these "acceptable security credentials the
+ * server can use on the session's backchannel": an authorization list, so the credential a
+ * callback carries has to be one the client actually offered. AUTH_SYS entries keep their
+ * cbsp_sys_cred, which is the credential the client authorized the server to present.
+ */
+interface CallbackSecurity {
+  readonly flavor: number
+  /** The encoded AUTH_SYS credential body, ready to place in an outbound RPC header. */
+  readonly credential?: Uint8Array
+}
+
+const readCallbackSecurity = (reader: Reader, limits: Nfs4Limits): CallbackSecurity => {
   const flavor = reader.uint32()
 
-  if (flavor === 0) return flavor
+  if (flavor === 0) return { flavor }
 
   if (flavor === 1) {
-    reader.uint32()
-    reader.string(limits.maxStringBytes)
-    reader.uint32()
-    reader.uint32()
-    reader.array((item) => item.uint32(), limits.maxArrayElements)
+    const stamp = reader.uint32()
+    const machineName = reader.string(limits.maxStringBytes)
+    const uid = reader.uint32()
+    const gid = reader.uint32()
+    const groups = reader.array((item) => item.uint32(), limits.maxArrayElements)
 
-    return flavor
+    return {
+      flavor,
+      credential: new Writer().uint32(stamp).string(machineName).uint32(uid).uint32(gid)
+        .array(groups, (item, group) => item.uint32(group))
+        .bytes()
+    }
   }
 
   if (flavor === 6) {
@@ -735,11 +763,22 @@ const readCallbackSecurity = (reader: Reader, limits: Nfs4Limits): number => {
     reader.opaque(limits.maxOpaqueBytes)
     reader.opaque(limits.maxOpaqueBytes)
 
-    return flavor
+    return { flavor }
   }
 
   throw new XdrDecodeError("Unsupported callback security flavor")
 }
+
+/**
+ * Picks the credential a callback will carry. AUTH_NONE is preferred when the client offered it,
+ * since it needs no identity; otherwise the client's own AUTH_SYS credential is used. A client
+ * that offered neither has authorized nothing this server can encode, and gets no callbacks.
+ */
+const chooseCallbackSecurity = (
+  offered: ReadonlyArray<CallbackSecurity>
+): CallbackSecurity | undefined =>
+  offered.find((entry) => entry.flavor === AUTH_NONE) ??
+    offered.find((entry) => entry.flavor === AUTH_SYS)
 
 const writeChannelAttrs = (
   writer: Writer,
@@ -945,7 +984,8 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
           fore,
           back,
           callbackProgram,
-          gssCallback: flavors.includes(RPCSEC_GSS)
+          security: flavors,
+          gssCallback: flavors.some((entry) => entry.flavor === RPCSEC_GSS)
         }
       }
     }
@@ -1046,7 +1086,11 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
       const program = reader.uint32()
       const flavors = reader.array((item) => readCallbackSecurity(item, limits), limits.maxArrayElements)
 
-      return { kind: "BackchannelCtl", code, value: { program, gssCallback: flavors.includes(RPCSEC_GSS) } }
+      return {
+        kind: "BackchannelCtl",
+        code,
+        value: { program, security: flavors, gssCallback: flavors.some((entry) => entry.flavor === RPCSEC_GSS) }
+      }
     }
 
     case Operation.BIND_CONN_TO_SESSION: {
@@ -1444,19 +1488,20 @@ const grantedAccess = (
 /**
  * Encodes an outbound RPC CALL for the callback program. The version is 1 per RFC 5661 erratum
  * 2291; the RFC text still prints 4, and a client listening on version 1 ignores anything else.
- * AUTH_NONE matches the callback security this server advertises, since it never issues the
- * RPCSEC_GSS handles the alternative would name.
+ * The credential is the one the client authorized in csa_sec_parms (Section 18.36.3), never a
+ * flavor it did not offer.
  */
 const encodeCallbackCall = (
   xid: number,
   program: number,
   procedure: number,
+  security: CallbackSecurity,
   body: Uint8Array
 ): Uint8Array => {
   const header = new Writer()
     .uint32(xid).uint32(0).uint32(2)
     .uint32(program).uint32(CALLBACK_RPC_VERSION).uint32(procedure)
-    .uint32(0).opaque(empty)
+    .uint32(security.flavor).opaque(security.credential ?? empty)
     .uint32(0).opaque(empty)
     .bytes()
 
@@ -1651,7 +1696,7 @@ export const makeNfs4Handler = (
       Effect.gen(function*() {
         const back = session.back
 
-        if (back === undefined) return undefined
+        if (back === undefined || back.security === undefined) return undefined
 
         const carrier = [...session.connections]
           .find(([, direction]) => (direction & CHANNEL_BACK) !== 0)?.[0]
@@ -1664,7 +1709,9 @@ export const makeNfs4Handler = (
 
         const answered = yield* Effect.ensuring(
           Effect.gen(function*() {
-            const sent = yield* carrier.send(encodeCallbackCall(xid, back.program, procedure, body))
+            const sent = yield* carrier.send(
+              encodeCallbackCall(xid, back.program, procedure, back.security!, body)
+            )
 
             if (!sent) return undefined
 
@@ -2358,9 +2405,13 @@ export const makeNfs4Handler = (
                     back: wantsBackChannel
                       ? {
                         program: value.callbackProgram,
+                        security: chooseCallbackSecurity(value.security),
                         attrs: back,
                         slots: Array.from({ length: backSlots }, () => ({ sequence: 0, busy: false })),
-                        healthy: true,
+                        // A client that authorized no encodable credential gets no callbacks, so
+                        // the path starts down rather than being probed with a flavor it never
+                        // offered.
+                        healthy: chooseCallbackSecurity(value.security) !== undefined,
                         probed: false
                       }
                       : undefined
@@ -2591,6 +2642,12 @@ export const makeNfs4Handler = (
                 }
 
                 activeSession.back.program = operation.value.program
+
+                // Section 18.33.3 adds credentials rather than replacing them, but a re-offer is
+                // the client's current authorization, so a newly offered flavor is adopted.
+                const reoffered = chooseCallbackSecurity(operation.value.security)
+
+                if (reoffered !== undefined) activeSession.back.security = reoffered
                 // A re-advertised program is the client repairing its callback service, so give
                 // the path another chance rather than leaving it marked down.
                 activeSession.back.healthy = true
