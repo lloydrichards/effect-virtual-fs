@@ -11,7 +11,7 @@ The fixture contains:
 
 ## Requirements
 
-- macOS with the built-in `mount_nfs` client;
+- a native NFSv4.1 client: the built-in `mount_nfs` on macOS, or `nfs-common` on Linux;
 - Bun and this repository's dependencies installed;
 - permission to use `sudo` for mounting and unmounting;
 - TCP port 2049 available on loopback.
@@ -55,7 +55,24 @@ The options have specific jobs:
 - `noowners` prevents the preview's numeric owner strings from being treated as macOS identities;
 - the mount stays writable on the client on purpose, so that rejected writes are the server's `NFS4ERR_ROFS` rather than the local kernel's read-only flag.
 
+## Mount it on Linux
+
+Linux spells the version option `nfsvers` and has no `noowners` equivalent:
+
+```sh
+sudo mkdir -p /mnt/effect-vfs-nfs-preview
+sudo mount -t nfs -o nfsvers=4.1,tcp,sec=sys,port=2049,actimeo=1 \
+  127.0.0.1:/ /mnt/effect-vfs-nfs-preview
+```
+
+Passing `nfsvers=4.1` is deliberate. A bare `mount -t nfs` also works, but the Linux client
+starts at 4.2 and ladders down through the server's `NFS4ERR_MINOR_VERS_MISMATCH` replies; naming
+the version skips that negotiation. The scripted gate below checks both paths.
+
 ## Try the filesystem
+
+These examples use the macOS mountpoint; on Linux substitute `/mnt/effect-vfs-nfs-preview` and the
+GNU `stat -c '%i %n'` spelling.
 
 ```sh
 ls -la /Volumes/effect-vfs-nfs-preview
@@ -104,6 +121,28 @@ bun run --filter @repo/nfs-preview verify-mount
 Pass a different mountpoint as the first argument if you did not use the default. The script checks listing, file
 reads, symlink traversal, hard-link identity, the live update after the cache window, reopening, and that writes are
 rejected. It prints one line per check and exits non-zero on any failure. Unmounting stays a manual `sudo umount`.
+
+## Opt-in Linux mount gate
+
+On Linux the whole cycle is scripted, including the privileged parts:
+
+```sh
+bun run --filter @repo/nfs-preview linux-mount-gate
+```
+
+It starts the server, waits for loopback 2049, mounts with `nfsvers=4.1`, runs the read-side checks
+above, mounts a second time with no version option to confirm the client still settles on 4.1, then
+unmounts both and stops the server. A single trap covers every exit path, so a failure never leaves a
+hung mount behind. It also prints the kernel, distribution, and `nfs-utils` versions it ran against,
+because the NFSv4.1 client is the host kernel and therefore recorded rather than pinned.
+
+It requires Linux, `nfs-common` for `mount.nfs4`, the ability to run `sudo mount` and `sudo umount`
+without an interactive password prompt, and a free TCP port 2049. This script is the only place that
+escalates: `@effect-vfs/nfs` never invokes `sudo`, and `verify-mount.sh` stays unprivileged.
+
+In CI the gate is opt-in. The `NFS Linux mount gate` workflow runs on `workflow_dispatch`, and on a
+pull request only once that pull request carries the `nfs-gate` label, so privileged mounting stays
+out of the normal validation suite.
 
 ## External suite
 

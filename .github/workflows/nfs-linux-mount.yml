@@ -1,0 +1,37 @@
+name: NFS Linux mount gate
+
+# Opt-in privileged gate for issue #39. Privileged mounting stays out of the normal PR
+# validation suite: this runs on demand, and on a pull request only once it carries the
+# `nfs-gate` label. The NFSv4.1 client is the runner's kernel, so the gate records the
+# exact client it ran against rather than pretending to pin it.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-mount:
+    name: Linux NFSv4.1 mount
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'nfs-gate')
+    # Pinned to a release rather than ubuntu-latest so the client environment is attributable.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+      - run: bun install --frozen-lockfile
+      # The preview app imports the workspace packages by their published entry points.
+      - run: bun run build
+      - name: Install the NFSv4.1 client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nfs-common
+      - name: Run the mount gate
+        run: bun run --filter @repo/nfs-preview linux-mount-gate

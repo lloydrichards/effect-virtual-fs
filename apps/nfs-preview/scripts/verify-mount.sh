@@ -105,10 +105,16 @@ else
 fi
 
 # Live VFS mutation visible after the attribute-cache window, then reopen.
+# The app rewrites live.txt every two seconds and the mount asks for a one-second attribute
+# cache, but clients honor actimeo with their own cadence, so poll rather than sleeping once.
 live_error="$(cat "$mountpoint/notes/live.txt" 2>&1 >/dev/null)"
 first="$(cat "$mountpoint/notes/live.txt" 2>/dev/null)"
-sleep 3
-second="$(cat "$mountpoint/notes/live.txt" 2>/dev/null)"
+second="$first"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  sleep 1
+  second="$(cat "$mountpoint/notes/live.txt" 2>/dev/null)"
+  [ -n "$second" ] && [ "$second" != "$first" ] && break
+done
 if [ -n "$first" ] && [ -n "$second" ] && [ "$first" != "$second" ]; then
   pass "live.txt changed after the cache window ($first -> $second)"
 else
