@@ -824,6 +824,21 @@ export const makeVolume = Effect.fnUntraced(
       ref.closed = true
     }
 
+    // Replacing a payload clears setuid and setgid, and charges the volume for the size delta.
+    const replaceContent = (file: RegularFile, data: Uint8Array, now: bigint) => {
+      usedBytes += BigInt(data.length - file.data.bytes.length)
+      file.data = Content.make(data)
+      file.metadata = {
+        ...file.metadata,
+        size: BigInt(data.length),
+        mode: file.metadata.mode & ~SET_ID_BITS,
+        mtimeNs: now,
+        ctimeNs: now
+      }
+      advanceRevision(file)
+      publishNode(file)
+    }
+
     const resize = Effect.fnUntraced(function*(file: RegularFile, length: bigint, operation: string) {
       if (!Predicate.isBigInt(length) || length < 0n) return yield* failure("InvalidArgument", operation)
 
@@ -839,18 +854,7 @@ export const makeVolume = Effect.fnUntraced(
 
       const data = new Uint8Array(size)
       data.set(file.data.bytes.subarray(0, size))
-      const now = yield* timestamp(operation)
-      usedBytes += BigInt(size - file.data.bytes.length)
-      file.data = Content.make(data)
-      file.metadata = {
-        ...file.metadata,
-        size: length,
-        mode: file.metadata.mode & ~SET_ID_BITS,
-        mtimeNs: now,
-        ctimeNs: now
-      }
-      advanceRevision(file)
-      publishNode(file)
+      replaceContent(file, data, yield* timestamp(operation))
     })
 
     const fileHandle = (ref: FileReference): FileHandle => {
@@ -920,17 +924,7 @@ export const makeVolume = Effect.fnUntraced(
           data.set(file.data.bytes)
           const now = yield* timestamp("write")
           data.set(bytes.subarray(0, count), start)
-          usedBytes += BigInt(size - file.data.bytes.length)
-          file.data = Content.make(data)
-          file.metadata = {
-            ...file.metadata,
-            size: BigInt(size),
-            mode: file.metadata.mode & ~SET_ID_BITS,
-            mtimeNs: now,
-            ctimeNs: now
-          }
-          advanceRevision(file)
-          publishNode(file)
+          replaceContent(file, data, now)
 
           if (position === undefined) ref.offset = offset + BigInt(count)
 
