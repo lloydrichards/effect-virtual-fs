@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "build": "tsc --noEmit",
     "start": "bun run src/main.ts",
     "conformance": "bun run src/conformance.ts",

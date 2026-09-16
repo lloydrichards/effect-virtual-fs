@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "react-router build",
-    "clean": "git clean -xdf build node_modules .react-router",
+    "clean": "git clean -xdf .cache .turbo build docs node_modules .react-router tsconfig.tsbuildinfo",
     "dev": "react-router dev",
     "docs:check": "bun run docs:generate && bun run scripts/check-docs.ts",
     "docs:generate": "bun run scripts/generate-api-docs.ts",

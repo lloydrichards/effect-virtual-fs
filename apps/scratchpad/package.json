@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit",
-    "clean": "git clean -xdf .cache .turbo dist node_modules tsconfig.tsbuildinfo",
+    "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "dev": "bun run src/index.ts",
     "test": "vitest run --passWithNoTests",
     "type-check": "tsc --noEmit"
