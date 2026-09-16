@@ -11,6 +11,21 @@ import type { PathInput } from "../../VirtualFileSystem.js"
 import { getBytes as getBytePathBytes, make as makeBytePath } from "../bytePath.js"
 import { ConfigurationError, type FsCode, FsError } from "./errors.js"
 
+// Components are hex-encoded bytes so names compare as bytes, not text: 2f is "/", 2e is ".", 2e2e is "..".
+/** @internal */
+export const SLASH_HEX = "2f"
+
+/** @internal */
+export const DOT_HEX = "2e"
+
+/** @internal */
+export const DOT_DOT_HEX = "2e2e"
+
+// A missing final component is rejected wherever "." and ".." are, so it counts as a dot component.
+/** @internal */
+export const isDotComponent = (name: string | undefined): name is undefined | typeof DOT_HEX | typeof DOT_DOT_HEX =>
+  name === undefined || name === DOT_HEX || name === DOT_DOT_HEX
+
 /** @internal */
 export const failure = (code: FsCode, operation: string, path?: PathInput) =>
   path === undefined ? new FsError({ code, operation }) : new FsError({ code, operation, path })
