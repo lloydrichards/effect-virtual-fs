@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
-import { handleCall } from "../src/internal/rpc.js"
+import { type Connection, handleCall, type RpcHandlers } from "../src/internal/rpc.js"
 import { Reader, Writer } from "../src/internal/xdr.js"
 
 const limits = {
@@ -51,20 +51,34 @@ const fields = (reply: Uint8Array): ReadonlyArray<number> => {
   return result
 }
 
-const handler = { compound: ({ arguments: value }: { readonly arguments: Uint8Array }) => Effect.succeed(value) }
+const connection: Connection = { id: 0 }
+
+const noDisconnect = () => Effect.void
+
+const handler: RpcHandlers = {
+  compound: ({ arguments: value }) => Effect.succeed(value),
+  disconnect: noDisconnect
+}
 
 describe("ONC RPC", () => {
   it.effect("routes NULL and opaque COMPOUND arguments and echoes the XID", () =>
     Effect.gen(function*() {
-      assert.deepStrictEqual(fields((yield* handleCall(call({ xid: 99 }), limits, handler))!), [99, 1, 0, 0, 0, 0])
+      assert.deepStrictEqual(fields((yield* handleCall(connection, call({ xid: 99 }), limits, handler))!), [
+        99,
+        1,
+        0,
+        0,
+        0,
+        0
+      ])
       const body = new Uint8Array([1, 2, 3, 4])
-      const reply = (yield* handleCall(call({ xid: 7, procedure: 1, body }), limits, handler))!
+      const reply = (yield* handleCall(connection, call({ xid: 7, procedure: 1, body }), limits, handler))!
       assert.deepStrictEqual(fields(reply), [7, 1, 0, 0, 0, 0, 0x01020304])
     }))
 
   it.effect("uses MSG_DENIED for RPC mismatch and authentication rejection", () =>
     Effect.gen(function*() {
-      assert.deepStrictEqual(fields((yield* handleCall(call({ rpcVersion: 3 }), limits, handler))!), [
+      assert.deepStrictEqual(fields((yield* handleCall(connection, call({ rpcVersion: 3 }), limits, handler))!), [
         42,
         1,
         1,
@@ -73,39 +87,55 @@ describe("ONC RPC", () => {
         2
       ])
       const unknownAuth = new Writer().uint32(9).opaque(new Uint8Array()).bytes()
-      assert.deepStrictEqual(fields((yield* handleCall(call({ credential: unknownAuth }), limits, handler))!), [
-        42,
-        1,
-        1,
-        1,
-        1
-      ])
-      const invalidVerifier = new Writer().uint32(1).opaque(new Uint8Array()).bytes()
-      assert.deepStrictEqual(fields((yield* handleCall(call({ verifier: invalidVerifier }), limits, handler))!), [
-        42,
-        1,
-        1,
-        1,
-        3
-      ])
       assert.deepStrictEqual(
-        fields((yield* handleCall(call({ verifier: new Uint8Array([0, 0, 0]) }), limits, handler))!),
+        fields((yield* handleCall(connection, call({ credential: unknownAuth }), limits, handler))!),
+        [
+          42,
+          1,
+          1,
+          1,
+          1
+        ]
+      )
+      const invalidVerifier = new Writer().uint32(1).opaque(new Uint8Array()).bytes()
+      assert.deepStrictEqual(
+        fields((yield* handleCall(connection, call({ verifier: invalidVerifier }), limits, handler))!),
+        [
+          42,
+          1,
+          1,
+          1,
+          3
+        ]
+      )
+      assert.deepStrictEqual(
+        fields((yield* handleCall(connection, call({ verifier: new Uint8Array([0, 0, 0]) }), limits, handler))!),
         [42, 1, 1, 1, 3]
       )
       const truncatedVerifier = new Writer().uint32(0).uint32(4).uint32(1).bytes()
-      assert.deepStrictEqual(fields((yield* handleCall(call({ verifier: truncatedVerifier }), limits, handler))!), [
-        42,
-        1,
-        1,
-        1,
-        3
-      ])
+      assert.deepStrictEqual(
+        fields((yield* handleCall(connection, call({ verifier: truncatedVerifier }), limits, handler))!),
+        [
+          42,
+          1,
+          1,
+          1,
+          3
+        ]
+      )
     }))
 
   it.effect("uses MSG_ACCEPTED failures for unknown program, version, procedure, and malformed arguments", () =>
     Effect.gen(function*() {
-      assert.deepStrictEqual(fields((yield* handleCall(call({ program: 1 }), limits, handler))!), [42, 1, 0, 0, 0, 1])
-      assert.deepStrictEqual(fields((yield* handleCall(call({ version: 3 }), limits, handler))!), [
+      assert.deepStrictEqual(fields((yield* handleCall(connection, call({ program: 1 }), limits, handler))!), [
+        42,
+        1,
+        0,
+        0,
+        0,
+        1
+      ])
+      assert.deepStrictEqual(fields((yield* handleCall(connection, call({ version: 3 }), limits, handler))!), [
         42,
         1,
         0,
@@ -115,8 +145,22 @@ describe("ONC RPC", () => {
         4,
         4
       ])
-      assert.deepStrictEqual(fields((yield* handleCall(call({ procedure: 9 }), limits, handler))!), [42, 1, 0, 0, 0, 3])
-      assert.deepStrictEqual(fields((yield* handleCall(call().subarray(0, 8), limits, handler))!), [42, 1, 0, 0, 0, 4])
+      assert.deepStrictEqual(fields((yield* handleCall(connection, call({ procedure: 9 }), limits, handler))!), [
+        42,
+        1,
+        0,
+        0,
+        0,
+        3
+      ])
+      assert.deepStrictEqual(fields((yield* handleCall(connection, call().subarray(0, 8), limits, handler))!), [
+        42,
+        1,
+        0,
+        0,
+        0,
+        4
+      ])
     }))
 
   it.effect("decodes bounded AUTH_SYS as untrusted data", () =>
@@ -128,12 +172,13 @@ describe("ONC RPC", () => {
 
       const credential = new Writer().uint32(1).opaque(authBody).bytes()
       let observed: unknown
-      yield* handleCall(call({ procedure: 1, credential }), limits, {
+      yield* handleCall(connection, call({ procedure: 1, credential }), limits, {
         compound: (value) => {
           observed = value.credentials
 
           return Effect.succeed(new Uint8Array())
-        }
+        },
+        disconnect: noDisconnect
       })
       assert.deepStrictEqual(observed, {
         _tag: "Sys",
@@ -149,15 +194,19 @@ describe("ONC RPC", () => {
         (writer, value) => writer.uint32(value)
       ).bytes()
 
-      const rejected =
-        (yield* handleCall(call({ credential: new Writer().uint32(1).opaque(tooMany).bytes() }), limits, handler))!
+      const rejected = (yield* handleCall(
+        connection,
+        call({ credential: new Writer().uint32(1).opaque(tooMany).bytes() }),
+        limits,
+        handler
+      ))!
 
       assert.deepStrictEqual(fields(rejected), [42, 1, 1, 1, 1])
     }))
 
   it.effect("does not fabricate a reply without a decodable XID", () =>
     Effect.gen(function*() {
-      assert.isUndefined(yield* handleCall(new Uint8Array(), limits, handler))
-      assert.isUndefined(yield* handleCall(new Uint8Array([1, 2, 3]), limits, handler))
+      assert.isUndefined(yield* handleCall(connection, new Uint8Array(), limits, handler))
+      assert.isUndefined(yield* handleCall(connection, new Uint8Array([1, 2, 3]), limits, handler))
     }))
 })

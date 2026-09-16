@@ -23,7 +23,18 @@ export type Credentials =
 
 const Credentials = Data.taggedEnum<Credentials>()
 
+/**
+ * One transport connection, identified by object identity. A session records the connections
+ * associated with its channels (RFC 8881 Section 2.10.5), so the identity must outlive a single
+ * call and end when the connection does.
+ */
+export interface Connection {
+  readonly id: number
+}
+
 export interface CompoundCall {
+  /** The connection the call arrived on. */
+  readonly connection: Connection
   /** Untrusted identity claims. Only the caller configured on `NfsServer` supplies VFS authority. */
   readonly credentials: Credentials
   readonly arguments: Uint8Array
@@ -32,6 +43,8 @@ export interface CompoundCall {
 
 export interface RpcHandlers {
   readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array>
+  /** Called once when a connection ends, however it ended. */
+  readonly disconnect: (connection: Connection) => Effect.Effect<void>
 }
 
 const CALL = 0
@@ -132,6 +145,7 @@ const denied = (xid: number, status: number, detail: number | readonly [number, 
 }
 
 export const handleCall = (
+  connection: Connection,
   message: Uint8Array,
   limits: RpcLimits,
   handlers: RpcHandlers
@@ -179,7 +193,12 @@ export const handleCall = (
       if (procedure !== 1) return Effect.succeed(accepted(xid, 3))
       const arguments_ = message.slice(message.length - reader.remaining)
 
-      return handlers.compound({ credentials, arguments: arguments_, requestBytes: message.length }).pipe(
+      return handlers.compound({
+        connection,
+        credentials,
+        arguments: arguments_,
+        requestBytes: message.length
+      }).pipe(
         Effect.map((payload) => accepted(xid, 0, payload))
       )
     } catch (error) {

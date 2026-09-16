@@ -2,6 +2,7 @@ import { assert } from "@effect/vitest"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import { type Nfs4Handler, type Nfs4Limits, Operation, Status } from "../../src/internal/nfs4.js"
+import type { Connection } from "../../src/internal/rpc.js"
 import { Reader, Writer } from "../../src/internal/xdr.js"
 
 export const generation = new Uint8Array(16).fill(7)
@@ -28,12 +29,21 @@ export const limits: Nfs4Limits = {
   maxNameBytes: ByteSize.bytes(255)
 }
 
-export const call = (operations: ReadonlyArray<(writer: Writer) => void>, tag = "probe") => {
+/** Distinct connections let a test exercise trunking without a socket. */
+export const connection = (id = 0): Connection => ({ id })
+
+const defaultConnection = connection()
+
+export const call = (
+  operations: ReadonlyArray<(writer: Writer) => void>,
+  tag = "probe",
+  on: Connection = defaultConnection
+) => {
   const writer = new Writer().string(tag).uint32(1).uint32(operations.length)
 
   for (const operation of operations) operation(writer)
 
-  return { credentials: { _tag: "None" } as const, arguments: writer.bytes() }
+  return { connection: on, credentials: { _tag: "None" } as const, arguments: writer.bytes() }
 }
 
 export const statuses = (response: Uint8Array) => {
@@ -87,10 +97,11 @@ export const startSession = (
   handler: Nfs4Handler,
   owner: string,
   fore: Parameters<typeof channel>[2] = {},
-  verifier = new Uint8Array(8)
+  verifier = new Uint8Array(8),
+  on: Connection = defaultConnection
 ) =>
   Effect.gen(function*() {
-    const exchange = new Reader(yield* handler.compound(call([exchangeId(owner, verifier)])), limits)
+    const exchange = new Reader(yield* handler.compound(call([exchangeId(owner, verifier)], "probe", on)), limits)
     assert.strictEqual(exchange.uint32(), Status.OK)
     exchange.string()
     exchange.uint32()
@@ -98,12 +109,16 @@ export const startSession = (
     exchange.uint32()
     const client = exchange.uint64()
 
-    const create = yield* handler.compound(call([(writer) => {
-      writer.uint32(Operation.CREATE_SESSION).uint64(client).uint32(1).uint32(0)
-      channel(writer, 2, fore)
-      channel(writer, 0)
-      writer.uint32(0).uint32(0)
-    }]))
+    const create = yield* handler.compound(call(
+      [(writer) => {
+        writer.uint32(Operation.CREATE_SESSION).uint64(client).uint32(1).uint32(0)
+        channel(writer, 2, fore)
+        channel(writer, 0)
+        writer.uint32(0).uint32(0)
+      }],
+      "probe",
+      on
+    ))
 
     const response = new Reader(create, limits)
     assert.strictEqual(response.uint32(), Status.OK)
