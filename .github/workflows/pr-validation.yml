@@ -23,6 +23,15 @@ jobs:
       # Workspace packages export declarations from dist/. Build them before
       # Oxlint resolves their package imports during type-aware analysis.
       - run: bun run build
+      # The docs prebuild hook regenerates the API reference during `build`, so a
+      # dirty tree here means the committed reference is stale.
+      - name: Verify API reference is up to date
+        run: |
+          if [ -n "$(git status --porcelain apps/docs/app/content/api)" ]; then
+            git diff -- apps/docs/app/content/api
+            echo "::error::API reference is stale. Run 'bun run docs:check' and commit the result."
+            exit 1
+          fi
       - run: bun run lint
       - run: bun run lint:effects
       - run: bun run type-check
