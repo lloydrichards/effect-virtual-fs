@@ -110,7 +110,9 @@ export const startSession = (
   verifier = new Uint8Array(8),
   on: Connection = defaultConnection,
   /** Above zero, asks for CREATE_SESSION4_FLAG_CONN_BACK_CHAN and this many backchannel slots. */
-  backSlots = 0
+  backSlots = 0,
+  /** csa_sec_parms: the callback credentials the client authorizes. Defaults to AUTH_NONE. */
+  security: (writer: Writer) => void = (writer) => writer.array([0], (item, flavor) => item.uint32(flavor))
 ) =>
   Effect.gen(function*() {
     const exchange = new Reader(yield* handler.compound(call([exchangeId(owner, verifier)], "probe", on)), limits)
@@ -126,7 +128,8 @@ export const startSession = (
         writer.uint32(Operation.CREATE_SESSION).uint64(client).uint32(1).uint32(backSlots > 0 ? 2 : 0)
         channel(writer, 2, fore)
         channel(writer, backSlots)
-        writer.uint32(callbackProgram).uint32(0)
+        writer.uint32(callbackProgram)
+        security(writer)
       }],
       "probe",
       on

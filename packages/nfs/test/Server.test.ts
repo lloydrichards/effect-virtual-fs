@@ -629,7 +629,8 @@ describe("NfsServer", () => {
           writer.uint32(0).uint32(1_024).uint32(1_024).uint32(1_024).uint32(8).uint32(slots).uint32(0)
         }
 
-        writer.uint32(0x4000_0001).uint32(0)
+        // csa_sec_parms authorizing AUTH_NONE for callbacks (Section 18.36.3).
+        writer.uint32(0x4000_0001).array([0], (item, flavor) => item.uint32(flavor))
       }]))
 
       const sessionReader = compoundReply(created[0]!)
