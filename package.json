@@ -3,13 +3,17 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.2.21",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "build": "turbo run build",
     "changeset": "changeset",
     "changeset:status": "changeset status",
     "clean": "turbo run clean",
     "dev": "turbo run dev",
+    "docs:check": "bun run --filter @effect-vfs/docs docs:check",
     "format": "dprint fmt",
     "format:check": "dprint check",
     "lint": "bun run lint:anti-slop-policy && oxlint",
