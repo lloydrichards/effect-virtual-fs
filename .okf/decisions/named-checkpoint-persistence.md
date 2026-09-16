@@ -26,4 +26,4 @@ generated: { by: codex/okf, at: "2026-09-10T09:09:38Z" }
 
 Names are opaque, nonempty UTF-8 strings of at most 255 bytes without NUL or lone surrogates. Construction captures explicit decode limits, and save enforces the same limits as load. SQLite uniqueness resolves concurrent creation. Commit may precede observed completion or interruption, so retry can report an existing checkpoint.
 
-Loaded snapshots retain [image-local identity](./snapshot-local-file-identity.md "preserves") and [owned bytes](./copying-byte-ownership.md "preserves"). This milestone excludes listing, replacement, deletion, history, automatic saving, and additional backends.
+Loaded snapshots retain [image-local identity](core/snapshot-local-file-identity.md "preserves") and [owned bytes](core/copying-byte-ownership.md "preserves"). This milestone excludes listing, replacement, deletion, history, automatic saving, and additional backends.

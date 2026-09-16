@@ -22,4 +22,4 @@ Metadata includes file kind, identity, link count, size, ownership, mode, and bi
 
 The memory adapter converts timestamps to JavaScript `Date` values and reports typed `InvalidData` when a core timestamp cannot be represented.
 
-This contract [depends on the resource and authority model](/contracts/resources-and-authority.md "depends on") and implements [explicit caller privilege](/decisions/explicit-caller-privilege.md "implements") and [adapter timestamp overflow](/decisions/adapter-timestamp-overflow.md "implements").
+This contract [depends on the resource and authority model](resources-and-authority.md "depends on") and implements [explicit caller privilege](/decisions/core/explicit-caller-privilege.md "implements") and [adapter timestamp overflow](/decisions/adapter-timestamp-overflow.md "implements").
