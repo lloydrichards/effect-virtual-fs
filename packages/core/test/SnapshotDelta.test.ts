@@ -120,6 +120,56 @@ describe("snapshot deltas", () => {
       assert.strictEqual((yield* Effect.flip(fs.stat("/removed"))).code, "NotFound")
     }).pipe(Effect.provide(BunCrypto.layer)))
 
+  it.effect("orders applied directory entries by raw name bytes rather than locale", () =>
+    Effect.gen(function*() {
+      // Locale collation disagrees with byte order for each of these names, and so does locale
+      // collation over their base64 encodings ("/A==", "0A==", "Qg==", "YQ==" reverses the pair
+      // order below). A comparator that sorts either spelling as text fails this assertion.
+      const localeSensitive = [
+        encoder.encode("B"),
+        encoder.encode("a"),
+        new Uint8Array([0xd0]),
+        new Uint8Array([0xfc])
+      ]
+
+      const base = yield* Vfs.fromFixture({ entries: [] })
+
+      const target = yield* Vfs.fromFixture({
+        entries: [
+          ...yield* Effect.forEach(localeSensitive, (name) =>
+            Effect.map(
+              Vfs.pathFromBytes(new Uint8Array([47, ...name])),
+              (path) => ({ kind: "file", path, bytes: new Uint8Array([1]) }) as const
+            )),
+          // `/dir` exists to separate sorting from record order. Its entries are reached in record
+          // order, and the hard link's object sorts under `/a-shared`, so `z-alias` is linked into
+          // `/dir` before `b`. Only an actual sort puts them back in byte order.
+          { kind: "file", path: "/a-shared", bytes: new Uint8Array([2]) },
+          { kind: "directory", path: "/dir" },
+          { kind: "file", path: "/dir/b", bytes: new Uint8Array([3]) },
+          { kind: "hardLink", path: "/dir/z-alias", target: "/a-shared" }
+        ]
+      })
+
+      const baseSnapshot = yield* base.snapshot
+      const delta = yield* Vfs.diffSnapshots(baseSnapshot, yield* target.snapshot)
+      const applied = yield* Vfs.applySnapshotDelta(baseSnapshot, delta)
+      const fs = yield* (yield* Vfs.fromSnapshot(applied)).caller()
+
+      assert.deepStrictEqual(yield* fs.readDirectoryBytes("/"), [
+        encoder.encode("B"),
+        encoder.encode("a"),
+        encoder.encode("a-shared"),
+        encoder.encode("dir"),
+        new Uint8Array([0xd0]),
+        new Uint8Array([0xfc])
+      ])
+      assert.deepStrictEqual(yield* fs.readDirectoryBytes("/dir"), [
+        encoder.encode("b"),
+        encoder.encode("z-alias")
+      ])
+    }).pipe(Effect.provide(BunCrypto.layer)))
+
   it.effect("reports path evidence without rename inference and preserves hard-link split and join topology", () =>
     Effect.gen(function*() {
       const base = yield* Vfs.fromFixture({

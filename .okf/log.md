@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-09-17
+
+- **Snapshot delta entry order**: Applying a delta now orders directory entries by raw name bytes instead of `localeCompare`, so ICU and non-ICU Node builds reconstruct the same order from the same delta. The comparator sorts the basename bytes it already holds rather than decoding base64 on every comparison. Recorded the applied-order guarantee in the snapshot-deltas contract and covered it with an unsorted apply assertion.
+
 ## 2026-09-16
 
 - **Domain subdirectories**: Nested the two crowded directories by domain. Decisions moved into `decisions/core/`, `decisions/overlay/`, and `decisions/nfs/`; the NFS research and profiles moved into `research/nfs/` and `profiles/nfs/`. Package, adapter, persistence, and build decisions stay flat because each domain has fewer than three concepts. Every link and relative source path was rewritten, the three section indexes were regrouped, and the NFS package README was re-pointed. No concept content changed.
