@@ -2871,4 +2871,172 @@ describe("NFSv4.1 COMPOUND", () => {
 
       assert.strictEqual(reply.uint32(), 0x0000_0200, "SEQ4_STATUS_CB_PATH_DOWN_SESSION")
     }))
+
+  it.live("lets a healthy carrier answer while another stays silent", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("2 seconds")
+      const silent = connection(1)
+      let sent: Uint8Array | undefined
+
+      const healthy = connection(2, (message) => {
+        sent = message
+
+        return true
+      })
+
+      const { session } = yield* startSession(handler, "two-carriers", {}, new Uint8Array(8), silent, 2)
+
+      // A second connection bound to the backchannel; the first never answers.
+      yield* handler.compound(call(
+        [(writer) => writer.uint32(Operation.BIND_CONN_TO_SESSION).fixedOpaque(session).uint32(2).boolean(false)],
+        "probe",
+        healthy
+      ))
+
+      const probe = yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+
+      assert.isDefined(sent, "the healthy carrier was written to as well")
+      yield* handler.callbackReply(healthy, callbackReplyFor(sent, session))
+
+      // The silent carrier must not hold the verdict hostage.
+      assert.isTrue(yield* Fiber.join(probe), "the answering carrier wins")
+    }))
+
+  it.live("does not let a rejecting carrier end the attempt", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("2 seconds")
+      let rejectSent: Uint8Array | undefined
+
+      const rejects = connection(1, (message) => {
+        rejectSent = message
+
+        return true
+      })
+
+      let goodSent: Uint8Array | undefined
+
+      const answers = connection(2, (message) => {
+        goodSent = message
+
+        return true
+      })
+
+      const { session } = yield* startSession(handler, "reject-then-ok", {}, new Uint8Array(8), rejects, 2)
+
+      yield* handler.compound(call(
+        [(writer) => writer.uint32(Operation.BIND_CONN_TO_SESSION).fixedOpaque(session).uint32(2).boolean(false)],
+        "probe",
+        answers
+      ))
+
+      const probe = yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+
+      // The first carrier answers PROG_UNAVAIL; that must not decide the whole attempt.
+      assert.isDefined(rejectSent)
+      yield* handler.callbackReply(rejects, programUnavailableFor(rejectSent))
+      yield* Effect.sleep("10 millis")
+
+      assert.isDefined(goodSent)
+      yield* handler.callbackReply(answers, callbackReplyFor(goodSent, session))
+      assert.isTrue(yield* Fiber.join(probe), "the second carrier still wins")
+    }))
+
+  it.effect("rejects a requested backchannel that offers no slots", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("2 seconds")
+      const client = connection(1)
+
+      const reply = new Reader(yield* handler.compound(call([exchangeId("noslots")], "probe", client)), limits)
+      reply.uint32()
+      reply.string()
+
+      for (let field = 0; field < 3; field++) reply.uint32()
+      const clientId = reply.uint64()
+
+      // CONN_BACK_CHAN with ca_maxrequests zero: a backchannel that can carry nothing. Section
+      // 18.36.3 forbids changing ca_maxrequests, so it cannot be rounded up either.
+      const created = yield* handler.compound(call(
+        [(writer) => {
+          writer.uint32(Operation.CREATE_SESSION).uint64(clientId).uint32(1).uint32(2)
+          channel(writer, 2)
+          channel(writer, 0)
+          writer.uint32(callbackProgram).array([0], (item, flavor) => item.uint32(flavor))
+        }],
+        "probe",
+        client
+      ))
+
+      assert.deepStrictEqual(statuses(created).operations, [[Operation.CREATE_SESSION, Status.TOOSMALL]])
+    }))
+
+  it.live("rejects a callback reply whose RPC verifier exceeds an opaque_auth body", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("50 millis")
+      let sent: Uint8Array | undefined
+
+      const client = connection(1, (message) => {
+        sent = message
+
+        return true
+      })
+
+      const { session } = yield* startSession(handler, "bigverf", {}, new Uint8Array(8), client, 2)
+      const probe = yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+
+      assert.isDefined(sent)
+      const xid = new DataView(sent.buffer, sent.byteOffset, sent.byteLength).getUint32(0)
+
+      // A 500-byte verifier cannot appear in a valid RPC reply; RFC 5531 caps opaque_auth at 400.
+      const oversized = new Writer().uint32(xid).uint32(1).uint32(0).uint32(0)
+        .opaque(new Uint8Array(500)).uint32(0)
+        .uint32(Status.OK).string("probe").uint32(1)
+        .uint32(11).uint32(Status.OK)
+        .fixedOpaque(session).uint32(1).uint32(0).uint32(0).uint32(0)
+        .bytes()
+
+      yield* handler.callbackReply(client, oversized)
+      assert.isFalse(yield* Fiber.join(probe), "an invalid RPC reply is not a working path")
+    }))
+
+  it.effect("does not send a callback whose full RPC call exceeds the client's ca_maxrequestsize", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("2 seconds")
+
+      const client = connection(1, () => {
+        throw new Error("a callback larger than the client accepts must not be sent")
+      })
+
+      const reply = new Reader(yield* handler.compound(call([exchangeId("tight")], "probe", client)), limits)
+      reply.uint32()
+      reply.string()
+
+      for (let field = 0; field < 3; field++) reply.uint32()
+      const clientId = reply.uint64()
+
+      // 96 bytes is above the minimum a channel must carry, and above the 64-byte CB_COMPOUND
+      // body, but below the ~104-byte RPC call that body actually travels in.
+      const created = yield* handler.compound(call(
+        [(writer) => {
+          writer.uint32(Operation.CREATE_SESSION).uint64(clientId).uint32(1).uint32(2)
+          channel(writer, 2)
+          channel(writer, 2, { maxRequest: 96 })
+          writer.uint32(callbackProgram).array([0], (item, flavor) => item.uint32(flavor))
+        }],
+        "probe",
+        client
+      ))
+
+      assert.strictEqual(statuses(created).operations[0]![1], Status.OK)
+      const reader = new Reader(created, limits)
+      reader.uint32()
+      reader.string()
+
+      for (let field = 0; field < 3; field++) reader.uint32()
+      const session = reader.fixedOpaque(16)
+
+      assert.isFalse(yield* handler.probeBackChannel(session))
+    }))
 })
