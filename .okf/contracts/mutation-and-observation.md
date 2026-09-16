@@ -29,4 +29,4 @@ Runtime-only per-object revisions distinguish committed content, metadata, link-
 
 Watches stream committed create, update, and remove paths through a scoped unbounded buffer. Registration is coordinated with mutations, so a committed event cannot be lost between subscribing and becoming active. Watches have no replay and do not silently drop committed events. Aliases observe changes to the same underlying file. Multi-call adapter helpers are compositions, not transactions.
 
-These choices [implement the remaining implementation policy](/decisions/remaining-implementation-profile.md "implements") and [depend on the resource and authority model](/contracts/resources-and-authority.md "depends on").
+These choices [implement the remaining implementation policy](/decisions/core/remaining-implementation-profile.md "implements") and [depend on the resource and authority model](resources-and-authority.md "depends on").

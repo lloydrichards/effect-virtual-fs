@@ -4,7 +4,10 @@
 - [Implemented filesystem](implemented-filesystem.md) is the concise current-system overview.
 - [Bounded POSIX](bounded-posix.md) states the compatibility claim and its limits.
 - [Deferred capabilities](deferred-capabilities.md) separates future work from supported behavior.
-- [NFS read-only-local](nfs-read-only-local.md) states the first NFSv4.1 export profile and what it still lacks.
-- [NFS read-only-networked](nfs-read-only-networked.md) states the per-identity, trusted-network export profile that #74 and #75 implement.
+
+## NFS export
+
+- [NFS read-only-local](nfs/nfs-read-only-local.md) states the first NFSv4.1 export profile and what it still lacks.
+- [NFS read-only-networked](nfs/nfs-read-only-networked.md) states the per-identity, trusted-network export profile that #74 and #75 implement.
 
 Follow links from these profiles into focused contracts and accepted decisions for exact rules.

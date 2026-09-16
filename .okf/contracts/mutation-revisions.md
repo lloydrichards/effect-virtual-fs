@@ -21,7 +21,7 @@ generated: { by: codex/okf, at: 2026-09-13T09:24:00+02:00 }
 
 Every live node has a runtime-only bigint revision updated alongside committed mutations under the volume's existing coordination gate. `observeMetadata` returns copied metadata and the node revision from one coordinated state. `observeDirectory` returns owned name bytes, canonical child references, and the directory revision from one coordinated state.[^core]
 
-This extends the [mutation and observation contract](/contracts/mutation-and-observation.md "refines") and uses [object references](object-references.md "depends on"). Protocol cookie encoding, replay caches and client cache policy remain adapter responsibilities. The contract does not introduce a general multi-operation transaction.
+This extends the [mutation and observation contract](mutation-and-observation.md "refines") and uses [object references](object-references.md "depends on"). Protocol cookie encoding, replay caches and client cache policy remain adapter responsibilities. The contract does not introduce a general multi-operation transaction.
 
 ## Advancement rules
 

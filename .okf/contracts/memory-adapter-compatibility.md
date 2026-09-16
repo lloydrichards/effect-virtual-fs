@@ -32,4 +32,4 @@ The adapter follows Effect's byte and cursor types at its public boundary. File 
 Seeks before the start fail with `BadArgument` without changing the cursor, and
 `readAlloc` rejects missing, coerced, negative, and non-integer runtime sizes.
 
-This contract [depends on](/contracts/resources-and-authority.md "depends on") core capabilities, [implements package boundaries](/decisions/package-boundaries.md "implements"), and is [grounded in the Effect compatibility research](/research/effect-compatibility.md "grounded in").
+This contract [depends on](resources-and-authority.md "depends on") core capabilities, [implements package boundaries](/decisions/package-boundaries.md "implements"), and is [grounded in the Effect compatibility research](/research/effect-compatibility.md "grounded in").
