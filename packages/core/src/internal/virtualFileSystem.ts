@@ -731,6 +731,18 @@ export const makeVolume = Effect.fnUntraced(
       }
     }
 
+    // A new subdirectory's ".." entry is a second link to the parent; other node kinds add none.
+    const attach = (parent: Directory, name: string, node: Node, now: bigint) => {
+      parent.entries.set(name, node)
+      parent.metadata = {
+        ...parent.metadata,
+        nlink: parent.metadata.nlink + (node.kind === "directory" ? 1 : 0),
+        mtimeNs: now,
+        ctimeNs: now
+      }
+      advanceRevision(parent)
+    }
+
     const detach = (node: Node, now: bigint) => {
       if (node.kind === "directory") {
         node.parent = undefined
@@ -1528,9 +1540,7 @@ export const makeVolume = Effect.fnUntraced(
 
               if (file === undefined) {
                 if (replaced !== undefined) detach(replaced, now)
-                parent.entries.set(name, node)
-                parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
-                advanceRevision(parent)
+                attach(parent, name, node, now)
 
                 if (replaced === undefined) entries += 1
                 publishEntry(replaced === undefined ? "Create" : "Update", parent, name)
@@ -1636,10 +1646,8 @@ export const makeVolume = Effect.fnUntraced(
               }
 
               const now = yield* timestamp("link")
-              parent.entries.set(name, node)
-              parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
+              attach(parent, name, node, now)
               node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
-              advanceRevision(parent)
               advanceRevision(node)
               entries += 1
               publishEntry("Create", parent, name)
@@ -1698,9 +1706,7 @@ export const makeVolume = Effect.fnUntraced(
               objectReference: undefined
             }
 
-            parent.entries.set(name, node)
-            parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
-            advanceRevision(parent)
+            attach(parent, name, node, now)
             nextInode += 1n
             entries += 1
             usedBytes += BigInt(bytes.length)
@@ -1823,9 +1829,7 @@ export const makeVolume = Effect.fnUntraced(
                 revision: nextRevision(),
                 objectReference: undefined
               }
-              parent.entries.set(name, file)
-              parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
-              advanceRevision(parent)
+              attach(parent, name, file, now)
               entries += 1
               nextInode += 1n
               publishEntry("Create", parent, name)
@@ -2071,17 +2075,8 @@ export const makeVolume = Effect.fnUntraced(
                 objectReference: undefined
               }
 
-              const parentMetadata = {
-                ...parent.metadata,
-                nlink: parent.metadata.nlink + 1,
-                mtimeNs: now,
-                ctimeNs: now
-              }
-
               // No Effect yield or expected failure between these publication writes.
-              parent.entries.set(name, child)
-              parent.metadata = parentMetadata
-              advanceRevision(parent)
+              attach(parent, name, child, now)
               nextInode += 1n
               entries += 1
               publishEntry("Create", parent, name)
