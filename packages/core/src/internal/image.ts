@@ -97,11 +97,18 @@ export const inspect = (snapshot: Snapshot): Effect.Effect<Document, ImageError>
   })
 
 /** @internal */
-export const capture = Effect.fnUntraced(function*(input: typeof Schema.Unknown.Type, limits?: DecodeLimits) {
-  const decoded = Schema.decodeUnknownResult(Document, { onExcessProperty: "error" })(input)
+export const capture = Effect.fnUntraced(function*(
+  input: typeof Schema.Unknown.Type,
+  limits?: DecodeLimits,
+  // Records walked out of a live volume already satisfy the schema and carry base64 this module
+  // produced, so only the structural checks below can still catch an engine bug.
+  trusted = false
+) {
+  const decoded = trusted ? undefined : Schema.decodeUnknownResult(Document, { onExcessProperty: "error" })(input)
 
-  if (Result.isFailure(decoded)) return yield* error("InvalidStructure")
-  const document = decoded.success
+  if (decoded !== undefined && Result.isFailure(decoded)) return yield* error("InvalidStructure")
+  // SAFETY: a trusted caller passes a Document it built; an untrusted one has just been decoded.
+  const document = decoded === undefined ? input as Document : decoded.success
   const records = new Map<string, Record>()
   let entries = 0
   let payload = ByteSize.zero
@@ -119,18 +126,21 @@ export const capture = Effect.fnUntraced(function*(input: typeof Schema.Unknown.
 
   if (limits !== undefined && entries > limits.maxEntries) return yield* error("LimitExceeded", "entries")
 
-  // Count every payload before allocating any decoded payload buffer.
-  for (const record of document.records) {
-    const values = record.kind === "directory"
-      ? record.entries.map((entry) => entry.name)
-      : [record.kind === "file" ? record.data : record.target]
+  // Count every payload before allocating any decoded payload buffer. Trusted records carry
+  // base64 this module produced, so the scan only runs when a limit depends on the tally.
+  if (!trusted || limits !== undefined) {
+    for (const record of document.records) {
+      const values = record.kind === "directory"
+        ? record.entries.map((entry) => entry.name)
+        : [record.kind === "file" ? record.data : record.target]
 
-    for (const value of values) {
-      if (!CanonicalBase64.isCanonical(value)) return yield* error("InvalidEncoding", record.id)
-      payload = ByteSize.sum(payload, ByteSize.bytes(decodedLength(value)))
+      for (const value of values) {
+        if (!CanonicalBase64.isCanonical(value)) return yield* error("InvalidEncoding", record.id)
+        payload = ByteSize.sum(payload, ByteSize.bytes(decodedLength(value)))
 
-      if (limits !== undefined && ByteSize.isGreaterThan(payload, limits.maxDecodedBytes)) {
-        return yield* error("LimitExceeded", "bytes")
+        if (limits !== undefined && ByteSize.isGreaterThan(payload, limits.maxDecodedBytes)) {
+          return yield* error("LimitExceeded", "bytes")
+        }
       }
     }
   }
