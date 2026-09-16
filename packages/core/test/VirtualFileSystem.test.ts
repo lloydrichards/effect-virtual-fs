@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Cause, Clock, Deferred, Effect, Exit, Fiber, Result, Scheduler, Scope } from "effect"
+import { ByteSize, Cause, Clock, Deferred, Effect, Exit, Fiber, Layer, Result, Scheduler, Scope } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const identity = (uid: number, privileged = false, groups: ReadonlyArray<number> = []) => ({
@@ -154,8 +154,11 @@ describe("directory volumes", () => {
         return yield* (yield* Vfs.CurrentFileSystem).stat("work")
       })
 
+      // Both provision styles are public API, so the Layer path is exercised rather than collapsed
+      // into provideService.
+      const layer = Layer.succeed(Vfs.CurrentFileSystem, caller)
       const direct = yield* read.pipe(Effect.provideService(Vfs.CurrentFileSystem, caller))
-      const layered = yield* read.pipe(Effect.provideService(Vfs.CurrentFileSystem, caller))
+      const layered = yield* read.pipe(Effect.provide(layer))
       assert.deepStrictEqual(direct, layered)
     }))
 })
