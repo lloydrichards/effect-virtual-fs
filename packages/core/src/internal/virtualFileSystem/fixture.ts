@@ -1,6 +1,5 @@
 // Fixture image construction.
 import * as Effect from "effect/Effect"
-import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { ImageError } from "../../Snapshot.js"
@@ -177,10 +176,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
 
     const snapshot = yield* Image.capture({ format: "effect-vfs", version: 1, root: "root", records })
     const image = yield* Image.inspect(snapshot)
-    const result = yield* makeVolume(VolumeSource.Snapshot({ image }), config.success)
 
-    if (Predicate.isTagged("Overlay")(result)) return yield* new ImageError({ code: "InvalidStructure" })
-
-    return result.volume
+    return yield* makeVolume(VolumeSource.Snapshot({ image }), config.success)
   }
 )
