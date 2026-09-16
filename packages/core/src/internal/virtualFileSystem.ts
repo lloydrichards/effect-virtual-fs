@@ -65,8 +65,7 @@ export const ObjectReferenceId = Symbol("@effect-vfs/core/ObjectReference")
 /** @internal */
 export { ConfigurationError, FsCodeSchema as FsCode, FsError }
 
-/** @internal */
-export const Mode = Schema.Natural.check(Schema.isLessThanOrEqualTo(0o7777))
+const Mode = Schema.Natural.check(Schema.isLessThanOrEqualTo(0o7777))
 
 /** @internal */
 export const Identity = Schema.Struct({
@@ -114,8 +113,7 @@ export type VolumeOptions = typeof VolumeOptions.Type
 // Match snapshot v1's canonical signed decimal timestamp domain.
 const timestampLimit = 10n ** 128n - 1n
 
-/** @internal */
-export const Timestamp = Schema.BigInt.check(
+const Timestamp = Schema.BigInt.check(
   Schema.isGreaterThanOrEqualToBigInt(-timestampLimit),
   Schema.isLessThanOrEqualToBigInt(timestampLimit)
 )
@@ -179,8 +177,7 @@ export const OpenSettings = Schema.Struct({
 /** @internal */
 export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
 
-/** @internal */
-export const WriteFileSettings = Schema.Struct({
+const WriteFileSettings = Schema.Struct({
   ...OpenSettings.fields,
   replaceFinalSymlink: Schema.optionalKey(Schema.Boolean),
   finalMode: Schema.optionalKey(Mode)
@@ -1500,7 +1497,8 @@ export const makeVolume = Effect.fnUntraced(
                 {
                   kind: "file",
                   lineage: undefined,
-                  data: Content.make(data),
+                  // Assigned below on the shared path that also covers an existing file.
+                  data: Content.empty(),
                   openCount: 0,
                   metadata: {
                     ...directoryMetadata(
