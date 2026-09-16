@@ -29,7 +29,7 @@
     "access": "public"
   },
   "scripts": {
-    "clean": "rm -rf dist",
+    "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "build": "tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json",
     "test": "bun --bun run vitest run",
     "type-check": "tsc --noEmit"

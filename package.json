@@ -11,7 +11,7 @@
     "build": "turbo run build",
     "changeset": "changeset",
     "changeset:status": "changeset status",
-    "clean": "turbo run clean",
+    "clean": "turbo run clean && git clean -xdf .turbo",
     "dev": "turbo run dev",
     "docs:check": "bun run --filter @effect-vfs/docs docs:check",
     "format": "dprint fmt",

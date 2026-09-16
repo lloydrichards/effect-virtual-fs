@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "build": "tsc --noEmit",
     "demo": "bun --env-file=.env run src/demo.ts",
     "test": "vitest run",
