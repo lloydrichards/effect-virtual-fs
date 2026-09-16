@@ -1,6 +1,9 @@
 import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
+import * as Deferred from "effect/Deferred"
+import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
@@ -160,15 +163,39 @@ const unsupportedOptionalOperations: ReadonlySet<number> = new Set([
   Operation.WANT_DELEGATION
 ])
 
-/** channel_dir_from_server4: this server binds every connection to the fore channel only. */
+/** channel_dir_from_server4 (RFC 8881 Section 18.34.2). */
 const CDFS4_FORE = 1
 
-/** channel_dir_from_client4 values that ask for a fore-channel binding (RFC 8881 Section 18.34.1). */
+const CDFS4_BACK = 2
+
+const CDFS4_BOTH = 3
+
+/** channel_dir_from_client4 (RFC 8881 Section 18.34.1). */
 const CDFC4_FORE = 0x1
+
+const CDFC4_BACK = 0x2
 
 const CDFC4_FORE_OR_BOTH = 0x3
 
 const CDFC4_BACK_OR_BOTH = 0x7
+
+/**
+ * Directions a connection carries for one session. A connection may carry both, and the same
+ * connection may serve several sessions (Section 2.10.3.1).
+ */
+const CHANNEL_FORE = 0x1
+
+const CHANNEL_BACK = 0x2
+
+/** csa_flags bit asking the server to bind the CREATE_SESSION connection to the backchannel. */
+const CREATE_SESSION4_FLAG_CONN_BACK_CHAN = 0x2
+
+/** The callback RPC program's version is 1, per RFC 5661 erratum 2291; the RFC text says 4. */
+const CALLBACK_RPC_VERSION = 1
+
+const CB_COMPOUND_PROCEDURE = 1
+
+const OP_CB_SEQUENCE = 11
 
 /** RPCSEC_GSS in callback_sec_parms4; this server never issues the handles it would name. */
 const RPCSEC_GSS = 6
@@ -290,6 +317,8 @@ export interface Nfs4Limits extends DecodeLimits {
 
 export interface Nfs4Options {
   readonly leaseDurationSeconds: number
+  /** How long a callback waits for the client's reply before the path is treated as down. */
+  readonly callbackTimeout: Duration.Input
   readonly generation: Uint8Array
   readonly now: () => number
   readonly limits: Nfs4Limits
@@ -298,6 +327,12 @@ export interface Nfs4Options {
 export interface Nfs4Handler {
   readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array>
   readonly disconnect: (connection: Connection) => Effect.Effect<void>
+  readonly callbackReply: (connection: Connection, message: Uint8Array) => Effect.Effect<void>
+  /**
+   * Sends a CB_SEQUENCE-only CB_COMPOUND down a session's backchannel and reports whether the
+   * client answered. Answers `false` when the session has no backchannel to probe.
+   */
+  readonly probeBackChannel: (session: Uint8Array) => Effect.Effect<boolean>
 }
 
 export const nextSequenceId = (sequence: number): number => (sequence + 1) >>> 0
@@ -398,6 +433,8 @@ type ParsedOperation =
       readonly flags: number
       readonly fore: ChannelAttrs
       readonly back: ChannelAttrs
+      /** csa_cb_program: the RPC program number the client listens for callbacks on. */
+      readonly callbackProgram: number
       /** csa_sec_parms named an RPCSEC_GSS handle, which cannot exist here (Section 18.36.3). */
       readonly gssCallback: boolean
     }
@@ -452,7 +489,7 @@ type ParsedOperation =
   | {
     readonly kind: "BackchannelCtl"
     readonly code: typeof Operation.BACKCHANNEL_CTL
-    readonly value: { readonly gssCallback: boolean }
+    readonly value: { readonly program: number; readonly gssCallback: boolean }
   }
   | {
     readonly kind: "BindConnToSession"
@@ -503,10 +540,33 @@ interface SessionState {
   readonly slots: Array<ReplaySlot>
   readonly fore: ChannelAttrs
   /**
-   * Connections carrying this session's fore channel. Section 2.10.5 allows a session to be
-   * reached over several connections, so this is a set rather than a single connection.
+   * Connections carrying this session's channels, each mapped to a CHANNEL_FORE/CHANNEL_BACK
+   * mask. Section 2.10.5 allows a session to be reached over several connections, and Section
+   * 2.10.3.1 lets one connection carry either or both directions.
    */
-  readonly connections: Set<Connection>
+  readonly connections: Map<Connection, number>
+  /** Backchannel state, present only once the client has asked for a backchannel. */
+  back: BackChannel | undefined
+}
+
+/**
+ * The server's half of a session's backchannel: what the client agreed to receive, and the slot
+ * state Section 2.10.6.1 requires even for callbacks.
+ */
+interface BackChannel {
+  /** csa_cb_program from CREATE_SESSION, updatable by BACKCHANNEL_CTL (Section 18.33). */
+  program: number
+  readonly attrs: ChannelAttrs
+  readonly slots: Array<CallbackSlot>
+  /** False once a callback goes unanswered, which Section 18.37.3 reports as CB_PATH_DOWN. */
+  healthy: boolean
+  /** Set once the path has been probed, so the probe runs once per backchannel rather than per request. */
+  probed: boolean
+}
+
+interface CallbackSlot {
+  sequence: number
+  busy: boolean
 }
 
 interface OpenState {
@@ -519,6 +579,11 @@ interface OpenState {
   readonly reference: Vfs.ObjectReference
   readonly file: Vfs.FileHandle
   readonly close: Effect.Effect<void>
+}
+
+/** Adds `direction` to what `connection` already carries for `session` (Section 2.10.3.1). */
+const associate = (session: SessionState, connection: Connection, direction: number): void => {
+  session.connections.set(connection, (session.connections.get(connection) ?? 0) | direction)
 }
 
 const empty = new Uint8Array()
@@ -867,13 +932,21 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
       const flags = reader.uint32()
       const fore = readChannelAttrs(reader)
       const back = readChannelAttrs(reader)
-      reader.uint32()
+      const callbackProgram = reader.uint32()
       const flavors = reader.array((item) => readCallbackSecurity(item, limits), limits.maxArrayElements)
 
       return {
         kind: "CreateSession",
         code,
-        value: { client, sequence, flags, fore, back, gssCallback: flavors.includes(RPCSEC_GSS) }
+        value: {
+          client,
+          sequence,
+          flags,
+          fore,
+          back,
+          callbackProgram,
+          gssCallback: flavors.includes(RPCSEC_GSS)
+        }
       }
     }
 
@@ -969,11 +1042,13 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
 
     case Operation.FREE_STATEID:
       return { kind: "FreeStateid", code, value: reader.fixedOpaque(16) }
-    case Operation.BACKCHANNEL_CTL:
-      reader.uint32()
+    case Operation.BACKCHANNEL_CTL: {
+      const program = reader.uint32()
       const flavors = reader.array((item) => readCallbackSecurity(item, limits), limits.maxArrayElements)
 
-      return { kind: "BackchannelCtl", code, value: { gssCallback: flavors.includes(RPCSEC_GSS) } }
+      return { kind: "BackchannelCtl", code, value: { program, gssCallback: flavors.includes(RPCSEC_GSS) } }
+    }
+
     case Operation.BIND_CONN_TO_SESSION: {
       const session = reader.fixedOpaque(16)
       const direction = reader.uint32()
@@ -1366,6 +1441,51 @@ const grantedAccess = (
   return granted & supported
 }
 
+/**
+ * Encodes an outbound RPC CALL for the callback program. The version is 1 per RFC 5661 erratum
+ * 2291; the RFC text still prints 4, and a client listening on version 1 ignores anything else.
+ * AUTH_NONE matches the callback security this server advertises, since it never issues the
+ * RPCSEC_GSS handles the alternative would name.
+ */
+const encodeCallbackCall = (
+  xid: number,
+  program: number,
+  procedure: number,
+  body: Uint8Array
+): Uint8Array => {
+  const header = new Writer()
+    .uint32(xid).uint32(0).uint32(2)
+    .uint32(program).uint32(CALLBACK_RPC_VERSION).uint32(procedure)
+    .uint32(0).opaque(empty)
+    .uint32(0).opaque(empty)
+    .bytes()
+
+  const message = new Uint8Array(header.length + body.length)
+  message.set(header)
+  message.set(body, header.length)
+
+  return message
+}
+
+/**
+ * A CB_COMPOUND carrying CB_SEQUENCE alone. Section 20.9.3 requires CB_SEQUENCE to appear once and
+ * first in every CB_COMPOUND, and erratum 6015 makes it REQUIRED rather than the OPTIONAL that
+ * Table 17 prints. With no delegations or layouts to recall, this is the whole callback: it
+ * exercises the backchannel and renews nothing else.
+ */
+const encodeCallbackSequence = (
+  session: Uint8Array,
+  sequence: number,
+  slot: number,
+  highestSlot: number
+): Uint8Array =>
+  new Writer()
+    .string("probe").uint32(1).uint32(0).uint32(1)
+    .uint32(OP_CB_SEQUENCE)
+    .fixedOpaque(session).uint32(sequence).uint32(slot).uint32(highestSlot).boolean(false)
+    .array([], () => undefined)
+    .bytes()
+
 const makeOpaqueId = (generation: Uint8Array, serial: bigint): Uint8Array => {
   const result = new Uint8Array(16)
   result.set(generation.subarray(0, 8), 0)
@@ -1496,6 +1616,7 @@ export const makeNfs4Handler = (
   assertOptions(options)
 
   return Effect.gen(function*() {
+    const handlerScope = yield* Effect.scope
     const clients = new Map<bigint, ClientState>()
     const clientsByOwner = new Map<string, ClientState>()
     const sessions = new Map<string, SessionState>()
@@ -1508,6 +1629,55 @@ export const makeNfs4Handler = (
     const maxRpcResponseBytes = ByteSize.min(options.limits.maxRecordBytes, options.limits.maxCompoundBytes)
     const rpcReplyOverheadBytes = ByteSize.bytes(24)
     const stateGate = Semaphore.makeUnsafe(1)
+
+    /**
+     * Callbacks awaiting a reply, keyed by RPC xid. Deliberately outside `stateGate`: a reply
+     * arrives on the same connection that is running the read loop, so making the reply path take
+     * the gate would deadlock against a compound that is holding it.
+     */
+    const pendingCallbacks = new Map<number, Deferred.Deferred<Uint8Array | undefined>>()
+    let callbackXid = 1
+
+    /**
+     * Sends one callback down a session's backchannel and waits for the client's reply. Answers
+     * `undefined` when no connection carries the backchannel, the write fails, or the client
+     * never answers, which the caller records as the callback path being down.
+     */
+    const callback = (
+      session: SessionState,
+      procedure: number,
+      body: Uint8Array
+    ): Effect.Effect<Uint8Array | undefined> =>
+      Effect.gen(function*() {
+        const back = session.back
+
+        if (back === undefined) return undefined
+
+        const carrier = [...session.connections]
+          .find(([, direction]) => (direction & CHANNEL_BACK) !== 0)?.[0]
+
+        if (carrier === undefined) return undefined
+
+        const xid = callbackXid++
+        const reply = yield* Deferred.make<Uint8Array | undefined>()
+        pendingCallbacks.set(xid, reply)
+
+        const answered = yield* Effect.ensuring(
+          Effect.gen(function*() {
+            const sent = yield* carrier.send(encodeCallbackCall(xid, back.program, procedure, body))
+
+            if (!sent) return undefined
+
+            return yield* Deferred.await(reply).pipe(
+              Effect.timeoutOption(options.callbackTimeout),
+              Effect.map(Option.getOrUndefined)
+            )
+          }),
+          Effect.sync(() => pendingCallbacks.delete(xid))
+        )
+
+        return answered
+      })
 
     const revokeClient = (client: ClientState): Effect.Effect<void> =>
       Effect.gen(function*() {
@@ -1680,7 +1850,7 @@ export const makeNfs4Handler = (
             // Section 2.10.3.1 ties association to SEQUENCE being transmitted, and a retry is
             // transmitted like any other request. A client that reconnects after a reset and
             // retransmits must end up associated, or its next DESTROY_SESSION would be refused.
-            session.connections.add(call.connection)
+            associate(session, call.connection, CHANNEL_FORE)
 
             return Effect.succeed(new Uint8Array(slot.response))
           }
@@ -2113,10 +2283,29 @@ export const makeNfs4Handler = (
 
                   const id = makeOpaqueId(options.generation, sessionSerial++)
 
+                  // Section 18.36.3: the backchannel exists only if the client asked for one. The
+                  // agreed flag must be echoed in csr_flags, because the client binds the
+                  // connection to the backchannel on the strength of that echo.
+                  const wantsBackChannel = (value.flags & CREATE_SESSION4_FLAG_CONN_BACK_CHAN) !== 0
+
+                  const backSlots = Math.min(
+                    Math.max(1, value.back.maxRequests),
+                    options.limits.maxSlotsPerSession
+                  )
+
+                  const back: ChannelAttrs = {
+                    ...value.back,
+                    headerPadding: 0,
+                    maxRequests: backSlots,
+                    rdmaIrd: []
+                  }
+
+                  const agreedFlags = wantsBackChannel ? CREATE_SESSION4_FLAG_CONN_BACK_CHAN : 0
+
                   const body = encodeStatusBody((writer) => {
-                    writer.fixedOpaque(id).uint32(value.sequence).uint32(0)
+                    writer.fixedOpaque(id).uint32(value.sequence).uint32(agreedFlags)
                     writeChannelAttrs(writer, fore)
-                    writeChannelAttrs(writer, value.back)
+                    writeChannelAttrs(writer, back)
                   })
 
                   // Section 18.36.3: a channel that can never carry a SEQUENCE compound in either
@@ -2160,7 +2349,21 @@ export const makeNfs4Handler = (
                     client,
                     fore,
                     slots: Array.from({ length: slotCount }, () => ({ sequence: 0 })),
-                    connections: new Set([call.connection])
+                    // Section 2.10.3.1: the CREATE_SESSION connection is associated with the fore
+                    // channel, and with the backchannel too when one was agreed.
+                    connections: new Map([[
+                      call.connection,
+                      CHANNEL_FORE | (wantsBackChannel ? CHANNEL_BACK : 0)
+                    ]]),
+                    back: wantsBackChannel
+                      ? {
+                        program: value.callbackProgram,
+                        attrs: back,
+                        slots: Array.from({ length: backSlots }, () => ({ sequence: 0, busy: false })),
+                        healthy: true,
+                        probed: false
+                      }
+                      : undefined
                   })
                   client.confirmed = true
                   client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
@@ -2185,7 +2388,7 @@ export const makeNfs4Handler = (
                 // Section 2.10.3.1: under SP4_NONE the connection a SEQUENCE is transmitted on is
                 // associated with the session's fore channel. Association follows transmission, so
                 // it happens before the slot and size checks that may still reject this request.
-                session.connections.add(call.connection)
+                associate(session, call.connection, CHANNEL_FORE)
 
                 if (value.slot >= session.slots.length) {
                   return Effect.succeed({ code: operation.code, status: Status.BADSLOT })
@@ -2286,7 +2489,21 @@ export const makeNfs4Handler = (
                     .uint32(session.slots.length - 1).uint32(session.slots.length - 1).uint32(0)
                 })
 
-                return Effect.succeed({ code: operation.code, status: Status.OK, body })
+                // The callback path is probed once, on the first SEQUENCE rather than during
+                // CREATE_SESSION, because only then is the client known to hold the session id
+                // that CB_SEQUENCE carries. It is forked because the probe's own reply arrives on
+                // this connection, whose read loop is busy with this compound until it returns.
+                const back = session.back
+
+                if (back === undefined || back.probed) {
+                  return Effect.succeed({ code: operation.code, status: Status.OK, body })
+                }
+
+                back.probed = true
+
+                return Effect.forkIn(probe(session), handlerScope).pipe(
+                  Effect.as({ code: operation.code, status: Status.OK, body })
+                )
               }
 
               case "ReclaimComplete": {
@@ -2312,8 +2529,7 @@ export const makeNfs4Handler = (
               }
 
               case "BindConnToSession": {
-                // Section 18.34.3: MUST be the only operation. Only the fore channel can be
-                // bound, so every accepted binding is answered with the fore direction.
+                // Section 18.34.3: MUST be the only operation.
                 if (parsed.operations.length !== 1) {
                   return Effect.succeed({ code: operation.code, status: Status.NOT_ONLY_OP })
                 }
@@ -2322,31 +2538,66 @@ export const makeNfs4Handler = (
 
                 if (session === undefined) return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
 
-                // A request for a back channel demands a change this server cannot make; Section
-                // 18.34.3 answers such demands with NFS4ERR_INVAL.
-                if (
-                  operation.value.direction !== CDFC4_FORE && operation.value.direction !== CDFC4_FORE_OR_BOTH
-                ) {
+                const requested = operation.value.direction
+
+                // Section 18.34.3 fixes what each request may be answered with: CDFC4_FORE MUST
+                // get CDFS4_FORE, CDFC4_BACK MUST get CDFS4_BACK, CDFC4_FORE_OR_BOTH MUST get
+                // FORE or BOTH, and CDFC4_BACK_OR_BOTH MUST get BACK or BOTH. A request that
+                // cannot be answered that way demands a change the server cannot make, which is
+                // NFS4ERR_INVAL. Only a session that negotiated a backchannel in CREATE_SESSION
+                // has one to bind, so both back-channel requests fail without it.
+                const backAvailable = session.back !== undefined
+
+                if (!backAvailable && (requested === CDFC4_BACK || requested === CDFC4_BACK_OR_BOTH)) {
                   return Effect.succeed({ code: operation.code, status: Status.INVAL })
                 }
 
-                session.connections.add(call.connection)
+                const bound = requested === CDFC4_BACK
+                  ? CHANNEL_BACK
+                  : requested === CDFC4_FORE
+                  ? CHANNEL_FORE
+                  : CHANNEL_FORE | (backAvailable ? CHANNEL_BACK : 0)
+
+                associate(session, call.connection, bound)
+
+                const answered = bound === CHANNEL_BACK
+                  ? CDFS4_BACK
+                  : bound === CHANNEL_FORE
+                  ? CDFS4_FORE
+                  : CDFS4_BOTH
 
                 return Effect.succeed({
                   code: operation.code,
                   status: Status.OK,
-                  body: new Writer().fixedOpaque(session.id).uint32(CDFS4_FORE).boolean(false).bytes()
+                  body: new Writer().fixedOpaque(session.id).uint32(answered).boolean(false).bytes()
                 })
               }
 
-              case "BackchannelCtl":
-                // No backchannel exists to reconfigure; AUTH_NONE and AUTH_SYS parameters are
-                // accepted as Linux nfsd does, and an RPCSEC_GSS handle can never exist here
-                // (Section 18.33.3).
-                return Effect.succeed({
-                  code: operation.code,
-                  status: operation.value.gssCallback ? Status.NOENT : Status.OK
-                })
+              case "BackchannelCtl": {
+                // Section 18.33.3: an RPCSEC_GSS handle the server never issued is NFS4ERR_NOENT.
+                // AUTH_NONE and AUTH_SYS parameters are accepted as Linux nfsd does.
+                if (operation.value.gssCallback) {
+                  return Effect.succeed({ code: operation.code, status: Status.NOENT })
+                }
+
+                if (activeSession === undefined) {
+                  return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+                }
+
+                // Section 18.33.3 changes the backchannel of the session the COMPOUND is running
+                // on. Without a negotiated backchannel there is nothing to reconfigure.
+                if (activeSession.back === undefined) {
+                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                }
+
+                activeSession.back.program = operation.value.program
+                // A re-advertised program is the client repairing its callback service, so give
+                // the path another chance rather than leaving it marked down.
+                activeSession.back.healthy = true
+
+                return Effect.succeed({ code: operation.code, status: Status.OK })
+              }
+
               case "DestroySession": {
                 const key = bytesKey(operation.value)
                 const session = sessions.get(key)
@@ -3172,11 +3423,69 @@ export const makeNfs4Handler = (
         )
       }).pipe(Effect.orDie)
 
+    /**
+     * Takes the next free backchannel slot. Section 2.10.6.1 requires slot state even for
+     * callbacks, so a slot in flight is never reused for a second concurrent callback.
+     */
+    const takeCallbackSlot = (back: BackChannel): number | undefined => {
+      const index = back.slots.findIndex((slot) => !slot.busy)
+
+      if (index < 0) return undefined
+      back.slots[index]!.busy = true
+      back.slots[index]!.sequence = nextSequenceId(back.slots[index]!.sequence)
+
+      return index
+    }
+
+    const probe = (session: SessionState): Effect.Effect<boolean> =>
+      Effect.gen(function*() {
+        const back = session.back
+
+        if (back === undefined) return false
+
+        const slot = takeCallbackSlot(back)
+
+        if (slot === undefined) return false
+
+        const answered = yield* Effect.ensuring(
+          callback(
+            session,
+            CB_COMPOUND_PROCEDURE,
+            encodeCallbackSequence(session.id, back.slots[slot]!.sequence, slot, back.slots.length - 1)
+          ),
+          Effect.sync(() => {
+            back.slots[slot]!.busy = false
+          })
+        )
+
+        // Section 18.37.3 lets the server report an unusable callback path; tracking it here is
+        // what makes that report honest rather than a guess.
+        back.healthy = answered !== undefined
+
+        return back.healthy
+      })
+
     return {
       compound: (call) =>
         stateGate.withPermit(
           Effect.uninterruptible(sweepExpired.pipe(Effect.andThen(executeCompound(call))))
         ),
+      callbackReply: (_connection, message) =>
+        Effect.sync(() => {
+          if (message.length < 4) return
+          const xid = new DataView(message.buffer, message.byteOffset, message.byteLength).getUint32(0)
+          const waiting = pendingCallbacks.get(xid)
+
+          if (waiting === undefined) return
+          pendingCallbacks.delete(xid)
+          Deferred.doneUnsafe(waiting, Effect.succeed(message))
+        }),
+      probeBackChannel: (id) =>
+        Effect.suspend(() => {
+          const session = sessions.get(bytesKey(id))
+
+          return session === undefined ? Effect.succeed(false) : probe(session)
+        }),
       disconnect: (connection) =>
         stateGate.withPermit(
           Effect.sync(() => {
