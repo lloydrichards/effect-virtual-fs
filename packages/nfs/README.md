@@ -1,6 +1,6 @@
 # @effect-vfs/nfs
 
-Experimental read-only NFSv4.1 export for exposing one live Effect VFS volume to local native tools.
+Preview read-only NFSv4.1 export for exposing one live Effect VFS volume to local native tools.
 
 This package runs a scoped TCP server and implements the bounded NFSv4.1 session, metadata, directory, symlink, and regular-file read path. It is not a conformant NFSv4.1 server. RFC 8881 requires RPCSEC_GSS with Kerberos, backchannels, and connection trunking that this package does not implement, and it also omits delegations, locking, layouts, migration, and recovery. Mutating operations return `NFS4ERR_ROFS`.
 
@@ -8,16 +8,14 @@ This package runs a scoped TCP server and implements the bounded NFSv4.1 session
 
 The package describes what it does with a capability profile and how well that is evidenced with a maturity label. The two are tracked separately; see the [NFS profile ladder](../../.okf/decisions/nfs-profile-ladder.md) for definitions and the evidence each maturity level requires.
 
-| Profile               | What it adds                                                                                       | Maturity     |
-| --------------------- | -------------------------------------------------------------------------------------------------- | ------------ |
-| `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted | experimental |
-| `read-only-networked` | backchannel, connection binding, trusted identity mapping, non-loopback binding behind policy      | not started  |
-| `writable`            | create, write, rename, remove, `COMMIT` semantics, explicit durability statement                   | not started  |
-| `stateful`            | share reservations, byte-range locks, grace and reclaim, persistent filehandles                    | not started  |
+| Profile               | What it adds                                                                                       | Maturity    |
+| --------------------- | -------------------------------------------------------------------------------------------------- | ----------- |
+| `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted | preview     |
+| `read-only-networked` | backchannel, connection binding, trusted identity mapping, non-loopback binding behind policy      | not started |
+| `writable`            | create, write, rename, remove, `COMMIT` semantics, explicit durability statement                   | not started |
+| `stateful`            | share reservations, byte-range locks, grace and reclaim, persistent filehandles                    | not started |
 
-`read-only-local` is currently `experimental`: the protocol test suites pass, a scripted macOS 26.6.2 mount passes every read-side check, and a pinned pynfs run with every failure classified is recorded in the preview app's [conformance baseline](../../apps/nfs-preview/CONFORMANCE.md). The repeatable Linux client mount that `preview` requires does not exist yet. Per-requirement status against RFC 8881 lives in the [operations](../../.okf/research/nfs-operations-ledger.md), [attributes](../../.okf/research/nfs-attributes-ledger.md), and [protocol rules](../../.okf/research/nfs-protocol-rules-ledger.md) ledgers. NFSv4.0 and NFSv4.2 are out of scope; mount with `vers=4.1` explicitly.
-
-<!-- TODO(gauntlet-29): Add the opt-in privileged Linux gate tracked by https://github.com/lloydrichards/effect-virtual-fs/issues/39. The equivalent macOS 26.6 gate passed manually on 2026-09-13. -->
+`read-only-local` is currently `preview`: the protocol test suites pass, scripted macOS 26.6.2 and Linux kernel-client mounts each pass every read-side check, and a pinned pynfs run with every failure classified is recorded in the preview app's [conformance baseline](../../apps/nfs-preview/CONFORMANCE.md). The Linux mount is a repeatable opt-in CI gate rather than a manual run. Per-requirement status against RFC 8881 lives in the [operations](../../.okf/research/nfs-operations-ledger.md), [attributes](../../.okf/research/nfs-attributes-ledger.md), and [protocol rules](../../.okf/research/nfs-protocol-rules-ledger.md) ledgers. NFSv4.0 and NFSv4.2 are out of scope; mount with `vers=4.1` explicitly.
 
 `NfsServer.make` and `NfsServer.layer` require the application to supply the live `Volume`, privileged virtual `Caller`, and Effect `SocketServer`. The application chooses and binds the platform socket implementation. NFS accepts only a loopback TCP address. It defaults to a 30-second lease and a finite resource policy. Decoded `AUTH_SYS` fields are untrusted compatibility data; they never select or grant VFS authority. This is suitable only for a trusted, single-user local machine.
 
