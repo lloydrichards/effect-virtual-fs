@@ -749,6 +749,9 @@ export const makeVolume = Effect.fnUntraced(
       }
     }
 
+    // Whether the volume's entry quota leaves room for one more name.
+    const atEntryLimit = () => settings.maxEntries !== undefined && entries >= settings.maxEntries
+
     // A new subdirectory's ".." entry is a second link to the parent; other node kinds add none.
     const attach = (parent: Directory, name: string, node: Node, now: bigint) => {
       parent.entries.set(name, node)
@@ -1481,16 +1484,18 @@ export const makeVolume = Effect.fnUntraced(
 
                 if (replaced !== undefined) yield* authorizeRemoval(parent, replaced, "writeFile", input)
 
-                if (replaced === undefined && settings.maxEntries !== undefined && entries >= settings.maxEntries) {
+                if (replaced === undefined && atEntryLimit()) {
                   return yield* failure("NoSpace", "writeFile", input)
                 }
-              } else {yield* authorize(
+              } else {
+                yield* authorize(
                   file,
                   identity,
                   chosen.access === "readWrite" ? READ | WRITE : WRITE,
                   "writeFile",
                   input
-                )}
+                )
+              }
 
               const finalMode = chosen.finalMode === undefined ? undefined : yield* permittedMode(
                 file?.metadata ?? { kind: "file", uid: identity.uid, gid: parent.metadata.gid },
@@ -1667,7 +1672,7 @@ export const makeVolume = Effect.fnUntraced(
 
               if (path.trailingSlash) return yield* failure("NotDirectory", "link", destination)
 
-              if (settings.maxEntries !== undefined && entries >= settings.maxEntries) {
+              if (atEntryLimit()) {
                 return yield* failure("NoSpace", "link", destination)
               }
 
@@ -1712,7 +1717,7 @@ export const makeVolume = Effect.fnUntraced(
             if (path.trailingSlash) return yield* failure("NotDirectory", "symlink", input)
 
             if (
-              (settings.maxEntries !== undefined && entries >= settings.maxEntries) ||
+              atEntryLimit() ||
               (settings.maxBytes !== undefined &&
                 BigInt(bytes.length) > ByteSize.toBigInt(settings.maxBytes) - usedBytes)
             ) return yield* failure("NoSpace", "symlink", input)
@@ -1831,7 +1836,7 @@ export const makeVolume = Effect.fnUntraced(
 
               yield* authorize(parent, identity, WRITE | EXECUTE, "open", input)
 
-              if (settings.maxEntries !== undefined && entries >= settings.maxEntries) {
+              if (atEntryLimit()) {
                 return yield* failure("NoSpace", "open", input)
               }
 
@@ -2079,7 +2084,7 @@ export const makeVolume = Effect.fnUntraced(
                 return yield* failure("AlreadyExists", "mkdir", input)
               }
 
-              if (settings.maxEntries !== undefined && entries >= settings.maxEntries) {
+              if (atEntryLimit()) {
                 return yield* failure("NoSpace", "mkdir", input)
               }
 
