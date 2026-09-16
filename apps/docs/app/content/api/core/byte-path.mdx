@@ -1,5 +1,12 @@
 # BytePath overview
 
+Opaque, byte-preserving filesystem paths.
+
+A `BytePath` stores the exact bytes of a path component so that names which
+are not valid UTF-8 survive a round trip through the virtual filesystem.
+
+Added in v0.1.0
+
 ---
 
 ## models
@@ -32,7 +39,7 @@ export declare const BytePath: Schema.declare<BytePath, BytePath>;
 
 Added in v0.1.0
 
-## type ids
+## type IDs
 
 ### BytePathId
 
