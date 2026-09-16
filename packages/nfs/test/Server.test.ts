@@ -181,6 +181,8 @@ const firstOperationStatus = (record: Uint8Array): number => {
 
 interface OpenConnection {
   readonly send: (request: Uint8Array, expectedRecords?: number) => Effect.Effect<ReadonlyArray<Uint8Array>>
+  /** Writes without waiting for a reply, as a client answering a callback does. */
+  readonly sendWithoutReply: (request: Uint8Array) => Effect.Effect<void>
   readonly close: Effect.Effect<void>
 }
 
@@ -220,6 +222,7 @@ const openConnection = (port: number): Effect.Effect<OpenConnection, TestSocketE
 
             return Effect.void
           }),
+        sendWithoutReply: (request: Uint8Array) => Effect.sync(() => void socket.write(request)),
         close: Effect.sync(() => socket.destroy())
       })))
 
@@ -274,6 +277,7 @@ describe("NfsServer", () => {
     assert.isTrue(
       Schema.is(NfsServerConfig)({
         leaseDurationSeconds: 30,
+        callbackTimeoutSeconds: 30,
         limits
       })
     )
@@ -288,6 +292,7 @@ describe("NfsServer", () => {
       host: "127.0.0.1" as const,
       port: 0,
       leaseDurationSeconds: 30,
+      callbackTimeoutSeconds: 30,
       limits,
       unknown: true
     }
@@ -587,5 +592,99 @@ describe("NfsServer", () => {
       )
 
       yield* held.close
+    }))
+
+  it.effect("sends a callback down the backchannel and accepts the client's reply over TCP", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      const scope = yield* Scope.make()
+
+      const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 }).pipe(Scope.provide(scope))
+
+      const server = yield* NfsServer.make(options(volume, caller)).pipe(
+        Effect.provideService(SocketServer.SocketServer, socketServer),
+        Scope.provide(scope)
+      )
+
+      const client = yield* openConnection(server.address.port)
+
+      const exchangeId = (writer: Writer) =>
+        writer.uint32(Operation.EXCHANGE_ID).fixedOpaque(new Uint8Array(8)).string("cb")
+          .uint32(0).uint32(0).uint32(0)
+
+      const identity = yield* client.send(rpcCompound(1, [exchangeId]))
+      const idReader = compoundReply(identity[0]!)
+      idReader.uint32()
+      idReader.string()
+
+      for (let field = 0; field < 3; field++) idReader.uint32()
+      const clientId = idReader.uint64()
+
+      // CREATE_SESSION asking for CONN_BACK_CHAN, with a real callback program number.
+      const created = yield* client.send(rpcCompound(2, [(writer) => {
+        writer.uint32(Operation.CREATE_SESSION).uint64(clientId).uint32(1).uint32(2)
+
+        for (const slots of [2, 2]) {
+          writer.uint32(0).uint32(1_024).uint32(1_024).uint32(1_024).uint32(8).uint32(slots).uint32(0)
+        }
+
+        writer.uint32(0x4000_0001).uint32(0)
+      }]))
+
+      const sessionReader = compoundReply(created[0]!)
+      sessionReader.uint32()
+      sessionReader.string()
+
+      for (let field = 0; field < 3; field++) sessionReader.uint32()
+      const session = sessionReader.fixedOpaque(16)
+      assert.strictEqual(sessionReader.uint32(), 1, "csr_sequence")
+      assert.strictEqual(sessionReader.uint32(), 2, "csr_flags echoes CONN_BACK_CHAN")
+
+      // The first SEQUENCE triggers the probe, so this exchange yields two records: the SEQUENCE
+      // reply and the server's CB_COMPOUND arriving on the same connection.
+      const both = yield* client.send(
+        rpcCompound(3, [
+          (writer) =>
+            writer.uint32(Operation.SEQUENCE).fixedOpaque(session).uint32(1).uint32(0).uint32(1).boolean(false)
+        ]),
+        2
+      )
+
+      const callback = both.find((record) => {
+        const view = new DataView(record.buffer, record.byteOffset, record.byteLength)
+
+        return view.getUint32(4) === 0
+      })
+
+      assert.isDefined(callback, "the server sent a CALL down the backchannel")
+      const cb = new Reader(callback, limits)
+      const callbackXid = cb.uint32()
+      cb.uint32()
+      assert.strictEqual(cb.uint32(), 2, "RPC version")
+      assert.strictEqual(cb.uint32(), 0x4000_0001, "callback program")
+      assert.strictEqual(cb.uint32(), 1, "callback version is 1 per erratum 2291")
+      assert.strictEqual(cb.uint32(), 1, "CB_COMPOUND procedure")
+
+      // Answer it exactly as a client would, and the server must accept the reply rather than
+      // treating it as a request.
+      const reply = new Writer().uint32(callbackXid).uint32(1).uint32(0).uint32(0)
+        .opaque(new Uint8Array()).uint32(0).uint32(0).string("probe").uint32(0).bytes()
+
+      yield* client.sendWithoutReply(encodeRecord(reply))
+
+      // The connection still serves ordinary traffic afterwards, proving the reply was routed and
+      // not mistaken for a call.
+      const after = yield* client.send(
+        rpcCompound(4, [
+          (writer) =>
+            writer.uint32(Operation.SEQUENCE).fixedOpaque(session).uint32(2).uint32(0).uint32(1).boolean(false)
+        ])
+      )
+
+      assert.strictEqual(firstOperationStatus(after[0]!), Status.OK)
+
+      yield* client.close
+      yield* Scope.close(scope, Exit.void)
     }))
 })

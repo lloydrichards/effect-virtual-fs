@@ -3,6 +3,7 @@ import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Predicate from "effect/Predicate"
@@ -198,6 +199,8 @@ export type NfsServerLimitOverrides = typeof NfsServerLimitOverrides.Type
 /** Schema for configuration that can be validated without opening runtime capabilities. */
 const NfsServerConfigSchema = Schema.Struct({
   leaseDurationSeconds: PositiveUint32,
+  /** How long a backchannel callback waits for the client before the path is treated as down. */
+  callbackTimeoutSeconds: PositiveUint32,
   limits: NfsServerLimits
 })
 
@@ -205,6 +208,7 @@ export type NfsServerConfig = typeof NfsServerConfigSchema.Type
 
 const defaultConfig: NfsServerConfig = Object.freeze({
   leaseDurationSeconds: 30,
+  callbackTimeoutSeconds: 30,
   limits: NfsServerLimits.default
 })
 
@@ -216,6 +220,7 @@ export const NfsServerConfig = Object.assign(NfsServerConfigSchema, {
 /** Optional configuration accepted when constructing an NFS server. */
 export const NfsServerConfigOverrides = Schema.Struct({
   leaseDurationSeconds: Schema.optionalKey(PositiveUint32),
+  callbackTimeoutSeconds: Schema.optionalKey(PositiveUint32),
   limits: Schema.optionalKey(NfsServerLimitOverrides)
 })
 
@@ -295,6 +300,9 @@ const decodeConfig = (
       leaseDurationSeconds: supplied.leaseDurationSeconds === undefined
         ? NfsServerConfig.default.leaseDurationSeconds
         : supplied.leaseDurationSeconds,
+      callbackTimeoutSeconds: supplied.callbackTimeoutSeconds === undefined
+        ? NfsServerConfig.default.callbackTimeoutSeconds
+        : supplied.callbackTimeoutSeconds,
       limits
     }).pipe(
       Result.mapError((error) => {
@@ -369,6 +377,7 @@ const make = (
     const handler = yield* makeNfs4Handler(export_, {
       generation,
       leaseDurationSeconds: config.leaseDurationSeconds,
+      callbackTimeout: Duration.seconds(config.callbackTimeoutSeconds),
       limits,
       now: Date.now
     })

@@ -30,6 +30,11 @@ const Credentials = Data.taggedEnum<Credentials>()
  */
 export interface Connection {
   readonly id: number
+  /**
+   * Writes one record-marked RPC message to the peer, answering false when the connection can no
+   * longer carry it. The server uses this to send callbacks down a session's backchannel.
+   */
+  readonly send: (message: Uint8Array) => Effect.Effect<boolean>
 }
 
 export interface CompoundCall {
@@ -45,11 +50,22 @@ export interface RpcHandlers {
   readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array>
   /** Called once when a connection ends, however it ended. */
   readonly disconnect: (connection: Connection) => Effect.Effect<void>
+  /** Called with an RPC REPLY, which on a backchannel answers a callback the server sent. */
+  readonly callbackReply: (connection: Connection, message: Uint8Array) => Effect.Effect<void>
 }
 
 const CALL = 0
 
 const REPLY = 1
+
+/**
+ * True when a record is an RPC REPLY rather than a CALL. A backchannel shares its connection with
+ * the fore channel, so callback replies arrive interleaved with ordinary requests and must be
+ * routed to the callback that is waiting for them instead of being answered as a call.
+ */
+export const isReply = (message: Uint8Array): boolean =>
+  message.length >= 8 &&
+  new DataView(message.buffer, message.byteOffset, message.byteLength).getUint32(4) === REPLY
 
 const MSG_ACCEPTED = 0
 

@@ -141,7 +141,7 @@ const decode = (bytes: Uint8Array) => {
 const makeHandler = (caller: Vfs.Caller) =>
   makeNfs4Handler(
     makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
-    { leaseDurationSeconds: 30, generation, now: () => 0, limits }
+    { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits }
   )
 
 const run = (handler: Nfs4Handler, request: CompoundCall) => handler.compound(request).pipe(Effect.map(decode))
@@ -935,7 +935,7 @@ describe("read-only-local protocol completeness", () => {
 
       const handler = yield* makeNfs4Handler(
         makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
-        { leaseDurationSeconds: 30, generation, now: () => now, limits }
+        { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => now, limits }
       )
 
       const exchanged = yield* run(
@@ -1020,7 +1020,7 @@ describe("read-only-local protocol completeness", () => {
 
       const handler = yield* makeNfs4Handler(
         makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
-        { leaseDurationSeconds: 30, generation, now: () => 0, limits: constrained }
+        { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits: constrained }
       )
 
       const exchange = (owner: string) =>
@@ -1333,7 +1333,9 @@ describe("read-only-local protocol completeness", () => {
         ])
       )
 
-      assert.strictEqual(backchannel.status, Status.OK)
+      // This session negotiated no backchannel, so there is no callback program to replace.
+      // NFS4ERR_INVAL is listed for BACKCHANNEL_CTL in the Section 15.2 table.
+      assert.deepStrictEqual(backchannel.operations[1], { code: Operation.BACKCHANNEL_CTL, status: Status.INVAL })
       assert.strictEqual(backchannel.operations.length, 2)
 
       // Section 18.33.3: an RPCSEC_GSS handle this server never issued is NOENT.

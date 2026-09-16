@@ -7,6 +7,9 @@ import { Reader, Writer } from "../../src/internal/xdr.js"
 
 export const generation = new Uint8Array(16).fill(7)
 
+/** An arbitrary callback program number, in the transient range clients pick from. */
+export const callbackProgram = 0x4000_0001
+
 export const limits: Nfs4Limits = {
   maxOpaqueBytes: ByteSize.bytes(65_536),
   maxStringBytes: ByteSize.bytes(1_024),
@@ -29,8 +32,15 @@ export const limits: Nfs4Limits = {
   maxNameBytes: ByteSize.bytes(255)
 }
 
-/** Distinct connections let a test exercise trunking without a socket. */
-export const connection = (id = 0): Connection => ({ id })
+/**
+ * Distinct connections let a test exercise trunking without a socket. `onSend` receives anything
+ * the server writes down this connection's backchannel; the default drops it and reports success,
+ * which stands in for a client that never answers.
+ */
+export const connection = (
+  id = 0,
+  onSend: (message: Uint8Array) => boolean = () => true
+): Connection => ({ id, send: (message) => Effect.succeed(onSend(message)) })
 
 const defaultConnection = connection()
 
@@ -98,7 +108,9 @@ export const startSession = (
   owner: string,
   fore: Parameters<typeof channel>[2] = {},
   verifier = new Uint8Array(8),
-  on: Connection = defaultConnection
+  on: Connection = defaultConnection,
+  /** Above zero, asks for CREATE_SESSION4_FLAG_CONN_BACK_CHAN and this many backchannel slots. */
+  backSlots = 0
 ) =>
   Effect.gen(function*() {
     const exchange = new Reader(yield* handler.compound(call([exchangeId(owner, verifier)], "probe", on)), limits)
@@ -111,10 +123,10 @@ export const startSession = (
 
     const create = yield* handler.compound(call(
       [(writer) => {
-        writer.uint32(Operation.CREATE_SESSION).uint64(client).uint32(1).uint32(0)
+        writer.uint32(Operation.CREATE_SESSION).uint64(client).uint32(1).uint32(backSlots > 0 ? 2 : 0)
         channel(writer, 2, fore)
-        channel(writer, 0)
-        writer.uint32(0).uint32(0)
+        channel(writer, backSlots)
+        writer.uint32(callbackProgram).uint32(0)
       }],
       "probe",
       on

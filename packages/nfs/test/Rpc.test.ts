@@ -51,13 +51,14 @@ const fields = (reply: Uint8Array): ReadonlyArray<number> => {
   return result
 }
 
-const connection: Connection = { id: 0 }
+const connection: Connection = { id: 0, send: () => Effect.succeed(true) }
 
 const noDisconnect = () => Effect.void
 
 const handler: RpcHandlers = {
   compound: ({ arguments: value }) => Effect.succeed(value),
-  disconnect: noDisconnect
+  disconnect: noDisconnect,
+  callbackReply: () => Effect.void
 }
 
 describe("ONC RPC", () => {
@@ -178,7 +179,8 @@ describe("ONC RPC", () => {
 
           return Effect.succeed(new Uint8Array())
         },
-        disconnect: noDisconnect
+        disconnect: noDisconnect,
+        callbackReply: () => Effect.void
       })
       assert.deepStrictEqual(observed, {
         _tag: "Sys",
