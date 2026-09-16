@@ -144,6 +144,9 @@ describe("metadata authority", () => {
       yield* admin.chmod("/f", 0o6777)
       yield* f.write(new Uint8Array([1]))
       assert.strictEqual((yield* f.stat).mode, 0o777)
+      yield* admin.chmod("/f", 0o6777)
+      yield* admin.truncate("/f", 0n)
+      assert.strictEqual((yield* f.stat).mode, 0o777)
     }))
 
   it.effect("distinguishes owner timestamps from write-authorized now and preserves omitted fields", () =>
