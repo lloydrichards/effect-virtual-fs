@@ -585,8 +585,13 @@ interface BackChannel {
   readonly slots: Array<CallbackSlot>
   /** False once a callback goes unanswered; Section 18.46.3 reports this in sr_status_flags. */
   healthy: boolean
-  /** Set once the path has been probed, so the probe runs once per backchannel rather than per request. */
+  /** Set once the path has been probed, so the probe runs once per arming rather than per request. */
   probed: boolean
+  /**
+   * Bumped whenever the path is re-armed. A probe carries the value it started with and publishes
+   * its verdict only if that is still current, so a slow probe cannot overwrite a newer one.
+   */
+  arming: number
 }
 
 interface CallbackSlot {
@@ -1647,7 +1652,11 @@ const stateChangingKinds: ReadonlySet<ParsedOperation["kind"]> = new Set([
   "CreateSession",
   "DestroySession",
   "DestroyClient",
-  "ReclaimComplete"
+  "ReclaimComplete",
+  // BACKCHANNEL_CTL replaces the callback program and credential and re-arms the probe, so a
+  // compound carrying it must be bounded by its worst case: otherwise an optimistic bound lets
+  // the mutation happen and the reply overflow afterwards, and only SEQUENCE is rolled back.
+  "BackchannelCtl"
 ])
 
 /**
@@ -2545,7 +2554,8 @@ export const makeNfs4Handler = (
                         // the path starts down rather than being probed with a flavor it never
                         // offered.
                         healthy: chooseCallbackSecurity(value.security) !== undefined,
-                        probed: false
+                        probed: false,
+                        arming: 0
                       }
                       : undefined
                   })
@@ -2760,6 +2770,7 @@ export const makeNfs4Handler = (
                 // path; without it a recovered client stays marked down forever.
                 if ((bound & CHANNEL_BACK) !== 0 && session.back !== undefined) {
                   session.back.probed = false
+                  session.back.arming++
                 }
 
                 const answered = bound === CHANNEL_BACK
@@ -2806,6 +2817,7 @@ export const makeNfs4Handler = (
                 // would be a claim no callback has tested. A path with no encodable credential
                 // stays down, because nothing can be sent down it.
                 activeSession.back.probed = false
+                activeSession.back.arming++
                 activeSession.back.healthy = activeSession.back.security !== undefined
 
                 return Effect.succeed({ code: operation.code, status: Status.OK })
@@ -3655,9 +3667,18 @@ export const makeNfs4Handler = (
 
         if (back === undefined) return false
 
+        // The verdict is only published if the path has not been re-armed meanwhile, so a slow
+        // probe cannot overwrite a newer one's result.
+        const arming = back.arming
         const slot = takeCallbackSlot(back)
 
-        if (slot === undefined) return false
+        if (slot === undefined) {
+          // Every slot is in flight. This probe never ran, so it must not consume the arming:
+          // otherwise a re-armed path would be left untested forever.
+          back.probed = false
+
+          return false
+        }
 
         // Section 2.10.6.1.3: the slot's sequence ID advances only when the callback is
         // answered NFS4_OK. Advancing it on a timeout would leave the client expecting the
@@ -3670,7 +3691,7 @@ export const makeNfs4Handler = (
         // Section 18.46.3 has SEQUENCE report an unusable callback path. A reply counts only if
         // the client actually handled the callback: PROG_UNAVAIL, AUTH_ERROR and a rejected
         // CB_SEQUENCE are all well-formed replies from a client with no working path.
-        back.healthy = yield* Effect.ensuring(
+        const accepted = yield* Effect.ensuring(
           callback(
             session,
             CB_COMPOUND_PROCEDURE,
@@ -3682,9 +3703,15 @@ export const makeNfs4Handler = (
           })
         )
 
-        if (back.healthy) back.slots[slot]!.sequence = sequence
+        // A re-arm while this probe was in flight means its verdict is about a path the client
+        // has already replaced; the probe it triggered decides instead.
+        if (back.arming !== arming) return accepted
 
-        return back.healthy
+        back.healthy = accepted
+
+        if (accepted) back.slots[slot]!.sequence = sequence
+
+        return accepted
       })
 
     return {
@@ -3733,6 +3760,7 @@ export const makeNfs4Handler = (
               if (!carries) {
                 session.back.healthy = false
                 session.back.probed = false
+                session.back.arming++
               }
             }
           })
