@@ -1,6 +1,6 @@
 # NFS preview app
 
-This app exposes a small live Effect VFS volume through the experimental read-only NFSv4.1 server. It is a runnable
+This app exposes a small live Effect VFS volume through the preview read-only NFSv4.1 server. It is a runnable
 consumer of `@effect-vfs/nfs`, separate from the library package.
 
 The fixture contains:
