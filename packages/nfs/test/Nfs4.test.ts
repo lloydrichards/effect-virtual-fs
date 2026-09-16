@@ -3190,4 +3190,63 @@ describe("NFSv4.1 COMPOUND", () => {
 
       assert.strictEqual(program, callbackProgram, "the unapplied BACKCHANNEL_CTL did not change it")
     }))
+
+  it.live("rejects a callback reply that is not exactly one complete CB_SEQUENCE result", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("50 millis")
+      let sent: Uint8Array | undefined
+
+      const client = connection(1, (message) => {
+        sent = message
+
+        return true
+      })
+
+      const { session } = yield* startSession(handler, "malformed", {}, new Uint8Array(8), client, 2)
+
+      /** Builds a reply whose CB_SEQUENCE result is deliberately malformed in one way. */
+      const malformed = (
+        request: Uint8Array,
+        results: number,
+        defect: "truncated" | "complete" | "trailing"
+      ): Uint8Array => {
+        const xid = new DataView(request.buffer, request.byteOffset, request.byteLength).getUint32(0)
+
+        const writer = new Writer().uint32(xid).uint32(1).uint32(0).uint32(0)
+          .opaque(new Uint8Array()).uint32(0)
+          .uint32(Status.OK).string("probe").uint32(results)
+          .uint32(11).uint32(Status.OK)
+          .fixedOpaque(session).uint32(1).uint32(0)
+
+        // csr_highest_slotid and csr_target_highest_slotid are mandatory.
+        if (defect !== "truncated") writer.uint32(0).uint32(0)
+
+        if (defect === "trailing") writer.uint32(0xdead_beef)
+
+        return writer.bytes()
+      }
+
+      const probeWith = (build: (request: Uint8Array) => Uint8Array) =>
+        Effect.gen(function*() {
+          sent = undefined
+          const probe = yield* Effect.forkChild(handler.probeBackChannel(session))
+          yield* Effect.yieldNow
+          assert.isDefined(sent)
+          yield* handler.callbackReply(client, build(sent))
+
+          return yield* Fiber.join(probe)
+        })
+
+      // A count that does not match the single result the server asked for.
+      assert.isFalse(yield* probeWith((request) => malformed(request, 2, "complete")), "wrong result count")
+
+      // Cut off after csr_slotid, so the two mandatory slot ids are missing.
+      assert.isFalse(yield* probeWith((request) => malformed(request, 1, "truncated")), "truncated result")
+
+      // A well-formed result with bytes after it is not a reply to this callback either.
+      assert.isFalse(yield* probeWith((request) => malformed(request, 1, "trailing")), "trailing bytes")
+
+      // The same reply, correctly shaped, is accepted — so the rejections above are about shape.
+      assert.isTrue(yield* probeWith((request) => malformed(request, 1, "complete")), "a complete result")
+    }))
 })

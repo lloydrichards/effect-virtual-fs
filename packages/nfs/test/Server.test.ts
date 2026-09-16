@@ -284,6 +284,14 @@ describe("NfsServer", () => {
     assert.isFalse(
       Schema.is(NfsServerConfig)({
         leaseDurationSeconds: 0,
+        callbackTimeoutSeconds: 30,
+        limits
+      })
+    )
+    assert.isFalse(
+      Schema.is(NfsServerConfig)({
+        leaseDurationSeconds: 30,
+        callbackTimeoutSeconds: 0,
         limits
       })
     )
@@ -667,10 +675,30 @@ describe("NfsServer", () => {
       assert.strictEqual(cb.uint32(), 1, "callback version is 1 per erratum 2291")
       assert.strictEqual(cb.uint32(), 1, "CB_COMPOUND procedure")
 
+      // Read the CB_SEQUENCE the server asked, so the answer echoes the session, sequence and
+      // slot it was given. Anything less is not a reply the server may accept.
+      cb.uint32()
+      cb.opaque()
+      cb.uint32()
+      cb.opaque()
+      cb.string()
+      cb.uint32()
+      cb.uint32()
+      assert.strictEqual(cb.uint32(), 1, "one callback operation")
+      assert.strictEqual(cb.uint32(), 11, "OP_CB_SEQUENCE")
+      const callbackSession = cb.fixedOpaque(16)
+      const callbackSequence = cb.uint32()
+      const callbackSlot = cb.uint32()
+
       // Answer it exactly as a client would, and the server must accept the reply rather than
       // treating it as a request.
       const reply = new Writer().uint32(callbackXid).uint32(1).uint32(0).uint32(0)
-        .opaque(new Uint8Array()).uint32(0).uint32(0).string("probe").uint32(0).bytes()
+        .opaque(new Uint8Array()).uint32(0)
+        .uint32(0).string("probe").uint32(1)
+        .uint32(11).uint32(0)
+        .fixedOpaque(callbackSession).uint32(callbackSequence).uint32(callbackSlot)
+        .uint32(callbackSlot).uint32(callbackSlot)
+        .bytes()
 
       yield* client.sendWithoutReply(encodeRecord(reply))
 
@@ -684,6 +712,19 @@ describe("NfsServer", () => {
       )
 
       assert.strictEqual(firstOperationStatus(after[0]!), Status.OK)
+
+      // And the server accepted that reply as a working callback path: sr_status_flags is clear
+      // rather than carrying SEQ4_STATUS_CB_PATH_DOWN_SESSION.
+      const status = compoundReply(after[0]!)
+      status.uint32()
+      status.string()
+
+      for (let field = 0; field < 3; field++) status.uint32()
+      status.fixedOpaque(16)
+
+      for (let field = 0; field < 4; field++) status.uint32()
+
+      assert.strictEqual(status.uint32(), 0, "the callback path is reported up")
 
       yield* client.close
       yield* Scope.close(scope, Exit.void)
