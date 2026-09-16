@@ -33,8 +33,8 @@ operations translate core failures to Effect `PlatformError` values.
 ```ts
 export declare const bind: (
   volume: Vfs.Volume,
-  options?: Vfs.RootCallerOptions,
-) => Effect.Effect<FileSystem.FileSystem, Vfs.ConfigurationError>;
+  options?: Vfs.RootCallerOptions
+) => Effect.Effect<FileSystem.FileSystem, Vfs.ConfigurationError>
 ```
 
 Added in v0.1.0
@@ -51,7 +51,7 @@ starts with an empty `/tmp` directory and uses `/` as its working directory.
 **Signature**
 
 ```ts
-export declare const make: Effect.Effect<FileSystem.FileSystem, never, never>;
+export declare const make: Effect.Effect<FileSystem.FileSystem, never, never>
 ```
 
 Added in v0.1.0
@@ -74,7 +74,7 @@ memoization. Wrap it with `Layer.fresh` when each use needs separate state.
 **Signature**
 
 ```ts
-export declare const layer: Layer.Layer<FileSystem.FileSystem, never, never>;
+export declare const layer: Layer.Layer<FileSystem.FileSystem, never, never>
 ```
 
 Added in v0.1.0

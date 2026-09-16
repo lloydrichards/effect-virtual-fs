@@ -33,7 +33,7 @@ Resource limits applied while decoding a snapshot.
 **Signature**
 
 ```ts
-export type DecodeLimits = typeof DecodeLimits.Type;
+export type DecodeLimits = typeof DecodeLimits.Type
 ```
 
 Added in v0.1.0
@@ -46,7 +46,7 @@ An immutable, opaque capture of a virtual filesystem volume.
 
 ```ts
 export interface Snapshot {
-  readonly [SnapshotTypeId]: SnapshotTypeId;
+  readonly [SnapshotTypeId]: SnapshotTypeId
 }
 ```
 
@@ -62,11 +62,11 @@ Schema for the mandatory resource limits applied while decoding a snapshot.
 
 ```ts
 export declare const DecodeLimits: Schema.Struct<{
-  readonly maxEncodedBytes: Schema.ByteSize;
-  readonly maxRecords: Schema.Natural;
-  readonly maxEntries: Schema.Natural;
-  readonly maxDecodedBytes: Schema.ByteSize;
-}>;
+  readonly maxEncodedBytes: Schema.ByteSize
+  readonly maxRecords: Schema.Natural
+  readonly maxEntries: Schema.Natural
+  readonly maxDecodedBytes: Schema.ByteSize
+}>
 ```
 
 Added in v0.1.0
@@ -80,7 +80,7 @@ Type identifier for opaque filesystem snapshots.
 **Signature**
 
 ```ts
-export declare const SnapshotTypeId: "@effect-vfs/core/Snapshot";
+export declare const SnapshotTypeId: "@effect-vfs/core/Snapshot"
 ```
 
 Added in v0.1.0
@@ -92,7 +92,7 @@ Type identifier for opaque filesystem snapshots.
 **Signature**
 
 ```ts
-export type SnapshotTypeId = typeof SnapshotTypeId;
+export type SnapshotTypeId = typeof SnapshotTypeId
 ```
 
 Added in v0.1.0
