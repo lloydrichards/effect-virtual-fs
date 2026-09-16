@@ -3039,4 +3039,155 @@ describe("NFSv4.1 COMPOUND", () => {
 
       assert.isFalse(yield* handler.probeBackChannel(session))
     }))
+
+  it.live("does not let a stale probe overwrite the verdict of a re-armed path", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("80 millis")
+      const sends: Array<Uint8Array> = []
+
+      const client = connection(1, (message) => {
+        sends.push(message)
+
+        return true
+      })
+
+      const { session } = yield* startSession(handler, "stale", {}, new Uint8Array(8), client, 2)
+
+      // The first SEQUENCE probes automatically; answer it so the path starts up.
+      yield* handler.compound(call([sequence(session, 1)], "probe", client))
+      yield* Effect.yieldNow
+      assert.strictEqual(sends.length, 1)
+      yield* handler.callbackReply(client, callbackReplyFor(sends[0]!, session))
+
+      // A second probe that will never be answered, still in flight below.
+      const stale = yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+      assert.strictEqual(sends.length, 2)
+
+      // Re-arm the path, then probe it successfully.
+      yield* handler.compound(call(
+        [
+          sequence(session, 2),
+          (writer) =>
+            writer.uint32(Operation.BACKCHANNEL_CTL).uint32(callbackProgram)
+              .array([0], (item, flavor) => item.uint32(flavor))
+        ],
+        "probe",
+        client
+      ))
+
+      const fresh = yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+      const latest = sends.length - 1
+      yield* handler.callbackReply(client, callbackReplyFor(sends[latest]!, session))
+      assert.isTrue(yield* Fiber.join(fresh), "the re-armed path answers")
+
+      // The stale probe times out afterwards. Its verdict is about a path the client has already
+      // replaced, so it must not drag the current one back down.
+      assert.isFalse(yield* Fiber.join(stale))
+
+      const reply = new Reader(yield* handler.compound(call([sequence(session, 3)], "probe", client)), limits)
+      assert.strictEqual(reply.uint32(), Status.OK)
+      reply.string()
+
+      for (let field = 0; field < 3; field++) reply.uint32()
+      reply.fixedOpaque(16)
+
+      for (let field = 0; field < 4; field++) reply.uint32()
+
+      assert.strictEqual(reply.uint32(), 0, "the re-armed path is still reported up")
+    }))
+
+  it.live("re-arms the probe when every backchannel slot is already in flight", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("80 millis")
+      let attempts = 0
+
+      const client = connection(1, () => {
+        attempts++
+
+        return true
+      })
+
+      // One slot, and it is occupied by a probe that is still waiting for a reply.
+      const { session } = yield* startSession(handler, "busy", {}, new Uint8Array(8), client, 1)
+      const holding = yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+      assert.strictEqual(attempts, 1)
+
+      // A SEQUENCE now finds no free slot. That probe never ran, so it must not consume the
+      // arming and leave the path untested forever.
+      yield* handler.compound(call([sequence(session, 1)], "probe", client))
+      yield* Effect.yieldNow
+      yield* Fiber.join(holding)
+
+      yield* handler.compound(call([sequence(session, 2)], "probe", client))
+      yield* Effect.sleep("120 millis")
+
+      assert.isAbove(attempts, 1, "a later SEQUENCE probes once a slot is free")
+    }))
+
+  it.effect("bounds a compound carrying BACKCHANNEL_CTL by its worst case before it mutates", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("2 seconds")
+      const client = connection(1)
+
+      // Room for SEQUENCE plus a small result, but not for a worst-case GETATTR after it.
+      const { session } = yield* startSession(
+        handler,
+        "bounded",
+        { maxResponse: 320 },
+        new Uint8Array(8),
+        client,
+        2
+      )
+
+      const allAttributes = [0xffff_ffff, 0xffff_ffff, 0xffff]
+
+      // BACKCHANNEL_CTL replaces the callback program and re-arms the probe, so the reply must be
+      // bounded by the worst case before any of that happens. Otherwise the mutation lands and
+      // the reply overflows afterwards, with only SEQUENCE rolled back.
+      const tooBig = yield* handler.compound(call(
+        [
+          sequence(session, 1),
+          (writer) =>
+            writer.uint32(Operation.BACKCHANNEL_CTL).uint32(0x4000_0002)
+              .array([0], (item, flavor) => item.uint32(flavor)),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          (writer) => writer.uint32(Operation.GETATTR).array(allAttributes, (item, word) => item.uint32(word))
+        ],
+        "probe",
+        client
+      ))
+
+      const rejected = statuses(tooBig)
+      assert.strictEqual(rejected.status, Status.REP_TOO_BIG)
+      assert.strictEqual(rejected.operations.length, 1, "rejected at SEQUENCE, before BACKCHANNEL_CTL ran")
+
+      // The callback program was never replaced: a probe still goes to the originally negotiated
+      // program number.
+      let program: number | undefined
+
+      const observer = connection(2, (message) => {
+        const reader = new Reader(message, limits)
+
+        for (let field = 0; field < 3; field++) reader.uint32()
+        program = reader.uint32()
+
+        return true
+      })
+
+      yield* handler.compound(
+        call(
+          [(writer) => writer.uint32(Operation.BIND_CONN_TO_SESSION).fixedOpaque(session).uint32(2).boolean(false)],
+          "probe",
+          observer
+        )
+      )
+
+      yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+
+      assert.strictEqual(program, callbackProgram, "the unapplied BACKCHANNEL_CTL did not change it")
+    }))
 })
