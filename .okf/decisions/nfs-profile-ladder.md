@@ -23,7 +23,7 @@ sources:
   - id: pynfs
     resource: https://github.com/kofemann/pynfs
     title: pynfs NFSv4.1 server tester
-generated: { by: claude/okf, at: 2026-09-15T17:30:00+02:00 }
+generated: { by: claude/okf, at: 2026-09-16T12:30:00+02:00 }
 ---
 
 # NFS profile ladder
