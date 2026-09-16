@@ -674,7 +674,7 @@ export const makeVolume = Effect.fnUntraced(
         } else records.push({ id, kind: "symlink", metadata, target: Image.base64(node.target) })
       }
 
-      return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records })
+      return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records }, undefined, true)
     })
 
     const observeChanges = () => {
