@@ -606,16 +606,19 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const publishNode = (target: Node) => {
+      // Directories are never hard linked, so one name reaches them and the parent chain resolves it.
+      if (target.kind === "directory") {
+        watchHub.publishUnsafe(() => UpdateChange.make({ path: ownedPath(nameBytes(directoryHex(target))) }))
+
+        return
+      }
+
       watchHub.publishManyUnsafe(() => {
         const changes: Array<Change> = []
-
-        if (target === root) {
-          changes.push(UpdateChange.make({ path: ownedPath(new Uint8Array([SLASH_BYTE])) }))
-        }
-
         const pending: Array<readonly [Directory, string]> = [[root, SLASH_HEX]]
 
-        while (pending.length > 0) {
+        // nlink counts the names bound to this node, so the scan stops once it has found them all.
+        while (pending.length > 0 && changes.length < target.metadata.nlink) {
           const next = pending.pop()
 
           if (next === undefined) break
