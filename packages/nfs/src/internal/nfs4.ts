@@ -583,7 +583,7 @@ interface BackChannel {
   security: CallbackSecurity | undefined
   readonly attrs: ChannelAttrs
   readonly slots: Array<CallbackSlot>
-  /** False once a callback goes unanswered, which Section 18.37.3 reports as CB_PATH_DOWN. */
+  /** False once a callback goes unanswered; Section 18.46.3 reports this in sr_status_flags. */
   healthy: boolean
   /** Set once the path has been probed, so the probe runs once per backchannel rather than per request. */
   probed: boolean
@@ -1550,6 +1550,53 @@ const encodeCallbackSequence = (
     .array([], () => undefined)
     .bytes()
 
+/**
+ * Decides whether a callback reply actually says the client handled the callback. An RPC REPLY is
+ * not success on its own: the client's RPC layer answers PROG_UNAVAIL for a program it does not
+ * serve, and AUTH_ERROR for a credential it will not take, both of which are well-formed replies
+ * from a client with no working callback path. The CB_SEQUENCE result is checked too, because
+ * Section 20.9.3 lets the client reject the slot or sequence it was given.
+ */
+const callbackAccepted = (
+  reply: Uint8Array,
+  limits: Nfs4Limits,
+  session: Uint8Array,
+  slot: number,
+  sequence: number
+): boolean => {
+  try {
+    const reader = new Reader(reply, limits)
+    reader.uint32()
+
+    // RPC: REPLY, MSG_ACCEPTED, verifier, then SUCCESS.
+    if (reader.uint32() !== 1) return false
+
+    if (reader.uint32() !== 0) return false
+    reader.uint32()
+    reader.opaque(limits.maxOpaqueBytes)
+
+    if (reader.uint32() !== 0) return false
+
+    // CB_COMPOUND: an all-OK status, then CB_SEQUENCE first (Section 20.9.3).
+    if (reader.uint32() !== Status.OK) return false
+    reader.string(limits.maxStringBytes)
+
+    if (reader.uint32() < 1) return false
+
+    if (reader.uint32() !== OP_CB_SEQUENCE) return false
+
+    if (reader.uint32() !== Status.OK) return false
+
+    // The client echoes what it was given; anything else means it answered a different callback.
+    return bytesKey(reader.fixedOpaque(16)) === bytesKey(session) &&
+      reader.uint32() === sequence &&
+      reader.uint32() === slot
+  } catch (error) {
+    if (error instanceof XdrDecodeError) return false
+    throw error
+  }
+}
+
 const makeOpaqueId = (generation: Uint8Array, serial: bigint): Uint8Array => {
   const result = new Uint8Array(16)
   result.set(generation.subarray(0, 8), 0)
@@ -1731,29 +1778,43 @@ export const makeNfs4Handler = (
           if ((direction & CHANNEL_BACK) !== 0) carriers.push(connection)
         }
 
-        for (const carrier of carriers) {
-          const xid = callbackXid++
-          const reply = yield* Deferred.make<Uint8Array | undefined>()
-          pendingCallbacks.set(xid, { carrier, reply })
+        const attempt = (carrier: Connection) =>
+          Effect.gen(function*() {
+            // The xid is masked because it is both a map key and a uint32 on the wire; an
+            // unmasked counter would eventually throw instead of wrapping.
+            const xid = callbackXid
+            callbackXid = (callbackXid + 1) >>> 0
+            const reply = yield* Deferred.make<Uint8Array | undefined>()
+            pendingCallbacks.set(xid, { carrier, reply })
 
-          const answered = yield* Effect.ensuring(
-            Effect.gen(function*() {
-              const sent = yield* carrier.send(encodeCallbackCall(xid, back.program, procedure, security, body))
+            return yield* Effect.ensuring(
+              Effect.gen(function*() {
+                const sent = yield* carrier.send(encodeCallbackCall(xid, back.program, procedure, security, body))
 
-              if (!sent) return undefined
+                if (!sent) return undefined
 
-              return yield* Deferred.await(reply).pipe(
-                Effect.timeoutOption(options.callbackTimeout),
-                Effect.map(Option.getOrUndefined)
-              )
-            }),
-            Effect.sync(() => pendingCallbacks.delete(xid))
-          )
+                return yield* Deferred.await(reply)
+              }),
+              Effect.sync(() => pendingCallbacks.delete(xid))
+            )
+          })
 
-          if (answered !== undefined) return answered
-        }
+        // One deadline for the whole callback, not one per carrier: the write itself can block
+        // indefinitely against a peer that stops reading, and trying every bound connection in
+        // turn would otherwise multiply the timeout by the number of connections.
+        return yield* Effect.gen(function*() {
+          for (const carrier of carriers) {
+            const answered = yield* attempt(carrier)
 
-        return undefined
+            if (answered !== undefined) return answered
+          }
+
+          return undefined
+        }).pipe(
+          Effect.timeoutOption(options.callbackTimeout),
+          Effect.map(Option.getOrUndefined),
+          Effect.map((answered) => answered ?? undefined)
+        )
       })
 
     const revokeClient = (client: ClientState): Effect.Effect<void> =>
@@ -2384,12 +2445,11 @@ export const makeNfs4Handler = (
                     options.limits.maxSlotsPerSession
                   )
 
-                  const back: ChannelAttrs = {
-                    ...value.back,
-                    headerPadding: 0,
-                    maxRequests: backSlots,
-                    rdmaIrd: []
-                  }
+                  // Section 18.36.3: for the backchannel the server MUST NOT change
+                  // ca_maxoperations or ca_maxrequests, so the client's attributes are echoed
+                  // unchanged. The server's own slot table may still be smaller; that is an
+                  // internal limit on how many callbacks it issues, not a renegotiation.
+                  const back: ChannelAttrs = { ...value.back, headerPadding: 0, rdmaIrd: [] }
 
                   const agreedFlags = wantsBackChannel ? CREATE_SESSION4_FLAG_CONN_BACK_CHAN : 0
 
@@ -2649,7 +2709,9 @@ export const makeNfs4Handler = (
                 // FORE or BOTH, and CDFC4_BACK_OR_BOTH MUST get BACK or BOTH. A request that
                 // cannot be answered that way demands a change the server cannot make, which is
                 // NFS4ERR_INVAL. Only a session that negotiated a backchannel in CREATE_SESSION
-                // has one to bind, so both back-channel requests fail without it.
+                // has one to bind. The section does not name an error for that case; INVAL is
+                // chosen because it is the error it uses for a channel change it cannot make, and
+                // Section 15.2 lists it for this operation.
                 const backAvailable = session.back !== undefined
 
                 if (!backAvailable && (requested === CDFC4_BACK || requested === CDFC4_BACK_OR_BOTH)) {
@@ -2663,6 +2725,13 @@ export const makeNfs4Handler = (
                   : CHANNEL_FORE | (backAvailable ? CHANNEL_BACK : 0)
 
                 associate(session, call.connection, bound)
+
+                // Section 18.34.4: a client whose backchannel lost its connections binds a new
+                // one. Clearing `probed` is what makes the next SEQUENCE actually retry the
+                // path; without it a recovered client stays marked down forever.
+                if ((bound & CHANNEL_BACK) !== 0 && session.back !== undefined) {
+                  session.back.probed = false
+                }
 
                 const answered = bound === CHANNEL_BACK
                   ? CDFS4_BACK
@@ -2688,8 +2757,9 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
                 }
 
-                // Section 18.33.3 changes the backchannel of the session the COMPOUND is running
-                // on. Without a negotiated backchannel there is nothing to reconfigure.
+                // Section 18.33.3 replaces the backchannel's callback program, so it needs a
+                // backchannel to act on. It names no error for a session without one; INVAL is
+                // chosen because Section 15.2 lists it for this operation.
                 if (activeSession.back === undefined) {
                   return Effect.succeed({ code: operation.code, status: Status.INVAL })
                 }
@@ -3546,7 +3616,6 @@ export const makeNfs4Handler = (
 
       if (index < 0) return undefined
       back.slots[index]!.busy = true
-      back.slots[index]!.sequence = nextSequenceId(back.slots[index]!.sequence)
 
       return index
     }
@@ -3561,20 +3630,37 @@ export const makeNfs4Handler = (
 
         if (slot === undefined) return false
 
+        // Section 2.10.6.1.3: the slot's sequence ID advances only when the callback is
+        // answered NFS4_OK. Advancing it on a timeout would leave the client expecting the
+        // previous value and answering the next callback NFS4ERR_SEQ_MISORDERED forever.
+        const sequence = nextSequenceId(back.slots[slot]!.sequence)
+
+        // Section 20.9.3: csa_highest_slotid is the highest slot the server will use, and this
+        // server uses one slot at a time.
+        const body = encodeCallbackSequence(session.id, sequence, slot, back.slots.length - 1)
+
+        if (body.length > back.attrs.maxRequest) {
+          // The client's own ca_maxrequestsize for the backchannel; a callback it could not
+          // accept is not sent at all.
+          back.slots[slot]!.busy = false
+
+          return false
+        }
+
         const answered = yield* Effect.ensuring(
-          callback(
-            session,
-            CB_COMPOUND_PROCEDURE,
-            encodeCallbackSequence(session.id, back.slots[slot]!.sequence, slot, back.slots.length - 1)
-          ),
+          callback(session, CB_COMPOUND_PROCEDURE, body),
           Effect.sync(() => {
             back.slots[slot]!.busy = false
           })
         )
 
-        // Section 18.37.3 lets the server report an unusable callback path; tracking it here is
-        // what makes that report honest rather than a guess.
-        back.healthy = answered !== undefined
+        // Section 18.46.3 has SEQUENCE report an unusable callback path. A reply is only
+        // success if the client actually handled the callback: PROG_UNAVAIL, AUTH_ERROR and a
+        // rejected CB_SEQUENCE are all well-formed replies from a client with no working path.
+        back.healthy = answered !== undefined &&
+          callbackAccepted(answered, options.limits, session.id, slot, sequence)
+
+        if (back.healthy) back.slots[slot]!.sequence = sequence
 
         return back.healthy
       })
@@ -3611,7 +3697,22 @@ export const makeNfs4Handler = (
             // FIX(#69): nothing reclaims a client whose last connection went away — the lease
             // correctly survives, but opens and replay budget stay pinned until the scope closes.
             // https://github.com/lloydrichards/effect-virtual-fs/issues/69
-            for (const session of sessions.values()) session.connections.delete(connection)
+            for (const session of sessions.values()) {
+              if (!session.connections.delete(connection) || session.back === undefined) continue
+
+              let carries = false
+
+              for (const direction of session.connections.values()) {
+                if ((direction & CHANNEL_BACK) !== 0) carries = true
+              }
+
+              // A backchannel with no connection left cannot be reached, and a connection that
+              // binds it later deserves a fresh probe rather than the old verdict.
+              if (!carries) {
+                session.back.healthy = false
+                session.back.probed = false
+              }
+            }
           })
         )
     }
