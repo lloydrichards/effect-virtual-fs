@@ -15,6 +15,7 @@ import * as Net from "node:net"
 import {
   ConfigurationError,
   NfsServer,
+  type NfsServerAddress,
   NfsServerConfig,
   NfsServerConfigOverrides,
   NfsServerLimitOverrides,
@@ -24,6 +25,13 @@ import {
 import { Operation, Status } from "../src/internal/nfs4.js"
 import { encodeRecord, RecordDecoder } from "../src/internal/recordMarking.js"
 import { Reader, Writer } from "../src/internal/xdr.js"
+
+/** The bound TCP port of a server; the loopback tests never bind a UNIX-domain socket. */
+const tcpPort = (server: { readonly address: NfsServerAddress }): number => {
+  if ("path" in server.address) throw new Error("expected a TCP address")
+
+  return server.address.port
+}
 
 class TestSocketError extends Data.TaggedError("TestSocketError")<{
   readonly cause: unknown
@@ -401,6 +409,23 @@ describe("NfsServer", () => {
       )
   )
 
+  it.effect("accepts a socket server bound to a UNIX-domain socket path as a local address", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+
+      const unix = SocketServer.SocketServer.of({
+        address: NetAddress.unixPathAddress("/tmp/effect-vfs-nfs.sock"),
+        run: () => Effect.never
+      })
+
+      const server = yield* NfsServer.make(options(volume, caller)).pipe(
+        Effect.provideService(SocketServer.SocketServer, unix)
+      )
+
+      assert.deepStrictEqual(server.address, { path: "/tmp/effect-vfs-nfs.sock" })
+    }).pipe(Effect.scoped))
+
   it.effect("rejects a socket server that is not bound to loopback TCP", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
@@ -442,11 +467,11 @@ describe("NfsServer", () => {
           Scope.provide(firstScope)
         )
 
-        assert.strictEqual(first.address.host, "127.0.0.1")
-        assert.notStrictEqual(first.address.port, 0)
+        assert.deepStrictEqual("host" in first.address && first.address.host, "127.0.0.1")
+        assert.notStrictEqual(tcpPort(first), 0)
 
         const responses = yield* exchange(
-          first.address.port,
+          tcpPort(first),
           concat(rpcNull(91), rpcNull(92)),
           2
         )
@@ -467,8 +492,8 @@ describe("NfsServer", () => {
           0,
           0x8000_0000 | (ByteSize.toNumberUnsafe(limits.maxFragmentBytes) + 1)
         )
-        yield* awaitRejectedConnection(first.address.port, oversizedMarker)
-        const afterMalformed = yield* exchange(first.address.port, rpcNull(93))
+        yield* awaitRejectedConnection(tcpPort(first), oversizedMarker)
+        const afterMalformed = yield* exchange(tcpPort(first), rpcNull(93))
         assert.strictEqual(
           new DataView(
             afterMalformed[0]!.buffer,
@@ -483,7 +508,7 @@ describe("NfsServer", () => {
 
         const secondSocketServer = yield* NodeSocketServer.make({
           host: "127.0.0.1",
-          port: first.address.port
+          port: tcpPort(first)
         }).pipe(Scope.provide(secondScope))
 
         const second = yield* NfsServer.make(
@@ -493,7 +518,7 @@ describe("NfsServer", () => {
           Scope.provide(secondScope)
         )
 
-        assert.strictEqual(second.address.port, first.address.port)
+        assert.strictEqual(tcpPort(second), tcpPort(first))
         yield* Scope.close(secondScope, Exit.void)
       })
   )
@@ -540,8 +565,8 @@ describe("NfsServer", () => {
 
       // Both sockets stay open for the whole test, so neither one's close can mask the other's
       // identity by disassociating it early.
-      const owner = yield* openConnection(server.address.port)
-      const stranger = yield* openConnection(server.address.port)
+      const owner = yield* openConnection(tcpPort(server))
+      const stranger = yield* openConnection(tcpPort(server))
 
       const client = afterHeader((yield* owner.send(rpcCompound(1, [exchangeId("owner")])))[0]!).uint64()
       const session = afterHeader((yield* owner.send(rpcCompound(2, [createSession(client)])))[0]!).fixedOpaque(16)
@@ -574,13 +599,13 @@ describe("NfsServer", () => {
         Scope.provide(scope)
       )
 
-      const held = yield* openConnection(server.address.port)
+      const held = yield* openConnection(tcpPort(server))
       const answered = yield* held.send(rpcNull(1))
       assert.strictEqual(new DataView(answered[0]!.buffer, answered[0]!.byteOffset, 4).getUint32(0), 1)
 
       // Without an explicit refusal this connection is accepted and then abandoned, so it never
       // closes and this times out rather than failing an assertion.
-      yield* awaitRejectedConnection(server.address.port, rpcNull(2)).pipe(
+      yield* awaitRejectedConnection(tcpPort(server), rpcNull(2)).pipe(
         Effect.timeoutOrElse({
           duration: "2 seconds",
           orElse: () => Effect.die("a refused connection was never closed")
@@ -615,7 +640,7 @@ describe("NfsServer", () => {
         Scope.provide(scope)
       )
 
-      const client = yield* openConnection(server.address.port)
+      const client = yield* openConnection(tcpPort(server))
 
       const exchangeId = (writer: Writer) =>
         writer.uint32(Operation.EXCHANGE_ID).fixedOpaque(new Uint8Array(8)).string("cb")

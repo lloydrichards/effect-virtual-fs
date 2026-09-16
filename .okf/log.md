@@ -2,6 +2,8 @@
 
 ## 2026-09-16
 
+- **NFS authentication and export policy**: Resolved issue #45. Kerberos and RPCSEC_GSS are a permanently unmet MUST, so no profile claims conformance; RPCSEC_GSS credentials now answer `AUTH_TOOWEAK`; `read-only-networked` is specified as a trusted-network profile whose application-supplied policy maps `AUTH_SYS` identity and peer address to VFS identities that the server mints callers for, with non-loopback binding behind that policy and an explicit opt-in; ACCESS is documented as advisory in `read-only-local`; owner strings stay numeric; UNIX-domain sockets count as local addresses; the `SP4_MACH_CRED` row became a rejection by design. Added the decision and networked profile, updated the ladder, local profile, deferred capabilities, three ledgers, and the package README; opened #74, #75, #76, #77.
+
 - **NFS connection binding and backchannels**: Sessions now record which connections carry which channel, `DESTROY_SESSION` enforces that association, and the server sends CB_COMPOUND callbacks using the credential the client authorized in `csa_sec_parms`. Backchannels, connection binding, and trunking moved from `read-only-networked` into `read-only-local`, leaving Kerberos as that ladder's only unmet MUST. The operations and protocol-rules ledgers, the profile, and the package README were updated together.
 
 ## 2026-09-15

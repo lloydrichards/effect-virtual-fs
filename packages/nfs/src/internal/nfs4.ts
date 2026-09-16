@@ -1480,6 +1480,12 @@ const supportedAccessMask = (kind: Vfs.Metadata["kind"]): number => {
  * Evaluates mode bits against the decoded RPC identity for reporting only. The
  * identity never selects VFS authority; a read-only export grants no write-class
  * bit regardless of mode.
+ *
+ * In `read-only-local` this answer is advisory: OPEN and READ run through the
+ * single privileged caller and perform no mode check, so a file ACCESS reports
+ * as unreadable is still readable. That asymmetry is the profile's documented
+ * boundary. `read-only-networked` maps the identity to a VFS caller and asks
+ * that caller instead, so ACCESS and OPEN agree by construction.
  */
 const grantedAccess = (
   supported: number,
