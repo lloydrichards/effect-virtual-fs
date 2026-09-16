@@ -16,19 +16,21 @@ import { ConfigurationError, type FsCode, FsError } from "./errors.js"
 export const SLASH_HEX = "2f"
 
 /** @internal */
+export const DOT_HEX = "2e"
+
+/** @internal */
+export const DOT_DOT_HEX = "2e2e"
+
+/** @internal */
 export const SLASH_BYTE = 47
 
 // POSIX NAME_MAX: the longest single path component.
 /** @internal */
 export const MAX_NAME_BYTES = 255
 
-/** @internal */
-export const DOT_HEX = "2e"
-
-/** @internal */
-export const DOT_DOT_HEX = "2e2e"
-
 // A missing final component is rejected wherever "." and ".." are, so it counts as a dot component.
+// Callers pass the code POSIX gives their operation, so the codes differ on purpose: EEXIST for
+// create (link, symlink, mkdir), EISDIR for open and unlink, EINVAL for rename and rmdir.
 /** @internal */
 export const isDotComponent = (name: string | undefined): name is undefined | typeof DOT_HEX | typeof DOT_DOT_HEX =>
   name === undefined || name === DOT_HEX || name === DOT_DOT_HEX
