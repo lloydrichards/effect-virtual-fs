@@ -17,7 +17,7 @@ sources:
   - id: rfc8881
     resource: https://www.rfc-editor.org/rfc/rfc8881.html
     title: RFC 8881 NFSv4.1
-generated: { by: claude/okf, at: 2026-09-15T23:00:00+02:00 }
+generated: { by: claude/okf, at: 2026-09-16T12:30:00+02:00 }
 ---
 
 # NFS read-only-local profile
@@ -29,7 +29,7 @@ generated: { by: claude/okf, at: 2026-09-15T23:00:00+02:00 }
 - Binds only to `127.0.0.1` or `::1`; the application owns the socket and platform adapter.[^server]
 - One application-supplied privileged caller performs every volume operation. `AUTH_NONE` and `AUTH_SYS` credentials are decoded and never trusted; `RPCSEC_GSS` is refused.
 - Sessions, client ids, and filehandles are volatile per server process. Restart requires a client remount.
-- No delegations, no locks, no grace period, no pNFS. A backchannel is negotiated and usable when the client asks for one, but nothing is ever recalled over it, so the profile neither needs nor promises callbacks.
+- No delegations, no locks, no grace period, no pNFS. A backchannel is negotiated when the client asks for one, and the server sends exactly one kind of callback over it: a CB_SEQUENCE-only CB_COMPOUND that probes the path, once per backchannel. No delegation or layout recall is ever sent, because none is ever granted.
 
 ## Required behavior
 

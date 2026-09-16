@@ -2540,4 +2540,94 @@ describe("NFSv4.1 COMPOUND", () => {
 
       assert.isFalse(yield* handler.probeBackChannel(session))
     }))
+
+  // Live clock: the probe must actually time out after the impostor reply is discarded.
+  it.live("ignores a callback reply that arrives on another connection", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("50 millis")
+      let sent: Uint8Array | undefined
+
+      const client = connection(1, (message) => {
+        sent = message
+
+        return true
+      })
+
+      const impostor = connection(9)
+      const { session } = yield* startSession(handler, "spoof", {}, new Uint8Array(8), client, 2)
+      const probe = yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+
+      assert.isDefined(sent)
+
+      // The same xid, answered by a connection the callback never went out on, must not complete
+      // it — otherwise any peer could make another session's backchannel look healthy.
+      yield* handler.callbackReply(impostor, callbackReplyFor(sent))
+      assert.isFalse(yield* Fiber.join(probe), "the impostor reply was ignored and the probe timed out")
+    }))
+
+  it.live("reports a down callback path in sr_status_flags", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("10 millis")
+      const client = connection(1, () => false)
+      const { session } = yield* startSession(handler, "down", {}, new Uint8Array(8), client, 2)
+
+      assert.isFalse(yield* handler.probeBackChannel(session))
+
+      // Section 18.46.3: the client learns the path is unusable from the SEQUENCE reply.
+      const reply = new Reader(yield* handler.compound(call([sequence(session, 1)], "probe", client)), limits)
+      assert.strictEqual(reply.uint32(), Status.OK)
+      reply.string()
+      reply.uint32()
+      reply.uint32()
+      reply.uint32()
+      reply.fixedOpaque(16)
+
+      for (let field = 0; field < 4; field++) reply.uint32()
+
+      assert.strictEqual(reply.uint32(), 0x0000_0200, "SEQ4_STATUS_CB_PATH_DOWN_SESSION")
+    }))
+
+  it.live("probes the callback path again after BACKCHANNEL_CTL re-advertises a program", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("10 millis")
+      let attempts = 0
+
+      const client = connection(1, () => {
+        attempts++
+
+        return false
+      })
+
+      const { session } = yield* startSession(handler, "repair", {}, new Uint8Array(8), client, 2)
+
+      // The first SEQUENCE probes automatically, and the path goes down unanswered.
+      yield* handler.compound(call([sequence(session, 1)], "probe", client))
+      yield* Effect.sleep("30 millis")
+      assert.strictEqual(attempts, 1, "probed once automatically")
+
+      // A later SEQUENCE must not probe again on its own.
+      yield* handler.compound(call([sequence(session, 2)], "probe", client))
+      yield* Effect.sleep("30 millis")
+      assert.strictEqual(attempts, 1, "still probed only once")
+
+      // Re-advertising the program is the client repairing its callback service. Without clearing
+      // `probed`, no later SEQUENCE would ever try the new endpoint.
+      const repaired = yield* handler.compound(call(
+        [
+          sequence(session, 3),
+          (writer) =>
+            writer.uint32(Operation.BACKCHANNEL_CTL).uint32(callbackProgram)
+              .array([0], (item, flavor) => item.uint32(flavor))
+        ],
+        "probe",
+        client
+      ))
+
+      assert.deepStrictEqual(statuses(repaired).operations[1], [Operation.BACKCHANNEL_CTL, Status.OK])
+
+      yield* handler.compound(call([sequence(session, 4)], "probe", client))
+      yield* Effect.sleep("30 millis")
+      assert.strictEqual(attempts, 2, "the repaired endpoint is probed again")
+    }))
 })

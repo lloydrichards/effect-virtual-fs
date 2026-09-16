@@ -35,12 +35,12 @@ sources:
   - id: xdr
     resource: https://www.rfc-editor.org/rfc/rfc4506.html
     title: RFC 4506 XDR
-generated: { by: claude/okf, at: 2026-09-15T17:30:00+02:00 }
+generated: { by: claude/okf, at: 2026-09-16T12:30:00+02:00 }
 ---
 
 # NFSv4.1 server direction
 
-The accepted first implementation is a private, experimental `@effect-vfs/nfs` package that exposes one live volume read-only to a trusted local user. The application supplies the volume, privileged virtual caller, and a platform implementation of Effect's `SocketServer`; the package accepts only a loopback TCP binding, while the user or operating system owns mounting. Server restarts require a remount. Windows, writable NFS, callbacks, delegations, locking, multi-user deployment, and full RFC conformance remain outside this preview.
+The accepted first implementation is a private, experimental `@effect-vfs/nfs` package that exposes one live volume read-only to a trusted local user. The application supplies the volume, privileged virtual caller, and a platform implementation of Effect's `SocketServer`; the package accepts only a loopback TCP binding, while the user or operating system owns mounting. Server restarts require a remount. Windows, writable NFS, delegations, locking, multi-user deployment, and full RFC conformance remain outside this preview. Backchannels are supported as of #44, but only to probe the callback path; nothing is ever recalled.
 
 Core supplies runtime file identity, byte-preserving paths, scoped open handles, positional I/O, permissions, coordinated mutation, stable [object references](object-references.md "refined by"), and live [mutation revisions](mutation-revisions.md "refined by"). Protocol-specific filehandles, RPC, sessions, authentication, leases, replay, resource limits, and recovery belong in the NFS package.
 

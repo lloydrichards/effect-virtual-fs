@@ -197,6 +197,13 @@ const CB_COMPOUND_PROCEDURE = 1
 
 const OP_CB_SEQUENCE = 11
 
+/**
+ * sr_status_flags bits for a backchannel the server cannot use (RFC 8881 Section 18.46.3).
+ * CB_PATH_DOWN_SESSION is the session-scoped form, which is what this server tracks: health is
+ * recorded per session backchannel, not per client ID.
+ */
+const SEQ4_STATUS_CB_PATH_DOWN_SESSION = 0x0000_0200
+
 /** RPCSEC_GSS in callback_sec_parms4; this server never issues the handles it would name. */
 const RPCSEC_GSS = 6
 
@@ -231,6 +238,9 @@ const ACCESS4_EXECUTE = 0x20
 const AUTH_NONE = 0
 
 const AUTH_SYS = 1
+
+/** RFC 5531 caps an `opaque_auth` body at 400 bytes, which bounds any credential a callback carries. */
+const MAX_OPAQUE_AUTH_BYTES = 400
 
 /** The export accepts and generates only UTF-8 names (RFC 8881 Section 14.4). */
 const FSCHARSET_CAP4_ALLOWS_ONLY_UTF8 = 0x2
@@ -527,6 +537,10 @@ interface ClientState {
     readonly status: number
     readonly body?: Uint8Array
     readonly retainedBytes: ByteSize.ByteSize
+    /** The session the cached reply created, so a retry can bind its own connection to it. */
+    readonly session?: Uint8Array
+    /** The channel directions that reply agreed to. */
+    readonly directions?: number
   } | undefined
 }
 
@@ -773,12 +787,17 @@ const readCallbackSecurity = (reader: Reader, limits: Nfs4Limits): CallbackSecur
  * Picks the credential a callback will carry. AUTH_NONE is preferred when the client offered it,
  * since it needs no identity; otherwise the client's own AUTH_SYS credential is used. A client
  * that offered neither has authorized nothing this server can encode, and gets no callbacks.
+ *
+ * An AUTH_SYS credential is only usable if it fits RFC 5531's 400-byte `opaque_auth` limit. The
+ * callback parameters are decoded with the compound's own XDR limits, which are far looser, so an
+ * offered credential can be well-formed here and still be unsendable; that entry is skipped
+ * rather than emitted as a malformed callback.
  */
 const chooseCallbackSecurity = (
   offered: ReadonlyArray<CallbackSecurity>
 ): CallbackSecurity | undefined =>
   offered.find((entry) => entry.flavor === AUTH_NONE) ??
-    offered.find((entry) => entry.flavor === AUTH_SYS)
+    offered.find((entry) => entry.flavor === AUTH_SYS && (entry.credential?.length ?? 0) <= MAX_OPAQUE_AUTH_BYTES)
 
 const writeChannelAttrs = (
   writer: Writer,
@@ -1680,7 +1699,11 @@ export const makeNfs4Handler = (
      * arrives on the same connection that is running the read loop, so making the reply path take
      * the gate would deadlock against a compound that is holding it.
      */
-    const pendingCallbacks = new Map<number, Deferred.Deferred<Uint8Array | undefined>>()
+    const pendingCallbacks = new Map<number, {
+      readonly carrier: Connection
+      readonly reply: Deferred.Deferred<Uint8Array | undefined>
+    }>()
+
     let callbackXid = 1
 
     /**
@@ -1695,35 +1718,42 @@ export const makeNfs4Handler = (
     ): Effect.Effect<Uint8Array | undefined> =>
       Effect.gen(function*() {
         const back = session.back
+        const security = back?.security
 
-        if (back === undefined || back.security === undefined) return undefined
+        if (back === undefined || security === undefined) return undefined
 
-        const carrier = [...session.connections]
-          .find(([, direction]) => (direction & CHANNEL_BACK) !== 0)?.[0]
+        // A connection that has gone away is only removed from the map once `disconnect` acquires
+        // the state gate, so a stale entry can still be present. Every bound connection is tried
+        // before the path is declared down.
+        const carriers: Array<Connection> = []
 
-        if (carrier === undefined) return undefined
+        for (const [connection, direction] of session.connections) {
+          if ((direction & CHANNEL_BACK) !== 0) carriers.push(connection)
+        }
 
-        const xid = callbackXid++
-        const reply = yield* Deferred.make<Uint8Array | undefined>()
-        pendingCallbacks.set(xid, reply)
+        for (const carrier of carriers) {
+          const xid = callbackXid++
+          const reply = yield* Deferred.make<Uint8Array | undefined>()
+          pendingCallbacks.set(xid, { carrier, reply })
 
-        const answered = yield* Effect.ensuring(
-          Effect.gen(function*() {
-            const sent = yield* carrier.send(
-              encodeCallbackCall(xid, back.program, procedure, back.security!, body)
-            )
+          const answered = yield* Effect.ensuring(
+            Effect.gen(function*() {
+              const sent = yield* carrier.send(encodeCallbackCall(xid, back.program, procedure, security, body))
 
-            if (!sent) return undefined
+              if (!sent) return undefined
 
-            return yield* Deferred.await(reply).pipe(
-              Effect.timeoutOption(options.callbackTimeout),
-              Effect.map(Option.getOrUndefined)
-            )
-          }),
-          Effect.sync(() => pendingCallbacks.delete(xid))
-        )
+              return yield* Deferred.await(reply).pipe(
+                Effect.timeoutOption(options.callbackTimeout),
+                Effect.map(Option.getOrUndefined)
+              )
+            }),
+            Effect.sync(() => pendingCallbacks.delete(xid))
+          )
 
-        return answered
+          if (answered !== undefined) return answered
+        }
+
+        return undefined
       })
 
     const revokeClient = (client: ClientState): Effect.Effect<void> =>
@@ -1888,16 +1918,15 @@ export const makeNfs4Handler = (
             session !== undefined && slot !== undefined && value.sequence === slot.sequence &&
             slot.response !== undefined
           ) {
+            // Section 2.10.3.1 ties association to SEQUENCE being transmitted, not to the result,
+            // so it happens before the retry is judged: even a false retry was transmitted here.
+            associate(session, call.connection, CHANNEL_FORE)
+
             if (!sameRequest(slot.request, call.arguments) || slot.credentials !== credentialsKey(call.credentials)) {
               return Effect.succeed(
                 encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.SEQ_FALSE_RETRY }])
               )
             }
-
-            // Section 2.10.3.1 ties association to SEQUENCE being transmitted, and a retry is
-            // transmitted like any other request. A client that reconnects after a reset and
-            // retransmits must end up associated, or its next DESTROY_SESSION would be refused.
-            associate(session, call.connection, CHANNEL_FORE)
 
             return Effect.succeed(new Uint8Array(slot.response))
           }
@@ -2260,6 +2289,17 @@ export const makeNfs4Handler = (
                   // Section 18.36.4 phase 2: an equal csa_sequence identifies a retry, which may
                   // arrive with or without a preceding SEQUENCE; the cached result is returned
                   // before any argument validation.
+                  //
+                  // A retry usually arrives because the original reply was lost with the
+                  // connection. The client then holds a session it believes is bound to the
+                  // channels the cached reply names, so the replaying connection is associated
+                  // with exactly those directions.
+                  const replayed = replay.session === undefined ? undefined : sessions.get(bytesKey(replay.session))
+
+                  if (replayed !== undefined && replay.directions !== undefined) {
+                    associate(replayed, call.connection, replay.directions)
+                  }
+
                   const result: ResultPart = replay.body === undefined
                     ? { code: operation.code, status: replay.status }
                     : { code: operation.code, status: replay.status, body: new Uint8Array(replay.body) }
@@ -2275,17 +2315,21 @@ export const makeNfs4Handler = (
                 // slot and its result is cached, whether or not a session is created. Two outcomes
                 // leave the slot alone: NFS4ERR_DELAY asks for the same request again later, and
                 // NFS4ERR_CLID_INUSE comes from a principal that does not own the record.
-                const complete = (status: number, body?: Uint8Array): ResultPart => {
+                const complete = (
+                  status: number,
+                  body?: Uint8Array,
+                  created?: { readonly session: Uint8Array; readonly directions: number }
+                ): ResultPart => {
                   const previousRetainedBytes = client.createSessionReplay?.retainedBytes ?? ByteSize.bytes(0)
                   const retainedBytes = byteLength(body?.length ?? 0)
                   replayBytes = subtractBytes(replayBytes, previousRetainedBytes)
                   replayBytes = addBytes(replayBytes, retainedBytes)
                   client.sequence = nextSequenceId(client.sequence)
 
-                  const nextReplay: CreateSessionReplay = {
-                    sequence: value.sequence,
-                    status,
-                    retainedBytes
+                  let nextReplay: CreateSessionReplay = { sequence: value.sequence, status, retainedBytes }
+
+                  if (created !== undefined) {
+                    nextReplay = { ...nextReplay, session: created.session, directions: created.directions }
                   }
 
                   client.createSessionReplay = body === undefined
@@ -2419,7 +2463,10 @@ export const makeNfs4Handler = (
                   client.confirmed = true
                   client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
 
-                  return complete(Status.OK, body)
+                  return complete(Status.OK, body, {
+                    session: id,
+                    directions: CHANNEL_FORE | (wantsBackChannel ? CHANNEL_BACK : 0)
+                  })
                 })
               }
 
@@ -2535,9 +2582,15 @@ export const makeNfs4Handler = (
                 activeSlot = slot
                 shouldCache = value.cache
 
+                // Section 18.46.3: report a backchannel the server cannot use, so the client can
+                // repair it with BIND_CONN_TO_SESSION or BACKCHANNEL_CTL.
+                const statusFlags = session.back !== undefined && !session.back.healthy
+                  ? SEQ4_STATUS_CB_PATH_DOWN_SESSION
+                  : 0
+
                 const body = encodeStatusBody((writer) => {
                   writer.fixedOpaque(session.id).uint32(value.sequence).uint32(value.slot)
-                    .uint32(session.slots.length - 1).uint32(session.slots.length - 1).uint32(0)
+                    .uint32(session.slots.length - 1).uint32(session.slots.length - 1).uint32(statusFlags)
                 })
 
                 // The callback path is probed once, on the first SEQUENCE rather than during
@@ -2648,9 +2701,13 @@ export const makeNfs4Handler = (
                 const reoffered = chooseCallbackSecurity(operation.value.security)
 
                 if (reoffered !== undefined) activeSession.back.security = reoffered
-                // A re-advertised program is the client repairing its callback service, so give
-                // the path another chance rather than leaving it marked down.
-                activeSession.back.healthy = true
+
+                // A re-advertised program is the client repairing its callback service. Clearing
+                // `probed` is what actually gives the new endpoint another chance: health alone
+                // would be a claim no callback has tested. A path with no encodable credential
+                // stays down, because nothing can be sent down it.
+                activeSession.back.probed = false
+                activeSession.back.healthy = activeSession.back.security !== undefined
 
                 return Effect.succeed({ code: operation.code, status: Status.OK })
               }
@@ -3527,15 +3584,18 @@ export const makeNfs4Handler = (
         stateGate.withPermit(
           Effect.uninterruptible(sweepExpired.pipe(Effect.andThen(executeCompound(call))))
         ),
-      callbackReply: (_connection, message) =>
+      callbackReply: (connection, message) =>
         Effect.sync(() => {
           if (message.length < 4) return
           const xid = new DataView(message.buffer, message.byteOffset, message.byteLength).getUint32(0)
           const waiting = pendingCallbacks.get(xid)
 
-          if (waiting === undefined) return
+          // The reply must arrive on the connection the callback went out on. Otherwise any peer
+          // that guessed a live xid could answer another session's callback and make that
+          // session's backchannel look healthy.
+          if (waiting === undefined || waiting.carrier !== connection) return
           pendingCallbacks.delete(xid)
-          Deferred.doneUnsafe(waiting, Effect.succeed(message))
+          Deferred.doneUnsafe(waiting.reply, Effect.succeed(message))
         }),
       probeBackChannel: (id) =>
         Effect.suspend(() => {

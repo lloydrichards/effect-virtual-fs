@@ -31,8 +31,10 @@ const Credentials = Data.taggedEnum<Credentials>()
 export interface Connection {
   readonly id: number
   /**
-   * Writes one record-marked RPC message to the peer, answering false when the connection can no
-   * longer carry it. The server uses this to send callbacks down a session's backchannel.
+   * Writes one RPC message to the peer, answering false when the connection can no longer carry
+   * it. The server uses this to send callbacks down a session's backchannel. The message is an
+   * unframed RPC call; applying record marking is the transport implementation's job, so callers
+   * must not frame it themselves.
    */
   readonly send: (message: Uint8Array) => Effect.Effect<boolean>
 }
