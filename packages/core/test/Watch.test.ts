@@ -50,4 +50,54 @@ describe("volume watch", () => {
       const stream = yield* volume.watch.pipe(Scope.provide(scope))
       assert.isDefined(stream)
     }))
+
+  it.effect("reports every hard link path when a file's metadata changes", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      yield* caller.mkdir("/dir")
+      yield* caller.writeFile("/dir/original", new Uint8Array([1]), { access: "write", create: "ifMissing" })
+      yield* caller.link("/dir/original", "/alias")
+
+      const stream = yield* volume.watch
+
+      const watcher = yield* Stream.runCollect(Stream.take(stream, 2)).pipe(
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* caller.chmod("/dir/original", 0o600)
+
+      const events = yield* Fiber.join(watcher)
+      const paths: Array<string> = []
+
+      for (const event of events) {
+        assert.strictEqual(event._tag, "Update")
+        paths.push(new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+      }
+
+      assert.deepStrictEqual(paths.sort(), ["/alias", "/dir/original"])
+    }))
+
+  it.effect("reports a nested directory's own path when its metadata changes", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      yield* caller.mkdir("/parent")
+      yield* caller.mkdir("/parent/child")
+
+      const stream = yield* volume.watch
+
+      const watcher = yield* Stream.runCollect(Stream.take(stream, 1)).pipe(
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* caller.chmod("/parent/child", 0o700)
+
+      const events = yield* Fiber.join(watcher)
+      const paths: Array<string> = []
+
+      for (const event of events) paths.push(new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+
+      assert.deepStrictEqual(paths, ["/parent/child"])
+    }))
 })
