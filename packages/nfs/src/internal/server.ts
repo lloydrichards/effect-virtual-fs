@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Socket from "effect/unstable/socket/Socket"
@@ -13,6 +14,14 @@ export interface ServerLimits extends RecordLimits, RpcLimits {
 export interface ServerOptions {
   readonly limits: ServerLimits
 }
+
+/**
+ * Opens and immediately closes a connection the server has no permit for. Acquiring the reader is
+ * what opens the underlying socket; a refusal that never acquires one leaves the connection
+ * accepted by the platform but abandoned, holding a file descriptor until the process exits.
+ */
+const refuseConnection = (socket: Socket.Socket): Effect.Effect<void> =>
+  Effect.ignore(Effect.scoped(Effect.asVoid(socket.reader)))
 
 const handleConnection = (
   connection: Connection,
@@ -72,13 +81,18 @@ export const startServer = (
     yield* server.run((socket) => {
       const connection: Connection = { id: connectionSerial++ }
 
-      // FIX(#68): when no permit is available the inner effect never runs, so the accepted
-      // socket is never opened and never destroyed, leaking a file descriptor per refusal.
-      // https://github.com/lloydrichards/effect-virtual-fs/issues/68
       return Semaphore.withPermitsIfAvailable(
         connections,
         1,
         handleConnection(connection, socket, options.limits, handlers)
-      ).pipe(Effect.asVoid)
+      ).pipe(
+        // A refusal never runs `handleConnection`, so the socket is still unopened here and must
+        // be closed explicitly rather than left for the server finalizer, which only tracks
+        // connections that arrived before `run` started.
+        Effect.flatMap(Option.match({
+          onNone: () => refuseConnection(socket),
+          onSome: () => Effect.void
+        }))
+      )
     }).pipe(Effect.forkScoped)
   })

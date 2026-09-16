@@ -546,4 +546,46 @@ describe("NfsServer", () => {
       yield* stranger.close
       yield* Scope.close(scope, Exit.void)
     }))
+
+  it.effect("closes a connection it has no permit for instead of abandoning it", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      const scope = yield* Scope.make()
+
+      const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 }).pipe(Scope.provide(scope))
+
+      // One permit, so the second connection is refused.
+      const server = yield* NfsServer.make({ ...options(volume, caller), limits: { maxConnections: 1 } }).pipe(
+        Effect.provideService(SocketServer.SocketServer, socketServer),
+        Scope.provide(scope)
+      )
+
+      const held = yield* openConnection(server.address.port)
+      const answered = yield* held.send(rpcNull(1))
+      assert.strictEqual(new DataView(answered[0]!.buffer, answered[0]!.byteOffset, 4).getUint32(0), 1)
+
+      // Without an explicit refusal this connection is accepted and then abandoned, so it never
+      // closes and this times out rather than failing an assertion.
+      yield* awaitRejectedConnection(server.address.port, rpcNull(2)).pipe(
+        Effect.timeoutOrElse({
+          duration: "2 seconds",
+          orElse: () => Effect.die("a refused connection was never closed")
+        })
+      )
+
+      // The permit is still held, so the server keeps serving the connection that has it.
+      const stillServing = yield* held.send(rpcNull(3))
+      assert.strictEqual(new DataView(stillServing[0]!.buffer, stillServing[0]!.byteOffset, 4).getUint32(0), 3)
+
+      // Shutting down while a connection is still live must not hang waiting on it.
+      yield* Scope.close(scope, Exit.void).pipe(
+        Effect.timeoutOrElse({
+          duration: "2 seconds",
+          orElse: () => Effect.die("shutdown did not complete with a live connection")
+        })
+      )
+
+      yield* held.close
+    }))
 })
