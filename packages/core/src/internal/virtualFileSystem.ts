@@ -388,11 +388,7 @@ type VolumeSource =
 /** @internal */
 export const VolumeSource = Data.taggedEnum<VolumeSource>()
 
-type VolumeResult =
-  | { readonly _tag: "Volume"; readonly volume: Volume }
-  | { readonly _tag: "Overlay"; readonly volume: OverlayVolume }
-
-const VolumeResult = Data.taggedEnum<VolumeResult>()
+type VolumeFor<S extends VolumeSource> = S extends { readonly _tag: "Overlay" } ? OverlayVolume : Volume
 
 const UpdateChange = Schema.TaggedStruct("Update", { path: BytePath })
 
@@ -400,7 +396,7 @@ const UpdateChange = Schema.TaggedStruct("Update", { path: BytePath })
 
 /** @internal */
 export const makeVolume = Effect.fnUntraced(
-  function*(source: VolumeSource, options?: VolumeOptions) {
+  function*<S extends VolumeSource>(source: S, options?: VolumeOptions) {
     const image = "image" in source ? source.image : undefined
     const decoded = decodeConfiguration(VolumeOptions, options === undefined ? {} : options)
 
@@ -2167,7 +2163,8 @@ export const makeVolume = Effect.fnUntraced(
     })
 
     if (!Predicate.isTagged("Overlay")(source) || baseObservation === undefined) {
-      return VolumeResult.Volume({ volume })
+      // SAFETY: Overlay sources return below, so S is non-Overlay here and VolumeFor<S> is Volume.
+      return volume as VolumeFor<S>
     }
 
     const hook = TestHooks.getObservationHook(source.base)
@@ -2193,28 +2190,21 @@ export const makeVolume = Effect.fnUntraced(
       })
     })
 
-    return VolumeResult.Overlay({ volume: overlay })
+    return overlay
   }
 )
 
 /** @internal */
 export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: VolumeOptions) {
-  const result = yield* makeVolume(VolumeSource.Empty(), options).pipe(Effect.catchTag("ImageError", Effect.die))
-
-  if (Predicate.isTagged("Overlay")(result)) return yield* Effect.die(new Error("empty volume constructed as overlay"))
-
-  return result.volume
+  return yield* makeVolume(VolumeSource.Empty(), options).pipe(Effect.catchTag("ImageError", Effect.die))
 })
 
 /** @internal */
 export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
   function*(snapshot: Snapshot, options?: VolumeOptions) {
     const image = yield* Image.inspect(snapshot)
-    const result = yield* makeVolume(VolumeSource.Snapshot({ image }), options)
 
-    if (Predicate.isTagged("Overlay")(result)) return yield* new ImageError({ code: "InvalidStructure" })
-
-    return result.volume
+    return yield* makeVolume(VolumeSource.Snapshot({ image }), options)
   }
 )
 
@@ -2223,13 +2213,6 @@ export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
   function*(base: Snapshot, options?: VolumeOptions): Effect.fn.Return<OverlayVolume, ConfigurationError | ImageError> {
     const image = yield* Image.inspect(base)
 
-    const result = yield* makeVolume(
-      VolumeSource.Overlay({ base, image }),
-      options
-    )
-
-    if (Predicate.isTagged("Volume")(result)) return yield* new ImageError({ code: "InvalidStructure" })
-
-    return result.volume
+    return yield* makeVolume(VolumeSource.Overlay({ base, image }), options)
   }
 )
