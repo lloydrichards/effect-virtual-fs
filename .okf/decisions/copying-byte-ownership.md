@@ -4,6 +4,10 @@ title: Copying byte ownership
 description: Copies mutable inputs at Effect execution and returns independent read buffers.
 status: stable
 tags: [bytes, ownership, effects]
+sources:
+  - id: core
+    resource: ../../packages/core/src/internal/virtualFileSystem.ts
+    title: Byte input and observation copying
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

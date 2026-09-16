@@ -20,7 +20,7 @@ sources:
   - id: implementation
     resource: ../../packages/core/src/internal/snapshotDelta.ts
     title: Implemented snapshot delta representation and validation
-generated: { by: codex/okf, at: 2026-09-12T14:02:54Z }
+generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 ---
 
 # Portable snapshot delta interface
@@ -41,7 +41,7 @@ The first release includes public encoding and decoding through `SnapshotDeltaFr
 
 `SnapshotDeltaLimits` is one complete resource policy used by delta creation, inspection, encoding, decoding and application. Omitting it selects the finite `SnapshotDeltaLimits.default` preset. `SnapshotDeltaLimits.constrained` is a second frozen preset for memory-sensitive environments. Callers may pass a complete custom value or spread a preset and replace fields. Presets use resource-oriented names rather than runtime or vague size labels.
 
-The constrained preset permits 2 MiB encoded input, 4 MiB canonical identity input, 6,500 stored records plus summary changes, 512 KiB decoded delta bytes, 6,500 base, target and output records, 6,500 namespace entries, 256 KiB output payload and 6,500 inherited records. The default preset permits 16 MiB encoded input, 32 MiB canonical identity input, 50,000 stored records plus changes, 8 MiB decoded delta bytes, 50,000 base and target records, 100,000 entries, 50,000 output records, 4 MiB output payload and 50,000 inherited records.[^implementation]
+The `constrained` and `default` presets bound encoded input, canonical identity input, stored records and summary changes, decoded delta bytes, base, target and output records, namespace entries, output payload and inherited records. Their numeric values live with the implementation and are not repeated here.[^implementation]
 
 The policy bounds encoded input, delta records and decoded delta payload during decoding. Creation, inspection and application also bound base and target records, namespace entries, output payload and inherited-base work. Limit checks occur before publishing a partial delta or reconstructed snapshot.
 
@@ -60,5 +60,7 @@ The public interface, semantic identity and safety rules are stable. Version 1 i
 [^overlay-summary]: Overlay summaries may report renames because the live workspace retains base lineage. Independent snapshot comparison lacks that evidence.
 
 [^snapshots]: Existing snapshots preserve complete reachable state and hard-link relationships through image-local IDs, but those IDs are not stable across images.
+
+[^implementation]: `snapshotDelta.ts` owns the preset values, the version 1 record layout and the canonical hash byte stream.
 
 [^research]: The draft research retains the unresolved representation and measurement work without reopening this public decision.

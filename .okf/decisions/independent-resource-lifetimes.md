@@ -4,6 +4,10 @@ title: Independent resource lifetimes and explicit authority
 description: Separates caller and handle lifetimes while applying the invoking caller's authority to metadata and lookup.
 status: stable
 tags: [resources, lifetimes, authority]
+sources:
+  - id: core
+    resource: ../../packages/core/src/VirtualFileSystem.ts
+    title: Volume, caller, and handle lifetimes
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

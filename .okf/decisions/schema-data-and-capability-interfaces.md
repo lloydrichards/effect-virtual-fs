@@ -4,6 +4,10 @@ title: Schema data and capability interfaces
 description: Uses Schema-derived data models and tagged errors while keeping live resources as capability interfaces.
 status: stable
 tags: [api, schema, modeling]
+sources:
+  - id: core
+    resource: ../../packages/core/src/VirtualFileSystem.ts
+    title: Schema data types and capability interfaces
 generated: { by: codex/okf, at: "2026-09-13T18:05:00+02:00" }
 ---
 

@@ -4,6 +4,10 @@ title: Scope-free root callers
 description: Lets root callers share volume lifetime without a Scope or individual revocation.
 status: stable
 tags: [callers, lifetimes, api]
+sources:
+  - id: core
+    resource: ../../packages/core/src/VirtualFileSystem.ts
+    title: Volume.caller signature without Scope
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

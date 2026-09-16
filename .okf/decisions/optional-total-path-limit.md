@@ -4,6 +4,13 @@ title: Optional total path limit
 description: Makes total path byte limits opt-in per volume and applies them before collapsing and during symlink expansion.
 status: stable
 tags: [paths, limits, configuration]
+sources:
+  - id: paths
+    resource: ../../packages/core/src/internal/virtualFileSystem/path.ts
+    title: Optional total path limit
+  - id: core
+    resource: ../../packages/core/src/internal/virtualFileSystem.ts
+    title: maxPathBytes option
 generated: { by: codex/okf, at: "2026-09-12T00:00:00+02:00" }
 ---
 

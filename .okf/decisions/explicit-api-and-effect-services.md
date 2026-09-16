@@ -4,6 +4,10 @@ title: Explicit API and Effect services
 description: Makes explicit capability objects primary while supporting a thin Effect service layer over identical behavior.
 status: stable
 tags: [api, effect, ownership]
+sources:
+  - id: core
+    resource: ../../packages/core/src/VirtualFileSystem.ts
+    title: Public API and Effect services
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

@@ -11,7 +11,7 @@ sources:
   - id: research
     resource: ../research/overlay-changes.md
     title: Export alternatives and future delta requirements
-generated: { by: codex/okf, at: 2026-09-10T11:48:22Z }
+generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 ---
 
 # Staged overlay delivery
@@ -36,6 +36,6 @@ Existing [whole-volume limits](/contracts/capacity-and-limits.md "preserves") in
 
 ## Deferred and open
 
-Exact delta persistence, a changed-data budget, in-place reset, merge/rebase, and automatic persistence are outside v1. Delta persistence requires its own format, base matching, validation, restoration and base-retention policy. Block/range copying is deferred; no quantified memory or startup guarantee is promised.
+Exact delta persistence, a changed-data budget, in-place reset, merge/rebase, and automatic persistence are outside overlay v1. Portable deltas later landed as their own capability under [portable snapshot deltas](portable-snapshot-deltas.md "refined by"); overlay capture itself still produces complete snapshots, and storing delta bytes in checkpoints remains open. Block/range copying is deferred; no quantified memory or startup guarantee is promised.
 
 Core exports `makeOverlay`, `OverlayVolume`, schema-backed summary records, `changes` and paired `capture`. Directory moves may produce one rename per affected path. Internal storage and lineage remain private.

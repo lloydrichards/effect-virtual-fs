@@ -4,6 +4,10 @@ title: Final-state fixtures
 description: Defines fixtures as validated final trees with deterministic metadata rather than ordered command replays.
 status: stable
 tags: [fixtures, testing, validation]
+sources:
+  - id: fixtures
+    resource: ../../packages/core/src/internal/virtualFileSystem/fixture.ts
+    title: Fixture validation and construction
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

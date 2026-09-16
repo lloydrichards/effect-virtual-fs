@@ -21,9 +21,9 @@ Accepted architectural and behavioral decisions for the virtual filesystem:
 - [Path base selection](./path-base-selection.md)
 - [Path input policy](./path-input-policy.md)
 - [Provisional path limits](./provisional-path-limits.md)
-- [Consolidated first-core contracts](./consolidated-first-core-contracts.md)
+- [Consolidated first-core contracts](./consolidated-first-core-contracts.md) is deprecated; the focused contracts own its rules.
 - [Optional total path limit](./optional-total-path-limit.md)
-- [Remaining implementation profile](./remaining-implementation-profile.md)
+- [Remaining implementation profile](./remaining-implementation-profile.md) is deprecated; the focused contracts own its rules.
 - [Adapter timestamp overflow](./adapter-timestamp-overflow.md)
 - [Reusable capability effects](./reusable-capability-effects.md)
 - [Named checkpoint persistence](./named-checkpoint-persistence.md)

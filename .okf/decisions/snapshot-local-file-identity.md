@@ -4,6 +4,10 @@ title: Snapshot-local file identity
 description: Preserves hard-link relationships across snapshots without promising persistent runtime inode numbers.
 status: stable
 tags: [snapshots, identity, hard-links]
+sources:
+  - id: images
+    resource: ../../packages/core/src/internal/image.ts
+    title: Image-local record identity
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

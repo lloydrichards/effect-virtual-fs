@@ -13,6 +13,12 @@ sources:
     title: Effect compatibility tests
   - resource: ../../packages/memory/test/CoreBinding.test.ts
     title: Shared core binding tests
+  - id: adapter-tests
+    resource: ../../packages/memory/test/MemoryFileSystem.test.ts
+    title: Adapter behavior tests
+  - id: overlay-binding
+    resource: ../../packages/memory/test/OverlayBinding.test.ts
+    title: Overlay volume binding tests
 generated: { by: codex/okf, at: 2026-09-13T14:53:40Z }
 ---
 

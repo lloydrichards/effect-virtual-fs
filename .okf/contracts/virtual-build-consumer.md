@@ -9,6 +9,9 @@ sources:
     title: Virtual build consumer application
   - resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Core behavior tests
+  - id: build-tests
+    resource: ../../apps/virtual-build/test/VirtualBuild.test.ts
+    title: Build and rebuild through public exports
 generated: { by: codex/okf, at: 2026-09-10T00:00:00Z }
 ---
 

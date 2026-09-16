@@ -19,7 +19,7 @@ generated: { by: codex/okf, at: 2026-09-13T09:24:00+02:00 }
 
 # Object references independent of paths
 
-Core exposes canonical opaque `ObjectReference` values for runtime files, directories, and symbolic links. Hard-link aliases and renamed paths return the same reference; replacing a reused path returns a different reference. References are local to one live volume and are excluded from snapshot version 1.[^core][^file-tests]
+Core exposes canonical opaque `ObjectReference` values for runtime files, directories, and symbolic links. Hard-link aliases and renamed paths return the same reference; replacing a reused path returns a different reference.[^link-tests] References are local to one live volume and are excluded from snapshot version 1.[^core][^file-tests]
 
 `Caller` owns reference operations for the volume root, single-component byte-name lookup, directory parent lookup, metadata observation, directory observation, symbolic-link target reads, and scoped read-only file opening. Wire encoding and export identifiers remain adapter responsibilities.
 
@@ -39,4 +39,4 @@ Focused tests demonstrate rename followed by path reuse, hard-link identity, own
 
 [^file-tests]: `ObjectReference.test.ts` exercises the public reference interface and deletion lifetime.
 
-[^link-tests]: Existing link tests ground alias and rename behavior; they do not validate the proposed reference interface.
+[^link-tests]: The link tests ground alias and rename behavior; `ObjectReference.test.ts` covers the reference interface itself.

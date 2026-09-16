@@ -4,6 +4,13 @@ title: Path base selection
 description: Resolves absolute paths from volume root and relative paths from a validated caller or directory base.
 status: stable
 tags: [paths, callers, authority]
+sources:
+  - id: paths
+    resource: ../../packages/core/src/internal/virtualFileSystem/path.ts
+    title: Absolute and base-relative resolution
+  - id: core
+    resource: ../../packages/core/src/internal/virtualFileSystem.ts
+    title: Base selection at lookup
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

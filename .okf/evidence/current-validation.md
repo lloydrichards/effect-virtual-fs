@@ -29,12 +29,23 @@ sources:
   - id: virtual-build-tests
     resource: ../../apps/virtual-build/test/VirtualBuild.test.ts
     title: Public-package virtual build tests
-generated: { by: codex/okf, at: 2026-09-10T09:09:38Z }
+  - id: overlay-tests
+    resource: ../../packages/core/test/Overlay.test.ts
+    title: Overlay workspace tests
+  - id: delta-tests
+    resource: ../../packages/core/test/SnapshotDelta.test.ts
+    title: Snapshot delta tests
+  - id: overlay-checkpoint-tests
+    resource: ../../packages/persistence/test/OverlayCheckpoint.test.ts
+    title: Overlay checkpoint tests
+generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 ---
 
 # Current validation conclusions
 
 The core, memory adapter, [persistence package](/contracts/checkpoint-persistence.md "supported by"), and virtual-build consumer have executable behavioral coverage. The important maintenance conclusion is not an old test count: adapter compatibility must be tested through the core, and public-package consumers must exercise built exports rather than source-only imports.
+
+Later capabilities carry their own focused suites rather than entries here: overlay workspaces and snapshot deltas in core, overlay bindings in the memory adapter, overlay checkpoints in persistence, and the NFS protocol suites. External NFS client evidence lives in the [NFS external suite baseline](nfs-external-suite.md "refined by").
 
 The independent review found defects that the earlier green suite missed. Durable regression areas include final-symlink replacement behavior, copy preserving destination identity and topology, byte-observation ownership, adapter timestamp range conversion, snapshot base64 and decoding boundaries, and externally consumed export artifacts. Those cases should remain focused tests; their historical red and green logs need not remain knowledge concepts.
 

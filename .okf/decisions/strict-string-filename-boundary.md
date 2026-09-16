@@ -4,6 +4,10 @@ title: Strict string filename boundary
 description: Rejects lossy filename conversion while preserving exact byte-oriented access.
 status: stable
 tags: [paths, encoding, bytes]
+sources:
+  - id: paths
+    resource: ../../packages/core/src/internal/virtualFileSystem/path.ts
+    title: String to byte path conversion
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

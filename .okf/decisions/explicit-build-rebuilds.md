@@ -4,6 +4,10 @@ title: Explicit build rebuilds
 description: Uses repeated explicit build calls for initial rebuild acceptance rather than watch-driven rebuilds.
 status: stable
 tags: [consumer, builds, watches]
+sources:
+  - id: build-tests
+    resource: ../../apps/virtual-build/test/VirtualBuild.test.ts
+    title: Repeated build invocation test
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

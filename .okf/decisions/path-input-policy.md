@@ -4,6 +4,10 @@ title: Path input policy
 description: Defines portable UTF-8 string and lossless byte paths without lexical or platform normalization.
 status: stable
 tags: [paths, encoding, portability]
+sources:
+  - id: paths
+    resource: ../../packages/core/src/internal/virtualFileSystem/path.ts
+    title: Path validation
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

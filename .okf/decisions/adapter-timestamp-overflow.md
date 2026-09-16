@@ -4,6 +4,10 @@ title: Adapter timestamp overflow
 description: Converts unrepresentable core timestamps into typed adapter InvalidData failures without altering core metadata.
 status: stable
 tags: [adapter, timestamps, errors]
+sources:
+  - id: adapter
+    resource: ../../packages/memory/src/internal/memoryFileSystem.ts
+    title: Timestamp conversion and InvalidData failures
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 
