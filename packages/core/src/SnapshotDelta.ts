@@ -12,7 +12,7 @@ import * as Internal from "./internal/snapshotDeltaModel.js"
 /**
  * Type identifier for opaque snapshot deltas.
  *
- * @category type ids
+ * @category type IDs
  * @since 0.1.0
  */
 export const SnapshotDeltaTypeId: "@effect-vfs/core/SnapshotDelta" = Internal.SnapshotDeltaTypeId
@@ -20,7 +20,7 @@ export const SnapshotDeltaTypeId: "@effect-vfs/core/SnapshotDelta" = Internal.Sn
 /**
  * Type identifier for opaque snapshot deltas.
  *
- * @category type ids
+ * @category type IDs
  * @since 0.1.0
  */
 export type SnapshotDeltaTypeId = typeof SnapshotDeltaTypeId
@@ -167,7 +167,11 @@ const SnapshotDeltaLimitsSchema = Schema.Struct({
  */
 export type SnapshotDeltaLimits = typeof SnapshotDeltaLimitsSchema.Type
 
-/** Constructs and freezes a complete snapshot-delta resource policy. @internal */
+/**
+ * Constructs and freezes a complete snapshot-delta resource policy.
+ *
+ * @internal
+ */
 export const makeSnapshotDeltaLimits = (limits: SnapshotDeltaLimits): SnapshotDeltaLimits =>
   Object.freeze({ ...limits })
 

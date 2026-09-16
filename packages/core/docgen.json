@@ -1,7 +1,7 @@
 {
   "srcDir": ".cache/docgen-src",
   "outDir": "docs",
-  "enforceVersion": false,
+  "enforceVersion": true,
   "enforceExamples": false,
   "exclude": [
     ".cache/docgen-src/internal/**/*.ts",

@@ -6,7 +6,7 @@ import type { TOCItem } from "~/lib/remark-toc-export"
 import { cn } from "~/lib/utils"
 
 interface TableOfContentsProps {
-  toc: TOCItem[]
+  toc: Array<TOCItem>
   /** Render only the desktop right-rail variant */
   desktopOnly?: boolean
 }
@@ -32,7 +32,7 @@ export function TableOfContents({ toc, desktopOnly }: TableOfContentsProps) {
   return <MobileTOC toc={toc} activeId={activeId} />
 }
 
-function MobileTOC({ toc, activeId }: { toc: TOCItem[]; activeId: string }) {
+function MobileTOC({ toc, activeId }: { toc: Array<TOCItem>; activeId: string }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -56,13 +56,13 @@ function MobileTOC({ toc, activeId }: { toc: TOCItem[]; activeId: string }) {
 
 interface TOCNode {
   item: TOCItem
-  children: TOCNode[]
+  children: Array<TOCNode>
 }
 
 /** Convert flat TOC array into a nested tree */
-function buildTree(items: TOCItem[]): TOCNode[] {
-  const root: TOCNode[] = []
-  const stack: TOCNode[] = []
+function buildTree(items: Array<TOCItem>): Array<TOCNode> {
+  const root: Array<TOCNode> = []
+  const stack: Array<TOCNode> = []
 
   for (const item of items) {
     const node: TOCNode = { item, children: [] }
@@ -92,7 +92,7 @@ function TOCList({
   activeId,
   onClick
 }: {
-  toc: TOCItem[]
+  toc: Array<TOCItem>
   activeId: string
   onClick?: () => void
 }) {

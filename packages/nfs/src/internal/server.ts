@@ -7,10 +7,12 @@ import type * as SocketServer from "effect/unstable/socket/SocketServer"
 import { encodeRecord, RecordDecoder, type RecordLimits, RecordMarkingError } from "./recordMarking.js"
 import { type Connection, handleCall, isReply, type RpcHandlers, type RpcLimits } from "./rpc.js"
 
+/** @internal */
 export interface ServerLimits extends RecordLimits, RpcLimits {
   readonly maxConnections: number
 }
 
+/** @internal */
 export interface ServerOptions {
   readonly limits: ServerLimits
 }
@@ -94,6 +96,7 @@ const handleConnection = (
     )
   })
 
+/** @internal */
 export const startServer = (
   server: SocketServer.SocketServer["Service"],
   options: ServerOptions,

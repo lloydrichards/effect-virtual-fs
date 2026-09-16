@@ -5,8 +5,8 @@ import * as Encoding from "effect/Encoding"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import * as SchemaIssue from "effect/SchemaIssue"
-import { type BytePath } from "../../BytePath.js"
+import type * as SchemaIssue from "effect/SchemaIssue"
+import type { BytePath } from "../../BytePath.js"
 import type { PathInput } from "../../VirtualFileSystem.js"
 import { getBytes as getBytePathBytes, make as makeBytePath } from "../bytePath.js"
 import { ConfigurationError, type FsCode, FsError } from "./errors.js"
@@ -36,9 +36,9 @@ export const nameBytes = (name: string): Uint8Array => {
 /** @internal */
 export const attachedBuffer = (bytes: Uint8Array): boolean => {
   try {
-    new Uint8Array(bytes.buffer, bytes.byteOffset, 0)
+    const probe = new Uint8Array(bytes.buffer, bytes.byteOffset, 0)
 
-    return true
+    return probe.byteLength === 0
   } catch (error) {
     if (error instanceof TypeError) return false
     throw error

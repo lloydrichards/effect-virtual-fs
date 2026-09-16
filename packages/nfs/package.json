@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Experimental read-only NFSv4.1 server for one live Effect VFS volume.",
+  "homepage": "https://github.com/lloydrichards/effect-virtual-fs#readme",
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",

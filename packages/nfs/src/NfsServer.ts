@@ -1,4 +1,13 @@
-/** Models and constructors for the experimental NFSv4.1 server. */
+/**
+ * Models and constructors for the experimental read-only NFSv4.1 server.
+ *
+ * The server exports one live `@effect-vfs/core` volume over NFSv4.1 so that
+ * ordinary NFS clients can mount a virtual filesystem. It implements the
+ * required read-only operation set and answers every other operation with
+ * `NFS4ERR_NOTSUPP`.
+ *
+ * @since 0.1.0
+ */
 import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
@@ -9,7 +18,7 @@ import * as Layer from "effect/Layer"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import * as SchemaIssue from "effect/SchemaIssue"
+import type * as SchemaIssue from "effect/SchemaIssue"
 import type * as Scope from "effect/Scope"
 import * as SocketServer from "effect/unstable/socket/SocketServer"
 import { makeExport } from "./internal/export.js"
@@ -43,14 +52,36 @@ const NameByteSize = PositiveByteSize.check(
   Schema.makeFilter((size) => size <= 255n ? undefined : "must be at most 255 bytes")
 )
 
-/** Schema for a literal IPv4 or IPv6 loopback address. */
+/**
+ * Schema for a literal IPv4 or IPv6 loopback address.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const LoopbackHost = Schema.Literals(["127.0.0.1", "::1"])
 
+/**
+ * A literal IPv4 or IPv6 loopback address.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type LoopbackHost = typeof LoopbackHost.Type
 
-/** Schema for a TCP port, including `0` for an ephemeral port. */
+/**
+ * Schema for a TCP port, including `0` for an ephemeral port.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const Port = Uint32.check(Schema.isLessThanOrEqualTo(65_535))
 
+/**
+ * A TCP port, including `0` for an ephemeral port.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type Port = typeof Port.Type
 
 const NfsServerLimitsSchema = Schema.Struct({
@@ -82,6 +113,12 @@ const NfsServerLimitsSchema = Schema.Struct({
   maxFilehandles: PositiveSafeInteger
 })
 
+/**
+ * Every resource bound enforced by the preview server.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type NfsServerLimits = typeof NfsServerLimitsSchema.Type
 
 const makeNfsServerLimits = (limits: NfsServerLimits): NfsServerLimits => Object.freeze({ ...limits })
@@ -144,13 +181,23 @@ const defaultLimits = makeNfsServerLimits({
   maxFilehandles: 8_192
 })
 
-/** Schema for every resource bound enforced by the preview server, with frozen presets. */
+/**
+ * Schema for every resource bound enforced by the preview server, with frozen presets.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const NfsServerLimits = Object.assign(NfsServerLimitsSchema, {
   constrained,
   default: defaultLimits
 })
 
-/** Schema for selectively overriding the default NFS server resource policy. */
+/**
+ * Schema for selectively overriding the default NFS server resource policy.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const NfsServerLimitOverrides = Schema.Struct({
   maxConnections: Schema.optionalKey(NfsServerLimits.fields.maxConnections),
   maxFragmentBytes: Schema.optionalKey(NfsServerLimits.fields.maxFragmentBytes),
@@ -194,6 +241,12 @@ export const NfsServerLimitOverrides = Schema.Struct({
   maxFilehandles: Schema.optionalKey(NfsServerLimits.fields.maxFilehandles)
 })
 
+/**
+ * A selective override of the default NFS server resource policy.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type NfsServerLimitOverrides = typeof NfsServerLimitOverrides.Type
 
 /** Schema for configuration that can be validated without opening runtime capabilities. */
@@ -204,6 +257,12 @@ const NfsServerConfigSchema = Schema.Struct({
   limits: NfsServerLimits
 })
 
+/**
+ * Complete server configuration.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type NfsServerConfig = typeof NfsServerConfigSchema.Type
 
 const defaultConfig: NfsServerConfig = Object.freeze({
@@ -212,39 +271,85 @@ const defaultConfig: NfsServerConfig = Object.freeze({
   limits: NfsServerLimits.default
 })
 
-/** Complete server configuration schema with a frozen default policy. */
+/**
+ * Complete server configuration schema with a frozen default policy.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const NfsServerConfig = Object.assign(NfsServerConfigSchema, {
   default: defaultConfig
 })
 
-/** Optional configuration accepted when constructing an NFS server. */
+/**
+ * Optional configuration accepted when constructing an NFS server.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const NfsServerConfigOverrides = Schema.Struct({
   leaseDurationSeconds: Schema.optionalKey(PositiveUint32),
   callbackTimeoutSeconds: Schema.optionalKey(PositiveUint32),
   limits: Schema.optionalKey(NfsServerLimitOverrides)
 })
 
+/**
+ * Optional configuration accepted when constructing an NFS server.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type NfsServerConfigOverrides = typeof NfsServerConfigOverrides.Type
 
-/** Schema for the bound server address. */
+/**
+ * Schema for the bound server address.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const NfsServerAddress = Schema.Struct({
   host: LoopbackHost,
   port: Port
 })
 
+/**
+ * The bound server address.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type NfsServerAddress = typeof NfsServerAddress.Type
 
-/** Validated configuration paired with the live volume and caller capabilities. */
+/**
+ * Validated configuration paired with the live volume and caller capabilities.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type NfsServerOptions = NfsServerConfigOverrides & {
   readonly volume: Vfs.Volume
   readonly caller: Vfs.Caller
 }
 
+/**
+ * Raised when a server option fails validation before the server starts.
+ *
+ * The `option` field names the rejected configuration key.
+ *
+ * @category errors
+ * @since 0.1.0
+ */
 export class ConfigurationError extends Data.TaggedError("ConfigurationError")<{
   readonly option: string
   readonly message: string
 }> {}
 
+/**
+ * Raised when the NFS server cannot start or cannot continue listening.
+ *
+ * @category errors
+ * @since 0.1.0
+ */
 export class NfsServerError extends Data.TaggedError("NfsServerError")<{
   readonly cause: unknown
 }> {
@@ -266,7 +371,7 @@ const configurationPath = (
   }
 
   if (Predicate.isTagged(issue, "Composite") || Predicate.isTagged(issue, "AnyOf")) {
-    return issue.issues.length === 0 ? [] : configurationPath(issue.issues[0]!)
+    return issue.issues.length === 0 ? [] : configurationPath(issue.issues[0])
   }
 
   if (Predicate.isTagged(issue, "Filter") || Predicate.isTagged(issue, "Encoding")) {
@@ -395,6 +500,12 @@ const make = (
     return { address }
   })
 
+/**
+ * The running NFS server, exposing the address it bound to.
+ *
+ * @category services
+ * @since 0.1.0
+ */
 export class NfsServer extends Context.Service<NfsServer, {
   readonly address: NfsServerAddress
 }>()(

@@ -15,7 +15,7 @@ export interface TOCItem {
 const remarkTocExport: () => (tree: any) => void = () => {
   // biome-ignore lint/suspicious/noExplicitAny: remark plugins operate on untyped AST nodes
   return (tree: any) => {
-    const headings: TOCItem[] = []
+    const headings: Array<TOCItem> = []
 
     // biome-ignore lint/suspicious/noExplicitAny: unist visitor callback uses untyped nodes
     visit(tree, "heading", (node: any) => {

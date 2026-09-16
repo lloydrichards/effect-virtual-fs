@@ -1,7 +1,7 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { CheckpointError, CheckpointStore } from "@effect-vfs/persistence"
-import { ByteSize, Effect, Layer } from "effect"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
+import { type CheckpointError, CheckpointStore } from "@effect-vfs/persistence"
+import { ByteSize, Effect, type Layer } from "effect"
+import type { SqlClient } from "effect/unstable/sql/SqlClient"
 
 const limits = {
   maxEncodedBytes: ByteSize.kilobytes(100),

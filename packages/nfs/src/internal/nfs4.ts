@@ -11,6 +11,7 @@ import { type InvalidFilehandleError, InvalidNameError, type NfsExport, validate
 import type { CompoundCall, Connection } from "./rpc.js"
 import { type DecodeLimits, Reader, Writer, XdrDecodeError } from "./xdr.js"
 
+/** @internal */
 export const Status = {
   OK: 0,
   PERM: 1,
@@ -73,6 +74,7 @@ export const Status = {
   WRONG_TYPE: 10083
 } as const
 
+/** @internal */
 export const Operation = {
   ACCESS: 3,
   CLOSE: 4,
@@ -306,6 +308,7 @@ const EXCHGID4_FLAG_CONFIRMED_R = 0x8000_0000
 
 const EXCHGID4_ALLOWED_ARGUMENT_FLAGS = 0x4007_0103
 
+/** @internal */
 export interface Nfs4Limits extends DecodeLimits {
   readonly maxRecordBytes: ByteSize.ByteSize
   readonly maxCompoundBytes: ByteSize.ByteSize
@@ -325,6 +328,7 @@ export interface Nfs4Limits extends DecodeLimits {
   readonly maxNameBytes: ByteSize.ByteSize
 }
 
+/** @internal */
 export interface Nfs4Options {
   readonly leaseDurationSeconds: number
   /** How long a callback waits for the client's reply before the path is treated as down. */
@@ -334,6 +338,7 @@ export interface Nfs4Options {
   readonly limits: Nfs4Limits
 }
 
+/** @internal */
 export interface Nfs4Handler {
   readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array>
   readonly disconnect: (connection: Connection) => Effect.Effect<void>
@@ -345,6 +350,7 @@ export interface Nfs4Handler {
   readonly probeBackChannel: (session: Uint8Array) => Effect.Effect<boolean>
 }
 
+/** @internal */
 export const nextSequenceId = (sequence: number): number => (sequence + 1) >>> 0
 
 type ParsedOperation =
@@ -1740,6 +1746,7 @@ const replayReplyBound = (
   return bytes
 }
 
+/** @internal */
 export const makeNfs4Handler = (
   export_: NfsExport,
   options: Nfs4Options

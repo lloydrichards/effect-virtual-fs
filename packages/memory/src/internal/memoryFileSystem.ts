@@ -229,6 +229,9 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
           total += written
 
           if (!chosen.append) position += BigInt(written)
+          // `all` is loop-invariant by design: it selects between a single write and
+          // writing until every byte is consumed.
+          // oxlint-disable-next-line eslint/no-unmodified-loop-condition
         } while (all && total < bytes.length)
 
         return total
@@ -311,7 +314,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
   })
 
   const remove: FileSystem.FileSystem["remove"] = Effect.fn("MemoryFileSystem.remove")(function*(path, options) {
-    const name = path.split("/").filter((part) => part.length > 0).at(-1)
+    const name = path.split("/").findLast((part) => part.length > 0)
 
     if (name === undefined || name === "." || name === "..") {
       return yield* resourceError("remove", path, "Cannot remove root or dot entries")

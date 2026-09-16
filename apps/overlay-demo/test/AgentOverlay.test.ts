@@ -1,7 +1,7 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Fiber, Layer, Predicate, Ref, Stream } from "effect"
-import { LanguageModel, Response } from "effect/unstable/ai"
+import { LanguageModel, type Response } from "effect/unstable/ai"
 import { AgentTurnLimitExceeded, runAgent, type ToolObservation } from "../src/agent.js"
 import { escapeBlock, escapeInline } from "../src/presentation.js"
 
