@@ -2306,13 +2306,43 @@ describe("NFSv4.1 COMPOUND", () => {
       )
     })
 
-  /** An RPC accepted-reply carrying an all-OK CB_COMPOUND result, as a client would answer. */
-  const callbackReplyFor = (request: Uint8Array): Uint8Array => {
-    const xid = new DataView(request.buffer, request.byteOffset, request.byteLength).getUint32(0)
+  /**
+   * An RPC accepted-reply carrying an all-OK CB_SEQUENCE result, echoing the session, sequence and
+   * slot it was sent, exactly as a working client answers.
+   */
+  const callbackReplyFor = (request: Uint8Array, session: Uint8Array): Uint8Array => {
+    const sent = new Reader(request, limits)
+    const xid = sent.uint32()
+
+    // RPC call header: msgtype, rpcvers, prog, vers, proc, then credential and verifier.
+    for (let field = 0; field < 5; field++) sent.uint32()
+    sent.uint32()
+    sent.opaque()
+    sent.uint32()
+    sent.opaque()
+
+    // CB_COMPOUND args: tag, minorversion, callback_ident, argarray count, then CB_SEQUENCE.
+    sent.string()
+    sent.uint32()
+    sent.uint32()
+    sent.uint32()
+    sent.uint32()
+    sent.fixedOpaque(16)
+    const sequence = sent.uint32()
+    const slot = sent.uint32()
 
     return new Writer().uint32(xid).uint32(1).uint32(0).uint32(0).opaque(new Uint8Array()).uint32(0)
-      .uint32(Status.OK).string("probe").uint32(0)
+      .uint32(Status.OK).string("probe").uint32(1)
+      .uint32(11).uint32(Status.OK)
+      .fixedOpaque(session).uint32(sequence).uint32(slot).uint32(slot).uint32(slot)
       .bytes()
+  }
+
+  /** The reply a client's RPC layer sends when it serves no such program. */
+  const programUnavailableFor = (request: Uint8Array): Uint8Array => {
+    const xid = new DataView(request.buffer, request.byteOffset, request.byteLength).getUint32(0)
+
+    return new Writer().uint32(xid).uint32(1).uint32(0).uint32(0).opaque(new Uint8Array()).uint32(1).bytes()
   }
 
   it.effect("sends a CB_COMPOUND whose CB_SEQUENCE and RPC version match the errata", () =>
@@ -2359,8 +2389,20 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(reader.uint32(), 0, "csa_slotid")
       assert.strictEqual(reader.uint32(), 3, "csa_highest_slotid is the last of four slots")
 
-      yield* handler.callbackReply(client, callbackReplyFor(sent))
+      yield* handler.callbackReply(client, callbackReplyFor(sent, session))
       assert.isTrue(yield* Fiber.join(probe), "the client answered, so the path is up")
+
+      // A working path must not be reported as down.
+      const reply = new Reader(yield* handler.compound(call([sequence(session, 1)], "probe", client)), limits)
+      assert.strictEqual(reply.uint32(), Status.OK)
+      reply.string()
+
+      for (let field = 0; field < 3; field++) reply.uint32()
+      reply.fixedOpaque(16)
+
+      for (let field = 0; field < 4; field++) reply.uint32()
+
+      assert.strictEqual(reply.uint32(), 0, "sr_status_flags is clear while the path is up")
     }))
 
   // A real timeout needs the live clock: it.effect runs on the test clock, which never advances.
@@ -2562,7 +2604,7 @@ describe("NFSv4.1 COMPOUND", () => {
 
       // The same xid, answered by a connection the callback never went out on, must not complete
       // it — otherwise any peer could make another session's backchannel look healthy.
-      yield* handler.callbackReply(impostor, callbackReplyFor(sent))
+      yield* handler.callbackReply(impostor, callbackReplyFor(sent, session))
       assert.isFalse(yield* Fiber.join(probe), "the impostor reply was ignored and the probe timed out")
     }))
 
@@ -2629,5 +2671,204 @@ describe("NFSv4.1 COMPOUND", () => {
       yield* handler.compound(call([sequence(session, 4)], "probe", client))
       yield* Effect.sleep("30 millis")
       assert.strictEqual(attempts, 2, "the repaired endpoint is probed again")
+    }))
+
+  it.live("treats an RPC-level rejection as a callback path that is down", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("50 millis")
+      let sent: Uint8Array | undefined
+
+      const client = connection(1, (message) => {
+        sent = message
+
+        return true
+      })
+
+      const { session } = yield* startSession(handler, "progunavail", {}, new Uint8Array(8), client, 2)
+      const probe = yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+
+      assert.isDefined(sent)
+
+      // A client whose RPC layer serves no such program answers a well-formed REPLY carrying
+      // PROG_UNAVAIL. That is not a working callback path.
+      yield* handler.callbackReply(client, programUnavailableFor(sent))
+      assert.isFalse(yield* Fiber.join(probe), "PROG_UNAVAIL is not success")
+    }))
+
+  it.live("does not advance the backchannel slot sequence when a callback goes unanswered", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("30 millis")
+      const seen: Array<number> = []
+      let answer = false
+
+      const client = connection(1, (message) => {
+        const reader = new Reader(message, limits)
+
+        // xid, msgtype, rpcvers, prog, vers, proc, then credential and verifier.
+        for (let field = 0; field < 6; field++) reader.uint32()
+        reader.uint32()
+        reader.opaque()
+        reader.uint32()
+        reader.opaque()
+
+        // tag, minorversion, callback_ident, argarray count, opcode, then csa_sessionid.
+        reader.string()
+
+        for (let field = 0; field < 4; field++) reader.uint32()
+        reader.fixedOpaque(16)
+        seen.push(reader.uint32())
+
+        return answer
+      })
+
+      const { session } = yield* startSession(handler, "seqid", {}, new Uint8Array(8), client, 2)
+
+      // Section 2.10.6.1.3: the slot's sequence ID advances only on NFS4_OK. A client that never
+      // answered still has the previous value cached, so a retry must reuse the same one.
+      assert.isFalse(yield* handler.probeBackChannel(session))
+      assert.isFalse(yield* handler.probeBackChannel(session))
+      assert.deepStrictEqual(seen, [1, 1], "the unanswered sequence id is reused")
+
+      answer = true
+      yield* handler.probeBackChannel(session)
+      assert.deepStrictEqual(seen, [1, 1, 1], "still the same sequence until one is accepted")
+    }))
+
+  /** An AUTH_SYS callback credential too large for RFC 5531's 400-byte opaque_auth body. */
+  const oversizedAuthSys = (writer: Writer) => {
+    writer.uint32(1).uint32(0).string("m".repeat(500)).uint32(0).uint32(0).array([], () => undefined)
+  }
+
+  const credentialFlavorOf = (message: Uint8Array): number => {
+    const reader = new Reader(message, limits)
+
+    for (let field = 0; field < 6; field++) reader.uint32()
+
+    return reader.uint32()
+  }
+
+  it.effect("prefers an offered AUTH_NONE over an offered AUTH_SYS callback credential", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("2 seconds")
+      let sent: Uint8Array | undefined
+
+      const client = connection(1, (message) => {
+        sent = message
+
+        return true
+      })
+
+      // Both offered: AUTH_NONE is preferred because it carries no identity.
+      const { session } = yield* startSession(
+        handler,
+        "both",
+        {},
+        new Uint8Array(8),
+        client,
+        2,
+        (writer) =>
+          writer.array([0, 1], (item, flavor) => {
+            if (flavor === 0) item.uint32(0)
+            else authSysCallback(item)
+          })
+      )
+
+      yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+
+      assert.isDefined(sent)
+      assert.strictEqual(credentialFlavorOf(sent), 0, "AUTH_NONE preferred")
+    }))
+
+  it.effect("refuses an AUTH_SYS callback credential that cannot fit an RPC opaque_auth body", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("2 seconds")
+
+      const client = connection(1, () => {
+        throw new Error("an unsendable credential must not produce a callback")
+      })
+
+      const { session } = yield* startSession(
+        handler,
+        "oversized",
+        {},
+        new Uint8Array(8),
+        client,
+        2,
+        (writer) => writer.array([undefined], (item) => oversizedAuthSys(item))
+      )
+
+      assert.isFalse(yield* handler.probeBackChannel(session))
+    }))
+
+  it.live("probes again when a new connection binds the backchannel", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("20 millis")
+      let attempts = 0
+
+      const first = connection(1, () => {
+        attempts++
+
+        return false
+      })
+
+      const second = connection(2, () => {
+        attempts++
+
+        return false
+      })
+
+      const { session } = yield* startSession(handler, "rebind", {}, new Uint8Array(8), first, 2)
+
+      yield* handler.compound(call([sequence(session, 1)], "probe", first))
+      yield* Effect.sleep("40 millis")
+      assert.strictEqual(attempts, 1)
+
+      // Section 18.34.4: binding a new connection to the backchannel is the repair the
+      // CB_PATH_DOWN_SESSION flag asks for, so the path must be tried again.
+      yield* handler.compound(call(
+        [(writer) => writer.uint32(Operation.BIND_CONN_TO_SESSION).fixedOpaque(session).uint32(7).boolean(false)],
+        "probe",
+        second
+      ))
+
+      yield* handler.compound(call([sequence(session, 2)], "probe", second))
+      yield* Effect.sleep("60 millis")
+      assert.isAbove(attempts, 1, "the rebound path is probed again")
+    }))
+
+  it.live("marks the path down when its last backchannel connection goes away", () =>
+    Effect.gen(function*() {
+      const handler = yield* backChannelHandler("2 seconds")
+      let sent: Uint8Array | undefined
+
+      const carrier = connection(1, (message) => {
+        sent = message
+
+        return true
+      })
+
+      const other = connection(2)
+      const { session } = yield* startSession(handler, "lost", {}, new Uint8Array(8), carrier, 2)
+      const probe = yield* Effect.forkChild(handler.probeBackChannel(session))
+      yield* Effect.yieldNow
+      yield* handler.callbackReply(carrier, callbackReplyFor(sent!, session))
+      assert.isTrue(yield* Fiber.join(probe))
+
+      // Losing the only connection bound to the backchannel makes the path unreachable, whatever
+      // the last probe said.
+      yield* handler.disconnect(carrier)
+
+      const reply = new Reader(yield* handler.compound(call([sequence(session, 1)], "probe", other)), limits)
+      assert.strictEqual(reply.uint32(), Status.OK)
+      reply.string()
+
+      for (let field = 0; field < 3; field++) reply.uint32()
+      reply.fixedOpaque(16)
+
+      for (let field = 0; field < 4; field++) reply.uint32()
+
+      assert.strictEqual(reply.uint32(), 0x0000_0200, "SEQ4_STATUS_CB_PATH_DOWN_SESSION")
     }))
 })
