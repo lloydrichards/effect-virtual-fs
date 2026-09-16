@@ -6,6 +6,8 @@
   "scripts": {
     "build": "tsc --noEmit",
     "start": "bun run src/main.ts",
+    "conformance": "bun run src/conformance.ts",
+    "verify-mount": "bash scripts/verify-mount.sh",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

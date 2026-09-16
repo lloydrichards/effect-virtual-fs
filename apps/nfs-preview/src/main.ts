@@ -44,7 +44,7 @@ const program = Effect.scoped(
     )
     yield* Effect.log("Mount separately on macOS:")
     yield* Effect.log(
-      "sudo mount_nfs -o vers=4.1,tcp,sec=sys,port=2049,actimeo=1,noowners,ro 127.0.0.1:/ /Volumes/effect-vfs-nfs-preview"
+      "sudo mount_nfs -o vers=4.1,tcp,sec=sys,port=2049,actimeo=1,noowners 127.0.0.1:/ /Volumes/effect-vfs-nfs-preview"
     )
 
     return yield* Effect.never

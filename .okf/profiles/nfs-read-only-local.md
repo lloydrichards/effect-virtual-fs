@@ -17,7 +17,7 @@ sources:
   - id: rfc8881
     resource: https://www.rfc-editor.org/rfc/rfc8881.html
     title: RFC 8881 NFSv4.1
-generated: { by: claude/okf, at: 2026-09-15T17:30:00+02:00 }
+generated: { by: claude/okf, at: 2026-09-15T23:00:00+02:00 }
 ---
 
 # NFS read-only-local profile
@@ -40,9 +40,9 @@ generated: { by: claude/okf, at: 2026-09-15T17:30:00+02:00 }
 
 ## Current state
 
-The dispatcher implements twenty operations, rejects six mutating operations with `NFS4ERR_ROFS`, and answers every other opcode with `NFS4ERR_OP_ILLEGAL`.[^dispatcher] The remaining gaps for this profile, including the `NFS4ERR_RESOURCE` code that NFSv4.1 does not define, are itemized in the [operations ledger](/research/nfs-operations-ledger.md "evidenced by"), the [attributes ledger](/research/nfs-attributes-ledger.md "evidenced by"), and the [protocol rules ledger](/research/nfs-protocol-rules-ledger.md "evidenced by") and owned by issue #43.
+Every REQUIRED operation has an operation-valid answer: the read path is implemented, mutating operations return `NFS4ERR_ROFS` after structural checks, the five NFSv4.0 operations and every unimplemented OPTIONAL operation return `NFS4ERR_NOTSUPP`, and only undefined opcodes return `NFS4ERR_OP_ILLEGAL`.[^dispatcher] Client records follow the EXCHANGE_ID cases of RFC 8881 Section 18.35.4, and no error code outside NFSv4.1 is emitted. Row-level status lives in the [operations ledger](/research/nfs-operations-ledger.md "evidenced by"), the [attributes ledger](/research/nfs-attributes-ledger.md "evidenced by"), and the [protocol rules ledger](/research/nfs-protocol-rules-ledger.md "evidenced by"). The remaining `gap` rows for this profile are the space and file-count attributes, which need live usage from core (#46), and `SP4_MACH_CRED` handling (#45).
 
-This profile is `experimental` until the pinned pynfs read-side run exists, and `preview` once the Linux CI mount and documented macOS mount exist. The package README states the current maturity.[^readme] The profile is [constrained by explicit caller privilege](/decisions/explicit-caller-privilege.md "constrained by") and reuses the core [object references](/research/object-references.md "depends on") and [mutation revisions](/research/mutation-revisions.md "depends on") for filehandle identity and change attributes.
+This profile is `experimental`: the focused protocol suites pass and the [external suite baseline](/evidence/nfs-external-suite.md "supported by") records a pinned pynfs run with every failure classified and a macOS 26.6.2 client run passing every scripted read-side check. It becomes `preview` once the Linux CI mount and documented macOS 26 mount exist. The package README states the current maturity.[^readme] The profile is [constrained by explicit caller privilege](/decisions/explicit-caller-privilege.md "constrained by") and reuses the core [object references](/research/object-references.md "depends on") and [mutation revisions](/research/mutation-revisions.md "depends on") for filehandle identity and change attributes.
 
 [^rfc8881]: Sections 2.2.1.1.1, 2.10.3, 2.10.5, and 17.
 
