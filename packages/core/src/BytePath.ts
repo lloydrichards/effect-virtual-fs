@@ -45,7 +45,7 @@ export type BytePathId = typeof BytePathId
  *     create: "exclusive"
  *   })
  *
- *   // `readDirectory` would fail here; the byte variant preserves the name.
+ *   // `readDirectory` fails `UnrepresentableName` here; the byte variant keeps it.
  *   return yield* caller.readDirectoryBytes("/")
  * })
  *

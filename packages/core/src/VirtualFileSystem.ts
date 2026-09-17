@@ -56,6 +56,12 @@ const ObjectReferenceId: typeof VfsModel.ObjectReferenceId = VfsModel.ObjectRefe
 /**
  * A UTF-8 string path or an opaque byte-preserving path.
  *
+ * **Details**
+ *
+ * Every operation accepts both. Pass a string unless a name is not valid UTF-8;
+ * strings are the normal case and byte paths are the escape hatch.
+ *
+ * @see {@link BytePath} for the byte-preserving form.
  * @category models
  * @since 0.1.0
  */
@@ -699,18 +705,18 @@ export interface Caller {
   ) => Effect.Effect<void, FsError>
   /** Creates a symbolic link. The target bytes are stored without resolving them. */
   readonly symlink: (target: PathInput, path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
-  /** Reads a symbolic-link target as UTF-8, failing with `UnrepresentableName` for other bytes. */
+  /** Reads a symbolic-link target as UTF-8, failing `UnrepresentableName` for other bytes. See `readLinkBytes`. */
   readonly readLink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsError>
   /** Reads a symbolic-link target as owned bytes. */
   readonly readLinkBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsError>
-  /** Reads directory names as UTF-8, failing if any name is not representable. */
+  /** Reads directory names as UTF-8, failing `UnrepresentableName` for other bytes. See `readDirectoryBytes`. */
   readonly readDirectory: (path: PathInput, options?: RelativeOptions) => Effect.Effect<ReadonlyArray<string>, FsError>
   /** Reads directory names as owned byte arrays. */
   readonly readDirectoryBytes: (
     path: PathInput,
     options?: RelativeOptions
   ) => Effect.Effect<ReadonlyArray<Uint8Array>, FsError>
-  /** Resolves links and normalizes a path as UTF-8. */
+  /** Resolves links and normalizes a path as UTF-8, failing `UnrepresentableName` for other bytes. See `realPathBytes`. */
   readonly realPath: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsError>
   /** Resolves links and normalizes a path without requiring UTF-8 names. */
   readonly realPathBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<BytePath, FsError>
@@ -981,31 +987,26 @@ export type CurrentFileSystem = VfsModel.CurrentFileSystem
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import { ByteSize, Effect } from "effect"
+ * import { Effect } from "effect"
  *
+ * // Bytes are portable: store or transmit them, then decode under explicit limits.
  * const program = Effect.gen(function*() {
  *   const volume = yield* Vfs.make()
+ *   const caller = yield* volume.caller()
  *
- *   yield* (yield* volume.caller()).writeFile("/f", new Uint8Array([1, 2, 3]), {
+ *   yield* caller.writeFile("/f", new Uint8Array([1, 2, 3]), {
  *     access: "write",
  *     create: "exclusive"
  *   })
  *
- *   // Bytes are portable; store or transmit them, then decode under explicit limits.
  *   const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
  *
- *   const restored = yield* Vfs.decodeSnapshot(bytes, {
- *     maxEncodedBytes: ByteSize.megabytes(4),
- *     maxRecords: 10_000,
- *     maxEntries: 10_000,
- *     maxDecodedBytes: ByteSize.megabytes(16)
- *   })
- *
- *   return yield* (yield* (yield* Vfs.fromSnapshot(restored)).caller()).readFile("/f")
+ *   // The bytes are UTF-8 JSON carrying the version 1 snapshot format.
+ *   return JSON.parse(new TextDecoder().decode(bytes)).version
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // Uint8Array(3) [ 1, 2, 3 ]
+ * // 1
  * ```
  *
  * @category serialization
@@ -1069,6 +1070,7 @@ const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
  * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
+ * // Two snapshots in, one opaque delta out. `inspectSnapshotDelta` reads it.
  * const program = Effect.gen(function*() {
  *   const volume = yield* Vfs.make()
  *   const caller = yield* volume.caller()
@@ -1081,11 +1083,13 @@ const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
  *
  *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
  *
- *   return (yield* Vfs.inspectSnapshotDelta(base, delta)).map((change) => change._tag)
+ *   const changes = yield* Vfs.inspectSnapshotDelta(base, delta)
+ *
+ *   return new TextDecoder().decode(yield* Vfs.pathToBytes(changes[0]!.path))
  * }).pipe(Effect.provide(NodeCrypto.layer))
  *
  * Effect.runPromise(program).then(console.log)
- * // [ 'Added' ]
+ * // /added.txt
  * ```
  *
  * @category snapshots
@@ -1170,8 +1174,10 @@ export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshot
  *
  *   // Applying the delta to the same base reproduces the target snapshot.
  *   const applied = yield* Vfs.applySnapshotDelta(base, delta)
+ *   const restored = yield* Vfs.fromSnapshot(applied)
+ *   const reader = yield* restored.caller()
  *
- *   return yield* (yield* (yield* Vfs.fromSnapshot(applied)).caller()).readFile("/f")
+ *   return yield* reader.readFile("/f")
  * }).pipe(Effect.provide(NodeCrypto.layer))
  *
  * Effect.runPromise(program).then(console.log)
@@ -1269,7 +1275,8 @@ export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDelta
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
- * // Any byte except NUL is accepted; a NUL byte fails with `InvalidPathEncoding`.
+ * // Any byte except NUL is accepted. Empty, NUL-bearing, detached, and shared-memory
+ * // input all fail with `InvalidArgument`.
  * const program = Effect.gen(function*() {
  *   const path = yield* Vfs.pathFromBytes(new Uint8Array([47, 116, 109, 112]))
  *
