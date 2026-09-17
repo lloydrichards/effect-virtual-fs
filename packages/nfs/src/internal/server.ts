@@ -89,9 +89,8 @@ const handleConnection = (
       Effect.catchTag("RecordMarkingError", () => Effect.void),
       Effect.catchReason("SocketError", "SocketCloseError", () => Effect.void),
       // A connection that ends for any reason releases the session state it was associated with.
-      // FIX(#70): this finalizer runs uninterruptibly and waits on the handler's state gate, so
-      // shutdown can stall behind an in-flight compound.
-      // https://github.com/lloydrichards/effect-virtual-fs/issues/70
+      // `Effect.ensuring` runs this uninterruptibly, so `disconnect` must never block; see the
+      // note on the handler's `disconnect`, which is deliberately gate-free for that reason.
       Effect.ensuring(Effect.suspend(() => opened === undefined ? Effect.void : handlers.disconnect(opened)))
     )
   })
