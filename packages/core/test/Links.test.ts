@@ -110,4 +110,15 @@ describe("links and byte namespace", () => {
       assert.strictEqual((yield* Effect.flip(fs.readLink("/alias"))).code, "UnrepresentableName")
       assert.deepStrictEqual(yield* fs.readLinkBytes("/alias"), new Uint8Array([47, 255]))
     }))
+
+  it.effect("names the traversed path, not the expansion, when a symlink target breaks a limit", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      yield* fs.symlink("a".repeat(300), "/link")
+
+      const failed = yield* Effect.flip(fs.readFile("/link"))
+
+      assert.strictEqual(failed.code, "PathTooLong")
+      assert.strictEqual(failed.path, "/link")
+    }))
 })
