@@ -866,6 +866,37 @@ export interface Caller {
 /**
  * A committed namespace or content change emitted by a volume watch stream.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect, Fiber, Stream } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const caller = yield* volume.caller()
+ *
+ *   const watcher = yield* volume.watch.pipe(
+ *     Effect.flatMap((stream) => Stream.runCollect(Stream.take(stream, 2))),
+ *     Effect.forkChild({ startImmediately: true })
+ *   )
+ *
+ *   yield* caller.mkdir("/logs")
+ *   yield* caller.rmdir("/logs")
+ *
+ *   // Each event pairs the kind of change with the absolute path it happened to.
+ *   const events = yield* Fiber.join(watcher)
+ *
+ *   return yield* Effect.forEach(events, (change) =>
+ *     Effect.map(
+ *       Vfs.pathToBytes(change.path),
+ *       (bytes) => `${change._tag} ${new TextDecoder().decode(bytes)}`
+ *     ))
+ * }).pipe(Effect.scoped)
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 'Create /logs', 'Remove /logs' ]
+ * ```
+ *
  * @category models
  * @since 0.1.0
  */
@@ -969,6 +1000,36 @@ export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
 
 /**
  * A complete snapshot and final-difference summary captured from one committed state.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const base = yield* Vfs.make()
+ *   const workspace = yield* Vfs.makeOverlay(yield* base.snapshot)
+ *
+ *   yield* (yield* workspace.caller()).writeFile("/out.txt", new TextEncoder().encode("built"), {
+ *     access: "write",
+ *     create: "exclusive"
+ *   })
+ *
+ *   // One committed state: the summary describes exactly the snapshot beside it,
+ *   // so restoring from it cannot disagree with the change list.
+ *   const captured = yield* workspace.capture()
+ *   const restored = yield* Vfs.fromSnapshot(captured.snapshot)
+ *   const reader = yield* restored.caller()
+ *
+ *   return [
+ *     captured.changes.map((change) => change._tag),
+ *     new TextDecoder().decode(yield* reader.readFile("/out.txt"))
+ *   ]
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ [ 'Added' ], 'built' ]
+ * ```
  *
  * @category models
  * @since 0.1.0
