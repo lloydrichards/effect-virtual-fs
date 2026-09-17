@@ -2198,10 +2198,14 @@ export const makeVolume = Effect.fnUntraced(
       return Result.isFailure(decoded) ? Effect.fail(decoded.failure) : Effect.succeed(decoded.success)
     }
 
+    // An overlay is a spread copy of `volume`, so the object the caller holds is not always the one
+    // built here. `watch` runs lazily, so it reads whichever surface was actually handed out.
+    let surface: Volume
+
     const volume: Volume = Object.freeze({
       [VolumeId]: true as const,
       watch: Effect.gen(function*() {
-        const hook = TestHooks.getRegistrationHook(volume)
+        const hook = TestHooks.getRegistrationHook(surface)
 
         return yield* watchHub.subscribe(hook?.afterSubscribe)
       }).pipe(Effect.withSpan("Volume.watch")),
@@ -2221,6 +2225,8 @@ export const makeVolume = Effect.fnUntraced(
         )
       })
     })
+
+    surface = volume
 
     if (!Predicate.isTagged("Overlay")(source) || baseObservation === undefined) {
       // SAFETY: Overlay sources return below, so S is non-Overlay here and VolumeFor<S> is Volume.
@@ -2249,6 +2255,8 @@ export const makeVolume = Effect.fnUntraced(
         })
       })
     })
+
+    surface = overlay
 
     return overlay
   }
