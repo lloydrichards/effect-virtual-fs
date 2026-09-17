@@ -42,4 +42,4 @@ Not started. Identity mapping is owned by #74 and non-loopback binding by #75. T
 
 [^rfc8881]: Sections 2.2.1.1, 2.6, 5.9, and 21.
 
-[^server]: Today `NfsServerOptions` takes one privileged `Caller`; the networked variant adds `volume` plus `policy` as an options union.
+[^server]: Today `NfsServerOptions` takes one privileged `Caller`; the networked variant adds `volume` plus `policy` alongside it; #74 settles whether that is one options union or two constructors.
