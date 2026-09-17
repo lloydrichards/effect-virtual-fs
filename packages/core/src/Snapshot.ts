@@ -84,9 +84,10 @@ export class ImageError extends Data.TaggedError("ImageError")<{
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import { ByteSize, Effect, Schema } from "effect"
+ * import { ByteSize, Effect } from "effect"
  *
- * // Each limit bounds a separate resource, so all four are required.
+ * // All four are required: each bounds a different resource. `maxEncodedBytes`
+ * // caps the wire payload before parsing; `maxDecodedBytes` caps memory after it.
  * const limits: Vfs.DecodeLimits = {
  *   maxEncodedBytes: ByteSize.megabytes(4),
  *   maxRecords: 10_000,
@@ -95,11 +96,16 @@ export class ImageError extends Data.TaggedError("ImageError")<{
  * }
  *
  * const program = Effect.gen(function*() {
- *   const checked = yield* Schema.decodeEffect(Vfs.DecodeLimits)(limits)
- *   const bytes = yield* Vfs.encodeSnapshot(yield* (yield* Vfs.make()).snapshot)
+ *   const volume = yield* Vfs.make()
+ *   const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
  *
- *   return yield* Vfs.decodeSnapshot(bytes, checked)
+ *   yield* Vfs.decodeSnapshot(bytes, limits)
+ *
+ *   return "accepted"
  * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // accepted
  * ```
  *
  * @category schemas

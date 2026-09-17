@@ -54,8 +54,9 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  *
  * **Gotchas**
  *
- * Reusing this layer value in one layer graph shares the volume through layer
- * memoization. Wrap it with `Layer.fresh` when each use needs separate state.
+ * Reusing this layer value within a single layer graph shares one volume through
+ * layer memoization. Wrap it with `Layer.fresh` when each use needs separate
+ * state. Separate graphs, such as one per test, already get separate volumes.
  *
  * @example
  * ```ts
@@ -78,11 +79,38 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  *
  * @example
  * ```ts
- * // Layer memoization shares one volume; `Layer.fresh` gives each use its own.
  * import { MemoryFileSystem } from "@effect-vfs/memory"
- * import { Layer } from "effect"
+ * import { Effect, FileSystem, Layer } from "effect"
  *
- * const isolated = Layer.fresh(MemoryFileSystem.layer)
+ * const write = Effect.gen(function*() {
+ *   const fs = yield* FileSystem.FileSystem
+ *
+ *   yield* fs.writeFileString("/shared.txt", "written")
+ * })
+ *
+ * const exists = Effect.gen(function*() {
+ *   const fs = yield* FileSystem.FileSystem
+ *
+ *   return yield* fs.exists("/shared.txt")
+ * })
+ *
+ * const program = Effect.gen(function*() {
+ *   // One layer value in one graph is memoized, so both effects share a volume.
+ *   const shared = yield* Effect.andThen(write, exists).pipe(
+ *     Effect.provide(MemoryFileSystem.layer)
+ *   )
+ *
+ *   // `Layer.fresh` builds the layer again, giving each use its own volume.
+ *   const isolated = yield* Effect.andThen(
+ *     write.pipe(Effect.provide(Layer.fresh(MemoryFileSystem.layer))),
+ *     exists.pipe(Effect.provide(Layer.fresh(MemoryFileSystem.layer)))
+ *   )
+ *
+ *   return [shared, isolated]
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ true, false ]
  * ```
  *
  * @see {@link make} for constructing the service directly.
