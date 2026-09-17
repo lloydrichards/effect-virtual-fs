@@ -26,6 +26,35 @@ export declare const fromFixture: (
 ) => Effect.Effect<Volume, ConfigurationError | ImageError>
 ```
 
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const encoder = new TextEncoder()
+
+const program = Effect.gen(function* () {
+  // Parent directories must be listed explicitly, before their children.
+  const volume = yield* Vfs.fromFixture({
+    entries: [
+      { kind: "directory", path: "/project" },
+      {
+        kind: "file",
+        path: "/project/package.json",
+        bytes: encoder.encode(`{"version":"1.2.3"}`)
+      },
+      { kind: "symlink", path: "/project/latest", target: "/project/package.json" }
+    ]
+  })
+
+  return yield* (yield* volume.caller()).readDirectory("/project")
+})
+
+Effect.runPromise(program).then(console.log)
+// [ "latest", "package.json" ]
+```
+
 Added in v0.1.0
 
 ### fromSnapshot
@@ -39,6 +68,28 @@ export declare const fromSnapshot: (
   snapshot: Snapshot,
   options?: VolumeOptions
 ) => Effect.Effect<Volume, ConfigurationError | ImageError>
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const original = yield* Vfs.make()
+  const caller = yield* original.caller()
+
+  yield* caller.writeFile("/seed.txt", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
+
+  // Restoration always produces an independent volume.
+  const restored = yield* Vfs.fromSnapshot(yield* original.snapshot)
+
+  return yield* (yield* restored.caller()).readFile("/seed.txt")
+})
+
+Effect.runPromise(program).then(console.log)
+// Uint8Array [ 1, 2, 3 ]
 ```
 
 Added in v0.1.0
@@ -56,6 +107,26 @@ arise because this constructor does not accept persisted input.
 
 ```ts
 export declare const make: (options?: VolumeOptions) => Effect.Effect<Volume, ConfigurationError>
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.make()
+  const caller = yield* volume.caller()
+
+  yield* caller.mkdir("/work")
+  yield* caller.writeFile("/work/notes.txt", new Uint8Array([104, 105]), { access: "write", create: "exclusive" })
+
+  return yield* caller.readFile("/work/notes.txt")
+})
+
+Effect.runPromise(program).then(console.log)
+// Uint8Array [ 104, 105 ]
 ```
 
 Added in v0.1.0
@@ -81,6 +152,35 @@ export declare const makeOverlay: (
   base: Snapshot,
   options?: VolumeOptions
 ) => Effect.Effect<OverlayVolume, ConfigurationError | ImageError>
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const base = yield* Vfs.make()
+
+  yield* (yield* base.caller()).writeFile("/config.json", new Uint8Array([123, 125]), {
+    access: "write",
+    create: "exclusive"
+  })
+
+  // Writes land in the workspace; the base snapshot is never modified.
+  const workspace = yield* Vfs.makeOverlay(yield* base.snapshot)
+
+  yield* (yield* workspace.caller()).writeFile("/config.json", new Uint8Array([91, 93]), {
+    access: "write",
+    truncate: true
+  })
+
+  return (yield* workspace.changes()).map((change) => change._tag)
+})
+
+Effect.runPromise(program).then(console.log)
+// [ "Update" ]
 ```
 
 Added in v0.1.0
@@ -249,6 +349,38 @@ export interface Caller {
     options?: RelativeOptions
   ) => Effect.Effect<DirectoryHandle, FsError, Scope.Scope>
 }
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.make()
+
+  // Each caller carries its own uid, gid, umask, and current directory.
+  const root = yield* volume.caller()
+  const user = yield* volume.caller({
+    identity: { uid: 1000, gid: 1000, groups: [], privileged: false }
+  })
+
+  yield* root.mkdir("/shared", { mode: 0o755 })
+
+  // The unprivileged caller cannot write into a root-owned directory.
+  const denied = yield* Effect.flip(
+    user.writeFile("/shared/f", new Uint8Array([1]), {
+      access: "write",
+      create: "exclusive"
+    })
+  )
+
+  return denied.code
+})
+
+Effect.runPromise(program).then(console.log)
+// "PermissionDenied"
 ```
 
 Added in v0.1.0
@@ -519,6 +651,31 @@ export interface OverlayVolume extends Volume {
 }
 ```
 
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const base = yield* Vfs.make()
+  const workspace = yield* Vfs.makeOverlay(yield* base.snapshot)
+
+  yield* (yield* workspace.caller()).writeFile("/added.txt", new Uint8Array([1]), {
+    access: "write",
+    create: "exclusive"
+  })
+
+  // `capture` pairs one committed snapshot with the summary describing it.
+  const captured = yield* workspace.capture()
+
+  return captured.changes.map((change) => change._tag)
+})
+
+Effect.runPromise(program).then(console.log)
+// [ "Create" ]
+```
+
 Added in v0.1.0
 
 ### OwnerUpdate (type alias)
@@ -612,6 +769,28 @@ export interface Volume {
   /** Creates a caller rooted at `/` with independent credentials, umask, and current directory. */
   readonly caller: (options?: RootCallerOptions) => Effect.Effect<Caller, ConfigurationError>
 }
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect, Fiber, Stream } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.make()
+  const caller = yield* volume.caller()
+
+  // `watch` reports future changes only; nothing is replayed.
+  const watcher = yield* volume.watch.pipe(Effect.flatMap(Stream.runHead), Effect.forkChild({ startImmediately: true }))
+
+  yield* caller.writeFile("/f", new Uint8Array([1]), {
+    access: "write",
+    create: "exclusive"
+  })
+
+  return yield* Fiber.join(watcher)
+}).pipe(Effect.scoped)
 ```
 
 Added in v0.1.0
@@ -724,6 +903,25 @@ export declare const Fixture: Schema.Struct<{
     >
   >
 }>
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect, Schema } from "effect"
+
+const encoder = new TextEncoder()
+
+// Decoding rejects a fixture whose parent directory is not listed.
+const program = Schema.decodeUnknownEffect(Vfs.Fixture)({
+  rootMetadata: { mode: 0o755 },
+  entries: [
+    { kind: "directory", path: "/etc", metadata: { mode: 0o700 } },
+    { kind: "file", path: "/etc/hosts", bytes: encoder.encode("127.0.0.1 localhost") },
+    { kind: "hardLink", path: "/etc/hosts.bak", target: "/etc/hosts" }
+  ]
+}).pipe(Effect.flatMap((fixture) => Vfs.fromFixture(fixture)))
 ```
 
 Added in v0.1.0
@@ -1096,6 +1294,35 @@ Optional Effect service for providing an existing filesystem caller.
 
 ```ts
 export declare const CurrentFileSystem: typeof VfsModel.CurrentFileSystem
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+// Code depending on the service does not choose the volume it runs against.
+const readVersion = Effect.gen(function* () {
+  const caller = yield* Vfs.CurrentFileSystem
+
+  return yield* caller.readFile("/version")
+})
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.make()
+  const caller = yield* volume.caller()
+
+  yield* caller.writeFile("/version", new Uint8Array([49]), {
+    access: "write",
+    create: "exclusive"
+  })
+
+  return yield* readVersion.pipe(Effect.provideService(Vfs.CurrentFileSystem, caller))
+})
+
+Effect.runPromise(program).then(console.log)
+// Uint8Array [ 49 ]
 ```
 
 Added in v0.1.0
