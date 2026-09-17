@@ -95,6 +95,39 @@ const SnapshotDifferences = Schema.Array(SnapshotDifference).check(Schema.isMinL
  * Independent snapshots do not preserve shared lineage, so moves are reported
  * as a removal and an addition rather than an inferred rename.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const caller = yield* volume.caller()
+ *
+ *   yield* caller.writeFile("/f", new Uint8Array([1]), {
+ *     access: "write",
+ *     create: "exclusive"
+ *   })
+ *
+ *   const base = yield* volume.snapshot
+ *
+ *   yield* caller.writeFile("/f", new Uint8Array([2, 3]), { access: "write", truncate: true })
+ *   yield* caller.chmod("/f", 0o600)
+ *
+ *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
+ *   const changes = yield* Vfs.inspectSnapshotDelta(base, delta)
+ *
+ *   // `Updated` carries which fields moved; `Added` and `Removed` carry a kind.
+ *   const change = changes[0]!
+ *
+ *   return change._tag === "Updated" ? change.differences : change.kind
+ * }).pipe(Effect.provide(NodeCrypto.layer))
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 'content', 'mode' ]
+ * ```
+ *
  * @category schemas
  * @since 0.1.0
  */
