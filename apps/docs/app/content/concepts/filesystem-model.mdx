@@ -78,7 +78,10 @@ const program = Effect.gen(function*() {
   yield* root.mkdir("/work")
 
   const work = yield* root.withDirectory("/work")
-  yield* work.writeFile("result.txt", new TextEncoder().encode("done"))
+  yield* work.writeFile("result.txt", new TextEncoder().encode("done"), {
+    access: "write",
+    create: "exclusive"
+  })
 
   return yield* root.readFile("/work/result.txt")
 }).pipe(Effect.scoped)

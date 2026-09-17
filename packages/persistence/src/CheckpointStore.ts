@@ -132,6 +132,16 @@ const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.Decode
  * SQLite checkpoint service. Supply a SQLite `SqlClient` and run `migrate` before use.
  * Driver lifetime belongs to the application's layer scope.
  *
+ * **Details**
+ *
+ * `CheckpointStore.migrate` applies the package's numbered migrations through a
+ * separate ledger table, `effect_vfs_checkpoint_migrations`. Run it once during
+ * application startup, before providing the store to consumers; it is safe to
+ * run again on later startups. Neither `make` nor `layer` runs it.
+ *
+ * @see The SQLite checkpoints guide at `/guides/sqlite-checkpoints` for driver
+ * selection, transaction semantics, and durability caveats.
+ *
  * @example
  * ```ts
  * import { CheckpointStore } from "@effect-vfs/persistence"
@@ -228,7 +238,8 @@ export class CheckpointStore extends Context.Service<CheckpointStore, {
    *   maxDecodedBytes: ByteSize.megabytes(16)
    * }
    *
-   * // Migrations are a separate startup step; this layer does not run them.
+   * // The application chooses the driver, for example SqliteClient.layer(...)
+   * // from @effect/sql-sqlite-bun. Migrations are a separate startup step.
    * const checkpoints = (sqlite: Layer.Layer<SqlClient>) =>
    *   CheckpointStore.layer(limits).pipe(Layer.provide(sqlite))
    * ```
