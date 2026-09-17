@@ -22,6 +22,23 @@ import * as internal from "./internal/memoryFileSystem.js"
  * Use when you need the service value directly. The volume
  * starts with an empty `/tmp` directory and uses `/` as its working directory.
  *
+ * @example
+ * ```ts
+ * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const fs = yield* MemoryFileSystem.make
+ *
+ *   yield* fs.writeFileString("/tmp/greeting.txt", "hello")
+ *
+ *   return yield* fs.readFileString("/tmp/greeting.txt")
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // "hello"
+ * ```
+ *
  * @see {@link layer} for providing the service as a Layer.
  * @category constructors
  * @since 0.1.0
@@ -39,6 +56,34 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  *
  * Reusing this layer value in one layer graph shares the volume through layer
  * memoization. Wrap it with `Layer.fresh` when each use needs separate state.
+ *
+ * @example
+ * ```ts
+ * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import { Effect, FileSystem } from "effect"
+ *
+ * const writeManifest = Effect.gen(function*() {
+ *   const fs = yield* FileSystem.FileSystem
+ *
+ *   yield* fs.makeDirectory("/dist", { recursive: true })
+ *   yield* fs.writeFileString("/dist/manifest.json", `{"version":"1.2.3"}`)
+ *
+ *   return yield* fs.readFileString("/dist/manifest.json")
+ * })
+ *
+ * Effect.runPromise(writeManifest.pipe(Effect.provide(MemoryFileSystem.layer)))
+ *   .then(console.log)
+ * // '{"version":"1.2.3"}'
+ * ```
+ *
+ * @example
+ * ```ts
+ * // Layer memoization shares one volume; `Layer.fresh` gives each use its own.
+ * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import { Layer } from "effect"
+ *
+ * const isolated = Layer.fresh(MemoryFileSystem.layer)
+ * ```
  *
  * @see {@link make} for constructing the service directly.
  * @category layers
@@ -59,6 +104,43 @@ export const layer: Layer.Layer<FileSystem.FileSystem> = internal.layer
  * The caller defaults to a privileged uid and gid of `0` with umask `0`. Invalid
  * caller options fail with `VirtualFileSystem.ConfigurationError`. Filesystem
  * operations translate core failures to Effect `PlatformError` values.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import { Effect, FileSystem, Layer } from "effect"
+ *
+ * const encoder = new TextEncoder()
+ *
+ * // A volume seeded with a fixture, exposed through Effect's `FileSystem`.
+ * const seeded = Layer.effect(
+ *   FileSystem.FileSystem,
+ *   Effect.gen(function*() {
+ *     const volume = yield* Vfs.fromFixture({
+ *       entries: [
+ *         { kind: "directory", path: "/project" },
+ *         {
+ *           kind: "file",
+ *           path: "/project/package.json",
+ *           bytes: encoder.encode(`{"version":"1.2.3"}`)
+ *         }
+ *       ]
+ *     })
+ *
+ *     return yield* MemoryFileSystem.bind(volume)
+ *   })
+ * )
+ *
+ * const program = Effect.gen(function*() {
+ *   const fs = yield* FileSystem.FileSystem
+ *
+ *   return yield* fs.readFileString("/project/package.json")
+ * })
+ *
+ * Effect.runPromise(program.pipe(Effect.provide(seeded))).then(console.log)
+ * // '{"version":"1.2.3"}'
+ * ```
  *
  * @see {@link make} for a service backed by a fresh volume with `/tmp`.
  * @category constructors

@@ -12,6 +12,30 @@ import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
 /**
  * Checkpoint lookup, naming, or storage failure. Image failures retain core's `ImageError`.
  *
+ * @example
+ * ```ts
+ * // `NotFound` is expected on a first run; other codes are real failures.
+ * import { CheckpointStore } from "@effect-vfs/persistence"
+ * import { ByteSize, Effect } from "effect"
+ *
+ * const limits = {
+ *   maxEncodedBytes: ByteSize.megabytes(4),
+ *   maxRecords: 10_000,
+ *   maxEntries: 10_000,
+ *   maxDecodedBytes: ByteSize.megabytes(16)
+ * }
+ *
+ * const loadOrStartFresh = Effect.gen(function*() {
+ *   const store = yield* CheckpointStore.make(limits)
+ *
+ *   return yield* store.load("nightly").pipe(
+ *     Effect.asSome,
+ *     Effect.catchTag("CheckpointError", (error) =>
+ *       error.code === "NotFound" ? Effect.succeedNone : Effect.fail(error))
+ *   )
+ * })
+ * ```
+ *
  * @category errors
  * @since 0.1.0
  */
@@ -45,6 +69,43 @@ const StoredRow = Schema.Struct({
 /**
  * SQLite checkpoint service. Supply a SQLite `SqlClient` and run `migrate` before use.
  * Driver lifetime belongs to the application's layer scope.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { CheckpointStore } from "@effect-vfs/persistence"
+ * import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
+ * import { ByteSize, Effect } from "effect"
+ *
+ * const limits = {
+ *   maxEncodedBytes: ByteSize.megabytes(4),
+ *   maxRecords: 10_000,
+ *   maxEntries: 10_000,
+ *   maxDecodedBytes: ByteSize.megabytes(16)
+ * }
+ *
+ * const program = Effect.gen(function*() {
+ *   // Migrations must run before the store is used.
+ *   yield* CheckpointStore.migrate
+ *   const store = yield* CheckpointStore.make(limits)
+ *
+ *   const volume = yield* Vfs.fromFixture({
+ *     entries: [{ kind: "file", path: "/notes.txt", bytes: new Uint8Array([104, 105]) }]
+ *   })
+ *
+ *   yield* store.save("nightly", yield* volume.snapshot)
+ *
+ *   // Restoration always produces a fresh volume.
+ *   const restored = yield* Vfs.fromSnapshot(yield* store.load("nightly"))
+ *
+ *   return yield* (yield* restored.caller()).readFile("/notes.txt")
+ * })
+ *
+ * Effect.runPromise(
+ *   program.pipe(Effect.provide(SqliteClient.layer({ filename: "checkpoints.db" })))
+ * ).then(console.log)
+ * // Uint8Array [ 104, 105 ]
+ * ```
  *
  * @category services
  * @since 0.1.0
