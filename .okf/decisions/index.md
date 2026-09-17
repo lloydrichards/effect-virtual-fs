@@ -22,6 +22,8 @@ Accepted architectural and behavioral decisions, grouped by domain. Deprecated d
 - [Provisional path limits](core/provisional-path-limits.md)
 - [Optional total path limit](core/optional-total-path-limit.md)
 - [Reusable capability effects](core/reusable-capability-effects.md)
+- [Reference-based mutations](core/reference-mutations.md) adds directory-reference-and-name mutation operations beside the path operations and keeps share reservations and locks in adapters.
+- [Volume durability and usage facts](core/volume-durability-and-usage-facts.md) gives a volume a durability tier, an incarnation token, readable limits, and a live usage query.
 - [Watch event overflow](core/watch-event-overflow.md) is a draft proposing a bounded watch hub with an in-band rescan marker; four choices remain open.
 - [Consolidated first-core contracts](core/consolidated-first-core-contracts.md) is deprecated; the focused contracts own its rules.
 - [Remaining implementation profile](core/remaining-implementation-profile.md) is deprecated; the focused contracts own its rules.
