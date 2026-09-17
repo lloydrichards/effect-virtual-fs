@@ -771,13 +771,13 @@ export interface Caller {
   readonly lookupReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<ObjectReference, FsError>
   /** Returns a referenced directory's current parent. The root is its own parent. */
   readonly parentReference: (directory: ObjectReference) => Effect.Effect<ObjectReference, FsError>
-  /** Reads metadata and its matching live revision. */
+  /** Reads metadata and its matching live revision. Requires no permission on the object, as `stat` does not. */
   readonly observeMetadata: (reference: ObjectReference) => Effect.Effect<ObjectObservation<Metadata>, FsError>
   /** Reads owned directory entries and their matching directory revision. */
   readonly observeDirectory: (
     reference: ObjectReference
   ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsError>
-  /** Reads an owned symbolic-link target through a stable reference. */
+  /** Reads an owned symbolic-link target through a stable reference. Requires no permission on the link. */
   readonly readLinkReference: (reference: ObjectReference) => Effect.Effect<Uint8Array, FsError>
   /** Opens a referenced regular file for reading. */
   readonly openReference: (reference: ObjectReference) => Effect.Effect<FileHandle, FsError, Scope.Scope>
