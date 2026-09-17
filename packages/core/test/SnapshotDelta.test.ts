@@ -49,6 +49,79 @@ describe("snapshot deltas", () => {
       assert.strictEqual(document.base.digest, "rZYY/SonfmsCbsGkLQjVSfHecxzy6kiNba2QGEmixg0=")
     }).pipe(Effect.provide(BunCrypto.layer)))
 
+  // The empty fixture above pins the domain prefix, the algorithm identifier and the object count,
+  // but nothing else. This fixture exists to pin the rest of the encoding, one element per feature:
+  //
+  //   multiple objects, sorted by first path  `/B` before `/a`, which also reverses under locale collation
+  //   an object with several paths, sorted    the hard link at `/a` and `/B/a`, declared in the other order
+  //   every kind byte                         a directory, a file and a symlink, plus the root directory
+  //   uid, gid and mode, in that order        all three distinct per object, so a field swap cannot hide
+  //   four timestamps, in that order          all four distinct per object
+  //   timestamps as framed decimal text       a negative value and one above 2^53 on `/B`
+  //   a non-empty payload                     `/B/a` holds NUL and 0xff, which UTF-8 handling would corrupt
+  //   an empty payload                        `/empty`
+  //   a symlink payload                       `/link`
+  //   a raw, non-UTF-8 byte path              the file at [0xff, 0xfe]
+  //
+  // A failure here means the identity encoding moved. That is either a regression, or a deliberate
+  // change that also requires bumping ALGORITHM in internal/snapshotDelta.ts and updating
+  // .okf/contracts/snapshot-deltas.md, because every previously serialised delta stops validating.
+  // Do not regenerate this digest on its own.
+  it.effect("keeps the populated snapshot semantic identity stable", () =>
+    Effect.gen(function*() {
+      const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, 255, 254]))
+
+      const volume = yield* Vfs.fromFixture({
+        rootMetadata: { mode: 0o755, uid: 1, gid: 2, atimeNs: 3n, mtimeNs: 4n, ctimeNs: 5n, birthtimeNs: 6n },
+        entries: [
+          {
+            kind: "directory",
+            path: "/B",
+            metadata: {
+              mode: 0o750,
+              uid: 3,
+              gid: 4,
+              atimeNs: -1n,
+              mtimeNs: 9007199254740993n,
+              ctimeNs: 7n,
+              birthtimeNs: 8n
+            }
+          },
+          {
+            kind: "file",
+            path: "/B/a",
+            bytes: new Uint8Array([0, 1, 255]),
+            metadata: { mode: 0o640, uid: 5, gid: 6, atimeNs: 10n, mtimeNs: 11n, ctimeNs: 12n, birthtimeNs: 13n }
+          },
+          { kind: "hardLink", path: "/a", target: "/B/a" },
+          {
+            kind: "file",
+            path: "/empty",
+            bytes: new Uint8Array([]),
+            metadata: { mode: 0o600, uid: 7, gid: 8, atimeNs: 14n, mtimeNs: 15n, ctimeNs: 16n, birthtimeNs: 17n }
+          },
+          {
+            kind: "symlink",
+            path: "/link",
+            target: "B/a",
+            metadata: { mode: 0o777, uid: 9, gid: 10, atimeNs: 18n, mtimeNs: 19n, ctimeNs: 20n, birthtimeNs: 21n }
+          },
+          {
+            kind: "file",
+            path: raw,
+            bytes: new Uint8Array([254]),
+            metadata: { mode: 0o644, uid: 11, gid: 12, atimeNs: 22n, mtimeNs: 23n, ctimeNs: 24n, birthtimeNs: 25n }
+          }
+        ]
+      })
+
+      const snapshot = yield* volume.snapshot
+      const delta = yield* Vfs.diffSnapshots(snapshot, snapshot)
+      const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
+      const document = yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))
+      assert.strictEqual(document.base.digest, "/Ay2nkhDZycpUnDrUSQzNhSctWHakQaN5xYAgA42SZU=")
+    }).pipe(Effect.provide(BunCrypto.layer)))
+
   it.effect("reconstructs node kinds, raw paths, payloads, and every retained metadata field", () =>
     Effect.gen(function*() {
       const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))
