@@ -171,8 +171,6 @@ export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type
  * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
- * // A delta only applies to the base it was computed from. Re-applying one that
- * // has already landed fails rather than applying twice.
  * const program = Effect.gen(function*() {
  *   const volume = yield* Vfs.make()
  *   const caller = yield* volume.caller()
@@ -180,20 +178,17 @@ export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type
  *
  *   yield* caller.mkdir("/work")
  *
- *   const advanced = yield* volume.snapshot
- *   const delta = yield* Vfs.diffSnapshots(base, advanced)
+ *   // Omitting limits uses `default`; `constrained` suits memory-sensitive hosts.
+ *   const tight = { ...Vfs.SnapshotDeltaLimits.constrained, maxOutputRecords: 0 }
  *
- *   return yield* Vfs.applySnapshotDelta(advanced, delta).pipe(
- *     Effect.as("applied"),
- *     Effect.catchTag("SnapshotDeltaError", (error) =>
- *       error.code === "BaseMismatch"
- *         ? Effect.succeed("already applied")
- *         : Effect.fail(error))
+ *   return yield* Vfs.diffSnapshots(base, yield* volume.snapshot, tight).pipe(
+ *     Effect.as("diffed"),
+ *     Effect.catchTag("ImageError", (error) => Effect.succeed(`${error.code} at ${error.field}`))
  *   )
  * }).pipe(Effect.provide(NodeCrypto.layer))
  *
  * Effect.runPromise(program).then(console.log)
- * // already applied
+ * // LimitExceeded at outputRecords
  * ```
  *
  * @category errors

@@ -69,10 +69,23 @@ export type PathInput = string | BytePath
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect, Schema } from "effect"
  *
- * // Useful when a code crosses a boundary and arrives back as plain data.
- * const program = Schema.decodeUnknownEffect(Vfs.FsCode)("NotFound").pipe(
- *   Effect.map((code): Vfs.FsCode => code)
- * )
+ * const asCode = Schema.decodeUnknownEffect(Vfs.FsCode)
+ *
+ * // Useful when a code has crossed a process boundary and arrives back as data.
+ * const program = Effect.gen(function*() {
+ *   const payload = JSON.parse(`{"code":"NotFound","other":"Nonsense"}`)
+ *
+ *   const known = yield* asCode(payload.code)
+ *
+ *   const unknown = yield* asCode(payload.other).pipe(
+ *     Effect.orElseSucceed(() => "not a code")
+ *   )
+ *
+ *   return [known, unknown]
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 'NotFound', 'not a code' ]
  * ```
  *
  * @category schemas
@@ -188,14 +201,14 @@ export type Identity = typeof Identity.Type
  *
  *   yield* root.mkdir("/home", { mode: 0o777 })
  *
- *   // The umask clears those bits from the requested mode.
+ *   // The umask clears its bits from the requested mode.
  *   yield* user.mkdir("/home/user", { mode: 0o777 })
  *
- *   return (yield* user.stat("/home/user")).mode & 0o777
+ *   return ((yield* user.stat("/home/user")).mode & 0o777).toString(8)
  * })
  *
- * Effect.runPromise(program).then((mode) => console.log(mode.toString(8)))
- * // "755"
+ * Effect.runPromise(program).then(console.log)
+ * // 755
  * ```
  *
  * @category schemas
@@ -219,16 +232,22 @@ export type RootCallerOptions = typeof RootCallerOptions.Type
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { ByteSize, Effect } from "effect"
  *
- * // Every limit is optional; omitted keys keep the volume's own defaults.
+ * // Every limit is optional, and each one is enforced once set.
  * const program = Effect.gen(function*() {
- *   const volume = yield* Vfs.make({
- *     maxEntries: 1_000,
- *     maxBytes: ByteSize.megabytes(8),
- *     maxFileBytes: ByteSize.megabytes(1)
- *   })
+ *   const volume = yield* Vfs.make({ maxFileBytes: ByteSize.bytes(4) })
+ *   const caller = yield* volume.caller()
  *
- *   return yield* volume.caller()
+ *   return yield* caller.writeFile("/big.bin", new Uint8Array(16), {
+ *     access: "write",
+ *     create: "exclusive"
+ *   }).pipe(
+ *     Effect.as("written"),
+ *     Effect.catchTag("FsError", (error) => Effect.succeed(error.code))
+ *   )
  * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // FileTooLarge
  * ```
  *
  * @category schemas
@@ -798,8 +817,14 @@ export type OverlayChange = typeof OverlayChange.Type
  *   yield* (yield* workspace.caller()).mkdir("/out")
  *
  *   // Timestamps are excluded by default, since they change on every write.
- *   return yield* workspace.changes({ includeTimestamps: true })
+ *   const plain = yield* workspace.changes()
+ *   const timed = yield* workspace.changes({ includeTimestamps: true })
+ *
+ *   return [plain.length, timed.length]
  * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 1, 2 ]
  * ```
  *
  * @category schemas
@@ -834,7 +859,7 @@ export interface OverlayCapture {
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import { Effect, Fiber, Stream } from "effect"
+ * import { Effect, Fiber, Option, Stream } from "effect"
  *
  * const program = Effect.gen(function*() {
  *   const volume = yield* Vfs.make()
@@ -846,13 +871,15 @@ export interface OverlayCapture {
  *     Effect.forkChild({ startImmediately: true })
  *   )
  *
- *   yield* caller.writeFile("/f", new Uint8Array([1]), {
- *     access: "write",
- *     create: "exclusive"
- *   })
+ *   yield* caller.mkdir("/logs")
  *
- *   return yield* Fiber.join(watcher)
+ *   const change = yield* Fiber.join(watcher)
+ *
+ *   return Option.getOrElse(Option.map(change, (event) => event._tag), () => "none")
  * }).pipe(Effect.scoped)
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // Create
  * ```
  *
  * @category models
@@ -1179,9 +1206,9 @@ const deltaSchemaIssue = (cause: ImageError, input: typeof Schema.Unknown.Type, 
  * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, Schema } from "effect"
  *
+ * // Omitting limits uses `SnapshotDeltaLimits.default`.
  * const codec = Vfs.SnapshotDeltaFromBytes()
  *
- * // Round-trip a delta through bytes for storage or transport.
  * const program = Effect.gen(function*() {
  *   const volume = yield* Vfs.make()
  *   const base = yield* volume.snapshot
@@ -1191,8 +1218,14 @@ const deltaSchemaIssue = (cause: ImageError, input: typeof Schema.Unknown.Type, 
  *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
  *   const bytes = yield* Schema.encodeEffect(codec)(delta)
  *
- *   return yield* Schema.decodeEffect(codec)(bytes)
+ *   // The delta survives the trip through bytes and still applies to its base.
+ *   const decoded = yield* Schema.decodeEffect(codec)(bytes)
+ *
+ *   return (yield* Vfs.inspectSnapshotDelta(base, decoded)).map((change) => change._tag)
  * }).pipe(Effect.provide(NodeCrypto.layer))
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 'Added' ]
  * ```
  *
  * @category schemas
@@ -1277,17 +1310,19 @@ export const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsError>
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect, Schema } from "effect"
  *
- * const encoder = new TextEncoder()
- *
- * // Decoding rejects a fixture whose parent directory is not listed.
+ * // Fixtures must list every parent directory before its children.
  * const program = Schema.decodeUnknownEffect(Vfs.Fixture)({
- *   rootMetadata: { mode: 0o755 },
  *   entries: [
- *     { kind: "directory", path: "/etc", metadata: { mode: 0o700 } },
- *     { kind: "file", path: "/etc/hosts", bytes: encoder.encode("127.0.0.1 localhost") },
- *     { kind: "hardLink", path: "/etc/hosts.bak", target: "/etc/hosts" }
+ *     { kind: "file", path: "/etc/hosts", bytes: new TextEncoder().encode("127.0.0.1") }
  *   ]
- * }).pipe(Effect.flatMap((fixture) => Vfs.fromFixture(fixture)))
+ * }).pipe(
+ *   Effect.flatMap(Vfs.fromFixture),
+ *   Effect.as("built"),
+ *   Effect.catchTag("ImageError", (error) => Effect.succeed(`rejected: ${error.code}`))
+ * )
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // rejected: InvalidStructure
  * ```
  *
  * @category schemas
