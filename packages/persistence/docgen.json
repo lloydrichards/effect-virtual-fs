@@ -2,9 +2,21 @@
   "srcDir": "src",
   "outDir": "docs",
   "enforceVersion": true,
-  "enforceExamples": false,
+  "enforceExamples": true,
   "exclude": [
     "src/index.ts"
   ],
-  "parseCompilerOptions": "tsconfig.docgen.json"
+  "parseCompilerOptions": "tsconfig.docgen.json",
+  "examplesCompilerOptions": {
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "target": "ES2022",
+    "strict": true,
+    "moduleResolution": "bundler",
+    "module": "Preserve",
+    "skipLibCheck": true,
+    "noEmit": true
+  }
 }
