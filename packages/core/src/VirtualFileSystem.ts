@@ -759,6 +759,7 @@ export interface FileHandle {
  * // [ 'out.txt' ]
  * ```
  *
+ * @see The filesystem model at `/concepts/filesystem-model`.
  * @category models
  * @since 0.1.0
  */
@@ -1093,6 +1094,7 @@ export interface OverlayVolume extends Volume {
  * // Uint8Array(1) [ 49 ]
  * ```
  *
+ * @see The testing guide at `/guides/testing-with-an-isolated-filesystem`.
  * @category services
  * @since 0.1.0
  */
@@ -1129,6 +1131,7 @@ export type CurrentFileSystem = VfsModel.CurrentFileSystem
  * // 1
  * ```
  *
+ * @see {@link decodeSnapshot} for reading the bytes back under limits.
  * @category serialization
  * @since 0.1.0
  */
@@ -1162,6 +1165,7 @@ export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, I
  * // [ 'LimitExceeded', 'encodedBytes' ]
  * ```
  *
+ * @see {@link DecodeLimits} for what each bound protects.
  * @category serialization
  * @since 0.1.0
  */
@@ -1212,6 +1216,7 @@ const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
  * // /added.txt
  * ```
  *
+ * @see {@link inspectSnapshotDelta} to read a delta, {@link applySnapshotDelta} to apply one.
  * @category snapshots
  * @since 0.1.0
  */
@@ -1253,6 +1258,7 @@ export const diffSnapshots = Effect.fn("VirtualFileSystem.diffSnapshots")(functi
  * // [ 'directory' ]
  * ```
  *
+ * @see {@link SnapshotChangesOptions} for including timestamp differences.
  * @category snapshots
  * @since 0.1.0
  */
@@ -1304,6 +1310,7 @@ export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshot
  * // Uint8Array(1) [ 7 ]
  * ```
  *
+ * @see {@link SnapshotDeltaFromBytes} for moving a delta across a boundary.
  * @category snapshots
  * @since 0.1.0
  */
@@ -1492,6 +1499,7 @@ export type Fixture = typeof Fixture.Type
  * // Uint8Array(2) [ 104, 105 ]
  * ```
  *
+ * @see The testing guide at `/guides/testing-with-an-isolated-filesystem`.
  * @category constructors
  * @since 0.1.0
  */
@@ -1533,6 +1541,7 @@ export const make: (options?: VolumeOptions) => Effect.Effect<Volume, Configurat
  * // [ 'one', 'two' ]
  * ```
  *
+ * @see {@link makeOverlay} for a copy-on-write workspace over the same base.
  * @category constructors
  * @since 0.1.0
  */
@@ -1586,6 +1595,7 @@ export const fromSnapshot: (
  * // [ '{}', [ 'Updated' ] ]
  * ```
  *
+ * @see The overlay guide at `/guides/overlay-filesystems`.
  * @category constructors
  * @since 0.1.0
  */
@@ -1625,6 +1635,7 @@ export const makeOverlay: (
  * // [ 'package.json', 'latest' ]
  * ```
  *
+ * @see The fixtures guide at `/guides/fixtures-and-snapshots`.
  * @category constructors
  * @since 0.1.0
  */

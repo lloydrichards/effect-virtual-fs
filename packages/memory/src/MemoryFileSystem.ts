@@ -39,7 +39,7 @@ import * as internal from "./internal/memoryFileSystem.js"
  * // hello
  * ```
  *
- * @see {@link layer} for providing the service as a Layer.
+ * @see {@link layer} for providing the service as a Layer, {@link bind} for an existing volume.
  * @category constructors
  * @since 0.1.0
  */
@@ -113,7 +113,8 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  * // [ true, false ]
  * ```
  *
- * @see {@link make} for constructing the service directly.
+ * @see {@link make} for constructing the service directly, {@link bind} for an existing volume.
+ * @see The testing guide at `/guides/testing-with-an-isolated-filesystem`.
  * @category layers
  * @since 0.1.0
  */

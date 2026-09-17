@@ -52,6 +52,13 @@ Added in v0.1.0
 SQLite checkpoint service. Supply a SQLite `SqlClient` and run `migrate` before use.
 Driver lifetime belongs to the application's layer scope.
 
+**Details**
+
+`CheckpointStore.migrate` applies the package's numbered migrations through a
+separate ledger table, `effect_vfs_checkpoint_migrations`. Run it once during
+application startup, before providing the store to consumers; it is safe to
+run again on later startups. Neither `make` nor `layer` runs it.
+
 **Signature**
 
 ```ts
@@ -155,7 +162,8 @@ const limits = {
   maxDecodedBytes: ByteSize.megabytes(16)
 }
 
-// Migrations are a separate startup step; this layer does not run them.
+// The application chooses the driver, for example SqliteClient.layer(...)
+// from @effect/sql-sqlite-bun. Migrations are a separate startup step.
 const checkpoints = (sqlite: Layer.Layer<SqlClient>) => CheckpointStore.layer(limits).pipe(Layer.provide(sqlite))
 ```
 
