@@ -321,6 +321,34 @@ export interface ObjectReference {
 /**
  * A value and the revision of the object from the same coordinated observation.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * // References survive renames, and each observation carries the revision it
+ * // matched, so a caller can tell whether what it read is still current.
+ * const program = Effect.gen(function*() {
+ *   const caller = yield* (yield* Vfs.make()).caller()
+ *
+ *   yield* caller.mkdir("/work")
+ *
+ *   const root = yield* caller.rootReference
+ *   const work = yield* caller.lookupReference(root, new TextEncoder().encode("work"))
+ *
+ *   const before = yield* caller.observeMetadata(work)
+ *
+ *   yield* caller.rename("/work", "/moved")
+ *
+ *   const after = yield* caller.observeMetadata(work)
+ *
+ *   return [before.value.kind, after.value.kind]
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 'directory', 'directory' ]
+ * ```
+ *
  * @category models
  * @since 0.1.0
  */
@@ -353,6 +381,36 @@ export interface RelativeOptions {
 
 /**
  * Controls the base directory and whether metadata operations follow the final symbolic link.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const caller = yield* (yield* Vfs.make()).caller()
+ *
+ *   yield* caller.writeFile("/target", new Uint8Array([1]), {
+ *     access: "write",
+ *     create: "exclusive",
+ *     mode: 0o644
+ *   })
+ *   yield* caller.symlink("/target", "/link")
+ *
+ *   // Metadata operations follow the final link by default, so this reaches the
+ *   // target; opting out changes the link itself and leaves the target alone.
+ *   yield* caller.chmod("/link", 0o600)
+ *   const followed = (yield* caller.stat("/target")).mode & 0o777
+ *
+ *   yield* caller.chmod("/link", 0o777, { followFinalSymlink: false })
+ *   const unchanged = (yield* caller.stat("/target")).mode & 0o777
+ *
+ *   return [followed.toString(8), unchanged.toString(8)]
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ '600', '600' ]
+ * ```
  *
  * @category models
  * @since 0.1.0
@@ -388,6 +446,34 @@ export const TimeUpdate: typeof VfsModel.TimeUpdate = VfsModel.TimeUpdate
 
 /**
  * Schema for independent access and modification time updates.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const caller = yield* (yield* Vfs.make()).caller()
+ *
+ *   yield* caller.writeFile("/f", new Uint8Array([1]), {
+ *     access: "write",
+ *     create: "exclusive"
+ *   })
+ *
+ *   // Each field is set to a value, to the current clock, or left alone.
+ *   yield* caller.utimes("/f", {
+ *     access: { kind: "value", nanoseconds: 1_000n },
+ *     modification: { kind: "omit" }
+ *   })
+ *
+ *   const metadata = yield* caller.stat("/f")
+ *
+ *   return [metadata.atimeNs, metadata.mtimeNs === 1_000n]
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 1000n, false ]
+ * ```
  *
  * @category schemas
  * @since 0.1.0
@@ -500,6 +586,40 @@ export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
 
 /**
  * Options for an atomic whole-file write, including replacement and final mode controls.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const caller = yield* (yield* Vfs.make()).caller()
+ *   const bytes = new TextEncoder().encode("v2")
+ *
+ *   // `access` is required. `create: "exclusive"` refuses to replace an entry,
+ *   // while `truncate` overwrites one that already exists.
+ *   yield* caller.writeFile("/app.conf", new TextEncoder().encode("v1"), {
+ *     access: "write",
+ *     create: "exclusive",
+ *     mode: 0o640
+ *   })
+ *
+ *   const refused = yield* caller.writeFile("/app.conf", bytes, {
+ *     access: "write",
+ *     create: "exclusive"
+ *   }).pipe(
+ *     Effect.as("replaced"),
+ *     Effect.catchTag("FsError", (error) => Effect.succeed(error.code))
+ *   )
+ *
+ *   yield* caller.writeFile("/app.conf", bytes, { access: "write", truncate: true })
+ *
+ *   return [refused, new TextDecoder().decode(yield* caller.readFile("/app.conf"))]
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 'AlreadyExists', 'v2' ]
+ * ```
  *
  * @category models
  * @since 0.1.0
