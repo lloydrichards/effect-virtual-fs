@@ -30,6 +30,29 @@ export type BytePathId = typeof BytePathId
 /**
  * An opaque path that preserves arbitrary non-NUL bytes without UTF-8 conversion.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * // A name that is not valid UTF-8 still round-trips exactly.
+ * const program = Effect.gen(function*() {
+ *   const caller = yield* (yield* Vfs.make()).caller()
+ *   const path = yield* Vfs.pathFromBytes(new Uint8Array([47, 0xff, 0xfe]))
+ *
+ *   yield* caller.writeFile(path, new Uint8Array([1]), {
+ *     access: "write",
+ *     create: "exclusive"
+ *   })
+ *
+ *   // `readDirectory` would fail here; the byte variant preserves the name.
+ *   return yield* caller.readDirectoryBytes("/")
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ Uint8Array [ 255, 254 ] ]
+ * ```
+ *
  * @category models
  * @since 0.1.0
  */
