@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Data, DateTime, Effect, type Layer, Option, Ref, Result, Stream } from "effect"
+import { Data, DateTime, Deferred, Effect, Exit, Fiber, type Layer, Option, Ref, Result, Scope, Stream } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import * as FileSystem from "effect/FileSystem"
 import * as PlatformError from "effect/PlatformError"
@@ -575,8 +575,30 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
     })
 
     describe("file handles and open modes", () => {
-      // TODO(#40): Add shared closed-handle failure coverage separately from error-tag normalization.
-      // Node maps EBADF to Unknown; Deno maps BadResource. A common tag needs an adapter fix and regression coverage.
+      it.effect("should report a bad resource when using a handle after its scope closes", () =>
+        Effect.gen(function*() {
+          const { fs, path } = yield* makeTestContext
+          const file = path("closed-handle.txt")
+          yield* fs.writeFileString(file, "content")
+
+          const scope = yield* Scope.make()
+          const handle = yield* Effect.provideService(fs.open(file, { flag: "r+" }), Scope.Scope, scope)
+          yield* Scope.close(scope, Exit.void)
+
+          const readError = yield* Effect.flip(handle.readAlloc(2))
+          const readReason = assertSystemError(readError, { tag: "BadResource", method: "readAlloc" })
+          // A closed handle reports the descriptor it held rather than the path it was opened from.
+          assert.isTrue(Predicate.isNumber(readReason.pathOrDescriptor))
+
+          const writeError = yield* Effect.flip(handle.write(encoder.encode("x")))
+          assertSystemError(writeError, { tag: "BadResource", method: "write" })
+
+          const statError = yield* Effect.flip(handle.stat)
+          assertSystemError(statError, { tag: "BadResource", method: "stat" })
+
+          assert.strictEqual(yield* fs.readFileString(file), "content")
+        }))
+
       it.effect("should keep read cursors independent when a file has multiple handles", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
@@ -1017,9 +1039,8 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.strictEqual(decoder.decode(yield* readAllocUpTo(destinationHandle, 6)), "source")
         }))
 
-      // TODO(#40): Decide whether overwrite: false must succeed or fail with AlreadyExists across adapters.
-      // Node skips an existing destination; Deno rejects it. Until aligned, require only that its contents are preserved.
-      it.effect("should preserve an existing copy destination when overwrite is false", () =>
+      // Rejecting the copy is the contract; Node's platform adapter instead skips the destination silently.
+      it.effect("should reject an existing copy destination when overwrite is false", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const source = path("copy-source.txt")
@@ -1027,15 +1048,13 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           yield* fs.writeFileString(source, "source")
           yield* fs.writeFileString(destination, "destination")
 
-          const result = yield* Effect.result(fs.copy(source, destination, { overwrite: false }))
+          const error = yield* Effect.flip(fs.copy(source, destination, { overwrite: false }))
 
-          if (Result.isFailure(result)) {
-            assertSystemError(result.failure, {
-              tag: "AlreadyExists",
-              method: "copy",
-              pathOrDescriptor: source
-            })
-          }
+          assertSystemError(error, {
+            tag: "AlreadyExists",
+            method: "copy",
+            pathOrDescriptor: source
+          })
 
           assert.strictEqual(yield* fs.readFileString(source), "source")
           assert.strictEqual(yield* fs.readFileString(destination), "destination")
@@ -1115,8 +1134,59 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assertSystemError(error, { tag: "NotFound", method: "open", pathOrDescriptor: missing })
         }))
 
-      // TODO(#40): Signal handle acquisition with a Deferred in trackedFs.open, interrupt the blocked stream or sink,
-      // and assert finalization. This is test work; no public synchronization hook is needed.
+      it.effect("should finalize derived stream and sink handles when their operations are interrupted", () =>
+        Effect.gen(function*() {
+          const { fs, path } = yield* makeTestContext
+          const streamed = path("interrupted-stream.txt")
+          const sunk = path("interrupted-sink.txt")
+          yield* fs.writeFileString(streamed, "content")
+
+          // `opened` makes interruption deterministic: the handle is known to exist before the fiber is cancelled.
+          const opened = yield* Deferred.make<void>()
+          const blocked = yield* Deferred.make<void>()
+          const finalized = yield* Ref.make<Array<string>>([])
+
+          const trackedFs = FileSystem.make({
+            ...fs,
+            open: (path, options) =>
+              Effect.acquireRelease(
+                fs.open(path, options).pipe(Effect.tap(() => Deferred.succeed(opened, undefined))),
+                () => Ref.update(finalized, (paths) => [...paths, path])
+              )
+          })
+
+          const streamFiber = yield* trackedFs.stream(streamed).pipe(
+            Stream.runForEach(() => Deferred.await(blocked)),
+            Effect.forkChild({ startImmediately: true })
+          )
+
+          yield* Deferred.await(opened)
+          yield* Fiber.interrupt(streamFiber)
+          assert.deepStrictEqual(yield* Ref.get(finalized), [streamed])
+
+          const reopened = yield* Deferred.make<void>()
+
+          const trackedSinkFs = FileSystem.make({
+            ...fs,
+            open: (path, options) =>
+              Effect.acquireRelease(
+                fs.open(path, options).pipe(Effect.tap(() => Deferred.succeed(reopened, undefined))),
+                () => Ref.update(finalized, (paths) => [...paths, path])
+              )
+          })
+
+          const sinkFiber = yield* Stream.fromEffect(
+            Deferred.await(blocked).pipe(Effect.as(encoder.encode("content")))
+          ).pipe(
+            Stream.run(trackedSinkFs.sink(sunk)),
+            Effect.forkChild({ startImmediately: true })
+          )
+
+          yield* Deferred.await(reopened)
+          yield* Fiber.interrupt(sinkFiber)
+          assert.deepStrictEqual(yield* Ref.get(finalized), [streamed, sunk])
+        }))
+
       it.effect("should finalize derived stream and sink handles when their operations succeed or fail", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
@@ -1174,9 +1244,8 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
             ["rename", fs.rename(missing, destination)],
             ["stat", fs.stat(missing)],
             ["truncate", fs.truncate(missing)],
-            // TODO(#40): Normalize Node's "utime" error method to "utimes" with a regression test and changeset,
-            // then assert the method here. Deno and FileSystem.makeNoop already use "utimes".
-            [undefined, fs.utimes(missing, 0, 0)]
+            // `FileSystem.makeNoop` reports "utimes"; Node's platform adapter reports "utime" instead.
+            ["utimes", fs.utimes(missing, 0, 0)]
           ] as const
 
           for (const [method, operation] of operations) {
@@ -1287,8 +1356,39 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assertSystemError(error, { method: "realPath", pathOrDescriptor: first })
         }))
 
-      // TODO(#40): Add positive chmod/chown coverage gated by adapter and host support, including ownership privileges.
-      // Deno already covers chmod through writeFile mode preservation; shared ownership-change coverage is still missing.
+      it.effect("should report the requested permission bits after changing a file mode", () =>
+        Effect.gen(function*() {
+          const { fs, path } = yield* makeTestContext
+          const file = path("mode.txt")
+          const directory = path("mode-directory")
+          yield* fs.writeFileString(file, "content")
+          yield* fs.makeDirectory(directory)
+
+          yield* fs.chmod(file, 0o600)
+          assert.strictEqual((yield* fs.stat(file)).mode & 0o7777, 0o600)
+
+          yield* fs.chmod(file, 0o644)
+          assert.strictEqual((yield* fs.stat(file)).mode & 0o7777, 0o644)
+          assert.strictEqual(yield* fs.readFileString(file), "content")
+
+          yield* fs.chmod(directory, 0o700)
+          assert.strictEqual((yield* fs.stat(directory)).mode & 0o7777, 0o700)
+        }))
+
+      // Ownership changes require host privileges on a real filesystem; the virtual adapter grants them unconditionally.
+      it.effect("should report the requested owner and group after changing file ownership", () =>
+        Effect.gen(function*() {
+          const { fs, path } = yield* makeTestContext
+          const file = path("ownership.txt")
+          yield* fs.writeFileString(file, "content")
+
+          yield* fs.chown(file, 1234, 5678)
+          const info = yield* fs.stat(file)
+
+          assert.deepStrictEqual(info.uid, Option.some(1234))
+          assert.deepStrictEqual(info.gid, Option.some(5678))
+          assert.strictEqual(yield* fs.readFileString(file), "content")
+        }))
 
       it.effect("should report updated access and modification timestamps when metadata is available", () =>
         Effect.gen(function*() {
@@ -1301,17 +1401,12 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           yield* fs.utimes(file, atime, mtime)
           const info = yield* fs.stat(file)
 
-          if (Option.isSome(info.atime)) {
-            assert.strictEqual(info.atime.value.getTime(), atime.getTime())
-          }
-
-          if (Option.isSome(info.mtime)) {
-            assert.strictEqual(info.mtime.value.getTime(), mtime.getTime())
-          }
+          assert.deepStrictEqual(Option.map(info.atime, (value) => value.getTime()), Option.some(atime.getTime()))
+          assert.deepStrictEqual(Option.map(info.mtime, (value) => value.getTime()), Option.some(mtime.getTime()))
         }))
 
-      // TODO(#40): Decide whether preserveTimestamps also guarantees atime. Keep mtime as the shared minimum until then.
-      it.effect("should preserve the modification timestamp when copying with metadata preservation", () =>
+      // Both timestamps are preserved; Node's platform adapter carries the modification time alone.
+      it.effect("should preserve both timestamps when copying with metadata preservation", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const source = path("timestamp-source.txt")
@@ -1324,9 +1419,8 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           yield* fs.copy(source, destination, { preserveTimestamps: true })
           const info = yield* fs.stat(destination)
 
-          if (Option.isSome(info.mtime)) {
-            assert.strictEqual(info.mtime.value.getTime(), mtime.getTime())
-          }
+          assert.deepStrictEqual(Option.map(info.atime, (value) => value.getTime()), Option.some(atime.getTime()))
+          assert.deepStrictEqual(Option.map(info.mtime, (value) => value.getTime()), Option.some(mtime.getTime()))
         }))
 
       it.effect("should exclude matching entries when globbing from a root", () =>
@@ -1347,9 +1441,57 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.isTrue(matches.some((entry) => entry.endsWith("src/index.ts")))
         }))
 
-      // TODO(#40): Add watcher readiness and cleanup coverage per adapter; Node's startWatch helper uses a sentinel event.
-      // Specify portable event paths separately: Node emits filenames, while Deno forwards native event paths.
-      // Do not require identical native event ordering to test cleanup.
+      it.effect("should deliver events to a watcher that subscribed before the mutation", () =>
+        Effect.gen(function*() {
+          const { fs, path } = yield* makeTestContext
+          const directory = path("watched")
+          yield* fs.makeDirectory(directory)
+
+          const watched = yield* fs.watch(directory).pipe(
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkChild({ startImmediately: true })
+          )
+
+          yield* fs.writeFileString(`${directory}/created.txt`, "content")
+          const events = yield* Fiber.join(watched)
+
+          assert.strictEqual(events.length, 1)
+          assert.isTrue(events[0]!.path.replaceAll("\\", "/").endsWith("created.txt"))
+        }))
+
+      it.effect("should stop delivering events after a watcher is interrupted", () =>
+        Effect.gen(function*() {
+          const { fs, path } = yield* makeTestContext
+          const directory = path("released")
+          yield* fs.makeDirectory(directory)
+
+          const received = yield* Ref.make<Array<string>>([])
+          const observed = yield* Deferred.make<void>()
+
+          const watcher = yield* fs.watch(directory).pipe(
+            Stream.runForEach((event) =>
+              Ref.update(received, (paths) => [...paths, event.path]).pipe(
+                Effect.andThen(Deferred.succeed(observed, undefined))
+              )
+            ),
+            Effect.forkChild({ startImmediately: true })
+          )
+
+          // A first observed event proves the watcher is registered before it is interrupted.
+          yield* fs.writeFileString(`${directory}/first.txt`, "content")
+          yield* Deferred.await(observed)
+
+          yield* Fiber.interrupt(watcher)
+          const afterInterrupt = yield* Ref.get(received)
+
+          // The sentinel mutation must not reach the released watcher.
+          yield* fs.writeFileString(`${directory}/sentinel.txt`, "content")
+          yield* Effect.yieldNow
+
+          assert.deepStrictEqual(yield* Ref.get(received), afterInterrupt)
+          assert.isFalse(afterInterrupt.some((path) => path.endsWith("sentinel.txt")))
+        }))
 
       it.effect("should preserve error context when watching a missing path", () =>
         Effect.gen(function*() {
