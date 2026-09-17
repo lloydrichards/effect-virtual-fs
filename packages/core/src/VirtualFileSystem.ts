@@ -27,6 +27,7 @@ export { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "./Snaps
 import * as Image from "./internal/image.js"
 import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
 import * as VfsModel from "./internal/virtualFileSystem.js"
+import { decodeConfiguration } from "./internal/virtualFileSystem/errors.js"
 import * as FixtureInternal from "./internal/virtualFileSystem/fixture.js"
 import * as Path from "./internal/virtualFileSystem/path.js"
 import * as SnapshotDeltaModel from "./SnapshotDelta.js"
@@ -601,7 +602,7 @@ export const decodeSnapshot: (
 ) => Effect.Effect<Snapshot, ImageError> = Image.decodeSnapshot
 
 const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
-  const decoded = Path.decodeConfiguration(
+  const decoded = decodeConfiguration(
     SnapshotDeltaModel.SnapshotDeltaLimits,
     limits ?? SnapshotDeltaModel.SnapshotDeltaLimits.default
   )
@@ -637,7 +638,7 @@ export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshot
   options?: SnapshotDeltaModel.SnapshotChangesOptions,
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) {
-  const decoded = Path.decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {})
+  const decoded = decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {})
 
   if (Result.isFailure(decoded)) return yield* decoded.failure
 

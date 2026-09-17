@@ -4,6 +4,7 @@ import * as Hash from "effect/Hash"
 import { pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
 import type { BytePath } from "../BytePath.js"
+import { sameBytes } from "./bytes.js"
 
 /** @internal */
 export const BytePathId = "@effect-vfs/core/BytePath" as const
@@ -24,16 +25,8 @@ const BytePathProto: BytePath = {
   [BytePathId]: BytePathId,
   [Equal.symbol](this: BytePath, that): boolean {
     if (!isBytePath(that)) return false
-    const selfBytes = bytePaths.get(this)!
-    const thatBytes = bytePaths.get(that)!
 
-    if (selfBytes.length !== thatBytes.length) return false
-
-    for (let index = 0; index < selfBytes.length; index++) {
-      if (selfBytes[index] !== thatBytes[index]) return false
-    }
-
-    return true
+    return sameBytes(bytePaths.get(this), bytePaths.get(that))
   },
   [Hash.symbol](this: BytePath): number {
     return hashBytes(bytePaths.get(this)!)
