@@ -18,6 +18,8 @@ generated: { by: codex/okf, at: 2026-09-10T00:00:00Z }
 
 Callers carry uid, gid, supplementary groups, explicit privilege, and umask. Traversal and operations apply owner, group, and other mode checks; new entries inherit the parent gid and apply the caller's umask.
 
+An operation checks the mode bits it needs on the node it acts on, so reading metadata or a symbolic-link target is authorized by the traversal that reached the object and checks nothing on the object itself, as POSIX `stat` and `readlink` do. The same rule governs [object references](object-references.md "constrains").
+
 Metadata includes file kind, identity, link count, size, ownership, mode, and bigint nanosecond timestamps. Returned metadata is copied. Core timestamps use the Effect clock without promising physical nanosecond precision.
 
 The memory adapter converts timestamps to JavaScript `Date` values and reports typed `InvalidData` when a core timestamp cannot be represented.

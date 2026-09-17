@@ -100,6 +100,23 @@ describe("object references", () => {
       assert.strictEqual((yield* Effect.flip(guest.openReference(reference))).code, "AccessDenied")
     }))
 
+  it.effect("observes metadata and link targets without permission on the object", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const admin = yield* volume.caller({ umask: 0 })
+      yield* admin.writeFile("/secret", bytes(1), { access: "write", create: "exclusive", mode: 0 })
+      yield* admin.symlink("target", "/link")
+      yield* admin.chmod("/link", 0, { followFinalSymlink: false })
+      const root = yield* admin.rootReference
+      const secret = yield* admin.lookupReference(root, name("secret"))
+      const link = yield* admin.lookupReference(root, name("link"))
+      const guest = yield* volume.caller({ identity: { uid: 1, gid: 1, groups: [], privileged: false } })
+
+      assert.strictEqual((yield* guest.observeMetadata(secret)).value.mode, 0)
+      assert.deepStrictEqual(yield* guest.readLinkReference(link), name("target"))
+      assert.strictEqual((yield* Effect.flip(guest.openReference(secret))).code, "AccessDenied")
+    }))
+
   it.effect("rechecks traversal and directory authority for the invoking caller", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()

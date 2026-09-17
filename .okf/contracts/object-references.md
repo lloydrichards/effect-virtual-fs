@@ -23,7 +23,13 @@ Core exposes canonical opaque `ObjectReference` values for runtime files, direct
 
 `Caller` owns reference operations for the volume root, single-component byte-name lookup, directory parent lookup, metadata observation, directory observation, symbolic-link target reads, and scoped read-only file opening. Wire encoding and export identifiers remain adapter responsibilities.
 
-The reference identifies an object; it does not carry the authority of the caller that obtained it. Traversal, directory reads, and file opening check the invoking caller. Operations preserve the [resource and authority contract](resources-and-authority.md "constrained by"). Restore constructs fresh references under [snapshot-local identity](/decisions/core/snapshot-local-file-identity.md "constrained by").
+The reference identifies an object; it does not carry the authority of the caller that obtained it. Permission checks apply to the invoking caller. Operations preserve the [resource and authority contract](resources-and-authority.md "constrained by"). Restore constructs fresh references under [snapshot-local identity](/decisions/core/snapshot-local-file-identity.md "constrained by").
+
+## Authority
+
+Each operation requires on the referenced object exactly the mode bits its path-based equivalent requires on the resolved node. `lookupReference` and `parentReference` require execute on the directory, matching traversal of a component and of `..`; `observeDirectory` requires read, matching `readDirectory`; `openReference` requires read, matching `open` for reading.
+
+`observeMetadata` and `readLinkReference` require nothing on the object. POSIX `stat` and `readlink` need search permission along the path prefix but no permission on the object itself, and the path-based `stat`, `lstat`, and `readLink` behave the same way. A reference is reachable only through `rootReference` and the two traversal operations, so the prefix was authorized when the reference was obtained. Unreadable metadata would make a mode `0o000` entry invisible to `ls -l` in a readable directory.[^authority-tests]
 
 ## Lifetime and failure
 
@@ -33,10 +39,12 @@ A regular file's reference remains observable after final unlink only while a fi
 
 ## Acceptance evidence
 
-Focused tests demonstrate rename followed by path reuse, hard-link identity, owned symbolic-link bytes, moved and removed directory parents, distinct reference failures, caller authority, and open-unlinked lifetime.[^file-tests]
+Focused tests demonstrate rename followed by path reuse, hard-link identity, owned symbolic-link bytes, moved and removed directory parents, distinct reference failures, caller authority, unchecked metadata and link-target reads, and open-unlinked lifetime.[^file-tests]
 
 [^core]: Inspect `Metadata`, `Caller`, `FileHandle`, `DirectoryHandle`, internal Node records and rename in the current implementation.
 
 [^file-tests]: `ObjectReference.test.ts` exercises the public reference interface and deletion lifetime.
+
+[^authority-tests]: `ObjectReference.test.ts` checks a non-privileged caller against a mode `0o000` file and symbolic link: metadata and link-target reads succeed where opening fails.
 
 [^link-tests]: The link tests ground alias and rename behavior; `ObjectReference.test.ts` covers the reference interface itself.
