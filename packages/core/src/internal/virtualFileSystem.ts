@@ -616,6 +616,10 @@ export const makeVolume = Effect.fnUntraced(
     const publishNode = (target: Node) => {
       // Directories are never hard linked, so one name reaches them and the parent chain resolves it.
       if (target.kind === "directory") {
+        // Removal and rename displacement drop the link count while open handles keep reaching the node.
+        // No name resolves it any more, so its empty parent chain would otherwise read as the root path.
+        // The file scan below stops on the same signal, and `lookup` already reads it as NotFound.
+        if (target.metadata.nlink === 0) return
         watchHub.publishUnsafe(() => UpdateChange.make({ path: ownedPath(nameBytes(directoryHex(target))) }))
 
         return
