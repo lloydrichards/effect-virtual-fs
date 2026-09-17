@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { setObservationHook } from "../src/internal/virtualFileSystem/testHooks.js"
+import { setObservationHook, setRegistrationHook } from "../src/internal/virtualFileSystem/testHooks.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
 
@@ -418,4 +418,18 @@ describe("overlay volumes", () => {
       assert.strictEqual(text(yield* freshCaller.readFile("/f")), "new")
       assert.strictEqual((yield* Fiber.join(oldWatch)).length, 1)
     }))
+
+  it.effect("honours a registration hook set on the overlay the caller holds", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const source = yield* Vfs.make()
+      const overlay = yield* Vfs.makeOverlay(yield* source.snapshot)
+      const registered = yield* Deferred.make<void>()
+      const clearHook = setRegistrationHook(overlay, { afterSubscribe: Deferred.succeed(registered, undefined) })
+
+      yield* Effect.addFinalizer(() => Effect.sync(clearHook))
+      const stream = yield* overlay.watch
+
+      assert.isTrue(Predicate.isNotUndefined(stream))
+      assert.isTrue(yield* Deferred.isDone(registered))
+    })))
 })
