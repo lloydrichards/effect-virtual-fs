@@ -376,6 +376,10 @@ const objectReferences = new WeakMap<ObjectReference, ObjectReferenceState>()
 const isFileHandle = (value: PathInput | FileHandle | DirectoryHandle): value is FileHandle =>
   Predicate.hasProperty(FileHandleId)(value)
 
+// Only a PathInput target names a path; a handle-based call has none to report in its error.
+const pathOf = (target: PathInput | FileHandle | DirectoryHandle): PathInput | undefined =>
+  isFileHandle(target) || isDirectoryHandle(target) ? undefined : target
+
 const isDirectoryHandle = (value: PathInput | FileHandle | DirectoryHandle): value is DirectoryHandle =>
   Predicate.hasProperty(DirectoryHandleId)(value)
 
@@ -766,9 +770,9 @@ export const makeVolume = Effect.fnUntraced(
         reference.closed = true
       }))
 
-    const authorize = (directory: Node, identity: Identity, bits: number, operation: string, path: PathInput) => {
+    const authorize = (node: Node, identity: Identity, bits: number, operation: string, path?: PathInput) => {
       if (identity.privileged) return Effect.void
-      const metadata = directory.metadata
+      const metadata = node.metadata
 
       const shift = metadata.uid === identity.uid ?
         6
@@ -1317,9 +1321,14 @@ export const makeVolume = Effect.fnUntraced(
 
             if (access.kind === "omit" && modification.kind === "omit") return
 
+            // POSIX grants write access only when both times are UTIME_NOW; both UTIME_OMIT
+            // returned above. Every other combination, mixed ones included, needs ownership.
             if (!identity.privileged && identity.uid !== node.metadata.uid) {
-              if (access.kind !== "now" || modification.kind !== "now") return yield* failure("AccessDenied", "utimes")
-              yield* authorize(node, identity, WRITE, "utimes", "/")
+              if (access.kind !== "now" || modification.kind !== "now") {
+                return yield* failure("AccessDenied", "utimes", pathOf(target))
+              }
+
+              yield* authorize(node, identity, WRITE, "utimes", pathOf(target))
             }
 
             const now = yield* timestamp("utimes")
