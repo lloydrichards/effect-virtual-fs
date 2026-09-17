@@ -230,6 +230,24 @@ export declare const SnapshotDeltaLimits: Schema.Struct<{
 }
 ```
 
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.make()
+  const base = yield* volume.snapshot
+
+  yield* (yield* volume.caller()).mkdir("/work")
+
+  // Omitting limits uses `default`; pass `constrained` where memory is tight.
+  return yield* Vfs.diffSnapshots(base, yield* volume.snapshot, Vfs.SnapshotDeltaLimits.constrained)
+}).pipe(Effect.provide(BunCrypto.layer))
+```
+
 Added in v0.1.0
 
 ### SnapshotDifference

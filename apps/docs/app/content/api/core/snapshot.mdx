@@ -69,6 +69,28 @@ export declare const DecodeLimits: Schema.Struct<{
 }>
 ```
 
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { ByteSize, Effect, Schema } from "effect"
+
+// Each limit bounds a separate resource, so all four are required.
+const limits: Vfs.DecodeLimits = {
+  maxEncodedBytes: ByteSize.megabytes(4),
+  maxRecords: 10_000,
+  maxEntries: 10_000,
+  maxDecodedBytes: ByteSize.megabytes(16)
+}
+
+const program = Effect.gen(function* () {
+  const checked = yield* Schema.decodeEffect(Vfs.DecodeLimits)(limits)
+  const bytes = yield* Vfs.encodeSnapshot(yield* (yield* Vfs.make()).snapshot)
+
+  return yield* Vfs.decodeSnapshot(bytes, checked)
+})
+```
+
 Added in v0.1.0
 
 ## type IDs
