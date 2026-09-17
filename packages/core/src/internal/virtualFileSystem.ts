@@ -1090,7 +1090,12 @@ export const makeVolume = Effect.fnUntraced(
             const expansion = new Uint8Array(child.target.length + suffix.length)
             expansion.set(child.target)
             expansion.set(suffix, child.target.length)
-            work = yield* Effect.fromResult(preparePath(ownedPath(expansion), operation, settings.maxPathBytes))
+            const expanded = preparePath(ownedPath(expansion), operation, settings.maxPathBytes)
+
+            // The expansion is synthetic: its per-component limits are the caller's to hear about,
+            // but the path in the error has to be the one the caller passed in.
+            if (Result.isFailure(expanded)) return yield* failure(expanded.failure.code, operation, path.input)
+            work = expanded.success
 
             if (work.absolute) current = root
             index = -1
