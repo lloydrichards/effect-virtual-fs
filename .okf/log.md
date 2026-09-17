@@ -1,6 +1,12 @@
 # Bundle update log
 
+## 2026-09-18
+
+- **Snapshot-v1 schema**: Snapshot records intentionally use `_tag` as their variant discriminator; `kind` remains a semantic filesystem entry kind elsewhere. While version 1 is being solidified, persisted snapshots from earlier schema revisions may need regeneration after incompatible corrections; the persistence package stores snapshot bytes unchanged and does not migrate them. Timestamp spellings are checked before bigint conversion and accept at most 128 digits.
+
 ## 2026-09-17
+
+- **Snapshot timestamp decoding**: Snapshot v1 now decodes timestamp strings into internal bigint values and bounds their spelling and numeric magnitude to 128 decimal digits. It accepts alternate spellings such as leading zeroes and `-0`, while emitted snapshots normalize them through `String(bigint)`. Fixtures, live metadata, overlay comparison, NFS-facing metadata, and snapshot-delta identity remain bigint-based.
 
 - **Writable adapter and VFS capability boundary**: Resolved issue #46 with two decisions after a research pass over RFC 8881, the FUSE low-level API, the ganesha FSAL, Linux nfsd, Buildbarn, nfs4j, and durability vocabularies. `Caller` gains additive `(directoryReference, nameBytes)` mutation operations mirroring the path operations one to one, returning the new reference and the affected directory's revision before and after the change from one gate hold; `openReference` gains write access and `openChildReference` performs lookup-or-create-and-open atomically, with initial timestamps settable at create so an exclusive-create verifier fits the bigint-nanosecond fields. Share reservations and locks stay adapter-only with a documented boundary. `Volume` gains a `memory-only` durability tier, a random incarnation token reused for write and cookie verifiers, readable limits, and a live usage query; export writability, checkpoint scheduling, and identity mapping stay application composition. Moved the three `gap(#46)` attribute rows to `deferred(writable)` under #48 and pointed the profile ladder, deferred capabilities, and NFS research at the two decisions. No code changed.
 

@@ -65,6 +65,8 @@ Applications with an existing startup sequence can instead yield `CheckpointStor
   what it saves under its configured limits.
 - SQLite stores the existing JSON/base64 image as a BLOB. Load checks BLOB size inside its query before returning
   the payload, then runs core's complete snapshot decoder. Limits bound logical input, not exact heap use.
+- While snapshot version 1 is being solidified, checkpoints written by an earlier schema revision may fail core
+  validation. Regenerate those checkpoints; the persistence package does not migrate snapshot bytes.
 - Capturing remains the caller's responsibility. Subsequent volume edits require another snapshot and a new name.
 
 `CheckpointError` has `code`, `operation`, and optional `name` and `cause` fields:

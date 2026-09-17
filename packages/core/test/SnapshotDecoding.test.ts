@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect } from "effect"
+import { ByteSize, Effect, Schema } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { CanonicalBase64 } from "../src/internal/canonicalBase64.js"
 
 const encodedFile = (data: string) => {
   const metadata = { uid: 0, gid: 0, mode: 0o644, atimeNs: "0", mtimeNs: "0", ctimeNs: "0", birthtimeNs: "0" }
@@ -10,8 +11,8 @@ const encodedFile = (data: string) => {
     version: 1,
     root: "root",
     records: [
-      { id: "root", kind: "directory", metadata, entries: [{ name: "Zg==", target: "file" }] },
-      { id: "file", kind: "file", metadata, data }
+      { _tag: "directory", id: "root", metadata, entries: [{ name: "Zg==", target: "file" }] },
+      { _tag: "file", id: "file", metadata, data }
     ]
   }))
 }
@@ -24,9 +25,20 @@ const limits = {
 }
 
 describe("snapshot decoding", () => {
+  it.effect("encodes bytes as canonical base64 and decodes that representation", () =>
+    Effect.gen(function*() {
+      const input = new Uint8Array([0, 255, 127, 42])
+      const encoded = CanonicalBase64.encode(input)
+
+      assert.strictEqual(encoded, "AP9/Kg==")
+      assert.strictEqual(yield* Schema.encodeEffect(CanonicalBase64.Bytes)(input), encoded)
+      assert.deepStrictEqual(yield* CanonicalBase64.decode(encoded), input)
+    }))
+
   it.effect("should restore a large canonical payload when it fits the supplied budgets", () =>
     Effect.gen(function*() {
-      const snapshot = yield* Vfs.decodeSnapshot(encodedFile("AAAA".repeat(4_000_000)), limits)
+      const data = "AAAA".repeat(4_000_000)
+      const snapshot = yield* Vfs.decodeSnapshot(encodedFile(data), limits)
       const caller = yield* (yield* Vfs.fromSnapshot(snapshot)).caller()
       assert.strictEqual((yield* caller.stat("/f")).size, 12_000_000n)
       const file = yield* caller.open("/f", { access: "read" })

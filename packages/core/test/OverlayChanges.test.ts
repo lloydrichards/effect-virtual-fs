@@ -1,9 +1,9 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Predicate, Schema } from "effect"
+import type { StoredMetadata } from "../src/internal/metadata.js"
 import {
   compareOverlay,
   type ObservationEntry,
-  type ObservationMetadata,
   type RawOverlayChange
 } from "../src/internal/virtualFileSystem/overlayDiff.js"
 
@@ -13,14 +13,14 @@ const path = (value: string): Uint8Array => encoder.encode(value)
 
 const content = (value: string): Uint8Array => encoder.encode(value)
 
-const metadata = (overrides: Partial<ObservationMetadata> = {}): ObservationMetadata => ({
+const metadata = (overrides: Partial<StoredMetadata> = {}): StoredMetadata => ({
   uid: 0,
   gid: 0,
   mode: 0o644,
-  atimeNs: "1",
-  mtimeNs: "2",
-  ctimeNs: "3",
-  birthtimeNs: "4",
+  atimeNs: 1n,
+  mtimeNs: 2n,
+  ctimeNs: 3n,
+  birthtimeNs: 4n,
   ...overrides
 })
 
@@ -170,7 +170,7 @@ describe("overlay comparison", () => {
 
   it("should hide timestamps by default and include them in fixed order on request", () => {
     const before = entry("/a", "same")
-    const after = entry("/a", "same", { metadata: metadata({ mode: 0o600, atimeNs: "9", ctimeNs: "10" }) })
+    const after = entry("/a", "same", { metadata: metadata({ mode: 0o600, atimeNs: 9n, ctimeNs: 10n }) })
     assert.deepStrictEqual(printable(compareOverlay([before], [after])), [{
       _tag: "Updated",
       path: [...path("/a")],
@@ -186,7 +186,7 @@ describe("overlay comparison", () => {
     assert.deepStrictEqual(
       compareOverlay(
         [before],
-        [entry("/a", "same", { metadata: metadata({ atimeNs: "9" }) })]
+        [entry("/a", "same", { metadata: metadata({ atimeNs: 9n }) })]
       ),
       []
     )
