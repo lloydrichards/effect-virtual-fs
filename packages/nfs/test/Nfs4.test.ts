@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber, Option, Scope } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import type * as Duration from "effect/Duration"
+import * as TestClock from "effect/testing/TestClock"
 import { makeExport } from "../src/internal/export.js"
 import { makeNfs4Handler, nextSequenceId, Operation, Status } from "../src/internal/nfs4.js"
 import { Reader, Writer } from "../src/internal/xdr.js"
@@ -1910,6 +1911,50 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual((yield* caller.observeMetadata(reference)).value.nlink, 0)
       now = 1_001
       yield* startSession(handler, "replacement")
+      assert.strictEqual((yield* Effect.flip(caller.observeMetadata(reference))).code, "StaleReference")
+    }))
+
+  it.effect("reclaims an expired lease without waiting for another client's traffic", () =>
+    Effect.gen(function*() {
+      let now = 0
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const root = yield* caller.rootReference
+      const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        { leaseDurationSeconds: 1, callbackTimeout: "1 second", generation, now: () => now, limits }
+      )
+
+      // One connection object for both calls: `session.connections` is keyed by identity, so a
+      // fresh `connection()` would disconnect nothing and the drop below would prove nothing.
+      const dropped = connection(1)
+      const abandoned = yield* startSession(handler, "abandoned", {}, new Uint8Array(8), dropped)
+      parseOpen(
+        yield* handler.compound(call(
+          [
+            sequence(abandoned.session, 1, true),
+            (writer) => writer.uint32(Operation.PUTROOTFH),
+            openReadOnly(abandoned.client, "file"),
+            (writer) => writer.uint32(Operation.GETFH)
+          ],
+          "probe",
+          dropped
+        ))
+      )
+
+      yield* caller.unlink("/file")
+      assert.strictEqual((yield* caller.observeMetadata(reference)).value.nlink, 0)
+
+      // The client drops its connection and never returns. Nothing else reaches the server, so
+      // reclamation has to come from the handler's own schedule rather than another compound.
+      yield* handler.disconnect(dropped)
+      now = 1_001
+      yield* TestClock.adjust("2 seconds")
+
+      // Observed through the VFS rather than a compound: any compound would itself sweep, which
+      // is exactly the traffic this test must do without.
       assert.strictEqual((yield* Effect.flip(caller.observeMetadata(reference))).code, "StaleReference")
     }))
 
