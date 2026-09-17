@@ -28,18 +28,16 @@ const SnapshotJson = Schema.fromJsonString(Schema.Struct({
   version: Schema.mutableKey(Schema.Finite),
   root: Schema.String,
   records: Schema.mutable(Schema.Tuple([
-    Schema.Struct({
+    Schema.TaggedStruct("directory", {
       id: Schema.String,
-      kind: Schema.Literal("directory"),
       metadata: Schema.mutableKey(MutableMetadata),
       entries: Schema.mutableKey(Schema.mutable(Schema.Array(Schema.Struct({
         name: Schema.String,
         target: Schema.mutableKey(Schema.String)
       }))))
     }),
-    Schema.Struct({
+    Schema.TaggedStruct("file", {
       id: Schema.mutableKey(Schema.String),
-      kind: Schema.Literal("file"),
       metadata: Schema.mutableKey(MutableMetadata),
       data: Schema.mutableKey(Schema.String)
     })
@@ -149,6 +147,9 @@ describe("fixtures and snapshots", () => {
         new TextDecoder().decode(yield* Vfs.encodeSnapshot(yield* volume.snapshot))
       )
 
+      assert.deepStrictEqual(original.records.map((record) => record._tag), ["directory", "file"])
+      assert.isFalse(original.records.some((record) => Object.hasOwn(record, "kind")))
+
       const mutations: Array<(image: typeof original) => void> = [
         (image) => {
           image.extra = true
@@ -158,9 +159,6 @@ describe("fixtures and snapshots", () => {
         },
         (image) => {
           image.records[1].data = "Zh=="
-        },
-        (image) => {
-          image.records[1].metadata.mtimeNs = "01"
         },
         (image) => {
           image.records[1].id = image.records[0].id
@@ -183,6 +181,28 @@ describe("fixtures and snapshots", () => {
         const image = structuredClone(original)
         mutate(image)
         yield* Effect.flip(Vfs.decodeSnapshot(encode(image), limits))
+      }
+
+      const alternateTimestamp = structuredClone(original)
+      alternateTimestamp.records[1].metadata.mtimeNs = "01"
+
+      const normalized = yield* Vfs.decodeSnapshot(encode(alternateTimestamp), limits)
+
+      const normalizedImage = yield* Schema.decodeEffect(SnapshotJson)(
+        new TextDecoder().decode(yield* Vfs.encodeSnapshot(normalized))
+      )
+
+      assert.strictEqual(normalizedImage.records[1].metadata.mtimeNs, "1")
+
+      const longestAcceptedTimestamp = structuredClone(original)
+      longestAcceptedTimestamp.records[1].metadata.mtimeNs = "0".repeat(128)
+      yield* Vfs.decodeSnapshot(encode(longestAcceptedTimestamp), limits)
+
+      for (const timestamp of ["0".repeat(129), "9".repeat(129)]) {
+        const oversizedTimestamp = structuredClone(original)
+        oversizedTimestamp.records[1].metadata.mtimeNs = timestamp
+        const error = yield* Effect.flip(Vfs.decodeSnapshot(encode(oversizedTimestamp), limits))
+        assert.strictEqual(error.code, "InvalidEncoding")
       }
 
       original.version = 2

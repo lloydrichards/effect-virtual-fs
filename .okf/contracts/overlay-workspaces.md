@@ -23,7 +23,7 @@ sources:
   - id: checkpoint
     resource: ../../packages/persistence/test/OverlayCheckpoint.test.ts
     title: Captured snapshot checkpoint compatibility
-generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
+generated: { by: codex/okf, at: "2026-09-18T06:04:59Z" }
 ---
 
 # Overlay workspaces
@@ -36,7 +36,7 @@ Logical entry and byte limits apply to the complete visible volume. Shared base 
 
 `makeOverlay`, `changes()` and `capture()` return reusable Effects. Each execution of `makeOverlay` creates a fresh workspace, while each execution of `changes()` or `capture()` observes the workspace again. Invalid construction or summary options fail with `ConfigurationError`; failures while inspecting or constructing snapshots fail with `ImageError`. Summary schemas retain opaque, in-process `BytePath` values and do not define a portable summary encoding.[^core]
 
-`capture()` returns a complete snapshot and matching summary from one committed state. Both are owned and stable after later writes. The snapshot retains version 1 encoding and checkpoint compatibility. Restoring it recovers filesystem state only; it does not recover the previous overlay base, lineage or summary. Reset is application-level replacement with a fresh workspace, so old resources keep their independent lifetimes.[^core][^behavior]
+`capture()` returns a complete snapshot and matching summary from one committed state. Both are owned and stable after later writes. The snapshot uses the current version 1 encoding and can be stored by `CheckpointStore`. While version 1 is being solidified, compatibility with snapshots written by earlier schema revisions is not guaranteed. Restoring it recovers filesystem state only; it does not recover the previous overlay base, lineage or summary. Reset is application-level replacement with a fresh workspace, so old resources keep their independent lifetimes.[^core][^behavior]
 
 This contract implements the accepted [staged overlay delivery](/decisions/overlay/staged-overlay-delivery.md "implements"). Overlay capture produces complete snapshots; exact base-dependent deltas are a separate capability defined by the [snapshot delta contract](snapshot-deltas.md "contrasts with"). Live backing volumes, merge or rebase, in-place reset, changed-data budgets, block copying and performance guarantees remain deferred.
 

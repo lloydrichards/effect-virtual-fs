@@ -7,7 +7,7 @@ import * as Result from "effect/Result"
 import type { BytePath } from "../../BytePath.js"
 import type { PathInput } from "../../VirtualFileSystem.js"
 import { getBytes as getBytePathBytes, make as makeBytePath } from "../bytePath.js"
-import { type FsCode, FsError } from "./errors.js"
+import { FsError } from "./errors.js"
 
 // Components are hex-encoded bytes so names compare as bytes, not text: 2f is "/", 2e is ".", 2e2e is "..".
 /** @internal */
@@ -34,17 +34,13 @@ export const isDotComponent = (name: string | undefined): name is undefined | ty
   name === undefined || name === DOT_HEX || name === DOT_DOT_HEX
 
 /** @internal */
-export const failure = (code: FsCode, operation: string, path?: PathInput) =>
-  path === undefined ? new FsError({ code, operation }) : new FsError({ code, operation, path })
-
-/** @internal */
 export const ownedPath = (bytes: Uint8Array): BytePath => makeBytePath(bytes)
 
 /** @internal */
 export const strictString = (bytes: Uint8Array, operation: string) =>
   Effect.try({
     try: () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
-    catch: () => failure("UnrepresentableName", operation)
+    catch: () => new FsError({ code: "UnrepresentableName", operation })
   })
 
 /** @internal */
@@ -70,10 +66,12 @@ export const isAttachedBytes = (bytes: Uint8Array): boolean =>
 
 /** @internal */
 export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(function*(bytes: Uint8Array) {
-  if (!isAttachedBytes(bytes)) return yield* failure("InvalidArgument", "pathFromBytes")
+  if (!isAttachedBytes(bytes)) return yield* new FsError({ code: "InvalidArgument", operation: "pathFromBytes" })
   const owned = new Uint8Array(bytes)
 
-  if (owned.length === 0 || owned.includes(0)) return yield* failure("InvalidArgument", "pathFromBytes")
+  if (owned.length === 0 || owned.includes(0)) {
+    return yield* new FsError({ code: "InvalidArgument", operation: "pathFromBytes" })
+  }
 
   return makeBytePath(owned)
 })
@@ -82,7 +80,7 @@ export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(functi
 export const pathToBytes = Effect.fn("VirtualFileSystem.pathToBytes")(function*(path: BytePath) {
   const bytes = getBytePathBytes(path)
 
-  if (bytes === undefined) return yield* failure("InvalidArgument", "pathToBytes")
+  if (bytes === undefined) return yield* new FsError({ code: "InvalidArgument", operation: "pathToBytes" })
 
   return new Uint8Array(bytes)
 })
@@ -132,19 +130,19 @@ export const preparePath = (
   if (Result.isFailure(encoded)) {
     return Result.fail(
       encoded.failure === "InvalidPathEncoding"
-        ? failure("InvalidPathEncoding", operation, input)
-        : failure("InvalidArgument", operation)
+        ? new FsError({ code: "InvalidPathEncoding", operation, path: input })
+        : new FsError({ code: "InvalidArgument", operation })
     )
   }
 
   const bytes = encoded.success
 
-  if (bytes.length === 0) return Result.fail(failure("NotFound", operation, input))
+  if (bytes.length === 0) return Result.fail(new FsError({ code: "NotFound", operation, path: input }))
 
-  if (bytes.includes(0)) return Result.fail(failure("InvalidArgument", operation, input))
+  if (bytes.includes(0)) return Result.fail(new FsError({ code: "InvalidArgument", operation, path: input }))
 
   if (maxPathBytes !== undefined && ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxPathBytes)) {
-    return Result.fail(failure("PathTooLong", operation, input))
+    return Result.fail(new FsError({ code: "PathTooLong", operation, path: input }))
   }
 
   const components: Array<string> = []
@@ -155,7 +153,10 @@ export const preparePath = (
     if (index !== bytes.length && bytes[index] !== SLASH_BYTE) continue
 
     if (index > start) {
-      if (index - start > MAX_NAME_BYTES) return Result.fail(failure("PathTooLong", operation, input))
+      if (index - start > MAX_NAME_BYTES) {
+        return Result.fail(new FsError({ code: "PathTooLong", operation, path: input }))
+      }
+
       components.push(Encoding.encodeHex(bytes.subarray(start, index)))
       suffixes.push(bytes.subarray(index))
     }

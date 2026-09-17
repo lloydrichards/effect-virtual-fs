@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect } from "effect"
+import { ByteSize, Effect, Predicate } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import * as Image from "../src/internal/image.js"
 import * as Content from "../src/internal/virtualFileSystem/overlayContent.js"
@@ -20,7 +20,7 @@ describe("overlay content storage", () => {
       assert.isFalse(Content.hasOverlayContents(base))
       const first = Content.forOverlay(base, image)
       const second = Content.forOverlay(base, image)
-      const file = image.records.find((record) => record.kind === "file")
+      const file = image.records.find((record) => Predicate.isTagged("file")(record))
       assert.isDefined(file)
       assert.strictEqual(first, second)
       assert.strictEqual(first.get(file.id), second.get(file.id))

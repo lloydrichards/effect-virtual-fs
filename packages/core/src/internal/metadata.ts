@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema"
+import * as SchemaTransformation from "effect/SchemaTransformation"
 
 const MAX_TIMESTAMP = 10n ** 128n - 1n
 
@@ -9,10 +10,9 @@ export const Timestamp = Schema.BigInt.check(
 )
 
 /** @internal */
-export const TimestampFromString = Schema.BigIntFromString.check(
-  Schema.isGreaterThanOrEqualToBigInt(-MAX_TIMESTAMP),
-  Schema.isLessThanOrEqualToBigInt(MAX_TIMESTAMP)
-)
+export const TimestampFromString = Schema.String
+  .check(Schema.isPattern(/^-?[0-9]{1,128}$/))
+  .pipe(Schema.decodeTo(Timestamp, SchemaTransformation.bigintFromString))
 
 /** @internal */
 export const StoredMetadata = Schema.Struct({

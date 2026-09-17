@@ -4,10 +4,11 @@ import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Fn from "effect/Function"
+import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import type { ImageError, Snapshot } from "../Snapshot.js"
+import { ImageError, type Snapshot } from "../Snapshot.js"
 import {
   type SnapshotChange,
   type SnapshotChangesOptions,
@@ -18,8 +19,8 @@ import {
   SnapshotNodeKind
 } from "../SnapshotDelta.js"
 import { make as makeBytePath } from "./bytePath.js"
-import { compareBytes, sameBytes } from "./bytes.js"
-import * as CanonicalBase64 from "./canonicalBase64.js"
+import { bytesOrder, sameBytes } from "./bytes.js"
+import { CanonicalBase64 } from "./canonicalBase64.js"
 import * as Image from "./image.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
 
@@ -39,9 +40,9 @@ const SHA256_BYTES = 32
 
 const ROOT_PATH = new Uint8Array([SLASH_BYTE])
 
-const Path = Schema.String
+const Path = CanonicalBase64.Encoded
 
-const InlinePayload = Schema.TaggedStruct("Inline", { bytes: Schema.String })
+const InlinePayload = Schema.TaggedStruct("Inline", { bytes: CanonicalBase64.Encoded })
 
 const BasePayload = Schema.TaggedStruct("Base", { path: Path })
 
@@ -90,7 +91,7 @@ const VersionProbe = Schema.Struct({
 const Document = Schema.Struct({
   format: Schema.Literal(FORMAT),
   version: Schema.Literal(1),
-  base: Schema.Struct({ algorithm: Schema.Literal(ALGORITHM), digest: Schema.String }),
+  base: Schema.Struct({ algorithm: Schema.Literal(ALGORITHM), digest: CanonicalBase64.Encoded }),
   records: Schema.Array(DeltaRecord),
   changes: Schema.Array(Change)
 })
@@ -118,7 +119,7 @@ const encoder = new TextEncoder()
 
 const Json = Schema.fromJsonString(Schema.Unknown)
 
-const failure = Image.error
+const JsonDocument = Schema.fromJsonString(Document)
 
 const key = Encoding.encodeHex
 
@@ -211,15 +212,22 @@ const roleBudget = (limits: SnapshotDeltaLimits, role: Role): RoleBudget =>
       payloadBytesField: "outputBytes"
     }
 
-const encodedPayload = (record: Image.Record): string | undefined =>
-  record.kind === "directory" ? undefined : record.kind === "file" ? record.data : record.target
+const encodedPayload = (record: Image.Record): typeof CanonicalBase64.Encoded.Type | undefined =>
+  Match.value(record).pipe(
+    Match.tag("directory", () => undefined),
+    Match.tag("file", (record) => record.data),
+    Match.tag("symlink", (record) => record.target),
+    Match.exhaustive
+  )
 
 const normalize = Effect.fnUntraced(
   function*(snapshot: Snapshot, limits: SnapshotDeltaLimits, role: Role): Effect.fn.Return<SnapshotView, ImageError> {
     const doc = yield* Image.inspect(snapshot)
     const budget = roleBudget(limits, role)
 
-    if (doc.records.length > budget.records) return yield* failure("LimitExceeded", budget.recordsField)
+    if (doc.records.length > budget.records) {
+      return yield* new ImageError({ code: "LimitExceeded", field: budget.recordsField })
+    }
 
     const records = new Map(doc.records.map((record) => [record.id, record]))
     const pathsById = new Map<string, Array<Uint8Array>>()
@@ -232,24 +240,24 @@ const normalize = Effect.fnUntraced(
       const [recordId, path] = pending[i]!
       const record = records.get(recordId)
 
-      if (record === undefined) return yield* failure("InvalidStructure", role)
+      if (record === undefined) return yield* new ImageError({ code: "InvalidStructure", field: role })
       const paths = pathsById.get(recordId)
 
       if (paths === undefined) pathsById.set(recordId, [path])
       else paths.push(path)
 
-      if (record.kind === "directory") {
+      if (Image.Record.guards.directory(record)) {
         for (const entry of record.entries) {
-          if (++entries > limits.maxEntries) return yield* failure("LimitExceeded", "entries")
+          if (++entries > limits.maxEntries) return yield* new ImageError({ code: "LimitExceeded", field: "entries" })
           const separator = path.length === ROOT_PATH.length ? 0 : 1
           const pathLength = path.length + separator + CanonicalBase64.decodedLength(entry.name)
           pathBytes = ByteSize.sum(pathBytes, ByteSize.bytes(pathLength))
 
           if (ByteSize.isGreaterThan(pathBytes, budget.pathBytes)) {
-            return yield* failure("LimitExceeded", budget.pathBytesField)
+            return yield* new ImageError({ code: "LimitExceeded", field: budget.pathBytesField })
           }
 
-          pending.push([entry.target, join(path, Image.bytes(entry.name))])
+          pending.push([entry.target, join(path, yield* CanonicalBase64.decode(entry.name))])
         }
       }
     }
@@ -261,24 +269,24 @@ const normalize = Effect.fnUntraced(
     for (const record of doc.records) {
       const paths = pathsById.get(record.id)
 
-      if (paths === undefined) return yield* failure("InvalidStructure", role)
-      paths.sort(compareBytes)
+      if (paths === undefined) return yield* new ImageError({ code: "InvalidStructure", field: role })
+      paths.sort(bytesOrder)
       const encoded = encodedPayload(record)
 
       if (encoded !== undefined) {
         payloadBytes = ByteSize.sum(payloadBytes, ByteSize.bytes(CanonicalBase64.decodedLength(encoded)))
 
         if (ByteSize.isGreaterThan(payloadBytes, budget.payloadBytes)) {
-          return yield* failure("LimitExceeded", budget.payloadBytesField)
+          return yield* new ImageError({ code: "LimitExceeded", field: budget.payloadBytesField })
         }
       }
 
       const object = {
-        kind: record.kind,
+        kind: record._tag,
         metadata: record.metadata,
         paths,
         pathIdentity: paths.map(key).join("/"),
-        payload: encoded === undefined ? undefined : Image.bytes(encoded)
+        payload: encoded === undefined ? undefined : yield* CanonicalBase64.decode(encoded)
       } satisfies ObjectView
 
       objects.push(object)
@@ -286,7 +294,7 @@ const normalize = Effect.fnUntraced(
       for (const path of paths) byPath.set(key(path), { object, path })
     }
 
-    objects.sort((a, b) => compareBytes(a.paths[0]!, b.paths[0]!))
+    objects.sort((a, b) => bytesOrder(a.paths[0]!, b.paths[0]!))
 
     return { objects, byPath }
   }
@@ -310,7 +318,9 @@ const u64 = (n: number) => {
 const framedLength = (bytes: Uint8Array) => U64_BYTES + bytes.length
 
 const timestampBytes = (metadata: Image.StoredMetadata): ReadonlyArray<Uint8Array> =>
-  [metadata.atimeNs, metadata.mtimeNs, metadata.ctimeNs, metadata.birthtimeNs].map((value) => encoder.encode(value))
+  [metadata.atimeNs, metadata.mtimeNs, metadata.ctimeNs, metadata.birthtimeNs].map((value) =>
+    encoder.encode(String(value))
+  )
 
 // This is the versioned semantic identity encoding, not a generic byte builder.
 // Field framing, ordering, and the domain prefix are part of the persisted delta contract.
@@ -329,7 +339,7 @@ const identityBytes = (view: SnapshotView, limits: SnapshotDeltaLimits): Result.
   }
 
   if (ByteSize.isGreaterThan(total, limits.maxIdentityBytes)) {
-    return Result.fail(failure("LimitExceeded", "identityBytes"))
+    return Result.fail(new ImageError({ code: "LimitExceeded", field: "identityBytes" }))
   }
 
   const output = new Uint8Array(Number(ByteSize.toBigInt(total)))
@@ -402,14 +412,14 @@ const compare = (base: SnapshotView, target: SnapshotView): ReadonlyArray<Change
     const after = target.byPath.get(pathKey)
 
     if (after === undefined) {
-      add(RemovedChange.make({ path: Image.base64(before.path), kind: before.object.kind }), before.path)
+      add(RemovedChange.make({ path: CanonicalBase64.encode(before.path), kind: before.object.kind }), before.path)
     } else {
       const diff = cachedDifferences(before.object)(after.object)
 
       if (diff.length > 0) {
         add(
           UpdatedChange.make({
-            path: Image.base64(before.path),
+            path: CanonicalBase64.encode(before.path),
             beforeKind: before.object.kind,
             afterKind: after.object.kind,
             differences: diff
@@ -422,11 +432,11 @@ const compare = (base: SnapshotView, target: SnapshotView): ReadonlyArray<Change
 
   for (const [pathKey, after] of target.byPath) {
     if (!base.byPath.has(pathKey)) {
-      add(AddedChange.make({ path: Image.base64(after.path), kind: after.object.kind }), after.path)
+      add(AddedChange.make({ path: CanonicalBase64.encode(after.path), kind: after.object.kind }), after.path)
     }
   }
 
-  changes.sort((a, b) => compareBytes(a.path, b.path))
+  changes.sort((a, b) => bytesOrder(a.path, b.path))
 
   return changes.map(({ change }) => change)
 }
@@ -437,7 +447,7 @@ const getDocument = (delta: SnapshotDelta): Effect.Effect<Document, ImageError> 
 
     return value !== undefined && Schema.is(Document)(value)
       ? Effect.succeed(value)
-      : Effect.fail(failure("InvalidStructure", "delta"))
+      : Effect.fail(new ImageError({ code: "InvalidStructure", field: "delta" }))
   })
 
 interface PathEntry {
@@ -453,7 +463,7 @@ interface DirectoryEntry {
   readonly target: string
 }
 
-const byEntryName = (a: DirectoryEntry, b: DirectoryEntry) => compareBytes(a.name, b.name)
+const byEntryName = (a: DirectoryEntry, b: DirectoryEntry) => bytesOrder(a.name, b.name)
 
 // Every recorded path must be the root directory or the child of a recorded directory.
 // Together with `validPath` and the per-record path rules in `validate`, this subsumes the
@@ -467,7 +477,7 @@ const linkTree = (
   const rootKey = key(ROOT_PATH)
   const root = paths.get(rootKey)
 
-  if (root?.kind !== "directory") return Result.fail(failure("InvalidStructure", "root"))
+  if (root?.kind !== "directory") return Result.fail(new ImageError({ code: "InvalidStructure", field: "root" }))
   const entriesById = new Map<string, Array<DirectoryEntry>>()
 
   for (const entry of paths.values()) {
@@ -479,7 +489,7 @@ const linkTree = (
     const parent = paths.get(parentKey(child.bytes))
     const entries = parent === undefined ? undefined : entriesById.get(parent.id)
 
-    if (entries === undefined) return Result.fail(failure("InvalidStructure", "parent"))
+    if (entries === undefined) return Result.fail(new ImageError({ code: "InvalidStructure", field: "parent" }))
     entries.push({ name: basename(child.bytes), target: child.id })
   }
 
@@ -488,11 +498,13 @@ const linkTree = (
   return Result.succeed({ root: root.id, entriesById })
 }
 
-const inheritedPayload = (base: SnapshotView, kind: SnapshotNodeKind, encodedPath: string) => {
-  const source = base.byPath.get(key(Image.bytes(encodedPath)))?.object
+const inheritedPayload = Effect.fnUntraced(
+  function*(base: SnapshotView, kind: SnapshotNodeKind, encodedPath: typeof Path.Type) {
+    const source = base.byPath.get(key(yield* CanonicalBase64.decode(encodedPath)))?.object
 
-  return source?.kind === kind ? source.payload : undefined
-}
+    return source?.kind === kind ? source.payload : undefined
+  }
+)
 
 // Expects a document that already passed `validate`.
 const buildImage = Effect.fnUntraced(
@@ -505,7 +517,7 @@ const buildImage = Effect.fnUntraced(
 
     for (const [index, record] of document.records.entries()) {
       for (const encodedPath of record.paths) {
-        const bytes = Image.bytes(encodedPath)
+        const bytes = yield* CanonicalBase64.decode(encodedPath)
         paths.set(key(bytes), { id: String(index), kind: record.kind, bytes })
       }
     }
@@ -518,37 +530,40 @@ const buildImage = Effect.fnUntraced(
       const id = String(index)
 
       if (record.kind === "directory") {
-        records.push({
+        records.push(Image.Record.cases.directory.make({
           id,
-          kind: "directory",
           metadata: record.metadata,
           entries: (tree.entriesById.get(id) ?? []).map((entry) => ({
-            name: Image.base64(entry.name),
+            name: CanonicalBase64.encode(entry.name),
             target: entry.target
           }))
-        })
+        }))
         continue
       }
 
       const payload = Predicate.isTagged("Inline")(record.payload)
-        ? Image.bytes(record.payload.bytes)
-        : inheritedPayload(base, record.kind, record.payload.path)
+        ? yield* CanonicalBase64.decode(record.payload.bytes)
+        : yield* inheritedPayload(base, record.kind, record.payload.path)
 
-      if (payload === undefined) return yield* failure("InvalidStructure", "baseReference")
+      if (payload === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "baseReference" })
       outputBytes = ByteSize.sum(outputBytes, ByteSize.bytes(payload.length))
 
       if (ByteSize.isGreaterThan(outputBytes, limits.maxOutputBytes)) {
-        return yield* failure("LimitExceeded", "outputBytes")
+        return yield* new ImageError({ code: "LimitExceeded", field: "outputBytes" })
       }
 
       records.push(
         record.kind === "file"
-          ? { id, kind: "file", metadata: record.metadata, data: Image.base64(payload) }
-          : { id, kind: "symlink", metadata: record.metadata, target: Image.base64(payload) }
+          ? Image.Record.cases.file.make({ id, metadata: record.metadata, data: CanonicalBase64.encode(payload) })
+          : Image.Record.cases.symlink.make({
+            id,
+            metadata: record.metadata,
+            target: CanonicalBase64.encode(payload)
+          })
       )
     }
 
-    return yield* Image.capture({ format: "effect-vfs", version: 1, root: tree.root, records })
+    return yield* Image.capture({ format: "effect-vfs", version: 1, root: tree.root, records }, undefined, true)
   }
 )
 
@@ -557,16 +572,18 @@ const validate = Effect.fnUntraced(
     const deltaRecords = safeAdd(document.records.length, document.changes.length)
 
     if (deltaRecords === undefined || deltaRecords > limits.maxDeltaRecords) {
-      return yield* failure("LimitExceeded", "deltaRecords")
+      return yield* new ImageError({ code: "LimitExceeded", field: "deltaRecords" })
     }
 
-    if (document.records.length > limits.maxOutputRecords) return yield* failure("LimitExceeded", "outputRecords")
+    if (document.records.length > limits.maxOutputRecords) {
+      return yield* new ImageError({ code: "LimitExceeded", field: "outputRecords" })
+    }
 
     if (
-      !CanonicalBase64.isCanonical(document.base.digest) ||
+      !CanonicalBase64.is(document.base.digest) ||
       CanonicalBase64.decodedLength(document.base.digest) !== SHA256_BYTES
     ) {
-      return yield* failure("InvalidEncoding", "digest")
+      return yield* new ImageError({ code: "InvalidEncoding", field: "digest" })
     }
 
     let decoded = ByteSize.bytes(SHA256_BYTES)
@@ -575,47 +592,63 @@ const validate = Effect.fnUntraced(
     let inherited = 0
     const paths = new Map<string, PathEntry>()
 
-    const charge = (encoded: string): Effect.Effect<void, ImageError> => {
+    const charge = (encoded: typeof CanonicalBase64.Encoded.Type): Effect.Effect<void, ImageError> => {
       decoded = ByteSize.sum(decoded, ByteSize.bytes(CanonicalBase64.decodedLength(encoded)))
 
       return ByteSize.isGreaterThan(decoded, limits.maxDecodedDeltaBytes)
-        ? Effect.fail(failure("LimitExceeded", "decodedDeltaBytes"))
+        ? Effect.fail(new ImageError({ code: "LimitExceeded", field: "decodedDeltaBytes" }))
         : Effect.void
     }
 
     for (const [index, record] of document.records.entries()) {
       if (record.paths.length < 1 || (record.kind === "directory" && record.paths.length !== 1)) {
-        return yield* failure("InvalidStructure", "paths")
+        return yield* new ImageError({ code: "InvalidStructure", field: "paths" })
       }
 
       for (const encodedPath of record.paths) {
-        if (!CanonicalBase64.isCanonical(encodedPath)) return yield* failure("InvalidEncoding", "path")
+        if (!CanonicalBase64.is(encodedPath)) {
+          return yield* new ImageError({ code: "InvalidEncoding", field: "path" })
+        }
+
         yield* charge(encodedPath)
         entries++
 
-        if (entries > limits.maxEntries) return yield* failure("LimitExceeded", "entries")
-        const bytes = Image.bytes(encodedPath)
+        if (entries > limits.maxEntries) return yield* new ImageError({ code: "LimitExceeded", field: "entries" })
+        const bytes = yield* CanonicalBase64.decode(encodedPath)
         const pathKey = key(bytes)
 
-        if (!validPath(bytes) || paths.has(pathKey)) return yield* failure("InvalidStructure", "path")
+        if (!validPath(bytes) || paths.has(pathKey)) {
+          return yield* new ImageError({ code: "InvalidStructure", field: "path" })
+        }
+
         paths.set(pathKey, { id: String(index), kind: record.kind, bytes })
       }
 
       if (record.kind === "directory") continue
 
       if (Predicate.isTagged("Inline")(record.payload)) {
-        if (!CanonicalBase64.isCanonical(record.payload.bytes)) return yield* failure("InvalidEncoding", "payload")
+        if (!CanonicalBase64.is(record.payload.bytes)) {
+          return yield* new ImageError({ code: "InvalidEncoding", field: "payload" })
+        }
+
         yield* charge(record.payload.bytes)
         outputBytes = ByteSize.sum(outputBytes, ByteSize.bytes(CanonicalBase64.decodedLength(record.payload.bytes)))
       } else {
-        if (!CanonicalBase64.isCanonical(record.payload.path)) return yield* failure("InvalidEncoding", "basePath")
+        if (!CanonicalBase64.is(record.payload.path)) {
+          return yield* new ImageError({ code: "InvalidEncoding", field: "basePath" })
+        }
+
         yield* charge(record.payload.path)
         inherited++
 
-        if (inherited > limits.maxInheritedRecords) return yield* failure("LimitExceeded", "inheritedRecords")
+        if (inherited > limits.maxInheritedRecords) {
+          return yield* new ImageError({ code: "LimitExceeded", field: "inheritedRecords" })
+        }
 
-        if (!validPath(Image.bytes(record.payload.path)) || !record.paths.includes(record.payload.path)) {
-          return yield* failure("InvalidStructure", "basePath")
+        if (
+          !validPath(yield* CanonicalBase64.decode(record.payload.path)) || !record.paths.includes(record.payload.path)
+        ) {
+          return yield* new ImageError({ code: "InvalidStructure", field: "basePath" })
         }
       }
     }
@@ -623,19 +656,22 @@ const validate = Effect.fnUntraced(
     let previous: Uint8Array | undefined
 
     for (const change of document.changes) {
-      if (!CanonicalBase64.isCanonical(change.path)) return yield* failure("InvalidEncoding", "changePath")
-      yield* charge(change.path)
-      const path = Image.bytes(change.path)
+      if (!CanonicalBase64.is(change.path)) {
+        return yield* new ImageError({ code: "InvalidEncoding", field: "changePath" })
+      }
 
-      if (!validPath(path) || (previous !== undefined && compareBytes(previous, path) >= 0)) {
-        return yield* failure("InvalidStructure", "changes")
+      yield* charge(change.path)
+      const path = yield* CanonicalBase64.decode(change.path)
+
+      if (!validPath(path) || (previous !== undefined && bytesOrder(previous, path) >= 0)) {
+        return yield* new ImageError({ code: "InvalidStructure", field: "changes" })
       }
 
       previous = path
     }
 
     if (ByteSize.isGreaterThan(outputBytes, limits.maxOutputBytes)) {
-      return yield* failure("LimitExceeded", "outputBytes")
+      return yield* new ImageError({ code: "LimitExceeded", field: "outputBytes" })
     }
 
     yield* Effect.fromResult(linkTree(paths))
@@ -644,8 +680,8 @@ const validate = Effect.fnUntraced(
     for (const record of document.records) {
       if (
         record.kind === "symlink" && Predicate.isTagged("Inline")(record.payload) &&
-        Image.bytes(record.payload.bytes).includes(NUL_BYTE)
-      ) return yield* failure("InvalidStructure", "symlink")
+        (yield* CanonicalBase64.decode(record.payload.bytes)).includes(NUL_BYTE)
+      ) return yield* new ImageError({ code: "InvalidStructure", field: "symlink" })
     }
   }
 )
@@ -659,7 +695,7 @@ export const diffSnapshots = Effect.fnUntraced(
     const deltaRecords = safeAdd(after.objects.length, changes.length)
 
     if (deltaRecords === undefined || deltaRecords > limits.maxDeltaRecords) {
-      return yield* failure("LimitExceeded", "deltaRecords")
+      return yield* new ImageError({ code: "LimitExceeded", field: "deltaRecords" })
     }
 
     const samePayload = Fn.memoize((source: ObjectView) =>
@@ -667,7 +703,7 @@ export const diffSnapshots = Effect.fnUntraced(
     )
 
     const records: Array<DeltaRecord> = after.objects.map((object) => {
-      const paths = object.paths.map(Image.base64)
+      const paths = object.paths.map(CanonicalBase64.encode)
 
       if (object.kind === "directory") return { kind: object.kind, paths, metadata: object.metadata }
 
@@ -682,15 +718,15 @@ export const diffSnapshots = Effect.fnUntraced(
         paths,
         metadata: object.metadata,
         payload: inherited === undefined
-          ? InlinePayload.make({ bytes: Image.base64(object.payload ?? new Uint8Array()) })
-          : BasePayload.make({ path: Image.base64(inherited) })
+          ? InlinePayload.make({ bytes: CanonicalBase64.encode(object.payload ?? new Uint8Array()) })
+          : BasePayload.make({ path: CanonicalBase64.encode(inherited) })
       }
     })
 
     const document: Document = {
       format: FORMAT,
       version: 1,
-      base: { algorithm: ALGORITHM, digest: Image.base64(yield* digest(before, limits)) },
+      base: { algorithm: ALGORITHM, digest: CanonicalBase64.encode(yield* digest(before, limits)) },
       records,
       changes
     }
@@ -710,14 +746,16 @@ const verify = Effect.fnUntraced(function*(
   yield* validate(document, limits)
   const before = yield* normalize(base, limits, "base")
 
-  if (!sameBytes(yield* digest(before, limits), Image.bytes(document.base.digest))) {
+  if (!sameBytes(yield* digest(before, limits), yield* CanonicalBase64.decode(document.base.digest))) {
     return yield* new SnapshotDeltaError({ code: "BaseMismatch" })
   }
 
   const target = yield* buildImage(document, before, limits)
   const changes = compare(before, yield* normalize(target, limits, "target"))
 
-  if (!sameChanges(changes, document.changes)) return yield* failure("InvalidStructure", "changes")
+  if (!sameChanges(changes, document.changes)) {
+    return yield* new ImageError({ code: "InvalidStructure", field: "changes" })
+  }
 
   return { changes, target }
 })
@@ -729,7 +767,7 @@ export const inspectSnapshotDelta = Effect.fnUntraced(
     const { changes } = yield* verify(base, yield* getDocument(delta), limits)
 
     for (const change of changes) {
-      const path = makeBytePath(Image.bytes(change.path))
+      const path = makeBytePath(yield* CanonicalBase64.decode(change.path))
 
       if (!Predicate.isTagged("Updated")(change)) output.push(Object.freeze({ ...change, path }))
       else {
@@ -749,11 +787,15 @@ export const inspectSnapshotDelta = Effect.fnUntraced(
 export const encodeSnapshotDelta = Effect.fnUntraced(function*(delta: SnapshotDelta, limits: SnapshotDeltaLimits) {
   const document = yield* getDocument(delta)
   yield* validate(document, limits)
-  const text = yield* Schema.encodeEffect(Json)(document).pipe(Effect.mapError(() => failure("InvalidStructure")))
+
+  const text = yield* Schema.encodeEffect(JsonDocument)(document).pipe(
+    Effect.mapError(() => new ImageError({ code: "InvalidStructure" }))
+  )
+
   const bytes = encoder.encode(text)
 
   if (exceeds(bytes.length, limits.maxEncodedBytes)) {
-    return yield* failure("LimitExceeded", "encodedBytes")
+    return yield* new ImageError({ code: "LimitExceeded", field: "encodedBytes" })
   }
 
   return bytes
@@ -761,25 +803,32 @@ export const encodeSnapshotDelta = Effect.fnUntraced(function*(delta: SnapshotDe
 
 /** @internal */
 export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array, limits: SnapshotDeltaLimits) {
-  if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) return yield* failure("InvalidEncoding")
+  if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) {
+    return yield* new ImageError({ code: "InvalidEncoding" })
+  }
 
   if (exceeds(input.byteLength, limits.maxEncodedBytes)) {
-    return yield* failure("LimitExceeded", "encodedBytes")
+    return yield* new ImageError({ code: "LimitExceeded", field: "encodedBytes" })
   }
 
   const text = yield* Effect.try({
     try: () => new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(input)),
-    catch: () => failure("InvalidEncoding")
+    catch: () => new ImageError({ code: "InvalidEncoding" })
   })
 
-  const value = yield* Schema.decodeEffect(Json)(text).pipe(Effect.mapError(() => failure("InvalidEncoding")))
+  const value = yield* Schema.decodeEffect(Json)(text).pipe(
+    Effect.mapError(() => new ImageError({ code: "InvalidEncoding" }))
+  )
 
   const version = Schema.decodeUnknownResult(VersionProbe)(value)
 
-  if (Result.isSuccess(version) && version.success.version !== 1) return yield* failure("UnsupportedVersion")
+  if (Result.isSuccess(version) && version.success.version !== 1) {
+    return yield* new ImageError({ code: "UnsupportedVersion" })
+  }
+
   const parsed = Schema.decodeUnknownResult(Document, { onExcessProperty: "error" })(value)
 
-  if (Result.isFailure(parsed)) return yield* failure("InvalidStructure")
+  if (Result.isFailure(parsed)) return yield* new ImageError({ code: "InvalidStructure" })
   yield* validate(parsed.success, limits)
 
   return SnapshotDeltaModel.make(parsed.success)

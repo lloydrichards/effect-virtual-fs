@@ -1,5 +1,8 @@
 // Immutable regular-file payloads shared by overlay workspaces.
+import * as Result from "effect/Result"
+import * as Schema from "effect/Schema"
 import type { Snapshot } from "../../Snapshot.js"
+import { CanonicalBase64 } from "../canonicalBase64.js"
 import * as Image from "../image.js"
 
 /** @internal */
@@ -27,7 +30,11 @@ export const forOverlay = (snapshot: Snapshot, image: Image.Document): ReadonlyM
   const decoded = new Map<string, Content>()
 
   for (const record of image.records) {
-    if (record.kind === "file") decoded.set(record.id, make(Image.bytes(record.data)))
+    if (Image.Record.guards.file(record)) {
+      const bytes = Schema.decodeResult(CanonicalBase64.Bytes)(record.data)
+
+      if (Result.isSuccess(bytes)) decoded.set(record.id, make(bytes.success))
+    }
   }
 
   overlayContents.set(snapshot, decoded)

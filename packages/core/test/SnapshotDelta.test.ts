@@ -34,6 +34,12 @@ const DeltaIdentity = Schema.fromJsonString(Schema.Struct({
   base: Schema.Struct({ digest: Schema.String })
 }))
 
+const DirectoryRecord = Schema.TaggedStruct("directory", {
+  entries: Schema.Array(Schema.Struct({ target: Schema.String }))
+})
+
+const FileRecord = Schema.TaggedStruct("file", { data: Schema.String })
+
 describe("snapshot deltas", () => {
   it.effect("keeps the empty snapshot semantic identity stable", () =>
     Effect.gen(function*() {
@@ -332,7 +338,9 @@ describe("snapshot deltas", () => {
       for (const record of document.records) {
         record.id = ids.get(record.id)
 
-        if (record.kind === "directory") { for (const entry of record.entries) entry.target = ids.get(entry.target) }
+        if (Schema.is(DirectoryRecord)(record)) {
+          for (const entry of record.entries) entry.target = ids.get(entry.target)!
+        }
       }
 
       document.records.reverse()
@@ -341,7 +349,7 @@ describe("snapshot deltas", () => {
       yield* Vfs.applySnapshotDelta(equivalent, delta)
 
       const changed = structuredClone(document)
-      changed.records.find((record: { kind: string }) => record.kind === "file").data = "CQ=="
+      changed.records.find((record: { _tag: string }) => Predicate.isTagged("file")(record)).data = "CQ=="
       const error = yield* Effect.flip(Vfs.applySnapshotDelta(yield* snapshotFromDocument(changed), delta))
       assert.instanceOf(error, Vfs.SnapshotDeltaError)
       assert.strictEqual(error.code, "BaseMismatch")
@@ -367,11 +375,11 @@ describe("snapshot deltas", () => {
       const source = yield* snapshotDocument(base)
       const root = source.records.find((record: { id: string }) => record.id === source.root)
 
-      const file = source.records.find((record: { kind: string; data?: string }) =>
-        record.kind === "file" && record.data === "AQ=="
+      const file = source.records.find((record: { _tag: string; data?: string }) =>
+        Schema.is(FileRecord)(record) && record.data === "AQ=="
       )
 
-      const symlink = source.records.find((record: { kind: string }) => record.kind === "symlink")
+      const symlink = source.records.find((record: { _tag: string }) => Predicate.isTagged("symlink")(record))
       assert.isDefined(root)
       assert.isDefined(file)
       assert.isDefined(symlink)
@@ -408,7 +416,7 @@ describe("snapshot deltas", () => {
       {
         const changed = structuredClone(source)
         const changedFile = changed.records.find((record: { id: string }) => record.id === file.id)
-        changedFile.kind = "symlink"
+        changedFile._tag = "symlink"
         changedFile.target = changedFile.data
         delete changedFile.data
         cases.push(["node kind", changed])

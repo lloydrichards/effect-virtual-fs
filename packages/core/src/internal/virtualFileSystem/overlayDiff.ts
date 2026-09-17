@@ -3,17 +3,7 @@ import * as Encoding from "effect/Encoding"
 import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import { bytesOrder, sameBytes } from "../bytes.js"
-
-/** @internal */
-export interface ObservationMetadata {
-  readonly uid: number
-  readonly gid: number
-  readonly mode: number
-  readonly atimeNs: string
-  readonly mtimeNs: string
-  readonly ctimeNs: string
-  readonly birthtimeNs: string
-}
+import type { StoredMetadata } from "../metadata.js"
 
 /** @internal */
 export interface ObservationEntry {
@@ -21,7 +11,7 @@ export interface ObservationEntry {
   readonly lineage: string | undefined
   readonly kind: "directory" | "file" | "symlink"
   readonly content: Uint8Array | undefined
-  readonly metadata: ObservationMetadata
+  readonly metadata: StoredMetadata
 }
 
 /** @internal */

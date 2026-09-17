@@ -139,6 +139,10 @@ The error also records the `operation` (`save`, `load`, or `migrate`) and, when 
 Snapshot validation failures remain [`ImageError`](/api/core/snapshot). They include invalid limits, corrupt or
 unsupported stored images, and images that exceed the configured budgets.
 
+While snapshot version 1 is being solidified, a checkpoint written by an earlier schema revision may fail core
+validation. Regenerate that checkpoint. The persistence package stores snapshot bytes unchanged and does not migrate
+them.
+
 ## Understand database ownership and commits
 
 Keep the application-provided SQLite client alive for as long as the checkpoint store uses it. The persistence

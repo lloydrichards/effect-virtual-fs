@@ -1,8 +1,7 @@
 // Byte-array comparison shared by the overlay diff, the snapshot delta, and BytePath equality.
 import * as Order from "effect/Order"
 
-/** @internal */
-export const compareBytes = (left: Uint8Array, right: Uint8Array): -1 | 0 | 1 => {
+const compareBytes = (left: Uint8Array, right: Uint8Array): -1 | 0 | 1 => {
   const length = Math.min(left.length, right.length)
 
   for (let index = 0; index < length; index++) {
