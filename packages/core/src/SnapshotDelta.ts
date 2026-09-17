@@ -120,6 +120,26 @@ export type SnapshotChange = typeof SnapshotChange.Type
 /**
  * Schema for snapshot-delta inspection options.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const caller = yield* volume.caller()
+ *   const base = yield* volume.snapshot
+ *
+ *   yield* caller.mkdir("/work")
+ *
+ *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
+ *
+ *   // Timestamps are excluded by default, since they change on every write.
+ *   return yield* Vfs.inspectSnapshotDelta(base, delta, { includeTimestamps: true })
+ * }).pipe(Effect.provide(BunCrypto.layer))
+ * ```
+ *
  * @category schemas
  * @since 0.1.0
  */
@@ -138,6 +158,28 @@ export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type
 
 /**
  * A valid snapshot delta was inspected or applied against a valid but semantically different base.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import { Effect } from "effect"
+ *
+ * // A delta only applies to the base it was computed from.
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const base = yield* volume.snapshot
+ *
+ *   yield* (yield* volume.caller()).mkdir("/work")
+ *
+ *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
+ *   const unrelated = yield* (yield* Vfs.make()).snapshot
+ *
+ *   const error = yield* Effect.flip(Vfs.applySnapshotDelta(unrelated, delta))
+ *
+ *   return error
+ * }).pipe(Effect.provide(BunCrypto.layer))
+ * ```
  *
  * @category errors
  * @since 0.1.0
