@@ -1197,7 +1197,8 @@ export declare const Fixture: Schema.Struct<{
     }>
   >
   readonly entries: Schema.$Array<
-    Schema.Union<
+    Schema.toTaggedUnion<
+      "kind",
       readonly [
         Schema.Struct<{
           readonly kind: Schema.Literal<"directory">
