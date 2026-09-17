@@ -243,6 +243,29 @@ export type VolumeOptions = typeof VolumeOptions.Type
 /**
  * Schema for filesystem node metadata with bigint inode, size, and nanosecond fields.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * // Sizes and inode numbers are bigint; times are nanosecond timestamps.
+ * const program = Effect.gen(function*() {
+ *   const caller = yield* (yield* Vfs.make()).caller()
+ *
+ *   yield* caller.writeFile("/f", new Uint8Array([1, 2, 3]), {
+ *     access: "write",
+ *     create: "exclusive"
+ *   })
+ *
+ *   const metadata = yield* caller.stat("/f")
+ *
+ *   return [metadata.kind, metadata.size, metadata.nlink]
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ "file", 3n, 1 ]
+ * ```
+ *
  * @category schemas
  * @since 0.1.0
  */
@@ -353,6 +376,33 @@ export type Times = typeof Times.Type
 /**
  * A scoped directory capability that can be used for metadata and relative lookup.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * // A directory handle anchors relative paths, so later renames cannot
+ * // redirect them.
+ * const program = Effect.gen(function*() {
+ *   const caller = yield* (yield* Vfs.make()).caller()
+ *
+ *   yield* caller.mkdir("/project")
+ *
+ *   const directory = yield* caller.openDirectory("/project")
+ *
+ *   yield* caller.writeFile("notes.txt", new Uint8Array([1]), {
+ *     access: "write",
+ *     create: "exclusive",
+ *     relativeTo: directory
+ *   })
+ *
+ *   return (yield* directory.stat).kind
+ * }).pipe(Effect.scoped)
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // "directory"
+ * ```
+ *
  * @category models
  * @since 0.1.0
  */
@@ -428,6 +478,30 @@ export type WriteFileOptions = VfsModel.WriteFileOptions
 
 /**
  * A scoped regular-file capability with an independent bigint cursor.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * // The surrounding scope closes the handle; the cursor is per-handle state.
+ * const program = Effect.gen(function*() {
+ *   const caller = yield* (yield* Vfs.make()).caller()
+ *
+ *   const handle = yield* caller.open("/data.bin", {
+ *     access: "readWrite",
+ *     create: "exclusive"
+ *   })
+ *
+ *   yield* handle.write(new Uint8Array([1, 2, 3, 4]))
+ *
+ *   // `pread` reads at an offset without disturbing the cursor.
+ *   return yield* handle.pread(2, 1n)
+ * }).pipe(Effect.scoped)
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // Uint8Array [ 2, 3 ]
+ * ```
  *
  * @category models
  * @since 0.1.0
@@ -1100,6 +1174,23 @@ export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDelta
  * **Gotchas**
  *
  * Shared-memory-backed and detached views fail with `InvalidArgument`.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * // Any byte except NUL is accepted; a NUL byte fails with `InvalidPathEncoding`.
+ * const program = Effect.gen(function*() {
+ *   const path = yield* Vfs.pathFromBytes(new Uint8Array([47, 116, 109, 112]))
+ *   const error = yield* Effect.flip(Vfs.pathFromBytes(new Uint8Array([47, 0])))
+ *
+ *   return [yield* Vfs.pathToBytes(path), error.code]
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ Uint8Array [ 47, 116, 109, 112 ], "InvalidPathEncoding" ]
+ * ```
  *
  * @category constructors
  * @since 0.1.0
