@@ -692,6 +692,36 @@ export type CurrentFileSystem = VfsModel.CurrentFileSystem
 /**
  * Encodes a snapshot as owned UTF-8 JSON bytes using the version 1 snapshot format.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { ByteSize, Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *
+ *   yield* (yield* volume.caller()).writeFile("/f", new Uint8Array([1, 2, 3]), {
+ *     access: "write",
+ *     create: "exclusive"
+ *   })
+ *
+ *   // Bytes are portable; store or transmit them, then decode under explicit limits.
+ *   const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
+ *
+ *   const restored = yield* Vfs.decodeSnapshot(bytes, {
+ *     maxEncodedBytes: ByteSize.megabytes(4),
+ *     maxRecords: 10_000,
+ *     maxEntries: 10_000,
+ *     maxDecodedBytes: ByteSize.megabytes(16)
+ *   })
+ *
+ *   return yield* (yield* (yield* Vfs.fromSnapshot(restored)).caller()).readFile("/f")
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // Uint8Array [ 1, 2, 3 ]
+ * ```
+ *
  * @category serialization
  * @since 0.1.0
  */
@@ -699,6 +729,30 @@ export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, I
 
 /**
  * Decodes version 1 snapshot bytes while enforcing explicit input and payload limits.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { ByteSize, Effect } from "effect"
+ *
+ * // Limits are mandatory: decoding is the boundary where untrusted input arrives.
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
+ *
+ *   const rejected = yield* Effect.flip(Vfs.decodeSnapshot(bytes, {
+ *     maxEncodedBytes: ByteSize.bytes(1),
+ *     maxRecords: 10_000,
+ *     maxEntries: 10_000,
+ *     maxDecodedBytes: ByteSize.megabytes(16)
+ *   }))
+ *
+ *   return [rejected.code, rejected.field]
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ "LimitExceeded", "encodedBytes" ]
+ * ```
  *
  * @category serialization
  * @since 0.1.0
@@ -721,6 +775,31 @@ const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
  * Computes an exact portable delta between two immutable snapshots.
  * Requires the platform-neutral `Crypto.Crypto` service for base identity.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const caller = yield* volume.caller()
+ *   const base = yield* volume.snapshot
+ *
+ *   yield* caller.writeFile("/added.txt", new Uint8Array([1]), {
+ *     access: "write",
+ *     create: "exclusive"
+ *   })
+ *
+ *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
+ *
+ *   return (yield* Vfs.inspectSnapshotDelta(base, delta)).map((change) => change._tag)
+ * }).pipe(Effect.provide(BunCrypto.layer))
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ "Create" ]
+ * ```
+ *
  * @category snapshots
  * @since 0.1.0
  */
@@ -735,6 +814,31 @@ export const diffSnapshots = Effect.fn("VirtualFileSystem.diffSnapshots")(functi
 /**
  * Verifies an exact snapshot delta against its base and derives an owned path-oriented summary.
  * Requires the platform-neutral `Crypto.Crypto` service for base identity.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import { Effect } from "effect"
+ *
+ * // Inspection verifies the delta against its base before describing it.
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const caller = yield* volume.caller()
+ *   const base = yield* volume.snapshot
+ *
+ *   yield* caller.mkdir("/logs")
+ *
+ *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
+ *   const changes = yield* Vfs.inspectSnapshotDelta(base, delta)
+ *
+ *   return changes.map((change) =>
+ *     change._tag === "Updated" ? change.afterKind : change.kind)
+ * }).pipe(Effect.provide(BunCrypto.layer))
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ "directory" ]
+ * ```
  *
  * @category snapshots
  * @since 0.1.0
@@ -755,6 +859,34 @@ export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshot
 /**
  * Applies an exact delta to its semantically matching base and returns a new snapshot.
  * Requires the platform-neutral `Crypto.Crypto` service for base identity.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const caller = yield* volume.caller()
+ *   const base = yield* volume.snapshot
+ *
+ *   yield* caller.writeFile("/f", new Uint8Array([7]), {
+ *     access: "write",
+ *     create: "exclusive"
+ *   })
+ *
+ *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
+ *
+ *   // Applying the delta to the same base reproduces the target snapshot.
+ *   const applied = yield* Vfs.applySnapshotDelta(base, delta)
+ *
+ *   return yield* (yield* (yield* Vfs.fromSnapshot(applied)).caller()).readFile("/f")
+ * }).pipe(Effect.provide(BunCrypto.layer))
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // Uint8Array [ 7 ]
+ * ```
  *
  * @category snapshots
  * @since 0.1.0
@@ -777,6 +909,28 @@ const deltaSchemaIssue = (cause: ImageError, input: typeof Schema.Unknown.Type, 
 /**
  * Creates an Effect Schema codec between owned bytes and opaque snapshot deltas.
  * Omission uses `SnapshotDeltaLimits.default`.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import { Effect, Schema } from "effect"
+ *
+ * const codec = Vfs.SnapshotDeltaFromBytes()
+ *
+ * // Round-trip a delta through bytes for storage or transport.
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const base = yield* volume.snapshot
+ *
+ *   yield* (yield* volume.caller()).mkdir("/out")
+ *
+ *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
+ *   const bytes = yield* Schema.encodeEffect(codec)(delta)
+ *
+ *   return yield* Schema.decodeEffect(codec)(bytes)
+ * }).pipe(Effect.provide(BunCrypto.layer))
+ * ```
  *
  * @category schemas
  * @since 0.1.0

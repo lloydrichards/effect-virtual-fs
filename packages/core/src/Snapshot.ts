@@ -52,6 +52,27 @@ export class ImageError extends Data.TaggedError("ImageError")<{
 /**
  * Schema for the mandatory resource limits applied while decoding a snapshot.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { ByteSize, Effect, Schema } from "effect"
+ *
+ * // Each limit bounds a separate resource, so all four are required.
+ * const limits: Vfs.DecodeLimits = {
+ *   maxEncodedBytes: ByteSize.megabytes(4),
+ *   maxRecords: 10_000,
+ *   maxEntries: 10_000,
+ *   maxDecodedBytes: ByteSize.megabytes(16)
+ * }
+ *
+ * const program = Effect.gen(function*() {
+ *   const checked = yield* Schema.decodeEffect(Vfs.DecodeLimits)(limits)
+ *   const bytes = yield* Vfs.encodeSnapshot(yield* (yield* Vfs.make()).snapshot)
+ *
+ *   return yield* Vfs.decodeSnapshot(bytes, checked)
+ * })
+ * ```
+ *
  * @category schemas
  * @since 0.1.0
  */

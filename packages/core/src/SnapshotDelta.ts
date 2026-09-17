@@ -207,6 +207,27 @@ const defaultLimits = makeSnapshotDeltaLimits({
  * The constrained preset is intended for memory-sensitive environments. The
  * default preset permits larger snapshots and payloads while remaining finite.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const base = yield* volume.snapshot
+ *
+ *   yield* (yield* volume.caller()).mkdir("/work")
+ *
+ *   // Omitting limits uses `default`; pass `constrained` where memory is tight.
+ *   return yield* Vfs.diffSnapshots(
+ *     base,
+ *     yield* volume.snapshot,
+ *     Vfs.SnapshotDeltaLimits.constrained
+ *   )
+ * }).pipe(Effect.provide(BunCrypto.layer))
+ * ```
+ *
  * @category schemas
  * @since 0.1.0
  */
