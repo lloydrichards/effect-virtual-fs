@@ -1,10 +1,11 @@
 import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as Deferred from "effect/Deferred"
-import type * as Duration from "effect/Duration"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Schedule from "effect/Schedule"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import { type InvalidFilehandleError, InvalidNameError, type NfsExport, validateName } from "./export.js"
@@ -1919,6 +1920,21 @@ export const makeNfs4Handler = (
       }
     })
 
+    // Section 8.3: a lease expires on its own schedule, so reclamation cannot wait for a compound
+    // from some other client. On an idle server that compound never arrives, and an abandoned
+    // client's opens and replay budget would stay charged until the handler scope closed. Half the
+    // lease bounds how long expired state outlives its lease by one tick.
+    const sweepInterval = Duration.seconds(Math.max(1, options.leaseDurationSeconds / 2))
+
+    yield* Effect.forkIn(
+      // `Effect.uninterruptible` sits inside `withPermit`, never around it, so scope closure
+      // interrupts a sweep that is still waiting for the gate rather than queueing behind it.
+      Effect.repeat(stateGate.withPermit(Effect.uninterruptible(sweepExpired)), {
+        schedule: Schedule.spaced(sweepInterval)
+      }),
+      handlerScope
+    )
+
     yield* Effect.addFinalizer(() => Effect.forEach(opens.values(), (open) => open.close, { discard: true }))
 
     /** Reads only the leading SEQUENCE of a compound to find its session, tolerating later decode errors. */
@@ -3773,10 +3789,9 @@ export const makeNfs4Handler = (
         // yields, and `back.arming` exists so a probe in flight discards its stale verdict.
         Effect.sync(() => {
           // Section 2.10.5: losing one connection does not end a session that others still
-          // reach, and never ends the lease, which expires on its own schedule.
-          // FIX(#69): nothing reclaims a client whose last connection went away — the lease
-          // correctly survives, but opens and replay budget stay pinned until the scope closes.
-          // https://github.com/lloydrichards/effect-virtual-fs/issues/69
+          // reach, and never ends the lease, which expires on its own schedule. Section 18.37.3
+          // keeps the lease tied to the client ID even across an explicit DESTROY_SESSION, so a
+          // client that never comes back is reclaimed by the sweeper above rather than here.
           for (const session of sessions.values()) {
             if (!session.connections.delete(connection) || session.back === undefined) continue
 
