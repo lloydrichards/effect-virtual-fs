@@ -1,6 +1,6 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Exit, Fiber, Scope } from "effect"
+import { Deferred, Effect, Exit, Fiber, Option, Scope } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import type * as Duration from "effect/Duration"
 import { makeExport } from "../src/internal/export.js"
@@ -1939,6 +1939,82 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual((yield* caller.observeMetadata(reference)).value.nlink, 0)
       yield* Scope.close(scope, Exit.void)
       assert.strictEqual((yield* Effect.flip(caller.observeMetadata(reference))).code, "StaleReference")
+    }))
+
+  it.live("does not let a connection finalizer wait out an in-flight compound", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
+      const entered = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const parked = yield* Deferred.make<void>()
+
+      // An OPEN that never returns stands in for a VFS operation stalled on a backing store. The
+      // compound holds the state gate for as long as it runs, and is uninterruptible while it does.
+      const export_ = {
+        ...base,
+        open: (reference: Vfs.ObjectReference) =>
+          Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.andThen(base.open(reference))
+          )
+      }
+
+      const handler = yield* makeNfs4Handler(export_, {
+        leaseDurationSeconds: 30,
+        callbackTimeout: "1 second",
+        generation,
+        now: () => 0,
+        limits
+      })
+
+      const stalling = connection(1)
+      const departing = connection(2)
+      const held = yield* startSession(handler, "stalling", {}, new Uint8Array(8), stalling)
+      yield* startSession(handler, "departing", {}, new Uint8Array(8), departing)
+
+      const inFlight = yield* Effect.forkChild(handler.compound(call(
+        [
+          sequence(held.session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openReadOnly(held.client, "file")
+        ],
+        "stalling-probe",
+        stalling
+      )))
+
+      yield* Deferred.await(entered)
+
+      // `handleConnection` runs `disconnect` under `Effect.ensuring`, which makes the finalizer
+      // uninterruptible; `Semaphore.withPermits` then waits via `restore`, which returns to that
+      // uninterruptible status. A finalizer that takes the state gate therefore cannot be
+      // interrupted out of the wait, so this interrupt must still return while the compound stalls.
+      const leaving = yield* Effect.forkChild(
+        Deferred.succeed(parked, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.ensuring(handler.disconnect(departing))
+        )
+      )
+
+      // The interrupt must find the fiber already inside `ensuring`, or the finalizer never runs
+      // and the assertion below proves nothing.
+      yield* Deferred.await(parked)
+
+      // The interrupt is awaited on another fiber so the bound races an interruptible join rather
+      // than the uninterruptible finalizer itself, which no timeout could abandon cleanly.
+      const interrupting = yield* Effect.forkChild(Fiber.interrupt(leaving))
+      const finished = yield* Fiber.join(interrupting).pipe(Effect.timeoutOption("2 seconds"))
+
+      // Release the compound before asserting: a wedged finalizer would otherwise outlive the
+      // failure and time the suite out instead of reporting it.
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(inFlight)
+
+      assert.isTrue(
+        Option.isSome(finished),
+        "a connection finalizer stalled behind an in-flight compound"
+      )
     }))
 
   it.effect("reuses session and open capacity after explicit teardown", () =>

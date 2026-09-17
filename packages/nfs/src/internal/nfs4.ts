@@ -3763,32 +3763,38 @@ export const makeNfs4Handler = (
           return session === undefined ? Effect.succeed(false) : probe(session)
         }),
       disconnect: (connection) =>
-        stateGate.withPermit(
-          Effect.sync(() => {
-            // Section 2.10.5: losing one connection does not end a session that others still
-            // reach, and never ends the lease, which expires on its own schedule.
-            // FIX(#69): nothing reclaims a client whose last connection went away — the lease
-            // correctly survives, but opens and replay budget stay pinned until the scope closes.
-            // https://github.com/lloydrichards/effect-virtual-fs/issues/69
-            for (const session of sessions.values()) {
-              if (!session.connections.delete(connection) || session.back === undefined) continue
+        // Deliberately outside `stateGate`. This runs from a connection finalizer, which
+        // `Effect.ensuring` executes uninterruptibly, and `Semaphore.withPermits` waits via
+        // `restore`, which returns to that enclosing uninterruptible status. Taking the gate here
+        // would let one in-flight compound hold up every departing connection with no interrupt
+        // path out of the wait. Safe without it: the body below is a single synchronous mutation,
+        // so it can only interleave with a compound at that compound's own yield points, and both
+        // of its effects are already tolerated there — `callback` snapshots the carriers before it
+        // yields, and `back.arming` exists so a probe in flight discards its stale verdict.
+        Effect.sync(() => {
+          // Section 2.10.5: losing one connection does not end a session that others still
+          // reach, and never ends the lease, which expires on its own schedule.
+          // FIX(#69): nothing reclaims a client whose last connection went away — the lease
+          // correctly survives, but opens and replay budget stay pinned until the scope closes.
+          // https://github.com/lloydrichards/effect-virtual-fs/issues/69
+          for (const session of sessions.values()) {
+            if (!session.connections.delete(connection) || session.back === undefined) continue
 
-              let carries = false
+            let carries = false
 
-              for (const direction of session.connections.values()) {
-                if ((direction & CHANNEL_BACK) !== 0) carries = true
-              }
-
-              // A backchannel with no connection left cannot be reached, and a connection that
-              // binds it later deserves a fresh probe rather than the old verdict.
-              if (!carries) {
-                session.back.healthy = false
-                session.back.probed = false
-                session.back.arming++
-              }
+            for (const direction of session.connections.values()) {
+              if ((direction & CHANNEL_BACK) !== 0) carries = true
             }
-          })
-        )
+
+            // A backchannel with no connection left cannot be reached, and a connection that
+            // binds it later deserves a fresh probe rather than the old verdict.
+            if (!carries) {
+              session.back.healthy = false
+              session.back.probed = false
+              session.back.arming++
+            }
+          }
+        })
     }
   })
 }
