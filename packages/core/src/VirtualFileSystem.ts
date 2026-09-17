@@ -64,6 +64,17 @@ export type PathInput = string | BytePath
 /**
  * Schema for portable virtual filesystem error codes.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect, Schema } from "effect"
+ *
+ * // Useful when a code crosses a boundary and arrives back as plain data.
+ * const program = Schema.decodeUnknownEffect(Vfs.FsCode)("NotFound").pipe(
+ *   Effect.map((code): Vfs.FsCode => code)
+ * )
+ * ```
+ *
  * @category schemas
  * @since 0.1.0
  */
@@ -80,6 +91,28 @@ export type FsCode = typeof FsCode.Type
 /**
  * Describes an expected filesystem operation failure.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const caller = yield* (yield* Vfs.make()).caller()
+ *
+ *   // Every filesystem operation fails with this one tagged error; `code`
+ *   // distinguishes the cases, so match on it rather than on the tag alone.
+ *   return yield* caller.readFile("/missing").pipe(
+ *     Effect.catchTag("FsError", (error) =>
+ *       error.code === "NotFound"
+ *         ? Effect.succeed(new Uint8Array())
+ *         : Effect.fail(error))
+ *   )
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // Uint8Array []
+ * ```
+ *
  * @category errors
  * @since 0.1.0
  */
@@ -90,6 +123,22 @@ export interface FsError extends VfsModel.FsError {}
 
 /**
  * Describes an invalid volume or caller option and names the rejected field.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * // `field` names the rejected option, so the caller learns which key was wrong.
+ * const program = Effect.gen(function*() {
+ *   const error = yield* Effect.flip(Vfs.make({ maxEntries: -1 }))
+ *
+ *   return error.field
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // "maxEntries"
+ * ```
  *
  * @category errors
  * @since 0.1.0
@@ -118,6 +167,33 @@ export type Identity = typeof Identity.Type
 /**
  * Schema for root caller credentials and creation mask.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *
+ *   // Omitting `identity` yields a privileged root caller.
+ *   const root = yield* volume.caller({ umask: 0 })
+ *   const user = yield* volume.caller({
+ *     identity: { uid: 1000, gid: 1000, groups: [], privileged: false },
+ *     umask: 0o022
+ *   })
+ *
+ *   yield* root.mkdir("/home", { mode: 0o777 })
+ *
+ *   // The umask clears those bits from the requested mode.
+ *   yield* user.mkdir("/home/user", { mode: 0o777 })
+ *
+ *   return (yield* user.stat("/home/user")).mode & 0o777
+ * })
+ *
+ * Effect.runPromise(program).then((mode) => console.log(mode.toString(8)))
+ * // "755"
+ * ```
+ *
  * @category schemas
  * @since 0.1.0
  */
@@ -133,6 +209,23 @@ export type RootCallerOptions = typeof RootCallerOptions.Type
 
 /**
  * Schema for optional volume capacity and path limits.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { ByteSize, Effect } from "effect"
+ *
+ * // Every limit is optional; omitted keys keep the volume's own defaults.
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make({
+ *     maxEntries: 1_000,
+ *     maxBytes: ByteSize.megabytes(8),
+ *     maxFileBytes: ByteSize.megabytes(1)
+ *   })
+ *
+ *   return yield* volume.caller()
+ * })
+ * ```
  *
  * @category schemas
  * @since 0.1.0
@@ -288,6 +381,30 @@ export type SeekMode = typeof SeekMode.Type
 /**
  * Schema for file access, creation, append, truncate, and symlink behavior.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * // `access` is required; `create` decides whether a missing file is an error.
+ * const program = Effect.gen(function*() {
+ *   const caller = yield* (yield* Vfs.make()).caller()
+ *
+ *   const handle = yield* caller.open("/log.txt", {
+ *     access: "readWrite",
+ *     create: "ifMissing",
+ *     append: true
+ *   })
+ *
+ *   yield* handle.write(new Uint8Array([1, 2]))
+ *
+ *   return (yield* handle.stat).size
+ * }).pipe(Effect.scoped)
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // 2n
+ * ```
+ *
  * @category schemas
  * @since 0.1.0
  */
@@ -349,7 +466,7 @@ export interface FileHandle {
  *   const volume = yield* Vfs.make()
  *
  *   // Each caller carries its own uid, gid, umask, and current directory.
- *   const root = yield* volume.caller()
+ *   const root = yield* volume.caller({ umask: 0 })
  *   const user = yield* volume.caller({
  *     identity: { uid: 1000, gid: 1000, groups: [], privileged: false }
  *   })
@@ -542,6 +659,22 @@ export type OverlayChange = typeof OverlayChange.Type
 
 /**
  * Schema for overlay summary filtering.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const base = yield* Vfs.make()
+ *   const workspace = yield* Vfs.makeOverlay(yield* base.snapshot)
+ *
+ *   yield* (yield* workspace.caller()).mkdir("/out")
+ *
+ *   // Timestamps are excluded by default, since they change on every write.
+ *   return yield* workspace.changes({ includeTimestamps: true })
+ * })
+ * ```
  *
  * @category schemas
  * @since 0.1.0

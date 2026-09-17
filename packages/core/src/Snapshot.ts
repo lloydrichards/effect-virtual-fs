@@ -39,6 +39,27 @@ export interface Snapshot {
 /**
  * Describes a snapshot encoding, decoding, structure, or resource-limit failure.
  *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { ByteSize, Effect } from "effect"
+ *
+ * // `code` says what went wrong and `field` says where, when it is known.
+ * const program = Effect.gen(function*() {
+ *   const error = yield* Effect.flip(Vfs.decodeSnapshot(new Uint8Array([0]), {
+ *     maxEncodedBytes: ByteSize.megabytes(4),
+ *     maxRecords: 10_000,
+ *     maxEntries: 10_000,
+ *     maxDecodedBytes: ByteSize.megabytes(16)
+ *   }))
+ *
+ *   return error.code
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // "InvalidEncoding"
+ * ```
+ *
  * @category errors
  * @since 0.1.0
  */
