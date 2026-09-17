@@ -80,7 +80,8 @@ export const base64 = (input: Uint8Array): string => {
   return chunks.join("")
 }
 
-const error = (code: ImageError["code"], field?: string) =>
+/** @internal */
+export const error = (code: ImageError["code"], field?: string) =>
   field === undefined ? new ImageError({ code }) : new ImageError({ code, field })
 
 /** @internal */

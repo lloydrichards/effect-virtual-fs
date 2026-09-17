@@ -23,19 +23,17 @@ import type {
   RelativeOptions,
   Volume
 } from "../VirtualFileSystem.js"
-import { getBytes as getBytePathBytes } from "./bytePath.js"
 import * as Image from "./image.js"
-import { ConfigurationError, FsCode as FsCodeSchema, FsError } from "./virtualFileSystem/errors.js"
+import { ConfigurationError, decodeConfiguration, FsCode as FsCodeSchema, FsError } from "./virtualFileSystem/errors.js"
 import * as Content from "./virtualFileSystem/overlayContent.js"
 import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./virtualFileSystem/overlayDiff.js"
 import {
-  attachedBuffer,
-  decodeConfiguration,
   DOT_DOT_HEX,
   DOT_HEX,
   failure,
+  inputBytes,
+  isAttachedBytes,
   isDotComponent,
-  type LookupOptions,
   MAX_NAME_BYTES,
   nameBytes,
   ownedPath,
@@ -43,8 +41,7 @@ import {
   preparePath,
   SLASH_BYTE,
   SLASH_HEX,
-  strictString,
-  wellFormed
+  strictString
 } from "./virtualFileSystem/path.js"
 import * as TestHooks from "./virtualFileSystem/testHooks.js"
 import * as WatchHub from "./virtualFileSystem/watchHub.js"
@@ -85,6 +82,13 @@ const STICKY_BIT = 0o1000
 
 // Nodes walked between yields. Whole-tree reads are one synchronous tick otherwise, which
 // starves the event loop and leaves nothing for interruption to act on.
+// Options for a single path walk; `lookup` is defined per volume, so this lives at module level.
+interface LookupOptions {
+  readonly followFinalSymlink?: boolean
+  readonly allowMissing?: boolean
+  readonly parentOnly?: boolean
+}
+
 const WALK_YIELD_INTERVAL = 128
 
 // Largest signed 64-bit file offset, as POSIX off_t.
@@ -891,9 +895,7 @@ export const makeVolume = Effect.fnUntraced(
       }, coordinated)
 
       const write = Effect.fnUntraced(function*(input: Uint8Array, position?: bigint) {
-        if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer) || !attachedBuffer(input)) {
-          return yield* failure("InvalidArgument", "write")
-        }
+        if (!isAttachedBytes(input)) return yield* failure("InvalidArgument", "write")
 
         const bytes = new Uint8Array(input)
 
@@ -1356,8 +1358,8 @@ export const makeVolume = Effect.fnUntraced(
         })).pipe(Effect.withSpan("Caller.rootReference")),
         lookupReference: Effect.fn("Caller.lookupReference")(function*(directoryReference, name) {
           if (
-            !(name instanceof Uint8Array) || !(name.buffer instanceof ArrayBuffer) || !attachedBuffer(name) ||
-            name.length === 0 || name.length > MAX_NAME_BYTES || name.includes(0) || name.includes(SLASH_BYTE)
+            !isAttachedBytes(name) || name.length === 0 || name.length > MAX_NAME_BYTES || name.includes(0) ||
+            name.includes(SLASH_BYTE)
           ) return yield* failure("InvalidArgument", "lookupReference")
           const key = Encoding.encodeHex(new Uint8Array(name))
 
@@ -1462,9 +1464,7 @@ export const makeVolume = Effect.fnUntraced(
           function*(input: PathInput, bytes: Uint8Array, options: WriteFileOptions) {
             const prepared = preparePath(input, "writeFile", settings.maxPathBytes)
 
-            if (!(bytes instanceof Uint8Array) || !(bytes.buffer instanceof ArrayBuffer) || !attachedBuffer(bytes)) {
-              return yield* failure("InvalidArgument", "writeFile", input)
-            }
+            if (!isAttachedBytes(bytes)) return yield* failure("InvalidArgument", "writeFile", input)
 
             const captured = new Uint8Array(bytes)
             const { relativeTo: base, ...raw } = options
@@ -1718,19 +1718,12 @@ export const makeVolume = Effect.fnUntraced(
         symlink: Effect.fn("Caller.symlink")(function*(target: PathInput, input: PathInput, options?: RelativeOptions) {
           const prepared = preparePath(input, "symlink", settings.maxPathBytes)
 
-          if (Predicate.isString(target) && !wellFormed(target)) {
-            return yield* failure("InvalidPathEncoding", "symlink", target)
-          }
+          const rawTarget = inputBytes(target)
 
-          const rawTarget = Predicate.isString(target)
-            ? new TextEncoder().encode(target)
-            : getBytePathBytes(target)
+          if (Result.isFailure(rawTarget)) return yield* failure(rawTarget.failure, "symlink", target)
 
-          if (rawTarget === undefined || rawTarget.includes(0)) {
-            return yield* failure("InvalidArgument", "symlink", target)
-          }
-
-          const targetBytes = new Uint8Array(rawTarget)
+          if (rawTarget.success.includes(0)) return yield* failure("InvalidArgument", "symlink", target)
+          const targetBytes = new Uint8Array(rawTarget.success)
           const base = options?.relativeTo
 
           return yield* coordinated(Effect.gen(function*() {
@@ -2179,12 +2172,8 @@ export const makeVolume = Effect.fnUntraced(
 
     const publicChange = (change: RawOverlayChange): OverlayChange =>
       Predicate.isTagged("Renamed")(change)
-        ? OverlayChange.make({
-          ...change,
-          from: ownedPath(new Uint8Array(change.from)),
-          to: ownedPath(new Uint8Array(change.to))
-        })
-        : OverlayChange.make({ ...change, path: ownedPath(new Uint8Array(change.path)) })
+        ? OverlayChange.make({ ...change, from: ownedPath(change.from), to: ownedPath(change.to) })
+        : OverlayChange.make({ ...change, path: ownedPath(change.path) })
 
     const publicChanges = (changes: ReadonlyArray<RawOverlayChange>): ReadonlyArray<OverlayChange> =>
       Object.freeze(changes.map(publicChange))

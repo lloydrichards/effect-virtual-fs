@@ -3,12 +3,11 @@ import * as ByteSize from "effect/ByteSize"
 import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
-import * as Equal from "effect/Equal"
 import * as Fn from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import { ImageError, type Snapshot } from "../Snapshot.js"
+import type { ImageError, Snapshot } from "../Snapshot.js"
 import {
   type SnapshotChange,
   type SnapshotChangesOptions,
@@ -19,6 +18,7 @@ import {
   SnapshotNodeKind
 } from "../SnapshotDelta.js"
 import { make as makeBytePath } from "./bytePath.js"
+import { compareBytes, sameBytes } from "./bytes.js"
 import * as CanonicalBase64 from "./canonicalBase64.js"
 import * as Image from "./image.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
@@ -118,20 +118,7 @@ const encoder = new TextEncoder()
 
 const Json = Schema.fromJsonString(Schema.Unknown)
 
-const failure = (code: ImageError["code"], field?: string) =>
-  field === undefined ? new ImageError({ code }) : new ImageError({ code, field })
-
-const sameBytes = (a: Uint8Array | undefined, b: Uint8Array | undefined) => Equal.equals(a, b)
-
-const compareBytes = (a: Uint8Array, b: Uint8Array) => {
-  for (let i = 0; i < Math.min(a.length, b.length); i++) {
-    const d = a[i]! - b[i]!
-
-    if (d !== 0) return d
-  }
-
-  return a.length - b.length
-}
+const failure = Image.error
 
 const key = Encoding.encodeHex
 

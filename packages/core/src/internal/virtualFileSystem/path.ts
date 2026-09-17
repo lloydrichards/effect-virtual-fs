@@ -4,12 +4,10 @@ import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
-import * as Schema from "effect/Schema"
-import type * as SchemaIssue from "effect/SchemaIssue"
 import type { BytePath } from "../../BytePath.js"
 import type { PathInput } from "../../VirtualFileSystem.js"
 import { getBytes as getBytePathBytes, make as makeBytePath } from "../bytePath.js"
-import { ConfigurationError, type FsCode, FsError } from "./errors.js"
+import { type FsCode, FsError } from "./errors.js"
 
 // Components are hex-encoded bytes so names compare as bytes, not text: 2f is "/", 2e is ".", 2e2e is "..".
 /** @internal */
@@ -40,9 +38,7 @@ export const failure = (code: FsCode, operation: string, path?: PathInput) =>
   path === undefined ? new FsError({ code, operation }) : new FsError({ code, operation, path })
 
 /** @internal */
-export const ownedPath = (bytes: Uint8Array): BytePath => {
-  return makeBytePath(bytes)
-}
+export const ownedPath = (bytes: Uint8Array): BytePath => makeBytePath(bytes)
 
 /** @internal */
 export const strictString = (bytes: Uint8Array, operation: string) =>
@@ -52,13 +48,10 @@ export const strictString = (bytes: Uint8Array, operation: string) =>
   })
 
 /** @internal */
-export const nameBytes = (name: string): Uint8Array => {
-  return Result.getOrThrow(Encoding.decodeHex(name))
-}
-// A zero-length view distinguishes a detached buffer from a valid empty buffer.
+export const nameBytes = (name: string): Uint8Array => Result.getOrThrow(Encoding.decodeHex(name))
 
-/** @internal */
-export const attachedBuffer = (bytes: Uint8Array): boolean => {
+// A zero-length view distinguishes a detached buffer from a valid empty buffer.
+const attachedBuffer = (bytes: Uint8Array): boolean => {
   try {
     const probe = new Uint8Array(bytes.buffer, bytes.byteOffset, 0)
 
@@ -69,13 +62,15 @@ export const attachedBuffer = (bytes: Uint8Array): boolean => {
   }
 }
 
+// Accepts any Uint8Array, subclasses such as Node's Buffer included; rejects views over a
+// SharedArrayBuffer or a detached buffer before the bytes are copied or trusted.
+/** @internal */
+export const isAttachedBytes = (bytes: Uint8Array): boolean =>
+  Predicate.isUint8Array(bytes) && bytes.buffer instanceof ArrayBuffer && attachedBuffer(bytes)
+
 /** @internal */
 export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(function*(bytes: Uint8Array) {
-  if (!(bytes instanceof Uint8Array) || !(bytes.buffer instanceof ArrayBuffer)) {
-    return yield* failure("InvalidArgument", "pathFromBytes")
-  }
-
-  if (!attachedBuffer(bytes)) return yield* failure("InvalidArgument", "pathFromBytes")
+  if (!isAttachedBytes(bytes)) return yield* failure("InvalidArgument", "pathFromBytes")
   const owned = new Uint8Array(bytes)
 
   if (owned.length === 0 || owned.includes(0)) return yield* failure("InvalidArgument", "pathFromBytes")
@@ -93,13 +88,6 @@ export const pathToBytes = Effect.fn("VirtualFileSystem.pathToBytes")(function*(
 })
 
 /** @internal */
-export interface LookupOptions {
-  readonly followFinalSymlink?: boolean
-  readonly allowMissing?: boolean
-  readonly parentOnly?: boolean
-}
-
-/** @internal */
 export interface PreparedPath {
   readonly input: PathInput
   readonly absolute: boolean
@@ -109,8 +97,8 @@ export interface PreparedPath {
   readonly components: ReadonlyArray<string>
 }
 
-/** @internal */
-export const wellFormed = (value: string): boolean => {
+// Hand-rolled because String.prototype.isWellFormed is ES2024 and the package targets ES2023.
+const wellFormed = (value: string): boolean => {
   for (let index = 0; index < value.length; index++) {
     const code = value.charCodeAt(index)
 
@@ -124,22 +112,32 @@ export const wellFormed = (value: string): boolean => {
   return true
 }
 
+const UTF8_ENCODER = new TextEncoder()
+
+// Strings must be well-formed UTF-16 before encoding; BytePaths must belong to this package.
+/** @internal */
+export const inputBytes = (input: PathInput): Result.Result<Uint8Array, "InvalidPathEncoding" | "InvalidArgument"> =>
+  Predicate.isString(input)
+    ? wellFormed(input) ? Result.succeed(UTF8_ENCODER.encode(input)) : Result.fail("InvalidPathEncoding")
+    : Result.fromNullishOr(getBytePathBytes(input), () => "InvalidArgument" as const)
+
 /** @internal */
 export const preparePath = (
   input: PathInput,
   operation: string,
   maxPathBytes: ByteSize.ByteSize | undefined
 ): Result.Result<PreparedPath, FsError> => {
-  let bytes: Uint8Array | undefined
+  const encoded = inputBytes(input)
 
-  if (Schema.is(Schema.String)(input)) {
-    if (!wellFormed(input)) return Result.fail(failure("InvalidPathEncoding", operation, input))
-    bytes = new TextEncoder().encode(input)
-  } else {
-    bytes = getBytePathBytes(input)
+  if (Result.isFailure(encoded)) {
+    return Result.fail(
+      encoded.failure === "InvalidPathEncoding"
+        ? failure("InvalidPathEncoding", operation, input)
+        : failure("InvalidArgument", operation)
+    )
   }
 
-  if (bytes === undefined) return Result.fail(failure("InvalidArgument", operation))
+  const bytes = encoded.success
 
   if (bytes.length === 0) return Result.fail(failure("NotFound", operation, input))
 
@@ -154,11 +152,10 @@ export const preparePath = (
   let start = 0
 
   for (let index = 0; index <= bytes.length; index++) {
-    if (index !== bytes.length && bytes[index] !== 47) continue
+    if (index !== bytes.length && bytes[index] !== SLASH_BYTE) continue
 
     if (index > start) {
-      // Provisional component bound from decision 0019; names are compared as bytes.
-      if (index - start > 255) return Result.fail(failure("PathTooLong", operation, input))
+      if (index - start > MAX_NAME_BYTES) return Result.fail(failure("PathTooLong", operation, input))
       components.push(Encoding.encodeHex(bytes.subarray(start, index)))
       suffixes.push(bytes.subarray(index))
     }
@@ -168,24 +165,10 @@ export const preparePath = (
 
   return Result.succeed({
     input,
-    absolute: bytes[0] === 47,
-    trailingSlash: bytes.at(-1) === 47,
+    absolute: bytes[0] === SLASH_BYTE,
+    trailingSlash: bytes.at(-1) === SLASH_BYTE,
     bytes,
     suffixes,
     components
   })
 }
-
-const configurationField = (issue: SchemaIssue.Issue): string => {
-  if (Predicate.isTagged("Pointer")(issue)) return issue.path.map(String).join(".")
-
-  if (Predicate.isTagged("Composite")(issue)) return configurationField(issue.issues[0])
-
-  return "options"
-}
-
-/** @internal */
-export const decodeConfiguration = <A>(schema: Schema.Codec<A>, value: typeof Schema.Unknown.Type) =>
-  Schema.decodeUnknownResult(schema, { onExcessProperty: "error" })(value).pipe(
-    Result.mapError((error) => new ConfigurationError({ field: configurationField(error.issue) }))
-  )
