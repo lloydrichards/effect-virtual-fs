@@ -78,18 +78,30 @@ import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
   const original = yield* Vfs.make()
-  const caller = yield* original.caller()
+  const source = yield* original.caller()
 
-  yield* caller.writeFile("/seed.txt", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
+  yield* source.writeFile("/seed.txt", new TextEncoder().encode("one"), {
+    access: "write",
+    create: "exclusive"
+  })
 
-  // Restoration always produces an independent volume.
   const restored = yield* Vfs.fromSnapshot(yield* original.snapshot)
+  const copy = yield* restored.caller()
 
-  return yield* (yield* restored.caller()).readFile("/seed.txt")
+  // Writing to the restore leaves the original untouched: the two are independent.
+  yield* copy.writeFile("/seed.txt", new TextEncoder().encode("two"), {
+    access: "write",
+    truncate: true
+  })
+
+  return [
+    new TextDecoder().decode(yield* source.readFile("/seed.txt")),
+    new TextDecoder().decode(yield* copy.readFile("/seed.txt"))
+  ]
 })
 
 Effect.runPromise(program).then(console.log)
-// Uint8Array(3) [ 1, 2, 3 ]
+// [ 'one', 'two' ]
 ```
 
 Added in v0.1.0
@@ -162,25 +174,29 @@ import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
   const base = yield* Vfs.make()
+  const origin = yield* base.caller()
 
-  yield* (yield* base.caller()).writeFile("/config.json", new Uint8Array([123, 125]), {
+  yield* origin.writeFile("/config.json", new TextEncoder().encode("{}"), {
     access: "write",
     create: "exclusive"
   })
 
-  // Writes land in the workspace; the base snapshot is never modified.
   const workspace = yield* Vfs.makeOverlay(yield* base.snapshot)
 
-  yield* (yield* workspace.caller()).writeFile("/config.json", new Uint8Array([91, 93]), {
+  yield* (yield* workspace.caller()).writeFile("/config.json", new TextEncoder().encode("[]"), {
     access: "write",
     truncate: true
   })
 
-  return (yield* workspace.changes()).map((change) => change._tag)
+  // The write landed in the workspace only; the base still reads its own value.
+  return [
+    new TextDecoder().decode(yield* origin.readFile("/config.json")),
+    (yield* workspace.changes()).map((change) => change._tag)
+  ]
 })
 
 Effect.runPromise(program).then(console.log)
-// [ 'Updated' ]
+// [ '{}', [ 'Updated' ] ]
 ```
 
 Added in v0.1.0
@@ -424,30 +440,78 @@ export interface Caller {
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
+// Whole-file reads and writes need no scope. `writeFile` always takes an
+// options bag; `access` is required and `create` decides what a missing file means.
 const program = Effect.gen(function* () {
   const volume = yield* Vfs.make()
+  const caller = yield* volume.caller()
 
-  // Each caller carries its own uid, gid, umask, and current directory.
-  const root = yield* volume.caller({ umask: 0 })
-  const user = yield* volume.caller({
-    identity: { uid: 1000, gid: 1000, groups: [], privileged: false }
+  yield* caller.mkdir("/work")
+  yield* caller.writeFile("/work/notes.txt", new TextEncoder().encode("hello"), {
+    access: "write",
+    create: "exclusive"
   })
 
-  yield* root.mkdir("/shared", { mode: 0o755 })
-
-  // The unprivileged caller cannot write into a root-owned directory.
-  const denied = yield* Effect.flip(
-    user.writeFile("/shared/f", new Uint8Array([1]), {
-      access: "write",
-      create: "exclusive"
-    })
-  )
-
-  return denied.code
+  return yield* caller.readDirectory("/work")
 })
 
 Effect.runPromise(program).then(console.log)
-// AccessDenied
+// [ 'notes.txt' ]
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+// Reach for a handle when a whole-file write will not do. A handle carries a
+// cursor and lives until its scope closes.
+const program = Effect.gen(function* () {
+  const caller = yield* (yield* Vfs.make()).caller()
+
+  const handle = yield* caller.open("/log.txt", {
+    access: "readWrite",
+    create: "exclusive"
+  })
+
+  yield* handle.write(new TextEncoder().encode("first "))
+  yield* handle.write(new TextEncoder().encode("second"))
+  yield* handle.seek(0n, "start")
+
+  return new TextDecoder().decode(yield* handle.read(64))
+}).pipe(Effect.scoped)
+
+Effect.runPromise(program).then(console.log)
+// first second
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+// A derived caller holds the directory's identity, not its path, so renaming
+// the directory does not redirect later relative writes.
+const program = Effect.gen(function* () {
+  const caller = yield* (yield* Vfs.make()).caller()
+
+  yield* caller.mkdir("/build")
+
+  const work = yield* caller.withDirectory("/build")
+
+  yield* caller.rename("/build", "/dist")
+  yield* work.writeFile("out.txt", new TextEncoder().encode("done"), {
+    access: "write",
+    create: "exclusive"
+  })
+
+  return yield* caller.readDirectory("/dist")
+}).pipe(Effect.scoped)
+
+Effect.runPromise(program).then(console.log)
+// [ 'out.txt' ]
 ```
 
 Added in v0.1.0
@@ -504,8 +568,8 @@ export interface DirectoryHandle {
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
-// A directory handle anchors relative paths, so later renames cannot
-// redirect them.
+// The handle anchors relative paths to the directory itself, so a rename in
+// between does not send the write somewhere else.
 const program = Effect.gen(function* () {
   const caller = yield* (yield* Vfs.make()).caller()
 
@@ -513,17 +577,18 @@ const program = Effect.gen(function* () {
 
   const directory = yield* caller.openDirectory("/project")
 
-  yield* caller.writeFile("notes.txt", new Uint8Array([1]), {
+  yield* caller.rename("/project", "/renamed")
+  yield* caller.writeFile("notes.txt", new TextEncoder().encode("kept"), {
     access: "write",
     create: "exclusive",
     relativeTo: directory
   })
 
-  return (yield* directory.stat).kind
+  return yield* caller.readDirectory("/renamed")
 }).pipe(Effect.scoped)
 
 Effect.runPromise(program).then(console.log)
-// directory
+// [ 'notes.txt' ]
 ```
 
 Added in v0.1.0
@@ -564,7 +629,6 @@ export interface FileHandle {
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
-// The surrounding scope closes the handle; the cursor is per-handle state.
 const program = Effect.gen(function* () {
   const caller = yield* (yield* Vfs.make()).caller()
 
@@ -575,12 +639,14 @@ const program = Effect.gen(function* () {
 
   yield* handle.write(new Uint8Array([1, 2, 3, 4]))
 
-  // `pread` reads at an offset without disturbing the cursor.
-  return yield* handle.pread(2, 1n)
+  // `pread` reads at an offset and leaves the cursor where writing left it.
+  const slice = yield* handle.pread(2, 1n)
+
+  return [slice, yield* handle.seek(0n, "current")]
 }).pipe(Effect.scoped)
 
 Effect.runPromise(program).then(console.log)
-// Uint8Array(2) [ 2, 3 ]
+// [ Uint8Array(2) [ 2, 3 ], 4n ]
 ```
 
 Added in v0.1.0
