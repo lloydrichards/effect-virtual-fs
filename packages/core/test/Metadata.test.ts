@@ -199,4 +199,67 @@ describe("metadata authority", () => {
       assert.strictEqual((yield* Effect.flip(fs.truncate("/f", 4n))).code, "NoSpace")
       assert.strictEqual((yield* f.stat).size, 1n)
     }))
+
+  it.effect("treats only both-UTIME_NOW as a touch a write-authorized non-owner may perform", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const admin = yield* volume.caller({ umask: 0 })
+      yield* admin.mkdir("/deep")
+      yield* admin.open("/deep/f", { access: "write", create: "exclusive", mode: 0o666 })
+      const guest = yield* volume.caller({ identity: { uid: 2, gid: 2, groups: [], privileged: false } })
+      yield* TestClock.adjust("2 seconds")
+
+      yield* guest.utimes("/deep/f", { access: { kind: "now" }, modification: { kind: "now" } })
+      assert.strictEqual((yield* admin.stat("/deep/f")).mtimeNs, 2_000_000_000n)
+
+      // Mixing UTIME_NOW with UTIME_OMIT is not a touch, so POSIX still requires ownership.
+      const mixed = yield* Effect.flip(
+        guest.utimes("/deep/f", { access: { kind: "now" }, modification: { kind: "omit" } })
+      )
+
+      assert.strictEqual(mixed.code, "AccessDenied")
+      assert.strictEqual(mixed.path, "/deep/f")
+    }))
+
+  it.effect("names the requested path when a timestamp change is denied", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const admin = yield* volume.caller({ umask: 0 })
+      yield* admin.mkdir("/deep")
+      yield* admin.open("/deep/f", { access: "write", create: "exclusive", mode: 0o600 })
+      const guest = yield* volume.caller({ identity: { uid: 2, gid: 2, groups: [], privileged: false } })
+
+      const denied = yield* Effect.flip(
+        guest.utimes("/deep/f", { access: { kind: "now" }, modification: { kind: "now" } })
+      )
+
+      assert.strictEqual(denied.code, "AccessDenied")
+      assert.strictEqual(denied.path, "/deep/f")
+
+      const handle = yield* guest.openDirectory("/deep")
+
+      const throughHandle = yield* Effect.flip(
+        guest.utimesHandle(handle, { access: { kind: "value", nanoseconds: 3n }, modification: { kind: "omit" } })
+      )
+
+      assert.strictEqual(throughHandle.code, "AccessDenied")
+      assert.strictEqual(throughHandle.path, undefined)
+    }))
+
+  it.effect("requires group membership even for the group a node already has", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const admin = yield* volume.caller({ umask: 0 })
+      yield* admin.open("/f", { access: "write", create: "exclusive", mode: 0o666 })
+      yield* admin.chown("/f", { uid: 7, gid: 9 })
+      const owner = yield* volume.caller({ identity: { uid: 7, gid: 7, groups: [], privileged: false } })
+
+      // POSIX permits a group change only to the caller's effective or supplementary group,
+      // with no exemption for re-asserting the group the node already carries.
+      assert.strictEqual((yield* Effect.flip(owner.chown("/f", { gid: 9 }))).code, "AccessDenied")
+      const member = yield* volume.caller({ identity: { uid: 7, gid: 7, groups: [9], privileged: false } })
+
+      yield* member.chown("/f", { gid: 9 })
+      assert.strictEqual((yield* admin.stat("/f")).gid, 9)
+    }))
 })
