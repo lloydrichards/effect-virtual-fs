@@ -149,7 +149,7 @@
     {
       "files": [
         "apps/docs/scripts/check-docs.ts",
-        "apps/docs/scripts/check-class-examples.ts"
+        "apps/docs/scripts/check-examples.ts"
       ],
       "rules": {
         "effecttsgo/async-function": "off",

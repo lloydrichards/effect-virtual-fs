@@ -57,7 +57,7 @@ export interface Snapshot {
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // "InvalidEncoding"
+ * // InvalidEncoding
  * ```
  *
  * @category errors

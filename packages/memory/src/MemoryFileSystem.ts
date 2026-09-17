@@ -36,7 +36,7 @@ import * as internal from "./internal/memoryFileSystem.js"
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // "hello"
+ * // hello
  * ```
  *
  * @see {@link layer} for providing the service as a Layer.
@@ -73,7 +73,7 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  *
  * Effect.runPromise(writeManifest.pipe(Effect.provide(MemoryFileSystem.layer)))
  *   .then(console.log)
- * // '{"version":"1.2.3"}'
+ * // {"version":"1.2.3"}
  * ```
  *
  * @example
@@ -139,7 +139,7 @@ export const layer: Layer.Layer<FileSystem.FileSystem> = internal.layer
  * })
  *
  * Effect.runPromise(program.pipe(Effect.provide(seeded))).then(console.log)
- * // '{"version":"1.2.3"}'
+ * // {"version":"1.2.3"}
  * ```
  *
  * @see {@link make} for a service backed by a fresh volume with `/tmp`.

@@ -110,7 +110,7 @@ export type FsCode = typeof FsCode.Type
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // Uint8Array []
+ * // Uint8Array(0) []
  * ```
  *
  * @category errors
@@ -137,7 +137,7 @@ export interface FsError extends VfsModel.FsError {}
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // "maxEntries"
+ * // maxEntries
  * ```
  *
  * @category errors
@@ -263,7 +263,7 @@ export type VolumeOptions = typeof VolumeOptions.Type
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // [ "file", 3n, 1 ]
+ * // [ 'file', 3n, 1 ]
  * ```
  *
  * @category schemas
@@ -400,7 +400,7 @@ export type Times = typeof Times.Type
  * }).pipe(Effect.scoped)
  *
  * Effect.runPromise(program).then(console.log)
- * // "directory"
+ * // directory
  * ```
  *
  * @category models
@@ -500,7 +500,7 @@ export type WriteFileOptions = VfsModel.WriteFileOptions
  * }).pipe(Effect.scoped)
  *
  * Effect.runPromise(program).then(console.log)
- * // Uint8Array [ 2, 3 ]
+ * // Uint8Array(2) [ 2, 3 ]
  * ```
  *
  * @category models
@@ -559,7 +559,7 @@ export interface FileHandle {
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // "PermissionDenied"
+ * // AccessDenied
  * ```
  *
  * @category models
@@ -840,7 +840,7 @@ export interface Volume {
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // [ "Create" ]
+ * // [ 'Added' ]
  * ```
  *
  * @category models
@@ -885,7 +885,7 @@ export interface OverlayVolume extends Volume {
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // Uint8Array [ 49 ]
+ * // Uint8Array(1) [ 49 ]
  * ```
  *
  * @category services
@@ -926,7 +926,7 @@ export type CurrentFileSystem = VfsModel.CurrentFileSystem
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // Uint8Array [ 1, 2, 3 ]
+ * // Uint8Array(3) [ 1, 2, 3 ]
  * ```
  *
  * @category serialization
@@ -958,7 +958,7 @@ export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, I
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // [ "LimitExceeded", "encodedBytes" ]
+ * // [ 'LimitExceeded', 'encodedBytes' ]
  * ```
  *
  * @category serialization
@@ -1004,7 +1004,7 @@ const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
  * }).pipe(Effect.provide(BunCrypto.layer))
  *
  * Effect.runPromise(program).then(console.log)
- * // [ "Create" ]
+ * // [ 'Added' ]
  * ```
  *
  * @category snapshots
@@ -1044,7 +1044,7 @@ export const diffSnapshots = Effect.fn("VirtualFileSystem.diffSnapshots")(functi
  * }).pipe(Effect.provide(BunCrypto.layer))
  *
  * Effect.runPromise(program).then(console.log)
- * // [ "directory" ]
+ * // [ 'directory' ]
  * ```
  *
  * @category snapshots
@@ -1092,7 +1092,7 @@ export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshot
  * }).pipe(Effect.provide(BunCrypto.layer))
  *
  * Effect.runPromise(program).then(console.log)
- * // Uint8Array [ 7 ]
+ * // Uint8Array(1) [ 7 ]
  * ```
  *
  * @category snapshots
@@ -1189,7 +1189,7 @@ export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDelta
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // [ Uint8Array [ 47, 116, 109, 112 ], "InvalidPathEncoding" ]
+ * // [ Uint8Array(4) [ 47, 116, 109, 112 ], 'InvalidArgument' ]
  * ```
  *
  * @category constructors
@@ -1267,7 +1267,7 @@ export type Fixture = typeof Fixture.Type
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // Uint8Array [ 104, 105 ]
+ * // Uint8Array(2) [ 104, 105 ]
  * ```
  *
  * @category constructors
@@ -1296,7 +1296,7 @@ export const make: (options?: VolumeOptions) => Effect.Effect<Volume, Configurat
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // Uint8Array [ 1, 2, 3 ]
+ * // Uint8Array(3) [ 1, 2, 3 ]
  * ```
  *
  * @category constructors
@@ -1345,7 +1345,7 @@ export const fromSnapshot: (
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // [ "Update" ]
+ * // [ 'Updated' ]
  * ```
  *
  * @category constructors
@@ -1384,7 +1384,7 @@ export const makeOverlay: (
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // [ "latest", "package.json" ]
+ * // [ 'package.json', 'latest' ]
  * ```
  *
  * @category constructors

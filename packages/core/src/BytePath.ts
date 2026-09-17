@@ -50,7 +50,7 @@ export type BytePathId = typeof BytePathId
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // [ Uint8Array [ 255, 254 ] ]
+ * // [ Uint8Array(2) [ 255, 254 ] ]
  * ```
  *
  * @category models

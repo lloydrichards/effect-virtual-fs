@@ -52,7 +52,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// [ "latest", "package.json" ]
+// [ 'package.json', 'latest' ]
 ```
 
 Added in v0.1.0
@@ -89,7 +89,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// Uint8Array [ 1, 2, 3 ]
+// Uint8Array(3) [ 1, 2, 3 ]
 ```
 
 Added in v0.1.0
@@ -126,7 +126,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// Uint8Array [ 104, 105 ]
+// Uint8Array(2) [ 104, 105 ]
 ```
 
 Added in v0.1.0
@@ -180,7 +180,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// [ "Update" ]
+// [ 'Updated' ]
 ```
 
 Added in v0.1.0
@@ -214,7 +214,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// [ Uint8Array [ 47, 116, 109, 112 ], "InvalidPathEncoding" ]
+// [ Uint8Array(4) [ 47, 116, 109, 112 ], 'InvalidArgument' ]
 ```
 
 Added in v0.1.0
@@ -245,7 +245,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// "maxEntries"
+// maxEntries
 ```
 
 Added in v0.1.0
@@ -281,7 +281,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// Uint8Array []
+// Uint8Array(0) []
 ```
 
 Added in v0.1.0
@@ -439,7 +439,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// "PermissionDenied"
+// AccessDenied
 ```
 
 Added in v0.1.0
@@ -515,7 +515,7 @@ const program = Effect.gen(function* () {
 }).pipe(Effect.scoped)
 
 Effect.runPromise(program).then(console.log)
-// "directory"
+// directory
 ```
 
 Added in v0.1.0
@@ -572,7 +572,7 @@ const program = Effect.gen(function* () {
 }).pipe(Effect.scoped)
 
 Effect.runPromise(program).then(console.log)
-// Uint8Array [ 2, 3 ]
+// Uint8Array(2) [ 2, 3 ]
 ```
 
 Added in v0.1.0
@@ -785,7 +785,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// [ "Create" ]
+// [ 'Added' ]
 ```
 
 Added in v0.1.0
@@ -1143,7 +1143,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// [ "file", 3n, 1 ]
+// [ 'file', 3n, 1 ]
 ```
 
 Added in v0.1.0
@@ -1551,7 +1551,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// [ "LimitExceeded", "encodedBytes" ]
+// [ 'LimitExceeded', 'encodedBytes' ]
 ```
 
 Added in v0.1.0
@@ -1594,7 +1594,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// Uint8Array [ 1, 2, 3 ]
+// Uint8Array(3) [ 1, 2, 3 ]
 ```
 
 Added in v0.1.0
@@ -1637,7 +1637,7 @@ const program = Effect.gen(function* () {
 })
 
 Effect.runPromise(program).then(console.log)
-// Uint8Array [ 49 ]
+// Uint8Array(1) [ 49 ]
 ```
 
 Added in v0.1.0
@@ -1784,7 +1784,7 @@ const program = Effect.gen(function* () {
 }).pipe(Effect.provide(BunCrypto.layer))
 
 Effect.runPromise(program).then(console.log)
-// Uint8Array [ 7 ]
+// Uint8Array(1) [ 7 ]
 ```
 
 Added in v0.1.0
@@ -1926,7 +1926,7 @@ const program = Effect.gen(function* () {
 }).pipe(Effect.provide(BunCrypto.layer))
 
 Effect.runPromise(program).then(console.log)
-// [ "Create" ]
+// [ 'Added' ]
 ```
 
 Added in v0.1.0
@@ -2194,7 +2194,7 @@ const program = Effect.gen(function* () {
 }).pipe(Effect.provide(BunCrypto.layer))
 
 Effect.runPromise(program).then(console.log)
-// [ "directory" ]
+// [ 'directory' ]
 ```
 
 Added in v0.1.0
