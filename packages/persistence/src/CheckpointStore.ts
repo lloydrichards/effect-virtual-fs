@@ -66,16 +66,77 @@ const StoredRow = Schema.Struct({
   image: Schema.NullOr(Schema.Uint8Array)
 })
 
+// Implemented at module scope so `make` and `layer` can be real static methods:
+// docgen only documents class members declared as methods, and silently skips
+// static properties, which left these entry points off the API page entirely.
+const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.DecodeLimits) {
+  const ownedLimits = yield* Schema.decodeEffect(Vfs.DecodeLimits, { onExcessProperty: "error" })(limits).pipe(
+    Effect.mapError(() => new Vfs.ImageError({ code: "InvalidStructure", field: "limits" }))
+  )
+
+  const sql = (yield* SqlClient).withoutTransforms()
+  const maxEncodedBytes = ByteSize.toBigInt(ownedLimits.maxEncodedBytes)
+
+  const save = Effect.fn("CheckpointStore.save")(function*(name: string, snapshot: Vfs.Snapshot) {
+    yield* checkName(name, "save")
+    const image = yield* Vfs.encodeSnapshot(snapshot)
+
+    yield* Vfs.decodeSnapshot(image, ownedLimits)
+
+    const inserted = yield* sql`
+      INSERT INTO effect_vfs_checkpoints (name, image) VALUES (${name}, ${image})
+      ON CONFLICT(name) DO NOTHING RETURNING name
+    `.pipe(Effect.mapError(
+      (cause) => new CheckpointError({ code: "Storage", operation: "save", name, cause })
+    ))
+
+    if (inserted.length === 0) return yield* new CheckpointError({ code: "AlreadyExists", operation: "save", name })
+  })
+
+  const load = Effect.fn("CheckpointStore.load")(function*(name: string) {
+    yield* checkName(name, "load")
+
+    const rows = yield* sql`
+      SELECT typeof(image) AS kind,
+        CASE WHEN typeof(image) = 'blob' THEN length(image) ELSE NULL END AS size,
+        CASE WHEN typeof(image) = 'blob' AND length(image) <= ${maxEncodedBytes}
+          THEN image ELSE NULL END AS image
+      FROM effect_vfs_checkpoints WHERE name = ${name}
+    `.pipe(Effect.mapError(
+      (cause) => new CheckpointError({ code: "Storage", operation: "load", name, cause })
+    ))
+
+    if (rows.length === 0) return yield* new CheckpointError({ code: "NotFound", operation: "load", name })
+
+    const row = yield* Schema.decodeUnknownEffect(StoredRow)(rows[0]).pipe(
+      Effect.mapError(() => new Vfs.ImageError({ code: "InvalidStructure", field: "row" }))
+    )
+
+    if (row.kind !== "blob" || row.size === null) {
+      return yield* new Vfs.ImageError({ code: "InvalidStructure", field: "image" })
+    }
+
+    if (BigInt(row.size) > maxEncodedBytes) {
+      return yield* new Vfs.ImageError({ code: "LimitExceeded", field: "encodedBytes" })
+    }
+
+    if (row.image === null) return yield* new Vfs.ImageError({ code: "InvalidStructure", field: "image" })
+
+    return yield* Vfs.decodeSnapshot(row.image, ownedLimits)
+  })
+
+  return CheckpointStore.of({ save, load })
+})
+
 /**
  * SQLite checkpoint service. Supply a SQLite `SqlClient` and run `migrate` before use.
  * Driver lifetime belongs to the application's layer scope.
  *
  * @example
  * ```ts
- * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { CheckpointStore } from "@effect-vfs/persistence"
- * import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
- * import { ByteSize, Effect } from "effect"
+ * import { ByteSize, Effect, Layer } from "effect"
+ * import type { SqlClient } from "effect/unstable/sql/SqlClient"
  *
  * const limits = {
  *   maxEncodedBytes: ByteSize.megabytes(4),
@@ -84,27 +145,19 @@ const StoredRow = Schema.Struct({
  *   maxDecodedBytes: ByteSize.megabytes(16)
  * }
  *
- * const program = Effect.gen(function*() {
- *   // Migrations must run before the store is used.
- *   yield* CheckpointStore.migrate
- *   const store = yield* CheckpointStore.make(limits)
+ * // `migrate` creates the package tables and must run before the store is used.
+ * const checkpoints = (sqlite: Layer.Layer<SqlClient>) =>
+ *   CheckpointStore.layer(limits).pipe(
+ *     Layer.provide(Layer.effectDiscard(CheckpointStore.migrate)),
+ *     Layer.provide(sqlite)
+ *   )
  *
- *   const volume = yield* Vfs.fromFixture({
- *     entries: [{ kind: "file", path: "/notes.txt", bytes: new Uint8Array([104, 105]) }]
- *   })
+ * const program = (sqlite: Layer.Layer<SqlClient>) =>
+ *   Effect.gen(function*() {
+ *     const store = yield* CheckpointStore
  *
- *   yield* store.save("nightly", yield* volume.snapshot)
- *
- *   // Restoration always produces a fresh volume.
- *   const restored = yield* Vfs.fromSnapshot(yield* store.load("nightly"))
- *
- *   return yield* (yield* restored.caller()).readFile("/notes.txt")
- * })
- *
- * Effect.runPromise(
- *   program.pipe(Effect.provide(SqliteClient.layer({ filename: "checkpoints.db" })))
- * ).then(console.log)
- * // Uint8Array [ 104, 105 ]
+ *     return yield* store.load("nightly")
+ *   }).pipe(Effect.provide(checkpoints(sqlite)))
  * ```
  *
  * @category services
@@ -121,68 +174,70 @@ export class CheckpointStore extends Context.Service<CheckpointStore, {
   /**
    * Creates a store with an owned copy of mandatory image limits.
    * Saving validates against the same limits used by loading.
+   *
+   * @example
+   * ```ts
+   * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+   * import { CheckpointStore } from "@effect-vfs/persistence"
+   * import { ByteSize, Effect, Layer } from "effect"
+   * import type { SqlClient } from "effect/unstable/sql/SqlClient"
+   *
+   * const limits = {
+   *   maxEncodedBytes: ByteSize.megabytes(4),
+   *   maxRecords: 10_000,
+   *   maxEntries: 10_000,
+   *   maxDecodedBytes: ByteSize.megabytes(16)
+   * }
+   *
+   * const program = Effect.gen(function*() {
+   *   const store = yield* CheckpointStore.make(limits)
+   *
+   *   const volume = yield* Vfs.fromFixture({
+   *     entries: [{ kind: "file", path: "/notes.txt", bytes: new Uint8Array([104, 105]) }]
+   *   })
+   *
+   *   yield* store.save("nightly", yield* volume.snapshot)
+   *
+   *   // Restoration always produces a fresh volume.
+   *   return yield* Vfs.fromSnapshot(yield* store.load("nightly"))
+   * })
+   *
+   * // The package does not choose a driver; supply your own SQLite client.
+   * const runnable = (sqlite: Layer.Layer<SqlClient>) => program.pipe(Effect.provide(sqlite))
+   * ```
+   *
+   * @since 0.1.0
    */
-  static readonly make = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.DecodeLimits) {
-    const ownedLimits = yield* Schema.decodeEffect(Vfs.DecodeLimits, { onExcessProperty: "error" })(limits).pipe(
-      Effect.mapError(() => new Vfs.ImageError({ code: "InvalidStructure", field: "limits" }))
-    )
+  static make(limits: Vfs.DecodeLimits) {
+    return makeStore(limits)
+  }
 
-    const sql = (yield* SqlClient).withoutTransforms()
-    const maxEncodedBytes = ByteSize.toBigInt(ownedLimits.maxEncodedBytes)
-
-    const save = Effect.fn("CheckpointStore.save")(function*(name: string, snapshot: Vfs.Snapshot) {
-      yield* checkName(name, "save")
-      const image = yield* Vfs.encodeSnapshot(snapshot)
-
-      yield* Vfs.decodeSnapshot(image, ownedLimits)
-
-      const inserted = yield* sql`
-        INSERT INTO effect_vfs_checkpoints (name, image) VALUES (${name}, ${image})
-        ON CONFLICT(name) DO NOTHING RETURNING name
-      `.pipe(Effect.mapError(
-        (cause) => new CheckpointError({ code: "Storage", operation: "save", name, cause })
-      ))
-
-      if (inserted.length === 0) return yield* new CheckpointError({ code: "AlreadyExists", operation: "save", name })
-    })
-
-    const load = Effect.fn("CheckpointStore.load")(function*(name: string) {
-      yield* checkName(name, "load")
-
-      const rows = yield* sql`
-        SELECT typeof(image) AS kind,
-          CASE WHEN typeof(image) = 'blob' THEN length(image) ELSE NULL END AS size,
-          CASE WHEN typeof(image) = 'blob' AND length(image) <= ${maxEncodedBytes}
-            THEN image ELSE NULL END AS image
-        FROM effect_vfs_checkpoints WHERE name = ${name}
-      `.pipe(Effect.mapError(
-        (cause) => new CheckpointError({ code: "Storage", operation: "load", name, cause })
-      ))
-
-      if (rows.length === 0) return yield* new CheckpointError({ code: "NotFound", operation: "load", name })
-
-      const row = yield* Schema.decodeUnknownEffect(StoredRow)(rows[0]).pipe(
-        Effect.mapError(() => new Vfs.ImageError({ code: "InvalidStructure", field: "row" }))
-      )
-
-      if (row.kind !== "blob" || row.size === null) {
-        return yield* new Vfs.ImageError({ code: "InvalidStructure", field: "image" })
-      }
-
-      if (BigInt(row.size) > maxEncodedBytes) {
-        return yield* new Vfs.ImageError({ code: "LimitExceeded", field: "encodedBytes" })
-      }
-
-      if (row.image === null) return yield* new Vfs.ImageError({ code: "InvalidStructure", field: "image" })
-
-      return yield* Vfs.decodeSnapshot(row.image, ownedLimits)
-    })
-
-    return CheckpointStore.of({ save, load })
-  })
-
-  /** Provides a store using the application-supplied SQLite client. Does not run migrations. */
-  static readonly layer = (limits: Vfs.DecodeLimits) => Layer.effect(CheckpointStore, CheckpointStore.make(limits))
+  /**
+   * Provides a store using the application-supplied SQLite client. Does not run migrations.
+   *
+   * @example
+   * ```ts
+   * import { CheckpointStore } from "@effect-vfs/persistence"
+   * import { ByteSize, Layer } from "effect"
+   * import type { SqlClient } from "effect/unstable/sql/SqlClient"
+   *
+   * const limits = {
+   *   maxEncodedBytes: ByteSize.megabytes(4),
+   *   maxRecords: 10_000,
+   *   maxEntries: 10_000,
+   *   maxDecodedBytes: ByteSize.megabytes(16)
+   * }
+   *
+   * // Migrations are a separate startup step; this layer does not run them.
+   * const checkpoints = (sqlite: Layer.Layer<SqlClient>) =>
+   *   CheckpointStore.layer(limits).pipe(Layer.provide(sqlite))
+   * ```
+   *
+   * @since 0.1.0
+   */
+  static layer(limits: Vfs.DecodeLimits) {
+    return Layer.effect(CheckpointStore, makeStore(limits))
+  }
 
   /**
    * Applies the package's numbered SQLite migrations using a separate migration ledger.
