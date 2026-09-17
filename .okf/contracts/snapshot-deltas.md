@@ -32,6 +32,10 @@ generated: { by: codex/okf, at: 2026-09-12T14:02:54Z }
 
 The identity includes the complete reachable namespace, raw byte paths, node kinds, regular-file bytes, symbolic-link targets, all retained metadata and hard-link equivalence classes. It ignores snapshot record ordering and image-local record identifiers.[^implementation]
 
+The identity algorithm carries its own version, so its byte layout is a persisted compatibility contract rather than an implementation detail. Two golden digests pin it: one over the empty snapshot, which fixes the domain prefix, the algorithm identifier and the object count, and one over a populated fixture that reaches every remaining element of the encoding. That fixture covers each node kind byte, an object with several paths, empty and non-empty payloads, a symbolic-link payload, a raw non-UTF-8 byte path, distinct owner, group and mode values so a field reordering cannot hide, and negative and very large timestamps so their variable-length decimal framing stays fixed.[^identity-goldens]
+
+A golden failure is either a regression or a deliberate change. A deliberate change is only complete when the algorithm identifier is bumped in the same commit, both digests are regenerated, this contract is updated and the release note records that previously serialised deltas no longer validate. Regenerating a digest on its own silently breaks every stored delta.[^identity-goldens]
+
 `inspectSnapshotDelta(base, delta, options?, limits?)` verifies the delta against its semantic base, then returns a frozen, owned, raw-byte-path summary in deterministic path order. `SnapshotChange` has `Added`, `Removed` and `Updated` variants. It does not infer renames between independent snapshots. Timestamp-only changes are hidden unless `includeTimestamps` is true.[^behavior-tests]
 
 `SnapshotDeltaFromBytes(limits?)` is the public Effect Schema transformation between owned `Uint8Array` values and opaque deltas. Its internal JSON/base64 document is separately versioned as `effect-vfs-delta` version 1. Decoding rejects unsupported versions, excess fields, malformed UTF-8 or base64, invalid paths, duplicate namespace entries and cross-path inherited references. Base-dependent inconsistencies, including forged summaries and unresolved inherited references, fail during inspection or application before a snapshot is returned.[^decoding-tests]
@@ -45,6 +49,8 @@ The delta stores the target object graph. Unchanged regular-file and symbolic-li
 [^implementation]: The internal implementation owns wire layout and canonical hashing; these details are not public constructors.
 
 [^behavior-tests]: Behavior tests inspect reconstructed paths, payloads and metadata and exercise hard-link splits and joins, byte paths, timestamp filtering and reusable effects.
+
+[^identity-goldens]: `SnapshotDelta.test.ts` pins both digests and documents, beside the populated fixture, which encoding element each part of it exists to cover.
 
 [^decoding-tests]: Decoder tests exercise malformed documents and every limit at and beyond its boundary.
 

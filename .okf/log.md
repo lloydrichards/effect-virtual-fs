@@ -2,6 +2,8 @@
 
 ## 2026-09-17
 
+- **Snapshot delta identity goldens**: Pinned a second golden digest over a populated fixture that reaches every element of the semantic identity encoding, since the existing empty-snapshot digest covered almost none of it and the semantic-mutation table regenerates both sides with the current encoder and so cannot detect wire drift. Confirmed the same fixture hashes identically before and after the delta audit refactor, and recorded in the contract that a deliberate encoding change must bump the algorithm identifier rather than regenerate a digest alone.
+
 - **Snapshot delta entry order**: Applying a delta now orders directory entries by raw name bytes instead of `localeCompare`, so ICU and non-ICU Node builds reconstruct the same order from the same delta. The comparator sorts the basename bytes it already holds rather than decoding base64 on every comparison. Recorded the applied-order guarantee in the snapshot-deltas contract and covered it with an unsorted apply assertion.
 
 ## 2026-09-16
