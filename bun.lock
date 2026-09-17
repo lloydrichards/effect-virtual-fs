@@ -127,9 +127,10 @@
     },
     "packages/core": {
       "name": "@effect-vfs/core",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "devDependencies": {
         "@effect/platform-bun": "4.0.0-rc.114",
+        "@effect/platform-node-shared": "4.0.0-rc.114",
         "@effect/vitest": "4.0.0-rc.114",
         "@repo/config-typescript": "workspace:*",
         "effect": "4.0.0-rc.114",
@@ -140,7 +141,7 @@
     },
     "packages/memory": {
       "name": "@effect-vfs/memory",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "dependencies": {
         "@effect-vfs/core": "^0.2.0",
       },
@@ -173,7 +174,7 @@
     },
     "packages/persistence": {
       "name": "@effect-vfs/persistence",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "dependencies": {
         "@effect-vfs/core": "^0.2.0",
       },

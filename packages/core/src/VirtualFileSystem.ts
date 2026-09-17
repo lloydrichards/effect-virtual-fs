@@ -131,13 +131,17 @@ export interface FsError extends VfsModel.FsError {}
  *
  * // `field` names the rejected option, so the caller learns which key was wrong.
  * const program = Effect.gen(function*() {
- *   const error = yield* Effect.flip(Vfs.make({ maxEntries: -1 }))
+ *   // Options that arrived from a config file or CLI flag, not a literal.
+ *   const options = JSON.parse(`{"maxEntries":-1}`) as Vfs.VolumeOptions
  *
- *   return error.field
+ *   return yield* Vfs.make(options).pipe(
+ *     Effect.as("ok"),
+ *     Effect.catchTag("ConfigurationError", (error) => Effect.succeed(`rejected ${error.field}`))
+ *   )
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // maxEntries
+ * // rejected maxEntries
  * ```
  *
  * @category errors
@@ -947,14 +951,15 @@ export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, I
  *   const volume = yield* Vfs.make()
  *   const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
  *
- *   const rejected = yield* Effect.flip(Vfs.decodeSnapshot(bytes, {
+ *   return yield* Vfs.decodeSnapshot(bytes, {
  *     maxEncodedBytes: ByteSize.bytes(1),
  *     maxRecords: 10_000,
  *     maxEntries: 10_000,
  *     maxDecodedBytes: ByteSize.megabytes(16)
- *   }))
- *
- *   return [rejected.code, rejected.field]
+ *   }).pipe(
+ *     Effect.as("accepted"),
+ *     Effect.catchTag("ImageError", (error) => Effect.succeed([error.code, error.field]))
+ *   )
  * })
  *
  * Effect.runPromise(program).then(console.log)
@@ -980,12 +985,13 @@ const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
 
 /**
  * Computes an exact portable delta between two immutable snapshots.
- * Requires the platform-neutral `Crypto.Crypto` service for base identity.
+ * Requires the platform-neutral `Crypto.Crypto` service for base identity. Provide
+ * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
  *
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -1001,7 +1007,7 @@ const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
  *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
  *
  *   return (yield* Vfs.inspectSnapshotDelta(base, delta)).map((change) => change._tag)
- * }).pipe(Effect.provide(BunCrypto.layer))
+ * }).pipe(Effect.provide(NodeCrypto.layer))
  *
  * Effect.runPromise(program).then(console.log)
  * // [ 'Added' ]
@@ -1020,12 +1026,13 @@ export const diffSnapshots = Effect.fn("VirtualFileSystem.diffSnapshots")(functi
 
 /**
  * Verifies an exact snapshot delta against its base and derives an owned path-oriented summary.
- * Requires the platform-neutral `Crypto.Crypto` service for base identity.
+ * Requires the platform-neutral `Crypto.Crypto` service for base identity. Provide
+ * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
  *
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // Inspection verifies the delta against its base before describing it.
@@ -1041,7 +1048,7 @@ export const diffSnapshots = Effect.fn("VirtualFileSystem.diffSnapshots")(functi
  *
  *   return changes.map((change) =>
  *     change._tag === "Updated" ? change.afterKind : change.kind)
- * }).pipe(Effect.provide(BunCrypto.layer))
+ * }).pipe(Effect.provide(NodeCrypto.layer))
  *
  * Effect.runPromise(program).then(console.log)
  * // [ 'directory' ]
@@ -1065,12 +1072,13 @@ export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshot
 
 /**
  * Applies an exact delta to its semantically matching base and returns a new snapshot.
- * Requires the platform-neutral `Crypto.Crypto` service for base identity.
+ * Requires the platform-neutral `Crypto.Crypto` service for base identity. Provide
+ * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
  *
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -1089,7 +1097,7 @@ export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshot
  *   const applied = yield* Vfs.applySnapshotDelta(base, delta)
  *
  *   return yield* (yield* (yield* Vfs.fromSnapshot(applied)).caller()).readFile("/f")
- * }).pipe(Effect.provide(BunCrypto.layer))
+ * }).pipe(Effect.provide(NodeCrypto.layer))
  *
  * Effect.runPromise(program).then(console.log)
  * // Uint8Array(1) [ 7 ]
@@ -1120,7 +1128,7 @@ const deltaSchemaIssue = (cause: ImageError, input: typeof Schema.Unknown.Type, 
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, Schema } from "effect"
  *
  * const codec = Vfs.SnapshotDeltaFromBytes()
@@ -1136,7 +1144,7 @@ const deltaSchemaIssue = (cause: ImageError, input: typeof Schema.Unknown.Type, 
  *   const bytes = yield* Schema.encodeEffect(codec)(delta)
  *
  *   return yield* Schema.decodeEffect(codec)(bytes)
- * }).pipe(Effect.provide(BunCrypto.layer))
+ * }).pipe(Effect.provide(NodeCrypto.layer))
  * ```
  *
  * @category schemas
@@ -1183,9 +1191,13 @@ export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDelta
  * // Any byte except NUL is accepted; a NUL byte fails with `InvalidPathEncoding`.
  * const program = Effect.gen(function*() {
  *   const path = yield* Vfs.pathFromBytes(new Uint8Array([47, 116, 109, 112]))
- *   const error = yield* Effect.flip(Vfs.pathFromBytes(new Uint8Array([47, 0])))
  *
- *   return [yield* Vfs.pathToBytes(path), error.code]
+ *   const rejected = yield* Vfs.pathFromBytes(new Uint8Array([47, 0])).pipe(
+ *     Effect.as("accepted"),
+ *     Effect.catchTag("FsError", (error) => Effect.succeed(error.code))
+ *   )
+ *
+ *   return [yield* Vfs.pathToBytes(path), rejected]
  * })
  *
  * Effect.runPromise(program).then(console.log)

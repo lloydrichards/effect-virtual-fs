@@ -44,20 +44,28 @@ export interface Snapshot {
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { ByteSize, Effect } from "effect"
  *
- * // `code` says what went wrong and `field` says where, when it is known.
+ * // Decoding is a trust boundary. `code` says what went wrong and `field` says
+ * // which input or limit it was, so a caller can decline just the bad payload.
  * const program = Effect.gen(function*() {
- *   const error = yield* Effect.flip(Vfs.decodeSnapshot(new Uint8Array([0]), {
- *     maxEncodedBytes: ByteSize.megabytes(4),
+ *   const volume = yield* Vfs.make()
+ *   const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
+ *
+ *   return yield* Vfs.decodeSnapshot(bytes, {
+ *     maxEncodedBytes: ByteSize.bytes(16),
  *     maxRecords: 10_000,
  *     maxEntries: 10_000,
  *     maxDecodedBytes: ByteSize.megabytes(16)
- *   }))
- *
- *   return error.code
+ *   }).pipe(
+ *     Effect.as("accepted"),
+ *     Effect.catchTag("ImageError", (error) =>
+ *       error.code === "LimitExceeded"
+ *         ? Effect.succeed(`declined at ${error.field}`)
+ *         : Effect.fail(error))
+ *   )
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // InvalidEncoding
+ * // declined at encodedBytes
  * ```
  *
  * @category errors
