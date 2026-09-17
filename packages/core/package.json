@@ -6,7 +6,12 @@
   "bugs": {
     "url": "https://github.com/lloydrichards/effect-virtual-fs/issues"
   },
-  "keywords": ["effect", "filesystem", "virtual-filesystem", "typescript"],
+  "keywords": [
+    "effect",
+    "filesystem",
+    "virtual-filesystem",
+    "typescript"
+  ],
   "type": "module",
   "sideEffects": false,
   "license": "MIT",
@@ -24,8 +29,9 @@
   },
   "devDependencies": {
     "@effect/platform-bun": "4.0.0-rc.114",
-    "@repo/config-typescript": "workspace:*",
+    "@effect/platform-node-shared": "4.0.0-rc.114",
     "@effect/vitest": "4.0.0-rc.114",
+    "@repo/config-typescript": "workspace:*",
     "effect": "4.0.0-rc.114"
   },
   "exports": {
@@ -42,7 +48,11 @@
     "./*/index": null,
     "./package.json": "./package.json"
   },
-  "files": ["dist/**", "README.md", "LICENSE"],
+  "files": [
+    "dist/**",
+    "README.md",
+    "LICENSE"
+  ],
   "publishConfig": {
     "access": "public"
   },

@@ -123,7 +123,7 @@ export type SnapshotChange = typeof SnapshotChange.Type
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -136,8 +136,14 @@ export type SnapshotChange = typeof SnapshotChange.Type
  *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
  *
  *   // Timestamps are excluded by default, since they change on every write.
- *   return yield* Vfs.inspectSnapshotDelta(base, delta, { includeTimestamps: true })
- * }).pipe(Effect.provide(BunCrypto.layer))
+ *   const plain = yield* Vfs.inspectSnapshotDelta(base, delta)
+ *   const timed = yield* Vfs.inspectSnapshotDelta(base, delta, { includeTimestamps: true })
+ *
+ *   return [plain.length, timed.length]
+ * }).pipe(Effect.provide(NodeCrypto.layer))
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 1, 2 ]
  * ```
  *
  * @category schemas
@@ -162,23 +168,32 @@ export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
- * // A delta only applies to the base it was computed from.
+ * // A delta only applies to the base it was computed from. Re-applying one that
+ * // has already landed fails rather than applying twice.
  * const program = Effect.gen(function*() {
  *   const volume = yield* Vfs.make()
+ *   const caller = yield* volume.caller()
  *   const base = yield* volume.snapshot
  *
- *   yield* (yield* volume.caller()).mkdir("/work")
+ *   yield* caller.mkdir("/work")
  *
- *   const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
- *   const unrelated = yield* (yield* Vfs.make()).snapshot
+ *   const advanced = yield* volume.snapshot
+ *   const delta = yield* Vfs.diffSnapshots(base, advanced)
  *
- *   const error = yield* Effect.flip(Vfs.applySnapshotDelta(unrelated, delta))
+ *   return yield* Vfs.applySnapshotDelta(advanced, delta).pipe(
+ *     Effect.as("applied"),
+ *     Effect.catchTag("SnapshotDeltaError", (error) =>
+ *       error.code === "BaseMismatch"
+ *         ? Effect.succeed("already applied")
+ *         : Effect.fail(error))
+ *   )
+ * }).pipe(Effect.provide(NodeCrypto.layer))
  *
- *   return error
- * }).pipe(Effect.provide(BunCrypto.layer))
+ * Effect.runPromise(program).then(console.log)
+ * // already applied
  * ```
  *
  * @category errors
@@ -252,7 +267,7 @@ const defaultLimits = makeSnapshotDeltaLimits({
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -267,7 +282,7 @@ const defaultLimits = makeSnapshotDeltaLimits({
  *     yield* volume.snapshot,
  *     Vfs.SnapshotDeltaLimits.constrained
  *   )
- * }).pipe(Effect.provide(BunCrypto.layer))
+ * }).pipe(Effect.provide(NodeCrypto.layer))
  * ```
  *
  * @category schemas
