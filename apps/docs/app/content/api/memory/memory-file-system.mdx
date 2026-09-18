@@ -42,6 +42,7 @@ export declare const bind: (
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, FileSystem, Layer } from "effect"
 
 const encoder = new TextEncoder()
@@ -71,7 +72,7 @@ const program = Effect.gen(function* () {
   return yield* fs.readFileString("/project/package.json")
 })
 
-Effect.runPromise(program.pipe(Effect.provide(seeded))).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(seeded), Effect.provide(NodeCrypto.layer))).then(console.log)
 // {"version":"1.2.3"}
 ```
 
@@ -89,13 +90,14 @@ starts with an empty `/tmp` directory and uses `/` as its working directory.
 **Signature**
 
 ```ts
-export declare const make: Effect.Effect<FileSystem.FileSystem, never, never>
+export declare const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
 import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -106,7 +108,7 @@ const program = Effect.gen(function* () {
   return yield* fs.readFileString("/tmp/greeting.txt")
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // hello
 ```
 
@@ -131,14 +133,15 @@ state. Separate graphs, such as one per test, already get separate volumes.
 **Signature**
 
 ```ts
-export declare const layer: Layer.Layer<FileSystem.FileSystem, never, never>
+export declare const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
 import { MemoryFileSystem } from "@effect-vfs/memory"
-import { Effect, FileSystem } from "effect"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import { Effect, FileSystem, Layer } from "effect"
 
 const writeManifest = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
@@ -149,7 +152,9 @@ const writeManifest = Effect.gen(function* () {
   return yield* fs.readFileString("/dist/manifest.json")
 })
 
-Effect.runPromise(writeManifest.pipe(Effect.provide(MemoryFileSystem.layer))).then(console.log)
+const memoryLayer = MemoryFileSystem.layer.pipe(Layer.provide(NodeCrypto.layer))
+
+Effect.runPromise(writeManifest.pipe(Effect.provide(memoryLayer))).then(console.log)
 // {"version":"1.2.3"}
 ```
 
@@ -157,6 +162,7 @@ Effect.runPromise(writeManifest.pipe(Effect.provide(MemoryFileSystem.layer))).th
 
 ```ts
 import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, FileSystem, Layer } from "effect"
 
 const write = Effect.gen(function* () {
@@ -184,7 +190,7 @@ const program = Effect.gen(function* () {
   return [shared, isolated]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ true, false ]
 ```
 

@@ -19,7 +19,7 @@ The current profile does not include:
 - advisory locks or descriptor duplication;
 - caller-specific restricted roots or subtree confinement;
 - sparse allocation or copy-on-write storage optimization;
-- automatic persistence of live writes, host `fsync`, or crash/power-loss durability (the [durability and usage facts decision](../decisions/core/volume-durability-and-usage-facts.md "refined by") makes the `memory-only` tier a readable fact without adding persistence);
+- automatic persistence of live writes, host `fsync`, or crash/power-loss durability (the [durability and usage facts decision](../decisions/core/volume-durability-and-usage-facts.md "refined by") publishes the complete durability vocabulary, while built-in volumes truthfully report only `memory-only`);
 - complete Node package resolution, dependency installation, or HMR inside the virtual build integration.
 
 These are exclusions, not rejected designs. Active investigation may be represented separately as draft research, but it must not imply implementation or acceptance. Snapshot checkpoints provide explicit reconstruction, not live-write durability; dense zero-filled gaps provide filesystem behavior without sparse allocation.

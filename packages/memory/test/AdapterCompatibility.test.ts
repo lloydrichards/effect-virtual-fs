@@ -1,9 +1,10 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { assert, describe, it } from "@effect/vitest"
+import { assert, it } from "@effect/vitest"
 import { ByteSize, Effect, Fiber, Option, Stream } from "effect"
 import * as Memory from "../src/MemoryFileSystem.js"
+import * as TestCrypto from "./crypto.js"
 
-describe("memory adapter compatibility", () => {
+it.layer(TestCrypto.layer)("memory adapter compatibility", (it) => {
   for (const root of ["/", "//", ".", "/directory/..", "/alias/../"]) {
     it.effect(`rejects recursive removal of ${root} before changing the tree`, () =>
       Effect.gen(function*() {

@@ -1,4 +1,4 @@
-import { assert, describe, it } from "@effect/vitest"
+import { assert, describe } from "@effect/vitest"
 import { ByteSize, Effect, Schema } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { CanonicalBase64 } from "../src/internal/canonicalBase64.js"
@@ -24,6 +24,8 @@ const limits = {
   maxDecodedBytes: ByteSize.bytes(12_000_001)
 }
 
+import { it } from "./TestEffect.js"
+
 describe("snapshot decoding", () => {
   it.effect("encodes bytes as canonical base64 and decodes that representation", () =>
     Effect.gen(function*() {
@@ -35,35 +37,41 @@ describe("snapshot decoding", () => {
       assert.deepStrictEqual(yield* CanonicalBase64.decode(encoded), input)
     }))
 
-  it.effect("should restore a large canonical payload when it fits the supplied budgets", () =>
-    Effect.gen(function*() {
-      const data = "AAAA".repeat(4_000_000)
-      const snapshot = yield* Vfs.decodeSnapshot(encodedFile(data), limits)
-      const caller = yield* (yield* Vfs.fromSnapshot(snapshot)).caller()
-      assert.strictEqual((yield* caller.stat("/f")).size, 12_000_000n)
-      const file = yield* caller.open("/f", { access: "read" })
-      assert.deepStrictEqual(yield* file.pread(1, 11_999_999n), new Uint8Array([0]))
-    }))
+  it.effect(
+    "should restore a large canonical payload when it fits the supplied budgets",
+    () =>
+      Effect.gen(function*() {
+        const data = "AAAA".repeat(4_000_000)
+        const snapshot = yield* Vfs.decodeSnapshot(encodedFile(data), limits)
+        const caller = yield* (yield* Vfs.fromSnapshot(snapshot)).caller()
+        assert.strictEqual((yield* caller.stat("/f")).size, 12_000_000n)
+        const file = yield* caller.open("/f", { access: "read" })
+        assert.deepStrictEqual(yield* file.pread(1, 11_999_999n), new Uint8Array([0]))
+      })
+  )
 
-  it.effect("should reject malformed payloads when alphabet, padding or unused bits are noncanonical", () =>
-    Effect.gen(function*() {
-      for (
-        const data of [
-          "A",
-          "AAAAA",
-          "AA=A",
-          "=AAA",
-          "AA==AAAA",
-          "AAAAZh==",
-          "AAAAZm9=",
-          "AAAAAA==\n",
-          "AAAA AA==",
-          "AAAAAA-_"
-        ]
-      ) {
-        const error = yield* Effect.flip(Vfs.decodeSnapshot(encodedFile(data), limits))
-        assert.instanceOf(error, Vfs.ImageError)
-        assert.strictEqual(error.code, "InvalidEncoding", data)
-      }
-    }))
+  it.effect(
+    "should reject malformed payloads when alphabet, padding or unused bits are noncanonical",
+    () =>
+      Effect.gen(function*() {
+        for (
+          const data of [
+            "A",
+            "AAAAA",
+            "AA=A",
+            "=AAA",
+            "AA==AAAA",
+            "AAAAZh==",
+            "AAAAZm9=",
+            "AAAAAA==\n",
+            "AAAA AA==",
+            "AAAAAA-_"
+          ]
+        ) {
+          const error = yield* Effect.flip(Vfs.decodeSnapshot(encodedFile(data), limits))
+          assert.instanceOf(error, Vfs.ImageError)
+          assert.strictEqual(error.code, "InvalidEncoding", data)
+        }
+      })
+  )
 })

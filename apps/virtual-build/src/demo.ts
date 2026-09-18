@@ -1,4 +1,5 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Effect } from "effect"
 import { buildVirtual, demoFixture } from "./VirtualBuild.js"
 
@@ -20,7 +21,12 @@ const program = Effect.gen(function*() {
   })
 })
 
-await Effect.runPromise(program.pipe(Effect.catchCause(Effect.fnUntraced(function*(cause) {
-  yield* Effect.logError(cause)
-  process.exitCode = 1
-}))))
+await Effect.runPromise(
+  program.pipe(
+    Effect.provide(BunCrypto.layer),
+    Effect.catchCause(Effect.fnUntraced(function*(cause) {
+      yield* Effect.logError(cause)
+      process.exitCode = 1
+    }))
+  )
+)

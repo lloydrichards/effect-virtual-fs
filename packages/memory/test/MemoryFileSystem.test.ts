@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Cause, Effect, Exit, Fiber, FileSystem, Layer, Option, type PlatformError, Result, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
+import * as TestCrypto from "./crypto.js"
 import * as FileSystemTest from "./FileSystemTest.js"
 
 const encoder = new TextEncoder()
@@ -25,9 +26,13 @@ const watchEvents = Effect.fnUntraced(function*(
   return Array.from(yield* Fiber.join(events))
 })
 
-FileSystemTest.suite("memory", MemoryFileSystem.layer)
+const memoryLayer = MemoryFileSystem.layer.pipe(Layer.provide(TestCrypto.layer))
 
-it.layer(MemoryFileSystem.layer)("FileSystem (memory-specific)", (it) => {
+const testLayer = Layer.merge(memoryLayer, TestCrypto.layer)
+
+FileSystemTest.suite("memory", memoryLayer)
+
+it.layer(testLayer)("FileSystem (memory-specific)", (it) => {
   describe("POSIX filesystem profile", () => {
     it.effect("should accept the existing root when creating directories recursively", () =>
       Effect.gen(function*() {
@@ -100,7 +105,7 @@ it.layer(MemoryFileSystem.layer)("FileSystem (memory-specific)", (it) => {
         const fs = yield* FileSystem.FileSystem
         yield* fs.writeFileString("/shared.txt", "shared")
         assert.strictEqual(yield* fs.readFileString("/shared.txt"), "shared")
-      }).pipe(Effect.provide(Layer.fresh(MemoryFileSystem.layer)))
+      }).pipe(Effect.provide(Layer.fresh(memoryLayer)))
 
       yield* writeInFirstVolume
 
@@ -108,7 +113,7 @@ it.layer(MemoryFileSystem.layer)("FileSystem (memory-specific)", (it) => {
         const fs = yield* FileSystem.FileSystem
 
         return yield* fs.exists("/shared.txt")
-      }).pipe(Effect.provide(Layer.fresh(MemoryFileSystem.layer)))
+      }).pipe(Effect.provide(Layer.fresh(memoryLayer)))
 
       assert.isFalse(existsInFreshVolume)
     }))

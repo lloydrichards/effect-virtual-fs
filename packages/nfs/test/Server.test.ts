@@ -1,7 +1,8 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeSocketServer from "@effect/platform-node-shared/NodeSocketServer"
-import { assert, describe, it } from "@effect/vitest"
+import { assert, it, live as liveTest } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
+import type * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -10,6 +11,14 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as NetAddress from "effect/unstable/net/NetAddress"
+import * as TestCrypto from "./support/crypto.js"
+
+const live = <E>(
+  name: string,
+  body: () => Effect.Effect<void, E, Crypto.Crypto | Scope.Scope>,
+  timeout?: number
+) => liveTest(name, () => body().pipe(Effect.provide(TestCrypto.layer)), timeout)
+
 import * as SocketServer from "effect/unstable/socket/SocketServer"
 import * as Net from "node:net"
 import {
@@ -254,7 +263,7 @@ const testSocketServer = SocketServer.SocketServer.of({
   run: () => Effect.never
 })
 
-describe("NfsServer", () => {
+it.layer(TestCrypto.layer)("NfsServer", (it) => {
   it("models configuration units and bounds with Schema", () => {
     assert.isTrue(Schema.is(NfsServerLimits)(limits))
     assert.isTrue(Object.isFrozen(NfsServerLimits.default))
@@ -445,7 +454,7 @@ describe("NfsServer", () => {
       assert.strictEqual(error.option, "socketServer.address")
     }))
 
-  it.live(
+  live(
     "binds an ephemeral loopback port, serves RPC, and releases the port with its scope",
     () =>
       Effect.gen(function*() {

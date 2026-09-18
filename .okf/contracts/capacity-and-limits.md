@@ -20,4 +20,6 @@ Volumes may bound logical regular-file bytes, individual file size, and encoded 
 
 Unlinked open files remain charged. Dense regular files cannot exceed 4,294,967,295 bytes, and `maxFileBytes` may lower that ceiling. Total-volume accounting compares exact bigint byte counts without narrowing them to JavaScript numbers. Snapshot decoding requires exact `ByteSize.ByteSize` encoded and decoded byte limits plus numeric record and entry limits; restore also enforces destination volume quotas.
 
-See [volume capacity accounting](../decisions/core/volume-capacity-accounting.md "constrained by") and [optional total path limit](../decisions/core/optional-total-path-limit.md "constrained by").
+Every constructed volume also publishes storage facts independent of capacity: a durability level, a stable logical identity, and a fresh runtime incarnation. Core currently reports `memory-only`. Snapshot bytes contain neither token; callers may supply an identity when restoring to continue the same logical volume, while every restoration receives a new incarnation.
+
+See [volume capacity accounting](../decisions/core/volume-capacity-accounting.md "constrained by"), [volume durability and usage facts](../decisions/core/volume-durability-and-usage-facts.md "refined by"), and [optional total path limit](../decisions/core/optional-total-path-limit.md "constrained by").

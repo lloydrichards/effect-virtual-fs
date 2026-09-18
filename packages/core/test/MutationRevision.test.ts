@@ -1,9 +1,11 @@
-import { assert, describe, it } from "@effect/vitest"
+import { assert, describe } from "@effect/vitest"
 import { Effect } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const name = (value: string) => new TextEncoder().encode(value)
+
+import { it } from "./TestEffect.js"
 
 describe("mutation revisions", () => {
   it.effect("keeps references and revisions out of snapshot version 1", () =>
@@ -70,48 +72,54 @@ describe("mutation revisions", () => {
       yield* file.close
     }))
 
-  it.effect("keeps revisions stable for reads, rejected mutations, and existing no-op branches", () =>
-    Effect.gen(function*() {
-      yield* TestClock.setTime(0)
-      const fs = yield* (yield* Vfs.make()).caller()
-      yield* fs.writeFile("/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const root = yield* fs.rootReference
-      const file = yield* fs.lookupReference(root, name("f"))
-      const before = yield* fs.observeMetadata(file)
-      yield* fs.readFile("/f")
-      assert.strictEqual((yield* fs.observeMetadata(file)).revision, before.revision)
-      yield* fs.writeFile("/f", new Uint8Array(), { access: "write" })
-      assert.strictEqual((yield* fs.observeMetadata(file)).revision, before.revision)
-      yield* fs.chown("/f", {})
-      assert.strictEqual((yield* fs.observeMetadata(file)).revision, before.revision)
-      yield* fs.utimes("/f", { access: { kind: "omit" }, modification: { kind: "omit" } })
-      assert.strictEqual((yield* fs.observeMetadata(file)).revision, before.revision)
-      yield* Effect.flip(fs.chmod("/f", -1))
-      assert.strictEqual((yield* fs.observeMetadata(file)).revision, before.revision)
-      const directoryBefore = yield* fs.observeDirectory(root)
-      yield* fs.observeDirectory(root)
-      assert.strictEqual((yield* fs.observeDirectory(root)).revision, directoryBefore.revision)
-    }))
+  it.effect(
+    "keeps revisions stable for reads, rejected mutations, and existing no-op branches",
+    () =>
+      Effect.gen(function*() {
+        yield* TestClock.setTime(0)
+        const fs = yield* (yield* Vfs.make()).caller()
+        yield* fs.writeFile("/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
+        const root = yield* fs.rootReference
+        const file = yield* fs.lookupReference(root, name("f"))
+        const before = yield* fs.observeMetadata(file)
+        yield* fs.readFile("/f")
+        assert.strictEqual((yield* fs.observeMetadata(file)).revision, before.revision)
+        yield* fs.writeFile("/f", new Uint8Array(), { access: "write" })
+        assert.strictEqual((yield* fs.observeMetadata(file)).revision, before.revision)
+        yield* fs.chown("/f", {})
+        assert.strictEqual((yield* fs.observeMetadata(file)).revision, before.revision)
+        yield* fs.utimes("/f", { access: { kind: "omit" }, modification: { kind: "omit" } })
+        assert.strictEqual((yield* fs.observeMetadata(file)).revision, before.revision)
+        yield* Effect.flip(fs.chmod("/f", -1))
+        assert.strictEqual((yield* fs.observeMetadata(file)).revision, before.revision)
+        const directoryBefore = yield* fs.observeDirectory(root)
+        yield* fs.observeDirectory(root)
+        assert.strictEqual((yield* fs.observeDirectory(root)).revision, directoryBefore.revision)
+      })
+  )
 
-  it.effect("advances both directory sides and the moved object on cross-directory rename", () =>
-    Effect.gen(function*() {
-      yield* TestClock.setTime(0)
-      const fs = yield* (yield* Vfs.make()).caller()
-      yield* fs.mkdir("/a")
-      yield* fs.mkdir("/b")
-      yield* fs.writeFile("/a/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const root = yield* fs.rootReference
-      const a = yield* fs.lookupReference(root, name("a"))
-      const b = yield* fs.lookupReference(root, name("b"))
-      const file = yield* fs.lookupReference(a, name("f"))
-      const beforeA = yield* fs.observeDirectory(a)
-      const beforeB = yield* fs.observeDirectory(b)
-      const beforeFile = yield* fs.observeMetadata(file)
-      yield* fs.rename("/a/f", "/b/f")
-      assert.isTrue((yield* fs.observeDirectory(a)).revision > beforeA.revision)
-      assert.isTrue((yield* fs.observeDirectory(b)).revision > beforeB.revision)
-      assert.isTrue((yield* fs.observeMetadata(file)).revision > beforeFile.revision)
-    }))
+  it.effect(
+    "advances both directory sides and the moved object on cross-directory rename",
+    () =>
+      Effect.gen(function*() {
+        yield* TestClock.setTime(0)
+        const fs = yield* (yield* Vfs.make()).caller()
+        yield* fs.mkdir("/a")
+        yield* fs.mkdir("/b")
+        yield* fs.writeFile("/a/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
+        const root = yield* fs.rootReference
+        const a = yield* fs.lookupReference(root, name("a"))
+        const b = yield* fs.lookupReference(root, name("b"))
+        const file = yield* fs.lookupReference(a, name("f"))
+        const beforeA = yield* fs.observeDirectory(a)
+        const beforeB = yield* fs.observeDirectory(b)
+        const beforeFile = yield* fs.observeMetadata(file)
+        yield* fs.rename("/a/f", "/b/f")
+        assert.isTrue((yield* fs.observeDirectory(a)).revision > beforeA.revision)
+        assert.isTrue((yield* fs.observeDirectory(b)).revision > beforeB.revision)
+        assert.isTrue((yield* fs.observeMetadata(file)).revision > beforeFile.revision)
+      })
+  )
 
   it.effect("advances directory revisions for create, remove, and replacement", () =>
     Effect.gen(function*() {

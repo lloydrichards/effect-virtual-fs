@@ -1,8 +1,10 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { NfsServer } from "@effect-vfs/nfs"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import * as BunRuntime from "@effect/platform-bun/BunRuntime"
 import * as BunSocketServer from "@effect/platform-bun/BunSocketServer"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 
 const program = Effect.scoped(
   Effect.gen(function*() {
@@ -52,7 +54,10 @@ const program = Effect.scoped(
     return yield* Effect.never
   })
 ).pipe(
-  Effect.provide(BunSocketServer.layer({ host: "127.0.0.1", port: 2049 }))
+  Effect.provide(Layer.merge(
+    BunCrypto.layer,
+    BunSocketServer.layer({ host: "127.0.0.1", port: 2049 })
+  ))
 )
 
 BunRuntime.runMain(program)

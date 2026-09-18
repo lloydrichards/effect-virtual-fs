@@ -1,11 +1,12 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { assert, describe, it } from "@effect/vitest"
+import { assert, it } from "@effect/vitest"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import { makeExport } from "../src/internal/export.js"
 import { makeNfs4Handler, type Nfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
 import type { CompoundCall } from "../src/internal/rpc.js"
 import { Reader, Writer } from "../src/internal/xdr.js"
+import * as TestCrypto from "./support/crypto.js"
 import { call, generation, limits, openReadOnly, parseOpen, sequence, startSession } from "./support/harness.js"
 
 const ACCESS_ALL = 0x3f
@@ -154,7 +155,7 @@ const fattr = (writer: Writer, attribute: number, value: (values: Writer) => voi
   writer.array(words, (item, word) => item.uint32(word)).opaque(values.bytes())
 }
 
-describe("read-only-local protocol completeness", () => {
+it.layer(TestCrypto.layer)("read-only-local protocol completeness", (it) => {
   it.effect("answers must-not-implement and optional operations with NOTSUPP", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()

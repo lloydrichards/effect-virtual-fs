@@ -9,6 +9,7 @@
  * @since 0.1.0
  */
 import type * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import type * as Crypto from "effect/Crypto"
 import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Layer from "effect/Layer"
@@ -25,6 +26,7 @@ import * as internal from "./internal/memoryFileSystem.js"
  * @example
  * ```ts
  * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -35,7 +37,7 @@ import * as internal from "./internal/memoryFileSystem.js"
  *   return yield* fs.readFileString("/tmp/greeting.txt")
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // hello
  * ```
  *
@@ -43,7 +45,7 @@ import * as internal from "./internal/memoryFileSystem.js"
  * @category constructors
  * @since 0.1.0
  */
-export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
+export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = internal.make
 
 /**
  * Provides a `FileSystem.FileSystem` backed by a fresh in-memory volume.
@@ -61,7 +63,8 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  * @example
  * ```ts
  * import { MemoryFileSystem } from "@effect-vfs/memory"
- * import { Effect, FileSystem } from "effect"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+ * import { Effect, FileSystem, Layer } from "effect"
  *
  * const writeManifest = Effect.gen(function*() {
  *   const fs = yield* FileSystem.FileSystem
@@ -72,7 +75,9 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  *   return yield* fs.readFileString("/dist/manifest.json")
  * })
  *
- * Effect.runPromise(writeManifest.pipe(Effect.provide(MemoryFileSystem.layer)))
+ * const memoryLayer = MemoryFileSystem.layer.pipe(Layer.provide(NodeCrypto.layer))
+ *
+ * Effect.runPromise(writeManifest.pipe(Effect.provide(memoryLayer)))
  *   .then(console.log)
  * // {"version":"1.2.3"}
  * ```
@@ -80,6 +85,7 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  * @example
  * ```ts
  * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, FileSystem, Layer } from "effect"
  *
  * const write = Effect.gen(function*() {
@@ -109,7 +115,7 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  *   return [shared, isolated]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ true, false ]
  * ```
  *
@@ -118,7 +124,7 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  * @category layers
  * @since 0.1.0
  */
-export const layer: Layer.Layer<FileSystem.FileSystem> = internal.layer
+export const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto> = internal.layer
 
 /**
  * Creates a `FileSystem.FileSystem` service backed by an existing core volume.
@@ -138,6 +144,7 @@ export const layer: Layer.Layer<FileSystem.FileSystem> = internal.layer
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, FileSystem, Layer } from "effect"
  *
  * const encoder = new TextEncoder()
@@ -167,7 +174,12 @@ export const layer: Layer.Layer<FileSystem.FileSystem> = internal.layer
  *   return yield* fs.readFileString("/project/package.json")
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(seeded))).then(console.log)
+ * Effect.runPromise(
+ *   program.pipe(
+ *     Effect.provide(seeded),
+ *     Effect.provide(NodeCrypto.layer)
+ *   )
+ * ).then(console.log)
  * // {"version":"1.2.3"}
  * ```
  *

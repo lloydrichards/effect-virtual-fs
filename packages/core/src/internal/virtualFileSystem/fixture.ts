@@ -11,6 +11,7 @@ import {
   FixtureEntry,
   type FixtureMetadata,
   makeVolume,
+  VolumeIdentity,
   VolumeOptions as VolumeOptionsSchema,
   VolumeSource
 } from "../virtualFileSystem.js"
@@ -197,6 +198,13 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
     const snapshot = yield* Image.capture({ format: "effect-vfs", version: 1, root: "root", records }, undefined, true)
     const image = yield* Image.inspect(snapshot)
 
-    return yield* makeVolume(VolumeSource.Snapshot({ image }), config.success)
+    const { identity, ...volumeOptions } = config.success
+
+    if (identity === undefined) return yield* makeVolume(VolumeSource.Snapshot({ image }), volumeOptions)
+
+    return yield* makeVolume(VolumeSource.Snapshot({ image }), {
+      ...volumeOptions,
+      identity: VolumeIdentity.make(identity)
+    })
   }
 )

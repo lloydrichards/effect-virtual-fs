@@ -129,13 +129,16 @@ const uint64From = (bytes: Uint8Array, offset: number): bigint =>
 export const makeExport = (
   caller: Vfs.Caller,
   generation: Uint8Array,
-  limits: ExportLimits
+  limits: ExportLimits,
+  identity: Uint8Array = generation
 ): NfsExport => {
   validateGeneration(generation)
+  validateGeneration(identity)
   assertPositiveInteger("maxFilehandles", limits.maxFilehandles)
   assertPositiveInteger("maxNameBytes", ByteSize.toNumberUnsafe(limits.maxNameBytes))
 
   const generationCopy = new Uint8Array(generation)
+  const identityCopy = new Uint8Array(identity)
   const referencesById = new Map<bigint, Vfs.ObjectReference>()
   const idsByReference = new WeakMap<object, bigint>()
   const registryGate = Semaphore.makeUnsafe(1)
@@ -239,6 +242,6 @@ export const makeExport = (
     parent: caller.parentReference,
     readLink: caller.readLinkReference,
     open,
-    fsid: [uint64From(generationCopy, 0), uint64From(generationCopy, 8)]
+    fsid: [uint64From(identityCopy, 0), uint64From(identityCopy, 8)]
   }
 }

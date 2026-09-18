@@ -26,6 +26,7 @@ export declare class ImageError
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Effect } from "effect"
 
 // Decoding is a trust boundary. `code` says what went wrong and `field` says
@@ -47,7 +48,7 @@ const program = Effect.gen(function* () {
   )
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // declined at encodedBytes
 ```
 
@@ -102,6 +103,7 @@ export declare const DecodeLimits: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Effect } from "effect"
 
 // All four are required: each bounds a different resource. `maxEncodedBytes`
@@ -122,7 +124,7 @@ const program = Effect.gen(function* () {
   return "accepted"
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // accepted
 ```
 

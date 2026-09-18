@@ -1,9 +1,10 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
-import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect } from "effect"
+import { assert, it } from "@effect/vitest"
+import { ByteSize, type Crypto, Effect, Layer } from "effect"
 import type { SqlClient } from "effect/unstable/sql/SqlClient"
 import { CheckpointStore } from "../src/index.js"
+import * as TestCrypto from "./crypto.js"
 
 const limits = {
   maxEncodedBytes: ByteSize.kilobytes(100),
@@ -12,10 +13,13 @@ const limits = {
   maxDecodedBytes: ByteSize.kilobytes(10)
 }
 
-const database = <A, E>(effect: Effect.Effect<A, E, SqlClient>) =>
-  effect.pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" })))
+const database = <A, E>(effect: Effect.Effect<A, E, SqlClient | Crypto.Crypto>) =>
+  effect.pipe(Effect.provide(Layer.merge(
+    SqliteClient.layer({ filename: ":memory:" }),
+    TestCrypto.layer
+  )))
 
-describe("overlay checkpoints", () => {
+it.layer(TestCrypto.layer)("overlay checkpoints", (it) => {
   it.effect("should round trip a complete capture and give restoration a new empty baseline", () =>
     database(Effect.gen(function*() {
       yield* CheckpointStore.migrate

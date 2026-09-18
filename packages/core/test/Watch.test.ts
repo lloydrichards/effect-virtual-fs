@@ -1,7 +1,9 @@
-import { assert, describe, it } from "@effect/vitest"
+import { assert, describe } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber, Predicate, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { setRegistrationHook } from "../src/internal/virtualFileSystem/testHooks.js"
+
+import { it } from "./TestEffect.js"
 
 describe("volume watch", () => {
   it.effect("does not lose a change while a watcher is registering", () =>
@@ -101,61 +103,67 @@ describe("volume watch", () => {
       assert.deepStrictEqual(paths, ["/parent/child"])
     }))
 
-  it.effect("stays silent when a removed directory's metadata changes through an open handle", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
-      yield* caller.mkdir("/parent")
-      yield* caller.mkdir("/parent/child")
-      const removed = yield* caller.openDirectory("/parent/child")
-      yield* caller.rmdir("/parent/child")
+  it.effect(
+    "stays silent when a removed directory's metadata changes through an open handle",
+    () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+        yield* caller.mkdir("/parent")
+        yield* caller.mkdir("/parent/child")
+        const removed = yield* caller.openDirectory("/parent/child")
+        yield* caller.rmdir("/parent/child")
 
-      const stream = yield* volume.watch
+        const stream = yield* volume.watch
 
-      const watcher = yield* Stream.runCollect(Stream.take(stream, 1)).pipe(
-        Effect.forkChild({ startImmediately: true })
-      )
+        const watcher = yield* Stream.runCollect(Stream.take(stream, 1)).pipe(
+          Effect.forkChild({ startImmediately: true })
+        )
 
-      yield* caller.chmodHandle(removed, 0o700)
-      yield* caller.mkdir("/sentinel")
+        yield* caller.chmodHandle(removed, 0o700)
+        yield* caller.mkdir("/sentinel")
 
-      const events = yield* Fiber.join(watcher)
-      const paths: Array<string> = []
+        const events = yield* Fiber.join(watcher)
+        const paths: Array<string> = []
 
-      for (const event of events) {
-        paths.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
-      }
+        for (const event of events) {
+          paths.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+        }
 
-      assert.deepStrictEqual(paths, ["Create /sentinel"])
-    }))
+        assert.deepStrictEqual(paths, ["Create /sentinel"])
+      })
+  )
 
-  it.effect("stays silent when a rename-displaced directory's metadata changes through an open handle", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
-      yield* caller.mkdir("/source")
-      yield* caller.mkdir("/target")
-      const displaced = yield* caller.openDirectory("/target")
-      yield* caller.rename("/source", "/target")
+  it.effect(
+    "stays silent when a rename-displaced directory's metadata changes through an open handle",
+    () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+        yield* caller.mkdir("/source")
+        yield* caller.mkdir("/target")
+        const displaced = yield* caller.openDirectory("/target")
+        yield* caller.rename("/source", "/target")
 
-      const stream = yield* volume.watch
+        const stream = yield* volume.watch
 
-      const watcher = yield* Stream.runCollect(Stream.take(stream, 1)).pipe(
-        Effect.forkChild({ startImmediately: true })
-      )
+        const watcher = yield* Stream.runCollect(Stream.take(stream, 1)).pipe(
+          Effect.forkChild({ startImmediately: true })
+        )
 
-      yield* caller.utimesHandle(displaced, { access: { kind: "now" }, modification: { kind: "now" } })
-      yield* caller.mkdir("/sentinel")
+        yield* caller.utimesHandle(displaced, { access: { kind: "now" }, modification: { kind: "now" } })
+        yield* caller.mkdir("/sentinel")
 
-      const events = yield* Fiber.join(watcher)
-      const paths: Array<string> = []
+        const events = yield* Fiber.join(watcher)
+        const paths: Array<string> = []
 
-      for (const event of events) {
-        paths.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
-      }
+        for (const event of events) {
+          paths.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+        }
 
-      assert.deepStrictEqual(paths, ["Create /sentinel"])
-    }))
+        assert.deepStrictEqual(paths, ["Create /sentinel"])
+      })
+  )
 
   it.effect("reports the root path when the root directory's own metadata changes", () =>
     Effect.gen(function*() {
@@ -181,58 +189,64 @@ describe("volume watch", () => {
       assert.deepStrictEqual(paths, ["Update /"])
     }))
 
-  it.effect("reports the new path when a moved directory's metadata changes through an open handle", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
-      yield* caller.mkdir("/origin")
-      yield* caller.mkdir("/origin/moved")
-      yield* caller.mkdir("/destination")
-      const moved = yield* caller.openDirectory("/origin/moved")
-      yield* caller.rename("/origin/moved", "/destination/moved")
+  it.effect(
+    "reports the new path when a moved directory's metadata changes through an open handle",
+    () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+        yield* caller.mkdir("/origin")
+        yield* caller.mkdir("/origin/moved")
+        yield* caller.mkdir("/destination")
+        const moved = yield* caller.openDirectory("/origin/moved")
+        yield* caller.rename("/origin/moved", "/destination/moved")
 
-      const stream = yield* volume.watch
+        const stream = yield* volume.watch
 
-      const watcher = yield* Stream.runCollect(Stream.take(stream, 1)).pipe(
-        Effect.forkChild({ startImmediately: true })
-      )
+        const watcher = yield* Stream.runCollect(Stream.take(stream, 1)).pipe(
+          Effect.forkChild({ startImmediately: true })
+        )
 
-      yield* caller.chmodHandle(moved, 0o700)
+        yield* caller.chmodHandle(moved, 0o700)
 
-      const events = yield* Fiber.join(watcher)
-      const paths: Array<string> = []
+        const events = yield* Fiber.join(watcher)
+        const paths: Array<string> = []
 
-      for (const event of events) {
-        paths.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
-      }
+        for (const event of events) {
+          paths.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+        }
 
-      assert.deepStrictEqual(paths, ["Update /destination/moved"])
-    }))
+        assert.deepStrictEqual(paths, ["Update /destination/moved"])
+      })
+  )
 
-  it.effect("stays silent when an unlinked file's metadata changes through an open handle", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
-      yield* caller.writeFile("/orphan", new Uint8Array([1]), { access: "write", create: "ifMissing" })
-      const handle = yield* caller.open("/orphan", { access: "read" })
-      yield* caller.unlink("/orphan")
+  it.effect(
+    "stays silent when an unlinked file's metadata changes through an open handle",
+    () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+        yield* caller.writeFile("/orphan", new Uint8Array([1]), { access: "write", create: "ifMissing" })
+        const handle = yield* caller.open("/orphan", { access: "read" })
+        yield* caller.unlink("/orphan")
 
-      const stream = yield* volume.watch
+        const stream = yield* volume.watch
 
-      const watcher = yield* Stream.runCollect(Stream.take(stream, 1)).pipe(
-        Effect.forkChild({ startImmediately: true })
-      )
+        const watcher = yield* Stream.runCollect(Stream.take(stream, 1)).pipe(
+          Effect.forkChild({ startImmediately: true })
+        )
 
-      yield* caller.chmodHandle(handle, 0o600)
-      yield* caller.mkdir("/sentinel")
+        yield* caller.chmodHandle(handle, 0o600)
+        yield* caller.mkdir("/sentinel")
 
-      const events = yield* Fiber.join(watcher)
-      const paths: Array<string> = []
+        const events = yield* Fiber.join(watcher)
+        const paths: Array<string> = []
 
-      for (const event of events) {
-        paths.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
-      }
+        for (const event of events) {
+          paths.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+        }
 
-      assert.deepStrictEqual(paths, ["Create /sentinel"])
-    }))
+        assert.deepStrictEqual(paths, ["Create /sentinel"])
+      })
+  )
 })
