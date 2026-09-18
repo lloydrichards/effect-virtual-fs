@@ -30,7 +30,7 @@
   },
   "devDependencies": {
     "@changesets/changelog-github": "^1.0.0",
-    "@changesets/cli": "^3.0.1",
+    "@changesets/cli": "^3.0.3",
     "@effect/docgen": "^0.5.2",
     "@effect/tsgo": "0.45.0",
     "@oxlint/plugins": "1.82.0",
@@ -39,9 +39,9 @@
     "lint-staged": "17.5.1",
     "oxlint": "1.82.0",
     "oxlint-tsgolint": "7.0.2001",
-    "turbo": "^2.9.6",
+    "turbo": "^2.10.13",
     "typescript": "7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=24"
