@@ -20,4 +20,4 @@ Effects consume mutable byte inputs when the Effect executes, then copy bytes be
 
 This boundary prevents callers from changing filesystem state through buffers they still own and prevents observations from mutating the volume. It applies to subarrays and rejects unusable detached or shared inputs where the API cannot preserve the contract.
 
-The contract is established by [copying byte ownership](/decisions/core/copying-byte-ownership.md "constrained by").
+The contract is established by [copying byte ownership](../decisions/core/copying-byte-ownership.md "constrained by").

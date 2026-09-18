@@ -19,13 +19,13 @@ The current profile does not include:
 - advisory locks or descriptor duplication;
 - caller-specific restricted roots or subtree confinement;
 - sparse allocation or copy-on-write storage optimization;
-- automatic persistence of live writes, host `fsync`, or crash/power-loss durability (the [durability and usage facts decision](/decisions/core/volume-durability-and-usage-facts.md "refined by") makes the `memory-only` tier a readable fact without adding persistence);
+- automatic persistence of live writes, host `fsync`, or crash/power-loss durability (the [durability and usage facts decision](../decisions/core/volume-durability-and-usage-facts.md "refined by") makes the `memory-only` tier a readable fact without adding persistence);
 - complete Node package resolution, dependency installation, or HMR inside the virtual build integration.
 
 These are exclusions, not rejected designs. Active investigation may be represented separately as draft research, but it must not imply implementation or acceptance. Snapshot checkpoints provide explicit reconstruction, not live-write durability; dense zero-filled gaps provide filesystem behavior without sparse allocation.
 
-See [system boundaries](/architecture/system-boundaries.md "constrained by") and the [bounded POSIX profile](bounded-posix.md "contrasts with") for the current supported boundary. The read-only loopback NFS export is the first step of the [NFS profile ladder](/decisions/nfs/nfs-profile-ladder.md "refined by"); its later profiles remain deferred until their owning issues land.
+See [system boundaries](../architecture/system-boundaries.md "constrained by") and the [bounded POSIX profile](bounded-posix.md "contrasts with") for the current supported boundary. The read-only loopback NFS export is the first step of the [NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "refined by"); its later profiles remain deferred until their owning issues land.
 
-Overlay [v1 scope is implemented](/contracts/overlay-workspaces.md "contrasts with"). [Overlay research](/research/overlay-filesystem.md "explored by") retains alternatives and deferred delta questions.
+Overlay [v1 scope is implemented](../contracts/overlay-workspaces.md "contrasts with"). [Overlay research](../research/overlay-filesystem.md "explored by") retains alternatives and deferred delta questions.
 
-The [portable snapshot delta interface](/decisions/overlay/portable-snapshot-deltas.md "implemented by") is implemented by the [snapshot delta contract](/contracts/snapshot-deltas.md "refined by"). Its [representation research](/research/overlay-changes.md "explored by") now retains only future persistence, alternative encoding, merge and profiling questions.
+The [portable snapshot delta interface](../decisions/overlay/portable-snapshot-deltas.md "implemented by") is implemented by the [snapshot delta contract](../contracts/snapshot-deltas.md "refined by"). Its [representation research](../research/overlay-changes.md "explored by") now retains only future persistence, alternative encoding, merge and profiling questions.

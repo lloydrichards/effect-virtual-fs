@@ -46,7 +46,7 @@ generated: { by: claude/okf, at: 2026-09-17T18:30:00+02:00 }
 
 # Reference-based mutations
 
-Accepted by the user on 2026-09-17 while resolving the mutation half of issue #46.[^issue] The [object references contract](/contracts/object-references.md "extends") gives adapters stable identity and read-only reference operations; every mutation is still addressed by path. A writable network adapter needs to mutate the object a filehandle names without a path, learn the result without a second lookup, and report directory changes from the same state transition. This concept fixes how core provides that and what stays outside it. The durability half of the issue is recorded in [volume durability and usage facts](volume-durability-and-usage-facts.md "complements").
+Accepted by the user on 2026-09-17 while resolving the mutation half of issue #46.[^issue] The [object references contract](../../contracts/object-references.md "extends") gives adapters stable identity and read-only reference operations; every mutation is still addressed by path. A writable network adapter needs to mutate the object a filehandle names without a path, learn the result without a second lookup, and report directory changes from the same state transition. This concept fixes how core provides that and what stays outside it. The durability half of the issue is recorded in [volume durability and usage facts](volume-durability-and-usage-facts.md "complements").
 
 ## Why not path calls
 
@@ -65,7 +65,7 @@ Every path mutation already accepts a live `DirectoryHandle` base, but no operat
 
 ## Consequences
 
-- Reference mutations extend the [object references](/contracts/object-references.md "extends") and [mutation revisions](/contracts/mutation-revisions.md "extends") contracts, which record the per-operation authority and revision rules once the operations land. They preserve [explicit caller privilege](explicit-caller-privilege.md "constrained by") and the [mutation and observation contract](/contracts/mutation-and-observation.md "constrained by"): compositions of several reference calls remain compositions, not transactions.
+- Reference mutations extend the [object references](../../contracts/object-references.md "extends") and [mutation revisions](../../contracts/mutation-revisions.md "extends") contracts, which record the per-operation authority and revision rules once the operations land. They preserve [explicit caller privilege](explicit-caller-privilege.md "constrained by") and the [mutation and observation contract](../../contracts/mutation-and-observation.md "constrained by"): compositions of several reference calls remain compositions, not transactions.
 - Watch events stay path addressed, so a reference mutation on an object no name reaches publishes nothing, as the contract already states.
 - The NFS export wrapper grows the matching operations and the error map gains rows for `AlreadyExists`, `NotEmpty`, `SymlinkLoop`, `IsDirectory`, `NotDirectory`, and link-count failures before the writable profile (#48) depends on them.[^export] Revisions reduce to the 64-bit `changeid4` by truncation, never hashing, so inequality survives.
 - A revision-conditional mutation, and an expected-child guard on unlink and rename as ganesha and WinFsp offer, were considered and deferred; no adapter needs them yet.

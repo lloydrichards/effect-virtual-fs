@@ -40,7 +40,7 @@ generated: { by: claude/okf, at: 2026-09-17T15:40:00+02:00 }
 
 # NFS protocol rules ledger
 
-Cross-cutting requirements that no single operation row captures. Status vocabulary comes from the [NFS profile ladder](/decisions/nfs/nfs-profile-ladder.md "implements"). Section numbers refer to RFC 8881.[^rfc8881] Evidence abbreviations match the operations ledger; `pynfs` refers to the [external suite baseline](/evidence/nfs-external-suite.md "evidenced by").
+Cross-cutting requirements that no single operation row captures. Status vocabulary comes from the [NFS profile ladder](../../decisions/nfs/nfs-profile-ladder.md "implements"). Section numbers refer to RFC 8881.[^rfc8881] Evidence abbreviations match the operations ledger; `pynfs` refers to the [external suite baseline](../../evidence/nfs-external-suite.md "evidenced by").
 
 ## Cross-cutting requirements
 

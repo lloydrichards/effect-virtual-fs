@@ -17,4 +17,4 @@ Reusable identities, configuration, metadata, fixtures, and snapshot image recor
 
 Volume, Caller, FileHandle, and DirectoryHandle remain capability interfaces. BytePath, Snapshot, and SnapshotDelta are opaque controlled values with Effect-style string TypeIds and private authenticity registries; a decoded image tree is not itself a Snapshot. Schema validation does not imply deep immutability or serialize live resources.
 
-The resulting ownership model is described by the [volume, caller, and handle architecture](/architecture/volume-caller-handle-model.md "implemented by").
+The resulting ownership model is described by the [volume, caller, and handle architecture](../../architecture/volume-caller-handle-model.md "implemented by").

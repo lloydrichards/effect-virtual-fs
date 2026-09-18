@@ -69,7 +69,7 @@ A non-loopback bind is accepted only when the options carry both the policy func
 
 ## Consequences
 
-The [read-only-networked profile](/profiles/nfs/nfs-read-only-networked.md "refined by") states the resulting boundary. Identity mapping lands under #74 and non-loopback binding under #75. Mapping external identity onto callers is [constrained by explicit caller privilege](/decisions/core/explicit-caller-privilege.md "constrained by") and by the [resources and authority contract](/contracts/resources-and-authority.md "constrained by"): privilege is a policy output, never inherited from a wire uid of zero. Row status lives in the [protocol rules ledger](/research/nfs/nfs-protocol-rules-ledger.md "evidenced by").
+The [read-only-networked profile](../../profiles/nfs/nfs-read-only-networked.md "refined by") states the resulting boundary. Identity mapping lands under #74 and non-loopback binding under #75. Mapping external identity onto callers is [constrained by explicit caller privilege](../core/explicit-caller-privilege.md "constrained by") and by the [resources and authority contract](../../contracts/resources-and-authority.md "constrained by"): privilege is a policy output, never inherited from a wire uid of zero. Row status lives in the [protocol rules ledger](../../research/nfs/nfs-protocol-rules-ledger.md "evidenced by").
 
 [^issue]: Issue #45 holds the original questions; the review session's decisions are recorded here.
 

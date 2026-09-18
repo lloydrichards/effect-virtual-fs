@@ -27,4 +27,4 @@ Workspace declarations must exist before Effect-aware lint analyzes package cons
 
 Retain evidence only when its conclusion still changes present design, use, testing, or maintenance. Suitable retained evidence includes a reproducible regression probe, a measurement supporting an active limit, or an interoperability trace supporting a capability claim. Do not retain routine green logs, historical test counts, local timings, milestone chronology, or environment snapshots merely as history; Git already preserves those.
 
-Record current caveats beside the claim they constrain. The [current validation ledger](/evidence/current-validation.md "summarized by") captures only cross-cutting conclusions that remain relevant.
+Record current caveats beside the claim they constrain. The [current validation ledger](../evidence/current-validation.md "summarized by") captures only cross-cutting conclusions that remain relevant.

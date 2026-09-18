@@ -16,7 +16,7 @@ generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 
 # Remaining implementation profile
 
-Retained as the record of the policies accepted when the first core slice was completed. Each is now owned by a focused contract: [regular-file I/O](/contracts/regular-file-io.md "superseded by"), [paths and namespace](/contracts/paths-and-namespace.md "superseded by"), [snapshots and fixtures](/contracts/snapshots-and-fixtures.md "superseded by"), [mutation and observation](/contracts/mutation-and-observation.md "superseded by"), and [memory adapter compatibility](/contracts/memory-adapter-compatibility.md "superseded by").
+Retained as the record of the policies accepted when the first core slice was completed. Each is now owned by a focused contract: [regular-file I/O](../../contracts/regular-file-io.md "superseded by"), [paths and namespace](../../contracts/paths-and-namespace.md "superseded by"), [snapshots and fixtures](../../contracts/snapshots-and-fixtures.md "superseded by"), [mutation and observation](../../contracts/mutation-and-observation.md "superseded by"), and [memory adapter compatibility](../../contracts/memory-adapter-compatibility.md "superseded by").
 
 Core implements bigint offsets, dense file storage, partial writes at capacity, coordinated mutation, hard links to files or symlinks, bounded symlink traversal, whole-list directory reads, explicit metadata authority, strict snapshot v1, validated final-state fixtures, and owned byte observations.
 

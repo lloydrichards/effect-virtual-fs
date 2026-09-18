@@ -26,4 +26,4 @@ Resolution is component-by-component: dot components resolve during lookup, root
 
 The namespace supports directories, regular files, symbolic links, hard links, rename, and removal. Open files remain usable after rename or unlink until their handles close.
 
-This contract is constrained by [strict string results](/decisions/core/strict-string-filename-boundary.md "constrained by"), [path-base selection](/decisions/core/path-base-selection.md "constrained by"), [path input policy](/decisions/core/path-input-policy.md "constrained by"), and the [optional total path limit](/decisions/core/optional-total-path-limit.md "constrained by").
+This contract is constrained by [strict string results](../decisions/core/strict-string-filename-boundary.md "constrained by"), [path-base selection](../decisions/core/path-base-selection.md "constrained by"), [path input policy](../decisions/core/path-input-policy.md "constrained by"), and the [optional total path limit](../decisions/core/optional-total-path-limit.md "constrained by").

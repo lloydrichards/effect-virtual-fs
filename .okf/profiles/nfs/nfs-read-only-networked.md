@@ -19,7 +19,7 @@ generated: { by: claude/okf, at: 2026-09-16T21:30:00+02:00 }
 
 # NFS read-only-networked profile
 
-`read-only-networked` is the second profile in the [NFS profile ladder](/decisions/nfs/nfs-profile-ladder.md "implements"). It extends the [read-only-local profile](nfs-read-only-local.md "refines") with per-identity VFS authority and a trusted-network boundary, as fixed by the [authentication and export policy decision](/decisions/nfs/nfs-authentication-and-export-policy.md "implements"). It is not a conformant NFSv4.1 server: Kerberos is permanently excluded, so it is interoperable with clients using `sec=sys`.[^rfc8881]
+`read-only-networked` is the second profile in the [NFS profile ladder](../../decisions/nfs/nfs-profile-ladder.md "implements"). It extends the [read-only-local profile](nfs-read-only-local.md "refines") with per-identity VFS authority and a trusted-network boundary, as fixed by the [authentication and export policy decision](../../decisions/nfs/nfs-authentication-and-export-policy.md "implements"). It is not a conformant NFSv4.1 server: Kerberos is permanently excluded, so it is interoperable with clients using `sec=sys`.[^rfc8881]
 
 ## Boundary
 

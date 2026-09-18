@@ -63,7 +63,7 @@ code that speaks the protocol — only the `nfs-utils` userland. The gate prints
 `nfs-utils` versions on every run and the runner is pinned to `ubuntu-24.04` rather than `ubuntu-latest`, so client
 drift shows up as a changed recorded version rather than as a silent change in what was tested.
 
-This baseline satisfies the pynfs requirement of the `experimental` maturity in the [NFS profile ladder](/decisions/nfs/nfs-profile-ladder.md "supports") and is cited by the [read-only-local profile](/profiles/nfs/nfs-read-only-local.md "supports"). With the Linux gate above, the native-client requirements of `preview` are met. Claims stay bounded by the [evidence and validation workflow](/workflows/evidence-and-validation.md "governed by").
+This baseline satisfies the pynfs requirement of the `experimental` maturity in the [NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "supports") and is cited by the [read-only-local profile](../profiles/nfs/nfs-read-only-local.md "supports"). With the Linux gate above, the native-client requirements of `preview` are met. Claims stay bounded by the [evidence and validation workflow](../workflows/evidence-and-validation.md "governed by").
 
 [^baseline]: The baseline document pins the suite commit, Python dependencies, command line, and the three failure classes.
 

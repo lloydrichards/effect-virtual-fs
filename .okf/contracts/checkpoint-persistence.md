@@ -20,4 +20,4 @@ generated: { by: codex/okf, at: 2026-09-10T00:00:00Z }
 
 Applications own database provisioning, migration timing, snapshot capture, restoration into a fresh volume, and driver lifetime. The store validates the same required decode budgets on save and load, rejects invalid names and malformed stored images, distinguishes missing data from storage failure, and participates in an enclosing SQL transaction.
 
-This contract [depends on](snapshots-and-fixtures.md "depends on") the snapshot image boundary and is established by [named checkpoint persistence](/decisions/named-checkpoint-persistence.md "constrained by").
+This contract [depends on](snapshots-and-fixtures.md "depends on") the snapshot image boundary and is established by [named checkpoint persistence](../decisions/named-checkpoint-persistence.md "constrained by").
