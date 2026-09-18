@@ -6,7 +6,7 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "../Snapshot.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
-import { StoredMetadata } from "./metadata.js"
+import { StoredMetadata, WireStoredMetadata } from "./metadata.js"
 
 class SnapshotImpl implements Snapshot {
   readonly [SnapshotTypeId]: SnapshotTypeId = SnapshotTypeId
@@ -42,11 +42,11 @@ export const Document = Schema.Struct({
 const WireRecord = Schema.TaggedUnion({
   directory: {
     id,
-    metadata: Schema.Unknown,
+    metadata: WireStoredMetadata,
     entries: Schema.Array(Schema.Struct({ name: Schema.String, target: id }))
   },
-  file: { id, metadata: Schema.Unknown, data: Schema.String },
-  symlink: { id, metadata: Schema.Unknown, target: Schema.String }
+  file: { id, metadata: WireStoredMetadata, data: Schema.String },
+  symlink: { id, metadata: WireStoredMetadata, target: Schema.String }
 })
 
 const WireDocument = Schema.Struct({

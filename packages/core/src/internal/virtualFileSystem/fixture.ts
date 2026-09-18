@@ -2,7 +2,8 @@
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import { type Fixture, ImageError, type PathInput, type VolumeOptions } from "../../VirtualFileSystem.js"
+import { ImageError } from "../../Snapshot.js"
+import type { Fixture, PathInput, VolumeOptions } from "../../VirtualFileSystem.js"
 import { CanonicalBase64 } from "../canonicalBase64.js"
 import * as Image from "../image.js"
 import {
