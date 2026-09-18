@@ -2132,6 +2132,81 @@ describe("NFSv4.1 COMPOUND", () => {
       ])
     }))
 
+  // A real bound needs the live clock: it.effect runs on the test clock, which never advances.
+  it.live("closes an open exactly once when CLOSE is interrupted", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
+      const entered = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      let closes = 0
+
+      // A close parked in the export leaves an interrupt pending until it settles. Dropping the
+      // handle from `opens` has to land in the same region: an interrupt delivered between the two
+      // would leave a closed handle for the handler scope's finalizer to close a second time.
+      const export_ = {
+        ...base,
+        open: (reference: Vfs.ObjectReference) =>
+          base.open(reference).pipe(
+            Effect.map((opened) => ({
+              ...opened,
+              close: Deferred.succeed(entered, undefined).pipe(
+                Effect.andThen(Deferred.await(release)),
+                Effect.andThen(Effect.sync(() => {
+                  closes += 1
+                })),
+                Effect.andThen(opened.close)
+              )
+            }))
+          )
+      }
+
+      // The special current stateid: sequence 1 over an otherwise zero stateid, which CLOSE reads
+      // as the open the same compound just created.
+      const currentStateid = new Uint8Array(16)
+      new DataView(currentStateid.buffer).setUint32(0, 1)
+
+      yield* Effect.scoped(Effect.gen(function*() {
+        const handler = yield* makeNfs4Handler(export_, {
+          leaseDurationSeconds: 30,
+          callbackTimeout: "1 second",
+          generation,
+          now: () => 0,
+          limits
+        })
+
+        const carrier = connection(1)
+        const held = yield* startSession(handler, "closing", {}, new Uint8Array(8), carrier)
+
+        const stalled = yield* Effect.forkChild(handler.compound(call(
+          [
+            sequence(held.session, 1),
+            (writer) => writer.uint32(Operation.PUTROOTFH),
+            openReadOnly(held.client, "file"),
+            (writer) => writer.uint32(Operation.CLOSE).uint32(0).fixedOpaque(currentStateid)
+          ],
+          "stalled-close",
+          carrier
+        )))
+
+        yield* Deferred.await(entered)
+
+        // The interrupt cannot land while the close runs; it is delivered the moment that region
+        // ends, which is the boundary under test.
+        const interrupting = yield* Effect.forkChild(Fiber.interrupt(stalled))
+
+        // The interrupt has to be signalled before the close settles, or it lands after the
+        // boundary and proves nothing.
+        yield* Effect.sleep("50 millis")
+        yield* Deferred.succeed(release, undefined)
+        yield* Fiber.join(interrupting).pipe(Effect.timeoutOption("2 seconds"))
+      }))
+
+      // The scope has closed, so its finalizer has swept whatever `opens` still held.
+      assert.strictEqual(closes, 1, "the interrupted CLOSE left a closed handle for the finalizer")
+    }))
+
   it.effect("reuses session and open capacity after explicit teardown", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
