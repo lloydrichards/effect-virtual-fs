@@ -1958,7 +1958,19 @@ export const makeNfs4Handler = (
       }
     }
 
-    const executeCompound = (call: CompoundCall): Effect.Effect<Uint8Array> =>
+    /**
+     * `restore` reopens the compound's own interrupt window. The caller runs the whole compound
+     * uninterruptibly so the replay-slot commit below cannot be torn in half, but an operation
+     * that stalls in the backing store must not hold the handler scope open forever, so each
+     * operation is dispatched through it. The boundary is between operations: anything that
+     * mutates server state guards itself within its own operation (see OPEN and CLOSE), and an
+     * interrupt arriving between them rolls the slot back via `rollbackSequence` so nothing stays
+     * charged for a reply that was never sent.
+     */
+    const executeCompound = (
+      call: CompoundCall,
+      restore: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
+    ): Effect.Effect<Uint8Array> =>
       Effect.suspend(() => {
         let parsed: ReturnType<typeof parseCompound>
 
@@ -2082,7 +2094,9 @@ export const makeNfs4Handler = (
             const operation = parsed.operations[index]!
             let result: ResultPart
 
-            result = yield* execute(operation)
+            // An open registered by an abandoned compound is never reported to the client and is
+            // reclaimed with the client's lease, so it needs no rollback of its own.
+            result = yield* restore(execute(operation))
             parts.push(result)
 
             if (result.status !== Status.OK) break
@@ -3757,7 +3771,10 @@ export const makeNfs4Handler = (
     return {
       compound: (call) =>
         stateGate.withPermit(
-          Effect.uninterruptible(sweepExpired.pipe(Effect.andThen(executeCompound(call))))
+          // A mask rather than a blanket `uninterruptible`: the sweep and the replay-slot commit
+          // stay atomic, while `executeCompound` reopens the window around each operation so a
+          // compound stalled in the backing store cannot hold scope closure open indefinitely.
+          Effect.uninterruptibleMask((restore) => sweepExpired.pipe(Effect.andThen(executeCompound(call, restore))))
         ),
       callbackReply: (connection, message) =>
         Effect.sync(() => {

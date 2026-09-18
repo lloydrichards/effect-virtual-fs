@@ -2062,6 +2062,76 @@ describe("NFSv4.1 COMPOUND", () => {
       )
     }))
 
+  // A real bound needs the live clock: it.effect runs on the test clock, which never advances.
+  it.live("abandons a compound stalled in the export and leaves its slot replayable", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
+      const entered = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+
+      // An OPEN parked in the export stands in for a VFS operation stalled on a backing store.
+      // Closing the server scope interrupts the read loop and awaits it, so a compound that could
+      // not be interrupted here would hold shutdown open for as long as the store stayed stalled.
+      const export_ = {
+        ...base,
+        open: (reference: Vfs.ObjectReference) =>
+          Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.andThen(base.open(reference))
+          )
+      }
+
+      const handler = yield* makeNfs4Handler(export_, {
+        leaseDurationSeconds: 30,
+        callbackTimeout: "1 second",
+        generation,
+        now: () => 0,
+        limits
+      })
+
+      const carrier = connection(1)
+      const held = yield* startSession(handler, "stalling", {}, new Uint8Array(8), carrier)
+
+      const stalled = yield* Effect.forkChild(handler.compound(call(
+        [
+          sequence(held.session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openReadOnly(held.client, "file")
+        ],
+        "stalled",
+        carrier
+      )))
+
+      yield* Deferred.await(entered)
+
+      // The interrupt is awaited on another fiber so the bound races an interruptible join rather
+      // than the interrupt itself, which no timeout could abandon cleanly.
+      const interrupting = yield* Effect.forkChild(Fiber.interrupt(stalled))
+      const finished = yield* Fiber.join(interrupting).pipe(Effect.timeoutOption("2 seconds"))
+
+      // Release before asserting: a wedged compound would otherwise outlive the failure and time
+      // the suite out instead of reporting it.
+      yield* Deferred.succeed(release, undefined)
+
+      assert.isTrue(Option.isSome(finished), "a compound stalled in the export held the scope open")
+
+      // The abandoned compound sent no reply, so its slot must be exactly as SEQUENCE found it:
+      // the same sequence ID is a first attempt, not SEQ_MISORDERED against an advanced slot nor a
+      // false retry against a cached reply that was never transmitted.
+      const retried = yield* handler.compound(call(
+        [sequence(held.session, 1), (writer) => writer.uint32(Operation.PUTROOTFH)],
+        "retry",
+        carrier
+      ))
+
+      assert.deepStrictEqual(statuses(retried).operations, [
+        [Operation.SEQUENCE, Status.OK],
+        [Operation.PUTROOTFH, Status.OK]
+      ])
+    }))
+
   it.effect("reuses session and open capacity after explicit teardown", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
