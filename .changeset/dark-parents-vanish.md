@@ -1,6 +1,5 @@
 ---
 "@effect-vfs/core": minor
-"@effect-vfs/memory": minor
 ---
 
 Volumes now expose an ordered durability level, a stable logical identity, and a fresh incarnation for each construction.

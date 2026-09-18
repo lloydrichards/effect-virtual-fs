@@ -41,11 +41,49 @@ import * as internal from "./internal/memoryFileSystem.js"
  * // hello
  * ```
  *
- * @see {@link layer} for providing the service as a Layer, {@link bind} for an existing volume.
+ * @see {@link makeCrypto} for a self-contained variant, {@link layer} for a Layer, {@link bind} for an existing volume.
  * @category constructors
  * @since 0.1.0
  */
 export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = internal.make
+
+/**
+ * Creates a `FileSystem.FileSystem` service with a built-in `Crypto`.
+ *
+ * **When to use**
+ *
+ * Use when you want an in-memory filesystem without wiring a platform crypto
+ * layer, such as in a test or a browser build.
+ *
+ * **Gotchas**
+ *
+ * The built-in implementation produces reproducible values, not
+ * cryptographically secure ones. It exists so a volume can mint its identity
+ * and incarnation in isolation. Use {@link make} with `NodeCrypto`,
+ * `BunCrypto`, or your own service when those values must be unpredictable.
+ *
+ * @example
+ * ```ts
+ * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const fs = yield* MemoryFileSystem.makeCrypto
+ *
+ *   yield* fs.writeFileString("/tmp/greeting.txt", "hello")
+ *
+ *   return yield* fs.readFileString("/tmp/greeting.txt")
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // hello
+ * ```
+ *
+ * @see {@link make} for supplying a platform `Crypto` service.
+ * @category constructors
+ * @since 0.4.0
+ */
+export const makeCrypto: Effect.Effect<FileSystem.FileSystem> = internal.makeCrypto
 
 /**
  * Provides a `FileSystem.FileSystem` backed by a fresh in-memory volume.
@@ -119,12 +157,51 @@ export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = 
  * // [ true, false ]
  * ```
  *
- * @see {@link make} for constructing the service directly, {@link bind} for an existing volume.
+ * @see {@link layerCrypto} for a self-contained variant, {@link make} for the service directly, {@link bind} for an existing volume.
  * @see The testing guide at `/guides/testing-with-an-isolated-filesystem`.
  * @category layers
  * @since 0.1.0
  */
 export const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto> = internal.layer
+
+/**
+ * Provides a `FileSystem.FileSystem` with a built-in `Crypto`.
+ *
+ * **When to use**
+ *
+ * Use when you want an in-memory filesystem without wiring a platform crypto
+ * layer, such as in a test or a browser build.
+ *
+ * **Gotchas**
+ *
+ * The built-in implementation produces reproducible values, not
+ * cryptographically secure ones. Use {@link layer} with `NodeCrypto`,
+ * `BunCrypto`, or your own service when the volume's identity and incarnation
+ * must be unpredictable.
+ *
+ * @example
+ * ```ts
+ * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import { Effect, FileSystem } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const fs = yield* FileSystem.FileSystem
+ *
+ *   yield* fs.writeFileString("/tmp/greeting.txt", "hello")
+ *
+ *   return yield* fs.readFileString("/tmp/greeting.txt")
+ * })
+ *
+ * Effect.runPromise(program.pipe(Effect.provide(MemoryFileSystem.layerCrypto)))
+ *   .then(console.log)
+ * // hello
+ * ```
+ *
+ * @see {@link layer} for supplying a platform `Crypto` service.
+ * @category layers
+ * @since 0.4.0
+ */
+export const layerCrypto: Layer.Layer<FileSystem.FileSystem> = internal.layerCrypto
 
 /**
  * Creates a `FileSystem.FileSystem` service backed by an existing core volume.

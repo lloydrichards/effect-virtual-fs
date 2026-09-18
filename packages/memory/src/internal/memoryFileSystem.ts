@@ -19,6 +19,7 @@ import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
+import { layerDeterministicCrypto } from "./crypto.js"
 import { compileGlobPatterns, matchesGlob } from "./glob.js"
 
 const argumentError = (method: string, description: string) =>
@@ -734,3 +735,9 @@ export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = 
 
 /** @internal */
 export const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto> = Layer.effect(FileSystem.FileSystem, make)
+
+/** @internal */
+export const makeCrypto: Effect.Effect<FileSystem.FileSystem> = make.pipe(Effect.provide(layerDeterministicCrypto))
+
+/** @internal */
+export const layerCrypto: Layer.Layer<FileSystem.FileSystem> = layer.pipe(Layer.provide(layerDeterministicCrypto))
