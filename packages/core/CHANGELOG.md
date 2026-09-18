@@ -1,5 +1,25 @@
 # @effect-vfs/core
 
+## 0.3.1
+
+### Patch Changes
+
+- [#89](https://github.com/lloydrichards/effect-virtual-fs/pull/89) [`a533d31`](https://github.com/lloydrichards/effect-virtual-fs/commit/a533d3160c7d3c11941d16b998bb692cf9a759d6) Thanks [@lloydrichards](https://github.com/lloydrichards)! - The public API now carries compiled `@example` blocks, and the docs build executes them and asserts their printed output, so a snippet cannot drift from what the code actually does
+
+- [#100](https://github.com/lloydrichards/effect-virtual-fs/pull/100) [`3888ff3`](https://github.com/lloydrichards/effect-virtual-fs/commit/3888ff389f721f0cf6df7ffb080e5a719adee6b4) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Snapshot records now use `_tag` as their variant discriminator, and timestamp decoding accepts bounded alternate bigint spellings.
+
+- [#81](https://github.com/lloydrichards/effect-virtual-fs/pull/81) [`097ba94`](https://github.com/lloydrichards/effect-virtual-fs/commit/097ba948194efa164b98bf33ae923941e31c8933) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `applySnapshotDelta` now orders directory entries by byte value regardless of the runtime.
+
+  Applied snapshots previously sorted entry names with `localeCompare`, so the same delta could yield differently ordered entries on ICU and non-ICU Node builds. Entries now follow the byte order used everywhere else in the delta layer. Deltas themselves are unaffected, since they never carried entry order.
+
+- [#86](https://github.com/lloydrichards/effect-virtual-fs/pull/86) [`3e7a58b`](https://github.com/lloydrichards/effect-virtual-fs/commit/3e7a58be83691603d8787c5fafe784937af02536) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `FsError` and `ConfigurationError` now carry a message, so a failed cause reads as more than a bare tag.
+
+  `FsError` reports the operation and code, for example `open failed with NotFound`; it deliberately omits the path, which may be raw bytes or caller data. `ConfigurationError` names the option it rejected.
+
+- [`49c9990`](https://github.com/lloydrichards/effect-virtual-fs/commit/49c99900669e74a8f139e6628b09237a8c8775b8) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Metadata and symlink failures now name the path the caller passed.
+
+  A denied `utimes` reported its path as `/`, because the authorization call passed a hard-coded root. It now carries the caller's path, or omits it when the target is a handle, matching `chmod`. Resolving through a symlink whose target breaks a per-component length limit reported the synthetic expansion of that target rather than the path under traversal, so a link with an over-long component reported the target instead of the link.
+
 ## 0.3.0
 
 ### Minor Changes
