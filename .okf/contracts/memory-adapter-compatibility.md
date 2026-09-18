@@ -36,4 +36,4 @@ The shared adapter suite in `packages/memory/test/FileSystemTest.ts` states this
 
 Effect's Node platform adapter diverges from four of those requirements, which is why the suite is not run against it: `copy` with `overwrite: false` skips an existing destination silently instead of failing, `utimes` reports its method as `utime`, `preserveTimestamps` carries only the modification time, and a closed handle surfaces `EBADF` as `Unknown` rather than `BadResource`. Ownership changes there also need host privileges. These are upstream behaviors, not adapter obligations; the suite must not be weakened to accommodate them.
 
-This contract [depends on](resources-and-authority.md "depends on") core capabilities, [implements package boundaries](/decisions/package-boundaries.md "implements"), and is [grounded in the Effect compatibility research](/research/effect-compatibility.md "grounded in").
+This contract [depends on](resources-and-authority.md "depends on") core capabilities, [implements package boundaries](../decisions/package-boundaries.md "implements"), and is [grounded in the Effect compatibility research](../research/effect-compatibility.md "grounded in").

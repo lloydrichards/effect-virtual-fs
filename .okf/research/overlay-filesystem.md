@@ -25,7 +25,7 @@ generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 
 # Overlay filesystem direction
 
-Issue #8 asked for an ordinary volume over a read-only base with writable changes, for disposable builds and agent workspaces.[^issue] The accepted requirements are in [staged overlay delivery](/decisions/overlay/staged-overlay-delivery.md "constrained by") and its focused decisions, and the shipped behavior is specified by the [overlay workspaces contract](/contracts/overlay-workspaces.md "implemented by"). This concept retains only what those do not: the alternatives that were rejected, the external designs consulted, and the parity cases that overlay coverage does not yet exhaust.
+Issue #8 asked for an ordinary volume over a read-only base with writable changes, for disposable builds and agent workspaces.[^issue] The accepted requirements are in [staged overlay delivery](../decisions/overlay/staged-overlay-delivery.md "constrained by") and its focused decisions, and the shipped behavior is specified by the [overlay workspaces contract](../contracts/overlay-workspaces.md "implemented by"). This concept retains only what those do not: the alternatives that were rejected, the external designs consulted, and the parity cases that overlay coverage does not yet exhaust.
 
 ## Alternatives considered
 
@@ -43,7 +43,7 @@ Linux OverlayFS demonstrates upper precedence, merged directories, whiteouts and
 
 OCI layers describe serialized changesets, not live behavior. Their reserved `.wh.` whiteout names are the reason deletion bookkeeping stays outside this project's user namespace, where paths may hold arbitrary non-NUL bytes including a literal `.wh.x`.[^oci] Serialization questions moved to the [snapshot delta research](overlay-changes.md "refined by").
 
-[Object references](/contracts/object-references.md "related to") and [mutation revisions](/contracts/mutation-revisions.md "related to") were considered as overlay prerequisites and rejected as such; internal lineage supports overlay comparison independently of those public APIs.
+[Object references](../contracts/object-references.md "related to") and [mutation revisions](../contracts/mutation-revisions.md "related to") were considered as overlay prerequisites and rejected as such; internal lineage supports overlay comparison independently of those public APIs.
 
 ## Open: a parity harness
 

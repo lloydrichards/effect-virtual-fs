@@ -22,4 +22,4 @@ Handle operations support sequential and positional reads and writes, truncate, 
 
 Closing one handle does not close another. Unlinked open files remain alive and charged until their final handle closes.
 
-The implemented choices are consolidated in [remaining implementation policy](/decisions/core/remaining-implementation-profile.md "constrained by").
+The implemented choices are consolidated in [remaining implementation policy](../decisions/core/remaining-implementation-profile.md "constrained by").

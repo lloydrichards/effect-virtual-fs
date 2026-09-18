@@ -23,7 +23,7 @@ Core exposes canonical opaque `ObjectReference` values for runtime files, direct
 
 `Caller` owns reference operations for the volume root, single-component byte-name lookup, directory parent lookup, metadata observation, directory observation, symbolic-link target reads, and scoped read-only file opening. Wire encoding and export identifiers remain adapter responsibilities.
 
-The reference identifies an object; it does not carry the authority of the caller that obtained it. Permission checks apply to the invoking caller. Operations preserve the [resource and authority contract](resources-and-authority.md "constrained by"). Restore constructs fresh references under [snapshot-local identity](/decisions/core/snapshot-local-file-identity.md "constrained by").
+The reference identifies an object; it does not carry the authority of the caller that obtained it. Permission checks apply to the invoking caller. Operations preserve the [resource and authority contract](resources-and-authority.md "constrained by"). Restore constructs fresh references under [snapshot-local identity](../decisions/core/snapshot-local-file-identity.md "constrained by").
 
 ## Authority
 

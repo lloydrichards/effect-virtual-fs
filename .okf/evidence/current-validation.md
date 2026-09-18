@@ -43,7 +43,7 @@ generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 
 # Current validation conclusions
 
-The core, memory adapter, [persistence package](/contracts/checkpoint-persistence.md "supported by"), and virtual-build consumer have executable behavioral coverage. The important maintenance conclusion is not an old test count: adapter compatibility must be tested through the core, and public-package consumers must exercise built exports rather than source-only imports.
+The core, memory adapter, [persistence package](../contracts/checkpoint-persistence.md "supported by"), and virtual-build consumer have executable behavioral coverage. The important maintenance conclusion is not an old test count: adapter compatibility must be tested through the core, and public-package consumers must exercise built exports rather than source-only imports.
 
 Later capabilities carry their own focused suites rather than entries here: overlay workspaces and snapshot deltas in core, overlay bindings in the memory adapter, overlay checkpoints in persistence, and the NFS protocol suites. External NFS client evidence lives in the [NFS external suite baseline](nfs-external-suite.md "refined by").
 
@@ -53,4 +53,4 @@ Build workspace declarations before Effect-aware lint. Missing `dist/*.d.ts` can
 
 Browser-target bundling plus a Node smoke proves that reachable package exports bundle and execute in that check. It does not prove browser or worker runtime behavior. NodeNext consumers prove emitted module and type resolution, not every downstream toolchain.
 
-The repository pins Bun 1.2.21 for CI and Node 24 for releases and package support. Older local validation on a different Bun version is historical, not confirmation of the current checkout. Fresh claims should use the [evidence and validation workflow](/workflows/evidence-and-validation.md "governed by") and report the runtime actually exercised. This ledger [supports the implemented filesystem profile](/profiles/implemented-filesystem.md "supports") without replacing its focused behavioral evidence.
+The repository pins Bun 1.2.21 for CI and Node 24 for releases and package support. Older local validation on a different Bun version is historical, not confirmation of the current checkout. Fresh claims should use the [evidence and validation workflow](../workflows/evidence-and-validation.md "governed by") and report the runtime actually exercised. This ledger [supports the implemented filesystem profile](../profiles/implemented-filesystem.md "supports") without replacing its focused behavioral evidence.

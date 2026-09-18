@@ -36,12 +36,12 @@ A **capability profile** states what the server does. A **maturity** label state
 
 Profiles, in delivery order:
 
-| Profile               | Adds                                                                                                                                                                                                                                                                                                        | Owning issues |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted, backchannel, connection binding, trunking                                                                                                                                                               | #43, #39, #44 |
-| `read-only-networked` | trusted `AUTH_SYS` identity mapped to VFS callers by application policy, non-loopback binding behind that policy and an explicit opt-in                                                                                                                                                                     | #74, #75      |
-| `writable`            | create, write, rename, remove, `COMMIT` semantics, explicit durability statement; its core boundary is fixed by [reference-based mutations](/decisions/core/reference-mutations.md "refined by") and [volume durability and usage facts](/decisions/core/volume-durability-and-usage-facts.md "refined by") | #46, #48, #49 |
-| `stateful`            | share reservations, byte-range locks, grace and reclaim, restart model, persistent filehandles                                                                                                                                                                                                              | #47, #50      |
+| Profile               | Adds                                                                                                                                                                                                                                                                                        | Owning issues |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted, backchannel, connection binding, trunking                                                                                                                                               | #43, #39, #44 |
+| `read-only-networked` | trusted `AUTH_SYS` identity mapped to VFS callers by application policy, non-loopback binding behind that policy and an explicit opt-in                                                                                                                                                     | #74, #75      |
+| `writable`            | create, write, rename, remove, `COMMIT` semantics, explicit durability statement; its core boundary is fixed by [reference-based mutations](../core/reference-mutations.md "refined by") and [volume durability and usage facts](../core/volume-durability-and-usage-facts.md "refined by") | #46, #48, #49 |
+| `stateful`            | share reservations, byte-range locks, grace and reclaim, restart model, persistent filehandles                                                                                                                                                                                              | #47, #50      |
 
 Maturity labels are `experimental`, `preview`, and `stable`.
 
@@ -52,7 +52,7 @@ RFC 8881 defines no read-only server profile; its read-only allowance in Section
 ## Scope exclusions
 
 - NFSv4.0 and NFSv4.2 are excluded. Section 2.7 rule 11 recommends supporting earlier minor versions; the ledger records this SHOULD as deliberately unmet. Unsupported minor versions keep returning `NFS4ERR_MINOR_VERS_MISMATCH` so the Linux client ladder reaches 4.1.
-- Filehandles stay volatile through `read-only-networked` and `writable`. Persistent handles are a `stateful` requirement and depend on durable identity work, which must not weaken [snapshot-local file identity](/decisions/core/snapshot-local-file-identity.md "constrained by").
+- Filehandles stay volatile through `read-only-networked` and `writable`. Persistent handles are a `stateful` requirement and depend on durable identity work, which must not weaken [snapshot-local file identity](../core/snapshot-local-file-identity.md "constrained by").
 - `AUTH_SYS` is the security floor for every profile. Kerberos is a permanently unmet MUST. RPCSEC_GSS fails closed with `AUTH_TOOWEAK`, other unsupported flavors with `AUTH_BADCRED`, and `SP4_MACH_CRED` and `SP4_SSV` are rejected because they require RPCSEC_GSS integrity.
 
 ## Publication
@@ -65,7 +65,7 @@ RFC 8881 defines no read-only server profile; its read-only allowance in Section
 - `preview`: `experimental` plus the repeatable Linux kernel-client mount running in CI and a documented manual macOS 26 mount with the exact `vers=4.1` command.[^linux-gate]
 - `stable`: `preview` plus a third independent client, fault coverage for restart, lease expiry, multiple connections, and resource pressure, and one recorded Bake-a-thon participation.
 
-Claims stay no broader than their evidence, following the [evidence and validation workflow](/workflows/evidence-and-validation.md "governed by"). The first profile is specified by the [read-only-local profile](/profiles/nfs/nfs-read-only-local.md "refined by"), and per-requirement status lives in the [operations](/research/nfs/nfs-operations-ledger.md "evidenced by"), [attributes](/research/nfs/nfs-attributes-ledger.md "evidenced by"), and [protocol rules](/research/nfs/nfs-protocol-rules-ledger.md "evidenced by") ledgers. This decision supersedes the scoping paragraphs of the [NFS server research](/research/nfs/nfs-server.md "supersedes").
+Claims stay no broader than their evidence, following the [evidence and validation workflow](../../workflows/evidence-and-validation.md "governed by"). The first profile is specified by the [read-only-local profile](../../profiles/nfs/nfs-read-only-local.md "refined by"), and per-requirement status lives in the [operations](../../research/nfs/nfs-operations-ledger.md "evidenced by"), [attributes](../../research/nfs/nfs-attributes-ledger.md "evidenced by"), and [protocol rules](../../research/nfs/nfs-protocol-rules-ledger.md "evidenced by") ledgers. This decision supersedes the scoping paragraphs of the [NFS server research](../../research/nfs/nfs-server.md "supersedes").
 
 [^issue]: Issue #42 holds the original questions and the decision summary.
 

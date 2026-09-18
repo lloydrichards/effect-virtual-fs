@@ -28,7 +28,7 @@ generated: { by: claude/okf, at: 2026-09-16T21:30:00+02:00 }
 
 # NFS operations ledger
 
-Rows follow RFC 8881 Table 16 and Table 17.[^rfc8881-17] Status uses the vocabulary from the [NFS profile ladder](/decisions/nfs/nfs-profile-ladder.md "implements"): `supported`, `rejected(error)`, `deferred(profile)`, `gap(issue)`, `excluded`, `planned`, `not-applicable`. "Required by" names the first profile in which the operation must do real work; a REQUIRED operation that a read-only export must merely reject correctly is required by `read-only-local` for rejection and by a later profile for implementation. Current support describes the dispatcher today.[^dispatcher] Evidence names the focused test file (`Nfs4.test`, `Profile.test`), the pynfs baseline (`pynfs`), or a client result.
+Rows follow RFC 8881 Table 16 and Table 17.[^rfc8881-17] Status uses the vocabulary from the [NFS profile ladder](../../decisions/nfs/nfs-profile-ladder.md "implements"): `supported`, `rejected(error)`, `deferred(profile)`, `gap(issue)`, `excluded`, `planned`, `not-applicable`. "Required by" names the first profile in which the operation must do real work; a REQUIRED operation that a read-only export must merely reject correctly is required by `read-only-local` for rejection and by a later profile for implementation. Current support describes the dispatcher today.[^dispatcher] Evidence names the focused test file (`Nfs4.test`, `Profile.test`), the pynfs baseline (`pynfs`), or a client result.
 
 ## Forward operations (Table 16)
 
@@ -108,7 +108,7 @@ Rows follow RFC 8881 Table 16 and Table 17.[^rfc8881-17] Status uses the vocabul
 
 Every REQUIRED forward operation now has an operation-valid answer for a read-only export. Three REQUIRED operations are deferred to `stateful`, each with an interim rejection that Section 15.2 allows. The backchannel sends CB_COMPOUND with CB_SEQUENCE; CB_RECALL_SLOT is excluded because the slot table is never reduced. The five must-not-implement operations and every unimplemented OPTIONAL operation return `NFS4ERR_NOTSUPP`, and `NFS4ERR_ROFS` is issued only for the operations Section 15.4 lists.[^rfc8881-15] The Linux server's own status table is the presentation precedent.[^knfsd]
 
-Behavior claims are grounded in the dispatcher and the two protocol test suites, and the [external suite baseline](/evidence/nfs-external-suite.md "evidenced by") records which rows a raw-RPC client has exercised.[^dispatcher][^tests][^profile-tests] Cross-cutting rules live in the [protocol rules ledger](nfs-protocol-rules-ledger.md "depends on"), and attribute rows in the [attributes ledger](nfs-attributes-ledger.md "depends on").
+Behavior claims are grounded in the dispatcher and the two protocol test suites, and the [external suite baseline](../../evidence/nfs-external-suite.md "evidenced by") records which rows a raw-RPC client has exercised.[^dispatcher][^tests][^profile-tests] Cross-cutting rules live in the [protocol rules ledger](nfs-protocol-rules-ledger.md "depends on"), and attribute rows in the [attributes ledger](nfs-attributes-ledger.md "depends on").
 
 [^rfc8881-17]: Table 16 and Table 17 define REQ, REC, OPT, and MNI; Section 17 states that OPTIONAL operations return `NFS4ERR_NOTSUPP`.
 

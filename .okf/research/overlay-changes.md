@@ -19,11 +19,11 @@ generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 
 # Snapshot delta representation research
 
-Issue #9 asked for inspectable and portable snapshot changes.[^issue] The accepted interface is the [portable snapshot delta decision](/decisions/overlay/portable-snapshot-deltas.md "constrained by") and the shipped rules are the [snapshot delta contract](/contracts/snapshot-deltas.md "constrained by"). This concept retains the distinctions that framed the work and the questions that remain open.
+Issue #9 asked for inspectable and portable snapshot changes.[^issue] The accepted interface is the [portable snapshot delta decision](../decisions/overlay/portable-snapshot-deltas.md "constrained by") and the shipped rules are the [snapshot delta contract](../contracts/snapshot-deltas.md "constrained by"). This concept retains the distinctions that framed the work and the questions that remain open.
 
 ## Distinctions that framed the design
 
-An exact delta reconstructs a state only with its specified immutable base. It differs from a readable summary, which the [overlay final-difference summary](/decisions/overlay/overlay-final-difference-summary.md "contrasts with") provides as an in-process, lineage-aware view; from an operation journal; and from a patch applied to a changed base. A watch log cannot stand in for a delta because it carries no payloads or replay and omits access-time updates.[^core]
+An exact delta reconstructs a state only with its specified immutable base. It differs from a readable summary, which the [overlay final-difference summary](../decisions/overlay/overlay-final-difference-summary.md "contrasts with") provides as an in-process, lineage-aware view; from an operation journal; and from a patch applied to a changed base. A watch log cannot stand in for a delta because it carries no payloads or replay and omits access-time updates.[^core]
 
 ## Open questions
 

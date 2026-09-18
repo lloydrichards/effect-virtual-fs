@@ -22,4 +22,4 @@ Root callers need no scope. Derived callers and open handles are scoped. Explici
 
 Privilege is explicit and independent of uid. The convenient root caller defaults to privileged uid and gid zero, but this API-level authority is not a JavaScript sandbox.
 
-See [explicit API and services](/decisions/core/explicit-api-and-effect-services.md "constrained by"), [independent resource lifetimes](/decisions/core/independent-resource-lifetimes.md "constrained by"), and [scope-free root callers](/decisions/core/scope-free-root-callers.md "constrained by").
+See [explicit API and services](../decisions/core/explicit-api-and-effect-services.md "constrained by"), [independent resource lifetimes](../decisions/core/independent-resource-lifetimes.md "constrained by"), and [scope-free root callers](../decisions/core/scope-free-root-callers.md "constrained by").
