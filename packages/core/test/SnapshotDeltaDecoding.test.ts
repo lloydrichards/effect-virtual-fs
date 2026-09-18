@@ -102,16 +102,35 @@ describe("snapshot delta Schema codec", () => {
     Effect.gen(function*() {
       const { encoded } = yield* encodedDelta
       const source = document(encoded)
+      const firstRecord = source.records[0]!
+      const secondRecord = source.records[1]!
+      const firstChange = source.changes[0]!
 
-      const cases = [
-        { ...source, base: { ...source.base, digest: "A" } },
+      const encodingCases = [
+        [{ ...source, base: { ...source.base, digest: "A" } }, "digest"],
+        [{ ...source, records: [{ ...firstRecord, paths: ["A"] }, ...source.records.slice(1)] }, "path"],
+        [
+          { ...source, records: [firstRecord, { ...secondRecord, payload: { _tag: "Inline", bytes: "A" } }] },
+          "payload"
+        ],
+        [{ ...source, records: [firstRecord, { ...secondRecord, payload: { _tag: "Base", path: "A" } }] }, "basePath"],
+        [{ ...source, changes: [{ ...firstChange, path: "A" }, ...source.changes.slice(1)] }, "changePath"]
+      ] as const
+
+      for (const [value, field] of encodingCases) {
+        const error = yield* reject(encodeDocument(value))
+        assert.instanceOf(error, Schema.SchemaError)
+        assert.include(String(error), `Snapshot delta InvalidEncoding at ${field}`)
+      }
+
+      const structuralCases = [
         { ...source, base: { ...source.base, digest: `${source.base.digest.slice(0, -2)}h==` } },
-        { ...source, records: [{ ...source.records[0], paths: ["Lg=="] }, ...source.records.slice(1)] },
-        { ...source, records: [source.records[0], { ...source.records[1], paths: ["Zg=="] }] },
-        { ...source, records: [source.records[0], { ...source.records[1], payload: { _tag: "Inline", bytes: "AQI" } }] }
+        { ...source, records: [{ ...firstRecord, paths: ["Lg=="] }, ...source.records.slice(1)] },
+        { ...source, records: [firstRecord, { ...secondRecord, paths: ["Zg=="] }] },
+        { ...source, records: [firstRecord, { ...secondRecord, payload: { _tag: "Inline", bytes: "AQI" } }] }
       ]
 
-      for (const value of cases) assert.isDefined(yield* reject(encodeDocument(value)))
+      for (const value of structuralCases) assert.isDefined(yield* reject(encodeDocument(value)))
     }).pipe(Effect.provide(BunCrypto.layer)))
 
   it.effect("rejects unordered, duplicate, and semantically inconsistent summaries", () =>

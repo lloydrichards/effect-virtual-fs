@@ -13,7 +13,7 @@ const limits = {
 const encode = (value: typeof Schema.Unknown.Type) => new TextEncoder().encode(JSON.stringify(value))
 
 const MutableMetadata = Schema.Struct({
-  uid: Schema.Finite,
+  uid: Schema.mutableKey(Schema.Finite),
   gid: Schema.Finite,
   mode: Schema.Finite,
   atimeNs: Schema.String,
@@ -150,12 +150,26 @@ describe("fixtures and snapshots", () => {
       assert.deepStrictEqual(original.records.map((record) => record._tag), ["directory", "file"])
       assert.isFalse(original.records.some((record) => Object.hasOwn(record, "kind")))
 
+      for (
+        const mutate of [
+          (image: typeof original) => {
+            image.records[0].metadata.extra = 1
+          },
+          (image: typeof original) => {
+            image.records[0].metadata.uid = -1
+          }
+        ]
+      ) {
+        const image = structuredClone(original)
+        mutate(image)
+        const error = yield* Effect.flip(Vfs.decodeSnapshot(encode(image), limits))
+        assert.strictEqual(error.code, "InvalidStructure")
+        assert.strictEqual(error.field, "document")
+      }
+
       const mutations: Array<(image: typeof original) => void> = [
         (image) => {
           image.extra = true
-        },
-        (image) => {
-          image.records[0].metadata.extra = 1
         },
         (image) => {
           image.records[1].data = "Zh=="
@@ -203,6 +217,7 @@ describe("fixtures and snapshots", () => {
         oversizedTimestamp.records[1].metadata.mtimeNs = timestamp
         const error = yield* Effect.flip(Vfs.decodeSnapshot(encode(oversizedTimestamp), limits))
         assert.strictEqual(error.code, "InvalidEncoding")
+        assert.strictEqual(error.field, "document")
       }
 
       original.version = 2

@@ -22,6 +22,7 @@ import { make as makeBytePath } from "./bytePath.js"
 import { bytesOrder, sameBytes } from "./bytes.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import * as Image from "./image.js"
+import { WireStoredMetadata } from "./metadata.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
 
 const FORMAT = "effect-vfs-delta"
@@ -81,6 +82,42 @@ const Change = Schema.Union([AddedChange, RemovedChange, UpdatedChange])
 
 type Change = typeof Change.Type
 
+const WirePayload = Schema.Union([
+  Schema.TaggedStruct("Inline", { bytes: Schema.String }),
+  Schema.TaggedStruct("Base", { path: Schema.String })
+])
+
+const WireDeltaRecord = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("directory"),
+    paths: Schema.Array(Schema.String),
+    metadata: WireStoredMetadata
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("file"),
+    paths: Schema.Array(Schema.String),
+    metadata: WireStoredMetadata,
+    payload: WirePayload
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("symlink"),
+    paths: Schema.Array(Schema.String),
+    metadata: WireStoredMetadata,
+    payload: WirePayload
+  })
+])
+
+const WireChange = Schema.Union([
+  Schema.TaggedStruct("Added", { path: Schema.String, kind: SnapshotNodeKind }),
+  Schema.TaggedStruct("Removed", { path: Schema.String, kind: SnapshotNodeKind }),
+  Schema.TaggedStruct("Updated", {
+    path: Schema.String,
+    beforeKind: SnapshotNodeKind,
+    afterKind: SnapshotNodeKind,
+    differences: Schema.Array(SnapshotDifference).check(Schema.isMinLength(1))
+  })
+])
+
 const sameChanges = Schema.toEquivalence(Schema.Array(Change))
 
 const VersionProbe = Schema.Struct({
@@ -97,6 +134,34 @@ const Document = Schema.Struct({
 })
 
 type Document = typeof Document.Type
+
+const WireDocument = Schema.Struct({
+  format: Schema.Literal(FORMAT),
+  version: Schema.Literal(1),
+  base: Schema.Struct({ algorithm: Schema.Literal(ALGORITHM), digest: Schema.String }),
+  records: Schema.Array(WireDeltaRecord),
+  changes: Schema.Array(WireChange)
+})
+
+type WireDocument = typeof WireDocument.Type
+
+type ValidatablePayload =
+  | { readonly _tag: "Inline"; readonly bytes: string }
+  | { readonly _tag: "Base"; readonly path: string }
+
+type ValidatableRecord =
+  | { readonly kind: "directory"; readonly paths: ReadonlyArray<string> }
+  | {
+    readonly kind: "file" | "symlink"
+    readonly paths: ReadonlyArray<string>
+    readonly payload: ValidatablePayload
+  }
+
+interface ValidatableDocument {
+  readonly base: { readonly digest: string }
+  readonly records: ReadonlyArray<ValidatableRecord>
+  readonly changes: ReadonlyArray<{ readonly path: string }>
+}
 
 interface ObjectView {
   readonly kind: SnapshotNodeKind
@@ -568,7 +633,7 @@ const buildImage = Effect.fnUntraced(
 )
 
 const validate = Effect.fnUntraced(
-  function*(document: Document, limits: SnapshotDeltaLimits): Effect.fn.Return<void, ImageError> {
+  function*(document: ValidatableDocument, limits: SnapshotDeltaLimits): Effect.fn.Return<void, ImageError> {
     const deltaRecords = safeAdd(document.records.length, document.changes.length)
 
     if (deltaRecords === undefined || deltaRecords > limits.maxDeltaRecords) {
@@ -678,10 +743,15 @@ const validate = Effect.fnUntraced(
 
     // Inline symlink targets are the only applied payloads a base snapshot has not already vetted.
     for (const record of document.records) {
-      if (
-        record.kind === "symlink" && Predicate.isTagged("Inline")(record.payload) &&
-        (yield* CanonicalBase64.decode(record.payload.bytes)).includes(NUL_BYTE)
-      ) return yield* new ImageError({ code: "InvalidStructure", field: "symlink" })
+      if (record.kind !== "symlink" || !Predicate.isTagged("Inline")(record.payload)) continue
+
+      if (!CanonicalBase64.is(record.payload.bytes)) {
+        return yield* new ImageError({ code: "InvalidEncoding", field: "payload" })
+      }
+
+      if ((yield* CanonicalBase64.decode(record.payload.bytes)).includes(NUL_BYTE)) {
+        return yield* new ImageError({ code: "InvalidStructure", field: "symlink" })
+      }
     }
   }
 )
@@ -826,10 +896,14 @@ export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array
     return yield* new ImageError({ code: "UnsupportedVersion" })
   }
 
+  const wire = Schema.decodeUnknownResult(WireDocument, { onExcessProperty: "error" })(value)
+
+  if (Result.isFailure(wire)) return yield* new ImageError({ code: "InvalidStructure" })
+  yield* validate(wire.success, limits)
+
   const parsed = Schema.decodeUnknownResult(Document, { onExcessProperty: "error" })(value)
 
-  if (Result.isFailure(parsed)) return yield* new ImageError({ code: "InvalidStructure" })
-  yield* validate(parsed.success, limits)
+  if (Result.isFailure(parsed)) return yield* new ImageError({ code: "InvalidEncoding" })
 
   return SnapshotDeltaModel.make(parsed.success)
 })
