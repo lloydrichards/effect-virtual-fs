@@ -41,6 +41,6 @@
     "@effect/vitest": "4.0.0-rc.114",
     "@repo/config-typescript": "workspace:*",
     "effect": "4.0.0-rc.114",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   }
 }

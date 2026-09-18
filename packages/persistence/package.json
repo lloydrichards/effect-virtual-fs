@@ -44,7 +44,7 @@
     "@effect/sql-sqlite-bun": "4.0.0-rc.114",
     "@effect/vitest": "4.0.0-rc.114",
     "@repo/config-typescript": "workspace:*",
-    "@types/node": "26.5.1",
+    "@types/node": "26.6.1",
     "effect": "4.0.0-rc.114"
   }
 }
