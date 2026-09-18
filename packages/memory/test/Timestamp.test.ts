@@ -1,10 +1,10 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, it } from "@effect/vitest"
 import { Effect, Option, PlatformError } from "effect"
+import { layerDeterministicCrypto } from "../src/internal/crypto.js"
 import * as Memory from "../src/MemoryFileSystem.js"
-import * as TestCrypto from "./crypto.js"
 
-it.layer(TestCrypto.layer)("adapter timestamp conversion", (it) => {
+it.layer(layerDeterministicCrypto)("adapter timestamp conversion", (it) => {
   for (const field of ["atimeNs", "mtimeNs", "birthtimeNs"] as const) {
     for (const sign of [-1n, 1n]) {
       it.effect(`should fail stat with InvalidData when ${field} exceeds the Date range with sign ${sign}`, () =>

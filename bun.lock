@@ -182,6 +182,7 @@
         "@effect-vfs/core": "^0.3.1",
       },
       "devDependencies": {
+        "@effect/platform-node-shared": "4.0.0-rc.114",
         "@effect/sql-sqlite-bun": "4.0.0-rc.114",
         "@effect/vitest": "4.0.0-rc.114",
         "@repo/config-typescript": "workspace:*",

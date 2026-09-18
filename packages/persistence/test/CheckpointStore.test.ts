@@ -1,10 +1,10 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
 import { ByteSize, type Crypto, Effect, Layer, Result } from "effect"
 import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
 import { CheckpointError, CheckpointStore } from "../src/index.js"
-import * as TestCrypto from "./crypto.js"
 
 const limits = {
   maxEncodedBytes: ByteSize.kilobytes(100),
@@ -22,10 +22,10 @@ const snapshot = Effect.gen(function*() {
 const database = <A, E>(effect: Effect.Effect<A, E, SqlClient | Crypto.Crypto>) =>
   effect.pipe(Effect.provide(Layer.merge(
     SqliteClient.layer({ filename: ":memory:" }),
-    TestCrypto.layer
+    NodeCrypto.layer
   )))
 
-it.layer(TestCrypto.layer)("SQLite checkpoints", (it) => {
+it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
   it.effect("preserves a checkpoint when another save uses the same name", () =>
     database(Effect.gen(function*() {
       yield* CheckpointStore.migrate

@@ -2,7 +2,6 @@ import { assert, describe, it } from "@effect/vitest"
 import { Cause, Effect, Exit, Fiber, FileSystem, Layer, Option, type PlatformError, Result, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
-import * as TestCrypto from "./crypto.js"
 import * as FileSystemTest from "./FileSystemTest.js"
 
 const encoder = new TextEncoder()
@@ -26,13 +25,13 @@ const watchEvents = Effect.fnUntraced(function*(
   return Array.from(yield* Fiber.join(events))
 })
 
-const memoryLayer = MemoryFileSystem.layer.pipe(Layer.provide(TestCrypto.layer))
-
-const testLayer = Layer.merge(memoryLayer, TestCrypto.layer)
+// `layerCrypto` is self-contained: it mints its own volume identity without a
+// platform `Crypto` service.
+const memoryLayer = MemoryFileSystem.layerCrypto
 
 FileSystemTest.suite("memory", memoryLayer)
 
-it.layer(testLayer)("FileSystem (memory-specific)", (it) => {
+it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
   describe("POSIX filesystem profile", () => {
     it.effect("should accept the existing root when creating directories recursively", () =>
       Effect.gen(function*() {
@@ -229,7 +228,7 @@ it.layer(testLayer)("FileSystem (memory-specific)", (it) => {
 
   it.effect("should write, list, copy, and rename a deeply nested volume", () =>
     Effect.gen(function*() {
-      const fs = yield* MemoryFileSystem.make
+      const fs = yield* MemoryFileSystem.makeCrypto
       yield* fs.writeFileString("/file.txt", "before")
       const file = yield* fs.open("/file.txt", { flag: "r+" })
       // This depth exercises traversal beyond the JavaScript call stack through public operations.
@@ -288,7 +287,7 @@ it.layer(testLayer)("FileSystem (memory-specific)", (it) => {
   for (const suffix of [".", ".."]) {
     it.effect(`should publish directory creation when recursive mkdir ends in ${suffix}`, () =>
       Effect.gen(function*() {
-        const fs = yield* MemoryFileSystem.make
+        const fs = yield* MemoryFileSystem.makeCrypto
 
         const events = yield* watchEvents(
           "/",
