@@ -3588,13 +3588,19 @@ export const makeNfs4Handler = (
                 const closedStateid = new Uint8Array(open.id)
                 new DataView(closedStateid.buffer).setUint32(0, open.sequence + 1)
 
-                return Effect.uninterruptible(open.close).pipe(
-                  Effect.tap(() =>
-                    Effect.sync(() => {
-                      opens.delete(key)
-                      currentStateid = closedStateid
-                    })
-                  ),
+                // Closing the handle and dropping it from `opens` are one region. An interrupt
+                // delivered between them would leave a closed handle in the map for the handler
+                // scope's finalizer to close a second time.
+                return Effect.uninterruptible(
+                  open.close.pipe(
+                    Effect.tap(() =>
+                      Effect.sync(() => {
+                        opens.delete(key)
+                        currentStateid = closedStateid
+                      })
+                    )
+                  )
+                ).pipe(
                   Effect.as({
                     code: operation.code,
                     status: Status.OK,
