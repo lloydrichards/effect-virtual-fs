@@ -207,6 +207,45 @@ export const OpenSettings = Schema.Struct({
 /** @internal */
 export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
 
+/** @internal */
+export const DirectoryChange = Schema.Struct({
+  before: Schema.BigInt,
+  after: Schema.BigInt
+})
+
+/** @internal */
+export const RenameReferenceResult = Schema.TaggedUnion({
+  SameDirectory: { directory: DirectoryChange },
+  DifferentDirectories: {
+    sourceDirectory: DirectoryChange,
+    destinationDirectory: DirectoryChange
+  }
+})
+
+/** @internal */
+export const MkdirReferenceSettings = Schema.Struct({
+  mode: Schema.optionalKey(Mode),
+  times: Schema.optionalKey(Times)
+})
+
+/** @internal */
+export const SymlinkReferenceSettings = Schema.Struct({
+  times: Schema.optionalKey(Times)
+})
+
+/** @internal */
+export const OpenReferenceSettings = Schema.Struct({
+  access: Schema.Literals(["read", "write", "readWrite"]),
+  append: Schema.optionalKey(Schema.Boolean),
+  truncate: Schema.optionalKey(Schema.Boolean)
+})
+
+/** @internal */
+export const OpenChildReferenceSettings = Schema.Struct({
+  ...OpenSettings.fields,
+  times: Schema.optionalKey(Times)
+})
+
 const WriteFileSettings = Schema.Struct({
   ...OpenSettings.fields,
   replaceFinalSymlink: Schema.optionalKey(Schema.Boolean),
@@ -223,6 +262,14 @@ const decodeTimes = Schema.decodeResult(Times, { onExcessProperty: "error" })
 const decodeWriteFileSettings = Schema.decodeResult(WriteFileSettings, { onExcessProperty: "error" })
 
 const decodeOpenSettings = Schema.decodeResult(OpenSettings, { onExcessProperty: "error" })
+
+const decodeMkdirReferenceSettings = Schema.decodeResult(MkdirReferenceSettings, { onExcessProperty: "error" })
+
+const decodeSymlinkReferenceSettings = Schema.decodeResult(SymlinkReferenceSettings, { onExcessProperty: "error" })
+
+const decodeOpenReferenceSettings = Schema.decodeResult(OpenReferenceSettings, { onExcessProperty: "error" })
+
+const decodeOpenChildReferenceSettings = Schema.decodeResult(OpenChildReferenceSettings, { onExcessProperty: "error" })
 
 /** @internal */
 export const OverlayNodeKind = Schema.Literals(["directory", "file", "symlink"])
@@ -1027,11 +1074,37 @@ export const makeVolume = Effect.fnUntraced(
         return state.node
       })
 
+      const referencedName = Effect.fnUntraced(function*(input: Uint8Array, operation: string) {
+        if (
+          !isAttachedBytes(input) || input.length === 0 || input.length > MAX_NAME_BYTES || input.includes(0) ||
+          input.includes(SLASH_BYTE)
+        ) return yield* new FsError({ code: "InvalidArgument", operation })
+        const name = Encoding.encodeHex(new Uint8Array(input))
+
+        if (isDotComponent(name)) return yield* new FsError({ code: "InvalidArgument", operation })
+
+        return name
+      })
+
+      const referencedDirectory = Effect.fnUntraced(function*(target: ObjectReference, operation: string) {
+        const node = yield* referencedNode(target, operation)
+
+        if (node.kind !== "directory") return yield* new FsError({ code: "NotDirectory", operation })
+
+        return node
+      })
+
+      const creationTimes = (times: Times | undefined, now: bigint) => ({
+        atimeNs: times?.access.kind === "value" ? times.access.nanoseconds : now,
+        mtimeNs: times?.modification.kind === "value" ? times.modification.nanoseconds : now
+      })
+
       const lookup = Effect.fnUntraced(function*(
         path: PreparedPath,
         base: DirectoryHandle | undefined,
         operation: string,
-        options: LookupOptions = {}
+        options: LookupOptions = {},
+        referencedBase?: Directory
       ) {
         const { followFinalSymlink = true, allowMissing = false, parentOnly = false } = options
 
@@ -1041,7 +1114,10 @@ export const makeVolume = Effect.fnUntraced(
 
         let current: Node = path.absolute ? root : reference.directory
 
-        if (!path.absolute && base !== undefined) {
+        if (!path.absolute && referencedBase !== undefined) {
+          current = referencedBase
+          yield* authorize(current, identity, EXECUTE, operation)
+        } else if (!path.absolute && base !== undefined) {
           const target = handles.get(base)
 
           if (target === undefined) {
@@ -1414,10 +1490,14 @@ export const makeVolume = Effect.fnUntraced(
         }
       )
 
-      const authorizeRemoval = (parent: Directory, child: Node, operation: string, input: PathInput) =>
+      const authorizeRemoval = (parent: Directory, child: Node, operation: string, input?: PathInput) =>
         (parent.metadata.mode & STICKY_BIT) !== 0 && !identity.privileged &&
           identity.uid !== parent.metadata.uid && identity.uid !== child.metadata.uid
-          ? Effect.fail(new FsError({ code: "AccessDenied", operation: operation, path: input }))
+          ? Effect.fail(
+            input === undefined
+              ? new FsError({ code: "AccessDenied", operation })
+              : new FsError({ code: "AccessDenied", operation, path: input })
+          )
           : Effect.void
 
       return Object.freeze({
@@ -1503,14 +1583,446 @@ export const makeVolume = Effect.fnUntraced(
             return new Uint8Array(node.target)
           }))
         }),
-        openReference: Effect.fn("Caller.openReference")(function*(objectReference) {
+        mkdirReference: Effect.fn("Caller.mkdirReference")(function*(directoryReference, input, raw = {}) {
+          const name = yield* referencedName(input, "mkdirReference")
+          const decoded = decodeMkdirReferenceSettings(raw)
+
+          if (Result.isFailure(decoded)) {
+            return yield* new FsError({ code: "InvalidArgument", operation: "mkdirReference" })
+          }
+
+          const chosen = { ...decoded.success }
+          const mode = chosen.mode ?? 0o777
+
+          return yield* coordinated(Effect.gen(function*() {
+            const parent = yield* referencedDirectory(directoryReference, "mkdirReference")
+            yield* authorize(parent, identity, WRITE | EXECUTE, "mkdirReference")
+
+            if (parent.entries.has(name)) {
+              return yield* new FsError({ code: "AlreadyExists", operation: "mkdirReference" })
+            }
+
+            if (atEntryLimit()) return yield* new FsError({ code: "NoSpace", operation: "mkdirReference" })
+            const before = parent.revision
+            const now = yield* timestamp("mkdirReference")
+            const initial = creationTimes(chosen.times, now)
+
+            const child: Directory = {
+              kind: "directory",
+              lineage: undefined,
+              parent,
+              entries: new Map(),
+              metadata: {
+                ...directoryMetadata(
+                  nextInode,
+                  identity.uid,
+                  parent.metadata.gid,
+                  (mode & 0o777 & ~umask) | (mode & STICKY_BIT),
+                  now
+                ),
+                ...initial
+              },
+              revision: nextRevision(),
+              objectReference: undefined
+            }
+
+            attach(parent, name, child, now)
+            nextInode += 1n
+            entries += 1
+            publishEntry("Create", parent, name)
+
+            return { reference: referenceFor(child), directory: { before, after: parent.revision } }
+          }))
+        }),
+        symlinkReference: Effect.fn("Caller.symlinkReference")(
+          function*(target, directoryReference, input, raw = {}) {
+            const name = yield* referencedName(input, "symlinkReference")
+            const decoded = decodeSymlinkReferenceSettings(raw)
+
+            if (Result.isFailure(decoded)) {
+              return yield* new FsError({ code: "InvalidArgument", operation: "symlinkReference" })
+            }
+
+            const rawTarget = inputBytes(target)
+
+            if (Result.isFailure(rawTarget)) {
+              return yield* new FsError({ code: rawTarget.failure, operation: "symlinkReference" })
+            }
+
+            if (rawTarget.success.includes(0)) {
+              return yield* new FsError({ code: "InvalidArgument", operation: "symlinkReference" })
+            }
+
+            const targetBytes = new Uint8Array(rawTarget.success)
+            const chosen = { ...decoded.success }
+
+            return yield* coordinated(Effect.gen(function*() {
+              const parent = yield* referencedDirectory(directoryReference, "symlinkReference")
+              yield* authorize(parent, identity, WRITE | EXECUTE, "symlinkReference")
+
+              if (parent.entries.has(name)) {
+                return yield* new FsError({ code: "AlreadyExists", operation: "symlinkReference" })
+              }
+
+              if (
+                atEntryLimit() ||
+                (settings.maxBytes !== undefined &&
+                  BigInt(targetBytes.length) > ByteSize.toBigInt(settings.maxBytes) - usedBytes)
+              ) return yield* new FsError({ code: "NoSpace", operation: "symlinkReference" })
+              const before = parent.revision
+              const now = yield* timestamp("symlinkReference")
+              const initial = creationTimes(chosen.times, now)
+
+              const node: SymbolicLink = {
+                kind: "symlink",
+                lineage: undefined,
+                target: targetBytes,
+                metadata: {
+                  ...directoryMetadata(nextInode, identity.uid, parent.metadata.gid, 0o777, now),
+                  ...initial,
+                  kind: "symlink",
+                  nlink: 1,
+                  size: BigInt(targetBytes.length)
+                },
+                revision: nextRevision(),
+                objectReference: undefined
+              }
+
+              attach(parent, name, node, now)
+              nextInode += 1n
+              entries += 1
+              usedBytes += BigInt(targetBytes.length)
+              publishEntry("Create", parent, name)
+
+              return { reference: referenceFor(node), directory: { before, after: parent.revision } }
+            }))
+          }
+        ),
+        linkReference: Effect.fn("Caller.linkReference")(
+          function*(sourceReference, directoryReference, input) {
+            const name = yield* referencedName(input, "linkReference")
+
+            return yield* coordinated(Effect.gen(function*() {
+              const node = yield* referencedNode(sourceReference, "linkReference")
+
+              if (node.kind === "directory") {
+                return yield* new FsError({ code: "IsDirectory", operation: "linkReference" })
+              }
+
+              if (node.metadata.nlink === 0) {
+                return yield* new FsError({ code: "StaleReference", operation: "linkReference" })
+              }
+
+              const parent = yield* referencedDirectory(directoryReference, "linkReference")
+              yield* authorize(parent, identity, WRITE | EXECUTE, "linkReference")
+
+              if (parent.entries.has(name)) {
+                return yield* new FsError({ code: "AlreadyExists", operation: "linkReference" })
+              }
+
+              if (atEntryLimit()) return yield* new FsError({ code: "NoSpace", operation: "linkReference" })
+              const before = parent.revision
+              const now = yield* timestamp("linkReference")
+              attach(parent, name, node, now)
+              node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
+              advanceRevision(node)
+              entries += 1
+              publishEntry("Create", parent, name)
+
+              return { reference: referenceFor(node), directory: { before, after: parent.revision } }
+            }))
+          }
+        ),
+        unlinkReference: Effect.fn("Caller.unlinkReference")(function*(directoryReference, input) {
+          const name = yield* referencedName(input, "unlinkReference")
+
+          return yield* coordinated(Effect.gen(function*() {
+            const parent = yield* referencedDirectory(directoryReference, "unlinkReference")
+            yield* authorize(parent, identity, WRITE | EXECUTE, "unlinkReference")
+            const child = parent.entries.get(name)
+
+            if (child === undefined) return yield* new FsError({ code: "NotFound", operation: "unlinkReference" })
+
+            if (child.kind === "directory") {
+              return yield* new FsError({ code: "IsDirectory", operation: "unlinkReference" })
+            }
+
+            yield* authorizeRemoval(parent, child, "unlinkReference")
+            const before = parent.revision
+            const now = yield* timestamp("unlinkReference")
+            parent.entries.delete(name)
+            parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
+            advanceRevision(parent)
+            detach(child, now)
+            entries -= 1
+            publishEntry("Remove", parent, name)
+
+            return { before, after: parent.revision }
+          }))
+        }),
+        rmdirReference: Effect.fn("Caller.rmdirReference")(function*(directoryReference, input) {
+          const name = yield* referencedName(input, "rmdirReference")
+
+          return yield* coordinated(Effect.gen(function*() {
+            const parent = yield* referencedDirectory(directoryReference, "rmdirReference")
+            yield* authorize(parent, identity, WRITE | EXECUTE, "rmdirReference")
+            const child = parent.entries.get(name)
+
+            if (child === undefined) return yield* new FsError({ code: "NotFound", operation: "rmdirReference" })
+            yield* authorizeRemoval(parent, child, "rmdirReference")
+
+            if (child.kind !== "directory") {
+              return yield* new FsError({ code: "NotDirectory", operation: "rmdirReference" })
+            }
+
+            if (child.entries.size > 0) {
+              return yield* new FsError({ code: "NotEmpty", operation: "rmdirReference" })
+            }
+
+            const before = parent.revision
+            const now = yield* timestamp("rmdirReference")
+            parent.entries.delete(name)
+            parent.metadata = { ...parent.metadata, nlink: parent.metadata.nlink - 1, mtimeNs: now, ctimeNs: now }
+            child.parent = undefined
+            child.metadata = { ...child.metadata, nlink: 0, ctimeNs: now }
+            advanceRevision(parent)
+            advanceRevision(child)
+            invalidateReference(child)
+            entries -= 1
+            publishEntry("Remove", parent, name)
+
+            return { before, after: parent.revision }
+          }))
+        }),
+        renameReference: Effect.fn("Caller.renameReference")(
+          function*(sourceDirectoryReference, sourceInput, destinationDirectoryReference, destinationInput) {
+            const sourceName = yield* referencedName(sourceInput, "renameReference")
+            const destinationName = yield* referencedName(destinationInput, "renameReference")
+
+            return yield* coordinated(Effect.gen(function*() {
+              const sourceDirectory = yield* referencedDirectory(sourceDirectoryReference, "renameReference")
+
+              const destinationDirectory = yield* referencedDirectory(
+                destinationDirectoryReference,
+                "renameReference"
+              )
+
+              yield* authorize(sourceDirectory, identity, WRITE | EXECUTE, "renameReference")
+              yield* authorize(destinationDirectory, identity, WRITE | EXECUTE, "renameReference")
+              const sourceBefore = sourceDirectory.revision
+              const destinationBefore = destinationDirectory.revision
+              const child = sourceDirectory.entries.get(sourceName)
+
+              if (child === undefined) {
+                return yield* new FsError({ code: "NotFound", operation: "renameReference" })
+              }
+
+              const replaced = destinationDirectory.entries.get(destinationName)
+
+              if (child === replaced) {
+                return sourceDirectory === destinationDirectory
+                  ? { _tag: "SameDirectory" as const, directory: { before: sourceBefore, after: sourceBefore } }
+                  : {
+                    _tag: "DifferentDirectories" as const,
+                    sourceDirectory: { before: sourceBefore, after: sourceBefore },
+                    destinationDirectory: { before: destinationBefore, after: destinationBefore }
+                  }
+              }
+
+              yield* authorizeRemoval(sourceDirectory, child, "renameReference")
+
+              if (replaced !== undefined) {
+                yield* authorizeRemoval(destinationDirectory, replaced, "renameReference")
+
+                if (child.kind === "directory" && replaced.kind !== "directory") {
+                  return yield* new FsError({ code: "NotDirectory", operation: "renameReference" })
+                }
+
+                if (child.kind !== "directory" && replaced.kind === "directory") {
+                  return yield* new FsError({ code: "IsDirectory", operation: "renameReference" })
+                }
+
+                if (replaced.kind === "directory" && replaced.entries.size > 0) {
+                  return yield* new FsError({ code: "NotEmpty", operation: "renameReference" })
+                }
+              }
+
+              for (
+                let ancestor: Directory | undefined = destinationDirectory;
+                ancestor !== undefined;
+                ancestor = ancestor.parent
+              ) {
+                if (ancestor === child) {
+                  return yield* new FsError({ code: "InvalidArgument", operation: "renameReference" })
+                }
+              }
+
+              const now = yield* timestamp("renameReference")
+
+              const oldEvent = () =>
+                ownedPath(
+                  nameBytes(directoryHex(sourceDirectory) + (sourceDirectory === root ? "" : SLASH_HEX) + sourceName)
+                )
+
+              sourceDirectory.entries.delete(sourceName)
+              destinationDirectory.entries.set(destinationName, child)
+
+              if (child.kind === "directory") child.parent = destinationDirectory
+              sourceDirectory.metadata = {
+                ...sourceDirectory.metadata,
+                nlink: sourceDirectory.metadata.nlink - (child.kind === "directory" ? 1 : 0),
+                mtimeNs: now,
+                ctimeNs: now
+              }
+              destinationDirectory.metadata = {
+                ...destinationDirectory.metadata,
+                nlink: destinationDirectory.metadata.nlink +
+                  (child.kind === "directory" && replaced === undefined ? 1 : 0),
+                mtimeNs: now,
+                ctimeNs: now
+              }
+              child.metadata = { ...child.metadata, ctimeNs: now }
+              advanceRevision(sourceDirectory)
+
+              if (destinationDirectory !== sourceDirectory) advanceRevision(destinationDirectory)
+              advanceRevision(child)
+
+              if (replaced !== undefined) {
+                detach(replaced, now)
+                entries -= 1
+              }
+
+              watchHub.publishUnsafe(() => ({ _tag: "Remove" as const, path: oldEvent() }))
+              publishEntry("Create", destinationDirectory, destinationName)
+
+              return sourceDirectory === destinationDirectory
+                ? {
+                  _tag: "SameDirectory" as const,
+                  directory: { before: sourceBefore, after: sourceDirectory.revision }
+                }
+                : {
+                  _tag: "DifferentDirectories" as const,
+                  sourceDirectory: { before: sourceBefore, after: sourceDirectory.revision },
+                  destinationDirectory: { before: destinationBefore, after: destinationDirectory.revision }
+                }
+            }))
+          }
+        ),
+        chmodReference: Effect.fn("Caller.chmodReference")(function*(objectReference, mode) {
+          if (!isMode(mode)) return yield* new FsError({ code: "InvalidArgument", operation: "chmodReference" })
+
+          return yield* coordinated(Effect.gen(function*() {
+            const node = yield* referencedNode(objectReference, "chmodReference")
+            const permitted = yield* permittedMode(node.metadata, mode, "chmodReference")
+            node.metadata = { ...node.metadata, mode: permitted, ctimeNs: (yield* timestamp("chmodReference")) }
+            advanceRevision(node)
+            publishNode(node)
+          }))
+        }),
+        chownReference: Effect.fn("Caller.chownReference")(function*(objectReference, owner) {
+          const decoded = decodeOwnerUpdate(owner)
+
+          if (Result.isFailure(decoded)) {
+            return yield* new FsError({ code: "InvalidArgument", operation: "chownReference" })
+          }
+
+          const update = { ...decoded.success }
+
+          return yield* coordinated(Effect.gen(function*() {
+            const node = yield* referencedNode(objectReference, "chownReference")
+
+            if (
+              !identity.privileged && (identity.uid !== node.metadata.uid ||
+                (update.uid !== undefined && update.uid !== node.metadata.uid) ||
+                (update.gid !== undefined && update.gid !== identity.gid && !identity.groups.includes(update.gid)))
+            ) return yield* new FsError({ code: "AccessDenied", operation: "chownReference" })
+
+            if (update.uid === undefined && update.gid === undefined) return
+            node.metadata = {
+              ...node.metadata,
+              uid: update.uid ?? node.metadata.uid,
+              gid: update.gid ?? node.metadata.gid,
+              mode: node.kind === "file" ? node.metadata.mode & ~SET_ID_BITS : node.metadata.mode,
+              ctimeNs: (yield* timestamp("chownReference"))
+            }
+            advanceRevision(node)
+            publishNode(node)
+          }))
+        }),
+        utimesReference: Effect.fn("Caller.utimesReference")(function*(objectReference, times) {
+          const decoded = decodeTimes(times)
+
+          if (Result.isFailure(decoded)) {
+            return yield* new FsError({ code: "InvalidArgument", operation: "utimesReference" })
+          }
+
+          const access = { ...decoded.success.access }
+          const modification = { ...decoded.success.modification }
+
+          return yield* coordinated(Effect.gen(function*() {
+            const node = yield* referencedNode(objectReference, "utimesReference")
+
+            if (access.kind === "omit" && modification.kind === "omit") return
+
+            if (!identity.privileged && identity.uid !== node.metadata.uid) {
+              if (access.kind !== "now" || modification.kind !== "now") {
+                return yield* new FsError({ code: "AccessDenied", operation: "utimesReference" })
+              }
+
+              yield* authorize(node, identity, WRITE, "utimesReference")
+            }
+
+            const now = yield* timestamp("utimesReference")
+            node.metadata = {
+              ...node.metadata,
+              atimeNs: access.kind === "omit"
+                ? node.metadata.atimeNs
+                : access.kind === "now"
+                ? now
+                : access.nanoseconds,
+              mtimeNs: modification.kind === "omit"
+                ? node.metadata.mtimeNs
+                : modification.kind === "now"
+                ? now
+                : modification.nanoseconds,
+              ctimeNs: now
+            }
+            advanceRevision(node)
+            publishNode(node)
+          }))
+        }),
+        truncateReference: Effect.fn("Caller.truncateReference")(function*(objectReference, length) {
+          return yield* coordinated(Effect.gen(function*() {
+            const node = yield* referencedNode(objectReference, "truncateReference")
+
+            if (node.kind !== "file") {
+              return yield* new FsError({ code: "IsDirectory", operation: "truncateReference" })
+            }
+
+            yield* authorize(node, identity, WRITE, "truncateReference")
+            yield* resize(node, length, "truncateReference")
+          }))
+        }),
+        openReference: Effect.fn("Caller.openReference")(function*(objectReference, raw = { access: "read" }) {
+          const decoded = decodeOpenReferenceSettings(raw)
+
+          if (Result.isFailure(decoded)) {
+            return yield* new FsError({ code: "InvalidArgument", operation: "openReference" })
+          }
+
+          const chosen = { ...decoded.success }
+
+          if (chosen.access === "read" && (chosen.append || chosen.truncate)) {
+            return yield* new FsError({ code: "InvalidArgument", operation: "openReference" })
+          }
+
           const acquired: FileReference = {
             volume: volumeIdentity,
             file: undefined,
             closed: false,
             offset: 0n,
-            access: "read",
-            append: false
+            access: chosen.access,
+            append: chosen.append ?? false
           }
 
           yield* Effect.addFinalizer(() => coordinated(Effect.sync(() => releaseFile(acquired))))
@@ -1525,13 +2037,168 @@ export const makeVolume = Effect.fnUntraced(
               return yield* new FsError({ code: "StaleReference", operation: "openReference" })
             }
 
-            yield* authorize(node, identity, READ, "openReference", "/")
+            yield* authorize(
+              node,
+              identity,
+              chosen.access === "read" ? READ : chosen.access === "write" ? WRITE : READ | WRITE,
+              "openReference"
+            )
+
+            if (chosen.truncate) yield* resize(node, 0n, "openReference")
             node.openCount += 1
             acquired.file = node
 
             return fileHandle(acquired)
           }))
         }),
+        openChildReference: Effect.fn("Caller.openChildReference")(
+          function*(directoryReference, input, raw) {
+            const name = yield* referencedName(input, "openChildReference")
+            const decoded = decodeOpenChildReferenceSettings(raw)
+
+            if (Result.isFailure(decoded)) {
+              return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
+            }
+
+            const chosen = { ...decoded.success }
+
+            if (chosen.access === "read" && (chosen.append || chosen.truncate)) {
+              return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
+            }
+
+            if (
+              (chosen.mode !== undefined || chosen.times !== undefined) &&
+              (chosen.create === undefined || chosen.create === "never")
+            ) {
+              return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
+            }
+
+            const relativePath = preparePath(ownedPath(nameBytes(name)), "openChildReference", undefined)
+
+            const acquired: FileReference = {
+              volume: volumeIdentity,
+              file: undefined,
+              closed: false,
+              offset: 0n,
+              access: chosen.access,
+              append: chosen.append ?? false
+            }
+
+            yield* Effect.addFinalizer(() => coordinated(Effect.sync(() => releaseFile(acquired))))
+
+            return yield* coordinated(Effect.gen(function*() {
+              if (acquired.closed) return yield* Effect.interrupt
+              const parent = yield* referencedDirectory(directoryReference, "openChildReference")
+              yield* authorize(parent, identity, EXECUTE, "openChildReference")
+              const direct = parent.entries.get(name)
+
+              if (direct !== undefined && chosen.create === "exclusive") {
+                return yield* new FsError({ code: "AlreadyExists", operation: "openChildReference" })
+              }
+
+              let file: Node | undefined = direct
+              let mutationParent = parent
+              let mutationName = name
+
+              if (file?.kind === "symlink" && chosen.followFinalSymlink !== false) {
+                const resolved = yield* lookup(
+                  yield* Effect.fromResult(relativePath),
+                  undefined,
+                  "openChildReference",
+                  {
+                    followFinalSymlink: true,
+                    allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
+                  },
+                  parent
+                )
+
+                file = resolved.node
+
+                if (file === undefined) {
+                  if (resolved.parent === undefined || resolved.name === undefined) {
+                    return yield* new FsError({ code: "IsDirectory", operation: "openChildReference" })
+                  }
+
+                  mutationParent = resolved.parent
+                  mutationName = resolved.name
+                }
+              }
+
+              const before = mutationParent.revision
+              let created = false
+
+              if (file === undefined) {
+                if (chosen.create === undefined || chosen.create === "never") {
+                  return yield* new FsError({ code: "NotFound", operation: "openChildReference" })
+                }
+
+                yield* authorize(mutationParent, identity, WRITE | EXECUTE, "openChildReference")
+
+                if (atEntryLimit()) {
+                  return yield* new FsError({ code: "NoSpace", operation: "openChildReference" })
+                }
+
+                const now = yield* timestamp("openChildReference")
+                const initial = creationTimes(chosen.times, now)
+
+                const createdFile: RegularFile = {
+                  kind: "file",
+                  lineage: undefined,
+                  data: Content.empty(),
+                  openCount: 0,
+                  metadata: {
+                    ...directoryMetadata(
+                      nextInode,
+                      identity.uid,
+                      mutationParent.metadata.gid,
+                      (chosen.mode ?? 0o666) & 0o777 & ~umask,
+                      now
+                    ),
+                    ...initial,
+                    kind: "file",
+                    nlink: 1
+                  },
+                  revision: nextRevision(),
+                  objectReference: undefined
+                }
+
+                file = createdFile
+                attach(mutationParent, mutationName, createdFile, now)
+                entries += 1
+                nextInode += 1n
+                created = true
+                publishEntry("Create", mutationParent, mutationName)
+              } else {
+                if (file.kind === "symlink") {
+                  return yield* new FsError({ code: "SymlinkLoop", operation: "openChildReference" })
+                }
+
+                if (file.kind !== "file") {
+                  return yield* new FsError({ code: "IsDirectory", operation: "openChildReference" })
+                }
+
+                yield* authorize(
+                  file,
+                  identity,
+                  chosen.access === "read" ? READ : chosen.access === "write" ? WRITE : READ | WRITE,
+                  "openChildReference"
+                )
+
+                if (chosen.truncate) yield* resize(file, 0n, "openChildReference")
+              }
+
+              file.openCount += 1
+              acquired.file = file
+
+              return {
+                handle: fileHandle(acquired),
+                reference: referenceFor(file),
+                created,
+                directory: { before, after: mutationParent.revision }
+              }
+            }))
+          }
+        ),
         readFile: Effect.fn("Caller.readFile")(function*(input: PathInput, options?: RelativeOptions) {
           const prepared = preparePath(input, "readFile", settings.maxPathBytes)
           const base = options?.relativeTo

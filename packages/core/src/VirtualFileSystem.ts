@@ -369,6 +369,49 @@ export interface DirectoryEntry {
 }
 
 /**
+ * A directory revision transition captured inside one coordinated operation.
+ *
+ * @category schemas
+ * @since 0.4.0
+ */
+export const DirectoryChange: typeof VfsModel.DirectoryChange = VfsModel.DirectoryChange
+
+/**
+ * A directory revision transition captured inside one coordinated operation.
+ *
+ * @category models
+ * @since 0.4.0
+ */
+export type DirectoryChange = typeof DirectoryChange.Type
+
+/**
+ * The identity and parent-directory transition produced by a named entry mutation.
+ *
+ * @category models
+ * @since 0.4.0
+ */
+export interface ReferenceEntryResult {
+  readonly reference: ObjectReference
+  readonly directory: DirectoryChange
+}
+
+/**
+ * The directory transitions produced by a same-directory or cross-directory rename.
+ *
+ * @category schemas
+ * @since 0.4.0
+ */
+export const RenameReferenceResult: typeof VfsModel.RenameReferenceResult = VfsModel.RenameReferenceResult
+
+/**
+ * The directory transitions produced by a same-directory or cross-directory rename.
+ *
+ * @category models
+ * @since 0.4.0
+ */
+export type RenameReferenceResult = typeof RenameReferenceResult.Type
+
+/**
  * Resolves a relative path from a live directory handle instead of the caller's directory.
  *
  * @category models
@@ -585,6 +628,84 @@ export const OpenSettings: typeof VfsModel.OpenSettings = VfsModel.OpenSettings
 export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
 
 /**
+ * Settings for creating a directory through a parent object reference.
+ *
+ * @category schemas
+ * @since 0.4.0
+ */
+export const MkdirReferenceSettings: typeof VfsModel.MkdirReferenceSettings = VfsModel.MkdirReferenceSettings
+
+/**
+ * Settings for creating a directory through a parent object reference.
+ *
+ * @category models
+ * @since 0.4.0
+ */
+export type MkdirReferenceSettings = typeof MkdirReferenceSettings.Type
+
+/**
+ * Settings for creating a symbolic link through a parent object reference.
+ *
+ * @category schemas
+ * @since 0.4.0
+ */
+export const SymlinkReferenceSettings: typeof VfsModel.SymlinkReferenceSettings = VfsModel.SymlinkReferenceSettings
+
+/**
+ * Settings for creating a symbolic link through a parent object reference.
+ *
+ * @category models
+ * @since 0.4.0
+ */
+export type SymlinkReferenceSettings = typeof SymlinkReferenceSettings.Type
+
+/**
+ * Settings for opening an existing regular-file reference.
+ *
+ * @category schemas
+ * @since 0.4.0
+ */
+export const OpenReferenceSettings: typeof VfsModel.OpenReferenceSettings = VfsModel.OpenReferenceSettings
+
+/**
+ * Settings for opening an existing regular-file reference.
+ *
+ * @category models
+ * @since 0.4.0
+ */
+export type OpenReferenceSettings = typeof OpenReferenceSettings.Type
+
+/**
+ * Settings for atomically looking up or creating and opening one referenced child.
+ *
+ * @category schemas
+ * @since 0.4.0
+ */
+export const OpenChildReferenceSettings: typeof VfsModel.OpenChildReferenceSettings =
+  VfsModel.OpenChildReferenceSettings
+
+/**
+ * Settings for atomically looking up or creating and opening one referenced child.
+ *
+ * @category models
+ * @since 0.4.0
+ */
+export type OpenChildReferenceSettings = typeof OpenChildReferenceSettings.Type
+
+/**
+ * A scoped child-open result captured inside one coordinated operation.
+ *
+ * @category models
+ * @since 0.4.0
+ */
+export interface OpenChildReferenceResult {
+  readonly handle: FileHandle
+  readonly reference: ObjectReference
+  readonly created: boolean
+  readonly directory: DirectoryChange
+}
+
+/**
  * Options for an atomic whole-file write, including replacement and final mode controls.
  *
  * @example
@@ -779,8 +900,55 @@ export interface Caller {
   ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsError>
   /** Reads an owned symbolic-link target through a stable reference. Requires no permission on the link. */
   readonly readLinkReference: (reference: ObjectReference) => Effect.Effect<Uint8Array, FsError>
-  /** Opens a referenced regular file for reading. */
-  readonly openReference: (reference: ObjectReference) => Effect.Effect<FileHandle, FsError, Scope.Scope>
+  /** Creates one directory from a referenced parent and returns its exact identity and directory transition. */
+  readonly mkdirReference: (
+    directory: ObjectReference,
+    name: Uint8Array,
+    settings?: MkdirReferenceSettings
+  ) => Effect.Effect<ReferenceEntryResult, FsError>
+  /** Creates one symbolic link from a referenced parent and returns its exact identity and directory transition. */
+  readonly symlinkReference: (
+    target: PathInput,
+    directory: ObjectReference,
+    name: Uint8Array,
+    settings?: SymlinkReferenceSettings
+  ) => Effect.Effect<ReferenceEntryResult, FsError>
+  /** Creates another name for the exact source object; symbolic links are not followed. */
+  readonly linkReference: (
+    source: ObjectReference,
+    destinationDirectory: ObjectReference,
+    destinationName: Uint8Array
+  ) => Effect.Effect<ReferenceEntryResult, FsError>
+  /** Removes a non-directory child and returns the parent directory transition. */
+  readonly unlinkReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsError>
+  /** Removes an empty directory child and returns the parent directory transition. */
+  readonly rmdirReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsError>
+  /** Renames one referenced child and returns one transition per distinct parent directory. */
+  readonly renameReference: (
+    sourceDirectory: ObjectReference,
+    sourceName: Uint8Array,
+    destinationDirectory: ObjectReference,
+    destinationName: Uint8Array
+  ) => Effect.Effect<RenameReferenceResult, FsError>
+  /** Changes permission bits on the exact referenced object. */
+  readonly chmodReference: (reference: ObjectReference, mode: number) => Effect.Effect<void, FsError>
+  /** Changes ownership on the exact referenced object. */
+  readonly chownReference: (reference: ObjectReference, owner: OwnerUpdate) => Effect.Effect<void, FsError>
+  /** Changes timestamps on the exact referenced object. */
+  readonly utimesReference: (reference: ObjectReference, times: Times) => Effect.Effect<void, FsError>
+  /** Changes the length of the exact referenced regular file. */
+  readonly truncateReference: (reference: ObjectReference, length: bigint) => Effect.Effect<void, FsError>
+  /** Opens an existing referenced regular file. Omitted settings preserve read-only behavior. */
+  readonly openReference: (
+    reference: ObjectReference,
+    settings?: OpenReferenceSettings
+  ) => Effect.Effect<FileHandle, FsError, Scope.Scope>
+  /** Atomically looks up or creates and opens one child of a referenced directory. */
+  readonly openChildReference: (
+    directory: ObjectReference,
+    name: Uint8Array,
+    settings: OpenChildReferenceSettings
+  ) => Effect.Effect<OpenChildReferenceResult, FsError, Scope.Scope>
   /** Reads metadata, following the final symbolic link by default. */
   readonly stat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>
   /** Atomically moves an entry within this volume without replacing a non-empty directory. */

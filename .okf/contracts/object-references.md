@@ -14,20 +14,23 @@ sources:
   - id: link-tests
     resource: ../../packages/core/test/Links.test.ts
     title: Hard-link and rename behavior
-generated: { by: codex/okf, at: 2026-09-13T09:24:00+02:00 }
+  - id: mutation-tests
+    resource: ../../packages/core/test/ReferenceMutation.test.ts
+    title: Reference mutation identity, authority, and lifetime tests
+generated: { by: codex/okf, at: 2026-09-18T16:40:52+02:00 }
 ---
 
 # Object references independent of paths
 
 Core exposes canonical opaque `ObjectReference` values for runtime files, directories, and symbolic links. Hard-link aliases and renamed paths return the same reference; replacing a reused path returns a different reference.[^link-tests] References are local to one live volume and are excluded from snapshot version 1.[^core][^file-tests]
 
-`Caller` owns reference operations for the volume root, single-component byte-name lookup, directory parent lookup, metadata observation, directory observation, symbolic-link target reads, and scoped read-only file opening. Wire encoding and export identifiers remain adapter responsibilities.
+`Caller` owns reference operations for the volume root, single-component byte-name lookup, directory parent lookup, metadata and directory observation, symbolic-link reads, named-entry mutations, exact-object metadata and truncation, writable file opening, and atomic child lookup-or-create-and-open. Wire encoding and export identifiers remain adapter responsibilities.[^mutation-tests]
 
 The reference identifies an object; it does not carry the authority of the caller that obtained it. Permission checks apply to the invoking caller. Operations preserve the [resource and authority contract](resources-and-authority.md "constrained by"). Restore constructs fresh references under [snapshot-local identity](../decisions/core/snapshot-local-file-identity.md "constrained by").
 
 ## Authority
 
-Each operation requires on the referenced object exactly the mode bits its path-based equivalent requires on the resolved node. `lookupReference` and `parentReference` require execute on the directory, matching traversal of a component and of `..`; `observeDirectory` requires read, matching `readDirectory`; `openReference` requires read, matching `open` for reading.
+Each operation requires on the referenced object exactly the mode bits its path-based equivalent requires on the resolved node. `lookupReference` and `parentReference` require execute on the directory, matching traversal of a component and of `..`; `observeDirectory` requires read, matching `readDirectory`; opening requires its requested access; namespace mutations require write and execute on each affected parent. A reference identifies an exact object, so metadata changes and hard linking do not carry path-only symlink-following options.[^mutation-tests]
 
 `observeMetadata` and `readLinkReference` require nothing on the object. POSIX `stat` and `readlink` need search permission along the path prefix but no permission on the object itself, and the path-based `stat`, `lstat`, and `readLink` behave the same way. A reference is reachable only through `rootReference` and the two traversal operations, so the prefix was authorized when the reference was obtained. Unreadable metadata would make a mode `0o000` entry invisible to `ls -l` in a readable directory.[^authority-tests]
 
@@ -35,7 +38,7 @@ Each operation requires on the referenced object exactly the mode bits its path-
 
 Forged values fail with `InvalidReference`; a valid reference presented to another volume fails with `ForeignReference`; and a deleted object whose reference lifetime has ended fails with `StaleReference`. A removed directory stales immediately. A moved directory follows its current parent, and the root is its own parent.
 
-A regular file's reference remains observable after final unlink only while a file handle that was already open retains it. The existing handle can finish reading, but the reference cannot open another reader after unlink. Final handle close reclaims content and stales the reference. This avoids allowing an externally held reference to retain deleted content indefinitely.[^file-tests]
+A regular file's reference remains observable after final unlink only while a file handle that was already open retains it. The existing handle can finish reading or writing, but the reference cannot open another handle or resurrect the file through `linkReference`. Final handle close reclaims content and stales the reference. This avoids allowing an externally held reference to retain deleted content indefinitely.[^file-tests][^mutation-tests]
 
 ## Acceptance evidence
 
