@@ -1887,8 +1887,15 @@ export const makeNfs4Handler = (
 
         for (const [key, open] of opens) {
           if (open.client !== client) continue
-          yield* open.close
-          opens.delete(key)
+
+          // Revocation is reached from EXCHANGE_ID, CREATE_SESSION and an expired SEQUENCE, which
+          // are interruptible operations. Each handle's close and its removal from `opens` are one
+          // region for the same reason as CLOSE: an interrupt between them would leave a closed
+          // handle for the handler scope's finalizer to close a second time. The loop stays
+          // interruptible between opens.
+          yield* Effect.uninterruptible(
+            open.close.pipe(Effect.tap(() => Effect.sync(() => opens.delete(key))))
+          )
         }
       })
 

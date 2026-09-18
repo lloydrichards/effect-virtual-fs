@@ -2151,11 +2151,13 @@ describe("NFSv4.1 COMPOUND", () => {
           base.open(reference).pipe(
             Effect.map((opened) => ({
               ...opened,
-              close: Deferred.succeed(entered, undefined).pipe(
+              // Counted on entry, not after the park: a close abandoned mid-flight never reaches a
+              // counter placed after it, which is the case under test.
+              close: Effect.sync(() => {
+                closes += 1
+              }).pipe(
+                Effect.andThen(Deferred.succeed(entered, undefined)),
                 Effect.andThen(Deferred.await(release)),
-                Effect.andThen(Effect.sync(() => {
-                  closes += 1
-                })),
                 Effect.andThen(opened.close)
               )
             }))
@@ -2205,6 +2207,82 @@ describe("NFSv4.1 COMPOUND", () => {
 
       // The scope has closed, so its finalizer has swept whatever `opens` still held.
       assert.strictEqual(closes, 1, "the interrupted CLOSE left a closed handle for the finalizer")
+    }))
+
+  // A real bound needs the live clock: it.effect runs on the test clock, which never advances.
+  it.live("closes a revoked client's open exactly once when revocation is interrupted", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
+      const entered = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      let closes = 0
+
+      // Revocation reaches `open.close` from EXCHANGE_ID, CREATE_SESSION and an expired SEQUENCE,
+      // which are interruptible operations, so it needs the same close-and-delete atomicity as
+      // CLOSE. A client restart reaches it without the lease lapsing, which matters: the sweep
+      // ahead of every compound is uninterruptible and would otherwise revoke an expired client
+      // before the operation ran.
+      const export_ = {
+        ...base,
+        open: (reference: Vfs.ObjectReference) =>
+          base.open(reference).pipe(
+            Effect.map((opened) => ({
+              ...opened,
+              // Counted on entry, not after the park: a close abandoned mid-flight never reaches a
+              // counter placed after it, which is the case under test.
+              close: Effect.sync(() => {
+                closes += 1
+              }).pipe(
+                Effect.andThen(Deferred.succeed(entered, undefined)),
+                Effect.andThen(Deferred.await(release)),
+                Effect.andThen(opened.close)
+              )
+            }))
+          )
+      }
+
+      yield* Effect.scoped(Effect.gen(function*() {
+        const handler = yield* makeNfs4Handler(export_, {
+          leaseDurationSeconds: 30,
+          callbackTimeout: "1 second",
+          generation,
+          now: () => 0,
+          limits
+        })
+
+        const carrier = connection(1)
+        const held = yield* startSession(handler, "restarting", {}, new Uint8Array(8), carrier)
+
+        // An open the client still holds when it restarts is what revocation has to close.
+        yield* handler.compound(call(
+          [
+            sequence(held.session, 1),
+            (writer) => writer.uint32(Operation.PUTROOTFH),
+            openReadOnly(held.client, "file")
+          ],
+          "open",
+          carrier
+        ))
+
+        // The same owner with a new verifier is a restart: CREATE_SESSION revokes the record the
+        // previous incarnation left behind, and its lease has not lapsed.
+        const restarted = yield* Effect.forkChild(
+          startSession(handler, "restarting", {}, new Uint8Array([1, 0, 0, 0, 0, 0, 0, 0]), carrier)
+        )
+
+        yield* Deferred.await(entered)
+
+        // The interrupt has to be signalled before the close settles, or it lands after the
+        // boundary and proves nothing.
+        const interrupting = yield* Effect.forkChild(Fiber.interrupt(restarted))
+        yield* Effect.sleep("50 millis")
+        yield* Deferred.succeed(release, undefined)
+        yield* Fiber.join(interrupting).pipe(Effect.timeoutOption("2 seconds"))
+      }))
+
+      assert.strictEqual(closes, 1, "interrupted revocation left a closed handle for the finalizer")
     }))
 
   it.effect("reuses session and open capacity after explicit teardown", () =>
