@@ -29,6 +29,45 @@ export const references = (caller: Vfs.Caller) =>
 export const referencedFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
   caller.openReference(reference) satisfies Effect.Effect<Vfs.FileHandle, Vfs.FsError, Scope.Scope>
 
+export const referenceMutations = (
+  caller: Vfs.Caller,
+  source: Vfs.ObjectReference,
+  destination: Vfs.ObjectReference
+) =>
+  Effect.gen(function*() {
+    const directory: Vfs.ReferenceEntryResult = yield* caller.mkdirReference(
+      destination,
+      new TextEncoder().encode("directory"),
+      { mode: 0o750 }
+    )
+    const linked: Vfs.ReferenceEntryResult = yield* caller.linkReference(
+      source,
+      destination,
+      new TextEncoder().encode("alias")
+    )
+    const renamed: Vfs.RenameReferenceResult = yield* caller.renameReference(
+      destination,
+      new TextEncoder().encode("alias"),
+      directory.reference,
+      new TextEncoder().encode("moved")
+    )
+    yield* caller.chmodReference(linked.reference, 0o600)
+    yield* caller.truncateReference(linked.reference, 0n)
+    return renamed
+  }) satisfies Effect.Effect<Vfs.RenameReferenceResult, Vfs.FsError>
+
+export const referencedWritableFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
+  caller.openReference(reference, {
+    access: "readWrite",
+    append: true
+  }) satisfies Effect.Effect<Vfs.FileHandle, Vfs.FsError, Scope.Scope>
+
+export const referencedChildFile = (caller: Vfs.Caller, directory: Vfs.ObjectReference) =>
+  caller.openChildReference(directory, new TextEncoder().encode("file"), {
+    access: "readWrite",
+    create: "ifMissing"
+  }) satisfies Effect.Effect<Vfs.OpenChildReferenceResult, Vfs.FsError, Scope.Scope>
+
 export const rootCaller = Effect.gen(function*() {
   const volume = yield* Vfs.make({ maxEntries: 10, maxPathBytes: ByteSize.kibibytes(1) })
   return yield* volume.caller()
@@ -80,6 +119,8 @@ export const scopedFile = (caller: Vfs.Caller) =>
 export const rejectedReferenceFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) => {
   // @ts-expect-error Reference-based file acquisition still requires Scope.
   const unscoped: Effect.Effect<Vfs.FileHandle, Vfs.FsError> = caller.openReference(reference)
+  // @ts-expect-error Creation mode does not apply to an already identified object.
+  caller.openReference(reference, { access: "write", mode: 0o600 })
   return unscoped
 }
 

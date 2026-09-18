@@ -14,12 +14,17 @@ sources:
   - id: replacement-tests
     resource: ../../packages/core/test/Replacement.test.ts
     title: Mutation rejection and replacement behavior
-generated: { by: codex/okf, at: 2026-09-13T09:24:00+02:00 }
+  - id: reference-tests
+    resource: ../../packages/core/test/ReferenceMutation.test.ts
+    title: Atomic reference mutation result tests
+generated: { by: codex/okf, at: 2026-09-18T16:40:52+02:00 }
 ---
 
 # Mutation revisions and coordinated observations
 
 Every live node has a runtime-only bigint revision updated alongside committed mutations under the volume's existing coordination gate. `observeMetadata` returns copied metadata and the node revision from one coordinated state. `observeDirectory` returns owned name bytes, canonical child references, and the directory revision from one coordinated state.[^core]
+
+Reference-addressed namespace mutations return a Schema-backed `DirectoryChange` containing the affected directory revision before and after the mutation from the same gate hold. Rename returns a tagged one-directory or two-directory result. Equal revisions mean the operation succeeded without changing that directory; results carry no redundant `changed` or `atomic` flag. Creating and linking operations also return the exact resulting object reference.[^reference-tests]
 
 This extends the [mutation and observation contract](mutation-and-observation.md "refines") and uses [object references](object-references.md "depends on"). Protocol cookie encoding, replay caches and client cache policy remain adapter responsibilities. The contract does not introduce a general multi-operation transaction.
 
@@ -31,7 +36,7 @@ Read-only access-time updates do not advance revisions. Rejected operations and 
 
 ## Acceptance evidence
 
-Focused fixed-clock tests cover same-length writes, hard-link aliases, metadata changes, cross-directory rename, reads, rejections, no-op branches, owned observations, and exclusion from snapshot version 1.[^metadata-tests]
+Focused fixed-clock tests cover same-length writes, hard-link aliases, metadata changes, cross-directory rename, reads, rejections, no-op branches, owned observations, and exclusion from snapshot version 1. Concurrent reference creation proves that returned transitions do not overlap or admit another parent mutation between their endpoints.[^metadata-tests][^reference-tests]
 
 [^core]: Inspect `Metadata`, `Volume.watch`, the private coordination gate, timestamp sampling and directory reads.
 
