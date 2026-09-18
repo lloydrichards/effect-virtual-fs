@@ -42,6 +42,7 @@ export interface Snapshot {
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { ByteSize, Effect } from "effect"
  *
  * // Decoding is a trust boundary. `code` says what went wrong and `field` says
@@ -64,7 +65,7 @@ export interface Snapshot {
  *   )
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // declined at encodedBytes
  * ```
  *
@@ -84,6 +85,7 @@ export class ImageError extends Data.TaggedError("ImageError")<{
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { ByteSize, Effect } from "effect"
  *
  * // All four are required: each bounds a different resource. `maxEncodedBytes`
@@ -104,7 +106,7 @@ export class ImageError extends Data.TaggedError("ImageError")<{
  *   return "accepted"
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // accepted
  * ```
  *

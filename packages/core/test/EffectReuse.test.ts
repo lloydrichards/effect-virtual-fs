@@ -1,6 +1,8 @@
-import { assert, describe, it } from "@effect/vitest"
+import { assert, describe } from "@effect/vitest"
 import { Effect, Exit, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
+
+import { it } from "./TestEffect.js"
 
 describe("reusable capability effects", () => {
   it.effect("reads current metadata and rejects operations after explicit close", () =>
@@ -45,28 +47,31 @@ describe("reusable capability effects", () => {
       assert.deepStrictEqual(yield* updated.readDirectory("/"), ["later"])
     }))
 
-  it.effect("subscribes independently on each execution and closes only the owning subscription", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
-      const watch = volume.watch
-      const firstScope = yield* Scope.make()
-      const secondScope = yield* Scope.make()
-      yield* Effect.addFinalizer(() => Scope.close(firstScope, Exit.void))
-      yield* Effect.addFinalizer(() => Scope.close(secondScope, Exit.void))
-      const first = yield* watch.pipe(Scope.provide(firstScope))
-      const second = yield* watch.pipe(Scope.provide(secondScope))
-      yield* caller.mkdir("/both")
-      const firstEvents = yield* first.pipe(Stream.take(1), Stream.runCollect)
-      const secondEvents = yield* second.pipe(Stream.take(1), Stream.runCollect)
-      assert.strictEqual(firstEvents.length, 1)
-      assert.deepStrictEqual(secondEvents, firstEvents)
-      yield* Scope.close(firstScope, Exit.void)
-      yield* caller.mkdir("/second")
-      const remaining = yield* second.pipe(Stream.take(1), Stream.runCollect)
-      assert.strictEqual(remaining.length, 1)
-      const event = remaining[0]
-      assert.isDefined(event)
-      assert.deepStrictEqual(yield* Vfs.pathToBytes(event.path), new TextEncoder().encode("/second"))
-    }))
+  it.effect(
+    "subscribes independently on each execution and closes only the owning subscription",
+    () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+        const watch = volume.watch
+        const firstScope = yield* Scope.make()
+        const secondScope = yield* Scope.make()
+        yield* Effect.addFinalizer(() => Scope.close(firstScope, Exit.void))
+        yield* Effect.addFinalizer(() => Scope.close(secondScope, Exit.void))
+        const first = yield* watch.pipe(Scope.provide(firstScope))
+        const second = yield* watch.pipe(Scope.provide(secondScope))
+        yield* caller.mkdir("/both")
+        const firstEvents = yield* first.pipe(Stream.take(1), Stream.runCollect)
+        const secondEvents = yield* second.pipe(Stream.take(1), Stream.runCollect)
+        assert.strictEqual(firstEvents.length, 1)
+        assert.deepStrictEqual(secondEvents, firstEvents)
+        yield* Scope.close(firstScope, Exit.void)
+        yield* caller.mkdir("/second")
+        const remaining = yield* second.pipe(Stream.take(1), Stream.runCollect)
+        assert.strictEqual(remaining.length, 1)
+        const event = remaining[0]
+        assert.isDefined(event)
+        assert.deepStrictEqual(yield* Vfs.pathToBytes(event.path), new TextEncoder().encode("/second"))
+      })
+  )
 })

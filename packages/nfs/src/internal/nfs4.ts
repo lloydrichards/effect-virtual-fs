@@ -334,7 +334,10 @@ export interface Nfs4Options {
   readonly leaseDurationSeconds: number
   /** How long a callback waits for the client's reply before the path is treated as down. */
   readonly callbackTimeout: Duration.Input
+  /** NFS server lifetime used for sessions, state IDs, and server-owner fields. */
   readonly generation: Uint8Array
+  /** Volume storage lifetime used for write and directory-cookie verifiers. */
+  readonly storageGeneration?: Uint8Array
   readonly now: () => number
   readonly limits: Nfs4Limits
 }
@@ -631,6 +634,10 @@ const assertOptions = (options: Nfs4Options): void => {
   }
 
   if (options.generation.length !== 16) throw new RangeError("generation must contain exactly 16 bytes")
+
+  if ((options.storageGeneration ?? options.generation).length !== 16) {
+    throw new RangeError("storageGeneration must contain exactly 16 bytes")
+  }
 
   for (const [name, value] of Object.entries(options.limits)) {
     if (Predicate.isBigInt(value)) {
@@ -1759,6 +1766,7 @@ export const makeNfs4Handler = (
   options: Nfs4Options
 ): Effect.Effect<Nfs4Handler, never, Scope.Scope> => {
   assertOptions(options)
+  const storageGeneration = options.storageGeneration ?? options.generation
 
   return Effect.gen(function*() {
     const handlerScope = yield* Effect.scope
@@ -3123,7 +3131,7 @@ export const makeNfs4Handler = (
                 // server's write verifier once the target is confirmed to be a regular file.
                 return statusResult(
                   requireRegularFile(current),
-                  () => new Writer().fixedOpaque(options.generation.subarray(0, 8)).bytes()
+                  () => new Writer().fixedOpaque(storageGeneration.subarray(0, 8)).bytes()
                 )
               }
 
@@ -3159,7 +3167,7 @@ export const makeNfs4Handler = (
                         supportedAttributes.includes(attribute)
                       )
 
-                      const verifier = makeCookieVerifier(options.generation, observation.revision)
+                      const verifier = makeCookieVerifier(storageGeneration, observation.revision)
 
                       if (value.cookie !== 0n && bytesKey(value.verifier) !== bytesKey(verifier)) {
                         return { code: operation.code, status: Status.NOT_SAME } satisfies ResultPart

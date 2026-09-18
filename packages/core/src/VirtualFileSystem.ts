@@ -8,7 +8,10 @@
  *
  * @since 0.1.0
  */
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
+import type * as Order from "effect/Order"
+import type * as PlatformError from "effect/PlatformError"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as SchemaAST from "effect/SchemaAST"
@@ -113,6 +116,7 @@ export type FsCode = typeof FsCode.Type
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -128,7 +132,7 @@ export type FsCode = typeof FsCode.Type
  *   )
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // Uint8Array(0) []
  * ```
  *
@@ -146,6 +150,7 @@ export interface FsError extends VfsModel.FsError {}
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // `field` names the rejected option, so the caller learns which key was wrong.
@@ -159,7 +164,7 @@ export interface FsError extends VfsModel.FsError {}
  *   )
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // rejected maxEntries
  * ```
  *
@@ -193,6 +198,7 @@ export type Identity = typeof Identity.Type
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -213,7 +219,7 @@ export type Identity = typeof Identity.Type
  *   return ((yield* user.stat("/home/user")).mode & 0o777).toString(8)
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // 755
  * ```
  *
@@ -231,11 +237,79 @@ export const RootCallerOptions: typeof VfsModel.RootCallerOptions = VfsModel.Roo
 export type RootCallerOptions = typeof RootCallerOptions.Type
 
 /**
+ * Schema for the failure boundary survived by an acknowledged volume write.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
+export const VolumeDurability: typeof VfsModel.VolumeDurability = VfsModel.VolumeDurability
+
+/**
+ * The failure boundary survived by an acknowledged volume write.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type VolumeDurability = typeof VolumeDurability.Type
+
+/**
+ * Weakest-to-strongest ordering for volume durability guarantees.
+ *
+ * @category ordering
+ * @since 0.1.0
+ */
+export const VolumeDurabilityOrder: Order.Order<VolumeDurability> = VfsModel.VolumeDurabilityOrder
+
+/**
+ * Returns whether `actual` survives at least the failure boundary required by `required`.
+ *
+ * @category predicates
+ * @since 0.1.0
+ */
+export const isVolumeDurabilityAtLeast: (
+  actual: VolumeDurability,
+  required: VolumeDurability
+) => boolean = VfsModel.isVolumeDurabilityAtLeast
+
+/**
+ * Schema for the stable logical identity of a volume.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
+export const VolumeIdentity: typeof VfsModel.VolumeIdentity = VfsModel.VolumeIdentity
+
+/**
+ * Stable logical identity of a volume as a branded 128-bit lowercase hexadecimal string.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type VolumeIdentity = typeof VolumeIdentity.Type
+
+/**
+ * Schema for one uninterrupted storage lifetime of a volume.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
+export const VolumeIncarnation: typeof VfsModel.VolumeIncarnation = VfsModel.VolumeIncarnation
+
+/**
+ * One uninterrupted storage lifetime as a branded 128-bit lowercase hexadecimal string.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type VolumeIncarnation = typeof VolumeIncarnation.Type
+
+/**
  * Schema for optional volume capacity and path limits.
  *
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { ByteSize, Effect } from "effect"
  *
  * // Every limit is optional, and each one is enforced once set.
@@ -252,7 +326,7 @@ export type RootCallerOptions = typeof RootCallerOptions.Type
  *   )
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // FileTooLarge
  * ```
  *
@@ -275,6 +349,7 @@ export type VolumeOptions = typeof VolumeOptions.Type
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // Sizes and inode numbers are bigint; times are nanosecond timestamps.
@@ -291,7 +366,7 @@ export type VolumeOptions = typeof VolumeOptions.Type
  *   return [metadata.kind, metadata.size, metadata.nlink]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'file', 3n, 1 ]
  * ```
  *
@@ -324,6 +399,7 @@ export interface ObjectReference {
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // References survive renames, and each observation carries the revision it
@@ -345,7 +421,7 @@ export interface ObjectReference {
  *   return [before.value.kind, after.value.kind]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'directory', 'directory' ]
  * ```
  *
@@ -428,6 +504,7 @@ export interface RelativeOptions {
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -451,7 +528,7 @@ export interface RelativeOptions {
  *   return [followed.toString(8), unchanged.toString(8)]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ '600', '600' ]
  * ```
  *
@@ -493,6 +570,7 @@ export const TimeUpdate: typeof VfsModel.TimeUpdate = VfsModel.TimeUpdate
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -514,7 +592,7 @@ export const TimeUpdate: typeof VfsModel.TimeUpdate = VfsModel.TimeUpdate
  *   return [metadata.atimeNs, metadata.mtimeNs === 1_000n]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 1000n, false ]
  * ```
  *
@@ -537,6 +615,7 @@ export type Times = typeof Times.Type
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // The handle anchors relative paths to the directory itself, so a rename in
@@ -558,7 +637,7 @@ export type Times = typeof Times.Type
  *   return yield* caller.readDirectory("/renamed")
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'notes.txt' ]
  * ```
  *
@@ -593,6 +672,7 @@ export type SeekMode = typeof SeekMode.Type
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // `access` is required; `create` decides whether a missing file is an error.
@@ -610,7 +690,7 @@ export type SeekMode = typeof SeekMode.Type
  *   return (yield* handle.stat).size
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // 2n
  * ```
  *
@@ -711,6 +791,7 @@ export interface OpenChildReferenceResult {
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -738,7 +819,7 @@ export interface OpenChildReferenceResult {
  *   return [refused, new TextDecoder().decode(yield* caller.readFile("/app.conf"))]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'AlreadyExists', 'v2' ]
  * ```
  *
@@ -753,6 +834,7 @@ export type WriteFileOptions = VfsModel.WriteFileOptions
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -771,7 +853,7 @@ export type WriteFileOptions = VfsModel.WriteFileOptions
  *   return [slice, yield* handle.seek(0n, "current")]
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ Uint8Array(2) [ 2, 3 ], 4n ]
  * ```
  *
@@ -806,6 +888,7 @@ export interface FileHandle {
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // Whole-file reads and writes need no scope. `writeFile` always takes an
@@ -823,13 +906,14 @@ export interface FileHandle {
  *   return yield* caller.readDirectory("/work")
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'notes.txt' ]
  * ```
  *
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // Reach for a handle when a whole-file write will not do. A handle carries a
@@ -849,13 +933,14 @@ export interface FileHandle {
  *   return new TextDecoder().decode(yield* handle.read(64))
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // first second
  * ```
  *
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // A derived caller holds the directory's identity, not its path, so renaming
@@ -876,7 +961,7 @@ export interface FileHandle {
  *   return yield* caller.readDirectory("/dist")
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'out.txt' ]
  * ```
  *
@@ -1037,6 +1122,7 @@ export interface Caller {
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, Fiber, Stream } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -1061,7 +1147,7 @@ export interface Caller {
  *     ))
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'Create /logs', 'Remove /logs' ]
  * ```
  *
@@ -1134,6 +1220,7 @@ export type OverlayChange = typeof OverlayChange.Type
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -1149,7 +1236,7 @@ export type OverlayChange = typeof OverlayChange.Type
  *   return [plain.length, timed.length]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 1, 2 ]
  * ```
  *
@@ -1172,6 +1259,7 @@ export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -1195,7 +1283,7 @@ export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
  *   ]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ [ 'Added' ], 'built' ]
  * ```
  *
@@ -1215,6 +1303,7 @@ export interface OverlayCapture {
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, Fiber, Option, Stream } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -1234,7 +1323,7 @@ export interface OverlayCapture {
  *   return Option.getOrElse(Option.map(change, (event) => event._tag), () => "none")
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // Create
  * ```
  *
@@ -1242,6 +1331,12 @@ export interface OverlayCapture {
  * @since 0.1.0
  */
 export interface Volume {
+  /** The strongest failure boundary survived by acknowledged writes. */
+  readonly durability: VolumeDurability
+  /** Stable logical identity, preserved across reconstruction only when supplied explicitly. */
+  readonly identity: VolumeIdentity
+  /** Fresh identity for this uninterrupted storage lifetime. */
+  readonly incarnation: VolumeIncarnation
   /** Opens a scoped stream of future committed changes. Events are not replayed. */
   readonly watch: Effect.Effect<Stream.Stream<Change>, never, Scope.Scope>
   /** Captures an isolated snapshot of the reachable namespace and metadata. */
@@ -1257,6 +1352,7 @@ export interface Volume {
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -1274,7 +1370,7 @@ export interface Volume {
  *   return captured.changes.map((change) => change._tag)
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'Added' ]
  * ```
  *
@@ -1298,6 +1394,7 @@ export interface OverlayVolume extends Volume {
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // Code depending on the service does not choose the volume it runs against.
@@ -1319,7 +1416,7 @@ export interface OverlayVolume extends Volume {
  *   return yield* readVersion.pipe(Effect.provideService(Vfs.CurrentFileSystem, caller))
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // Uint8Array(1) [ 49 ]
  * ```
  *
@@ -1338,6 +1435,7 @@ export type CurrentFileSystem = VfsModel.CurrentFileSystem
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // Bytes are portable: store or transmit them, then decode under explicit limits.
@@ -1356,7 +1454,7 @@ export type CurrentFileSystem = VfsModel.CurrentFileSystem
  *   return JSON.parse(new TextDecoder().decode(bytes)).version
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // 1
  * ```
  *
@@ -1372,6 +1470,7 @@ export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, I
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { ByteSize, Effect } from "effect"
  *
  * // Limits are mandatory: decoding is the boundary where untrusted input arrives.
@@ -1390,7 +1489,7 @@ export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, I
  *   )
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'LimitExceeded', 'encodedBytes' ]
  * ```
  *
@@ -1671,6 +1770,7 @@ export const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsError>
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, Schema } from "effect"
  *
  * // Fixtures must list every parent directory before its children.
@@ -1684,7 +1784,7 @@ export const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsError>
  *   Effect.catchTag("ImageError", (error) => Effect.succeed(`rejected: ${error.code}`))
  * )
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // rejected: InvalidStructure
  * ```
  *
@@ -1712,6 +1812,7 @@ export type Fixture = typeof Fixture.Type
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -1724,7 +1825,7 @@ export type Fixture = typeof Fixture.Type
  *   return yield* caller.readFile("/work/notes.txt")
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // Uint8Array(2) [ 104, 105 ]
  * ```
  *
@@ -1732,7 +1833,9 @@ export type Fixture = typeof Fixture.Type
  * @category constructors
  * @since 0.1.0
  */
-export const make: (options?: VolumeOptions) => Effect.Effect<Volume, ConfigurationError> = VfsModel.make
+export const make: (
+  options?: VolumeOptions
+) => Effect.Effect<Volume, ConfigurationError | PlatformError.PlatformError, Crypto.Crypto> = VfsModel.make
 
 /**
  * Restores a fresh volume from an opaque snapshot under the supplied destination limits.
@@ -1740,6 +1843,7 @@ export const make: (options?: VolumeOptions) => Effect.Effect<Volume, Configurat
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -1766,7 +1870,7 @@ export const make: (options?: VolumeOptions) => Effect.Effect<Volume, Configurat
  *   ]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'one', 'two' ]
  * ```
  *
@@ -1777,7 +1881,11 @@ export const make: (options?: VolumeOptions) => Effect.Effect<Volume, Configurat
 export const fromSnapshot: (
   snapshot: Snapshot,
   options?: VolumeOptions
-) => Effect.Effect<Volume, ConfigurationError | ImageError> = VfsModel.fromSnapshot
+) => Effect.Effect<
+  Volume,
+  ConfigurationError | ImageError | PlatformError.PlatformError,
+  Crypto.Crypto
+> = VfsModel.fromSnapshot
 
 /**
  * Creates an isolated writable volume relative to one immutable snapshot base.
@@ -1795,6 +1903,7 @@ export const fromSnapshot: (
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -1820,7 +1929,7 @@ export const fromSnapshot: (
  *   ]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ '{}', [ 'Updated' ] ]
  * ```
  *
@@ -1831,7 +1940,11 @@ export const fromSnapshot: (
 export const makeOverlay: (
   base: Snapshot,
   options?: VolumeOptions
-) => Effect.Effect<OverlayVolume, ConfigurationError | ImageError> = VfsModel.makeOverlay
+) => Effect.Effect<
+  OverlayVolume,
+  ConfigurationError | ImageError | PlatformError.PlatformError,
+  Crypto.Crypto
+> = VfsModel.makeOverlay
 
 /**
  * Builds a fresh volume from a validated final-state fixture.
@@ -1839,6 +1952,7 @@ export const makeOverlay: (
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const encoder = new TextEncoder()
@@ -1860,7 +1974,7 @@ export const makeOverlay: (
  *   return yield* (yield* volume.caller()).readDirectory("/project")
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'package.json', 'latest' ]
  * ```
  *
@@ -1871,4 +1985,8 @@ export const makeOverlay: (
 export const fromFixture: (
   fixture: Fixture,
   options?: VolumeOptions
-) => Effect.Effect<Volume, ConfigurationError | ImageError> = FixtureInternal.fromFixture
+) => Effect.Effect<
+  Volume,
+  ConfigurationError | ImageError | PlatformError.PlatformError,
+  Crypto.Crypto
+> = FixtureInternal.fromFixture

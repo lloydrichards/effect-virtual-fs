@@ -70,8 +70,15 @@ export const referencedChildFile = (caller: Vfs.Caller, directory: Vfs.ObjectRef
 
 export const rootCaller = Effect.gen(function*() {
   const volume = yield* Vfs.make({ maxEntries: 10, maxPathBytes: ByteSize.kibibytes(1) })
+  const durability: Vfs.VolumeDurability = volume.durability
+  const identity: Vfs.VolumeIdentity = volume.identity
+  const incarnation: Vfs.VolumeIncarnation = volume.incarnation
+  Vfs.isVolumeDurabilityAtLeast(durability, "memory-only")
+  Vfs.VolumeDurabilityOrder("memory-only", "survives-power-loss")
+  void identity
+  void incarnation
   return yield* volume.caller()
-}) satisfies Effect.Effect<Vfs.Caller, Vfs.ConfigurationError>
+}) satisfies Effect.Effect<Vfs.Caller, Vfs.ConfigurationError | PlatformError.PlatformError, Crypto.Crypto>
 
 export const scopedDirectory = (caller: Vfs.Caller) =>
   Effect.scoped(Effect.gen(function*() {
@@ -144,11 +151,15 @@ export const overlay = Effect.gen(function*() {
   const changes: ReadonlyArray<Vfs.OverlayChange> = yield* volume.changes({ includeTimestamps: true })
   const capture: Vfs.OverlayCapture = yield* volume.capture()
   return { ordinary, changes, capture }
-}) satisfies Effect.Effect<{
-  readonly ordinary: Vfs.Volume
-  readonly changes: ReadonlyArray<Vfs.OverlayChange>
-  readonly capture: Vfs.OverlayCapture
-}, Vfs.ConfigurationError | Vfs.ImageError>
+}) satisfies Effect.Effect<
+  {
+    readonly ordinary: Vfs.Volume
+    readonly changes: ReadonlyArray<Vfs.OverlayChange>
+    readonly capture: Vfs.OverlayCapture
+  },
+  Vfs.ConfigurationError | Vfs.ImageError | PlatformError.PlatformError,
+  Crypto.Crypto
+>
 
 const customDeltaLimits: Vfs.SnapshotDeltaLimits = {
   ...Vfs.SnapshotDeltaLimits.constrained,

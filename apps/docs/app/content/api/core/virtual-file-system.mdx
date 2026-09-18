@@ -23,13 +23,14 @@ Builds a fresh volume from a validated final-state fixture.
 export declare const fromFixture: (
   fixture: Fixture,
   options?: VolumeOptions
-) => Effect.Effect<Volume, ConfigurationError | ImageError>
+) => Effect.Effect<Volume, ConfigurationError | ImageError | PlatformError.PlatformError, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const encoder = new TextEncoder()
@@ -51,7 +52,7 @@ const program = Effect.gen(function* () {
   return yield* (yield* volume.caller()).readDirectory("/project")
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'package.json', 'latest' ]
 ```
 
@@ -67,13 +68,14 @@ Restores a fresh volume from an opaque snapshot under the supplied destination l
 export declare const fromSnapshot: (
   snapshot: Snapshot,
   options?: VolumeOptions
-) => Effect.Effect<Volume, ConfigurationError | ImageError>
+) => Effect.Effect<Volume, ConfigurationError | ImageError | PlatformError.PlatformError, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -100,7 +102,7 @@ const program = Effect.gen(function* () {
   ]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'one', 'two' ]
 ```
 
@@ -118,13 +120,16 @@ arise because this constructor does not accept persisted input.
 **Signature**
 
 ```ts
-export declare const make: (options?: VolumeOptions) => Effect.Effect<Volume, ConfigurationError>
+export declare const make: (
+  options?: VolumeOptions
+) => Effect.Effect<Volume, ConfigurationError | PlatformError.PlatformError, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -137,7 +142,7 @@ const program = Effect.gen(function* () {
   return yield* caller.readFile("/work/notes.txt")
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // Uint8Array(2) [ 104, 105 ]
 ```
 
@@ -163,13 +168,14 @@ with `ConfigurationError`. Each execution creates a fresh workspace.
 export declare const makeOverlay: (
   base: Snapshot,
   options?: VolumeOptions
-) => Effect.Effect<OverlayVolume, ConfigurationError | ImageError>
+) => Effect.Effect<OverlayVolume, ConfigurationError | ImageError | PlatformError.PlatformError, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -195,7 +201,7 @@ const program = Effect.gen(function* () {
   ]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ '{}', [ 'Updated' ] ]
 ```
 
@@ -256,6 +262,7 @@ export declare const ConfigurationError: typeof VfsModel.ConfigurationError
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // `field` names the rejected option, so the caller learns which key was wrong.
@@ -269,7 +276,7 @@ const program = Effect.gen(function* () {
   )
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // rejected maxEntries
 ```
 
@@ -289,6 +296,7 @@ export declare const FsError: typeof VfsModel.FsError
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -305,7 +313,7 @@ const program = Effect.gen(function* () {
     )
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // Uint8Array(0) []
 ```
 
@@ -486,6 +494,7 @@ export interface Caller {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // Whole-file reads and writes need no scope. `writeFile` always takes an
@@ -503,7 +512,7 @@ const program = Effect.gen(function* () {
   return yield* caller.readDirectory("/work")
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'notes.txt' ]
 ```
 
@@ -511,6 +520,7 @@ Effect.runPromise(program).then(console.log)
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // Reach for a handle when a whole-file write will not do. A handle carries a
@@ -530,7 +540,7 @@ const program = Effect.gen(function* () {
   return new TextDecoder().decode(yield* handle.read(64))
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // first second
 ```
 
@@ -538,6 +548,7 @@ Effect.runPromise(program).then(console.log)
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // A derived caller holds the directory's identity, not its path, so renaming
@@ -558,7 +569,7 @@ const program = Effect.gen(function* () {
   return yield* caller.readDirectory("/dist")
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'out.txt' ]
 ```
 
@@ -583,6 +594,7 @@ export interface Change {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, Fiber, Stream } from "effect"
 
 const program = Effect.gen(function* () {
@@ -605,7 +617,7 @@ const program = Effect.gen(function* () {
   )
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'Create /logs', 'Remove /logs' ]
 ```
 
@@ -656,6 +668,7 @@ export interface DirectoryHandle {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // The handle anchors relative paths to the directory itself, so a rename in
@@ -677,7 +690,7 @@ const program = Effect.gen(function* () {
   return yield* caller.readDirectory("/renamed")
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'notes.txt' ]
 ```
 
@@ -717,6 +730,7 @@ export interface FileHandle {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -735,7 +749,7 @@ const program = Effect.gen(function* () {
   return [slice, yield* handle.seek(0n, "current")]
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ Uint8Array(2) [ 2, 3 ], 4n ]
 ```
 
@@ -806,6 +820,7 @@ export interface MetadataOptions extends RelativeOptions {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -829,7 +844,7 @@ const program = Effect.gen(function* () {
   return [followed.toString(8), unchanged.toString(8)]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ '600', '600' ]
 ```
 
@@ -864,6 +879,7 @@ export interface ObjectObservation<A> {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // References survive renames, and each observation carries the revision it
@@ -885,7 +901,7 @@ const program = Effect.gen(function* () {
   return [before.value.kind, after.value.kind]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'directory', 'directory' ]
 ```
 
@@ -977,6 +993,7 @@ export interface OverlayCapture {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -997,7 +1014,7 @@ const program = Effect.gen(function* () {
   return [captured.changes.map((change) => change._tag), new TextDecoder().decode(yield* reader.readFile("/out.txt"))]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ [ 'Added' ], 'built' ]
 ```
 
@@ -1072,6 +1089,7 @@ export interface OverlayVolume extends Volume {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -1089,7 +1107,7 @@ const program = Effect.gen(function* () {
   return captured.changes.map((change) => change._tag)
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'Added' ]
 ```
 
@@ -1222,6 +1240,12 @@ An isolated virtual filesystem namespace that creates callers, snapshots, and wa
 
 ```ts
 export interface Volume {
+  /** The strongest failure boundary survived by acknowledged writes. */
+  readonly durability: VolumeDurability
+  /** Stable logical identity, preserved across reconstruction only when supplied explicitly. */
+  readonly identity: VolumeIdentity
+  /** Fresh identity for this uninterrupted storage lifetime. */
+  readonly incarnation: VolumeIncarnation
   /** Opens a scoped stream of future committed changes. Events are not replayed. */
   readonly watch: Effect.Effect<Stream.Stream<Change>, never, Scope.Scope>
   /** Captures an isolated snapshot of the reachable namespace and metadata. */
@@ -1236,6 +1260,7 @@ export interface Volume {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, Fiber, Option, Stream } from "effect"
 
 const program = Effect.gen(function* () {
@@ -1255,8 +1280,44 @@ const program = Effect.gen(function* () {
   )
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // Create
+```
+
+Added in v0.1.0
+
+### VolumeDurability (type alias)
+
+The failure boundary survived by an acknowledged volume write.
+
+**Signature**
+
+```ts
+export type VolumeDurability = typeof VolumeDurability.Type
+```
+
+Added in v0.1.0
+
+### VolumeIdentity (type alias)
+
+Stable logical identity of a volume as a branded 128-bit lowercase hexadecimal string.
+
+**Signature**
+
+```ts
+export type VolumeIdentity = typeof VolumeIdentity.Type
+```
+
+Added in v0.1.0
+
+### VolumeIncarnation (type alias)
+
+One uninterrupted storage lifetime as a branded 128-bit lowercase hexadecimal string.
+
+**Signature**
+
+```ts
+export type VolumeIncarnation = typeof VolumeIncarnation.Type
 ```
 
 Added in v0.1.0
@@ -1287,6 +1348,7 @@ export type WriteFileOptions = VfsModel.WriteFileOptions
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -1316,8 +1378,38 @@ const program = Effect.gen(function* () {
   return [refused, new TextDecoder().decode(yield* caller.readFile("/app.conf"))]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'AlreadyExists', 'v2' ]
+```
+
+Added in v0.1.0
+
+## ordering
+
+### VolumeDurabilityOrder
+
+Weakest-to-strongest ordering for volume durability guarantees.
+
+**Signature**
+
+```ts
+export declare const VolumeDurabilityOrder: Order.Order<
+  "memory-only" | "survives-process-crash" | "survives-operating-system-crash" | "survives-power-loss"
+>
+```
+
+Added in v0.1.0
+
+## predicates
+
+### isVolumeDurabilityAtLeast
+
+Returns whether `actual` survives at least the failure boundary required by `required`.
+
+**Signature**
+
+```ts
+export declare const isVolumeDurabilityAtLeast: (actual: VolumeDurability, required: VolumeDurability) => boolean
 ```
 
 Added in v0.1.0
@@ -1425,6 +1517,7 @@ export declare const Fixture: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, Schema } from "effect"
 
 // Fixtures must list every parent directory before its children.
@@ -1436,7 +1529,7 @@ const program = Schema.decodeUnknownEffect(Vfs.Fixture)({
   Effect.catchTag("ImageError", (error) => Effect.succeed(`rejected: ${error.code}`))
 )
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // rejected: InvalidStructure
 ```
 
@@ -1543,6 +1636,7 @@ export declare const Metadata: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // Sizes and inode numbers are bigint; times are nanosecond timestamps.
@@ -1559,7 +1653,7 @@ const program = Effect.gen(function* () {
   return [metadata.kind, metadata.size, metadata.nlink]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'file', 3n, 1 ]
 ```
 
@@ -1671,6 +1765,7 @@ export declare const OpenSettings: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // `access` is required; `create` decides whether a missing file is an error.
@@ -1688,7 +1783,7 @@ const program = Effect.gen(function* () {
   return (yield* handle.stat).size
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // 2n
 ```
 
@@ -1776,6 +1871,7 @@ export declare const OverlayChangesOptions: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -1791,7 +1887,7 @@ const program = Effect.gen(function* () {
   return [plain.length, timed.length]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 1, 2 ]
 ```
 
@@ -1886,6 +1982,7 @@ export declare const RootCallerOptions: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -1906,7 +2003,7 @@ const program = Effect.gen(function* () {
   return ((yield* user.stat("/home/user")).mode & 0o777).toString(8)
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // 755
 ```
 
@@ -2051,6 +2148,7 @@ export declare const Times: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -2072,8 +2170,46 @@ const program = Effect.gen(function* () {
   return [metadata.atimeNs, metadata.mtimeNs === 1_000n]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 1000n, false ]
+```
+
+Added in v0.1.0
+
+### VolumeDurability
+
+Schema for the failure boundary survived by an acknowledged volume write.
+
+**Signature**
+
+```ts
+export declare const VolumeDurability: Schema.Literals<
+  readonly ["memory-only", "survives-process-crash", "survives-operating-system-crash", "survives-power-loss"]
+>
+```
+
+Added in v0.1.0
+
+### VolumeIdentity
+
+Schema for the stable logical identity of a volume.
+
+**Signature**
+
+```ts
+export declare const VolumeIdentity: Schema.brand<Schema.String, "@effect-vfs/core/VolumeIdentity">
+```
+
+Added in v0.1.0
+
+### VolumeIncarnation
+
+Schema for one uninterrupted storage lifetime of a volume.
+
+**Signature**
+
+```ts
+export declare const VolumeIncarnation: Schema.brand<Schema.String, "@effect-vfs/core/VolumeIncarnation">
 ```
 
 Added in v0.1.0
@@ -2086,6 +2222,7 @@ Schema for optional volume capacity and path limits.
 
 ```ts
 export declare const VolumeOptions: Schema.Struct<{
+  readonly identity: Schema.optionalKey<Schema.brand<Schema.String, "@effect-vfs/core/VolumeIdentity">>
   readonly maxEntries: Schema.optionalKey<Schema.Natural>
   readonly maxBytes: Schema.optionalKey<Schema.ByteSize>
   readonly maxFileBytes: Schema.optionalKey<Schema.ByteSize>
@@ -2097,6 +2234,7 @@ export declare const VolumeOptions: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Effect } from "effect"
 
 // Every limit is optional, and each one is enforced once set.
@@ -2115,7 +2253,7 @@ const program = Effect.gen(function* () {
     )
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // FileTooLarge
 ```
 
@@ -2137,6 +2275,7 @@ export declare const decodeSnapshot: (input: Uint8Array, limits: DecodeLimits) =
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Effect } from "effect"
 
 // Limits are mandatory: decoding is the boundary where untrusted input arrives.
@@ -2155,7 +2294,7 @@ const program = Effect.gen(function* () {
   )
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'LimitExceeded', 'encodedBytes' ]
 ```
 
@@ -2175,6 +2314,7 @@ export declare const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // Bytes are portable: store or transmit them, then decode under explicit limits.
@@ -2193,7 +2333,7 @@ const program = Effect.gen(function* () {
   return JSON.parse(new TextDecoder().decode(bytes)).version
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // 1
 ```
 
@@ -2215,6 +2355,7 @@ export declare const CurrentFileSystem: typeof VfsModel.CurrentFileSystem
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // Code depending on the service does not choose the volume it runs against.
@@ -2236,7 +2377,7 @@ const program = Effect.gen(function* () {
   return yield* readVersion.pipe(Effect.provideService(Vfs.CurrentFileSystem, caller))
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // Uint8Array(1) [ 49 ]
 ```
 
@@ -2288,7 +2429,11 @@ export declare const applySnapshotDelta: (
         never,
         never
       >
-    | Effect.Effect<Snapshot, ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError, Crypto>
+    | Effect.Effect<
+        Snapshot,
+        ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+        Crypto.Crypto
+      >
   ] extends [never]
     ? never
     : [
@@ -2309,7 +2454,11 @@ export declare const applySnapshotDelta: (
               never,
               never
             >
-          | Effect.Effect<Snapshot, ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError, Crypto>
+          | Effect.Effect<
+              Snapshot,
+              ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+              Crypto.Crypto
+            >
         ] extends [Effect.Effect<infer _A, infer E, infer _R>]
       ? E
       : never,
@@ -2331,7 +2480,11 @@ export declare const applySnapshotDelta: (
         never,
         never
       >
-    | Effect.Effect<Snapshot, ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError, Crypto>
+    | Effect.Effect<
+        Snapshot,
+        ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+        Crypto.Crypto
+      >
   ] extends [never]
     ? never
     : [
@@ -2352,7 +2505,11 @@ export declare const applySnapshotDelta: (
               never,
               never
             >
-          | Effect.Effect<Snapshot, ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError, Crypto>
+          | Effect.Effect<
+              Snapshot,
+              ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+              Crypto.Crypto
+            >
         ] extends [Effect.Effect<infer _A, infer _E, infer R>]
       ? R
       : never
@@ -2436,7 +2593,7 @@ export declare const diffSnapshots: (
         never,
         never
       >
-    | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError, Crypto>
+    | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError.PlatformError, Crypto.Crypto>
   ] extends [never]
     ? never
     : [
@@ -2457,7 +2614,7 @@ export declare const diffSnapshots: (
               never,
               never
             >
-          | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError, Crypto>
+          | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError.PlatformError, Crypto.Crypto>
         ] extends [Effect.Effect<infer _A, infer E, infer _R>]
       ? E
       : never,
@@ -2479,7 +2636,7 @@ export declare const diffSnapshots: (
         never,
         never
       >
-    | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError, Crypto>
+    | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError.PlatformError, Crypto.Crypto>
   ] extends [never]
     ? never
     : [
@@ -2500,7 +2657,7 @@ export declare const diffSnapshots: (
               never,
               never
             >
-          | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError, Crypto>
+          | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError.PlatformError, Crypto.Crypto>
         ] extends [Effect.Effect<infer _A, infer _E, infer R>]
       ? R
       : never
@@ -2629,8 +2786,8 @@ export declare const inspectSnapshotDelta: (
               )[]
             }
         )[],
-        ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-        Crypto
+        ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+        Crypto.Crypto
       >
   ] extends [never]
     ? never
@@ -2676,8 +2833,8 @@ export declare const inspectSnapshotDelta: (
                     )[]
                   }
               )[],
-              ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-              Crypto
+              ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+              Crypto.Crypto
             >
         ] extends [Effect.Effect<infer _A, infer E, infer _R>]
       ? E
@@ -2724,8 +2881,8 @@ export declare const inspectSnapshotDelta: (
               )[]
             }
         )[],
-        ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-        Crypto
+        ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+        Crypto.Crypto
       >
   ] extends [never]
     ? never
@@ -2771,8 +2928,8 @@ export declare const inspectSnapshotDelta: (
                     )[]
                   }
               )[],
-              ImageError | PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-              Crypto
+              ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+              Crypto.Crypto
             >
         ] extends [Effect.Effect<infer _A, infer _E, infer R>]
       ? R

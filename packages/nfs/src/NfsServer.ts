@@ -11,9 +11,11 @@
 import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
+import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Encoding from "effect/Encoding"
 import * as Layer from "effect/Layer"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
@@ -462,7 +464,7 @@ const make = (
 ): Effect.Effect<
   NfsServer["Service"],
   ConfigurationError | NfsServerError,
-  Scope.Scope | SocketServer.SocketServer
+  Scope.Scope | SocketServer.SocketServer | Crypto.Crypto
 > =>
   Effect.gen(function*() {
     const config = yield* decodeConfig(options)
@@ -511,11 +513,19 @@ const make = (
       )
     }
 
-    const generation = globalThis.crypto.getRandomValues(new Uint8Array(16))
-    const export_ = makeExport(options.caller, generation, limits)
+    const crypto = yield* Crypto.Crypto
+
+    const generation = yield* crypto.randomBytes(16).pipe(
+      Effect.mapError((cause) => new NfsServerError({ cause }))
+    )
+
+    const identity = Result.getOrThrow(Encoding.decodeHex(options.volume.identity))
+    const storageGeneration = Result.getOrThrow(Encoding.decodeHex(options.volume.incarnation))
+    const export_ = makeExport(options.caller, storageGeneration, limits, identity)
 
     const handler = yield* makeNfs4Handler(export_, {
       generation,
+      storageGeneration,
       leaseDurationSeconds: config.leaseDurationSeconds,
       callbackTimeout: Duration.seconds(config.callbackTimeoutSeconds),
       limits,
@@ -552,6 +562,6 @@ export class NfsServer extends Context.Service<NfsServer, {
   ): Layer.Layer<
     NfsServer,
     ConfigurationError | NfsServerError,
-    SocketServer.SocketServer
+    SocketServer.SocketServer | Crypto.Crypto
   > => Layer.effect(this, make(options))
 }

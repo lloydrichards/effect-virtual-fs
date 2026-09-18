@@ -2,9 +2,11 @@
 import * as ByteSize from "effect/ByteSize"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
+import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
+import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -121,8 +123,51 @@ export const RootCallerOptions = Schema.Struct({
 /** @internal */
 export type RootCallerOptions = typeof RootCallerOptions.Type
 
+const Hex128 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{32}$/))
+
+/** @internal */
+export const VolumeDurability = Schema.Literals([
+  "memory-only",
+  "survives-process-crash",
+  "survives-operating-system-crash",
+  "survives-power-loss"
+])
+
+/** @internal */
+export type VolumeDurability = typeof VolumeDurability.Type
+
+const durabilityRank: Readonly<Record<VolumeDurability, number>> = {
+  "memory-only": 0,
+  "survives-process-crash": 1,
+  "survives-operating-system-crash": 2,
+  "survives-power-loss": 3
+}
+
+/** @internal */
+export const VolumeDurabilityOrder: Order.Order<VolumeDurability> = Order.mapInput(
+  Order.Number,
+  (durability: VolumeDurability) => durabilityRank[durability]
+)
+
+/** @internal */
+export const isVolumeDurabilityAtLeast = (actual: VolumeDurability, required: VolumeDurability): boolean =>
+  VolumeDurabilityOrder(actual, required) >= 0
+
+/** @internal */
+export const VolumeIdentity = Hex128.pipe(Schema.brand("@effect-vfs/core/VolumeIdentity"))
+
+/** @internal */
+export type VolumeIdentity = typeof VolumeIdentity.Type
+
+/** @internal */
+export const VolumeIncarnation = Hex128.pipe(Schema.brand("@effect-vfs/core/VolumeIncarnation"))
+
+/** @internal */
+export type VolumeIncarnation = typeof VolumeIncarnation.Type
+
 /** @internal */
 export const VolumeOptions = Schema.Struct({
+  identity: Schema.optionalKey(VolumeIdentity),
   maxEntries: Schema.optionalKey(Schema.Natural),
   maxBytes: Schema.optionalKey(Schema.ByteSize),
   maxFileBytes: Schema.optionalKey(
@@ -495,6 +540,13 @@ export const makeVolume = Effect.fnUntraced(
 
     if (Result.isFailure(decoded)) return yield* decoded.failure
     const settings = { ...decoded.success }
+    const crypto = yield* Crypto.Crypto
+
+    const identity = settings.identity === undefined
+      ? VolumeIdentity.make(Encoding.encodeHex(yield* crypto.randomBytes(16)))
+      : VolumeIdentity.make(settings.identity)
+
+    const incarnation = VolumeIncarnation.make(Encoding.encodeHex(yield* crypto.randomBytes(16)))
     const clock = yield* Clock.clockWith(Effect.succeed)
     const initialTime = clock.currentTimeNanosUnsafe()
 
@@ -2999,6 +3051,9 @@ export const makeVolume = Effect.fnUntraced(
 
     const volume: Volume = Object.freeze({
       [VolumeId]: true as const,
+      durability: "memory-only",
+      identity,
+      incarnation,
       watch: Effect.gen(function*() {
         const hook = TestHooks.getRegistrationHook(surface)
 
@@ -3073,7 +3128,7 @@ export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
 
 /** @internal */
 export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
-  function*(base: Snapshot, options?: VolumeOptions): Effect.fn.Return<OverlayVolume, ConfigurationError | ImageError> {
+  function*(base: Snapshot, options?: VolumeOptions) {
     const image = yield* Image.inspect(base)
 
     return yield* makeVolume(VolumeSource.Overlay({ base, image }), options)

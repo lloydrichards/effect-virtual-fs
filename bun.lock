@@ -85,6 +85,7 @@
       "dependencies": {
         "@effect-vfs/core": "workspace:*",
         "@effect/ai-openai": "4.0.0-rc.114",
+        "@effect/platform-bun": "4.0.0-rc.114",
         "effect": "4.0.0-rc.114",
         "effect-boxes": "^0.17.2",
       },

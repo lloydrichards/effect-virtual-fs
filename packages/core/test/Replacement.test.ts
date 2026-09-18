@@ -1,37 +1,42 @@
-import { assert, describe, it } from "@effect/vitest"
+import { assert, describe } from "@effect/vitest"
 import { ByteSize, Effect, Fiber, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
+import { it } from "./TestEffect.js"
+
 describe("whole-file symlink replacement", () => {
-  it.effect("replaces only the final link at full quota and publishes only its destination", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxEntries: 2, maxBytes: ByteSize.bytes(8) })
-      const fs = yield* volume.caller()
-      yield* fs.writeFile("/target", new Uint8Array([42]), { access: "write", create: "exclusive" })
-      yield* fs.symlink("/target", "/link")
+  it.effect(
+    "replaces only the final link at full quota and publishes only its destination",
+    () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make({ maxEntries: 2, maxBytes: ByteSize.bytes(8) })
+        const fs = yield* volume.caller()
+        yield* fs.writeFile("/target", new Uint8Array([42]), { access: "write", create: "exclusive" })
+        yield* fs.symlink("/target", "/link")
 
-      const watcher = yield* (yield* volume.watch).pipe(
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkChild({ startImmediately: true })
-      )
+        const watcher = yield* (yield* volume.watch).pipe(
+          Stream.take(1),
+          Stream.runCollect,
+          Effect.forkChild({ startImmediately: true })
+        )
 
-      yield* fs.writeFile("/link", new Uint8Array(7), {
-        access: "write",
-        create: "ifMissing",
-        truncate: true,
-        replaceFinalSymlink: true
+        yield* fs.writeFile("/link", new Uint8Array(7), {
+          access: "write",
+          create: "ifMissing",
+          truncate: true,
+          replaceFinalSymlink: true
+        })
+        assert.strictEqual((yield* fs.lstat("/link")).kind, "file")
+        assert.deepStrictEqual(yield* fs.readFile("/target"), new Uint8Array([42]))
+        const events = yield* Fiber.join(watcher)
+        assert.strictEqual(events.length, 1)
+        const event = events[0]
+        assert.isDefined(event)
+        assert.strictEqual(event._tag, "Update")
+        assert.deepStrictEqual(yield* Vfs.pathToBytes(event.path), new TextEncoder().encode("/link"))
+        assert.deepStrictEqual([...(yield* fs.readDirectory("/"))].sort(), ["link", "target"])
       })
-      assert.strictEqual((yield* fs.lstat("/link")).kind, "file")
-      assert.deepStrictEqual(yield* fs.readFile("/target"), new Uint8Array([42]))
-      const events = yield* Fiber.join(watcher)
-      assert.strictEqual(events.length, 1)
-      const event = events[0]
-      assert.isDefined(event)
-      assert.strictEqual(event._tag, "Update")
-      assert.deepStrictEqual(yield* Vfs.pathToBytes(event.path), new TextEncoder().encode("/link"))
-      assert.deepStrictEqual([...(yield* fs.readDirectory("/"))].sort(), ["link", "target"])
-    }))
+  )
 
   it.effect("retains linked target charges and metadata when replacement exceeds quota", () =>
     Effect.gen(function*() {

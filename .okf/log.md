@@ -46,6 +46,8 @@
 
 ## 2026-09-13
 
+- **Volume durability and identity facts**: Implemented the ordered durability vocabulary, separately branded stable identity and per-construction incarnation tokens, explicit `Crypto.Crypto` entropy, and direct NFS projection to `fsid`, filehandles, write verifiers, and cookie verifiers while retaining an independent NFS server generation.
+
 - **NFS negotiated reply sizing**: Replaced worst-case reply rejection with minimum preflight bounds and encoded-size enforcement, allowing macOS compounds whose actual replies fit the negotiated channel.
 
 - **Platform-neutral NFS transport**: Changed NFS to require Effect's `SocketServer` service so applications choose the Bun, Node, or another platform implementation and binding, while NFS still rejects non-loopback addresses.

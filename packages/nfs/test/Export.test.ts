@@ -1,8 +1,9 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { assert, describe, it } from "@effect/vitest"
+import { assert, it } from "@effect/vitest"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import { InvalidFilehandleError, InvalidNameError, makeExport, validateName } from "../src/internal/export.js"
+import * as TestCrypto from "./support/crypto.js"
 
 const generation = (value: number) => new Uint8Array(16).fill(value)
 
@@ -10,7 +11,20 @@ const utf8 = (value: string) => new TextEncoder().encode(value)
 
 const maxNameBytes = ByteSize.bytes(255)
 
-describe("NFS export identity", () => {
+it.layer(TestCrypto.layer)("NFS export identity", (it) => {
+  it.effect("derives fsid from stable identity and filehandles from the incarnation", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      const root = yield* caller.rootReference
+      const incarnation = generation(0x11)
+      const identity = Uint8Array.from({ length: 16 }, (_, index) => index)
+      const export_ = makeExport(caller, incarnation, { maxFilehandles: 2, maxNameBytes }, identity)
+      const handle = yield* export_.handleFor(root)
+
+      assert.deepStrictEqual(export_.fsid, [0x0001_0203_0405_0607n, 0x0809_0a0b_0c0d_0e0fn])
+      assert.deepStrictEqual(handle.subarray(1, 17), incarnation)
+    }))
+
   it.effect("keeps handles opaque and stable across hard-link and rename aliases", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()

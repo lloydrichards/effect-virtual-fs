@@ -1,10 +1,12 @@
-import { assert, describe, it } from "@effect/vitest"
+import { assert, describe } from "@effect/vitest"
 import { Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
 const bytes = (...values: Array<number>) => new Uint8Array(values)
 
 const name = (value: string) => new TextEncoder().encode(value)
+
+import { it } from "./TestEffect.js"
 
 describe("object references", () => {
   it.effect("keeps canonical identity across hard links, rename, and path reuse", () =>

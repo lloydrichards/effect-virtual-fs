@@ -1,12 +1,19 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { assert, describe, it } from "@effect/vitest"
-import { Deferred, Effect, Exit, Fiber, Option, Scope } from "effect"
+import { assert, it, live as liveTest } from "@effect/vitest"
+import { type Crypto, Deferred, Effect, Exit, Fiber, Option, Scope } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import type * as Duration from "effect/Duration"
 import * as TestClock from "effect/testing/TestClock"
 import { makeExport } from "../src/internal/export.js"
 import { makeNfs4Handler, nextSequenceId, Operation, Status } from "../src/internal/nfs4.js"
 import { Reader, Writer } from "../src/internal/xdr.js"
+import * as TestCrypto from "./support/crypto.js"
+
+const live = <E>(
+  name: string,
+  body: () => Effect.Effect<void, E, Crypto.Crypto | Scope.Scope>,
+  timeout?: number
+) => liveTest(name, () => body().pipe(Effect.provide(TestCrypto.layer)), timeout)
 
 import {
   authSysCallback,
@@ -26,7 +33,55 @@ import {
   statuses
 } from "./support/harness.js"
 
-describe("NFSv4.1 COMPOUND", () => {
+it.layer(TestCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
+  it.effect("uses storage incarnation rather than server generation for COMMIT", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const storageGeneration = generation.map(() => 9)
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, storageGeneration, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        {
+          leaseDurationSeconds: 30,
+          callbackTimeout: "1 second",
+          generation,
+          storageGeneration,
+          now: () => 0,
+          limits
+        }
+      )
+
+      const { session } = yield* startSession(handler, "commit-storage-generation")
+
+      const response = new Reader(
+        yield* handler.compound(call([
+          sequence(session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          (writer) => writer.uint32(Operation.LOOKUP).string("file"),
+          (writer) => writer.uint32(Operation.COMMIT).uint64(0n).uint32(0)
+        ])),
+        limits
+      )
+
+      assert.strictEqual(response.uint32(), Status.OK)
+      response.string()
+      assert.strictEqual(response.uint32(), 4)
+      assert.strictEqual(response.uint32(), Operation.SEQUENCE)
+      assert.strictEqual(response.uint32(), Status.OK)
+      response.fixedOpaque(16)
+
+      for (let field = 0; field < 5; field++) response.uint32()
+
+      for (const operation of [Operation.PUTROOTFH, Operation.LOOKUP, Operation.COMMIT]) {
+        assert.strictEqual(response.uint32(), operation)
+        assert.strictEqual(response.uint32(), Status.OK)
+      }
+
+      assert.deepStrictEqual(response.fixedOpaque(8), storageGeneration.subarray(0, 8))
+      response.finish()
+    }))
+
   it("wraps client sequence IDs at the uint32 boundary", () => {
     assert.strictEqual(nextSequenceId(1), 2)
     assert.strictEqual(nextSequenceId(0xffff_ffff), 0)
@@ -1986,7 +2041,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual((yield* Effect.flip(caller.observeMetadata(reference))).code, "StaleReference")
     }))
 
-  it.live("does not let a connection finalizer wait out an in-flight compound", () =>
+  live("does not let a connection finalizer wait out an in-flight compound", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
@@ -2063,7 +2118,7 @@ describe("NFSv4.1 COMPOUND", () => {
     }))
 
   // A real bound needs the live clock: it.effect runs on the test clock, which never advances.
-  it.live("abandons a compound stalled in the export and leaves its slot replayable", () =>
+  live("abandons a compound stalled in the export and leaves its slot replayable", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
@@ -2133,7 +2188,7 @@ describe("NFSv4.1 COMPOUND", () => {
     }))
 
   // A real bound needs the live clock: it.effect runs on the test clock, which never advances.
-  it.live("closes an open exactly once when CLOSE is interrupted", () =>
+  live("closes an open exactly once when CLOSE is interrupted", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
@@ -2210,7 +2265,7 @@ describe("NFSv4.1 COMPOUND", () => {
     }))
 
   // A real bound needs the live clock: it.effect runs on the test clock, which never advances.
-  it.live("closes a revoked client's open exactly once when revocation is interrupted", () =>
+  live("closes a revoked client's open exactly once when revocation is interrupted", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
@@ -2750,7 +2805,7 @@ describe("NFSv4.1 COMPOUND", () => {
     }))
 
   // A real timeout needs the live clock: it.effect runs on the test clock, which never advances.
-  it.live("reports the callback path down when the client never answers", () =>
+  live("reports the callback path down when the client never answers", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("10 millis")
       const client = connection(1)
@@ -2928,7 +2983,7 @@ describe("NFSv4.1 COMPOUND", () => {
     }))
 
   // Live clock: the probe must actually time out after the impostor reply is discarded.
-  it.live("ignores a callback reply that arrives on another connection", () =>
+  live("ignores a callback reply that arrives on another connection", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("50 millis")
       let sent: Uint8Array | undefined
@@ -2952,7 +3007,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.isFalse(yield* Fiber.join(probe), "the impostor reply was ignored and the probe timed out")
     }))
 
-  it.live("reports a down callback path in sr_status_flags", () =>
+  live("reports a down callback path in sr_status_flags", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("10 millis")
       const client = connection(1, () => false)
@@ -2974,7 +3029,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(reply.uint32(), 0x0000_0200, "SEQ4_STATUS_CB_PATH_DOWN_SESSION")
     }))
 
-  it.live("probes the callback path again after BACKCHANNEL_CTL re-advertises a program", () =>
+  live("probes the callback path again after BACKCHANNEL_CTL re-advertises a program", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("10 millis")
       let attempts = 0
@@ -3017,7 +3072,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(attempts, 2, "the repaired endpoint is probed again")
     }))
 
-  it.live("treats an RPC-level rejection as a callback path that is down", () =>
+  live("treats an RPC-level rejection as a callback path that is down", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("50 millis")
       let sent: Uint8Array | undefined
@@ -3040,7 +3095,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.isFalse(yield* Fiber.join(probe), "PROG_UNAVAIL is not success")
     }))
 
-  it.live("does not advance the backchannel slot sequence when a callback goes unanswered", () =>
+  live("does not advance the backchannel slot sequence when a callback goes unanswered", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("30 millis")
       const seen: Array<number> = []
@@ -3146,7 +3201,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.isFalse(yield* handler.probeBackChannel(session))
     }))
 
-  it.live("probes again when a new connection binds the backchannel", () =>
+  live("probes again when a new connection binds the backchannel", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("20 millis")
       let attempts = 0
@@ -3182,7 +3237,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.isAbove(attempts, 1, "the rebound path is probed again")
     }))
 
-  it.live("marks the path down when its last backchannel connection goes away", () =>
+  live("marks the path down when its last backchannel connection goes away", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
       let sent: Uint8Array | undefined
@@ -3216,7 +3271,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(reply.uint32(), 0x0000_0200, "SEQ4_STATUS_CB_PATH_DOWN_SESSION")
     }))
 
-  it.live("lets a healthy carrier answer while another stays silent", () =>
+  live("lets a healthy carrier answer while another stays silent", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
       const silent = connection(1)
@@ -3247,7 +3302,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.isTrue(yield* Fiber.join(probe), "the answering carrier wins")
     }))
 
-  it.live("does not let a rejecting carrier end the attempt", () =>
+  live("does not let a rejecting carrier end the attempt", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
       let rejectSent: Uint8Array | undefined
@@ -3315,7 +3370,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.deepStrictEqual(statuses(created).operations, [[Operation.CREATE_SESSION, Status.TOOSMALL]])
     }))
 
-  it.live("rejects a callback reply whose RPC verifier exceeds an opaque_auth body", () =>
+  live("rejects a callback reply whose RPC verifier exceeds an opaque_auth body", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("50 millis")
       let sent: Uint8Array | undefined
@@ -3384,7 +3439,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.isFalse(yield* handler.probeBackChannel(session))
     }))
 
-  it.live("does not let a stale probe overwrite the verdict of a re-armed path", () =>
+  live("does not let a stale probe overwrite the verdict of a re-armed path", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("80 millis")
       const sends: Array<Uint8Array> = []
@@ -3442,7 +3497,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(reply.uint32(), 0, "the re-armed path is still reported up")
     }))
 
-  it.live("re-arms the probe when every backchannel slot is already in flight", () =>
+  live("re-arms the probe when every backchannel slot is already in flight", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("80 millis")
       let attempts = 0
@@ -3535,7 +3590,7 @@ describe("NFSv4.1 COMPOUND", () => {
       assert.strictEqual(program, callbackProgram, "the unapplied BACKCHANNEL_CTL did not change it")
     }))
 
-  it.live("rejects a callback reply that is not exactly one complete CB_SEQUENCE result", () =>
+  live("rejects a callback reply that is not exactly one complete CB_SEQUENCE result", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("50 millis")
       let sent: Uint8Array | undefined
