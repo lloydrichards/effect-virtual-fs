@@ -1,4 +1,5 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it, live as liveTest } from "@effect/vitest"
 import { type Crypto, Deferred, Effect, Exit, Fiber, Option, Scope } from "effect"
 import * as ByteSize from "effect/ByteSize"
@@ -7,13 +8,12 @@ import * as TestClock from "effect/testing/TestClock"
 import { makeExport } from "../src/internal/export.js"
 import { makeNfs4Handler, nextSequenceId, Operation, Status } from "../src/internal/nfs4.js"
 import { Reader, Writer } from "../src/internal/xdr.js"
-import * as TestCrypto from "./support/crypto.js"
 
 const live = <E>(
   name: string,
   body: () => Effect.Effect<void, E, Crypto.Crypto | Scope.Scope>,
   timeout?: number
-) => liveTest(name, () => body().pipe(Effect.provide(TestCrypto.layer)), timeout)
+) => liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
 
 import {
   authSysCallback,
@@ -33,7 +33,7 @@ import {
   statuses
 } from "./support/harness.js"
 
-it.layer(TestCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
+it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
   it.effect("uses storage incarnation rather than server generation for COMMIT", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()

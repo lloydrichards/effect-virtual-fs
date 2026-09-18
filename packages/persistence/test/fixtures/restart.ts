@@ -1,9 +1,9 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { CheckpointStore } from "@effect-vfs/persistence"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { ByteSize, Effect, Layer } from "effect"
 import * as assert from "node:assert/strict"
-import * as TestCrypto from "../crypto.js"
 
 const mode = process.argv[2]
 
@@ -81,6 +81,6 @@ const program = Effect.gen(function*() {
 })
 
 await Effect.runPromise(program.pipe(
-  Effect.provide(Layer.merge(SqliteClient.layer({ filename }), TestCrypto.layer)),
+  Effect.provide(Layer.merge(SqliteClient.layer({ filename }), NodeCrypto.layer)),
   Effect.scoped
 ))

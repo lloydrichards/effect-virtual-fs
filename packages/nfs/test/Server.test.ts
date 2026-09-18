@@ -1,4 +1,5 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as NodeSocketServer from "@effect/platform-node-shared/NodeSocketServer"
 import { assert, it, live as liveTest } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
@@ -11,13 +12,12 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as NetAddress from "effect/unstable/net/NetAddress"
-import * as TestCrypto from "./support/crypto.js"
 
 const live = <E>(
   name: string,
   body: () => Effect.Effect<void, E, Crypto.Crypto | Scope.Scope>,
   timeout?: number
-) => liveTest(name, () => body().pipe(Effect.provide(TestCrypto.layer)), timeout)
+) => liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
 
 import * as SocketServer from "effect/unstable/socket/SocketServer"
 import * as Net from "node:net"
@@ -263,7 +263,7 @@ const testSocketServer = SocketServer.SocketServer.of({
   run: () => Effect.never
 })
 
-it.layer(TestCrypto.layer)("NfsServer", (it) => {
+it.layer(NodeCrypto.layer)("NfsServer", (it) => {
   it("models configuration units and bounds with Schema", () => {
     assert.isTrue(Schema.is(NfsServerLimits)(limits))
     assert.isTrue(Object.isFrozen(NfsServerLimits.default))

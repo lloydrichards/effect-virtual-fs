@@ -1,12 +1,12 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, it } from "@effect/vitest"
 import { ByteSize, Effect, Exit, Fiber, Option, Scope, Stream } from "effect"
+import { layerDeterministicCrypto } from "../src/internal/crypto.js"
 import * as Memory from "../src/MemoryFileSystem.js"
-import * as TestCrypto from "./crypto.js"
 
 const bytes = new TextEncoder()
 
-it.layer(TestCrypto.layer)("core-backed memory bindings", (it) => {
+it.layer(layerDeterministicCrypto)("core-backed memory bindings", (it) => {
   it.effect("shares direct core writes and independent adapter cursors between bindings", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()

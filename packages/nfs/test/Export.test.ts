@@ -1,9 +1,9 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it } from "@effect/vitest"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import { InvalidFilehandleError, InvalidNameError, makeExport, validateName } from "../src/internal/export.js"
-import * as TestCrypto from "./support/crypto.js"
 
 const generation = (value: number) => new Uint8Array(16).fill(value)
 
@@ -11,7 +11,7 @@ const utf8 = (value: string) => new TextEncoder().encode(value)
 
 const maxNameBytes = ByteSize.bytes(255)
 
-it.layer(TestCrypto.layer)("NFS export identity", (it) => {
+it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
   it.effect("derives fsid from stable identity and filehandles from the incarnation", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
