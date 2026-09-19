@@ -21,6 +21,8 @@ const valid = lint("scripts/anti-slop-policy-fixtures/valid.ts")
 const invalid = lint("scripts/anti-slop-policy-fixtures/invalid.ts")
 
 const policyRules = [
+  "anti-slop(require-public-effect-fn-signature)",
+  "anti-slop(require-public-internal-alias-type)",
   "anti-slop(no-shape-in-symbol-names)",
   "anti-slop-effect(no-manual-tagged-construction)",
   "anti-slop-effect(prefer-effect-match)"

@@ -30,6 +30,8 @@ const antiSlopPlugin = eslintCompatPlugin({
     "no-known-value-widening": noKnownValueWideningRule,
     "no-module-mocking": noModuleMockingRule,
     "no-object-parameters": noObjectParametersRule,
+    "require-public-effect-fn-signature": requirePublicEffectFnSignatureRule,
+    "require-public-internal-alias-type": requirePublicInternalAliasTypeRule,
     "no-reflect-apply": noReflectApplyRule,
     "no-reflect-get": noReflectGetRule,
     "no-runtime-typeof": noRuntimeTypeofRule,

@@ -11,6 +11,8 @@
   ],
   "rules": {
     "anti-slop/no-shape-in-symbol-names": "error",
+    "anti-slop/require-public-effect-fn-signature": "error",
+    "anti-slop/require-public-internal-alias-type": "error",
     "anti-slop-effect/no-manual-tagged-construction": "error",
     "anti-slop-effect/prefer-effect-match": "error"
   }
