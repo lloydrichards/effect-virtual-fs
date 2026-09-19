@@ -327,7 +327,8 @@ describe("fixtures and snapshots", () => {
 
   // Real scheduling: the assertion compares wall-clock durations, so virtual time would not measure
   // anything. Interruption is signalled by another fiber rather than a timer, because timer latency
-  // on a loaded CI runner can exceed the walk itself.
+  // on a loaded CI runner can exceed the walk itself. The 10,000-file setup can exceed Vitest's
+  // five-second default when the workspace suites run in parallel.
   it.effect(
     "releases the volume after a snapshot is interrupted mid-walk",
     () =>
@@ -363,6 +364,7 @@ describe("fixtures and snapshots", () => {
 
         assert.strictEqual((yield* restored.lstat("/after")).kind, "file")
         assert.strictEqual((yield* restored.lstat("/d99/f99")).kind, "file")
-      }))
+      })),
+    20_000
   )
 })
