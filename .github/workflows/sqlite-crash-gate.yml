@@ -1,0 +1,41 @@
+name: SQLite crash recovery gate
+
+# Opt in because repeated process crashes are slower than ordinary PR tests.
+# This gate proves process-death recovery on the named runner, not guest OS
+# crash or physical power-loss durability.
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-process-death:
+    name: Linux SQLite process-death recovery
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'sqlite-crash-gate')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Run SQLite provider tests
+        run: bun run --filter @effect-vfs/persistence test -- SqliteLiveImageStore.test.ts
+      - name: Repeat crash and recovery cases
+        env:
+          GATE_OUTPUT_DIR: ${{ runner.temp }}/sqlite-crash-gate
+          GATE_ITERATIONS: 10
+        run: bash packages/persistence/scripts/linux-crash-gate.sh
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-crash-gate-${{ github.run_id }}
+          path: ${{ runner.temp }}/sqlite-crash-gate
+          if-no-files-found: ignore
