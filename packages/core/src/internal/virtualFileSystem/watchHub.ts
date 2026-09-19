@@ -11,14 +11,17 @@ export interface Coordinator {
 
 // Events are passed as thunks so nothing is allocated when there are no subscribers.
 /** @internal */
-export interface WatchHub<A> {
+export interface WatchHub<A, E = never> {
   readonly publishUnsafe: (event: () => A) => void
   readonly publishManyUnsafe: (events: () => Iterable<A>) => void
-  readonly subscribe: (afterSubscribe?: Effect.Effect<void>) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>
+  readonly subscribe: (afterSubscribe?: Effect.Effect<void>) => Effect.Effect<Stream.Stream<A>, E, Scope.Scope>
 }
 
 /** @internal */
-export const make = Effect.fnUntraced(function*<A>(coordinate: Coordinator): Effect.fn.Return<WatchHub<A>> {
+export const make = Effect.fnUntraced(function*<A, E = never>(
+  coordinate: Coordinator,
+  checkAvailable?: Effect.Effect<void, E>
+): Effect.fn.Return<WatchHub<A, E>> {
   const pubsub = yield* PubSub.unbounded<A>()
   // Guarded by `coordinate`: publishers run inside coordinated mutations and both writes below hold the gate.
   let activeSubscribers = 0
@@ -39,6 +42,7 @@ export const make = Effect.fnUntraced(function*<A>(coordinate: Coordinator): Eff
   const subscribe = (afterSubscribe?: Effect.Effect<void>) =>
     Effect.acquireRelease(
       coordinate(Effect.gen(function*() {
+        if (checkAvailable !== undefined) yield* checkAvailable
         const subscription = yield* PubSub.subscribe(pubsub)
 
         if (afterSubscribe !== undefined) yield* afterSubscribe

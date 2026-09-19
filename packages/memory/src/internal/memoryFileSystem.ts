@@ -667,7 +667,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       ),
     watch: (path, options) =>
       Stream.unwrap(Effect.gen(function*() {
-        const stream = yield* volume.watch
+        const stream = yield* mapped(volume.watch, "watch", path)
         const resolved = yield* mapped(caller.realPath(path), "stat", path)
         const prefix = new TextEncoder().encode(resolved)
 

@@ -1822,7 +1822,7 @@ export const makeNfs4Handler = (
   const storageGeneration = options.storageGeneration ?? options.generation
   const supportedAttributes = supportedAttributesFor(export_)
 
-  const sampleUsage = (requested: ReadonlyArray<number>): Effect.Effect<Vfs.VolumeUsage | null> =>
+  const sampleUsage = (requested: ReadonlyArray<number>): Effect.Effect<Vfs.VolumeUsage | null, Vfs.FsError> =>
     requested.some((attribute) => capacityAttributes.has(attribute))
       ? export_.capacity!.usage
       : Effect.succeed(null)
@@ -3146,7 +3146,7 @@ export const makeNfs4Handler = (
                   Effect.flatMap((filehandle) =>
                     mapFs(export_.observeMetadata(reference)).pipe(
                       Effect.flatMap((observation) =>
-                        sampleUsage(supportedRequested).pipe(
+                        mapFs(sampleUsage(supportedRequested)).pipe(
                           Effect.flatMap((usage) =>
                             requireAttributes(
                               encodeAttributes(
@@ -3187,7 +3187,7 @@ export const makeNfs4Handler = (
                   Effect.flatMap((filehandle) =>
                     mapFs(export_.observeMetadata(reference)).pipe(
                       Effect.flatMap((observation) =>
-                        sampleUsage(requested).pipe(
+                        mapFs(sampleUsage(requested)).pipe(
                           Effect.flatMap((usage) =>
                             requireAttributes(
                               encodeAttributeValues(
@@ -3303,7 +3303,7 @@ export const makeNfs4Handler = (
                         supportedAttributes.includes(attribute)
                       )
 
-                      const usage = yield* sampleUsage(supportedRequested)
+                      const usage = yield* mapFs(sampleUsage(supportedRequested))
 
                       const verifier = makeCookieVerifier(storageGeneration, observation.revision)
 

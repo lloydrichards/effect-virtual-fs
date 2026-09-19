@@ -38,7 +38,7 @@ describe("staged state", () => {
         { value: 1 },
         (current) => Effect.succeed({ ...current }),
         { commit: () => Effect.succeed(outcome) },
-        (events) => observed.push(...events)
+        (_candidate, events) => observed.push(...events)
       )
 
       yield* Effect.flip(state.mutate("write", (candidate, emit) =>
@@ -106,6 +106,31 @@ describe("staged state", () => {
           candidate.value = 3
         }))
       assert.strictEqual(yield* state.read("read", (current) => Effect.succeed(current.value)), 3)
+    }))
+
+  it.effect("poisons the coordinator when a resource release cannot commit", () =>
+    Effect.gen(function*() {
+      let released = false
+
+      const state = makeStagedState(
+        { value: 1 },
+        (current) => Effect.succeed({ ...current }),
+        { commit: () => Effect.succeed("rejected" as const) }
+      )
+
+      const failure = yield* Effect.flip(state.mutate("close", (candidate) =>
+        Effect.sync(() => {
+          candidate.value = 0
+        }), () => {
+        released = true
+      }))
+
+      assert.strictEqual(failure.code, "StorageRejected")
+      assert.isTrue(released)
+      assert.strictEqual(
+        (yield* Effect.flip(state.read("read", (current) => Effect.succeed(current.value)))).code,
+        "VolumeUnavailable"
+      )
     }))
 
   it.effect("stops every later operation after an unknown commit outcome", () =>

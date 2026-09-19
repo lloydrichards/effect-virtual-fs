@@ -2,6 +2,8 @@
 
 ## 2026-09-19
 
+- **Live staging integration**: Connected a fake commit provider to the core volume engine. Candidate mutations now stage node graphs, retained objects, handle records, reference invalidations, and watch events; pure observations use the same gate. Confirmed storage rejection leaves the candidate invisible, unknown outcomes stop access, and failed final close releases its runtime handle while stopping service. Persistent encoding and SQLite remain open.
+
 - **Durable staging inventory**: Identified the live node graph, retained unlinked objects, capability records, access-time writes, and watch events that must be staged and published together. The current coordinator now buffers events through commit, but remains separate from live engine operations.
 
 - **Durable storage failure vocabulary**: Added three public `FsCode` values for definite storage rejection, unknown outcome, and unavailable volume, with exhaustive NFS `IO` mapping. Built-in memory volumes do not emit them; the durable-provider failure channels remain to be implemented.

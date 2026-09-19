@@ -223,8 +223,19 @@ describe("input and mutation boundaries", () => {
         const caller = yield* volume.caller()
         yield* caller.mkdir("first")
         assert.strictEqual((yield* Effect.flip(caller.mkdir("second"))).code, "NoSpace")
-        assert.strictEqual((yield* Effect.flip(volume.caller({ umask: 0o1000 }))).field, "umask")
-        assert.strictEqual((yield* Effect.flip(volume.caller({ identity: identity(-1) }))).field, "identity")
+        const umaskError = yield* Effect.flip(volume.caller({ umask: 0o1000 }))
+        const identityError = yield* Effect.flip(volume.caller({ identity: identity(-1) }))
+
+        assert.strictEqual(umaskError._tag, "ConfigurationError")
+        assert.strictEqual(identityError._tag, "ConfigurationError")
+
+        if (
+          Predicate.isTagged("ConfigurationError")(umaskError) &&
+          Predicate.isTagged("ConfigurationError")(identityError)
+        ) {
+          assert.strictEqual(umaskError.field, "umask")
+          assert.strictEqual(identityError.field, "identity")
+        }
       })
   )
 
