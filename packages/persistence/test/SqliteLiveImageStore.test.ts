@@ -118,27 +118,31 @@ describe("SQLite live image store", () => {
       const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
       const filename = path.join(directory, "live.sqlite")
 
-      const before = yield* Effect.scoped(Effect.gen(function*() {
-        const live = yield* LiveVolume.open(options)
-        const caller = yield* live.caller()
-        yield* caller.writeFile("/first", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
-        yield* caller.link("/first", "/alias")
-        yield* caller.rename("/first", "/renamed")
-        yield* caller.chmod("/renamed", 0o640)
+      const before = yield* Effect.scoped(
+        Effect.gen(function*() {
+          const live = yield* LiveVolume.open(options)
+          const caller = yield* live.caller()
+          yield* caller.writeFile("/first", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
+          yield* caller.link("/first", "/alias")
+          yield* caller.rename("/first", "/renamed")
+          yield* caller.chmod("/renamed", 0o640)
 
-        return { identity: live.identity, incarnation: live.incarnation }
-      }).pipe(Effect.provide(store(filename))))
+          return { identity: live.identity, incarnation: live.incarnation }
+        }).pipe(Effect.provide(store(filename)))
+      )
 
-      yield* Effect.scoped(Effect.gen(function*() {
-        const live = yield* LiveVolume.open(options)
-        const caller = yield* live.caller()
-        assert.strictEqual(live.identity, before.identity)
-        assert.notStrictEqual(live.incarnation, before.incarnation)
-        assert.deepEqual(yield* caller.readFile("/renamed"), new Uint8Array([1, 2, 3]))
-        assert.deepEqual(yield* caller.readFile("/alias"), new Uint8Array([1, 2, 3]))
-        assert.strictEqual((yield* caller.stat("/alias")).ino, (yield* caller.stat("/renamed")).ino)
-        assert.strictEqual((yield* caller.stat("/renamed")).mode, 0o640)
-      }).pipe(Effect.provide(store(filename))))
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          const live = yield* LiveVolume.open(options)
+          const caller = yield* live.caller()
+          assert.strictEqual(live.identity, before.identity)
+          assert.notStrictEqual(live.incarnation, before.incarnation)
+          assert.deepEqual(yield* caller.readFile("/renamed"), new Uint8Array([1, 2, 3]))
+          assert.deepEqual(yield* caller.readFile("/alias"), new Uint8Array([1, 2, 3]))
+          assert.strictEqual((yield* caller.stat("/alias")).ino, (yield* caller.stat("/renamed")).ino)
+          assert.strictEqual((yield* caller.stat("/renamed")).mode, 0o640)
+        }).pipe(Effect.provide(store(filename)))
+      )
     })).pipe(Effect.provide(files)))
 
   it.effect("rejects a competing owner and a damaged image", () =>
@@ -148,11 +152,13 @@ describe("SQLite live image store", () => {
       const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
       const filename = path.join(directory, "live.sqlite")
 
-      yield* Effect.scoped(Effect.gen(function*() {
-        yield* LiveVolume.open(options)
-        const competing = yield* Effect.flip(LiveVolume.open(options).pipe(Effect.provide(store(filename))))
-        assert.strictEqual(competing.code, "Ownership")
-      }).pipe(Effect.provide(store(filename))))
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          yield* LiveVolume.open(options)
+          const competing = yield* Effect.flip(LiveVolume.open(options).pipe(Effect.provide(store(filename))))
+          assert.strictEqual(competing.code, "Ownership")
+        }).pipe(Effect.provide(store(filename)))
+      )
 
       yield* Effect.gen(function*() {
         const sql = yield* SqlClient
@@ -188,18 +194,20 @@ describe("SQLite live image store", () => {
       const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
       const filename = path.join(directory, "live.sqlite")
 
-      yield* Effect.scoped(Effect.gen(function*() {
-        const live = yield* LiveVolume.open(options)
-        const caller = yield* live.caller()
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          const live = yield* LiveVolume.open(options)
+          const caller = yield* live.caller()
 
-        const error = yield* Effect.flip(caller.writeFile("/too-large", new Uint8Array(15_000), {
-          access: "write",
-          create: "exclusive"
-        }))
+          const error = yield* Effect.flip(caller.writeFile("/too-large", new Uint8Array(15_000), {
+            access: "write",
+            create: "exclusive"
+          }))
 
-        assert.strictEqual(error.code, "StorageRejected")
-        assert.strictEqual((yield* Effect.flip(caller.stat("/too-large"))).code, "NotFound")
-      }).pipe(Effect.provide(store(filename, ByteSize.bytes(12_288)))))
+          assert.strictEqual(error.code, "StorageRejected")
+          assert.strictEqual((yield* Effect.flip(caller.stat("/too-large"))).code, "NotFound")
+        }).pipe(Effect.provide(store(filename, ByteSize.bytes(12_288))))
+      )
     })).pipe(Effect.provide(files)))
 
   it.effect("freezes the volume when a SQLite commit succeeds but its acknowledgement is lost", () =>
@@ -236,29 +244,33 @@ describe("SQLite live image store", () => {
         maxDatabaseBytes: ByteSize.megabytes(2)
       }).pipe(Layer.provide(sql))
 
-      const identity = yield* Effect.scoped(Effect.gen(function*() {
-        const live = yield* LiveVolume.open(options)
-        const caller = yield* live.caller()
-        loseAcknowledgement = true
+      const identity = yield* Effect.scoped(
+        Effect.gen(function*() {
+          const live = yield* LiveVolume.open(options)
+          const caller = yield* live.caller()
+          loseAcknowledgement = true
 
-        const failure = yield* Effect.flip(caller.writeFile("/durable", new Uint8Array([4, 5, 6]), {
-          access: "write",
-          create: "exclusive"
-        }))
+          const failure = yield* Effect.flip(caller.writeFile("/durable", new Uint8Array([4, 5, 6]), {
+            access: "write",
+            create: "exclusive"
+          }))
 
-        assert.strictEqual(failure.code, "OutcomeUnknown")
-        assert.strictEqual((yield* Effect.flip(caller.stat("/durable"))).code, "VolumeUnavailable")
-        assert.strictEqual((yield* Effect.flip(live.usage)).code, "VolumeUnavailable")
+          assert.strictEqual(failure.code, "OutcomeUnknown")
+          assert.strictEqual((yield* Effect.flip(caller.stat("/durable"))).code, "VolumeUnavailable")
+          assert.strictEqual((yield* Effect.flip(live.usage)).code, "VolumeUnavailable")
 
-        return live.identity
-      }).pipe(Effect.provide(injected)))
+          return live.identity
+        }).pipe(Effect.provide(injected))
+      )
 
-      yield* Effect.scoped(Effect.gen(function*() {
-        const live = yield* LiveVolume.open(options)
-        const caller = yield* live.caller()
-        assert.strictEqual(live.identity, identity)
-        assert.deepEqual(yield* caller.readFile("/durable"), new Uint8Array([4, 5, 6]))
-      }).pipe(Effect.provide(store(filename))))
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          const live = yield* LiveVolume.open(options)
+          const caller = yield* live.caller()
+          assert.strictEqual(live.identity, identity)
+          assert.deepEqual(yield* caller.readFile("/durable"), new Uint8Array([4, 5, 6]))
+        }).pipe(Effect.provide(store(filename)))
+      )
     })).pipe(Effect.provide(files)))
 
   it.effect("freezes the volume when an update fails and rollback cannot be confirmed", () =>
@@ -290,27 +302,31 @@ describe("SQLite live image store", () => {
         maxDatabaseBytes: ByteSize.megabytes(2)
       }).pipe(Layer.provide(sql))
 
-      const identity = yield* Effect.scoped(Effect.gen(function*() {
-        const live = yield* LiveVolume.open(options)
-        const caller = yield* live.caller()
-        failTransaction = true
+      const identity = yield* Effect.scoped(
+        Effect.gen(function*() {
+          const live = yield* LiveVolume.open(options)
+          const caller = yield* live.caller()
+          failTransaction = true
 
-        const failure = yield* Effect.flip(caller.writeFile("/unconfirmed", new Uint8Array([1]), {
-          access: "write",
-          create: "exclusive"
-        }))
+          const failure = yield* Effect.flip(caller.writeFile("/unconfirmed", new Uint8Array([1]), {
+            access: "write",
+            create: "exclusive"
+          }))
 
-        assert.strictEqual(failure.code, "OutcomeUnknown")
-        assert.strictEqual((yield* Effect.flip(caller.stat("/"))).code, "VolumeUnavailable")
+          assert.strictEqual(failure.code, "OutcomeUnknown")
+          assert.strictEqual((yield* Effect.flip(caller.stat("/"))).code, "VolumeUnavailable")
 
-        return live.identity
-      }).pipe(Effect.provide(injected)))
+          return live.identity
+        }).pipe(Effect.provide(injected))
+      )
 
-      yield* Effect.scoped(Effect.gen(function*() {
-        const live = yield* LiveVolume.open(options)
-        const caller = yield* live.caller()
-        assert.strictEqual(live.identity, identity)
-        assert.strictEqual((yield* Effect.flip(caller.stat("/unconfirmed"))).code, "NotFound")
-      }).pipe(Effect.provide(store(filename))))
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          const live = yield* LiveVolume.open(options)
+          const caller = yield* live.caller()
+          assert.strictEqual(live.identity, identity)
+          assert.strictEqual((yield* Effect.flip(caller.stat("/unconfirmed"))).code, "NotFound")
+        }).pipe(Effect.provide(store(filename)))
+      )
     })).pipe(Effect.provide(files)))
 })
