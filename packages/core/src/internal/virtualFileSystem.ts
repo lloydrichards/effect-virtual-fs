@@ -456,9 +456,22 @@ interface SymbolicLink {
 
 type Node = Directory | RegularFile | SymbolicLink
 
+interface EngineState {
+  root: Directory
+  revisionCounter: bigint
+  nextInode: bigint
+  entries: number
+  usedBytes: bigint
+}
+
 interface ObjectReferenceState {
   readonly volume: symbol
-  node: Node | undefined
+  readonly cell: NodeCell
+  active: boolean
+}
+
+interface NodeCell {
+  node: Node
 }
 
 const objectReferences = new WeakMap<ObjectReference, ObjectReferenceState>()
@@ -566,23 +579,78 @@ export const makeVolume = Effect.fnUntraced(
       })
 
     const volumeIdentity = Symbol()
-    const gate = Semaphore.makeUnsafe(1)
-    let revisionCounter = 0n
-    const nextRevision = () => ++revisionCounter
+    // A capability holds a cell instead of a particular node object. Publication can replace
+    // the node behind the cell without replacing the capability held by a caller.
+    const cells = new WeakMap<Node, NodeCell>()
 
-    const root: Directory = {
-      kind: "directory",
-      lineage: image?.root,
-      parent: undefined,
-      entries: new Map(),
-      metadata: directoryMetadata(1n, 0, 0, 0o755, initialTime),
-      revision: nextRevision(),
-      objectReference: undefined
+    const cellFor = (node: Node): NodeCell => {
+      const existing = cells.get(node)
+
+      if (existing !== undefined) return existing
+      const cell = { node }
+
+      cells.set(node, cell)
+
+      return cell
     }
 
-    let nextInode = 2n
-    let entries = 0
-    let usedBytes = 0n
+    const makeFileReference = (access: FileReference["access"], append: boolean): FileReference => {
+      let cell: NodeCell | undefined
+
+      return {
+        volume: volumeIdentity,
+        get file() {
+          const node = cell?.node
+
+          return node?.kind === "file" ? node : undefined
+        },
+        set file(file) {
+          cell = file === undefined ? undefined : cellFor(file)
+        },
+        closed: false,
+        offset: 0n,
+        access,
+        append
+      }
+    }
+
+    const makeDirectoryReference = (directory?: Directory): DirectoryReference => {
+      let cell = directory === undefined ? undefined : cellFor(directory)
+
+      return {
+        volume: volumeIdentity,
+        get directory() {
+          const node = cell?.node
+
+          return node?.kind === "directory" ? node : undefined
+        },
+        set directory(directory) {
+          cell = directory === undefined ? undefined : cellFor(directory)
+        },
+        closed: false
+      }
+    }
+
+    const gate = Semaphore.makeUnsafe(1)
+
+    const state: EngineState = {
+      root: {
+        kind: "directory",
+        lineage: image?.root,
+        parent: undefined,
+        entries: new Map(),
+        metadata: directoryMetadata(1n, 0, 0, 0o755, initialTime),
+        revision: 1n,
+        objectReference: undefined
+      },
+      revisionCounter: 1n,
+      nextInode: 2n,
+      entries: 0,
+      usedBytes: 0n
+    }
+
+    const nextRevision = () => ++state.revisionCounter
+
     // The schema caps this value at uint32, so this boundary conversion is exact.
     const maxFileBytes = Number(ByteSize.toBigInt(settings.maxFileBytes ?? ByteSize.bytes(0xffffffff)))
 
@@ -633,7 +701,7 @@ export const makeVolume = Effect.fnUntraced(
         const metadata: Metadata = {
           ...record.metadata,
           kind: record._tag,
-          ino: record.id === image.root ? 1n : nextInode++,
+          ino: record.id === image.root ? 1n : state.nextInode++,
           nlink: Image.Record.guards.directory(record) ? 2 : 0,
           size: 0n,
           atimeNs: record.metadata.atimeNs,
@@ -644,7 +712,7 @@ export const makeVolume = Effect.fnUntraced(
 
         if (Image.Record.guards.directory(record)) {
           const node: Directory = record.id === image.root
-            ? root
+            ? state.root
             : {
               kind: "directory",
               lineage: record.id,
@@ -700,8 +768,8 @@ export const makeVolume = Effect.fnUntraced(
         }
       }
 
-      entries = count
-      usedBytes = content
+      state.entries = count
+      state.usedBytes = content
     }
 
     const watchHub = yield* WatchHub.make<Change>(coordinated)
@@ -744,7 +812,7 @@ export const makeVolume = Effect.fnUntraced(
 
       watchHub.publishManyUnsafe(() => {
         const changes: Array<Change> = []
-        const pending: Array<readonly [Directory, string]> = [[root, SLASH_HEX]]
+        const pending: Array<readonly [Directory, string]> = [[state.root, SLASH_HEX]]
 
         // nlink counts the names bound to this node, so the scan stops once it has found them all.
         while (pending.length > 0 && changes.length < target.metadata.nlink) {
@@ -769,8 +837,8 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const captureSnapshot = Effect.fnUntraced(function*() {
-      const ids = new Map<Node, string>([[root, "0"]])
-      const pending: Array<Node> = [root]
+      const ids = new Map<Node, string>([[state.root, "0"]])
+      const pending: Array<Node> = [state.root]
       const records: Array<Image.Record> = []
 
       for (let index = 0; index < pending.length; index++) {
@@ -811,7 +879,7 @@ export const makeVolume = Effect.fnUntraced(
 
     const observeChanges = Effect.fnUntraced(function*() {
       const observation: Array<ObservationEntry> = []
-      const paths: Array<readonly [Node, Uint8Array]> = [[root, new Uint8Array([SLASH_BYTE])]]
+      const paths: Array<readonly [Node, Uint8Array]> = [[state.root, new Uint8Array([SLASH_BYTE])]]
 
       for (let index = 0; index < paths.length; index++) {
         if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
@@ -859,7 +927,7 @@ export const makeVolume = Effect.fnUntraced(
     const referenceFor = (node: Node): ObjectReference => {
       if (node.objectReference !== undefined) return node.objectReference
       const reference = Object.freeze({ [ObjectReferenceId]: true as const })
-      objectReferences.set(reference, { volume: volumeIdentity, node })
+      objectReferences.set(reference, { volume: volumeIdentity, cell: cellFor(node), active: true })
       node.objectReference = reference
 
       return reference
@@ -871,7 +939,7 @@ export const makeVolume = Effect.fnUntraced(
       if (reference === undefined) return
       const state = objectReferences.get(reference)
 
-      if (state !== undefined) state.node = undefined
+      if (state !== undefined) state.active = false
       node.objectReference = undefined
     }
 
@@ -902,14 +970,14 @@ export const makeVolume = Effect.fnUntraced(
 
     const reclaim = (file: RegularFile) => {
       if (file.metadata.nlink === 0 && file.openCount === 0) {
-        usedBytes -= BigInt(file.data.bytes.length)
+        state.usedBytes -= BigInt(file.data.bytes.length)
         file.data = Content.empty()
         invalidateReference(file)
       }
     }
 
     // Whether the volume's entry quota leaves room for one more name.
-    const atEntryLimit = () => settings.maxEntries !== undefined && entries >= settings.maxEntries
+    const atEntryLimit = () => settings.maxEntries !== undefined && state.entries >= settings.maxEntries
 
     // A new subdirectory's ".." entry is a second link to the parent; other node kinds add none.
     const attach = (parent: Directory, name: string, node: Node, now: bigint) => {
@@ -935,7 +1003,7 @@ export const makeVolume = Effect.fnUntraced(
 
         if (node.kind === "file") reclaim(node)
         else if (node.metadata.nlink === 0) {
-          usedBytes -= BigInt(node.target.length)
+          state.usedBytes -= BigInt(node.target.length)
           invalidateReference(node)
         }
       }
@@ -953,7 +1021,7 @@ export const makeVolume = Effect.fnUntraced(
 
     // Replacing a payload clears setuid and setgid, and charges the volume for the size delta.
     const replaceContent = (file: RegularFile, data: Uint8Array, now: bigint) => {
-      usedBytes += BigInt(data.length - file.data.bytes.length)
+      state.usedBytes += BigInt(data.length - file.data.bytes.length)
       file.data = Content.make(data)
       file.metadata = {
         ...file.metadata,
@@ -976,7 +1044,7 @@ export const makeVolume = Effect.fnUntraced(
 
       if (
         settings.maxBytes !== undefined &&
-        BigInt(size - file.data.bytes.length) > ByteSize.toBigInt(settings.maxBytes) - usedBytes
+        BigInt(size - file.data.bytes.length) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes
       ) {
         return yield* new FsError({ code: "NoSpace", operation: operation })
       }
@@ -1037,7 +1105,7 @@ export const makeVolume = Effect.fnUntraced(
 
           const free = settings.maxBytes === undefined
             ? BigInt(maxFileBytes)
-            : ByteSize.toBigInt(settings.maxBytes) - usedBytes
+            : ByteSize.toBigInt(settings.maxBytes) - state.usedBytes
 
           const maximumEnd = BigInt(file.data.bytes.length) + free
           const end = Number(BigInt(maxFileBytes) < maximumEnd ? BigInt(maxFileBytes) : maximumEnd)
@@ -1131,9 +1199,10 @@ export const makeVolume = Effect.fnUntraced(
           return yield* new FsError({ code: "ForeignReference", operation: operation })
         }
 
-        if (state.node === undefined) return yield* new FsError({ code: "StaleReference", operation: operation })
+        if (!state.active) return yield* new FsError({ code: "StaleReference", operation: operation })
+        const node = state.cell.node
 
-        return state.node
+        return node
       })
 
       const referencedName = Effect.fnUntraced(function*(input: Uint8Array, operation: string) {
@@ -1174,7 +1243,7 @@ export const makeVolume = Effect.fnUntraced(
           return yield* new FsError({ code: "ClosedCaller", operation: operation, path: path.input })
         }
 
-        let current: Node = path.absolute ? root : reference.directory
+        let current: Node = path.absolute ? state.root : reference.directory
 
         if (!path.absolute && referencedBase !== undefined) {
           current = referencedBase
@@ -1271,7 +1340,7 @@ export const makeVolume = Effect.fnUntraced(
 
             work = expanded.success
 
-            if (work.absolute) current = root
+            if (work.absolute) current = state.root
             index = -1
           } else current = child
         }
@@ -1326,7 +1395,7 @@ export const makeVolume = Effect.fnUntraced(
         function*(input: PathInput, options: RelativeOptions | undefined, operation: string) {
           const prepared = preparePath(input, operation, settings.maxPathBytes)
           const base = options?.relativeTo
-          const acquired: DirectoryReference = { volume: volumeIdentity, directory: undefined, closed: false }
+          const acquired = makeDirectoryReference()
           // Register before retaining a directory. Closed scopes can run this immediately,
           // so registration must not happen while holding the volume permit.
           yield* Effect.addFinalizer(() => release(acquired))
@@ -1569,7 +1638,7 @@ export const makeVolume = Effect.fnUntraced(
             return yield* new FsError({ code: "ClosedCaller", operation: "rootReference" })
           }
 
-          return referenceFor(root)
+          return referenceFor(state.root)
         })).pipe(Effect.withSpan("Caller.rootReference")),
         lookupReference: Effect.fn("Caller.lookupReference")(function*(directoryReference, name) {
           if (
@@ -1691,7 +1760,7 @@ export const makeVolume = Effect.fnUntraced(
               entries: new Map(),
               metadata: {
                 ...directoryMetadata(
-                  nextInode,
+                  state.nextInode,
                   identity.uid,
                   parent.metadata.gid,
                   (mode & 0o777 & ~umask) | (mode & STICKY_BIT),
@@ -1704,8 +1773,8 @@ export const makeVolume = Effect.fnUntraced(
             }
 
             attach(parent, name, child, now)
-            nextInode += 1n
-            entries += 1
+            state.nextInode += 1n
+            state.entries += 1
             publishEntry("Create", parent, name)
 
             return { reference: referenceFor(child), directory: { before, after: parent.revision } }
@@ -1744,7 +1813,7 @@ export const makeVolume = Effect.fnUntraced(
               if (
                 atEntryLimit() ||
                 (settings.maxBytes !== undefined &&
-                  BigInt(targetBytes.length) > ByteSize.toBigInt(settings.maxBytes) - usedBytes)
+                  BigInt(targetBytes.length) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes)
               ) return yield* new FsError({ code: "NoSpace", operation: "symlinkReference" })
               const before = parent.revision
               const now = yield* timestamp("symlinkReference")
@@ -1755,7 +1824,7 @@ export const makeVolume = Effect.fnUntraced(
                 lineage: undefined,
                 target: targetBytes,
                 metadata: {
-                  ...directoryMetadata(nextInode, identity.uid, parent.metadata.gid, 0o777, now),
+                  ...directoryMetadata(state.nextInode, identity.uid, parent.metadata.gid, 0o777, now),
                   ...initial,
                   kind: "symlink",
                   nlink: 1,
@@ -1766,9 +1835,9 @@ export const makeVolume = Effect.fnUntraced(
               }
 
               attach(parent, name, node, now)
-              nextInode += 1n
-              entries += 1
-              usedBytes += BigInt(targetBytes.length)
+              state.nextInode += 1n
+              state.entries += 1
+              state.usedBytes += BigInt(targetBytes.length)
               publishEntry("Create", parent, name)
 
               return { reference: referenceFor(node), directory: { before, after: parent.revision } }
@@ -1803,7 +1872,7 @@ export const makeVolume = Effect.fnUntraced(
               attach(parent, name, node, now)
               node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
               advanceRevision(node)
-              entries += 1
+              state.entries += 1
               publishEntry("Create", parent, name)
 
               return { reference: referenceFor(node), directory: { before, after: parent.revision } }
@@ -1831,7 +1900,7 @@ export const makeVolume = Effect.fnUntraced(
             parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
             advanceRevision(parent)
             detach(child, now)
-            entries -= 1
+            state.entries -= 1
             publishEntry("Remove", parent, name)
 
             return { before, after: parent.revision }
@@ -1865,7 +1934,7 @@ export const makeVolume = Effect.fnUntraced(
             advanceRevision(parent)
             advanceRevision(child)
             invalidateReference(child)
-            entries -= 1
+            state.entries -= 1
             publishEntry("Remove", parent, name)
 
             return { before, after: parent.revision }
@@ -1938,7 +2007,9 @@ export const makeVolume = Effect.fnUntraced(
 
               const oldEvent = () =>
                 ownedPath(
-                  nameBytes(directoryHex(sourceDirectory) + (sourceDirectory === root ? "" : SLASH_HEX) + sourceName)
+                  nameBytes(
+                    directoryHex(sourceDirectory) + (sourceDirectory === state.root ? "" : SLASH_HEX) + sourceName
+                  )
                 )
 
               sourceDirectory.entries.delete(sourceName)
@@ -1966,7 +2037,7 @@ export const makeVolume = Effect.fnUntraced(
 
               if (replaced !== undefined) {
                 detach(replaced, now)
-                entries -= 1
+                state.entries -= 1
               }
 
               watchHub.publishUnsafe(() => ({ _tag: "Remove" as const, path: oldEvent() }))
@@ -2093,14 +2164,7 @@ export const makeVolume = Effect.fnUntraced(
             return yield* new FsError({ code: "InvalidArgument", operation: "openReference" })
           }
 
-          const acquired: FileReference = {
-            volume: volumeIdentity,
-            file: undefined,
-            closed: false,
-            offset: 0n,
-            access: chosen.access,
-            append: chosen.append ?? false
-          }
+          const acquired = makeFileReference(chosen.access, chosen.append ?? false)
 
           yield* Effect.addFinalizer(() => coordinated(Effect.sync(() => releaseFile(acquired))))
 
@@ -2152,14 +2216,7 @@ export const makeVolume = Effect.fnUntraced(
 
             const relativePath = preparePath(ownedPath(nameBytes(name)), "openChildReference", undefined)
 
-            const acquired: FileReference = {
-              volume: volumeIdentity,
-              file: undefined,
-              closed: false,
-              offset: 0n,
-              access: chosen.access,
-              append: chosen.append ?? false
-            }
+            const acquired = makeFileReference(chosen.access, chosen.append ?? false)
 
             yield* Effect.addFinalizer(() => coordinated(Effect.sync(() => releaseFile(acquired))))
 
@@ -2225,7 +2282,7 @@ export const makeVolume = Effect.fnUntraced(
                   openCount: 0,
                   metadata: {
                     ...directoryMetadata(
-                      nextInode,
+                      state.nextInode,
                       identity.uid,
                       mutationParent.metadata.gid,
                       (chosen.mode ?? 0o666) & 0o777 & ~umask,
@@ -2241,8 +2298,8 @@ export const makeVolume = Effect.fnUntraced(
 
                 file = createdFile
                 attach(mutationParent, mutationName, createdFile, now)
-                entries += 1
-                nextInode += 1n
+                state.entries += 1
+                state.nextInode += 1n
                 created = true
                 publishEntry("Create", mutationParent, mutationName)
               } else {
@@ -2391,7 +2448,7 @@ export const makeVolume = Effect.fnUntraced(
 
               if (
                 settings.maxBytes !== undefined &&
-                BigInt(size - previous) > ByteSize.toBigInt(settings.maxBytes) - usedBytes + BigInt(reclaimed)
+                BigInt(size - previous) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes + BigInt(reclaimed)
               ) {
                 return yield* new FsError({ code: "NoSpace", operation: "writeFile", path: input })
               }
@@ -2420,7 +2477,7 @@ export const makeVolume = Effect.fnUntraced(
                   openCount: 0,
                   metadata: {
                     ...directoryMetadata(
-                      nextInode++,
+                      state.nextInode++,
                       identity.uid,
                       parent.metadata.gid,
                       (chosen.mode ?? 0o666) & 0o777 & ~umask,
@@ -2442,13 +2499,13 @@ export const makeVolume = Effect.fnUntraced(
                 ctimeNs: now
               }
               advanceRevision(node)
-              usedBytes += BigInt(size - previous)
+              state.usedBytes += BigInt(size - previous)
 
               if (file === undefined) {
                 if (replaced !== undefined) detach(replaced, now)
                 attach(parent, name, node, now)
 
-                if (replaced === undefined) entries += 1
+                if (replaced === undefined) state.entries += 1
                 publishEntry(replaced === undefined ? "Create" : "Update", parent, name)
               } else publishNode(node)
             }))
@@ -2565,7 +2622,7 @@ export const makeVolume = Effect.fnUntraced(
               attach(parent, name, node, now)
               node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
               advanceRevision(node)
-              entries += 1
+              state.entries += 1
               publishEntry("Create", parent, name)
             }))
           }
@@ -2604,7 +2661,7 @@ export const makeVolume = Effect.fnUntraced(
             if (
               atEntryLimit() ||
               (settings.maxBytes !== undefined &&
-                BigInt(bytes.length) > ByteSize.toBigInt(settings.maxBytes) - usedBytes)
+                BigInt(bytes.length) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes)
             ) return yield* new FsError({ code: "NoSpace", operation: "symlink", path: input })
             const now = yield* timestamp("symlink")
 
@@ -2613,7 +2670,7 @@ export const makeVolume = Effect.fnUntraced(
               lineage: undefined,
               target: new Uint8Array(bytes),
               metadata: {
-                ...directoryMetadata(nextInode, identity.uid, parent.metadata.gid, 0o777, now),
+                ...directoryMetadata(state.nextInode, identity.uid, parent.metadata.gid, 0o777, now),
                 kind: "symlink",
                 nlink: 1,
                 size: BigInt(bytes.length)
@@ -2623,9 +2680,9 @@ export const makeVolume = Effect.fnUntraced(
             }
 
             attach(parent, name, node, now)
-            nextInode += 1n
-            entries += 1
-            usedBytes += BigInt(bytes.length)
+            state.nextInode += 1n
+            state.entries += 1
+            state.usedBytes += BigInt(bytes.length)
             publishEntry("Create", parent, name)
           }))
         }),
@@ -2668,14 +2725,7 @@ export const makeVolume = Effect.fnUntraced(
             return yield* new FsError({ code: "InvalidArgument", operation: "open", path: input })
           }
 
-          const acquired: FileReference = {
-            volume: volumeIdentity,
-            file: undefined,
-            closed: false,
-            offset: 0n,
-            access: chosen.access,
-            append: chosen.append ?? false
-          }
+          const acquired = makeFileReference(chosen.access, chosen.append ?? false)
 
           yield* Effect.addFinalizer(() => coordinated(Effect.sync(() => releaseFile(acquired))))
 
@@ -2738,7 +2788,7 @@ export const makeVolume = Effect.fnUntraced(
                 openCount: 0,
                 metadata: {
                   ...directoryMetadata(
-                    nextInode,
+                    state.nextInode,
                     identity.uid,
                     parent.metadata.gid,
                     (chosen.mode ?? 0o666) & 0o777 & ~umask,
@@ -2751,8 +2801,8 @@ export const makeVolume = Effect.fnUntraced(
                 objectReference: undefined
               }
               attach(parent, name, file, now)
-              entries += 1
-              nextInode += 1n
+              state.entries += 1
+              state.nextInode += 1n
               publishEntry("Create", parent, name)
             } else {
               if (file.kind === "symlink") {
@@ -2816,7 +2866,7 @@ export const makeVolume = Effect.fnUntraced(
             parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
             advanceRevision(parent)
             detach(child, now)
-            entries -= 1
+            state.entries -= 1
             publishEntry("Remove", parent, name)
           }))
         }),
@@ -2892,7 +2942,7 @@ export const makeVolume = Effect.fnUntraced(
 
             // All rejection checks precede namespace, ancestry, quota, and metadata publication.
             const oldEvent = () =>
-              ownedPath(nameBytes(directoryHex(oldParent) + (oldParent === root ? "" : SLASH_HEX) + oldName))
+              ownedPath(nameBytes(directoryHex(oldParent) + (oldParent === state.root ? "" : SLASH_HEX) + oldName))
 
             oldParent.entries.delete(oldName)
             newParent.entries.set(newName, child)
@@ -2918,7 +2968,7 @@ export const makeVolume = Effect.fnUntraced(
 
             if (replaced !== undefined) {
               detach(replaced, now)
-              entries -= 1
+              state.entries -= 1
             }
 
             watchHub.publishUnsafe(() => ({ _tag: "Remove" as const, path: oldEvent() }))
@@ -2957,7 +3007,7 @@ export const makeVolume = Effect.fnUntraced(
             advanceRevision(parent)
             advanceRevision(child)
             invalidateReference(child)
-            entries -= 1
+            state.entries -= 1
             publishEntry("Remove", parent, name)
           }))
         }),
@@ -3002,7 +3052,7 @@ export const makeVolume = Effect.fnUntraced(
                 parent,
                 entries: new Map(),
                 metadata: directoryMetadata(
-                  nextInode,
+                  state.nextInode,
                   identity.uid,
                   parent.metadata.gid,
                   (mode & 0o777 & ~umask) | (mode & STICKY_BIT),
@@ -3014,8 +3064,8 @@ export const makeVolume = Effect.fnUntraced(
 
               // No Effect yield or expected failure between these publication writes.
               attach(parent, name, child, now)
-              nextInode += 1n
-              entries += 1
+              state.nextInode += 1n
+              state.entries += 1
               publishEntry("Create", parent, name)
             }))
           }
@@ -3080,9 +3130,10 @@ export const makeVolume = Effect.fnUntraced(
       identity,
       incarnation,
       limits,
-      usage: coordinatedRead(Effect.sync((): VolumeUsage => ({ usedBytes, entries }))).pipe(
-        Effect.withSpan("Volume.usage")
-      ),
+      usage: coordinatedRead(Effect.sync((): VolumeUsage => ({ usedBytes: state.usedBytes, entries: state.entries })))
+        .pipe(
+          Effect.withSpan("Volume.usage")
+        ),
       watch: Effect.gen(function*() {
         const hook = TestHooks.getRegistrationHook(surface)
 
@@ -3098,7 +3149,7 @@ export const makeVolume = Effect.fnUntraced(
         const identity = Object.freeze({ ...chosen, groups: Object.freeze([...chosen.groups]) })
 
         return createCaller(
-          { volume: volumeIdentity, directory: root, closed: false },
+          makeDirectoryReference(state.root),
           identity,
           decoded.success.umask ?? 0o022
         )
