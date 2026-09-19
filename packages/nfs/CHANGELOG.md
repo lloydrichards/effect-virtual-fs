@@ -1,5 +1,17 @@
 # @effect-vfs/nfs
 
+## 0.2.0
+
+### Minor Changes
+
+- [#119](https://github.com/lloydrichards/effect-virtual-fs/pull/119) [`c051736`](https://github.com/lloydrichards/effect-virtual-fs/commit/c0517366e031eca758ad1e705a499b32bb4bcc43) Thanks [@lloydrichards](https://github.com/lloydrichards)! - The NFS export now supports advisory byte-range read locks. Clients can acquire a lock through an open stateid, release an exact range with `LOCKU`, and recover capacity when a lease expires. Configure `maxLockOwners` and `maxLocks` to bound the in-memory state; write-lock requests still return `NFS4ERR_ROFS`.
+
+### Patch Changes
+
+- [#118](https://github.com/lloydrichards/effect-virtual-fs/pull/118) [`f68f12b`](https://github.com/lloydrichards/effect-virtual-fs/commit/f68f12b335770a787f73eda039628ae521f2028f) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Repeated NFS `OPEN` requests now respect share deny modes held by the same open owner.
+- Updated dependencies [[`34b912a`](https://github.com/lloydrichards/effect-virtual-fs/commit/34b912ad2f9a9aa55d4b3d76fdc4d1bc98540539), [`9acfa79`](https://github.com/lloydrichards/effect-virtual-fs/commit/9acfa796e0a76686b91fcfb045ac5b5426ba337b), [`49313a0`](https://github.com/lloydrichards/effect-virtual-fs/commit/49313a0ddc0b5fca4d4d850f4ded4e1439435938), [`a1f3e76`](https://github.com/lloydrichards/effect-virtual-fs/commit/a1f3e76f3689b2095f4efb36ac0406da227b56bc), [`77daba8`](https://github.com/lloydrichards/effect-virtual-fs/commit/77daba8ed9cbc0c99e19beace63120834d1bba0e), [`ced5052`](https://github.com/lloydrichards/effect-virtual-fs/commit/ced5052b374a8b1235cc32826e408404ee0f296c)]:
+  - @effect-vfs/core@0.4.0
+
 ## 0.1.0
 
 ### Minor Changes
