@@ -1742,6 +1742,129 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       response.finish()
     }))
 
+  it.effect("reports bounded volume capacity and omits unbounded totals", () =>
+    Effect.gen(function*() {
+      const bounded = yield* Vfs.make({ maxBytes: ByteSize.bytes(10), maxEntries: 3 })
+      const caller = yield* bounded.caller()
+      yield* caller.mkdir("/dir")
+      yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
+
+      const export_ = makeExport(
+        caller,
+        generation,
+        { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) },
+        generation,
+        bounded
+      )
+
+      const handler = yield* makeNfs4Handler(export_, {
+        leaseDurationSeconds: 30,
+        callbackTimeout: "1 second",
+        generation,
+        now: () => 0,
+        limits
+      })
+
+      const { session } = yield* startSession(handler, "bounded-capacity")
+
+      const requested = [1 | (1 << 21) | (1 << 22) | (1 << 23) | (1 << 27), (1 << 10) | (1 << 11) | (1 << 12)]
+
+      const response = new Reader(
+        yield* handler.compound(call([
+          sequence(session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          (writer) => writer.uint32(Operation.GETATTR).array(requested, (item, word) => item.uint32(word))
+        ])),
+        limits
+      )
+
+      assert.strictEqual(response.uint32(), Status.OK)
+      response.string()
+      response.uint32()
+      response.uint32()
+      response.uint32()
+      response.fixedOpaque(16)
+
+      for (let field = 0; field < 5; field++) response.uint32()
+
+      response.uint32()
+      response.uint32()
+      assert.strictEqual(response.uint32(), Operation.GETATTR)
+      assert.strictEqual(response.uint32(), Status.OK)
+      assert.deepStrictEqual(response.array((item) => item.uint32()), requested)
+      const values = new Reader(response.opaque(), limits)
+      const supported = values.array((item) => item.uint32())
+      assert.strictEqual(supported[0]! & requested[0]!, requested[0]!)
+      assert.strictEqual(supported[1]! & requested[1]!, requested[1]!)
+      assert.strictEqual(values.uint64(), 1n, "files_avail")
+      assert.strictEqual(values.uint64(), 1n, "files_free")
+      assert.strictEqual(values.uint64(), 3n, "files_total")
+      assert.strictEqual(values.uint64(), 0xffff_ffffn, "maxfilesize")
+      assert.strictEqual(values.uint64(), 7n, "space_avail")
+      assert.strictEqual(values.uint64(), 7n, "space_free")
+      assert.strictEqual(values.uint64(), 10n, "space_total")
+      values.finish()
+      response.finish()
+
+      const unlimited = yield* Vfs.make()
+
+      const unlimitedCaller = yield* unlimited.caller()
+
+      const unlimitedHandler = yield* makeNfs4Handler(
+        makeExport(
+          unlimitedCaller,
+          generation,
+          { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) },
+          generation,
+          unlimited
+        ),
+        { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits }
+      )
+
+      const unlimitedSession = yield* startSession(unlimitedHandler, "unbounded-capacity")
+
+      const unboundedResponse = new Reader(
+        yield* unlimitedHandler.compound(call([
+          sequence(unlimitedSession.session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          (writer) => writer.uint32(Operation.GETATTR).array(requested, (item, word) => item.uint32(word))
+        ])),
+        limits
+      )
+
+      assert.strictEqual(unboundedResponse.uint32(), Status.OK)
+      unboundedResponse.string()
+      unboundedResponse.uint32()
+      unboundedResponse.uint32()
+      unboundedResponse.uint32()
+      unboundedResponse.fixedOpaque(16)
+
+      for (let field = 0; field < 5; field++) unboundedResponse.uint32()
+
+      unboundedResponse.uint32()
+      unboundedResponse.uint32()
+      assert.strictEqual(unboundedResponse.uint32(), Operation.GETATTR)
+      assert.strictEqual(unboundedResponse.uint32(), Status.OK)
+      assert.deepStrictEqual(unboundedResponse.array((item) => item.uint32()), [1 | (1 << 27)])
+      const unboundedValues = new Reader(unboundedResponse.opaque(), limits)
+      const unboundedSupported = unboundedValues.array((item) => item.uint32())
+      assert.strictEqual(unboundedSupported[0]! & requested[0]!, 1 | (1 << 27))
+      assert.strictEqual((unboundedSupported[1] ?? 0) & requested[1]!, 0)
+      assert.strictEqual(unboundedValues.uint64(), 0xffff_ffffn)
+      unboundedValues.finish()
+      unboundedResponse.finish()
+
+      const unsupportedVerify = yield* unlimitedHandler.compound(call([
+        sequence(unlimitedSession.session, 2),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        (writer) =>
+          writer.uint32(Operation.VERIFY)
+            .array([0, 1 << 10], (item, word) => item.uint32(word)).opaque(new Uint8Array())
+      ]))
+
+      assert.strictEqual(new Reader(unsupportedVerify, limits).uint32(), Status.ATTRNOTSUPP)
+    }))
+
   it.effect("normalizes negative timestamps and rejects seconds outside the NFS int64 range", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()

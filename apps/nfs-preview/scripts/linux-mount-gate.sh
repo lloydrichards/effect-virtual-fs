@@ -76,7 +76,7 @@ trap cleanup EXIT INT TERM
 
 log "starting the preview server"
 # setsid gives the server its own process group so cleanup kills any child it spawned.
-setsid bun "$app_dir/src/main.ts" >"$server_log" 2>&1 &
+EFFECT_VFS_NFS_CAPACITY_GATE=1 setsid bun "$app_dir/src/main.ts" >"$server_log" 2>&1 &
 server_pid=$!
 
 for _ in $(seq 1 60); do
@@ -101,6 +101,18 @@ printf '%s\n' "$(mount | grep -F -- " on ${mountpoint} ")"
 
 log "read-side checks"
 bash "$script_dir/verify-mount.sh" "$mountpoint" || die "read-side checks failed"
+
+log "volume capacity"
+read -r total_bytes available_bytes <<<"$(df -B1 --output=size,avail "$mountpoint" | tail -n 1)"
+[ "$total_bytes" = 16777216 ] || die "df reported ${total_bytes} total bytes instead of 16777216"
+[[ "$available_bytes" =~ ^[0-9]+$ ]] || die "df did not report available bytes: ${available_bytes}"
+[ "$available_bytes" -le 16777216 ] && [ "$available_bytes" -ge 16773120 ] ||
+  die "df reported ${available_bytes} available bytes outside the fixture's 16 MiB capacity"
+read -r total_entries free_entries <<<"$(stat -f -c '%c %d' "$mountpoint")"
+[ "$total_entries" = 100 ] && [ "$free_entries" = 95 ] ||
+  die "statfs reported ${total_entries} entries and ${free_entries} free, expected 100 and 95"
+printf 'PASS  df reports %s total bytes and %s available bytes; statfs reports %s of %s entries free\n' \
+  "$total_bytes" "$available_bytes" "$free_entries" "$total_entries"
 
 # Linux tries 4.2 first and ladders down. The server answers unsupported minor versions with
 # NFS4ERR_MINOR_VERS_MISMATCH, so a bare mount must still settle on 4.1.

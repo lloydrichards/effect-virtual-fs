@@ -277,7 +277,7 @@ const CLAIM_DELEG_PREV_FH = 6
 
 /**
  * Worst-case encoded GETATTR result: the largest attribute set this server can return for a
- * 25-byte filehandle is about 300 bytes; recheck when `supportedAttributes` grows.
+ * 25-byte filehandle and bounded capacity is about 360 bytes; recheck when attributes grow.
  */
 const MAX_GETATTR_REPLY_BYTES = 512
 
@@ -1262,7 +1262,7 @@ const encodeStatusBody = (build: (writer: Writer) => void): Uint8Array => {
   return writer.bytes()
 }
 
-const supportedAttributes = [
+const baseSupportedAttributes = [
   0,
   1,
   2,
@@ -1297,6 +1297,25 @@ const supportedAttributes = [
   75,
   76
 ]
+
+const maxUint64 = 0xffff_ffff_ffff_ffffn
+
+const supportedAttributesFor = (export_: NfsExport): ReadonlyArray<number> => {
+  const capacity = export_.capacity
+
+  if (capacity === undefined) return baseSupportedAttributes
+
+  const { maxBytes, maxEntries } = capacity.limits
+  const additional = [27]
+
+  if (maxEntries !== undefined) additional.push(21, 22, 23)
+
+  if (maxBytes !== undefined && ByteSize.toBigInt(maxBytes) <= maxUint64) additional.push(42, 43, 44)
+
+  return [...baseSupportedAttributes, ...additional].sort((left, right) => left - right)
+}
+
+const capacityAttributes: ReadonlySet<number> = new Set([21, 22, 23, 42, 43, 44])
 
 /** Attributes that VERIFY and NVERIFY may not compare (RFC 8881 Section 18.31.3). */
 const nonComparableAttributes: ReadonlySet<number> = new Set([11, 48, 54])
@@ -1353,7 +1372,9 @@ const encodeAttributeValues = (
   observation: Vfs.ObjectObservation<Vfs.Metadata>,
   filehandle: Uint8Array,
   export_: NfsExport,
-  options: Nfs4Options
+  options: Nfs4Options,
+  supportedAttributes: ReadonlyArray<number>,
+  usage: Vfs.VolumeUsage | null
 ): Uint8Array | undefined => {
   if (requested.some((attribute) => !supportedAttributes.includes(attribute))) return undefined
   const values = new Writer()
@@ -1410,6 +1431,17 @@ const encodeAttributeValues = (
       case 55:
         values.uint64(BigInt.asUintN(64, metadata.ino))
         break
+      case 21:
+      case 22:
+      case 23: {
+        const total = BigInt(export_.capacity!.limits.maxEntries!)
+        values.uint64(attribute === 23 ? total : total - BigInt(usage!.entries))
+        break
+      }
+
+      case 27:
+        values.uint64(ByteSize.toBigInt(export_.capacity!.limits.maxFileBytes))
+        break
       case 29:
         values.uint32(ByteSize.toNumberUnsafe(options.limits.maxNameBytes))
         break
@@ -1431,6 +1463,14 @@ const encodeAttributeValues = (
       case 37:
         values.string(String(metadata.gid))
         break
+      case 42:
+      case 43:
+      case 44: {
+        const total = ByteSize.toBigInt(export_.capacity!.limits.maxBytes!)
+        values.uint64(attribute === 44 ? total : total - usage!.usedBytes)
+        break
+      }
+
       case 45:
         values.uint64(metadata.size)
         break
@@ -1457,9 +1497,11 @@ const encodeAttributes = (
   observation: Vfs.ObjectObservation<Vfs.Metadata>,
   filehandle: Uint8Array,
   export_: NfsExport,
-  options: Nfs4Options
+  options: Nfs4Options,
+  supportedAttributes: ReadonlyArray<number>,
+  usage: Vfs.VolumeUsage | null
 ): Uint8Array | undefined => {
-  const values = encodeAttributeValues(requested, observation, filehandle, export_, options)
+  const values = encodeAttributeValues(requested, observation, filehandle, export_, options, supportedAttributes, usage)
 
   if (values === undefined) return undefined
 
@@ -1770,6 +1812,12 @@ export const makeNfs4Handler = (
 ): Effect.Effect<Nfs4Handler, never, Scope.Scope> => {
   assertOptions(options)
   const storageGeneration = options.storageGeneration ?? options.generation
+  const supportedAttributes = supportedAttributesFor(export_)
+
+  const sampleUsage = (requested: ReadonlyArray<number>): Effect.Effect<Vfs.VolumeUsage | null> =>
+    requested.some((attribute) => capacityAttributes.has(attribute))
+      ? export_.capacity!.usage
+      : Effect.succeed(null)
 
   return Effect.gen(function*() {
     const handlerScope = yield* Effect.scope
@@ -3063,8 +3111,20 @@ export const makeNfs4Handler = (
                   Effect.flatMap((filehandle) =>
                     mapFs(export_.observeMetadata(reference)).pipe(
                       Effect.flatMap((observation) =>
-                        requireAttributes(
-                          encodeAttributes(supportedRequested, observation, filehandle, export_, options)
+                        sampleUsage(supportedRequested).pipe(
+                          Effect.flatMap((usage) =>
+                            requireAttributes(
+                              encodeAttributes(
+                                supportedRequested,
+                                observation,
+                                filehandle,
+                                export_,
+                                options,
+                                supportedAttributes,
+                                usage
+                              )
+                            )
+                          )
                         )
                       )
                     )
@@ -3092,8 +3152,20 @@ export const makeNfs4Handler = (
                   Effect.flatMap((filehandle) =>
                     mapFs(export_.observeMetadata(reference)).pipe(
                       Effect.flatMap((observation) =>
-                        requireAttributes(
-                          encodeAttributeValues(requested, observation, filehandle, export_, options)
+                        sampleUsage(requested).pipe(
+                          Effect.flatMap((usage) =>
+                            requireAttributes(
+                              encodeAttributeValues(
+                                requested,
+                                observation,
+                                filehandle,
+                                export_,
+                                options,
+                                supportedAttributes,
+                                usage
+                              )
+                            )
+                          )
                         )
                       )
                     )
@@ -3170,6 +3242,8 @@ export const makeNfs4Handler = (
                         supportedAttributes.includes(attribute)
                       )
 
+                      const usage = yield* sampleUsage(supportedRequested)
+
                       const verifier = makeCookieVerifier(storageGeneration, observation.revision)
 
                       if (value.cookie !== 0n && bytesKey(value.verifier) !== bytesKey(verifier)) {
@@ -3217,7 +3291,15 @@ export const makeNfs4Handler = (
                               mapFs(export_.observeMetadata(entry.reference)).pipe(
                                 Effect.flatMap((metadata) =>
                                   requireAttributes(
-                                    encodeAttributes(supportedRequested, metadata, handle, export_, options)
+                                    encodeAttributes(
+                                      supportedRequested,
+                                      metadata,
+                                      handle,
+                                      export_,
+                                      options,
+                                      supportedAttributes,
+                                      usage
+                                    )
                                   )
                                 )
                               )
