@@ -2,6 +2,8 @@
 
 ## 2026-09-19
 
+- **Durable staging inventory**: Identified the live node graph, retained unlinked objects, capability records, access-time writes, and watch events that must be staged and published together. The current coordinator now buffers events through commit, but remains separate from live engine operations.
+
 - **Durable storage failure vocabulary**: Added three public `FsCode` values for definite storage rejection, unknown outcome, and unavailable volume, with exhaustive NFS `IO` mapping. Built-in memory volumes do not emit them; the durable-provider failure channels remain to be implemented.
 
 - **Durable-volume design review**: Refined the live durable volume proposal to distinguish definite storage rejection, unknown operation outcome, and unavailable volume. Kept watch overflow in its separate draft and removed slow-watcher write rejection from the proposed provider. The first core slice remains a staged-state seam with a fake commit provider; full-image throughput needs a size limit before selecting the SQLite representation.
