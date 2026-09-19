@@ -226,6 +226,7 @@ export const layer = (options: Options) =>
           if (!available || generation === undefined) return "unknown" as const
 
           if (BigInt(image.length) > maxImage) return "rejected" as const
+
           if (generation === Number.MAX_SAFE_INTEGER) return "rejected" as const
 
           const hash = yield* digest(image).pipe(Effect.orElseSucceed(() => ""))
