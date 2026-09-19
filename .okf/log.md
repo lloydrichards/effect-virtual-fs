@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-09-19
+
+- **NFS error mapping**: Completed issue #99 with an exhaustive `FsError` to NFSv4.1 map and table test. Recorded operation-specific writable rules in the operations ledger and the accepted mapping decision. Writable dispatch, a core link-count limit, and ownership-specific `PERM` remain later work.
+
 ## 2026-09-18
 
 - **Reference-based mutations**: Implemented issue #96 with additive parent-reference-and-name namespace operations, exact-object metadata and truncation methods, writable `openReference`, and atomic `openChildReference`. Pure revision results use Schema models; capability-carrying results remain interfaces. Core and adapters perform layered name validation, all creation operations accept initial timestamps, hard links never follow the source reference, successful namespace no-ops return equal revisions, and direct-object mutations retain `void` results. Focused tests cover identity, authority, create modes, timestamps, concurrent revision pairs, and writable unlinked-file lifetime.
