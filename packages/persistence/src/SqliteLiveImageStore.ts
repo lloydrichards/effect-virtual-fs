@@ -11,6 +11,18 @@ import { SqlClient } from "effect/unstable/sql/SqlClient"
  * Limits and the local database path used to verify the supplied SQL client.
  * Supply a dedicated SQLite `SqlClient` for this same path.
  *
+ * @example
+ * ```ts
+ * import type { Options } from "@effect-vfs/persistence/SqliteLiveImageStore"
+ * import { ByteSize } from "effect"
+ *
+ * const options: Options = {
+ *   filename: "/var/lib/my-app/live.sqlite",
+ *   maxImageBytes: ByteSize.megabytes(4),
+ *   maxDatabaseBytes: ByteSize.megabytes(16)
+ * }
+ * ```
+ *
  * @since 0.4.0
  */
 export interface Options {
@@ -36,6 +48,18 @@ const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16)
 /**
  * Reserve one SQLite connection and its exclusive lock for the Layer scope.
  * The application supplies `SqlClient`, `FileSystem`, `Path`, and `Crypto`.
+ *
+ * @example
+ * ```ts
+ * import * as SqliteLiveImageStore from "@effect-vfs/persistence/SqliteLiveImageStore"
+ * import { ByteSize } from "effect"
+ *
+ * const liveStore = SqliteLiveImageStore.layer({
+ *   filename: "/var/lib/my-app/live.sqlite",
+ *   maxImageBytes: ByteSize.megabytes(4),
+ *   maxDatabaseBytes: ByteSize.megabytes(16)
+ * })
+ * ```
  *
  * @since 0.4.0
  */
