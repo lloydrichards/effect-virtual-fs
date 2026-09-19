@@ -521,7 +521,7 @@ const make = (
 
     const identity = Result.getOrThrow(Encoding.decodeHex(options.volume.identity))
     const storageGeneration = Result.getOrThrow(Encoding.decodeHex(options.volume.incarnation))
-    const export_ = makeExport(options.caller, storageGeneration, limits, identity)
+    const export_ = makeExport(options.caller, storageGeneration, limits, identity, options.volume)
 
     const handler = yield* makeNfs4Handler(export_, {
       generation,

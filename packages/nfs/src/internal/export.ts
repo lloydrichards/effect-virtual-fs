@@ -25,6 +25,7 @@ export interface OpenedFile {
 
 /** @internal */
 export interface NfsExport {
+  readonly capacity: Pick<Vfs.Volume, "limits" | "usage"> | undefined
   readonly root: Effect.Effect<Vfs.ObjectReference, Vfs.FsError>
   readonly handleFor: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, ExportCapacityError>
   readonly resolve: (handle: Uint8Array) => Effect.Effect<Vfs.ObjectReference, InvalidFilehandleError>
@@ -130,7 +131,8 @@ export const makeExport = (
   caller: Vfs.Caller,
   generation: Uint8Array,
   limits: ExportLimits,
-  identity: Uint8Array = generation
+  identity: Uint8Array = generation,
+  capacity?: Pick<Vfs.Volume, "limits" | "usage">
 ): NfsExport => {
   validateGeneration(generation)
   validateGeneration(identity)
@@ -223,6 +225,7 @@ export const makeExport = (
     )
 
   return {
+    capacity,
     root: caller.rootReference,
     handleFor,
     resolve,

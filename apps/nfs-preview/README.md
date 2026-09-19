@@ -130,8 +130,9 @@ On Linux the whole cycle is scripted, including the privileged parts:
 bun run --filter @repo/nfs-preview linux-mount-gate
 ```
 
-It starts the server, waits for loopback 2049, mounts with `nfsvers=4.1`, runs the read-side checks
-above, mounts a second time with no version option to confirm the client still settles on 4.1, then
+It starts a preview volume bounded to 16 MiB and 100 entries, waits for loopback 2049, mounts with
+`nfsvers=4.1`, runs the read-side checks above, and checks the mounted client's `df` and `statfs`
+capacity against those limits. It mounts a second time with no version option to confirm the client still settles on 4.1, then
 unmounts both and stops the server. A single trap covers every exit path, so a failure never leaves a
 hung mount behind. It also prints the kernel, distribution, and `nfs-utils` versions it ran against,
 because the NFSv4.1 client is the host kernel and therefore recorded rather than pinned.
