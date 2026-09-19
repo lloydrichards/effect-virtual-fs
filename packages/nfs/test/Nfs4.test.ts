@@ -732,6 +732,161 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       ])
     }))
 
+  it.effect("never repeats an OPEN when its reply is lost", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
+      let opens = 0
+
+      const export_ = {
+        ...base,
+        open: (reference: Vfs.ObjectReference) => {
+          opens++
+
+          return base.open(reference)
+        }
+      }
+
+      const handler = yield* makeNfs4Handler(export_, {
+        leaseDurationSeconds: 30,
+        callbackTimeout: "1 second",
+        generation,
+        now: () => 0,
+        limits
+      })
+
+      const { session, client } = yield* startSession(handler, "lost-open")
+
+      const request = call([
+        sequence(session, 1, true),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        openReadOnly(client, "file"),
+        (writer) => writer.uint32(Operation.GETFH),
+        (writer) => writer.uint32(Operation.LOOKUP).string("child")
+      ])
+
+      const first = yield* handler.compound(request)
+      assert.strictEqual(new Reader(first, limits).uint32(), Status.NOTDIR)
+      assert.deepStrictEqual(yield* handler.compound(request), first)
+      assert.strictEqual(opens, 1)
+    }))
+
+  it.effect("rejects an OPEN before execution when its cached result cannot fit", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
+      let opens = 0
+
+      const handler = yield* makeNfs4Handler({
+        ...base,
+        open: (reference: Vfs.ObjectReference) => {
+          opens++
+
+          return base.open(reference)
+        }
+      }, {
+        leaseDurationSeconds: 30,
+        callbackTimeout: "1 second",
+        generation,
+        now: () => 0,
+        limits
+      })
+
+      const { session, client } = yield* startSession(handler, "open-capacity", { maxCachedResponse: 80 })
+
+      const request = call([
+        sequence(session, 1, true),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        openReadOnly(client, "file")
+      ])
+
+      assert.strictEqual(statuses(yield* handler.compound(request)).status, Status.REP_TOO_BIG_TO_CACHE)
+      assert.strictEqual(opens, 0)
+      assert.strictEqual(statuses(yield* handler.compound(request)).status, Status.REP_TOO_BIG_TO_CACHE)
+      assert.strictEqual(opens, 0)
+    }))
+
+  it.effect("includes every configured SECINFO flavor in pre-mutation reply admission", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
+      let opens = 0
+
+      const handler = yield* makeNfs4Handler({
+        ...base,
+        open: (reference: Vfs.ObjectReference) => {
+          opens++
+
+          return base.open(reference)
+        }
+      }, {
+        leaseDurationSeconds: 30,
+        callbackTimeout: "1 second",
+        generation,
+        now: () => 0,
+        limits,
+        securityFlavors: [1, 0, 1, 0, 1, 0]
+      })
+
+      const { session, client } = yield* startSession(handler, "secinfo-capacity", { maxCachedResponse: 218 })
+
+      const request = call([
+        sequence(session, 1, true),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        openReadOnly(client, "file"),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        (writer) => writer.uint32(Operation.SECINFO).string("file")
+      ])
+
+      assert.strictEqual(new Reader(yield* handler.compound(request), limits).uint32(), Status.REP_TOO_BIG_TO_CACHE)
+      assert.strictEqual(opens, 0)
+    }))
+
+  it.effect("does not reopen a consumed slot after an operation fails", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
+      let opens = 0
+
+      const handler = yield* makeNfs4Handler({
+        ...base,
+        open: (reference: Vfs.ObjectReference) =>
+          base.open(reference).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                opens++
+              })
+            ),
+            Effect.tap(() => Effect.die(new Error("storage outcome unknown")))
+          )
+      }, {
+        leaseDurationSeconds: 30,
+        callbackTimeout: "1 second",
+        generation,
+        now: () => 0,
+        limits
+      })
+
+      const { session, client } = yield* startSession(handler, "failed-open")
+
+      const request = call([
+        sequence(session, 1),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        openReadOnly(client, "file")
+      ])
+
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(handler.compound(request))))
+      assert.deepStrictEqual(statuses(yield* handler.compound(request)).operations, [
+        [Operation.SEQUENCE, Status.OK],
+        [Operation.PUTROOTFH, Status.RETRY_UNCACHED_REP]
+      ])
+      assert.strictEqual(opens, 1)
+    }))
+
   it.effect("leaves a slot unchanged when SEQUENCE rejects an oversized cached reply", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
@@ -796,7 +951,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
   it.effect("counts retained requests against the replay-memory budget", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
-      const constrained = { ...limits, maxReplayBytes: ByteSize.bytes(512) }
+      const constrained = { ...limits, maxReplayBytes: ByteSize.bytes(560) }
 
       const handler = yield* makeNfs4Handler(
         makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
@@ -818,6 +973,28 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       ], "x".repeat(80))
 
       assert.strictEqual(new Reader(yield* handler.compound(second), limits).uint32(), Status.DELAY)
+    }))
+
+  it.effect("reuses the reserved replay budget for successive uncached requests", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      const constrained = { ...limits, maxReplayBytes: ByteSize.bytes(640) }
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits: constrained }
+      )
+
+      const { session } = yield* startSession(handler, "reused-request-budget")
+
+      for (let sequenceId = 1; sequenceId <= 4; sequenceId++) {
+        const request = call([
+          sequence(session, sequenceId),
+          (writer) => writer.uint32(Operation.PUTROOTFH)
+        ], "x".repeat(80))
+
+        assert.strictEqual(new Reader(yield* handler.compound(request), constrained).uint32(), Status.OK)
+      }
     }))
 
   it.effect("rejects a different request that reuses a cached slot sequence", () =>
@@ -2495,23 +2672,28 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
     }))
 
   // A real bound needs the live clock: it.effect runs on the test clock, which never advances.
-  live("abandons a compound stalled in the export and leaves its slot replayable", () =>
+  live("interrupts a stalled compound without reopening its consumed slot", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
+      let opens = 0
 
-      // An OPEN parked in the export stands in for a VFS operation stalled on a backing store.
-      // Closing the server scope interrupts the read loop and awaits it, so a compound that could
-      // not be interrupted here would hold shutdown open for as long as the store stayed stalled.
+      // The underlying open completes before the export parks, so cancellation arrives after
+      // the first state change but before the compound has recorded its result.
       const export_ = {
         ...base,
         open: (reference: Vfs.ObjectReference) =>
-          Deferred.succeed(entered, undefined).pipe(
-            Effect.andThen(Deferred.await(release)),
-            Effect.andThen(base.open(reference))
+          base.open(reference).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                opens++
+              })
+            ),
+            Effect.tap(() => Deferred.succeed(entered, undefined)),
+            Effect.tap(() => Deferred.await(release))
           )
       }
 
@@ -2538,29 +2720,79 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       yield* Deferred.await(entered)
 
-      // The interrupt is awaited on another fiber so the bound races an interruptible join rather
-      // than the interrupt itself, which no timeout could abandon cleanly.
       const interrupting = yield* Effect.forkChild(Fiber.interrupt(stalled))
       const finished = yield* Fiber.join(interrupting).pipe(Effect.timeoutOption("2 seconds"))
-
-      // Release before asserting: a wedged compound would otherwise outlive the failure and time
-      // the suite out instead of reporting it.
       yield* Deferred.succeed(release, undefined)
 
-      assert.isTrue(Option.isSome(finished), "a compound stalled in the export held the scope open")
+      assert.isTrue(Option.isSome(finished), "a stalled OPEN blocked cancellation")
 
-      // The abandoned compound sent no reply, so its slot must be exactly as SEQUENCE found it:
-      // the same sequence ID is a first attempt, not SEQ_MISORDERED against an advanced slot nor a
-      // false retry against a cached reply that was never transmitted.
+      // The interrupted caller may not have seen the reply. Its slot still records consumption.
       const retried = yield* handler.compound(call(
-        [sequence(held.session, 1), (writer) => writer.uint32(Operation.PUTROOTFH)],
-        "retry",
+        [sequence(held.session, 1), (writer) => writer.uint32(Operation.PUTROOTFH), openReadOnly(held.client, "file")],
+        "stalled",
         carrier
       ))
 
       assert.deepStrictEqual(statuses(retried).operations, [
         [Operation.SEQUENCE, Status.OK],
-        [Operation.PUTROOTFH, Status.OK]
+        [Operation.PUTROOTFH, Status.RETRY_UNCACHED_REP]
+      ])
+      assert.strictEqual(opens, 1)
+    }))
+
+  live("interrupts an observation before a later OPEN without dispatching it", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
+      const entered = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      let opens = 0
+
+      const export_ = {
+        ...base,
+        observeMetadata: (reference: Vfs.ObjectReference) =>
+          Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.andThen(base.observeMetadata(reference))
+          ),
+        open: (reference: Vfs.ObjectReference) => {
+          opens++
+
+          return base.open(reference)
+        }
+      }
+
+      const handler = yield* makeNfs4Handler(export_, {
+        leaseDurationSeconds: 30,
+        callbackTimeout: "1 second",
+        generation,
+        now: () => 0,
+        limits
+      })
+
+      const { session, client } = yield* startSession(handler, "pre-open-stall")
+
+      const request = call([
+        sequence(session, 1),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        (writer) => writer.uint32(Operation.GETATTR).uint32(0),
+        openReadOnly(client, "file")
+      ])
+
+      const stalled = yield* Effect.forkChild(handler.compound(request))
+
+      yield* Deferred.await(entered)
+
+      const interrupting = yield* Effect.forkChild(Fiber.interrupt(stalled))
+      const finished = yield* Fiber.join(interrupting).pipe(Effect.timeoutOption("2 seconds"))
+      yield* Deferred.succeed(release, undefined)
+
+      assert.isTrue(Option.isSome(finished), "GETATTR blocked cancellation before OPEN")
+      assert.strictEqual(opens, 0)
+      assert.deepStrictEqual(statuses(yield* handler.compound(request)).operations, [
+        [Operation.SEQUENCE, Status.OK],
+        [Operation.PUTROOTFH, Status.RETRY_UNCACHED_REP]
       ])
     }))
 

@@ -2,6 +2,8 @@
 
 ## 2026-09-19
 
+- **NFS replay admission**: Recorded the reserved replay capacity, consumed-slot marker, and cancellation boundary now used before state-changing compounds. Writable namespace and data operations still need dispatch-specific coverage.
+
 - **Experimental SQLite live-image store**: Added an Effect `SqlClient` Layer with exclusive ownership, bounded full-image commits, image digest checks, and process-restart tests. Updated the implemented profile and separated shipped behavior from the remaining writable-volume proposal. Power-loss qualification, temporary journal-space bounds, and bounded watches remain open; the volume still reports `memory-only`.
 
 - **NFS read-lock profile**: Aligned the read-only profile and protocol rules with bounded volatile read locks; write locks and full conflict handling remain in the writable profile. Corrected the live-volume proposal link to its watch-overflow constraint.
