@@ -107,6 +107,8 @@ export const layer = (options: Options) =>
 
       if (Exit.isFailure(lock)) return yield* fail("Ownership", lock.cause)
 
+      yield* Effect.addFinalizer(() => Effect.asVoid(Effect.exit(run("PRAGMA locking_mode=NORMAL"))))
+
       const journal = (yield* query(Schema.Struct({ journal_mode: Schema.String }), "PRAGMA journal_mode"))[0]
       const synchronous = (yield* query(Schema.Struct({ synchronous: Schema.Finite }), "PRAGMA synchronous"))[0]
       const fullfsync = (yield* query(Schema.Struct({ fullfsync: Schema.Finite }), "PRAGMA fullfsync"))[0]
