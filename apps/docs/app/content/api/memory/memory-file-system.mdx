@@ -34,7 +34,7 @@ operations translate core failures to Effect `PlatformError` values.
 export declare const bind: (
   volume: Vfs.Volume,
   options?: Vfs.RootCallerOptions
-) => Effect.Effect<FileSystem.FileSystem, Vfs.ConfigurationError>
+) => Effect.Effect<FileSystem.FileSystem, Vfs.ConfigurationError | Vfs.FsError>
 ```
 
 **Example**

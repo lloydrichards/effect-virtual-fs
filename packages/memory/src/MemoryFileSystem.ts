@@ -267,4 +267,4 @@ export const layerCrypto: Layer.Layer<FileSystem.FileSystem> = internal.layerCry
 export const bind: (
   volume: Vfs.Volume,
   options?: Vfs.RootCallerOptions
-) => Effect.Effect<FileSystem.FileSystem, Vfs.ConfigurationError> = internal.bind
+) => Effect.Effect<FileSystem.FileSystem, Vfs.ConfigurationError | Vfs.FsError> = internal.bind

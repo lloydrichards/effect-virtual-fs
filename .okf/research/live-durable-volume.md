@@ -53,7 +53,7 @@ sources:
   - id: issue-50
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
     title: Restart recovery
-generated: { by: codex/okf, at: 2026-09-19T12:19:08Z }
+generated: { by: codex/okf, at: 2026-09-19T12:37:54Z }
 ---
 
 # Live durable volume proposal
@@ -93,7 +93,7 @@ The full-image choice is not a wrapper that calls `Volume.snapshot` after an ope
 
 ## Core transaction boundary
 
-The engine currently mutates node objects directly inside `coordinated`; handles and references retain those objects. Replacing a restored volume would strand existing capabilities. Reads also update access time. These are engine changes, not just persistence plumbing.[^engine]
+The memory engine mutates node objects directly inside `coordinated`; handles and references retain those objects. The internal fake-provider path now stages copies before commit. Reads also update access time. These are engine changes, not just persistence plumbing.[^engine]
 
 The engine audit identifies five state groups that must move together at publication:
 
@@ -105,7 +105,7 @@ The engine audit identifies five state groups that must move together at publica
 | Access times from file, path, and directory reads                                                          | Read methods inside `coordinated`         | Commit the metadata change before returning the read result.                                                   |
 | Watch changes                                                                                              | `WatchHub` calls inside mutations         | Buffer candidate events and publish them only after the provider confirms commit.                              |
 
-This audit rules out a graph-only copy. The integration must stage capability records and retained objects as well as the namespace. The current `makeStagedState` helper establishes commit and publication ordering, but no live engine operation uses it yet.
+This audit rules out a graph-only copy. The internal `makeVolume` provider path now copies reachable and retained nodes, stages capability records and reference invalidation, and publishes watch events after confirmed commit. Tests cover rejected mutations, retained unlinked files, provider poisoning, and readers waiting behind commit. No persistent image codec, SQLite provider, bounded admission, or writable NFS dispatch exists yet. The memory path remains direct and reports `memory-only`.
 
 Introduce a core-owned `EngineState` and stable runtime object keys. Capabilities retain keys and resolve them against the current state under the gate. A candidate owns copied metadata, maps, mutable bytes, counters, and changed handle state. Immutable content can be shared, but no candidate write may modify a live buffer. Reference invalidations, newly opened handles, cursor advances, and quota charges publish with the state swap. Pure handle movement stays volatile and coordinated.
 

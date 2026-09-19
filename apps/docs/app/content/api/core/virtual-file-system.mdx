@@ -725,7 +725,7 @@ export interface FileHandle {
   readonly truncate: (length: bigint) => Effect.Effect<void, FsError>
   /** Reads metadata for the open file. */
   readonly stat: Effect.Effect<Metadata, FsError>
-  /** Checks handle liveness. In-memory storage has no host or crash durability to flush. */
+  /** Checks handle and provider health. Durable mutations have already committed; memory volumes have nothing to flush. */
   readonly sync: Effect.Effect<void, FsError>
   /** Closes the handle. A repeated explicit close fails; scope cleanup remains safe. */
   readonly close: Effect.Effect<void, FsError>
@@ -1085,9 +1085,11 @@ export interface OverlayVolume extends Volume {
   /** Computes final differences from the immutable base when this reusable effect executes. */
   readonly changes: (
     options?: OverlayChangesOptions
-  ) => Effect.Effect<ReadonlyArray<OverlayChange>, ConfigurationError | ImageError>
+  ) => Effect.Effect<ReadonlyArray<OverlayChange>, ConfigurationError | ImageError | FsError>
   /** Captures one committed state when this reusable effect executes. */
-  readonly capture: (options?: OverlayChangesOptions) => Effect.Effect<OverlayCapture, ConfigurationError | ImageError>
+  readonly capture: (
+    options?: OverlayChangesOptions
+  ) => Effect.Effect<OverlayCapture, ConfigurationError | ImageError | FsError>
 }
 ```
 
@@ -1255,14 +1257,14 @@ export interface Volume {
   /** Effective static limits, where `undefined` means unlimited. */
   readonly limits: VolumeLimits
   /** Samples content bytes and directory entries together from the current committed state. */
-  readonly usage: Effect.Effect<VolumeUsage>
+  readonly usage: Effect.Effect<VolumeUsage, FsError>
   /** Opens a scoped stream of future committed changes. Events are not replayed. */
-  readonly watch: Effect.Effect<Stream.Stream<Change>, never, Scope.Scope>
+  readonly watch: Effect.Effect<Stream.Stream<Change>, FsError, Scope.Scope>
   /** Captures an isolated snapshot of the reachable namespace and metadata. */
-  readonly snapshot: Effect.Effect<Snapshot, ImageError>
+  readonly snapshot: Effect.Effect<Snapshot, ImageError | FsError>
   readonly [VolumeId]: true
   /** Creates a caller rooted at `/` with independent credentials, umask, and current directory. */
-  readonly caller: (options?: RootCallerOptions) => Effect.Effect<Caller, ConfigurationError>
+  readonly caller: (options?: RootCallerOptions) => Effect.Effect<Caller, ConfigurationError | FsError>
 }
 ```
 
