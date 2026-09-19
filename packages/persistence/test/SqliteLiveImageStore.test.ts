@@ -127,7 +127,7 @@ describe("SQLite live image store", () => {
         yield* caller.chmod("/renamed", 0o640)
 
         return { identity: live.identity, incarnation: live.incarnation }
-      })).pipe(Effect.provide(store(filename)))
+      }).pipe(Effect.provide(store(filename))))
 
       yield* Effect.scoped(Effect.gen(function*() {
         const live = yield* LiveVolume.open(options)
@@ -138,7 +138,7 @@ describe("SQLite live image store", () => {
         assert.deepEqual(yield* caller.readFile("/alias"), new Uint8Array([1, 2, 3]))
         assert.strictEqual((yield* caller.stat("/alias")).ino, (yield* caller.stat("/renamed")).ino)
         assert.strictEqual((yield* caller.stat("/renamed")).mode, 0o640)
-      })).pipe(Effect.provide(store(filename)))
+      }).pipe(Effect.provide(store(filename))))
     })).pipe(Effect.provide(files)))
 
   it.effect("rejects a competing owner and a damaged image", () =>
@@ -152,7 +152,7 @@ describe("SQLite live image store", () => {
         yield* LiveVolume.open(options)
         const competing = yield* Effect.flip(LiveVolume.open(options).pipe(Effect.provide(store(filename))))
         assert.strictEqual(competing.code, "Ownership")
-      })).pipe(Effect.provide(store(filename)))
+      }).pipe(Effect.provide(store(filename))))
 
       yield* Effect.gen(function*() {
         const sql = yield* SqlClient
@@ -199,7 +199,7 @@ describe("SQLite live image store", () => {
 
         assert.strictEqual(error.code, "StorageRejected")
         assert.strictEqual((yield* Effect.flip(caller.stat("/too-large"))).code, "NotFound")
-      })).pipe(Effect.provide(store(filename, ByteSize.bytes(12_288))))
+      }).pipe(Effect.provide(store(filename, ByteSize.bytes(12_288)))))
     })).pipe(Effect.provide(files)))
 
   it.effect("freezes the volume when a SQLite commit succeeds but its acknowledgement is lost", () =>
@@ -251,14 +251,14 @@ describe("SQLite live image store", () => {
         assert.strictEqual((yield* Effect.flip(live.usage)).code, "VolumeUnavailable")
 
         return live.identity
-      })).pipe(Effect.provide(injected))
+      }).pipe(Effect.provide(injected)))
 
       yield* Effect.scoped(Effect.gen(function*() {
         const live = yield* LiveVolume.open(options)
         const caller = yield* live.caller()
         assert.strictEqual(live.identity, identity)
         assert.deepEqual(yield* caller.readFile("/durable"), new Uint8Array([4, 5, 6]))
-      })).pipe(Effect.provide(store(filename)))
+      }).pipe(Effect.provide(store(filename))))
     })).pipe(Effect.provide(files)))
 
   it.effect("freezes the volume when an update fails and rollback cannot be confirmed", () =>
@@ -304,13 +304,13 @@ describe("SQLite live image store", () => {
         assert.strictEqual((yield* Effect.flip(caller.stat("/"))).code, "VolumeUnavailable")
 
         return live.identity
-      })).pipe(Effect.provide(injected))
+      }).pipe(Effect.provide(injected)))
 
       yield* Effect.scoped(Effect.gen(function*() {
         const live = yield* LiveVolume.open(options)
         const caller = yield* live.caller()
         assert.strictEqual(live.identity, identity)
         assert.strictEqual((yield* Effect.flip(caller.stat("/unconfirmed"))).code, "NotFound")
-      })).pipe(Effect.provide(store(filename)))
+      }).pipe(Effect.provide(store(filename))))
     })).pipe(Effect.provide(files)))
 })
