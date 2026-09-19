@@ -23,7 +23,7 @@ sources:
   - id: pynfs
     resource: https://github.com/kofemann/pynfs
     title: pynfs NFSv4.1 server tester
-generated: { by: claude/okf, at: 2026-09-16T21:30:00+02:00 }
+generated: { by: codex/okf, at: 2026-09-19T11:27:24Z }
 ---
 
 # NFS profile ladder
@@ -36,12 +36,12 @@ A **capability profile** states what the server does. A **maturity** label state
 
 Profiles, in delivery order:
 
-| Profile               | Adds                                                                                                                                                                                                                                                                                        | Owning issues |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted, backchannel, connection binding, trunking                                                                                                                                               | #43, #39, #44 |
-| `read-only-networked` | trusted `AUTH_SYS` identity mapped to VFS callers by application policy, non-loopback binding behind that policy and an explicit opt-in                                                                                                                                                     | #74, #75      |
-| `writable`            | create, write, rename, remove, `COMMIT` semantics, explicit durability statement; its core boundary is fixed by [reference-based mutations](../core/reference-mutations.md "refined by") and [volume durability and usage facts](../core/volume-durability-and-usage-facts.md "refined by") | #46, #48, #49 |
-| `stateful`            | share reservations, byte-range locks, grace and reclaim, restart model, persistent filehandles                                                                                                                                                                                              | #47, #50      |
+| Profile               | Adds                                                                                                                                                                                                                                                                                                                                                                                                                                      | Owning issues      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted, backchannel, connection binding, trunking                                                                                                                                                                                                                                                                                             | #43, #39, #44      |
+| `read-only-networked` | trusted `AUTH_SYS` identity mapped to VFS callers by application policy, non-loopback binding behind that policy and an explicit opt-in                                                                                                                                                                                                                                                                                                   | #74, #75           |
+| `writable`            | create, write, rename, remove, synchronous durable `WRITE` and `COMMIT`, plus share reservations and advisory byte-range locks; its accepted scope is the [writable export decision](writable-export-scope.md "refined by") and its core boundary is fixed by [reference-based mutations](../core/reference-mutations.md "refined by") and [volume durability and usage facts](../core/volume-durability-and-usage-facts.md "refined by") | #46, #47, #48, #49 |
+| `stateful`            | grace and reclaim, restart recovery, persistent filehandles                                                                                                                                                                                                                                                                                                                                                                               | #50                |
 
 Maturity labels are `experimental`, `preview`, and `stable`.
 

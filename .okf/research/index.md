@@ -4,6 +4,7 @@
 - [Effect adapter compatibility](effect-compatibility.md) retains the reasoning behind the adapter boundary that the memory-adapter contract now owns.
 - [Overlay filesystem direction](overlay-filesystem.md) retains the alternatives considered for overlay v1 and the parity cases a future harness should cover.
 - [Snapshot delta representation research](overlay-changes.md) retains the open delta questions: compressed encodings, checkpoint storage, profiling, and merge or rebase.
+- [Live durable volume proposal](live-durable-volume.md) proposes a staged core mutation boundary and bounded SQLite provider, with crash recovery and NFS replay prerequisites.
 
 ## NFS export
 
