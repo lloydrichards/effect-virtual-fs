@@ -44,6 +44,13 @@ case uses a fresh database, checks the reopened file contents, runs SQLite `inte
 stored image digest. The uploaded artifact records the runner, Bun and SQLite versions, filesystem, commit
 connection PRAGMAs, journal size at the kill point when present, and each case's results.
 
+The workflow also checks a real disk-full response on a disposable 4 MiB `tmpfs` mount. A test-only SQLite VFS,
+loaded before the provider opens its Bun connection, injects write and sync errors. One persistent main-database
+write fault reaches rollback. The gate verifies the provider's result, post-error availability, recovered old or
+new image, and `integrity_check`. These
+tests characterize failures on the recorded runner; they do not yet impose a finite journal/temp-file admission
+budget or simulate lost and reordered writes after an apparently successful sync.
+
 For a local rehearsal, run `GATE_ITERATIONS=1 bash packages/persistence/scripts/linux-crash-gate.sh` from the
 repository root after installing dependencies. This process-death gate does not stop the guest operating system or
 model lost storage writes. Issue #129 still requires an OS-crash run with retained virtual storage, storage fault

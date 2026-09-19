@@ -3,7 +3,7 @@ import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
-import { ByteSize, Config, Console, Effect, FileSystem, Layer, Schema } from "effect"
+import { ByteSize, Cause, Config, Console, Effect, Exit, FileSystem, Layer, Option, Schema } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import * as SqliteLiveImageStore from "../../src/SqliteLiveImageStore.js"
 
@@ -21,6 +21,7 @@ const program = Effect.gen(function*() {
   const mode = yield* Config.String("LIVE_STORE_MODE")
   const filename = yield* Config.String("LIVE_STORE_FILE")
   const evidence = yield* Config.String("LIVE_STORE_EVIDENCE_FILE").pipe(Config.withDefault(""))
+  const faultVfs = yield* Config.String("LIVE_STORE_FAULT_VFS").pipe(Config.withDefault(""))
   const pragmas: Array<string> = []
 
   const sqlite = SqliteClient.layer({ filename, disableWAL: true, busyTimeout: 0 })
@@ -91,9 +92,10 @@ const program = Effect.gen(function*() {
     Layer.provide(Layer.mergeAll(NodeCrypto.layer, NodeFileSystem.layer, NodePath.layer))
   )
 
-  yield* Effect.scoped(Effect.gen(function*() {
+  const exercise = Effect.scoped(Effect.gen(function*() {
     const volume = yield* LiveVolume.open(options)
     const caller = yield* volume.caller()
+    const filesystem = yield* FileSystem.FileSystem
 
     if (mode === "write" || mode === "write-hold") {
       yield* caller.writeFile("/durable", new Uint8Array([7, 8, 9]), { access: "write", create: "exclusive" })
@@ -104,10 +106,83 @@ const program = Effect.gen(function*() {
       yield* caller.chmod("/renamed", 0o640)
     } else if (mode.startsWith("pause-")) {
       yield* caller.writeFile("/durable", new Uint8Array([4, 5, 6]), { access: "write" })
+    } else if (mode === "disk-full" || mode === "fault-write") {
+      if (mode === "disk-full") {
+        yield* filesystem.writeFileString(`${filename}.ready`, "ready")
+
+        while (!(yield* filesystem.exists(`${filename}.resume`))) yield* Effect.sleep("20 millis")
+      }
+
+      const target = mode === "disk-full" ? "/disk-full" : "/fault"
+
+      const result = yield* Effect.exit(caller.writeFile(target, new Uint8Array(14_000), {
+        access: "write",
+        create: "exclusive"
+      }))
+
+      if (Exit.isSuccess(result)) {
+        if (mode === "disk-full") return yield* Effect.die("disk-full write unexpectedly succeeded")
+
+        yield* Console.log("committed")
+
+        return
+      }
+
+      const failure = Cause.findErrorOption(result.cause)
+
+      if (Option.isNone(failure)) return yield* Effect.die("disk-full write had no typed error")
+
+      yield* Console.log(failure.value.code)
+
+      if (failure.value.code === "OutcomeUnknown") {
+        const inaccessible = yield* Effect.exit(caller.stat("/"))
+
+        const inaccessibleError = Exit.isFailure(inaccessible)
+          ? Cause.findErrorOption(inaccessible.cause)
+          : Option.none()
+
+        if (Option.isNone(inaccessibleError) || inaccessibleError.value.code !== "VolumeUnavailable") {
+          return yield* Effect.die("unknown outcome left volume available")
+        }
+      } else if (failure.value.code === "StorageRejected") {
+        const absent = yield* Effect.exit(caller.stat(target))
+        const absentError = Exit.isFailure(absent) ? Cause.findErrorOption(absent.cause) : Option.none()
+
+        if (Option.isNone(absentError) || absentError.value.code !== "NotFound") {
+          return yield* Effect.die("rejected image was published")
+        }
+      } else {
+        return yield* Effect.die(`unexpected disk-full error: ${failure.value.code}`)
+      }
+
+      return
     } else if (mode === "verify-pending") {
       const bytes = yield* caller.readFile("/durable")
 
       if (bytes.toString() !== "4,5,6") return yield* Effect.die("pending image did not commit")
+    } else if (mode === "verify-fault" || mode === "verify-disk-full") {
+      const baseline = yield* caller.readFile("/durable")
+
+      if (baseline.toString() !== "7,8,9") return yield* Effect.die("baseline image changed")
+
+      const target = mode === "verify-disk-full" ? "/disk-full" : "/fault"
+      const candidate = yield* Effect.exit(caller.readFile(target))
+
+      if (Exit.isSuccess(candidate)) {
+        if (candidate.value.length !== 14_000 || candidate.value.some((byte) => byte !== 0)) {
+          return yield* Effect.die("recovered candidate is partial")
+        }
+
+        yield* Console.log("recovered=new")
+      } else {
+        const failure = Cause.findErrorOption(candidate.cause)
+
+        if (Option.isNone(failure) || failure.value.code !== "NotFound") {
+          return yield* Effect.die("recovery did not yield the old or new image")
+        }
+
+        yield* Console.log("recovered=old")
+      }
     } else if (mode === "verify-linked") {
       const renamed = yield* caller.readFile("/renamed")
       const alias = yield* caller.readFile("/alias")
@@ -131,7 +206,18 @@ const program = Effect.gen(function*() {
     )
 
     if (mode === "write-hold") return yield* Effect.never
-  })).pipe(Effect.provide(Layer.mergeAll(storage, NodeCrypto.layer)))
+  })).pipe(Effect.provide(Layer.mergeAll(storage, NodeCrypto.layer, NodeFileSystem.layer)))
+
+  if (faultVfs === "") {
+    yield* exercise
+  } else {
+    yield* Effect.scoped(Effect.gen(function*() {
+      const control = yield* SqliteClient.SqliteClient
+
+      yield* control.loadExtension(faultVfs)
+      yield* exercise
+    })).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:", disableWAL: true })))
+  }
 })
 
 await Effect.runPromise(program)

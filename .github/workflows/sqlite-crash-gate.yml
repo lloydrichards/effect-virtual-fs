@@ -32,6 +32,19 @@ jobs:
           GATE_OUTPUT_DIR: ${{ runner.temp }}/sqlite-crash-gate
           GATE_ITERATIONS: 10
         run: bash packages/persistence/scripts/linux-crash-gate.sh
+      - name: Check real disk-full behavior
+        env:
+          GATE_OUTPUT_DIR: ${{ runner.temp }}/sqlite-crash-gate/disk-full
+        run: bash packages/persistence/scripts/linux-disk-full-gate.sh
+      - name: Install SQLite extension headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+      - name: Inject SQLite VFS failures
+        env:
+          GATE_OUTPUT_DIR: ${{ runner.temp }}/sqlite-crash-gate/faults
+          GATE_FAULT_ITERATIONS: 3
+        run: bash packages/persistence/scripts/linux-fault-gate.sh
       - name: Upload recovery evidence
         if: always()
         uses: actions/upload-artifact@v4
