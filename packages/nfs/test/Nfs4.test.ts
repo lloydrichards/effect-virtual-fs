@@ -1954,6 +1954,267 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
     }))
 
+  it.effect("coordinates write opens across clients and releases a denial on downgrade", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits, writable: true }
+      )
+
+      const a = yield* startSession(handler, "write-share-a")
+      const b = yield* startSession(handler, "write-share-b")
+
+      const held = parseOpen(
+        yield* handler.compound(call([
+          sequence(a.session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openByName(a.client, "file", 1, 2),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
+
+      const bWrite = (slotSequence: number) =>
+        handler.compound(call([
+          sequence(b.session, slotSequence),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openByName(b.client, "file", 2)
+        ])).pipe(Effect.map((reply) => statuses(reply).status))
+
+      assert.strictEqual(yield* bWrite(1), Status.SHARE_DENIED)
+      assert.strictEqual(
+        statuses(
+          yield* handler.compound(call([
+            sequence(a.session, 2),
+            (writer) => writer.uint32(Operation.PUTFH).opaque(held.filehandle),
+            (writer) => writer.uint32(Operation.OPEN_DOWNGRADE).fixedOpaque(held.stateid).uint32(0).uint32(1).uint32(0)
+          ]))
+        ).status,
+        Status.OK
+      )
+      assert.strictEqual(
+        statuses(
+          yield* handler.compound(call([
+            sequence(b.session, 2),
+            (writer) => writer.uint32(Operation.PUTROOTFH),
+            openByName(b.client, "file", 2, 1)
+          ]))
+        ).status,
+        Status.SHARE_DENIED
+      )
+      assert.strictEqual(yield* bWrite(3), Status.OK)
+    }))
+
+  it.effect("rejects reads through a write-only stateid", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits, writable: true }
+      )
+
+      const client = yield* startSession(handler, "write-only")
+
+      const opened = parseOpen(
+        yield* handler.compound(call([
+          sequence(client.session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openByName(client.client, "file", 2),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
+
+      const reply = yield* handler.compound(call([
+        sequence(client.session, 2),
+        (writer) => writer.uint32(Operation.PUTFH).opaque(opened.filehandle),
+        (writer) => writer.uint32(Operation.READ).fixedOpaque(opened.stateid).uint64(0n).uint32(1)
+      ]))
+
+      assert.strictEqual(statuses(reply).status, Status.OPENMODE)
+    }))
+
+  it.effect("upgrades one open-owner from read to read-write and keeps one open record", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const constrained = { ...limits, maxOpens: 1 }
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        {
+          leaseDurationSeconds: 30,
+          callbackTimeout: "1 second",
+          generation,
+          now: () => 0,
+          limits: constrained,
+          writable: true
+        }
+      )
+
+      const client = yield* startSession(handler, "upgrade")
+
+      const firstRequest = call([
+        sequence(client.session, 1, true),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        openByName(client.client, "file", 1),
+        (writer) => writer.uint32(Operation.GETFH)
+      ])
+
+      const firstReply = yield* handler.compound(firstRequest)
+      const first = parseOpen(firstReply)
+      assert.deepStrictEqual(yield* handler.compound(firstRequest), firstReply)
+
+      const upgraded = parseOpen(
+        yield* handler.compound(call([
+          sequence(client.session, 2),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openByName(client.client, "file", 2),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
+
+      assert.deepStrictEqual(upgraded.stateid.subarray(4), first.stateid.subarray(4))
+      assert.strictEqual(new DataView(upgraded.stateid.buffer, upgraded.stateid.byteOffset, 4).getUint32(0), 2)
+      assert.strictEqual(
+        statuses(
+          yield* handler.compound(call([
+            sequence(client.session, 3),
+            (writer) => writer.uint32(Operation.PUTFH).opaque(upgraded.filehandle),
+            (writer) => writer.uint32(Operation.READ).fixedOpaque(upgraded.stateid).uint64(0n).uint32(1)
+          ]))
+        ).status,
+        Status.OK
+      )
+    }))
+
+  it.effect("keeps earlier read access when upgrading after read permission is removed", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const admin = yield* volume.caller({ umask: 0 })
+      yield* admin.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive", mode: 0o600 })
+      yield* admin.chown("/file", { uid: 1000, gid: 1000 })
+      yield* admin.chmod("/", 0o111)
+      const owner = yield* volume.caller({ identity: { uid: 1000, gid: 1000, groups: [], privileged: false } })
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(admin, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        {
+          leaseDurationSeconds: 30,
+          callbackTimeout: "1 second",
+          generation,
+          now: () => 0,
+          limits,
+          writable: true,
+          callerFor: () => Effect.succeed(owner)
+        }
+      )
+
+      const client = yield* startSession(handler, "permission-upgrade")
+
+      const first = parseOpen(
+        yield* handler.compound(call([
+          sequence(client.session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openByName(client.client, "file", 1),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
+
+      yield* admin.chmod("/file", 0o200)
+
+      const upgraded = parseOpen(
+        yield* handler.compound(call([
+          sequence(client.session, 2),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openByName(client.client, "file", 2),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
+
+      assert.deepStrictEqual(upgraded.stateid.subarray(4), first.stateid.subarray(4))
+
+      yield* admin.chmod("/file", 0o600)
+
+      assert.strictEqual(
+        statuses(
+          yield* handler.compound(call([
+            sequence(client.session, 3),
+            (writer) => writer.uint32(Operation.PUTFH).opaque(upgraded.filehandle),
+            (writer) => writer.uint32(Operation.READ).fixedOpaque(upgraded.stateid).uint64(0n).uint32(1)
+          ]))
+        ).status,
+        Status.OK
+      )
+    }))
+
+  live("interrupts a stalled write-open upgrade without closing the original handle", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const base = makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) })
+      const entered = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+
+      const export_ = {
+        ...base,
+        open: (reference: Vfs.ObjectReference, access?: Vfs.OpenReferenceSettings["access"]) =>
+          access === "write" ?
+            Deferred.succeed(entered, undefined).pipe(
+              Effect.andThen(Deferred.await(release)),
+              Effect.andThen(base.open(reference, access))
+            ) :
+            base.open(reference, access)
+      }
+
+      const handler = yield* makeNfs4Handler(export_, {
+        leaseDurationSeconds: 30,
+        callbackTimeout: "1 second",
+        generation,
+        now: () => 0,
+        limits,
+        writable: true
+      })
+
+      const client = yield* startSession(handler, "interrupted-upgrade")
+
+      const first = parseOpen(
+        yield* handler.compound(call([
+          sequence(client.session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openByName(client.client, "file", 1),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
+
+      const upgrade = yield* Effect.forkChild(handler.compound(call([
+        sequence(client.session, 2),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        openByName(client.client, "file", 2)
+      ])))
+
+      yield* Deferred.await(entered)
+      const interrupting = yield* Effect.forkChild(Fiber.interrupt(upgrade))
+      const finished = yield* Fiber.join(interrupting).pipe(Effect.timeoutOption("2 seconds"))
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(interrupting)
+      assert.isTrue(Option.isSome(finished), "the upgrade kept the server uninterruptible while opening storage")
+
+      assert.strictEqual(
+        statuses(
+          yield* handler.compound(call([
+            sequence(client.session, 3),
+            (writer) => writer.uint32(Operation.PUTFH).opaque(first.filehandle),
+            (writer) => writer.uint32(Operation.READ).fixedOpaque(first.stateid).uint64(0n).uint32(1)
+          ]))
+        ).status,
+        Status.OK
+      )
+    }))
+
   it.effect("supports anonymous and current-stateid READ forms", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()

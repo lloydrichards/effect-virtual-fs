@@ -23,7 +23,7 @@ sources:
   - id: knfsd
     resource: https://docs.kernel.org/filesystems/nfs/nfs41-server.html
     title: Linux knfsd NFSv4.1 implementation status table
-generated: { by: codex/okf, at: 2026-09-19T13:51:58Z }
+generated: { by: codex/okf, at: 2026-09-19T19:11:28Z }
 ---
 
 # NFS operations ledger
@@ -91,6 +91,12 @@ Rows follow RFC 8881 Table 16 and Table 17.[^rfc8881-17] Status uses the vocabul
 | WANT_DELEGATION      | 56    | OPT | none                               | excluded               | NFS4ERR_NOTSUPP                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Same                                                            | Profile.test                         |          |
 | WRITE                | 38    | REQ | read-only-local (reject), writable | rejected(NFS4ERR_ROFS) | Decoded up to maxWriteBytes; NOFILEHANDLE first, then ROFS                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Same for read-only exports                                      | Nfs4.test                            | #48, #49 |
 | ILLEGAL              | 10044 |     | read-only-local                    | supported              | Opcodes outside Section 16 return OP_ILLEGAL and stop the compound, with or without a session                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Same                                                            | Nfs4.test; Profile.test              |          |
+
+## Staged write-open state
+
+The internal NFS handler can enable write access for existing regular files. An `OPEN` records the open owner's read and write access alongside its deny bits. Conflicts compare new access with held denials and new denials with held access, including the same owner's earlier open. A repeated `OPEN` can extend access by opening only the newly requested mode and retaining the earlier handle. This permits an upgrade when permissions changed after the first open; interruption leaves the original handle usable. `OPEN_DOWNGRADE` keeps only a nonempty subset of held access and denial; `CLOSE` and lease revocation release the reservation. `READ` with a write-only stateid returns `OPENMODE`. Session replay prevents a retried `OPEN` from applying twice.[^dispatcher][^tests]
+
+This mode is not exposed by `NfsServer`. The public read-only profile and the table above still reject write opens with `ROFS`, and `WRITE` remains `ROFS`. The writable export requires qualified durability and the remaining writable operations under [writable export scope](../../decisions/nfs/writable-export-scope.md "constrained by").
 
 ## Writable-profile error rules
 

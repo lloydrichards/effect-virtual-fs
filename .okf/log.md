@@ -2,6 +2,10 @@
 
 ## 2026-09-19
 
+- **NFS upgrade permission continuity**: Recorded that a same-owner upgrade retains its earlier open handle and acquires only newly requested access, so later permission changes do not invalidate the held reservation.
+
+- **Staged NFS write opens**: Recorded internal write-access reservations, upgrades, downgrades, and write-only stateid reads. The public export and `WRITE` remain read-only pending the qualified writable profile.
+
 - **NFS replay admission**: Recorded the reserved replay capacity, consumed-slot marker, and cancellation boundary now used before state-changing compounds. Writable namespace and data operations still need dispatch-specific coverage.
 
 - **Experimental SQLite live-image store**: Added an Effect `SqlClient` Layer with exclusive ownership, bounded full-image commits, image digest checks, and process-restart tests. Updated the implemented profile and separated shipped behavior from the remaining writable-volume proposal. Power-loss qualification, temporary journal-space bounds, and bounded watches remain open; the volume still reports `memory-only`.
