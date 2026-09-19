@@ -62,7 +62,7 @@ sources:
   - id: issue-50
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
     title: Restart recovery
-generated: { by: codex/okf, at: 2026-09-19T15:39:46Z }
+generated: { by: codex/okf, at: 2026-09-19T18:55:26Z }
 ---
 
 # Live durable volume proposal
@@ -183,7 +183,9 @@ The core defines `StorageRejected`, `OutcomeUnknown`, and `VolumeUnavailable` as
 
 NFS first validates the session, credential mapping, stateid, share reservation, and operation bounds. NFS state coordination spans conflict checks and the associated I/O so another NFS client cannot invalidate the check while storage waits. Direct callers remain outside this lock boundary. NFS reserves worst-case response and replay capacity before the first possible mutation, including opens that create or truncate. It then calls the durable volume, records each result, finalizes the slot, and only then sends the reply. A successful `WRITE` reports the returned prefix count, `FILE_SYNC4`, and the incarnation-derived verifier. `COMMIT` validates its arguments and state and returns that verifier after confirming a healthy provider; the synchronous volume has nothing left to flush.[^rfc]
 
-The current `rollbackSequence` paths on interruption and late response-size or cache-budget failures cannot be reused after mutation. Rolling the slot back would make a retry execute a committed operation again.[^nfs] For the first implementation, admit and reserve the complete bounded compound before side effects, then mask cancellation through execution and slot finalization once it can mutate. This is a cancellation boundary, not a filesystem transaction. Earlier operations remain committed when a later operation fails. A stalled driver still requires the fail-closed recovery rule above; a timeout must never reopen the same slot for execution.
+The NFS handler reserves response and replay bytes at `SEQUENCE`. Before dispatching a compound that may change state, it records a consumed-slot marker. Operations remain interruptible while waiting on the export; their own commit boundaries protect state changes. If cancellation or a late bound check prevents a full reply, the marker remains, so a retry cannot execute the compound again. A compound with no possible state change can release its slot on interruption.[^nfs]
+
+This boundary does not make the compound a transaction. If a later operation fails, earlier changes remain committed, and a cached reply retains each operation's result. Tests cover lost `OPEN` replies, a later operation failure, cancellation after `OPEN`, an operation defect, and capacity rejection before `OPEN`. Writable namespace and data operations still return `NFS4ERR_ROFS`; their reply bounds and storage failures need tests when dispatch is added. A stalled driver also needs the fail-closed recovery rule above.
 
 With `cachethis=false`, retain the consumed-slot record and return `NFS4ERR_RETRY_UNCACHED_REP` on retry instead of rerunning mutations. Fatal unknown storage outcomes invalidate the affected export/session lifetime, even if no final reply can be formed. A crash after storage commit but before replay publication requires remount; this proposal does not promise exactly-once execution across restart or durable session state. #50 owns that extension.
 
@@ -231,7 +233,7 @@ The open performance question is the maximum useful volume size with full-image 
 
 [^watch]: `WatchHub.make` uses `PubSub.unbounded` and synchronous publication.
 
-[^nfs]: `compound` dispatches through `restore(execute(operation))`, rolls back slots on interruption, and has post-execution response/cache checks.
+[^nfs]: `compound` reserves replay bytes at `SEQUENCE` and installs a consumed-slot marker before state-changing dispatch. Post-execution size checks remain as defensive bounds.
 
 [^sqlite-sync]: SQLite's synchronous-mode matrix and `fullfsync` documentation. These are storage configuration conditions, not hardware-test evidence.
 

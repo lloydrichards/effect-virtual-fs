@@ -1773,9 +1773,19 @@ const makeCookieVerifier = (generation: Uint8Array, revision: bigint): Uint8Arra
  */
 const stateChangingKinds: ReadonlySet<ParsedOperation["kind"]> = new Set([
   "Read",
+  "Create",
+  "Link",
+  "Remove",
+  "Rename",
+  "Setattr",
+  "Write",
+  "Commit",
   "Open",
   "Close",
   "OpenDowngrade",
+  "Lock",
+  "Locku",
+  "FreeStateid",
   "ExchangeId",
   "CreateSession",
   "DestroySession",
@@ -1788,7 +1798,7 @@ const stateChangingKinds: ReadonlySet<ParsedOperation["kind"]> = new Set([
 ])
 
 /**
- * Lower bound on the encoded reply so SEQUENCE can reject a request that could never fit.
+ * Reply bound used by SEQUENCE before operation dispatch.
  * Variable-size results are bounded optimistically so small actual replies still fit a small
  * channel, and the slot is rolled back if the encoded reply proves too large. When the compound
  * also changes state, every variable result uses its worst case instead, because a rollback
@@ -1797,7 +1807,8 @@ const stateChangingKinds: ReadonlySet<ParsedOperation["kind"]> = new Set([
 const replayReplyBound = (
   operations: ReadonlyArray<ParsedOperation>,
   tagBytes: number,
-  limits: Nfs4Limits
+  limits: Nfs4Limits,
+  securityFlavorCount: number
 ): number => {
   let bytes = 12 + tagBytes + (4 - tagBytes % 4) % 4
   const worstCase = operations.some((operation) => stateChangingKinds.has(operation.kind))
@@ -1835,6 +1846,25 @@ const replayReplyBound = (
       case "Open":
         bytes += 8 + 16 + 4 + 16 + 4 + 8 + 8
         break
+      case "Create":
+        bytes += 64
+        break
+      case "Rename":
+        bytes += 56
+        break
+      case "Link":
+      case "Remove":
+        bytes += 32
+        break
+      case "Setattr":
+        bytes += 32
+        break
+      case "Write":
+        bytes += 24
+        break
+      case "Commit":
+        bytes += 16
+        break
       case "Close":
       case "OpenDowngrade":
       case "Lock":
@@ -1846,6 +1876,8 @@ const replayReplyBound = (
         break
       case "Secinfo":
       case "SecinfoNoName":
+        bytes += 12 + 4 * securityFlavorCount
+        break
       case "BindConnToSession":
         bytes += 32
         break
@@ -2211,6 +2243,8 @@ export const makeNfs4Handler = (
         }
 
         let rollbackSequence: (() => void) | undefined
+        const mayChangeState = parsed.operations.some((operation) => stateChangingKinds.has(operation.kind))
+        let consumedSequence = false
 
         return Effect.gen(function*() {
           const parts: Array<ResultPart> = []
@@ -2224,14 +2258,43 @@ export const makeNfs4Handler = (
           let activeSlot: ReplaySlot | undefined
           let shouldCache = false
 
+          const rejectAfterExecution = (status: number): Uint8Array => {
+            if (!mayChangeState) {
+              rollbackSequence?.()
+            }
+
+            rollbackSequence = undefined
+
+            return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status }])
+          }
+
           for (let index = 0; index < parsed.operations.length; index++) {
             const operation = parsed.operations[index]!
             let result: ResultPart
 
-            // An open registered by an abandoned compound is never reported to the client and is
-            // reclaimed with the client's lease, so it needs no rollback of its own.
+            // Operations remain interruptible while waiting on the export. Their own commit
+            // boundaries protect state changes; the consumed slot prevents rerunning them.
             result = yield* restore(execute(operation))
             parts.push(result)
+
+            if (index === 0 && mayChangeState && activeSlot !== undefined && result.status === Status.OK) {
+              // Publish a consumed-slot marker before any later operation can commit. An
+              // interrupted or failed operation can leave this marker instead of its full reply.
+              const second = parsed.operations[1]
+              activeSlot.response = second === undefined
+                ? encodeCompound(parsed.tag, [result])
+                : encodeCompound(parsed.tag, [
+                  result,
+                  { code: second.code, status: Status.RETRY_UNCACHED_REP }
+                ])
+              activeSlot.request = new Uint8Array(call.arguments)
+              activeSlot.credentials = credentialsKey(call.credentials)
+
+              if (activeCaller === undefined) delete activeSlot.caller
+              else activeSlot.caller = activeCaller
+
+              consumedSequence = true
+            }
 
             if (result.status !== Status.OK) break
           }
@@ -2240,20 +2303,14 @@ export const makeNfs4Handler = (
           const responseBytes = addBytes(byteLength(response.length), rpcReplyOverheadBytes)
 
           if (responseBytes > byteLength(activeSession?.fore.maxResponse ?? Number.MAX_SAFE_INTEGER)) {
-            rollbackSequence?.()
-            rollbackSequence = undefined
-
-            return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.REP_TOO_BIG }])
+            return rejectAfterExecution(Status.REP_TOO_BIG)
           }
 
           if (
             shouldCache &&
             responseBytes > byteLength(activeSession?.fore.maxCachedResponse ?? Number.MAX_SAFE_INTEGER)
           ) {
-            rollbackSequence?.()
-            rollbackSequence = undefined
-
-            return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.REP_TOO_BIG_TO_CACHE }])
+            return rejectAfterExecution(Status.REP_TOO_BIG_TO_CACHE)
           }
 
           if (activeSlot !== undefined && shouldCache) {
@@ -2261,12 +2318,12 @@ export const makeNfs4Handler = (
 
             if (
               retainedBytes > options.limits.maxReplayBytes ||
-              addBytes(replayBytes, retainedBytes) > options.limits.maxReplayBytes
+              addBytes(
+                  subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0)),
+                  retainedBytes
+                ) > options.limits.maxReplayBytes
             ) {
-              rollbackSequence?.()
-              rollbackSequence = undefined
-
-              return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.REP_TOO_BIG_TO_CACHE }])
+              return rejectAfterExecution(Status.REP_TOO_BIG_TO_CACHE)
             }
 
             replayBytes = subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0))
@@ -2291,13 +2348,16 @@ export const makeNfs4Handler = (
 
             const retainedBytes = addBytes(byteLength(call.arguments.length), byteLength(replay.length))
 
-            if (addBytes(replayBytes, retainedBytes) > options.limits.maxReplayBytes) {
-              rollbackSequence?.()
-              rollbackSequence = undefined
-
-              return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.DELAY }])
+            if (
+              addBytes(
+                subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0)),
+                retainedBytes
+              ) > options.limits.maxReplayBytes
+            ) {
+              return rejectAfterExecution(Status.DELAY)
             }
 
+            replayBytes = subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0))
             activeSlot.response = replay
             activeSlot.request = new Uint8Array(call.arguments)
             activeSlot.credentials = credentialsKey(call.credentials)
@@ -2801,7 +2861,13 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.TOO_MANY_OPS })
                 }
 
-                const replyBound = replayReplyBound(parsed.operations, parsed.tag.length, options.limits)
+                const replyBound = replayReplyBound(
+                  parsed.operations,
+                  parsed.tag.length,
+                  options.limits,
+                  options.securityFlavors?.length ?? 2
+                )
+
                 const rpcReplyBound = addBytes(byteLength(replyBound), rpcReplyOverheadBytes)
 
                 if (rpcReplyBound > byteLength(session.fore.maxResponse)) {
@@ -2816,7 +2882,8 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.SEQ_MISORDERED })
                 }
 
-                const uncachedReplayBound = 96 + parsed.tag.length + (4 - parsed.tag.length % 4) % 4
+                const uncachedReplayBound = 12 + parsed.tag.length + (4 - parsed.tag.length % 4) % 4 +
+                  44 + (parsed.operations.length > 1 ? 8 : 0)
 
                 const retainedBound = addBytes(
                   byteLength(call.arguments.length),
@@ -2849,6 +2916,7 @@ export const makeNfs4Handler = (
                 rollbackSequence = () => {
                   // Restore only this slot's accounting; other operations in the compound may have
                   // changed the shared counter legitimately.
+                  replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
                   replayBytes = addBytes(replayBytes, previousSlot.retainedBytes ?? ByteSize.bytes(0))
                   slot.sequence = previousSlot.sequence
 
@@ -2869,12 +2937,13 @@ export const makeNfs4Handler = (
                 }
 
                 replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
+                replayBytes = addBytes(replayBytes, retainedBound)
                 slot.sequence = value.sequence
                 delete slot.response
                 delete slot.request
                 delete slot.credentials
                 delete slot.caller
-                delete slot.retainedBytes
+                slot.retainedBytes = retainedBound
                 session.client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
                 activeSession = session
                 activeSlot = slot
@@ -4099,7 +4168,11 @@ export const makeNfs4Handler = (
             )
           }
         }).pipe(
-          Effect.onInterrupt(() => Effect.sync(() => rollbackSequence?.()))
+          Effect.onInterrupt(() =>
+            Effect.sync(() => {
+              if (!consumedSequence) rollbackSequence?.()
+            })
+          )
         )
       }).pipe(Effect.orDie)
 
