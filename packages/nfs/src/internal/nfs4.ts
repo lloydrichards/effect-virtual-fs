@@ -9,7 +9,7 @@ import * as Schedule from "effect/Schedule"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import { type InvalidFilehandleError, InvalidNameError, type NfsExport, validateName } from "./export.js"
-import { type LockRange, lockRange, overlaps, sameRange } from "./lockRanges.js"
+import { type LockRange, lockRange, MAX_OFFSET, overlaps } from "./lockRanges.js"
 import { type CompoundCall, type Connection, RpcPolicyDenied } from "./rpc.js"
 import { type DecodeLimits, Reader, Writer, XdrDecodeError } from "./xdr.js"
 
@@ -39,6 +39,7 @@ export const Status = {
   SAME: 10009,
   EXPIRED: 10011,
   LOCKED: 10012,
+  DENIED: 10010,
   OPENMODE: 10038,
   FHEXPIRED: 10014,
   SHARE_DENIED: 10015,
@@ -285,7 +286,7 @@ const CLAIM_DELEG_PREV_FH = 6
  */
 const MAX_GETATTR_REPLY_BYTES = 512
 
-/** WRITE_LT and WRITEW_LT are the lock types that modify a read-only file system's state. */
+/** WRITE_LT and WRITEW_LT request exclusive ranges. */
 const WRITE_LOCK_TYPES: ReadonlySet<number> = new Set([2, 4])
 
 const OPEN4_SHARE_ACCESS_WANT_DELEG_MASK = 0xff00
@@ -669,6 +670,52 @@ interface LockState {
   readonly ownerKey: string
   readonly open: OpenState
   readonly ranges: Array<{ readonly range: LockRange; readonly type: number }>
+}
+
+type HeldRange = LockState["ranges"][number]
+
+/** Replace an owner's byte state on a range, retaining sorted, disjoint intervals. */
+const replaceLockRange = (held: ReadonlyArray<HeldRange>, range: LockRange, type?: number): Array<HeldRange> => {
+  const next: Array<HeldRange> = []
+
+  for (const entry of held) {
+    if (!overlaps(entry.range, range)) {
+      next.push(entry)
+      continue
+    }
+
+    if (entry.range.offset < range.offset) {
+      next.push({ range: lockRange(entry.range.offset, range.offset - entry.range.offset)!, type: entry.type })
+    }
+
+    if (entry.range.end > range.end) {
+      next.push({
+        range: lockRange(range.end, entry.range.end === MAX_OFFSET + 1n ? MAX_OFFSET : entry.range.end - range.end)!,
+        type: entry.type
+      })
+    }
+  }
+
+  if (type !== undefined) next.push({ range, type })
+  next.sort((a, b) => a.range.offset < b.range.offset ? -1 : a.range.offset > b.range.offset ? 1 : 0)
+
+  const merged: Array<HeldRange> = []
+
+  for (const entry of next) {
+    const last = merged.at(-1)
+
+    if (last !== undefined && last.type === entry.type && last.range.end === entry.range.offset) {
+      merged[merged.length - 1] = {
+        range: lockRange(
+          last.range.offset,
+          entry.range.end === MAX_OFFSET + 1n ? MAX_OFFSET : entry.range.end - last.range.offset
+        )!,
+        type: last.type
+      }
+    } else merged.push(entry)
+  }
+
+  return merged
 }
 
 /** Adds `direction` to what `connection` already carries for `session` (Section 2.10.3.1). */
@@ -1819,6 +1866,7 @@ const replayReplyBound = (
   const maxReadBytes = ByteSize.toNumberUnsafe(limits.maxReadBytes)
   const maxReaddirReplyBytes = ByteSize.toNumberUnsafe(limits.maxReaddirReplyBytes)
   const maxStringBytes = ByteSize.toNumberUnsafe(limits.maxStringBytes)
+  const maxOwnerBytes = ByteSize.toNumberUnsafe(limits.maxOwnerBytes)
 
   // Each bound covers the 8-byte operation header plus the result body.
   for (const operation of operations) {
@@ -1872,6 +1920,11 @@ const replayReplyBound = (
       case "Close":
       case "OpenDowngrade":
       case "Lock":
+        bytes += 8 + Math.max(16, 8 + 8 + 4 + 8 + 4 + maxOwnerBytes + 4)
+        break
+      case "Lockt":
+        bytes += 8 + 8 + 8 + 4 + 8 + 4 + maxOwnerBytes + 4
+        break
       case "Locku":
         bytes += 8 + 16
         break
@@ -1920,6 +1973,39 @@ export const makeNfs4Handler = (
     let sessionSerial = 1n
     let openSerial = 1n
     let lockCount = 0
+
+    const conflictingLock = (
+      reference: Vfs.ObjectReference,
+      client: ClientState,
+      ownerKey: string,
+      range: LockRange,
+      type: number
+    ) => {
+      for (const state of lockStates.values()) {
+        if (state.open.reference !== reference || (state.client === client && state.ownerKey === ownerKey)) continue
+
+        for (const entry of state.ranges) {
+          if (overlaps(entry.range, range) && (WRITE_LOCK_TYPES.has(type) || WRITE_LOCK_TYPES.has(entry.type))) {
+            return { state, entry }
+          }
+        }
+      }
+
+      return undefined
+    }
+
+    const deniedLock = (code: number, conflict: { state: LockState; entry: HeldRange }): ResultPart => ({
+      code,
+      status: Status.DENIED,
+      body: new Writer()
+        .uint64(conflict.entry.range.offset)
+        .uint64(conflict.entry.range.length)
+        .uint32(conflict.entry.type)
+        .uint64(conflict.state.client.id)
+        .opaque(conflict.state.owner)
+        .bytes()
+    })
+
     let replayBytes = ByteSize.bytes(0)
     const maxRpcRequestBytes = ByteSize.min(options.limits.maxRecordBytes, options.limits.maxCompoundBytes)
     const maxRpcResponseBytes = ByteSize.min(options.limits.maxRecordBytes, options.limits.maxCompoundBytes)
@@ -3932,7 +4018,9 @@ export const makeNfs4Handler = (
 
                     if (value.reclaim) return { code: operation.code, status: Status.NO_GRACE }
 
-                    if (WRITE_LOCK_TYPES.has(value.lockType)) return { code: operation.code, status: Status.ROFS }
+                    if (WRITE_LOCK_TYPES.has(value.lockType) && !options.writable) {
+                      return { code: operation.code, status: Status.ROFS }
+                    }
 
                     if (activeSession === undefined) return { code: operation.code, status: Status.BADSESSION }
 
@@ -3953,6 +4041,11 @@ export const makeNfs4Handler = (
                       const status = checkOpenStateId(stateid, open)
 
                       if (status !== Status.OK) return { code: operation.code, status }
+
+                      if ((open.access & (WRITE_LOCK_TYPES.has(value.lockType) ? 2 : 1)) === 0) {
+                        return { code: operation.code, status: Status.OPENMODE }
+                      }
+
                       const ownerKey = bytesKey(locker.owner)
                       lock = [...lockStates.values()].find((entry) =>
                         entry.client === client && entry.ownerKey === ownerKey && entry.open === open
@@ -3964,6 +4057,7 @@ export const makeNfs4Handler = (
                         }
 
                         const id = makeStateId(options.generation, openSerial++, 0)
+
                         lock = {
                           id,
                           sequence: 0,
@@ -3985,24 +4079,65 @@ export const makeNfs4Handler = (
                       const status = checkLockStateId(stateid, lock)
 
                       if (status !== Status.OK) return { code: operation.code, status }
+
+                      if ((lock.open.access & (WRITE_LOCK_TYPES.has(value.lockType) ? 2 : 1)) === 0) {
+                        return { code: operation.code, status: Status.OPENMODE }
+                      }
                     }
 
-                    if (
-                      [...lockStates.values()].some((state) =>
-                        state.client === lock.client && state.ownerKey === lock.ownerKey &&
-                        state.open.reference === lock.open.reference &&
-                        state.ranges.some((entry) => overlaps(entry.range, range))
+                    const conflict = conflictingLock(
+                      lock.open.reference,
+                      lock.client,
+                      lock.ownerKey,
+                      range,
+                      value.lockType
+                    )
+
+                    if (conflict !== undefined) return deniedLock(operation.code, conflict)
+
+                    const ownerStates = [...lockStates.values()].filter((state) =>
+                      state.client === lock.client && state.ownerKey === lock.ownerKey &&
+                      state.open.reference === lock.open.reference
+                    )
+
+                    if (created) ownerStates.push(lock)
+
+                    const updates = ownerStates.map((state) => ({
+                      state,
+                      next: replaceLockRange(
+                        state.ranges,
+                        range,
+                        state === lock ? (WRITE_LOCK_TYPES.has(value.lockType) ? 2 : 1) : undefined
                       )
-                    ) {
-                      return { code: operation.code, status: Status.LOCK_RANGE }
-                    }
+                    }))
 
-                    if (lockCount >= options.limits.maxLocks) return { code: operation.code, status: Status.DELAY }
+                    const nextCount = updates.reduce(
+                      (count, update) => count + update.next.length - update.state.ranges.length,
+                      lockCount
+                    )
+
+                    if (nextCount > options.limits.maxLocks) {
+                      return { code: operation.code, status: Status.DELAY }
+                    }
 
                     if (created) lockStates.set(stateIdKey(lock.id), lock)
-                    lock.ranges.push({ range, type: value.lockType })
-                    lockCount++
-                    advanceStateId(lock)
+
+                    const ownNext = updates.find((update) => update.state === lock)!.next
+
+                    const changed = lock.ranges.length !== ownNext.length ||
+                      lock.ranges.some((entry, index) =>
+                        entry.range.offset !== ownNext[index]!.range.offset ||
+                        entry.range.end !== ownNext[index]!.range.end ||
+                        entry.type !== ownNext[index]!.type
+                      )
+
+                    lockCount = nextCount
+
+                    for (const update of updates) {
+                      update.state.ranges.splice(0, update.state.ranges.length, ...update.next)
+                    }
+
+                    if (changed) advanceStateId(lock)
                     currentStateid = lock.id
 
                     return { code: operation.code, status: Status.OK, body: new Writer().fixedOpaque(lock.id).bytes() }
@@ -4011,18 +4146,38 @@ export const makeNfs4Handler = (
                 )
               }
 
-              case "Lockt":
-                return statusResult(
-                  withCurrent(requireRegularFile).pipe(
-                    Effect.andThen(
-                      lockRange(operation.value.offset, operation.value.length) === undefined
-                        ? Effect.fail(Status.INVAL)
-                        : WRITE_LOCK_TYPES.has(operation.value.lockType)
-                        ? Effect.fail(Status.ROFS)
-                        : Effect.void
+              case "Lockt": {
+                if (current === undefined) return Effect.succeed(noCurrent())
+                const reference = current
+                const value = operation.value
+                const range = lockRange(value.offset, value.length)
+
+                return requireRegularFile(reference).pipe(
+                  Effect.map((): ResultPart => {
+                    if (range === undefined) return { code: operation.code, status: Status.INVAL }
+
+                    if (WRITE_LOCK_TYPES.has(value.lockType) && !options.writable) {
+                      return { code: operation.code, status: Status.ROFS }
+                    }
+
+                    if (activeSession === undefined) return { code: operation.code, status: Status.BADSESSION }
+
+                    const conflict = conflictingLock(
+                      reference,
+                      activeSession.client,
+                      bytesKey(value.owner),
+                      range,
+                      value.lockType
                     )
-                  )
+
+                    return conflict === undefined
+                      ? { code: operation.code, status: Status.OK }
+                      : deniedLock(operation.code, conflict)
+                  }),
+                  Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
                 )
+              }
+
               case "Locku": {
                 if (current === undefined) return Effect.succeed(noCurrent())
                 const value = operation.value
@@ -4038,11 +4193,33 @@ export const makeNfs4Handler = (
                 const status = checkLockStateId(stateid, lock)
 
                 if (status !== Status.OK) return Effect.succeed({ code: operation.code, status })
-                const index = lock.ranges.findIndex((entry) => sameRange(entry.range, range))
 
-                if (index === -1) return Effect.succeed({ code: operation.code, status: Status.LOCK_RANGE })
-                lock.ranges.splice(index, 1)
-                lockCount--
+                const ownerStates = [...lockStates.values()].filter((state) =>
+                  state.client === lock.client && state.ownerKey === lock.ownerKey &&
+                  state.open.reference === lock.open.reference
+                )
+
+                if (!ownerStates.some((state) => state.ranges.some((entry) => overlaps(entry.range, range)))) {
+                  return Effect.succeed({ code: operation.code, status: Status.LOCK_RANGE })
+                }
+
+                const updates = ownerStates.map((state) => ({ state, next: replaceLockRange(state.ranges, range) }))
+
+                const nextCount = updates.reduce(
+                  (count, update) => count + update.next.length - update.state.ranges.length,
+                  lockCount
+                )
+
+                if (nextCount > options.limits.maxLocks) {
+                  return Effect.succeed({ code: operation.code, status: Status.DELAY })
+                }
+
+                lockCount = nextCount
+
+                for (const update of updates) {
+                  update.state.ranges.splice(0, update.state.ranges.length, ...update.next)
+                }
+
                 advanceStateId(lock)
                 currentStateid = lock.id
 
