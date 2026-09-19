@@ -39,7 +39,10 @@ const translate = (error: Vfs.FsError, method: string, pathOrDescriptor: string 
     AccessDenied: "PermissionDenied",
     InvalidPathEncoding: "InvalidData",
     UnrepresentableName: "InvalidData",
-    PathTooLong: "InvalidData"
+    PathTooLong: "InvalidData",
+    StorageRejected: "Unknown",
+    OutcomeUnknown: "Unknown",
+    VolumeUnavailable: "Unknown"
   }
 
   return systemError({

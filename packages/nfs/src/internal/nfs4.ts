@@ -17,6 +17,7 @@ export const Status = {
   OK: 0,
   PERM: 1,
   NOENT: 2,
+  IO: 5,
   ACCESS: 13,
   EXIST: 17,
   NOTDIR: 20,
@@ -1250,6 +1251,9 @@ const fsStatuses: Readonly<Record<Vfs.FsCode, number>> = {
   IsDirectory: Status.ISDIR,
   FileTooLarge: Status.FBIG,
   NoData: Status.SERVERFAULT,
+  StorageRejected: Status.IO,
+  OutcomeUnknown: Status.IO,
+  VolumeUnavailable: Status.IO,
   // NFSv4.1 has no LOOP status. The reference-based NFS read path never follows symbolic links.
   SymlinkLoop: Status.INVAL,
   UnrepresentableName: Status.INVAL

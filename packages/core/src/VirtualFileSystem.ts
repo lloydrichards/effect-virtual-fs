@@ -114,6 +114,10 @@ export type FsCode = typeof FsCode.Type
 /**
  * Describes an expected filesystem operation failure.
  *
+ * Durable providers distinguish `StorageRejected` (the operation definitely did not commit),
+ * `OutcomeUnknown` (it may have committed), and `VolumeUnavailable` (the provider cannot safely
+ * serve further operations until recovery). Built-in memory volumes never emit these codes.
+ *
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
