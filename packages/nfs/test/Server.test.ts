@@ -71,6 +71,8 @@ const limits: NfsServerLimits = {
   maxSlotsPerSession: 4,
   maxReplayBytes: ByteSize.bytes(4_096),
   maxOpens: 16,
+  maxLockOwners: 16,
+  maxLocks: 64,
   maxOwnerBytes: ByteSize.bytes(256),
   maxReadBytes: ByteSize.bytes(1_024),
   maxWriteBytes: ByteSize.bytes(1_024),
