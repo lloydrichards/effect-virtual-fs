@@ -9,6 +9,7 @@
  * @since 0.1.0
  */
 import type * as ByteSize from "effect/ByteSize"
+import * as Context from "effect/Context"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import type * as Order from "effect/Order"
@@ -144,10 +145,24 @@ export type FsCode = typeof FsCode.Type
  * @category errors
  * @since 0.1.0
  */
-export const FsError = VfsModel.FsError
+export const FsError: new(options: {
+  readonly code: FsCode
+  readonly operation: string
+  readonly path?: PathInput
+}) => FsError = VfsModel.FsError
 
-/** @internal */
-export interface FsError extends VfsModel.FsError {}
+/**
+ * An expected filesystem failure with a portable code and operation name.
+ *
+ * @category errors
+ * @since 0.1.0
+ */
+export interface FsError extends Error, Effect.Effect<never, FsError> {
+  readonly _tag: "FsError"
+  readonly code: FsCode
+  readonly operation: string
+  readonly path?: PathInput
+}
 
 /**
  * Describes an invalid volume or caller option and names the rejected field.
@@ -176,10 +191,19 @@ export interface FsError extends VfsModel.FsError {}
  * @category errors
  * @since 0.1.0
  */
-export const ConfigurationError = VfsModel.ConfigurationError
+export const ConfigurationError: new(options: { readonly field: string }) => ConfigurationError =
+  VfsModel.ConfigurationError
 
-/** @internal */
-export interface ConfigurationError extends VfsModel.ConfigurationError {}
+/**
+ * An invalid option, identified by its field name.
+ *
+ * @category errors
+ * @since 0.1.0
+ */
+export interface ConfigurationError extends Error, Effect.Effect<never, ConfigurationError> {
+  readonly _tag: "ConfigurationError"
+  readonly field: string
+}
 
 /**
  * Schema for a caller's numeric identity, supplementary groups, and explicit privilege.
@@ -1461,10 +1485,17 @@ export interface OverlayVolume extends Volume {
  * @category services
  * @since 0.1.0
  */
-export const CurrentFileSystem = VfsModel.CurrentFileSystem
+export const CurrentFileSystem: Context.Service<CurrentFileSystem, Caller> = Context.Service<CurrentFileSystem, Caller>(
+  "@effect-vfs/core/CurrentFileSystem"
+)
 
-/** @internal */
-export type CurrentFileSystem = VfsModel.CurrentFileSystem
+/**
+ * The caller supplied by the optional filesystem service.
+ *
+ * @category services
+ * @since 0.1.0
+ */
+export interface CurrentFileSystem extends Caller {}
 
 /**
  * Encodes a snapshot as owned UTF-8 JSON bytes using the version 1 snapshot format.
@@ -1585,7 +1616,15 @@ const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
  * @category snapshots
  * @since 0.1.0
  */
-export const diffSnapshots = Effect.fn("VirtualFileSystem.diffSnapshots")(function*(
+export const diffSnapshots: (
+  base: Snapshot,
+  target: Snapshot,
+  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+) => Effect.Effect<
+  SnapshotDeltaModel.SnapshotDelta,
+  ConfigurationError | ImageError | PlatformError.PlatformError,
+  Crypto.Crypto
+> = Effect.fn("VirtualFileSystem.diffSnapshots")(function*(
   base: Snapshot,
   target: Snapshot,
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
@@ -1627,7 +1666,16 @@ export const diffSnapshots = Effect.fn("VirtualFileSystem.diffSnapshots")(functi
  * @category snapshots
  * @since 0.1.0
  */
-export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshotDelta")(function*(
+export const inspectSnapshotDelta: (
+  base: Snapshot,
+  delta: SnapshotDeltaModel.SnapshotDelta,
+  options?: SnapshotDeltaModel.SnapshotChangesOptions,
+  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+) => Effect.Effect<
+  ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
+  ConfigurationError | ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+  Crypto.Crypto
+> = Effect.fn("VirtualFileSystem.inspectSnapshotDelta")(function*(
   base: Snapshot,
   delta: SnapshotDeltaModel.SnapshotDelta,
   options?: SnapshotDeltaModel.SnapshotChangesOptions,
@@ -1679,7 +1727,15 @@ export const inspectSnapshotDelta = Effect.fn("VirtualFileSystem.inspectSnapshot
  * @category snapshots
  * @since 0.1.0
  */
-export const applySnapshotDelta = Effect.fn("VirtualFileSystem.applySnapshotDelta")(function*(
+export const applySnapshotDelta: (
+  base: Snapshot,
+  delta: SnapshotDeltaModel.SnapshotDelta,
+  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+) => Effect.Effect<
+  Snapshot,
+  ConfigurationError | ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+  Crypto.Crypto
+> = Effect.fn("VirtualFileSystem.applySnapshotDelta")(function*(
   base: Snapshot,
   delta: SnapshotDeltaModel.SnapshotDelta,
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits

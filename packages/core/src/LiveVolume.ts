@@ -11,6 +11,7 @@ import { Context, Data, Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import type * as Crypto from "effect/Crypto"
 import type * as PlatformError from "effect/PlatformError"
+import type * as Scope from "effect/Scope"
 import * as Model from "./internal/virtualFileSystem.js"
 import type { ConfigurationError, ImageError, Volume, VolumeOptions } from "./VirtualFileSystem.js"
 
@@ -61,7 +62,11 @@ export interface Options {
  *
  * @since 0.4.0
  */
-export const open = Effect.fn("LiveVolume.open")(function*(options: Options) {
+export const open: (options: Options) => Effect.Effect<
+  Volume,
+  LiveVolumeError,
+  LiveImageStore | Crypto.Crypto | Scope.Scope
+> = Effect.fn("LiveVolume.open")(function*(options: Options) {
   const store = yield* LiveImageStore
 
   const initial = yield* prepareEmptyImage(options.volume).pipe(

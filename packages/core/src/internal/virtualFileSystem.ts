@@ -1,7 +1,6 @@
 // Runtime definitions and cohesive live virtual filesystem engine.
 import * as ByteSize from "effect/ByteSize"
 import * as Clock from "effect/Clock"
-import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
@@ -375,11 +374,6 @@ export const OverlayChangesOptions = Schema.Struct({
 
 /** @internal */
 export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
-
-/** @internal */
-export class CurrentFileSystem
-  extends Context.Service<CurrentFileSystem, Caller>()("@effect-vfs/core/CurrentFileSystem")
-{}
 
 /** @internal */
 export const FixtureMetadata = Schema.Struct({
