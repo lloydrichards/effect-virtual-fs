@@ -3,15 +3,22 @@ import { strict as assert } from "node:assert"
 const lint = (file) => {
   const result = Bun.spawnSync([
     "./node_modules/.bin/oxlint",
-		"--config",
-		"scripts/anti-slop-policy.config.json",
-		"--disable-nested-config",
+    "--config",
+    "scripts/anti-slop-policy.config.json",
+    "--disable-nested-config",
     "--format",
     "json",
     file
   ])
 
-  const report = JSON.parse(result.stdout.toString())
+  const output = result.stdout.toString()
+  let report
+
+  try {
+    report = JSON.parse(output)
+  } catch {
+    throw new Error(`Oxlint did not return JSON for ${file}:\n${output}\n${result.stderr.toString()}`)
+  }
 
   return new Set(report.diagnostics.map((diagnostic) => diagnostic.code))
 }

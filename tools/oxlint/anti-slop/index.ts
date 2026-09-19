@@ -16,6 +16,8 @@ import { noUnknownReturnsRule } from "./rules/no-unknown-returns.ts"
 import { noUnknownTypeAliasesRule } from "./rules/no-unknown-type-aliases.ts"
 import { noUnsafeDictionaryTypeRule } from "./rules/no-unsafe-dictionary-type.ts"
 import { noWidenThenAssertRule } from "./rules/no-widen-then-assert.ts"
+import { requirePublicEffectFnSignatureRule } from "./rules/require-public-effect-fn-signature.ts"
+import { requirePublicInternalAliasTypeRule } from "./rules/require-public-internal-alias-type.ts"
 import { requireReadableSpacingRule } from "./rules/require-readable-spacing.ts"
 import { requireSafetyCommentForTypeAssertionRule } from "./rules/require-safety-comment-for-type-assertion.ts"
 
