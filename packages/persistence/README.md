@@ -23,9 +23,10 @@ creates a new runtime incarnation. A second `LiveVolume.open` on the same provid
 
 This provider has process-restart coverage. Tests kill the writer after an acknowledged commit and after an
 unacknowledged image update but before `COMMIT`, then reopen the database. Injected lost commit and rollback
-acknowledgements also verify that the live volume stops serving operations until reopen. It has not been qualified
-against operating-system crashes or power loss on a specific filesystem and device. `Volume.durability` therefore
-remains `memory-only`. This provider must not yet be used to promise NFS `FILE_SYNC4`. The database page limit does
+acknowledgements also verify that the live volume stops serving operations until reopen. A UTM gate now exercises
+guest operating-system hard stops on one recorded Debian/ext4 virtual disk configuration. It has not been
+qualified for physical power loss or arbitrary storage stacks. `Volume.durability` therefore remains
+`memory-only`. This provider must not yet be used to promise NFS `FILE_SYNC4`. The database page limit does
 not cap temporary rollback-journal space, so the application must reserve disk space for a complete-image
 transaction. Database creation also happens inside the supplied SQL Layer, before this provider can inspect the
 path; the provider does not establish that the containing directory was synchronized after creation. The current
@@ -53,8 +54,28 @@ budget or simulate lost and reordered writes after an apparently successful sync
 
 For a local rehearsal, run `GATE_ITERATIONS=1 bash packages/persistence/scripts/linux-crash-gate.sh` from the
 repository root after installing dependencies. This process-death gate does not stop the guest operating system or
-model lost storage writes. Issue #129 still requires an OS-crash run with retained virtual storage, storage fault
-injection, and a tested finite journal/temp-file budget before a stronger durability tier can be claimed.
+model lost storage writes.
+
+The [UTM VM gate](scripts/utm-vm-crash-gate.sh) runs on one Apple Silicon Mac with a dedicated ARM64 Linux VM named
+`Crash Test` and its QEMU guest agent. With UTM and `utmctl` installed, run
+`bash packages/persistence/scripts/utm-vm-crash-gate.sh`. The host bundles the same real-provider fixture,
+transfers Bun 1.2.21 and the fixture into the guest, then forcibly stops and reboots the VM at each of the
+four boundaries, three times each. The guest disk persists across boots. The gate reopens through the provider,
+checks the expected complete image, SQLite `integrity_check`, and the stored SHA-256 digest. It writes host,
+guest, storage, PRAGMA, and per-case evidence to the printed directory. Use `GATE_VM_NAME`,
+`GATE_ITERATIONS`, and `GATE_OUTPUT_DIR` to select the VM, repeat count, and output directory. Set
+`GATE_STOP_MODE=kill` to use UTM's VM-process kill instead of its forced power-off event. The VM must be
+dedicated to this test because the gate stops it without guest shutdown.
+
+On the recorded run, all 12 guest hard-stop cases passed with Debian 12, Linux 6.1.0-13-arm64, ext4 on a QEMU
+virtual disk, Bun 1.2.21, and SQLite 3.50.4. The commit connection reported DELETE journaling,
+`synchronous=EXTRA`, `fullfsync=ON`, and exclusive locking. This establishes a guest OS-crash result for that
+configuration. A forced VM stop does not establish physical power-loss durability. Issue #129 still needs
+lost/reordered write simulation and a tested finite rollback-journal and temporary-file budget before a stronger
+durability tier can be claimed. The VM result assumes SQLite's sync requests reach the virtual disk; it does not
+verify how UTM/QEMU, the Mac filesystem, or the physical device handle flushes.
+An exploratory VM-process-kill run later encountered a guest boot hang; an additional restart recovered the
+database, but the gate reports a boot hang as a failed run.
 
 ## Save and restore
 
