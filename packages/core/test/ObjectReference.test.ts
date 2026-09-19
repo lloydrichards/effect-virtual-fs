@@ -100,6 +100,9 @@ describe("object references", () => {
       const reference = yield* admin.lookupReference(yield* admin.rootReference, name("secret"))
       const guest = yield* volume.caller({ identity: { uid: 1, gid: 1, groups: [], privileged: false } })
       assert.strictEqual((yield* Effect.flip(guest.openReference(reference))).code, "AccessDenied")
+      assert.strictEqual((yield* Effect.flip(guest.accessReference(reference, 0o4))).code, "AccessDenied")
+      yield* admin.accessReference(reference, 0o4)
+      assert.strictEqual((yield* Effect.flip(guest.accessReference(reference, 8))).code, "InvalidArgument")
     }))
 
   it.effect("observes metadata and link targets without permission on the object", () =>

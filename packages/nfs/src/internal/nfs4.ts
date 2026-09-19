@@ -9,7 +9,7 @@ import * as Schedule from "effect/Schedule"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import { type InvalidFilehandleError, InvalidNameError, type NfsExport, validateName } from "./export.js"
-import type { CompoundCall, Connection } from "./rpc.js"
+import { type CompoundCall, type Connection, RpcPolicyDenied } from "./rpc.js"
 import { type DecodeLimits, Reader, Writer, XdrDecodeError } from "./xdr.js"
 
 /** @internal */
@@ -340,11 +340,14 @@ export interface Nfs4Options {
   readonly storageGeneration?: Uint8Array
   readonly now: () => number
   readonly limits: Nfs4Limits
+  /** Resolves a networked request to its VFS caller; null rejects the RPC before dispatch. */
+  readonly callerFor?: (call: CompoundCall) => Effect.Effect<Vfs.Caller | null>
+  readonly securityFlavors?: ReadonlyArray<number>
 }
 
 /** @internal */
 export interface Nfs4Handler {
-  readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array>
+  readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array, RpcPolicyDenied>
   readonly disconnect: (connection: Connection) => Effect.Effect<void>
   readonly callbackReply: (connection: Connection, message: Uint8Array) => Effect.Effect<void>
   /**
@@ -561,6 +564,7 @@ interface ReplaySlot {
   response?: Uint8Array
   request?: Uint8Array
   credentials?: string
+  caller?: Vfs.Caller
   retainedBytes?: ByteSize.ByteSize
 }
 
@@ -2035,8 +2039,10 @@ export const makeNfs4Handler = (
      */
     const executeCompound = (
       call: CompoundCall,
+      export_: NfsExport,
+      activeCaller: Vfs.Caller | undefined,
       restore: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
-    ): Effect.Effect<Uint8Array> =>
+    ): Effect.Effect<Uint8Array, RpcPolicyDenied> =>
       Effect.suspend(() => {
         let parsed: ReturnType<typeof parseCompound>
 
@@ -2138,6 +2144,10 @@ export const makeNfs4Handler = (
               )
             }
 
+            // A policy may remap the same wire credential between attempts. Never replay a
+            // response computed under a caller that no longer has this request's authority.
+            if (slot.caller !== activeCaller) return Effect.fail(new RpcPolicyDenied())
+
             return Effect.succeed(new Uint8Array(slot.response))
           }
         }
@@ -2205,6 +2215,9 @@ export const makeNfs4Handler = (
             activeSlot.response = new Uint8Array(response)
             activeSlot.request = new Uint8Array(call.arguments)
             activeSlot.credentials = credentialsKey(call.credentials)
+
+            if (activeCaller === undefined) delete activeSlot.caller
+            else activeSlot.caller = activeCaller
             activeSlot.retainedBytes = retainedBytes
             replayBytes = addBytes(replayBytes, retainedBytes)
           } else if (activeSlot !== undefined) {
@@ -2230,6 +2243,9 @@ export const makeNfs4Handler = (
             activeSlot.response = replay
             activeSlot.request = new Uint8Array(call.arguments)
             activeSlot.credentials = credentialsKey(call.credentials)
+
+            if (activeCaller === undefined) delete activeSlot.caller
+            else activeSlot.caller = activeCaller
             activeSlot.retainedBytes = retainedBytes
             replayBytes = addBytes(replayBytes, retainedBytes)
           }
@@ -2768,6 +2784,7 @@ export const makeNfs4Handler = (
                   response: slot.response,
                   request: slot.request,
                   credentials: slot.credentials,
+                  caller: slot.caller,
                   retainedBytes: slot.retainedBytes
                 }
 
@@ -2786,6 +2803,9 @@ export const makeNfs4Handler = (
                   if (previousSlot.credentials === undefined) delete slot.credentials
                   else slot.credentials = previousSlot.credentials
 
+                  if (previousSlot.caller === undefined) delete slot.caller
+                  else slot.caller = previousSlot.caller
+
                   if (previousSlot.retainedBytes === undefined) delete slot.retainedBytes
                   else slot.retainedBytes = previousSlot.retainedBytes
                 }
@@ -2795,6 +2815,7 @@ export const makeNfs4Handler = (
                 delete slot.response
                 delete slot.request
                 delete slot.credentials
+                delete slot.caller
                 delete slot.retainedBytes
                 session.client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
                 activeSession = session
@@ -3074,12 +3095,15 @@ export const makeNfs4Handler = (
                   () => {
                     setCurrent(undefined)
 
-                    return new Writer().array([AUTH_SYS, AUTH_NONE], (writer, flavor) => writer.uint32(flavor)).bytes()
+                    return new Writer().array(options.securityFlavors ?? [AUTH_SYS, AUTH_NONE], (writer, flavor) =>
+                      writer.uint32(flavor)).bytes()
                   }
                 )
               case "Lookupp":
                 return statusResult(
-                  withCurrent((reference) => parentOfDirectory(reference, Status.SYMLINK)),
+                  withCurrent((reference) =>
+                    parentOfDirectory(reference, Status.SYMLINK)
+                  ),
                   (reference) => {
                     setCurrent(reference)
 
@@ -3098,14 +3122,21 @@ export const makeNfs4Handler = (
                   () => {
                     setCurrent(undefined)
 
-                    return new Writer().array([AUTH_SYS, AUTH_NONE], (writer, flavor) => writer.uint32(flavor)).bytes()
+                    return new Writer().array(options.securityFlavors ?? [AUTH_SYS, AUTH_NONE], (writer, flavor) =>
+                      writer.uint32(flavor)).bytes()
                   }
                 )
               case "Getattr": {
-                if (current === undefined) return Effect.succeed(noCurrent())
+                if (current === undefined) {
+                  return Effect.succeed(noCurrent())
+                }
+
                 const reference = current
                 const requested = requestedAttributes(operation.value)
-                const supportedRequested = requested.filter((attribute) => supportedAttributes.includes(attribute))
+
+                const supportedRequested = requested.filter((attribute) =>
+                  supportedAttributes.includes(attribute)
+                )
 
                 const attributes = filehandleFor(reference, supportedRequested).pipe(
                   Effect.flatMap((filehandle) =>
@@ -3187,15 +3218,41 @@ export const makeNfs4Handler = (
               case "Access": {
                 if (current === undefined) return Effect.succeed(noCurrent())
                 const requested = operation.value
+                const reference = current
 
                 return statusResult(
-                  mapFs(export_.observeMetadata(current)),
-                  (observation) => {
+                  Effect.gen(function*() {
+                    const observation = yield* mapFs(export_.observeMetadata(reference))
                     const supported = requested & supportedAccessMask(observation.value.kind)
-                    const granted = grantedAccess(supported, observation.value, call.credentials)
 
-                    return new Writer().uint32(supported).uint32(granted).bytes()
-                  }
+                    let granted = activeCaller === undefined
+                      ? grantedAccess(supported, observation.value, call.credentials)
+                      : 0
+
+                    if (activeCaller !== undefined) {
+                      for (
+                        const [flag, bit] of [
+                          [ACCESS4_READ, 0o4],
+                          [observation.value.kind === "directory" ? ACCESS4_LOOKUP : ACCESS4_EXECUTE, 0o1]
+                        ] as const
+                      ) {
+                        if ((supported & flag) === 0) continue
+
+                        const allowed = yield* activeCaller.accessReference(reference, bit).pipe(
+                          Effect.as(true),
+                          Effect.catchTag("FsError", (error) =>
+                            error.code === "AccessDenied"
+                              ? Effect.succeed(false)
+                              : Effect.fail(failureForFs(error)))
+                        )
+
+                        if (allowed) granted |= flag
+                      }
+                    }
+
+                    return { supported, granted }
+                  }),
+                  ({ supported, granted }) => new Writer().uint32(supported).uint32(granted).bytes()
                 )
               }
 
@@ -3397,7 +3454,7 @@ export const makeNfs4Handler = (
                 const target = value.claim === 4
                   ? Effect.succeed({ revision: 0n, reference: directory })
                   : requireDirectory(directory, Status.SYMLINK).pipe(
-                    Effect.andThen(mapFs(export_.observeDirectory(directory))),
+                    Effect.andThen(mapFs(export_.observeMetadata(directory))),
                     Effect.flatMap((directoryObservation) =>
                       export_.lookup(directory, value.name).pipe(
                         Effect.mapError(nameStatus),
@@ -3434,11 +3491,18 @@ export const makeNfs4Handler = (
 
                         if (existing !== undefined) {
                           // The same open-owner upgrades its reservation (Section 9.7).
-                          existing.deny |= value.deny
-                          advanceStateId(existing)
-                          current = reference
+                          // Its mapped caller may have lost access since the earlier OPEN.
+                          const permission = activeCaller === undefined
+                            ? Effect.void
+                            : mapFs(activeCaller.accessReference(reference, 0o4))
 
-                          return Effect.succeed(openResult(existing.id, revision, value.claim === 4))
+                          return restore(permission).pipe(Effect.map(() => {
+                            existing.deny |= value.deny
+                            advanceStateId(existing)
+                            current = reference
+
+                            return openResult(existing.id, revision, value.claim === 4)
+                          }))
                         }
 
                         if (opens.size >= options.limits.maxOpens) {
@@ -3509,6 +3573,10 @@ export const makeNfs4Handler = (
 
                 if (current === undefined) return Effect.succeed(noCurrent())
 
+                const readPermission = activeCaller === undefined
+                  ? Effect.void
+                  : activeCaller.accessReference(current, 0o4).pipe(Effect.mapError(failureForFs))
+
                 if (isAllZero(value.stateid) || isAllOnes(value.stateid)) {
                   const reference = current
 
@@ -3521,6 +3589,7 @@ export const makeNfs4Handler = (
 
                   return requireRegularFile(reference).pipe(
                     Effect.andThen(denied ? Effect.fail(Status.LOCKED) : Effect.void),
+                    Effect.andThen(readPermission),
                     Effect.andThen(
                       Effect.acquireUseRelease(
                         mapFs(export_.open(reference)),
@@ -3558,7 +3627,10 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
                 }
 
-                return readFrom(open.file)
+                return readPermission.pipe(
+                  Effect.andThen(readFrom(open.file)),
+                  Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
+                )
 
                 function readFrom(file: Vfs.FileHandle): Effect.Effect<ResultPart> {
                   return file.pread(value.count, value.offset).pipe(
@@ -3880,7 +3952,17 @@ export const makeNfs4Handler = (
           // A mask rather than a blanket `uninterruptible`: the sweep and the replay-slot commit
           // stay atomic, while `executeCompound` reopens the window around each operation so a
           // compound stalled in the backing store cannot hold scope closure open indefinitely.
-          Effect.uninterruptibleMask((restore) => sweepExpired.pipe(Effect.andThen(executeCompound(call, restore))))
+          Effect.gen(function*() {
+            const activeCaller = options.callerFor === undefined ? undefined : yield* options.callerFor(call)
+
+            if (activeCaller === null) return yield* new RpcPolicyDenied()
+
+            const activeExport = activeCaller === undefined ? export_ : export_.withCaller(activeCaller)
+
+            return yield* Effect.uninterruptibleMask((restore) =>
+              sweepExpired.pipe(Effect.andThen(executeCompound(call, activeExport, activeCaller, restore)))
+            )
+          })
         ),
       callbackReply: (connection, message) =>
         Effect.sync(() => {

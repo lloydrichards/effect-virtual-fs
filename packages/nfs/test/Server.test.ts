@@ -1,12 +1,15 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import * as NodeSocket from "@effect/platform-node-shared/NodeSocket"
 import * as NodeSocketServer from "@effect/platform-node-shared/NodeSocketServer"
 import { assert, it, live as liveTest } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
-import type * as Crypto from "effect/Crypto"
+import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import * as Encoding from "effect/Encoding"
 import * as Exit from "effect/Exit"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -23,6 +26,7 @@ import * as SocketServer from "effect/unstable/socket/SocketServer"
 import * as Net from "node:net"
 import {
   ConfigurationError,
+  type NfsIdentityPolicy,
   NfsServer,
   type NfsServerAddress,
   NfsServerConfig,
@@ -61,6 +65,7 @@ const limits: NfsServerLimits = {
   maxOperations: 16,
   maxBitmapWords: 4,
   maxClients: 8,
+  maxIdentities: 8,
   maxPendingClientReplacements: 1,
   maxSessions: 8,
   maxSlotsPerSession: 4,
@@ -96,12 +101,14 @@ const rpcNull = (xid: number): Uint8Array => {
 }
 
 const exchange = (
-  port: number,
+  destination: { readonly port: number } | { readonly path: string },
   request: Uint8Array,
   expectedRecords = 1
 ): Effect.Effect<ReadonlyArray<Uint8Array>, TestSocketError> =>
   Effect.callback((resume) => {
-    const socket = Net.createConnection({ host: "127.0.0.1", port })
+    const socket = "port" in destination
+      ? Net.createConnection({ host: "127.0.0.1", port: destination.port })
+      : Net.createConnection({ path: destination.path })
 
     const decoder = new RecordDecoder({
       maxFragmentBytes: limits.maxFragmentBytes,
@@ -162,19 +169,29 @@ const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
 }
 
 /** An AUTH_NONE COMPOUND call, record-marked, ready to write to a socket. */
-const rpcCompound = (xid: number, operations: ReadonlyArray<(writer: Writer) => void>): Uint8Array => {
+const rpcCompound = (
+  xid: number,
+  operations: ReadonlyArray<(writer: Writer) => void>,
+  credential?: Uint8Array
+): Uint8Array => {
   const args = new Writer().string("conn").uint32(1).uint32(operations.length)
 
   for (const operation of operations) operation(args)
 
   const header = new Writer()
     .uint32(xid).uint32(0).uint32(2).uint32(100003).uint32(4).uint32(1)
-    .uint32(0).opaque(new Uint8Array())
+    .fixedOpaque(credential ?? new Writer().uint32(0).opaque(new Uint8Array()).bytes())
     .uint32(0).opaque(new Uint8Array())
     .bytes()
 
   return encodeRecord(concat(header, args.bytes()))
 }
+
+const authSysCredential = (uid: number): Uint8Array =>
+  new Writer().uint32(1).opaque(
+    new Writer().uint32(0).string("test-client").uint32(uid).uint32(uid)
+      .array([], (writer, group: number) => writer.uint32(group)).bytes()
+  ).bytes()
 
 /** Skips the RPC accepted-reply header and returns a reader positioned at the COMPOUND result. */
 const compoundReply = (record: Uint8Array): Reader => {
@@ -451,7 +468,183 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       )
 
       assert.instanceOf(error, ConfigurationError)
-      assert.strictEqual(error.option, "socketServer.address")
+      assert.strictEqual(error.option, "policy")
+    }))
+
+  it.effect("requires both network policy and explicit opt-in for a non-loopback bind", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+
+      const nonLoopback = SocketServer.SocketServer.of({
+        address: NetAddress.inetAddressFromIpStringUnsafe("0.0.0.0", 2049),
+        run: () => Effect.never
+      })
+
+      const peer = Effect.succeed({ transport: "tcp", address: "192.0.2.10", port: 1234 } as const)
+      const policy = () => ({ uid: 1000, gid: 1000, groups: [], privileged: false })
+
+      const withoutFlag = yield* NfsServer.make({ volume, policy, peer }).pipe(
+        Effect.provideService(SocketServer.SocketServer, nonLoopback),
+        Effect.flip
+      )
+
+      assert.instanceOf(withoutFlag, ConfigurationError)
+      assert.strictEqual(withoutFlag.option, "allowNonLoopback")
+
+      // SAFETY: This test deliberately omits policy to exercise runtime validation.
+      const withoutPolicy = yield* NfsServer.make({
+        volume,
+        peer,
+        allowNonLoopback: true
+      } as NfsServerOptions).pipe(
+        Effect.provideService(SocketServer.SocketServer, nonLoopback),
+        Effect.flip
+      )
+
+      assert.instanceOf(withoutPolicy, ConfigurationError)
+      assert.strictEqual(withoutPolicy.option, "options")
+
+      const server = yield* NfsServer.make({ volume, policy, peer, allowNonLoopback: true }).pipe(
+        Effect.provideService(SocketServer.SocketServer, nonLoopback)
+      )
+
+      assert.deepStrictEqual(server.address, { host: "0.0.0.0", port: 2049 })
+    }).pipe(Effect.scoped))
+
+  live("passes the accepted TCP peer to the identity policy", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 })
+      let observed: Parameters<NfsIdentityPolicy>[0] | undefined
+      const acceptedFlavors: Array<"sys" | "none"> = ["none"]
+
+      const peer = Effect.map(
+        Effect.serviceOption(NodeSocket.NetSocket),
+        Option.match({
+          onNone: () => null,
+          onSome: (socket) =>
+            socket.remoteAddress === undefined || socket.remotePort === undefined
+              ? null
+              : { transport: "tcp" as const, address: socket.remoteAddress, port: socket.remotePort }
+        })
+      )
+
+      const server = yield* NfsServer.make({
+        volume,
+        peer,
+        acceptedFlavors,
+        policy: (request) => {
+          observed = request
+
+          return { uid: 1000, gid: 1000, groups: [], privileged: false }
+        }
+      }).pipe(Effect.provideService(SocketServer.SocketServer, socketServer))
+
+      acceptedFlavors[0] = "sys"
+
+      const response = yield* exchange(
+        { port: tcpPort(server) },
+        rpcCompound(71, [
+          (writer) => writer.uint32(Operation.PUTROOTFH)
+        ])
+      )
+
+      assert.strictEqual(response.length, 1)
+      const tcpPeer = observed?.peer
+
+      if (tcpPeer?.transport !== "tcp") throw new Error("expected TCP peer")
+      assert.ok(tcpPeer.port > 0)
+      assert.deepStrictEqual(observed, {
+        credential: { flavor: "none" },
+        peer: { transport: "tcp", address: "127.0.0.1", port: tcpPeer.port }
+      })
+    }))
+
+  live("passes a UNIX peer with no invented client address to the identity policy", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const nonce = yield* (yield* Crypto.Crypto).randomBytes(8)
+      const path = `/tmp/effect-vfs-nfs-${process.pid}-${Encoding.encodeHex(nonce)}.sock`
+      const socketServer = yield* NodeSocketServer.make({ path })
+      let observed: unknown
+
+      const peer = Effect.map(
+        Effect.serviceOption(NodeSocket.NetSocket),
+        Option.match({
+          onNone: () => null,
+          onSome: () => ({ transport: "unix" as const, address: null, port: null, path })
+        })
+      )
+
+      yield* NfsServer.make({
+        volume,
+        peer,
+        acceptedFlavors: ["none"],
+        policy: (request) => {
+          observed = request
+
+          return { uid: 1000, gid: 1000, groups: [], privileged: false }
+        }
+      }).pipe(Effect.provideService(SocketServer.SocketServer, socketServer))
+
+      const response = yield* exchange(
+        { path },
+        rpcCompound(72, [
+          (writer) => writer.uint32(Operation.PUTROOTFH)
+        ])
+      )
+
+      assert.strictEqual(response.length, 1)
+      assert.deepStrictEqual(observed, {
+        credential: { flavor: "none" },
+        peer: { transport: "unix", address: null, port: null, path }
+      })
+    }))
+
+  live("bounds mapped callers and gives policy denial the same RPC response", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 })
+
+      const peer = Effect.map(
+        Effect.serviceOption(NodeSocket.NetSocket),
+        Option.match({
+          onNone: () => null,
+          onSome: (socket) =>
+            socket.remoteAddress === undefined || socket.remotePort === undefined
+              ? null
+              : { transport: "tcp" as const, address: socket.remoteAddress, port: socket.remotePort }
+        })
+      )
+
+      const server = yield* NfsServer.make({
+        volume,
+        peer,
+        limits: { maxIdentities: 1 },
+        policy: ({ credential }) =>
+          credential.flavor === "sys" && credential.uid !== 2000
+            ? { uid: credential.uid, gid: credential.gid, groups: [], privileged: false }
+            : null
+      }).pipe(Effect.provideService(SocketServer.SocketServer, socketServer))
+
+      const request = (xid: number, uid: number) =>
+        rpcCompound(xid, [
+          (writer) => writer.uint32(Operation.PUTROOTFH)
+        ], authSysCredential(uid))
+
+      const allowed = (yield* exchange({ port: tcpPort(server) }, request(81, 1000)))[0]!
+      const deniedByPolicy = (yield* exchange({ port: tcpPort(server) }, request(82, 2000)))[0]!
+      const deniedByLimit = (yield* exchange({ port: tcpPort(server) }, request(83, 3000)))[0]!
+
+      const fields = (bytes: Uint8Array) => {
+        const reader = new Reader(bytes, limits)
+
+        return [reader.uint32(), reader.uint32(), reader.uint32(), reader.uint32(), reader.uint32()]
+      }
+
+      assert.deepStrictEqual(fields(allowed).slice(0, 3), [81, 1, 0])
+      assert.deepStrictEqual(fields(deniedByPolicy), [82, 1, 1, 1, 7])
+      assert.deepStrictEqual(fields(deniedByLimit), [83, 1, 1, 1, 7])
     }))
 
   live(
@@ -480,7 +673,7 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
         assert.notStrictEqual(tcpPort(first), 0)
 
         const responses = yield* exchange(
-          tcpPort(first),
+          { port: tcpPort(first) },
           concat(rpcNull(91), rpcNull(92)),
           2
         )
@@ -502,7 +695,7 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
           0x8000_0000 | (ByteSize.toNumberUnsafe(limits.maxFragmentBytes) + 1)
         )
         yield* awaitRejectedConnection(tcpPort(first), oversizedMarker)
-        const afterMalformed = yield* exchange(tcpPort(first), rpcNull(93))
+        const afterMalformed = yield* exchange({ port: tcpPort(first) }, rpcNull(93))
         assert.strictEqual(
           new DataView(
             afterMalformed[0]!.buffer,

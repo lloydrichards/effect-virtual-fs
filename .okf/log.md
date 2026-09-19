@@ -2,6 +2,8 @@
 
 ## 2026-09-19
 
+- **NFS networked identity and binding**: Implemented #74 and #75 with an application-supplied peer resolver and identity policy, per-identity VFS callers, a bounded caller cache, fail-closed RPC denial, mapped ACCESS, OPEN, READ, and replay checks, and explicit non-loopback opt-in. The networked profile is experimental pending a networked kernel-client gate.
+
 - **Volume limits and usage**: Implemented issue #98 with public effective limits and a coordinated live usage sample. NFS reports `maxfilesize` for every live export and reports space and file-count totals only when the volume has representable bounds. `GETATTR` omits unsupported values, while `VERIFY` and `NVERIFY` use `NFS4ERR_ATTRNOTSUPP`. The read-only local attribute ledger now records these values as supported where bounded.
 
 - **NFS error mapping**: Completed issue #99 with an exhaustive `FsError` to NFSv4.1 map and table test. Recorded operation-specific writable rules in the operations ledger and the accepted mapping decision. Writable dispatch, a core link-count limit, and ownership-specific `PERM` remain later work.

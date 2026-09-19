@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
-import { type Connection, handleCall, type RpcHandlers } from "../src/internal/rpc.js"
+import { type Connection, handleCall, type RpcHandlers, RpcPolicyDenied } from "../src/internal/rpc.js"
 import { Reader, Writer } from "../src/internal/xdr.js"
 
 const limits = {
@@ -62,6 +62,18 @@ const handler: RpcHandlers = {
 }
 
 describe("ONC RPC", () => {
+  it.effect("rejects a denied policy before returning a compound", () =>
+    Effect.gen(function*() {
+      const refused: RpcHandlers = {
+        ...handler,
+        compound: () => Effect.fail(new RpcPolicyDenied())
+      }
+
+      const response = yield* handleCall(connection, call({ procedure: 1 }), limits, refused)
+
+      assert.deepStrictEqual(fields(response!), [42, 1, 1, 1, 7])
+    }))
+
   it.effect("routes NULL and opaque COMPOUND arguments and echoes the XID", () =>
     Effect.gen(function*() {
       assert.deepStrictEqual(fields((yield* handleCall(connection, call({ xid: 99 }), limits, handler))!), [

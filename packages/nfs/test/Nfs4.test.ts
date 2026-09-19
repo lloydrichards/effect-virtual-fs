@@ -4,9 +4,11 @@ import { assert, it, live as liveTest } from "@effect/vitest"
 import { type Crypto, Deferred, Effect, Exit, Fiber, Option, Scope } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import type * as Duration from "effect/Duration"
+import * as Predicate from "effect/Predicate"
 import * as TestClock from "effect/testing/TestClock"
 import { makeExport } from "../src/internal/export.js"
 import { makeNfs4Handler, nextSequenceId, Operation, Status } from "../src/internal/nfs4.js"
+import type { Credentials } from "../src/internal/rpc.js"
 import { Reader, Writer } from "../src/internal/xdr.js"
 
 const live = <E>(
@@ -34,6 +36,202 @@ import {
 } from "./support/harness.js"
 
 it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
+  it.effect("uses the mapped caller for ACCESS and OPEN", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const admin = yield* volume.caller({ umask: 0 })
+      yield* admin.writeFile("/secret", new Uint8Array([1]), { access: "write", create: "exclusive", mode: 0o600 })
+      yield* admin.chown("/secret", { uid: 1000, gid: 1000 })
+      yield* admin.chmod("/", 0o111)
+      const owner = yield* volume.caller({ identity: { uid: 1000, gid: 1000, groups: [], privileged: false } })
+      const guest = yield* volume.caller({ identity: { uid: 2000, gid: 2000, groups: [], privileged: false } })
+      const ownerConnection = connection(101)
+      const guestConnection = connection(102)
+      let downgradeOwner = false
+
+      const sys = (uid: number): Credentials => ({
+        _tag: "Sys",
+        stamp: 0,
+        machineName: "test-client",
+        uid,
+        gid: uid,
+        supplementaryGroups: []
+      })
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(admin, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        {
+          leaseDurationSeconds: 30,
+          callbackTimeout: "1 second",
+          generation,
+          now: () => 0,
+          limits,
+          securityFlavors: [1],
+          callerFor: (request) =>
+            Effect.succeed(
+              Predicate.isTagged(request.credentials, "Sys") && request.credentials.uid === 1000 && !downgradeOwner
+                ? owner
+                : guest
+            )
+        }
+      )
+
+      const first = yield* startSession(
+        handler,
+        "mapped-owner",
+        {},
+        new Uint8Array(8),
+        ownerConnection,
+        0,
+        undefined,
+        sys(1000)
+      )
+
+      const second = yield* startSession(
+        handler,
+        "mapped-guest",
+        {},
+        new Uint8Array(8),
+        guestConnection,
+        0,
+        undefined,
+        sys(2000)
+      )
+
+      const check = (session: Uint8Array, on: typeof ownerConnection, uid: number) =>
+        handler.compound(call(
+          [
+            sequence(session, 1, true),
+            (writer) => writer.uint32(Operation.PUTROOTFH),
+            (writer) => writer.uint32(Operation.LOOKUP).string("secret"),
+            (writer) => writer.uint32(Operation.ACCESS).uint32(1)
+          ],
+          "mapped-access",
+          on,
+          sys(uid)
+        ))
+
+      const ownerAccess = new Reader(yield* check(first.session, ownerConnection, 1000), limits)
+      const guestAccess = new Reader(yield* check(second.session, guestConnection, 2000), limits)
+
+      for (const [reader, granted] of [[ownerAccess, 1], [guestAccess, 0]] as const) {
+        assert.strictEqual(reader.uint32(), Status.OK)
+        reader.string()
+        assert.strictEqual(reader.uint32(), 4)
+        reader.uint32()
+        reader.uint32()
+        reader.fixedOpaque(16)
+
+        for (let field = 0; field < 5; field++) reader.uint32()
+
+        for (const operation of [Operation.PUTROOTFH, Operation.LOOKUP]) {
+          assert.strictEqual(reader.uint32(), operation)
+          assert.strictEqual(reader.uint32(), Status.OK)
+        }
+
+        assert.strictEqual(reader.uint32(), Operation.ACCESS)
+        assert.strictEqual(reader.uint32(), Status.OK)
+        assert.strictEqual(reader.uint32(), 1)
+        assert.strictEqual(reader.uint32(), granted)
+        reader.finish()
+      }
+
+      downgradeOwner = true
+      const replay = yield* Effect.exit(check(first.session, ownerConnection, 1000))
+      assert.strictEqual(Exit.isFailure(replay), true)
+      downgradeOwner = false
+
+      const opened = yield* handler.compound(call(
+        [
+          sequence(first.session, 2),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openReadOnly(first.client, "secret"),
+          (writer) => writer.uint32(Operation.GETFH)
+        ],
+        "owner-open",
+        ownerConnection,
+        sys(1000)
+      ))
+
+      assert.strictEqual(statuses(opened).status, Status.OK)
+      const ownedOpen = parseOpen(opened)
+
+      downgradeOwner = true
+
+      const read = yield* handler.compound(call(
+        [
+          sequence(first.session, 3),
+          (writer) => writer.uint32(Operation.PUTFH).opaque(ownedOpen.filehandle),
+          (writer) => writer.uint32(Operation.READ).fixedOpaque(ownedOpen.stateid).uint64(0n).uint32(1)
+        ],
+        "downgraded-read",
+        ownerConnection,
+        sys(1000)
+      ))
+
+      assert.strictEqual(statuses(read).status, Status.ACCESS)
+
+      const reopened = yield* handler.compound(call(
+        [
+          sequence(first.session, 4),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openReadOnly(first.client, "secret")
+        ],
+        "downgraded-open",
+        ownerConnection,
+        sys(1000)
+      ))
+
+      assert.strictEqual(statuses(reopened).status, Status.ACCESS)
+
+      for (const [index, operation] of [Operation.SECINFO, Operation.SECINFO_NO_NAME].entries()) {
+        const response = new Reader(
+          yield* handler.compound(call(
+            [
+              sequence(first.session, 5 + index),
+              (writer) => writer.uint32(Operation.PUTROOTFH),
+              (writer) =>
+                operation === Operation.SECINFO
+                  ? writer.uint32(operation).string("secret")
+                  : writer.uint32(operation).uint32(0)
+            ],
+            "network-security-flavors",
+            ownerConnection,
+            sys(1000)
+          )),
+          limits
+        )
+
+        assert.strictEqual(response.uint32(), Status.OK)
+        response.string()
+        assert.strictEqual(response.uint32(), 3)
+        response.uint32()
+        response.uint32()
+        response.fixedOpaque(16)
+
+        for (let field = 0; field < 5; field++) response.uint32()
+        response.uint32()
+        response.uint32()
+        assert.strictEqual(response.uint32(), operation)
+        assert.strictEqual(response.uint32(), Status.OK)
+        assert.deepStrictEqual(response.array((reader) => reader.uint32()), [1])
+        response.finish()
+      }
+
+      const refused = yield* handler.compound(call(
+        [
+          sequence(second.session, 2),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openReadOnly(second.client, "secret")
+        ],
+        "guest-open",
+        guestConnection,
+        sys(2000)
+      ))
+
+      assert.strictEqual(statuses(refused).status, Status.ACCESS)
+    }))
+
   it.effect("uses storage incarnation rather than server generation for COMMIT", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()

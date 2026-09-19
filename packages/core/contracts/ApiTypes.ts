@@ -15,6 +15,8 @@ export const references = (caller: Vfs.Caller) =>
     const child: Vfs.ObjectReference = yield* caller.lookupReference(root, new Uint8Array([102]))
     const parent: Vfs.ObjectReference = yield* caller.parentReference(root)
     const metadata: Vfs.ObjectObservation<Vfs.Metadata> = yield* caller.observeMetadata(child)
+    const access = caller.accessReference(child, 0o4) satisfies Effect.Effect<void, Vfs.FsError>
+    yield* access
     const directory: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>> = yield* caller.observeDirectory(parent)
     const target: Uint8Array = yield* caller.readLinkReference(child)
     return { root, child, metadata, directory, target }

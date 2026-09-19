@@ -1615,6 +1615,21 @@ export const makeVolume = Effect.fnUntraced(
             return Object.freeze({ value: Object.freeze({ ...node.metadata }), revision: node.revision })
           }))
         }),
+        accessReference: Effect.fn("Caller.accessReference")(function*(objectReference, bits = 0) {
+          if (!Number.isInteger(bits) || bits < 0 || bits > (READ | WRITE | EXECUTE)) {
+            return yield* new FsError({ code: "InvalidArgument", operation: "accessReference" })
+          }
+
+          return yield* coordinated(Effect.gen(function*() {
+            const node = yield* referencedNode(objectReference, "accessReference")
+
+            if (node.kind === "file" && (bits & EXECUTE) !== 0 && (node.metadata.mode & ANY_EXECUTE) === 0) {
+              return yield* new FsError({ code: "AccessDenied", operation: "accessReference" })
+            }
+
+            yield* authorize(node, identity, bits, "accessReference")
+          }))
+        }),
         observeDirectory: Effect.fn("Caller.observeDirectory")(function*(directoryReference) {
           return yield* coordinated(Effect.gen(function*() {
             const directory = yield* referencedNode(directoryReference, "observeDirectory")

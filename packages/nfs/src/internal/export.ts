@@ -26,6 +26,8 @@ export interface OpenedFile {
 /** @internal */
 export interface NfsExport {
   readonly capacity: Pick<Vfs.Volume, "limits" | "usage"> | undefined
+  /** Selects a caller for one compound while retaining the export's filehandle registry. */
+  readonly withCaller: (caller: Vfs.Caller) => NfsExport
   readonly root: Effect.Effect<Vfs.ObjectReference, Vfs.FsError>
   readonly handleFor: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, ExportCapacityError>
   readonly resolve: (handle: Uint8Array) => Effect.Effect<Vfs.ObjectReference, InvalidFilehandleError>
@@ -202,13 +204,13 @@ export const makeExport = (
       )
     })
 
-  const open = (reference: Vfs.ObjectReference): Effect.Effect<OpenedFile, Vfs.FsError> =>
+  const open = (activeCaller: Vfs.Caller, reference: Vfs.ObjectReference): Effect.Effect<OpenedFile, Vfs.FsError> =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function*() {
         const scope = yield* Scope.make()
 
         const opened = yield* Effect.exit(restore(
-          caller.openReference(reference).pipe(Effect.provideService(Scope.Scope, scope))
+          activeCaller.openReference(reference).pipe(Effect.provideService(Scope.Scope, scope))
         ))
 
         if (Exit.isFailure(opened)) {
@@ -224,27 +226,30 @@ export const makeExport = (
       })
     )
 
-  return {
+  const withCaller = (activeCaller: Vfs.Caller): NfsExport => ({
     capacity,
-    root: caller.rootReference,
+    withCaller,
+    root: activeCaller.rootReference,
     handleFor,
     resolve,
-    observeMetadata: caller.observeMetadata,
-    observeDirectory: caller.observeDirectory,
+    observeMetadata: activeCaller.observeMetadata,
+    observeDirectory: activeCaller.observeDirectory,
     lookup: (directory, name) =>
       Effect.suspend<Vfs.ObjectReference, Vfs.FsError | InvalidNameError, never>(() => {
         try {
           validateName(name, limits.maxNameBytes)
 
-          return caller.lookupReference(directory, name)
+          return activeCaller.lookupReference(directory, name)
         } catch (error) {
           if (error instanceof InvalidNameError) return Effect.fail(error)
           throw error
         }
       }),
-    parent: caller.parentReference,
-    readLink: caller.readLinkReference,
-    open,
+    parent: activeCaller.parentReference,
+    readLink: activeCaller.readLinkReference,
+    open: (reference) => open(activeCaller, reference),
     fsid: [uint64From(identityCopy, 0), uint64From(identityCopy, 8)]
-  }
+  })
+
+  return withCaller(caller)
 }

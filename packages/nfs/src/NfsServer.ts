@@ -8,7 +8,7 @@
  *
  * @since 0.1.0
  */
-import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
@@ -25,6 +25,7 @@ import type * as Scope from "effect/Scope"
 import * as SocketServer from "effect/unstable/socket/SocketServer"
 import { makeExport } from "./internal/export.js"
 import { makeNfs4Handler } from "./internal/nfs4.js"
+import type { CompoundCall } from "./internal/rpc.js"
 import { startServer } from "./internal/server.js"
 
 const PositiveSafeInteger = Schema.Finite.check(
@@ -101,6 +102,7 @@ const NfsServerLimitsSchema = Schema.Struct({
   maxOperations: PositiveSafeInteger,
   maxBitmapWords: PositiveSafeInteger,
   maxClients: PositiveSafeInteger,
+  maxIdentities: PositiveSafeInteger,
   maxPendingClientReplacements: PositiveSafeInteger,
   maxSessions: PositiveSafeInteger,
   maxSlotsPerSession: PositiveSafeInteger,
@@ -140,6 +142,7 @@ const constrained = makeNfsServerLimits({
   maxOperations: 16,
   maxBitmapWords: 4,
   maxClients: 8,
+  maxIdentities: 8,
   maxPendingClientReplacements: 1,
   maxSessions: 8,
   maxSlotsPerSession: 4,
@@ -169,6 +172,7 @@ const defaultLimits = makeNfsServerLimits({
   maxOperations: 64,
   maxBitmapWords: 4,
   maxClients: 16,
+  maxIdentities: 64,
   maxPendingClientReplacements: 1,
   maxSessions: 16,
   maxSlotsPerSession: 16,
@@ -221,6 +225,7 @@ export const NfsServerLimitOverrides = Schema.Struct({
   maxOperations: Schema.optionalKey(NfsServerLimits.fields.maxOperations),
   maxBitmapWords: Schema.optionalKey(NfsServerLimits.fields.maxBitmapWords),
   maxClients: Schema.optionalKey(NfsServerLimits.fields.maxClients),
+  maxIdentities: Schema.optionalKey(NfsServerLimits.fields.maxIdentities),
   maxPendingClientReplacements: Schema.optionalKey(
     NfsServerLimits.fields.maxPendingClientReplacements
   ),
@@ -322,6 +327,12 @@ export const NfsServerTcpAddress = Schema.Struct({
  */
 export type NfsServerTcpAddress = typeof NfsServerTcpAddress.Type
 
+/** Schema for a TCP address that may be reachable beyond the local host. */
+export const NfsServerNetworkTcpAddress = Schema.Struct({ host: Schema.NonEmptyString, port: Port })
+
+/** A TCP address that may be reachable beyond the local host. */
+export type NfsServerNetworkTcpAddress = typeof NfsServerNetworkTcpAddress.Type
+
 /**
  * Schema for a bound UNIX-domain socket path. A filesystem socket is reachable only from the
  * same host, so it counts as a local address alongside loopback TCP.
@@ -342,12 +353,12 @@ export const NfsServerUnixAddress = Schema.Struct({
 export type NfsServerUnixAddress = typeof NfsServerUnixAddress.Type
 
 /**
- * Schema for the bound server address: loopback TCP or a UNIX-domain socket path.
+ * Schema for the bound server address: TCP or a UNIX-domain socket path.
  *
  * @category schemas
  * @since 0.1.0
  */
-export const NfsServerAddress = Schema.Union([NfsServerTcpAddress, NfsServerUnixAddress])
+export const NfsServerAddress = Schema.Union([NfsServerNetworkTcpAddress, NfsServerUnixAddress])
 
 /**
  * The bound server address.
@@ -363,10 +374,50 @@ export type NfsServerAddress = typeof NfsServerAddress.Type
  * @category models
  * @since 0.1.0
  */
-export type NfsServerOptions = NfsServerConfigOverrides & {
+export type NfsServerLocalOptions = NfsServerConfigOverrides & {
   readonly volume: Vfs.Volume
   readonly caller: Vfs.Caller
+  readonly policy?: never
+  readonly peer?: never
+  readonly allowNonLoopback?: never
+  readonly acceptedFlavors?: never
 }
+
+/** Peer details from the transport; UNIX sockets do not expose a client IP or port. */
+export type NfsPeer =
+  | { readonly transport: "tcp"; readonly address: string; readonly port: number }
+  | { readonly transport: "unix"; readonly address: null; readonly port: null; readonly path: string }
+
+/** RPC identity claims. They grant no authority until the application policy maps them. */
+export type NfsCredential =
+  | { readonly flavor: "none" }
+  | {
+    readonly flavor: "sys"
+    readonly uid: number
+    readonly gid: number
+    readonly groups: ReadonlyArray<number>
+    readonly machineName: string
+  }
+
+/** A policy returns an identity for this volume or null to deny the request. */
+export type NfsIdentityPolicy = (request: {
+  readonly credential: NfsCredential
+  readonly peer: NfsPeer
+}) => NonNullable<Vfs.RootCallerOptions["identity"]> | null
+
+export type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
+  readonly volume: Vfs.Volume
+  readonly policy: NfsIdentityPolicy
+  /** Evaluated in each accepted socket's context; null closes a connection without a trustworthy peer. */
+  readonly peer: Effect.Effect<NfsPeer | null>
+  /** Required when the supplied socket server binds outside loopback. */
+  readonly allowNonLoopback?: true
+  /** Flavors advertised by SECINFO; defaults to AUTH_SYS only. */
+  readonly acceptedFlavors?: ReadonlyArray<"sys" | "none">
+  readonly caller?: never
+}
+
+export type NfsServerOptions = NfsServerLocalOptions | NfsServerNetworkedOptions
 
 /**
  * Raised when a server option fails validation before the server starts.
@@ -428,7 +479,16 @@ const decodeConfig = (
   options: NfsServerOptions
 ): Effect.Effect<NfsServerConfig, ConfigurationError> =>
   Effect.suspend(() => {
-    const { caller: _caller, volume: _volume, ...supplied } = options
+    const {
+      caller: _caller,
+      volume: _volume,
+      policy: _policy,
+      peer: _peer,
+      allowNonLoopback: _allowNonLoopback,
+      acceptedFlavors: _acceptedFlavors,
+      ...supplied
+    } = options
+
     const suppliedLimits: unknown = supplied.limits
 
     const limits = suppliedLimits === undefined
@@ -469,10 +529,47 @@ const make = (
   Effect.gen(function*() {
     const config = yield* decodeConfig(options)
     const limits = config.limits
+    const policy = options.policy
+    const networked = policy !== undefined
+
+    if (networked && !Predicate.isFunction(policy)) {
+      return yield* configurationError("policy", "policy must be a function")
+    }
+
+    if (networked === (options.caller !== undefined)) {
+      return yield* configurationError("options", "supply either caller or policy")
+    }
+
+    if (networked && !Effect.isEffect(options.peer)) {
+      return yield* configurationError("peer", "networked mode requires a peer resolver Effect")
+    }
+
+    if (
+      !networked && (
+        options.peer !== undefined || options.allowNonLoopback !== undefined || options.acceptedFlavors !== undefined
+      )
+    ) {
+      return yield* configurationError("options", "networked options require a policy")
+    }
+
+    if (options.allowNonLoopback !== undefined && !options.allowNonLoopback) {
+      return yield* configurationError("allowNonLoopback", "expected true or omission")
+    }
+
+    const suppliedFlavors = networked ? options.acceptedFlavors ?? ["sys"] : ["sys", "none"]
+
+    if (
+      !Array.isArray(suppliedFlavors) || suppliedFlavors.length === 0 ||
+      suppliedFlavors.some((flavor) => flavor !== "sys" && flavor !== "none") ||
+      new Set(suppliedFlavors).size !== suppliedFlavors.length
+    ) return yield* configurationError("acceptedFlavors", "expected distinct sys or none flavors")
+
+    const acceptedFlavors = Object.freeze([...suppliedFlavors])
+
     const socketServer = yield* SocketServer.SocketServer
     const socketAddress = socketServer.address
 
-    const address = yield* Schema.decodeUnknownEffect(NfsServerAddress)(
+    const address = yield* Schema.decodeEffect(NfsServerAddress)(
       Predicate.isTagged(socketAddress, "UnixPathAddress")
         ? { path: socketAddress.path }
         : {
@@ -483,10 +580,18 @@ const make = (
       Effect.mapError(() =>
         configurationError(
           "socketServer.address",
-          "socket server must bind a loopback TCP address or a UNIX-domain socket path"
+          "socket server must bind a TCP address or a UNIX-domain socket path"
         )
       )
     )
+
+    if ("host" in address && address.host !== "127.0.0.1" && address.host !== "::1") {
+      if (!networked) return yield* configurationError("policy", "non-loopback binding requires a policy")
+
+      if (options.allowNonLoopback !== true) {
+        return yield* configurationError("allowNonLoopback", "non-loopback binding requires explicit opt-in")
+      }
+    }
 
     const volumeCaller = yield* options.volume
       .caller()
@@ -494,23 +599,15 @@ const make = (
         Effect.mapError(() => configurationError("volume", "volume could not create a caller"))
       )
 
-    const [volumeRoot, callerRoot] = yield* Effect.all([
-      volumeCaller.rootReference,
-      options.caller.rootReference
-    ]).pipe(
-      Effect.mapError(() =>
-        configurationError(
-          "caller",
-          "caller must be open and belong to volume"
-        )
-      )
-    )
+    if (options.caller !== undefined) {
+      const [volumeRoot, callerRoot] = yield* Effect.all([
+        volumeCaller.rootReference,
+        options.caller.rootReference
+      ]).pipe(Effect.mapError(() => configurationError("caller", "caller must be open and belong to volume")))
 
-    if (volumeRoot !== callerRoot) {
-      return yield* configurationError(
-        "caller",
-        "caller must belong to volume"
-      )
+      if (volumeRoot !== callerRoot) {
+        return yield* configurationError("caller", "caller must belong to volume")
+      }
     }
 
     const crypto = yield* Crypto.Crypto
@@ -521,20 +618,77 @@ const make = (
 
     const identity = Result.getOrThrow(Encoding.decodeHex(options.volume.identity))
     const storageGeneration = Result.getOrThrow(Encoding.decodeHex(options.volume.incarnation))
-    const export_ = makeExport(options.caller, storageGeneration, limits, identity, options.volume)
+    const export_ = makeExport(options.caller ?? volumeCaller, storageGeneration, limits, identity, options.volume)
+    const callers = new Map<string, Vfs.Caller>()
 
-    const handler = yield* makeNfs4Handler(export_, {
+    const callerFor = policy === undefined ?
+      undefined :
+      (call: CompoundCall): Effect.Effect<Vfs.Caller | null> =>
+        Effect.gen(function*() {
+          const peer = call.connection.peer
+
+          if (peer === undefined) return null
+
+          const credential: NfsCredential = Predicate.isTagged(call.credentials, "Sys")
+            ? {
+              flavor: "sys",
+              uid: call.credentials.uid,
+              gid: call.credentials.gid,
+              groups: call.credentials.supplementaryGroups,
+              machineName: call.credentials.machineName
+            }
+            : { flavor: "none" }
+
+          if (!acceptedFlavors.includes(credential.flavor)) return null
+
+          const mapped = yield* Effect.sync(() => {
+            try {
+              return policy({ credential, peer })
+            } catch {
+              return null
+            }
+          })
+
+          if (mapped === null || !Schema.is(Vfs.Identity)(mapped)) return null
+
+          const key = [
+            mapped.uid,
+            mapped.gid,
+            mapped.privileged ? 1 : 0,
+            mapped.groups.length,
+            [...mapped.groups].sort((a, b) => a - b)
+          ].flat().join(":")
+
+          const existing = callers.get(key)
+
+          if (existing !== undefined) return existing
+
+          if (callers.size >= limits.maxIdentities) return null
+          const created = yield* options.volume.caller({ identity: mapped }).pipe(Effect.orElseSucceed(() => null))
+
+          if (created !== null) callers.set(key, created)
+
+          return created
+        })
+
+    const handlerOptions = {
       generation,
       storageGeneration,
       leaseDurationSeconds: config.leaseDurationSeconds,
       callbackTimeout: Duration.seconds(config.callbackTimeoutSeconds),
       limits,
+      securityFlavors: acceptedFlavors.map((flavor) => flavor === "sys" ? 1 : 0),
       now: Date.now
-    })
+    }
+
+    const handler = yield* makeNfs4Handler(
+      export_,
+      callerFor === undefined ? handlerOptions : { ...handlerOptions, callerFor }
+    )
 
     yield* startServer(
       socketServer,
-      { limits },
+      networked ? { limits, peer: options.peer } : { limits },
       handler
     ).pipe(
       Effect.mapError(

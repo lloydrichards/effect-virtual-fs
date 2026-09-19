@@ -17,7 +17,7 @@ sources:
   - id: nfs-source
     resource: ../../packages/nfs/src/NfsServer.ts
     title: NFS server public implementation
-generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
+generated: { by: claude/okf, at: 2026-09-19T09:59:22Z }
 ---
 
 # Implemented filesystem
@@ -36,6 +36,6 @@ The core can also create, inspect, Schema-encode, decode, and apply [portable sn
 
 `@effect-vfs/persistence` adds named, create-only SQLite checkpoints over encoded snapshots. Applications supply the SQLite client and run the migration explicitly. Loading returns an opaque snapshot for restoration into a fresh volume. This implements the [checkpoint persistence decision](../decisions/named-checkpoint-persistence.md "implements") and is specified by the [checkpoint persistence contract](../contracts/checkpoint-persistence.md "refined by").
 
-`@effect-vfs/nfs` exports one live volume read-only to NFSv4.1 clients on the same host, over loopback TCP or a UNIX-domain socket that the application binds. It is protocol-complete for reads and interoperable with the Linux and macOS kernel clients, not conformant, as specified by the [NFS read-only-local profile](nfs/nfs-read-only-local.md "refined by").
+`@effect-vfs/nfs` exports one live volume read-only to NFSv4.1 clients. The [NFS read-only-local profile](nfs/nfs-read-only-local.md "refined by") serves loopback TCP or a UNIX-domain socket and is interoperable with Linux and macOS kernel clients. The [NFS read-only-networked profile](nfs/nfs-read-only-networked.md "refined by") maps trusted credentials and peers to VFS callers and permits non-loopback binding behind policy and explicit opt-in. Both are protocol-complete for reads but not conformant; networked mode remains experimental.
 
 Anything beyond this summary must be checked against the focused contract or current source. The intentionally unsupported surface is listed in [deferred capabilities](deferred-capabilities.md "excludes").
