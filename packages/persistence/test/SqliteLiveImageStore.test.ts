@@ -5,7 +5,7 @@ import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, FileSystem, Layer, Option, Path, Stream } from "effect"
+import { ByteSize, Effect, FileSystem, Layer, Option, Path, Scope, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { ConnectionError, SqlError } from "effect/unstable/sql/SqlError"
@@ -28,6 +28,17 @@ const store = (filename: string, maxDatabaseBytes = ByteSize.megabytes(2)) =>
   SqliteLiveImageStore.layer({ filename, maxImageBytes: options.maxImageBytes, maxDatabaseBytes }).pipe(
     Layer.provide(SqliteClient.layer({ filename, disableWAL: true, busyTimeout: 0 }))
   )
+
+const provideScoped = <A, E, R, ROut, E2, RIn>(
+  program: Effect.Effect<A, E, R>,
+  layer: Layer.Layer<ROut, E2, RIn>
+) =>
+  Effect.scoped(Effect.gen(function*() {
+    const scope = yield* Scope.Scope
+    const context = yield* Layer.buildWithScope(Layer.fresh(layer), scope)
+
+    return yield* Effect.provideContext(program, context)
+  }))
 
 describe("SQLite live image store", () => {
   it.effect("preserves an acknowledged write across process exit", () =>
@@ -118,7 +129,7 @@ describe("SQLite live image store", () => {
       const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
       const filename = path.join(directory, "live.sqlite")
 
-      const before = yield* Effect.scoped(
+      const before = yield* provideScoped(
         Effect.gen(function*() {
           const live = yield* LiveVolume.open(options)
           const caller = yield* live.caller()
@@ -128,10 +139,11 @@ describe("SQLite live image store", () => {
           yield* caller.chmod("/renamed", 0o640)
 
           return { identity: live.identity, incarnation: live.incarnation }
-        }).pipe(Effect.provide(store(filename), { local: true }))
+        }),
+        store(filename)
       )
 
-      yield* Effect.scoped(
+      yield* provideScoped(
         Effect.gen(function*() {
           const live = yield* LiveVolume.open(options)
           const caller = yield* live.caller()
@@ -141,7 +153,8 @@ describe("SQLite live image store", () => {
           assert.deepEqual(yield* caller.readFile("/alias"), new Uint8Array([1, 2, 3]))
           assert.strictEqual((yield* caller.stat("/alias")).ino, (yield* caller.stat("/renamed")).ino)
           assert.strictEqual((yield* caller.stat("/renamed")).mode, 0o640)
-        }).pipe(Effect.provide(store(filename), { local: true }))
+        }),
+        store(filename)
       )
     })).pipe(Effect.provide(files)))
 
@@ -152,7 +165,7 @@ describe("SQLite live image store", () => {
       const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
       const filename = path.join(directory, "live.sqlite")
 
-      yield* Effect.scoped(
+      yield* provideScoped(
         Effect.gen(function*() {
           yield* LiveVolume.open(options)
 
@@ -161,7 +174,8 @@ describe("SQLite live image store", () => {
           )
 
           assert.strictEqual(competing.code, "Ownership")
-        }).pipe(Effect.provide(store(filename), { local: true }))
+        }),
+        store(filename)
       )
 
       yield* Effect.gen(function*() {
@@ -170,7 +184,7 @@ describe("SQLite live image store", () => {
       }).pipe(Effect.provide(SqliteClient.layer({ filename, disableWAL: true })))
 
       const damaged = yield* Effect.flip(
-        Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(store(filename), { local: true }))
+        provideScoped(LiveVolume.open(options), store(filename))
       )
 
       assert.strictEqual(damaged.code, "CorruptStore")
@@ -201,7 +215,7 @@ describe("SQLite live image store", () => {
       const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
       const filename = path.join(directory, "live.sqlite")
 
-      yield* Effect.scoped(
+      yield* provideScoped(
         Effect.gen(function*() {
           const live = yield* LiveVolume.open(options)
           const caller = yield* live.caller()
@@ -213,7 +227,8 @@ describe("SQLite live image store", () => {
 
           assert.strictEqual(error.code, "StorageRejected")
           assert.strictEqual((yield* Effect.flip(caller.stat("/too-large"))).code, "NotFound")
-        }).pipe(Effect.provide(store(filename, ByteSize.bytes(12_288)), { local: true }))
+        }),
+        store(filename, ByteSize.bytes(12_288))
       )
     })).pipe(Effect.provide(files)))
 
@@ -251,7 +266,7 @@ describe("SQLite live image store", () => {
         maxDatabaseBytes: ByteSize.megabytes(2)
       }).pipe(Layer.provide(sql))
 
-      const identity = yield* Effect.scoped(
+      const identity = yield* provideScoped(
         Effect.gen(function*() {
           const live = yield* LiveVolume.open(options)
           const caller = yield* live.caller()
@@ -267,16 +282,18 @@ describe("SQLite live image store", () => {
           assert.strictEqual((yield* Effect.flip(live.usage)).code, "VolumeUnavailable")
 
           return live.identity
-        }).pipe(Effect.provide(injected, { local: true }))
+        }),
+        injected
       )
 
-      yield* Effect.scoped(
+      yield* provideScoped(
         Effect.gen(function*() {
           const live = yield* LiveVolume.open(options)
           const caller = yield* live.caller()
           assert.strictEqual(live.identity, identity)
           assert.deepEqual(yield* caller.readFile("/durable"), new Uint8Array([4, 5, 6]))
-        }).pipe(Effect.provide(store(filename), { local: true }))
+        }),
+        store(filename)
       )
     })).pipe(Effect.provide(files)))
 
@@ -309,7 +326,7 @@ describe("SQLite live image store", () => {
         maxDatabaseBytes: ByteSize.megabytes(2)
       }).pipe(Layer.provide(sql))
 
-      const identity = yield* Effect.scoped(
+      const identity = yield* provideScoped(
         Effect.gen(function*() {
           const live = yield* LiveVolume.open(options)
           const caller = yield* live.caller()
@@ -324,16 +341,18 @@ describe("SQLite live image store", () => {
           assert.strictEqual((yield* Effect.flip(caller.stat("/"))).code, "VolumeUnavailable")
 
           return live.identity
-        }).pipe(Effect.provide(injected, { local: true }))
+        }),
+        injected
       )
 
-      yield* Effect.scoped(
+      yield* provideScoped(
         Effect.gen(function*() {
           const live = yield* LiveVolume.open(options)
           const caller = yield* live.caller()
           assert.strictEqual(live.identity, identity)
           assert.strictEqual((yield* Effect.flip(caller.stat("/unconfirmed"))).code, "NotFound")
-        }).pipe(Effect.provide(store(filename), { local: true }))
+        }),
+        store(filename)
       )
     })).pipe(Effect.provide(files)))
 })
