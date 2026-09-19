@@ -4,7 +4,7 @@ title: Deferred capabilities
 description: Lists capabilities intentionally outside the current filesystem contract so future exploration is not mistaken for implemented support.
 status: draft
 tags: [profile, roadmap, deferred]
-generated: { by: claude/okf, at: 2026-09-16T21:30:00+02:00 }
+generated: { by: claude/okf, at: 2026-09-19T10:02:47Z }
 ---
 
 # Deferred capabilities
@@ -12,7 +12,7 @@ generated: { by: claude/okf, at: 2026-09-16T21:30:00+02:00 }
 The current profile does not include:
 
 - FUSE or other host mounts, Vim integration, or access by arbitrary native tools other than the read-only NFS export;
-- writable, networked, or locking NFS exports (the networked profile is specified but not implemented), Kerberos-authenticated NFS (excluded by decision), and WebDAV or other network filesystem protocols;
+- writable or locking NFS exports, Kerberos-authenticated NFS (excluded by decision), and WebDAV or other network filesystem protocols;
 - live backing volumes, snapshot-delta merge or rebase, block-level copying, or changed-data budgets;
 - host-directory import or export;
 - FIFOs, device files, filesystem sockets, or other special files;

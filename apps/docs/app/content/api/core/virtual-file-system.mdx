@@ -352,6 +352,8 @@ export interface Caller {
   readonly parentReference: (directory: ObjectReference) => Effect.Effect<ObjectReference, FsError>
   /** Reads metadata and its matching live revision. Requires no permission on the object, as `stat` does not. */
   readonly observeMetadata: (reference: ObjectReference) => Effect.Effect<ObjectObservation<Metadata>, FsError>
+  /** Checks permission bits on the exact referenced object without resolving a path. */
+  readonly accessReference: (reference: ObjectReference, bits?: number) => Effect.Effect<void, FsError>
   /** Reads owned directory entries and their matching directory revision. */
   readonly observeDirectory: (
     reference: ObjectReference

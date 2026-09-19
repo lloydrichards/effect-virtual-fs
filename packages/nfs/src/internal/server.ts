@@ -15,6 +15,7 @@ export interface ServerLimits extends RecordLimits, RpcLimits {
 /** @internal */
 export interface ServerOptions {
   readonly limits: ServerLimits
+  readonly peer?: Effect.Effect<Connection["peer"] | null>
 }
 
 /**
@@ -28,7 +29,7 @@ const refuseConnection = (socket: Socket.Socket): Effect.Effect<void> =>
 const handleConnection = (
   id: number,
   socket: Socket.Socket,
-  limits: ServerLimits,
+  options: ServerOptions,
   handlers: RpcHandlers
 ): Effect.Effect<void, Socket.SocketError> =>
   Effect.suspend(() => {
@@ -38,22 +39,29 @@ const handleConnection = (
 
     return Effect.scoped(
       Effect.gen(function*() {
+        const peer = options.peer === undefined ? undefined : yield* options.peer
+
+        if (peer === null) {
+          yield* refuseConnection(socket)
+
+          return
+        }
+
         const pull = yield* Socket.readerBytes(socket)
         const writer = yield* socket.writer
-        const decoder = new RecordDecoder(limits)
+        const decoder = new RecordDecoder(options.limits)
 
         // The connection can only carry callbacks once its writer exists, so it is built here
         // rather than at accept time.
-        const connection: Connection = {
-          id,
-          send: (message) =>
-            writer.write(encodeRecord(message)).pipe(
-              Effect.as(true),
-              // A peer that has gone away is reported, not raised: the caller decides whether a
-              // dead backchannel matters.
-              Effect.catchTag("SocketError", () => Effect.succeed(false))
-            )
-        }
+        const send: Connection["send"] = (message) =>
+          writer.write(encodeRecord(message)).pipe(
+            Effect.as(true),
+            // A peer that has gone away is reported, not raised: the caller decides whether a
+            // dead backchannel matters.
+            Effect.catchTag("SocketError", () => Effect.succeed(false))
+          )
+
+        const connection: Connection = peer === undefined ? { id, send } : { id, peer, send }
 
         opened = connection
 
@@ -78,7 +86,7 @@ const handleConnection = (
                 continue
               }
 
-              const response = yield* handleCall(connection, record, limits, handlers)
+              const response = yield* handleCall(connection, record, options.limits, handlers)
 
               if (response !== undefined) yield* writer.write(encodeRecord(response))
             }
@@ -112,7 +120,7 @@ export const startServer = (
       Semaphore.withPermitsIfAvailable(
         connections,
         1,
-        handleConnection(connectionSerial++, socket, options.limits, handlers)
+        handleConnection(connectionSerial++, socket, options, handlers)
       ).pipe(
         // A refusal never runs `handleConnection`, so the socket is still unopened here and must
         // be closed explicitly rather than left for the server finalizer, which only tracks

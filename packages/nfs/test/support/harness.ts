@@ -2,7 +2,7 @@ import { assert } from "@effect/vitest"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import { type Nfs4Handler, type Nfs4Limits, Operation, Status } from "../../src/internal/nfs4.js"
-import type { Connection } from "../../src/internal/rpc.js"
+import type { Connection, Credentials } from "../../src/internal/rpc.js"
 import { Reader, Writer } from "../../src/internal/xdr.js"
 
 export const generation = new Uint8Array(16).fill(7)
@@ -47,13 +47,14 @@ const defaultConnection = connection()
 export const call = (
   operations: ReadonlyArray<(writer: Writer) => void>,
   tag = "probe",
-  on: Connection = defaultConnection
+  on: Connection = defaultConnection,
+  credentials: Credentials = { _tag: "None" }
 ) => {
   const writer = new Writer().string(tag).uint32(1).uint32(operations.length)
 
   for (const operation of operations) operation(writer)
 
-  return { connection: on, credentials: { _tag: "None" } as const, arguments: writer.bytes() }
+  return { connection: on, credentials, arguments: writer.bytes() }
 }
 
 export const statuses = (response: Uint8Array) => {
@@ -112,10 +113,15 @@ export const startSession = (
   /** Above zero, asks for CREATE_SESSION4_FLAG_CONN_BACK_CHAN and this many backchannel slots. */
   backSlots = 0,
   /** csa_sec_parms: the callback credentials the client authorizes. Defaults to AUTH_NONE. */
-  security: (writer: Writer) => void = (writer) => writer.array([0], (item, flavor) => item.uint32(flavor))
+  security: (writer: Writer) => void = (writer) => writer.array([0], (item, flavor) => item.uint32(flavor)),
+  credentials: Credentials = { _tag: "None" }
 ) =>
   Effect.gen(function*() {
-    const exchange = new Reader(yield* handler.compound(call([exchangeId(owner, verifier)], "probe", on)), limits)
+    const exchange = new Reader(
+      yield* handler.compound(call([exchangeId(owner, verifier)], "probe", on, credentials)),
+      limits
+    )
+
     assert.strictEqual(exchange.uint32(), Status.OK)
     exchange.string()
     exchange.uint32()
@@ -132,7 +138,8 @@ export const startSession = (
         security(writer)
       }],
       "probe",
-      on
+      on,
+      credentials
     ))
 
     const response = new Reader(create, limits)

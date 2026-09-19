@@ -2,6 +2,7 @@ import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
+import type { NfsPeer } from "../NfsServer.js"
 import { type DecodeLimits, Reader, Writer, XdrDecodeError } from "./xdr.js"
 
 /** @internal */
@@ -34,6 +35,8 @@ const Credentials = Data.taggedEnum<Credentials>()
  */
 export interface Connection {
   readonly id: number
+  /** Address verified by the application's transport resolver, when networked mode is active. */
+  readonly peer?: NfsPeer
   /**
    * Writes one RPC message to the peer, answering false when the connection can no longer carry
    * it. The server uses this to send callbacks down a session's backchannel. The message is an
@@ -55,7 +58,7 @@ export interface CompoundCall {
 
 /** @internal */
 export interface RpcHandlers {
-  readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array>
+  readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array, RpcPolicyDenied>
   /** Called once when a connection ends, however it ended. */
   readonly disconnect: (connection: Connection) => Effect.Effect<void>
   /** Called with an RPC REPLY, which on a backchannel answers a callback the server sent. */
@@ -97,6 +100,11 @@ const AUTH_BADCRED = 1
 const AUTH_BADVERF = 3
 
 const AUTH_TOOWEAK = 5
+
+const AUTH_FAILED = 7
+
+/** A policy refusal is an RPC authentication failure and dispatches no NFS compound. */
+export class RpcPolicyDenied extends Data.TaggedError("RpcPolicyDenied")<{}> {}
 
 class CredentialError extends Data.TaggedError("CredentialError")<{
   readonly detail: string
@@ -247,7 +255,8 @@ export const handleCall = (
         arguments: arguments_,
         requestBytes: message.length
       }).pipe(
-        Effect.map((payload) => accepted(xid, 0, payload))
+        Effect.map((payload) => accepted(xid, 0, payload)),
+        Effect.catchTag("RpcPolicyDenied", () => Effect.succeed(denied(xid, 1, AUTH_FAILED)))
       )
     } catch (error) {
       if (error instanceof XdrDecodeError) return Effect.succeed(accepted(xid, 4))

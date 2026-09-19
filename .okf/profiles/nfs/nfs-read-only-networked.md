@@ -14,7 +14,7 @@ sources:
   - id: rfc8881
     resource: https://www.rfc-editor.org/rfc/rfc8881.html
     title: RFC 8881 NFSv4.1
-generated: { by: claude/okf, at: 2026-09-16T21:30:00+02:00 }
+generated: { by: claude/okf, at: 2026-09-19T10:02:47Z }
 ---
 
 # NFS read-only-networked profile
@@ -24,22 +24,22 @@ generated: { by: claude/okf, at: 2026-09-16T21:30:00+02:00 }
 ## Boundary
 
 - Serves a network segment the operator controls. `AUTH_SYS` identity is trusted only from clients the application's policy vouches for; exposure to an untrusted network is unsupported.
-- The application supplies the `Volume` and a policy function over the decoded credential and the peer address. The policy returns deny or a VFS identity; the server mints one caller per identity, caches callers under a bounded limit, and routes every operation through the mapped caller.[^server]
-- A non-loopback bind requires both the policy and an explicit opt-in flag. Loopback TCP and UNIX-domain sockets need neither.
+- The application supplies the `Volume`, a peer resolver for each accepted socket, and a policy function over the decoded credential and peer. TCP peers carry the remote address and port; UNIX peers carry null address and port plus the server socket path. The policy returns deny or a VFS identity; the server mints one caller per identity, caches callers under `maxIdentities`, and checks that caller's authority for file access.[^server]
+- A non-loopback bind requires the networked policy and `allowNonLoopback: true`. Networked mode also requires a peer resolver on loopback TCP and UNIX-domain sockets. Local mode needs neither.
 - Everything the local profile rejects stays rejected: mutation returns `NFS4ERR_ROFS`, RPCSEC_GSS answers `AUTH_TOOWEAK`, state protection other than `SP4_NONE` is refused, filehandles remain volatile.
 
 ## Required behavior
 
 - Distinct identities receive exactly the VFS authority the policy assigned; a denied credential receives no access and never dispatches a compound.
 - ACCESS is computed through the mapped caller, so it agrees with OPEN and READ.
-- SECINFO and SECINFO_NO_NAME advertise only the flavors the policy accepts, `[AUTH_SYS]` by default.
+- SECINFO and SECINFO_NO_NAME advertise the configured `acceptedFlavors`, `[AUTH_SYS]` by default. The policy can still deny any credential in an advertised flavor.
 - Client records and replay slots remain keyed by the raw credential.
 - `owner` and `owner_group` remain decimal uid and gid strings.
 
 ## Current state
 
-Not started. Identity mapping is owned by #74 and non-loopback binding by #75. The profile publishes at `experimental` once both land with the tests the decision names, and follows the same evidence ladder as the local profile from there.
+Implemented at `experimental` maturity by #74 and #75. Focused protocol and live TCP/UNIX socket tests cover identity mapping, denial, peer context, and non-loopback configuration. A networked kernel-client gate is not yet recorded, so this profile has not reached `preview`.
 
 [^rfc8881]: Sections 2.2.1.1, 2.6, 5.9, and 21.
 
-[^server]: Today `NfsServerOptions` takes one privileged `Caller`; the networked variant adds `volume` plus `policy` alongside it; #74 settles whether that is one options union or two constructors.
+[^server]: `NfsServerOptions` is a union of local `{ volume, caller }` and networked `{ volume, policy, peer }` options. `maxIdentities` bounds the caller cache; denial and exhaustion answer RPC `AUTH_FAILED`.
