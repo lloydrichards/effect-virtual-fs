@@ -4,6 +4,84 @@ import { makeStagedState } from "../src/internal/virtualFileSystem/stagedState.j
 import { it } from "./TestEffect.js"
 
 describe("staged state", () => {
+  it.effect("stops after a provider throws before returning an Effect", () =>
+    Effect.gen(function*() {
+      const state = makeStagedState(
+        { value: 1 },
+        (current) => Effect.succeed({ ...current }),
+        {
+          commit: () => {
+            throw new Error("commit failed")
+          }
+        }
+      )
+
+      const failure = yield* Effect.flip(state.mutate("mkdir", (candidate) =>
+        Effect.sync(() => {
+          candidate.value = 2
+        })))
+
+      assert.strictEqual(failure.code, "OutcomeUnknown")
+      assert.strictEqual(failure.operation, "mkdir")
+      assert.strictEqual(
+        (yield* Effect.flip(state.read("stat", (current) => Effect.succeed(current.value)))).code,
+        "VolumeUnavailable"
+      )
+    }))
+
+  it.effect("publishes candidate events only after a successful commit", () =>
+    Effect.gen(function*() {
+      const observed: Array<string> = []
+      let outcome: "committed" | "rejected" = "rejected"
+
+      const state = makeStagedState<{ value: number }, string>(
+        { value: 1 },
+        (current) => Effect.succeed({ ...current }),
+        { commit: () => Effect.succeed(outcome) },
+        (events) => observed.push(...events)
+      )
+
+      yield* Effect.flip(state.mutate("write", (candidate, emit) =>
+        Effect.sync(() => {
+          candidate.value = 2
+          emit("rejected")
+        })))
+      assert.deepEqual(observed, [])
+
+      outcome = "committed"
+      yield* state.mutate("write", (candidate, emit) =>
+        Effect.sync(() => {
+          candidate.value = 3
+          emit("committed")
+        }))
+      assert.deepEqual(observed, ["committed"])
+      assert.strictEqual(yield* state.read("read", (current) => Effect.succeed(current.value)), 3)
+    }))
+
+  it.effect("stops service if publication fails after commit", () =>
+    Effect.gen(function*() {
+      const state = makeStagedState<{ value: number }, string>(
+        { value: 1 },
+        (current) => Effect.succeed({ ...current }),
+        { commit: () => Effect.succeed("committed" as const) },
+        () => {
+          throw new Error("subscriber failed")
+        }
+      )
+
+      const failure = yield* Effect.flip(state.mutate("write", (candidate, emit) =>
+        Effect.sync(() => {
+          candidate.value = 2
+          emit("changed")
+        })))
+
+      assert.strictEqual(failure.code, "OutcomeUnknown")
+      assert.strictEqual(
+        (yield* Effect.flip(state.read("read", (current) => Effect.succeed(current.value)))).code,
+        "VolumeUnavailable"
+      )
+    }))
+
   it.effect("keeps a rejected candidate invisible and permits a later mutation", () =>
     Effect.gen(function*() {
       let reject = true

@@ -13,11 +13,12 @@ export interface CommitProvider<State> {
 }
 
 /** @internal */
-export const makeStagedState = <State>(
+export const makeStagedState = <State, Event = never>(
   initial: State,
   // The copy must detach every mutable value that change can reach.
   copy: (current: State) => Effect.Effect<State>,
-  provider: CommitProvider<State>
+  provider: CommitProvider<State>,
+  publish?: (events: ReadonlyArray<Event>) => void
 ) => {
   const gate = Semaphore.makeUnsafe(1)
   let current = initial
@@ -35,12 +36,16 @@ export const makeStagedState = <State>(
       return yield* inspect(current)
     }))
 
-  const mutate = <A, E, R>(operation: string, change: (candidate: State) => Effect.Effect<A, E, R>) =>
+  const mutate = <A, E, R>(
+    operation: string,
+    change: (candidate: State, emit: (event: Event) => void) => Effect.Effect<A, E, R>
+  ) =>
     gate.withPermit(Effect.uninterruptibleMask((restore) =>
       Effect.gen(function*() {
         yield* checkAvailable(operation)
         const candidate = yield* restore(copy(current))
-        const value = yield* restore(change(candidate))
+        const events: Array<Event> = []
+        const value = yield* restore(change(candidate, (event) => events.push(event)))
         const committed = yield* Effect.exit(provider.commit(candidate))
 
         if (Exit.isFailure(committed)) {
@@ -62,6 +67,13 @@ export const makeStagedState = <State>(
         }
 
         current = candidate
+        const published = yield* Effect.exit(Effect.sync(() => publish?.(events)))
+
+        if (Exit.isFailure(published)) {
+          available = false
+
+          return yield* new FsError({ code: "OutcomeUnknown", operation })
+        }
 
         return value
       })
