@@ -23,6 +23,12 @@ sources:
   - id: checkpoint
     resource: ../../packages/persistence/src/CheckpointStore.ts
     title: Application-driven named checkpoints
+  - id: live-image
+    resource: ../../packages/core/src/internal/liveImage.ts
+    title: Private live image schema and validation
+  - id: live-store
+    resource: ../../packages/core/src/LiveVolume.ts
+    title: Provider-neutral live image store service and scoped opening
   - id: nfs
     resource: ../../packages/nfs/src/internal/nfs4.ts
     title: Replay admission, operation interruption, and slot rollback
@@ -53,14 +59,14 @@ sources:
   - id: issue-50
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
     title: Restart recovery
-generated: { by: codex/okf, at: 2026-09-19T12:37:54Z }
+generated: { by: codex/okf, at: 2026-09-19T15:00:31Z }
 ---
 
 # Live durable volume proposal
 
-Recommend a bounded SQLite provider in `@effect-vfs/persistence`, backed by a new core mutation-staging mechanism. Each operation builds a private candidate state, commits its durable image, then publishes the candidate and watch events. The first version replaces one complete engine image per transaction. This costs time proportional to volume size but keeps the recovery proof small. It targets small local volumes, not large or high-throughput storage.
+Recommend an application-supplied, bounded storage Layer behind core's `LiveImageStore` service. Each operation builds a private candidate state, commits its image, then publishes the candidate and watch events. One possible provider replaces one complete engine image per transaction. This costs time proportional to volume size but keeps the recovery proof small. It targets small volumes, not large or high-throughput storage.
 
-This is a proposal for review and implementation. It implements neither #48 nor #49 and does not change the accepted decisions.
+This remains a design proposal for the unfinished writable milestone. Core staging, a private image codec, and an injected `LiveImageStore` service now exist. No live-image storage provider is shipped. Power-loss qualification, bounded watches and admission, and writable NFS dispatch remain open. The core boundary implements neither #48 nor #49 and does not change the accepted decisions.
 
 ## Accepted requirements and proposed choices
 
@@ -105,7 +111,7 @@ The engine audit identifies five state groups that must move together at publica
 | Access times from file, path, and directory reads                                                          | Read methods inside `coordinated`         | Commit the metadata change before returning the read result.                                                   |
 | Watch changes                                                                                              | `WatchHub` calls inside mutations         | Buffer candidate events and publish them only after the provider confirms commit.                              |
 
-This audit rules out a graph-only copy. The internal `makeVolume` provider path now copies reachable and retained nodes, stages capability records and reference invalidation, and publishes watch events after confirmed commit. Tests cover rejected mutations, retained unlinked files, provider poisoning, and readers waiting behind commit. No persistent image codec, SQLite provider, bounded admission, or writable NFS dispatch exists yet. The memory path remains direct and reports `memory-only`.
+This audit rules out a graph-only copy. The core now stages reachable and retained nodes, capability records, reference invalidation, and watch events before publication. Its private image preserves inodes, hard links, revisions, counters, limits, and retained unlinked files. Recovery drops zero-link files because their handles ended with the prior process. Core tests cover injected committed and rejected outcomes, image validation, and staged publication. No storage provider or crash-recovery guarantee is shipped. Bounded admission, power-loss qualification, and writable NFS dispatch remain open. Memory volumes still use the direct path.[^live-image][^live-store]
 
 Introduce a core-owned `EngineState` and stable runtime object keys. Capabilities retain keys and resolve them against the current state under the gate. A candidate owns copied metadata, maps, mutable bytes, counters, and changed handle state. Immutable content can be shared, but no candidate write may modify a live buffer. Reference invalidations, newly opened handles, cursor advances, and quota charges publish with the state swap. Pure handle movement stays volatile and coordinated.
 
@@ -157,16 +163,16 @@ Physical disk exhaustion is distinct from logical `maxBytes`. `pwrite` and `writ
 
 ## Shared API and ownership
 
-| Owner       | Proposed responsibility                                                                                                                                                                                                                                     |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Core        | Candidate construction and publication; capability identity; reference and path parity; private image codec; quotas; watch ordering; a narrow provider commit contract.                                                                                     |
-| Persistence | Scoped `openDurableVolume` constructor; dedicated SQLite connection, ownership lock, migrations, sync qualification, image commit and recovery; storage diagnostics. Return the same shared `Volume`, not a separate NFS filesystem. Names are provisional. |
-| NFS         | Authorization, share reservations, advisory locks, exclusive-create interpretation, replay admission, reply caching, verifier derivation, and eventual #50 recovery.                                                                                        |
-| Application | Supported host and driver composition, store path, limits, backup policy, and explicit writable export opt-in.                                                                                                                                              |
+| Owner          | Proposed responsibility                                                                                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Core           | Candidate construction and publication; capability identity; reference and path parity; private image codec; quotas; watch ordering; a narrow provider commit contract.                     |
+| Store provider | A scoped Layer that owns storage, exclusive access, generation fencing, recovery, atomic image replacement, and commit outcome classification. A concrete SQLite provider remains proposed. |
+| NFS            | Authorization, share reservations, advisory locks, exclusive-create interpretation, replay admission, reply caching, verifier derivation, and eventual #50 recovery.                        |
+| Application    | Supported host and driver composition, store path, limits, backup policy, and explicit writable export opt-in.                                                                              |
 
-The proposed provider contract loads a durable image and commits `(expectedGeneration, candidateImage)` with one of three outcomes: committed, definitely rejected, or unknown. The core must never accept an arbitrary caller-supplied durability label without the corresponding provider contract. Keep this integration in a documented core provider entry point; persistence must not import unpublished core internals or call public operations recursively while holding the gate.
+The implemented core `LiveImageStore` service has `loadOrCreate(initialImage)` and `commit(candidateImage)` operations. Its scoped provider Layer owns the storage resource. Core prepares and validates the image, coordinates publication, checks recovered limits, and shuts down the volume before the provider Layer closes. `commit` reports committed, definitely rejected, or unknown; an unknown outcome stops the volume. The core must never accept an arbitrary caller-supplied durability label without the corresponding provider contract. A provider must not call public volume operations recursively while holding the gate. A Postgres provider may implement the service separately, but must establish its own ownership and outcome guarantees rather than reuse SQLite assumptions. A generic `SqlClient` alone does not establish connection affinity, exclusive ownership, or a known result after a failed commit.
 
-The core now defines `StorageRejected`, `OutcomeUnknown`, and `VolumeUnavailable` as distinct `FsError` codes and NFS maps them to `NFS4ERR_IO`; the memory volume does not emit them. `NoSpace` remains a known capacity rejection. An operation receiving an unknown outcome fails with that code; every later operation fails with unavailable until recovery. This distinction must also cover reads and existing handles, not only mutations. The proposed provider will need to widen `usage`, `snapshot`, `caller`, watch registration, and active watch streams with unavailable so a poisoned provider fails closed without a defect or indefinite wait. A caller already created remains a capability, but its operations fail while the provider is unavailable. Internal scope finalizers still release runtime resources; explicit repeated `close` retains its existing error contract. Those effect-channel changes require contract and adapter updates. NFS must stop the affected export on unknown outcome; it must not map storage errors to permission or quota errors. The failure-channel signatures and stream-shutdown mechanics remain open for the first provider slice.
+The core defines `StorageRejected`, `OutcomeUnknown`, and `VolumeUnavailable` as distinct `FsError` codes and NFS maps them to `NFS4ERR_IO`; memory volumes do not emit them. `NoSpace` remains a known capacity rejection. An unknown commit outcome stops subsequent operations, including observations and watch registration. Core prepares and bounds an image before entering the masked storage commit; a preparation failure rejects the candidate without poisoning the volume. A confirmed provider rejection preserves the live state. A failed final close releases its runtime handle and stops the volume. Active watch-stream shutdown after provider failure still needs specific proof. NFS must stop the affected export on unknown outcome.[^engine][^live-store]
 
 `FileHandle.sync` does not become a second commit mechanism. With synchronous mutations there is no pending dirty data; it checks handle and provider health. Its current memory-only documentation needs provider-aware wording.
 
@@ -193,7 +199,7 @@ Set a finite SQLite busy timeout and bounded retry count before commit. These do
 ## Implementation slices and proof
 
 1. Fix the provider boundary and typed failure channels, then refactor the core to staged state with a fake commit provider. Preserve existing memory behavior and run the core contracts. This slice must inventory every mutation, read-atime path, and resource-release path. Benchmark full-image work at candidate volume limits before committing to the one-row storage representation.
-2. Implement the private image codec and SQLite provider with a qualified driver, exclusive ownership, durable initialization, finite limits, and recovery. Keep NFS read-only while fault testing the shared API.
+2. Implement a storage provider Layer with exclusive ownership, atomic image replacement, durable initialization, finite limits, and recovery. Qualify its driver before advertising durability. Keep NFS read-only while fault testing the shared API.
 3. Resolve the separate watch-overflow contract and qualify the stated crash boundary on Linux and macOS. Document the filesystem, SQLite build, driver, sync settings, and storage assumptions. Only a storage configuration qualified for that crash boundary advertises `survives-power-loss`; bounded watches are a separate writable-milestone requirement.
 4. After #47, implement NFS admission and replay changes, then #48 dispatch and #49 `WRITE` and `COMMIT`. #50 remains separate. No protocol implementation is part of this proposal.
 
@@ -211,6 +217,10 @@ The open performance question is the maximum useful volume size with full-image 
 [^engine]: `coordinated`, `replaceContent`, `fileHandle`, `releaseFile`, `captureSnapshot`, and the returned `volume` in the engine source.
 
 [^checkpoint]: `CheckpointStore.save` accepts a snapshot captured by its caller; it does not participate in the engine gate.
+
+[^live-image]: The live image schema validates graph reachability, link counts, byte usage, names, and stored limits before recovery.
+
+[^live-store]: `LiveVolume.open` consumes the injected store service, validates recovered image limits, and coordinates scoped shutdown.
 
 [^snapshot]: Public snapshots exclude callers, open handles, watch subscriptions, and unlinked content.
 
