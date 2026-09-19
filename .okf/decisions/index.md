@@ -41,6 +41,7 @@ Accepted architectural and behavioral decisions, grouped by domain. Deprecated d
 - [NFS profile ladder](nfs/nfs-profile-ladder.md) separates NFSv4.1 capability profiles from maturity labels and fixes the evidence each level requires.
 - [NFS authentication and export policy](nfs/nfs-authentication-and-export-policy.md) excludes Kerberos, and maps trusted `AUTH_SYS` identity to VFS callers behind an application-supplied policy.
 - [NFS filesystem error mapping](nfs/error-mapping.md) defines the core-error map and writable operation overrides.
+- [Writable NFS export scope](nfs/writable-export-scope.md) records the accepted authority, operation, lock, durability, and restart milestones.
 
 ## Packages, adapter, persistence, and build consumer
 

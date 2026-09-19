@@ -12,8 +12,8 @@ The package describes what it does with a capability profile and how well that i
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
 | `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted, backchannel and connection binding | preview      |
 | `read-only-networked` | `AUTH_SYS` identity mapped to VFS callers by application policy, non-loopback binding behind that policy and an explicit opt-in        | experimental |
-| `writable`            | create, write, rename, remove, `COMMIT` semantics, explicit durability statement                                                       | not started  |
-| `stateful`            | share reservations, byte-range locks, grace and reclaim, persistent filehandles                                                        | not started  |
+| `writable`            | create, write, rename, remove, durable `WRITE` and `COMMIT`, share reservations, and advisory byte-range locks                         | not started  |
+| `stateful`            | grace and reclaim, restart recovery, persistent filehandles                                                                            | not started  |
 
 `read-only-local` is currently `preview`: the protocol test suites pass, scripted macOS 26.6.2 and Linux kernel-client mounts each pass every read-side check, and a pinned pynfs run with every failure classified is recorded in the preview app's [conformance baseline](../../apps/nfs-preview/CONFORMANCE.md). The Linux mount is a repeatable opt-in CI gate rather than a manual run. Per-requirement status against RFC 8881 lives in the [operations](../../.okf/research/nfs/nfs-operations-ledger.md), [attributes](../../.okf/research/nfs/nfs-attributes-ledger.md), and [protocol rules](../../.okf/research/nfs/nfs-protocol-rules-ledger.md) ledgers. NFSv4.0 and NFSv4.2 are out of scope; mount with `vers=4.1` explicitly.
 
