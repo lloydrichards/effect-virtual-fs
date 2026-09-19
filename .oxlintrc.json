@@ -91,6 +91,8 @@
     "anti-slop/no-reflect-apply": "error",
     "anti-slop/no-reflect-get": "error",
     "anti-slop/no-runtime-typeof": "error",
+    "anti-slop/require-public-effect-fn-signature": "error",
+    "anti-slop/require-public-internal-alias-type": "error",
     "anti-slop/no-shape-in-symbol-names": "error",
     "anti-slop/no-unknown-parameters": "error",
     "anti-slop/no-unknown-returns": "error",
@@ -116,6 +118,13 @@
     ]
   },
   "overrides": [
+    {
+      "files": ["apps/**"],
+      "rules": {
+        "anti-slop/require-public-effect-fn-signature": "off",
+        "anti-slop/require-public-internal-alias-type": "off"
+      }
+    },
     {
       "files": [
         "**/{test,typetest,examples,benchmark,bundle,scripts,scratchpad}/**"
