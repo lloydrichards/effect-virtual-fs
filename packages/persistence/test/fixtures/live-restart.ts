@@ -61,15 +61,34 @@ const program = Effect.gen(function*() {
 
     if (mode === "write" || mode === "write-hold") {
       yield* caller.writeFile("/durable", new Uint8Array([7, 8, 9]), { access: "write", create: "exclusive" })
+    } else if (mode === "write-linked") {
+      yield* caller.writeFile("/first", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
+      yield* caller.link("/first", "/alias")
+      yield* caller.rename("/first", "/renamed")
+      yield* caller.chmod("/renamed", 0o640)
     } else if (mode === "pause-before-commit") {
       yield* caller.writeFile("/durable", new Uint8Array([4, 5, 6]), { access: "write" })
+    } else if (mode === "verify-linked") {
+      const renamed = yield* caller.readFile("/renamed")
+      const alias = yield* caller.readFile("/alias")
+      const renamedStat = yield* caller.stat("/renamed")
+      const aliasStat = yield* caller.stat("/alias")
+
+      if (
+        renamed.toString() !== "1,2,3" || alias.toString() !== "1,2,3" ||
+        renamedStat.ino !== aliasStat.ino || renamedStat.mode !== 0o640
+      ) return yield* Effect.die("linked files changed after restart")
     } else {
       const bytes = yield* caller.readFile("/durable")
 
       if (bytes.toString() !== "7,8,9") return yield* Effect.die("contents changed")
     }
 
-    yield* Console.log(volume.identity)
+    yield* Console.log(
+      mode === "write-linked" || mode === "verify-linked"
+        ? `${volume.identity}:${volume.incarnation}`
+        : volume.identity
+    )
 
     if (mode === "write-hold") return yield* Effect.never
   })).pipe(Effect.provide(Layer.mergeAll(storage, NodeCrypto.layer)))
