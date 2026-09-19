@@ -1246,6 +1246,10 @@ export interface Volume {
   readonly identity: VolumeIdentity
   /** Fresh identity for this uninterrupted storage lifetime. */
   readonly incarnation: VolumeIncarnation
+  /** Effective static limits, where `undefined` means unlimited. */
+  readonly limits: VolumeLimits
+  /** Samples content bytes and directory entries together from the current committed state. */
+  readonly usage: Effect.Effect<VolumeUsage>
   /** Opens a scoped stream of future committed changes. Events are not replayed. */
   readonly watch: Effect.Effect<Stream.Stream<Change>, never, Scope.Scope>
   /** Captures an isolated snapshot of the reachable namespace and metadata. */
@@ -1322,6 +1326,24 @@ export type VolumeIncarnation = typeof VolumeIncarnation.Type
 
 Added in v0.1.0
 
+### VolumeLimits (interface)
+
+Effective capacity and path limits of a live volume. An absent limit is unlimited.
+`maxFileBytes` always includes the engine's maximum representable file size.
+
+**Signature**
+
+```ts
+export interface VolumeLimits {
+  readonly maxBytes: ByteSize.ByteSize | undefined
+  readonly maxFileBytes: ByteSize.ByteSize
+  readonly maxEntries: number | undefined
+  readonly maxPathBytes: ByteSize.ByteSize | undefined
+}
+```
+
+Added in v0.1.0
+
 ### VolumeOptions (type alias)
 
 Capacity and path limits for a volume.
@@ -1330,6 +1352,22 @@ Capacity and path limits for a volume.
 
 ```ts
 export type VolumeOptions = typeof VolumeOptions.Type
+```
+
+Added in v0.1.0
+
+### VolumeUsage (interface)
+
+Live logical content and directory-entry usage of a volume.
+Open unlinked files remain in `usedBytes` until their last handle closes.
+
+**Signature**
+
+```ts
+export interface VolumeUsage {
+  readonly usedBytes: bigint
+  readonly entries: number
+}
 ```
 
 Added in v0.1.0
@@ -2398,15 +2436,15 @@ export declare const applySnapshotDelta: (
   base: Snapshot,
   delta: SnapshotDeltaModel.SnapshotDelta,
   limits?: {
-    readonly maxEncodedBytes: ByteSize
-    readonly maxIdentityBytes: ByteSize
+    readonly maxEncodedBytes: ByteSize.ByteSize
+    readonly maxIdentityBytes: ByteSize.ByteSize
     readonly maxDeltaRecords: number
-    readonly maxDecodedDeltaBytes: ByteSize
+    readonly maxDecodedDeltaBytes: ByteSize.ByteSize
     readonly maxBaseRecords: number
     readonly maxTargetRecords: number
     readonly maxEntries: number
     readonly maxOutputRecords: number
-    readonly maxOutputBytes: ByteSize
+    readonly maxOutputBytes: ByteSize.ByteSize
     readonly maxInheritedRecords: number
   }
 ) => Effect.Effect<
@@ -2415,15 +2453,15 @@ export declare const applySnapshotDelta: (
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize
-          readonly maxIdentityBytes: ByteSize
+          readonly maxEncodedBytes: ByteSize.ByteSize
+          readonly maxIdentityBytes: ByteSize.ByteSize
           readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
           readonly maxBaseRecords: number
           readonly maxTargetRecords: number
           readonly maxEntries: number
           readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize
+          readonly maxOutputBytes: ByteSize.ByteSize
           readonly maxInheritedRecords: number
         },
         never,
@@ -2440,15 +2478,15 @@ export declare const applySnapshotDelta: (
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize
-                readonly maxIdentityBytes: ByteSize
+                readonly maxEncodedBytes: ByteSize.ByteSize
+                readonly maxIdentityBytes: ByteSize.ByteSize
                 readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
                 readonly maxBaseRecords: number
                 readonly maxTargetRecords: number
                 readonly maxEntries: number
                 readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize
+                readonly maxOutputBytes: ByteSize.ByteSize
                 readonly maxInheritedRecords: number
               },
               never,
@@ -2466,15 +2504,15 @@ export declare const applySnapshotDelta: (
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize
-          readonly maxIdentityBytes: ByteSize
+          readonly maxEncodedBytes: ByteSize.ByteSize
+          readonly maxIdentityBytes: ByteSize.ByteSize
           readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
           readonly maxBaseRecords: number
           readonly maxTargetRecords: number
           readonly maxEntries: number
           readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize
+          readonly maxOutputBytes: ByteSize.ByteSize
           readonly maxInheritedRecords: number
         },
         never,
@@ -2491,15 +2529,15 @@ export declare const applySnapshotDelta: (
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize
-                readonly maxIdentityBytes: ByteSize
+                readonly maxEncodedBytes: ByteSize.ByteSize
+                readonly maxIdentityBytes: ByteSize.ByteSize
                 readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
                 readonly maxBaseRecords: number
                 readonly maxTargetRecords: number
                 readonly maxEntries: number
                 readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize
+                readonly maxOutputBytes: ByteSize.ByteSize
                 readonly maxInheritedRecords: number
               },
               never,
@@ -2562,15 +2600,15 @@ export declare const diffSnapshots: (
   base: Snapshot,
   target: Snapshot,
   limits?: {
-    readonly maxEncodedBytes: ByteSize
-    readonly maxIdentityBytes: ByteSize
+    readonly maxEncodedBytes: ByteSize.ByteSize
+    readonly maxIdentityBytes: ByteSize.ByteSize
     readonly maxDeltaRecords: number
-    readonly maxDecodedDeltaBytes: ByteSize
+    readonly maxDecodedDeltaBytes: ByteSize.ByteSize
     readonly maxBaseRecords: number
     readonly maxTargetRecords: number
     readonly maxEntries: number
     readonly maxOutputRecords: number
-    readonly maxOutputBytes: ByteSize
+    readonly maxOutputBytes: ByteSize.ByteSize
     readonly maxInheritedRecords: number
   }
 ) => Effect.Effect<
@@ -2579,15 +2617,15 @@ export declare const diffSnapshots: (
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize
-          readonly maxIdentityBytes: ByteSize
+          readonly maxEncodedBytes: ByteSize.ByteSize
+          readonly maxIdentityBytes: ByteSize.ByteSize
           readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
           readonly maxBaseRecords: number
           readonly maxTargetRecords: number
           readonly maxEntries: number
           readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize
+          readonly maxOutputBytes: ByteSize.ByteSize
           readonly maxInheritedRecords: number
         },
         never,
@@ -2600,15 +2638,15 @@ export declare const diffSnapshots: (
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize
-                readonly maxIdentityBytes: ByteSize
+                readonly maxEncodedBytes: ByteSize.ByteSize
+                readonly maxIdentityBytes: ByteSize.ByteSize
                 readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
                 readonly maxBaseRecords: number
                 readonly maxTargetRecords: number
                 readonly maxEntries: number
                 readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize
+                readonly maxOutputBytes: ByteSize.ByteSize
                 readonly maxInheritedRecords: number
               },
               never,
@@ -2622,15 +2660,15 @@ export declare const diffSnapshots: (
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize
-          readonly maxIdentityBytes: ByteSize
+          readonly maxEncodedBytes: ByteSize.ByteSize
+          readonly maxIdentityBytes: ByteSize.ByteSize
           readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
           readonly maxBaseRecords: number
           readonly maxTargetRecords: number
           readonly maxEntries: number
           readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize
+          readonly maxOutputBytes: ByteSize.ByteSize
           readonly maxInheritedRecords: number
         },
         never,
@@ -2643,15 +2681,15 @@ export declare const diffSnapshots: (
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize
-                readonly maxIdentityBytes: ByteSize
+                readonly maxEncodedBytes: ByteSize.ByteSize
+                readonly maxIdentityBytes: ByteSize.ByteSize
                 readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
                 readonly maxBaseRecords: number
                 readonly maxTargetRecords: number
                 readonly maxEntries: number
                 readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize
+                readonly maxOutputBytes: ByteSize.ByteSize
                 readonly maxInheritedRecords: number
               },
               never,
@@ -2709,15 +2747,15 @@ export declare const inspectSnapshotDelta: (
   delta: SnapshotDeltaModel.SnapshotDelta,
   options?: { readonly includeTimestamps?: boolean },
   limits?: {
-    readonly maxEncodedBytes: ByteSize
-    readonly maxIdentityBytes: ByteSize
+    readonly maxEncodedBytes: ByteSize.ByteSize
+    readonly maxIdentityBytes: ByteSize.ByteSize
     readonly maxDeltaRecords: number
-    readonly maxDecodedDeltaBytes: ByteSize
+    readonly maxDecodedDeltaBytes: ByteSize.ByteSize
     readonly maxBaseRecords: number
     readonly maxTargetRecords: number
     readonly maxEntries: number
     readonly maxOutputRecords: number
-    readonly maxOutputBytes: ByteSize
+    readonly maxOutputBytes: ByteSize.ByteSize
     readonly maxInheritedRecords: number
   }
 ) => Effect.Effect<
@@ -2748,15 +2786,15 @@ export declare const inspectSnapshotDelta: (
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize
-          readonly maxIdentityBytes: ByteSize
+          readonly maxEncodedBytes: ByteSize.ByteSize
+          readonly maxIdentityBytes: ByteSize.ByteSize
           readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
           readonly maxBaseRecords: number
           readonly maxTargetRecords: number
           readonly maxEntries: number
           readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize
+          readonly maxOutputBytes: ByteSize.ByteSize
           readonly maxInheritedRecords: number
         },
         never,
@@ -2795,15 +2833,15 @@ export declare const inspectSnapshotDelta: (
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize
-                readonly maxIdentityBytes: ByteSize
+                readonly maxEncodedBytes: ByteSize.ByteSize
+                readonly maxIdentityBytes: ByteSize.ByteSize
                 readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
                 readonly maxBaseRecords: number
                 readonly maxTargetRecords: number
                 readonly maxEntries: number
                 readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize
+                readonly maxOutputBytes: ByteSize.ByteSize
                 readonly maxInheritedRecords: number
               },
               never,
@@ -2843,15 +2881,15 @@ export declare const inspectSnapshotDelta: (
     | Effect.Effect<never, VfsModel.ConfigurationError, never>
     | Effect.Effect<
         {
-          readonly maxEncodedBytes: ByteSize
-          readonly maxIdentityBytes: ByteSize
+          readonly maxEncodedBytes: ByteSize.ByteSize
+          readonly maxIdentityBytes: ByteSize.ByteSize
           readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize
+          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
           readonly maxBaseRecords: number
           readonly maxTargetRecords: number
           readonly maxEntries: number
           readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize
+          readonly maxOutputBytes: ByteSize.ByteSize
           readonly maxInheritedRecords: number
         },
         never,
@@ -2890,15 +2928,15 @@ export declare const inspectSnapshotDelta: (
           | Effect.Effect<never, VfsModel.ConfigurationError, never>
           | Effect.Effect<
               {
-                readonly maxEncodedBytes: ByteSize
-                readonly maxIdentityBytes: ByteSize
+                readonly maxEncodedBytes: ByteSize.ByteSize
+                readonly maxIdentityBytes: ByteSize.ByteSize
                 readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize
+                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
                 readonly maxBaseRecords: number
                 readonly maxTargetRecords: number
                 readonly maxEntries: number
                 readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize
+                readonly maxOutputBytes: ByteSize.ByteSize
                 readonly maxInheritedRecords: number
               },
               never,

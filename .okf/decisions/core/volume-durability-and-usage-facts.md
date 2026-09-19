@@ -11,6 +11,9 @@ sources:
   - id: implementation-issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/97
     title: Volume durability and identity implementation issue
+  - id: capacity-issue
+    resource: https://github.com/lloydrichards/effect-virtual-fs/issues/98
+    title: Volume limits and live usage implementation issue
   - id: core
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: Volume interface and handle sync documentation
@@ -50,31 +53,32 @@ sources:
   - id: winfsp
     resource: https://github.com/winfsp/winfsp/blob/master/inc/winfsp/winfsp.h
     title: WinFsp volume parameters and volume info
-generated: { by: claude/okf, at: 2026-09-17T18:30:00+02:00 }
+generated: { by: codex/okf, at: 2026-09-19T09:08:16Z }
 ---
 
 # Volume durability and usage facts
 
-Accepted by the user on 2026-09-17 while resolving the durability half of issue #46.[^issue] A writable network adapter must state how durable an acknowledged write is and how much space remains, and it may only say what the volume can back. Today `FileHandle.sync` is a liveness check whose documentation says so in prose, checkpoints are explicit snapshots the application saves, and nothing public reports usage or effective limits.[^core][^checkpoints] This concept makes those facts values. The mutation half of the issue is recorded in the reference-based mutations decision, which links here; how an NFS adapter turns these facts into `WRITE` and `COMMIT` answers is the separate stability decision (#49).
+Accepted by the user on 2026-09-17 while resolving the durability half of issue #46.[^issue] A writable network adapter must state how durable an acknowledged write is and how much space remains, and it may only say what the volume can back. `FileHandle.sync` remains a liveness check, while checkpoints are explicit snapshots the application saves. `Volume` now publishes durability, identity, effective limits, and live usage facts.[^core][^checkpoints] The mutation half of the issue is recorded in the reference-based mutations decision, which links here; how an NFS adapter turns these facts into `WRITE` and `COMMIT` answers is the separate stability decision (#49).
 
 ## Decisions
 
 1. **A static durability tier.** `Volume` exposes a `durability` fact as an ordered enumeration whose weakest value, `memory-only`, is the default and the only value core implements: acknowledged writes are lost when the volume is dropped or the process ends. Further tiers are named by the boundary they survive, process crash, operating-system crash, and power loss, because those are the boundaries SQLite's `synchronous` levels and PostgreSQL's crash table distinguish.[^sqlite][^postgres] The fact is named fields, not a bitmask, and is never fabricated: honest libraries default to the weak answer, and the NFS ecosystem's own default moved from `async` to `sync` because `async` lets a server "violate the NFS protocol".[^billy][^exports]
 2. **Stable identity and a volume incarnation.** `Volume` exposes separately branded 128-bit lowercase hexadecimal tokens. `identity` names the logical volume: construction mints one unless the caller supplies it, and restoring a snapshot continues the same logical volume only when the caller supplies that identity. `incarnation` is never caller supplied and is minted on every construction. It changes whenever the runtime storage instance is reconstructed, so clients can detect that acknowledged memory-only writes may have been lost.[^knfsd][^rfc8881] NFS derives `fsid` from identity, and derives filehandle generation, the `COMMIT` verifier, and the `READDIR` cookie-verifier base from incarnation. Its separate server generation remains responsible for sessions, state IDs, and server-owner scope.[^buildbarn][^dispatcher]
-3. **Readable limits and a live usage query.** `Volume` exposes `limits` as a plain value carrying `maxBytes`, `maxFileBytes`, `maxEntries`, and `maxPathBytes`, where `undefined` means unlimited and zero is never used for unknown, and `usage` as an effect returning `usedBytes` and `entries` sampled under the coordination gate. The engine already maintains both counters transactionally with every write.[^engine] Static facts and dynamic usage are separate, following WinFsp's volume parameters and volume-info split.[^winfsp] Adapters derive protocol shapes such as total, free, and available from these and answer "attribute not supported" where a limit is undefined rather than inventing a capacity, which RFC 8881 Section 5.2 asks of servers.[^rfc8881]
+3. **Readable limits and a live usage query.** `Volume` exposes `limits` as a plain value carrying `maxBytes`, `maxFileBytes`, `maxEntries`, and `maxPathBytes`, where `undefined` means unlimited and zero is never used for unknown, and `usage` as an effect returning `usedBytes` and `entries` sampled under the coordination gate. The engine maintains both counters transactionally with every write.[^engine] Static facts and dynamic usage are separate, following WinFsp's volume parameters and volume-info split.[^winfsp] Adapters derive protocol shapes such as total, free, and available from these facts. NFS omits unsupported capacity attributes from `GETATTR` when a limit is undefined rather than inventing a total; `VERIFY` and `NVERIFY` answer `NFS4ERR_ATTRNOTSUPP`.[^rfc8881]
 4. **Per-write achieved stability is deferred.** `FileHandle.write` keeps returning a byte count. A result carrying the achieved stability, as nfs4j returns, becomes worthwhile only with a backend that can report less than requested; ganesha collapses the three NFS levels to one boolean and never reports the middle level.
 5. **Application composition.** Three concerns stay outside core and outside protocol rules: whether an export is writable is an `NfsServer` option enforced at dispatch, because NFSv4.1 has no export model and `NFS4ERR_ROFS` is a predicate; when to capture and save a checkpoint stays with the application composing `Volume.snapshot` and the checkpoint store, and any write-ahead or write-through backend that raises the durability tier is a provider decided under #49; identity and owner-string mapping reuse the [authentication and export policy](../nfs/nfs-authentication-and-export-policy.md "constrained by"). Arbitration between two adapters sharing one volume is deliberately left open for #47.
 
 ## Consequences
 
 - Issue #97 implements the durability, identity, and incarnation portion of this decision. All volume constructors require the platform-neutral `Crypto.Crypto` service and preserve its `PlatformError`; built-in volumes always report `memory-only`.[^implementation-issue][^evidence]
-- The facts extend the [capacity and limits contract](../../contracts/capacity-and-limits.md "extends") and [volume capacity accounting](volume-capacity-accounting.md "extends"); the contract records the limits and usage query when that separate portion lands. They preserve [snapshot-local file identity](snapshot-local-file-identity.md "constrained by"): identity and incarnation are runtime state excluded from snapshot bytes, and a restored volume always mints a new incarnation.
-- The three attribute ledger rows that waited on this issue, `maxfilesize`, the space attributes, and the file-count attributes, become writable-profile work under #48.
+- Issue #98 implements the limits and live usage portion of this decision.[^capacity-issue]
+- The facts extend the [capacity and limits contract](../../contracts/capacity-and-limits.md "extends") and [volume capacity accounting](volume-capacity-accounting.md "extends"). They preserve [snapshot-local file identity](snapshot-local-file-identity.md "constrained by"): identity and incarnation are runtime state excluded from snapshot bytes, and a restored volume always mints a new incarnation.
+- NFS exposes `maxfilesize` on every export and the space and file-count attributes when the corresponding volume limit is bounded. The current read-only profile can report these facts. `GETATTR` omits unsupported requested attributes under RFC 8881 Section 18.7.3; `VERIFY` and `NVERIFY` answer `NFS4ERR_ATTRNOTSUPP` for them.
 - This decision [refines deferred capabilities](../../profiles/deferred-capabilities.md "refines"), which still exclude automatic persistence and crash durability; this concept only makes the exclusion machine readable.
 
 [^issue]: Issue #46 holds the original questions; the review session's decisions are recorded here.
 
-[^core]: `Volume` exposes `durability`, `identity`, and `incarnation`; `FileHandle.sync` remains documented as a liveness check with no host or crash durability to flush.
+[^core]: `Volume` exposes `durability`, `identity`, `incarnation`, `limits`, and `usage`; `FileHandle.sync` remains documented as a liveness check with no host or crash durability to flush.
 
 [^engine]: `VolumeOptions` carries the four limits; `usedBytes` and the entry count are updated inside the coordination gate, and the revision counter restarts on restore.
 
@@ -82,7 +86,7 @@ Accepted by the user on 2026-09-17 while resolving the durability half of issue 
 
 [^dispatcher]: The NFS handler keeps a server generation for session and state identity and accepts a separate storage generation for `COMMIT` and `READDIR`; the export derives filehandles from incarnation and `fsid` from stable identity.
 
-[^rfc8881]: Sections 5.2 (attributes "whenever they don't have to tell lies"), 18.32.3 and 18.3.3 (write verifier), and Table 20 (committed levels).
+[^rfc8881]: Sections 5.2 (attributes "whenever they don't have to tell lies"), 18.7.3 (unsupported GETATTR attributes), 18.32.3 and 18.3.3 (write verifier), and Table 20 (committed levels).
 
 [^exports]: The `async` option "allows the NFS server to violate the NFS protocol and reply to requests before any changes made by that request have been committed to stable storage"; `sync` has been the default since nfs-utils 1.0.0.
 

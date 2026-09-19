@@ -17,7 +17,7 @@ sources:
   - id: rfc8881
     resource: https://www.rfc-editor.org/rfc/rfc8881.html
     title: RFC 8881 NFSv4.1
-generated: { by: claude/okf, at: 2026-09-16T21:30:00+02:00 }
+generated: { by: codex/okf, at: 2026-09-19T09:08:16Z }
 ---
 
 # NFS read-only-local profile
@@ -40,7 +40,7 @@ generated: { by: claude/okf, at: 2026-09-16T21:30:00+02:00 }
 
 ## Current state
 
-Every REQUIRED operation has an operation-valid answer: the read path is implemented, mutating operations return `NFS4ERR_ROFS` after structural checks, the five NFSv4.0 operations and every unimplemented OPTIONAL operation return `NFS4ERR_NOTSUPP`, and only undefined opcodes return `NFS4ERR_OP_ILLEGAL`.[^dispatcher] Client records follow the EXCHANGE_ID cases of RFC 8881 Section 18.35.4, and no error code outside NFSv4.1 is emitted. Row-level status lives in the [operations ledger](../../research/nfs/nfs-operations-ledger.md "evidenced by"), the [attributes ledger](../../research/nfs/nfs-attributes-ledger.md "evidenced by"), and the [protocol rules ledger](../../research/nfs/nfs-protocol-rules-ledger.md "evidenced by"). The remaining `gap` rows for this profile are the space and file-count attributes, which need live usage from core (#46).
+Every REQUIRED operation has an operation-valid answer: the read path is implemented, mutating operations return `NFS4ERR_ROFS` after structural checks, the five NFSv4.0 operations and every unimplemented OPTIONAL operation return `NFS4ERR_NOTSUPP`, and only undefined opcodes return `NFS4ERR_OP_ILLEGAL`.[^dispatcher] Client records follow the EXCHANGE_ID cases of RFC 8881 Section 18.35.4, and no error code outside NFSv4.1 is emitted. Row-level status lives in the [operations ledger](../../research/nfs/nfs-operations-ledger.md "evidenced by"), the [attributes ledger](../../research/nfs/nfs-attributes-ledger.md "evidenced by"), and the [protocol rules ledger](../../research/nfs/nfs-protocol-rules-ledger.md "evidenced by"). `maxfilesize` is always available; space and file-count attributes are available when the volume has representable limits, and otherwise omitted from `GETATTR`.
 
 This profile is `preview`: the focused protocol suites pass and the [external suite baseline](../../evidence/nfs-external-suite.md "supported by") records a pinned pynfs run with every failure classified, a macOS 26.6.2 client run, and a repeatable Linux kernel-client gate, each passing every scripted read-side check. The Linux gate also confirmed that a bare mount ladders from 4.2 down to 4.1. It becomes `stable` once a third independent client, fault coverage, and a recorded Bake-a-thon participation exist. The package README states the current maturity.[^readme] The profile is [constrained by explicit caller privilege](../../decisions/core/explicit-caller-privilege.md "constrained by") and reuses the core [object references](../../contracts/object-references.md "depends on") and [mutation revisions](../../contracts/mutation-revisions.md "depends on") for filehandle identity and change attributes.
 
