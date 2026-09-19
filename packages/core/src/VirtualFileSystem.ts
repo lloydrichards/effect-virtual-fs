@@ -22,6 +22,7 @@ import * as SchemaTransformation from "effect/SchemaTransformation"
 import type * as Scope from "effect/Scope"
 import type * as Stream from "effect/Stream"
 import type { BytePath } from "./BytePath.js"
+import type { ConfigurationError, FsError } from "./VirtualFileSystemError.js"
 
 export { BytePath } from "./BytePath.js"
 
@@ -145,24 +146,7 @@ export type FsCode = typeof FsCode.Type
  * @category errors
  * @since 0.1.0
  */
-export const FsError: new(options: {
-  readonly code: FsCode
-  readonly operation: string
-  readonly path?: PathInput
-}) => FsError = VfsModel.FsError
-
-/**
- * An expected filesystem failure with a portable code and operation name.
- *
- * @category errors
- * @since 0.1.0
- */
-export interface FsError extends Error, Effect.Effect<never, FsError> {
-  readonly _tag: "FsError"
-  readonly code: FsCode
-  readonly operation: string
-  readonly path?: PathInput
-}
+export { FsError } from "./VirtualFileSystemError.js"
 
 /**
  * Describes an invalid volume or caller option and names the rejected field.
@@ -191,19 +175,7 @@ export interface FsError extends Error, Effect.Effect<never, FsError> {
  * @category errors
  * @since 0.1.0
  */
-export const ConfigurationError: new(options: { readonly field: string }) => ConfigurationError =
-  VfsModel.ConfigurationError
-
-/**
- * An invalid option, identified by its field name.
- *
- * @category errors
- * @since 0.1.0
- */
-export interface ConfigurationError extends Error, Effect.Effect<never, ConfigurationError> {
-  readonly _tag: "ConfigurationError"
-  readonly field: string
-}
+export { ConfigurationError } from "./VirtualFileSystemError.js"
 
 /**
  * Schema for a caller's numeric identity, supplementary groups, and explicit privilege.

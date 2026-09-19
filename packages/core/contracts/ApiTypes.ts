@@ -7,7 +7,10 @@ import * as Layer from "effect/Layer"
 import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { VirtualFileSystem as Vfs, VirtualFileSystemError as VfsError } from "../src/index.js"
+
+export const publicErrorIdentity: typeof Vfs.FsError = VfsError.FsError
+export const publicConfigurationErrorIdentity: typeof Vfs.ConfigurationError = VfsError.ConfigurationError
 
 export const references = (caller: Vfs.Caller) =>
   Effect.gen(function*() {
