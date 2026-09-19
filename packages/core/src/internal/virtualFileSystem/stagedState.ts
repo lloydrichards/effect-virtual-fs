@@ -8,6 +8,8 @@ export type CommitOutcome = "committed" | "rejected" | "unknown"
 
 /** @internal */
 export interface CommitProvider<State> {
+  /** Provides a gate-coordinated shutdown effect once staging is ready. */
+  readonly onReady?: (shutdown: Effect.Effect<void>) => void
   /** Checks and encodes a candidate before the commit boundary. Failure leaves the volume available. */
   readonly prepare?: (candidate: State) => Effect.Effect<void, FsError>
   /** Classifies a candidate as committed, definitely rejected, or uncertain. */
@@ -41,6 +43,10 @@ export const makeStagedState = <State, Event = never>(
 
   const coordinate = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(effect)
 
+  const shutdown = coordinate(Effect.sync(() => {
+    available = false
+  }))
+
   const read = <A, E, R>(operation: string, inspect: (state: Readonly<State>) => Effect.Effect<A, E, R>) =>
     coordinate(Effect.gen(function*() {
       yield* checkAvailable(operation)
@@ -59,8 +65,9 @@ export const makeStagedState = <State, Event = never>(
         const candidate = yield* restore(copy(current))
         const events: Array<Event> = []
         const value = yield* restore(change(candidate, (event) => events.push(event)))
+
         if (provider.prepare !== undefined) yield* restore(provider.prepare(candidate))
-        const committed = yield* Effect.exit(provider.commit(candidate))
+        const committed = yield* Effect.exit(Effect.suspend(() => provider.commit(candidate)))
 
         if (Exit.isFailure(committed)) {
           available = false
@@ -100,5 +107,5 @@ export const makeStagedState = <State, Event = never>(
       })
     ))
 
-  return { read, mutate, coordinate, checkAvailable }
+  return { read, mutate, coordinate, checkAvailable, shutdown }
 }

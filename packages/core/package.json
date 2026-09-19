@@ -43,6 +43,10 @@
       "types": "./dist/VirtualFileSystem.d.ts",
       "import": "./dist/VirtualFileSystem.js"
     },
+    "./LiveVolume": {
+      "types": "./dist/LiveVolume.d.ts",
+      "import": "./dist/LiveVolume.js"
+    },
     "./internal/*": null,
     "./index": null,
     "./*/index": null,
