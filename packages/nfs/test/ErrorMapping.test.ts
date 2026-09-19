@@ -21,6 +21,9 @@ const expected = {
   IsDirectory: Status.ISDIR,
   FileTooLarge: Status.FBIG,
   NoData: Status.SERVERFAULT,
+  StorageRejected: Status.IO,
+  OutcomeUnknown: Status.IO,
+  VolumeUnavailable: Status.IO,
   SymlinkLoop: Status.INVAL,
   UnrepresentableName: Status.INVAL
 } satisfies Readonly<Record<Vfs.FsCode, number>>

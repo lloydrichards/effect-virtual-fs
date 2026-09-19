@@ -286,6 +286,10 @@ Added in v0.1.0
 
 Describes an expected filesystem operation failure.
 
+Durable providers distinguish `StorageRejected` (the operation definitely did not commit),
+`OutcomeUnknown` (it may have committed), and `VolumeUnavailable` (the provider cannot safely
+serve further operations until recovery). Built-in memory volumes never emit these codes.
+
 **Signature**
 
 ```ts
@@ -1603,7 +1607,10 @@ export declare const FsCode: Schema.Literals<
     "FileTooLarge",
     "NoData",
     "SymlinkLoop",
-    "UnrepresentableName"
+    "UnrepresentableName",
+    "StorageRejected",
+    "OutcomeUnknown",
+    "VolumeUnavailable"
   ]
 >
 ```

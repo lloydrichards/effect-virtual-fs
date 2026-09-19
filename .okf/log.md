@@ -2,6 +2,14 @@
 
 ## 2026-09-19
 
+- **Durable storage failure vocabulary**: Added three public `FsCode` values for definite storage rejection, unknown outcome, and unavailable volume, with exhaustive NFS `IO` mapping. Built-in memory volumes do not emit them; the durable-provider failure channels remain to be implemented.
+
+- **Durable-volume design review**: Refined the live durable volume proposal to distinguish definite storage rejection, unknown operation outcome, and unavailable volume. Kept watch overflow in its separate draft and removed slow-watcher write rejection from the proposed provider. The first core slice remains a staged-state seam with a fake commit provider; full-image throughput needs a size limit before selecting the SQLite representation.
+
+- **Live durable volume proposal**: Drafted private core mutation staging with a synchronous SQLite image commit, explicit unknown outcomes, recovery and resource bounds, and the required shared API and NFS replay changes. Kept the provider recommendation separate from accepted scope; no production code or writable dispatch changed.
+
+- **Writable NFS scope**: Accepted the local single-user writable boundary, full relevant NFS open and lock state before trusted writes, core-backed mutation forms, synchronous durable replies, shared-volume durability, and a separate restart-recovery milestone. Recorded that the current live memory gate and explicit checkpoints do not yet provide a failure-safe commit boundary.
+
 - **NFS networked identity and binding**: Implemented #74 and #75 with an application-supplied peer resolver and identity policy, per-identity VFS callers, a bounded caller cache, fail-closed RPC denial, mapped ACCESS, OPEN, READ, and replay checks, and explicit non-loopback opt-in. The networked profile is experimental pending a networked kernel-client gate.
 
 - **Volume limits and usage**: Implemented issue #98 with public effective limits and a coordinated live usage sample. NFS reports `maxfilesize` for every live export and reports space and file-count totals only when the volume has representable bounds. `GETATTR` omits unsupported values, while `VERIFY` and `NVERIFY` use `NFS4ERR_ATTRNOTSUPP`. The read-only local attribute ledger now records these values as supported where bounded.
