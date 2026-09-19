@@ -714,7 +714,7 @@ export const makeVolume = Effect.fnUntraced(
           activeStage.apply.push(() => {
             Object.assign(live, pending)
 
-            if (live.cell === undefined) directoryReferences.delete(reference)
+            if (live.cell === undefined || live.cell.node === state.root) directoryReferences.delete(reference)
             else directoryReferences.add(reference)
           })
         }
@@ -733,7 +733,7 @@ export const makeVolume = Effect.fnUntraced(
           record().cell = directory === undefined ? undefined : cellFor(directory)
 
           if (activeStage === undefined) {
-            if (directory === undefined) directoryReferences.delete(reference)
+            if (directory === undefined || directory === state.root) directoryReferences.delete(reference)
             else directoryReferences.add(reference)
           }
         },
@@ -745,7 +745,9 @@ export const makeVolume = Effect.fnUntraced(
         }
       }
 
-      if (directory !== undefined && activeStage === undefined) directoryReferences.add(reference)
+      if (directory !== undefined && directory !== state.root && activeStage === undefined) {
+        directoryReferences.add(reference)
+      }
 
       return reference
     }
