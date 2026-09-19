@@ -8,6 +8,7 @@
  *
  * @since 0.1.0
  */
+import type * as ByteSize from "effect/ByteSize"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import type * as Order from "effect/Order"
@@ -342,6 +343,32 @@ export const VolumeOptions: typeof VfsModel.VolumeOptions = VfsModel.VolumeOptio
  * @since 0.1.0
  */
 export type VolumeOptions = typeof VolumeOptions.Type
+
+/**
+ * Effective capacity and path limits of a live volume. An absent limit is unlimited.
+ * `maxFileBytes` always includes the engine's maximum representable file size.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export interface VolumeLimits {
+  readonly maxBytes: ByteSize.ByteSize | undefined
+  readonly maxFileBytes: ByteSize.ByteSize
+  readonly maxEntries: number | undefined
+  readonly maxPathBytes: ByteSize.ByteSize | undefined
+}
+
+/**
+ * Live logical content and directory-entry usage of a volume.
+ * Open unlinked files remain in `usedBytes` until their last handle closes.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export interface VolumeUsage {
+  readonly usedBytes: bigint
+  readonly entries: number
+}
 
 /**
  * Schema for filesystem node metadata with bigint inode, size, and nanosecond fields.
@@ -1337,6 +1364,10 @@ export interface Volume {
   readonly identity: VolumeIdentity
   /** Fresh identity for this uninterrupted storage lifetime. */
   readonly incarnation: VolumeIncarnation
+  /** Effective static limits, where `undefined` means unlimited. */
+  readonly limits: VolumeLimits
+  /** Samples content bytes and directory entries together from the current committed state. */
+  readonly usage: Effect.Effect<VolumeUsage>
   /** Opens a scoped stream of future committed changes. Events are not replayed. */
   readonly watch: Effect.Effect<Stream.Stream<Change>, never, Scope.Scope>
   /** Captures an isolated snapshot of the reachable namespace and metadata. */

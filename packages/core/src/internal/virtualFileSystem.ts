@@ -23,7 +23,9 @@ import type {
   OverlayVolume,
   PathInput,
   RelativeOptions,
-  Volume
+  Volume,
+  VolumeLimits,
+  VolumeUsage
 } from "../VirtualFileSystem.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import * as Image from "./image.js"
@@ -583,6 +585,14 @@ export const makeVolume = Effect.fnUntraced(
     let usedBytes = 0n
     // The schema caps this value at uint32, so this boundary conversion is exact.
     const maxFileBytes = Number(ByteSize.toBigInt(settings.maxFileBytes ?? ByteSize.bytes(0xffffffff)))
+
+    const limits: VolumeLimits = Object.freeze({
+      maxBytes: settings.maxBytes,
+      maxFileBytes: ByteSize.bytes(maxFileBytes),
+      maxEntries: settings.maxEntries,
+      maxPathBytes: settings.maxPathBytes
+    })
+
     // Permit waits stay interruptible. State transitions and resource registration do not.
     const coordinated = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(Effect.uninterruptible(effect))
 
@@ -3054,6 +3064,10 @@ export const makeVolume = Effect.fnUntraced(
       durability: "memory-only",
       identity,
       incarnation,
+      limits,
+      usage: coordinatedRead(Effect.sync((): VolumeUsage => ({ usedBytes, entries }))).pipe(
+        Effect.withSpan("Volume.usage")
+      ),
       watch: Effect.gen(function*() {
         const hook = TestHooks.getRegistrationHook(surface)
 

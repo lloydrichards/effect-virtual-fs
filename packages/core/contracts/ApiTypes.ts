@@ -73,10 +73,14 @@ export const rootCaller = Effect.gen(function*() {
   const durability: Vfs.VolumeDurability = volume.durability
   const identity: Vfs.VolumeIdentity = volume.identity
   const incarnation: Vfs.VolumeIncarnation = volume.incarnation
+  const limits: Vfs.VolumeLimits = volume.limits
+  const usage: Vfs.VolumeUsage = yield* volume.usage
   Vfs.isVolumeDurabilityAtLeast(durability, "memory-only")
   Vfs.VolumeDurabilityOrder("memory-only", "survives-power-loss")
   void identity
   void incarnation
+  void limits
+  void usage
   return yield* volume.caller()
 }) satisfies Effect.Effect<Vfs.Caller, Vfs.ConfigurationError | PlatformError.PlatformError, Crypto.Crypto>
 
