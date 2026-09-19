@@ -2,6 +2,8 @@
 
 ## 2026-09-19
 
+- **Staged NFS WRITE and COMMIT**: Added internal WRITE count, stability, stateid, storage-failure, and replay handling. The handler retains at most one read and one write handle across OPEN upgrade and downgrade cycles. WRITE and COMMIT share a verifier hashed from both volume incarnation and NFS server generation. Recorded the protocol rules and remaining prerequisites for the public writable export, which remains read-only.
+
 - **Staged NFS read/write locks**: Recorded two-client conflict replies, partial range changes, replay, and bounded range storage in the internal writable handler. The public export remains read-only.
 
 - **NFS upgrade permission continuity**: Recorded that a same-owner upgrade retains its earlier open handle and acquires only newly requested access, so later permission changes do not invalidate the held reservation.

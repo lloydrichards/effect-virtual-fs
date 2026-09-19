@@ -59,9 +59,9 @@ export class ExportCapacityError extends Data.TaggedError("ExportCapacityError")
 
 /** @internal */
 export class InvalidFilehandleError extends Data.TaggedError("InvalidFilehandleError")<{
-  readonly reason: "Malformed" | "WrongGeneration" | "Stale" | "Unknown"
+  readonly reason: "Malformed" | "WrongGeneration" | "Stale" | "Unknown" | "Unavailable"
 }> {
-  constructor(reason: "Malformed" | "WrongGeneration" | "Stale" | "Unknown") {
+  constructor(reason: "Malformed" | "WrongGeneration" | "Stale" | "Unknown" | "Unavailable") {
     super({ reason })
   }
 }
@@ -203,7 +203,11 @@ export const makeExport = (
 
       return caller.observeMetadata(reference).pipe(
         Effect.as(reference),
-        Effect.mapError((error) => new InvalidFilehandleError(error.code === "StaleReference" ? "Stale" : "Unknown"))
+        Effect.mapError((error) =>
+          new InvalidFilehandleError(
+            error.code === "StaleReference" ? "Stale" : error.code === "VolumeUnavailable" ? "Unavailable" : "Unknown"
+          )
+        )
       )
     })
 

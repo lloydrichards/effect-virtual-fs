@@ -235,7 +235,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       )
 
       assert.strictEqual(commit.status, Status.OK)
-      assert.deepStrictEqual(commit.operations[3]!.value, generation.slice(0, 8))
+
+      const verifier = commit.operations[3]!.value
+
+      if (!(verifier instanceof Uint8Array)) throw new Error("COMMIT did not return a verifier")
+      assert.strictEqual(verifier.length, 8)
 
       const commitDirectory = yield* run(
         handler,

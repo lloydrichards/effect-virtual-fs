@@ -1,9 +1,11 @@
 import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
+import * as Crypto from "effect/Crypto"
 import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import type * as PlatformError from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
 import * as Schedule from "effect/Schedule"
 import type * as Scope from "effect/Scope"
@@ -345,7 +347,7 @@ export interface Nfs4Options {
   readonly callbackTimeout: Duration.Input
   /** NFS server lifetime used for sessions, state IDs, and server-owner fields. */
   readonly generation: Uint8Array
-  /** Volume storage lifetime used for write and directory-cookie verifiers. */
+  /** Volume storage lifetime used for filehandles, write, and directory-cookie verifiers. */
   readonly storageGeneration?: Uint8Array
   readonly now: () => number
   readonly limits: Nfs4Limits
@@ -658,7 +660,8 @@ interface OpenState {
   readonly owner: string
   readonly client: ClientState
   readonly reference: Vfs.ObjectReference
-  file: Vfs.FileHandle
+  readFile: Vfs.FileHandle | undefined
+  writeFile: Vfs.FileHandle | undefined
   close: Effect.Effect<void>
 }
 
@@ -1952,7 +1955,7 @@ const replayReplyBound = (
 export const makeNfs4Handler = (
   export_: NfsExport,
   options: Nfs4Options
-): Effect.Effect<Nfs4Handler, never, Scope.Scope> => {
+): Effect.Effect<Nfs4Handler, PlatformError.PlatformError, Scope.Scope | Crypto.Crypto> => {
   assertOptions(options)
   const storageGeneration = options.storageGeneration ?? options.generation
   const supportedAttributes = supportedAttributesFor(export_)
@@ -1963,6 +1966,13 @@ export const makeNfs4Handler = (
       : Effect.succeed(null)
 
   return Effect.gen(function*() {
+    const crypto = yield* Crypto.Crypto
+    const verifierInput = new Uint8Array(33)
+    verifierInput[0] = 1
+    verifierInput.set(options.generation, 1)
+    verifierInput.set(storageGeneration, 17)
+    const writeVerifier = (yield* crypto.digest("SHA-256", verifierInput)).slice(0, 8)
+
     const handlerScope = yield* Effect.scope
     const clients = new Map<bigint, ClientState>()
     const clientsByOwner = new Map<string, ClientState>()
@@ -3262,6 +3272,8 @@ export const makeNfs4Handler = (
                         ? Status.FHEXPIRED
                         : error.reason === "Stale"
                         ? Status.STALE
+                        : error.reason === "Unavailable"
+                        ? Status.SERVERFAULT
                         : Status.BADHANDLE
                     })
                   )
@@ -3476,11 +3488,11 @@ export const makeNfs4Handler = (
               case "Commit": {
                 if (current === undefined) return Effect.succeed(noCurrent())
 
-                // A read-only export never holds unstable data, so COMMIT succeeds with the
-                // server's write verifier once the target is confirmed to be a regular file.
+                // Every writable mutation is committed before publication. There is no unstable
+                // range to flush, but a failed provider must not produce a success reply.
                 return statusResult(
                   requireRegularFile(current),
-                  () => new Writer().fixedOpaque(storageGeneration.subarray(0, 8)).bytes()
+                  () => new Writer().fixedOpaque(writeVerifier).bytes()
                 )
               }
 
@@ -3721,7 +3733,11 @@ export const makeNfs4Handler = (
 
                           const addedAccess = nextAccess & ~existing.access
 
-                          const replacement = addedAccess === 0 ?
+                          const heldHandle = addedAccess === OPEN4_SHARE_ACCESS_READ
+                            ? existing.readFile
+                            : existing.writeFile
+
+                          const replacement = addedAccess === 0 || heldHandle !== undefined ?
                             Effect.succeed(null) :
                             mapFs(export_.open(reference, addedAccess === OPEN4_SHARE_ACCESS_READ ? "read" : "write"))
 
@@ -3734,7 +3750,9 @@ export const makeNfs4Handler = (
                                 opened === null ? Effect.void : Effect.sync(() => {
                                   const previousClose = existing.close
 
-                                  if (addedAccess === OPEN4_SHARE_ACCESS_READ) existing.file = opened.handle
+                                  if (addedAccess === OPEN4_SHARE_ACCESS_READ) existing.readFile = opened.handle
+
+                                  if (addedAccess === OPEN4_SHARE_ACCESS_WRITE) existing.writeFile = opened.handle
 
                                   existing.close = opened.close.pipe(Effect.andThen(previousClose))
                                   transferred = true
@@ -3771,7 +3789,8 @@ export const makeNfs4Handler = (
                               owner,
                               client: activeSession!.client,
                               reference,
-                              file: opened.handle,
+                              readFile: (accessMode & OPEN4_SHARE_ACCESS_READ) !== 0 ? opened.handle : undefined,
+                              writeFile: wantsWrite ? opened.handle : undefined,
                               close: opened.close
                             })
                             current = reference
@@ -3884,8 +3903,12 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.OPENMODE })
                 }
 
+                if (open.readFile === undefined) {
+                  return Effect.succeed({ code: operation.code, status: Status.SERVERFAULT })
+                }
+
                 return readPermission.pipe(
-                  Effect.andThen(readFrom(open.file)),
+                  Effect.andThen(readFrom(open.readFile)),
                   Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
                 )
 
@@ -4278,8 +4301,57 @@ export const makeNfs4Handler = (
                 )
               }
 
+              case "Write": {
+                if (current === undefined) return Effect.succeed(noCurrent())
+
+                if (!options.writable) return Effect.succeed({ code: operation.code, status: Status.ROFS })
+
+                const value = operation.value
+                const reference = current
+                const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+
+                if (value.stable > 2) return Effect.succeed({ code: operation.code, status: Status.INVAL })
+
+                if (stateid === undefined || isAllZero(stateid) || isAllOnes(stateid)) {
+                  return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                }
+
+                const key = stateIdKey(stateid)
+                const lock = lockStates.get(key)
+                const open = opens.get(key) ?? lock?.open
+
+                if (open === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+
+                const stateStatus = lock === undefined
+                  ? checkOpenStateId(stateid, open)
+                  : checkLockStateId(stateid, lock)
+
+                if (stateStatus !== Status.OK) return Effect.succeed({ code: operation.code, status: stateStatus })
+
+                if ((open.access & OPEN4_SHARE_ACCESS_WRITE) === 0) {
+                  return Effect.succeed({ code: operation.code, status: Status.OPENMODE })
+                }
+
+                if (open.writeFile === undefined) {
+                  return Effect.succeed({ code: operation.code, status: Status.SERVERFAULT })
+                }
+
+                const writeFile = open.writeFile
+
+                return statusResult(
+                  requireRegularFile(reference).pipe(
+                    Effect.andThen(
+                      activeCaller === undefined
+                        ? Effect.void
+                        : activeCaller.accessReference(reference, 0o2).pipe(Effect.mapError(failureForFs))
+                    ),
+                    Effect.andThen(mapFs(writeFile.pwrite(value.data, value.offset)))
+                  ),
+                  (count) => new Writer().uint32(count).uint32(2).fixedOpaque(writeVerifier).bytes()
+                )
+              }
+
               case "Setattr":
-              case "Write":
                 return Effect.succeed(
                   current === undefined ? noCurrent() : { code: operation.code, status: Status.ROFS }
                 )

@@ -702,7 +702,7 @@ const make = (
     const handler = yield* makeNfs4Handler(
       export_,
       callerFor === undefined ? handlerOptions : { ...handlerOptions, callerFor }
-    )
+    ).pipe(Effect.mapError((cause) => new NfsServerError({ cause })))
 
     yield* startServer(
       socketServer,
