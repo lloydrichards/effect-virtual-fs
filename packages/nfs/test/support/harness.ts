@@ -24,6 +24,8 @@ export const limits: Nfs4Limits = {
   maxSlotsPerSession: 4,
   maxReplayBytes: ByteSize.bytes(65_536),
   maxOpens: 8,
+  maxLockOwners: 8,
+  maxLocks: 32,
   maxOwnerBytes: ByteSize.bytes(1_024),
   maxReadBytes: ByteSize.bytes(4_096),
   maxWriteBytes: ByteSize.bytes(4_096),

@@ -2,6 +2,14 @@
 
 ## 2026-09-19
 
+- **NFS read-lock profile**: Aligned the read-only profile and protocol rules with bounded volatile read locks; write locks and full conflict handling remain in the writable profile. Corrected the live-volume proposal link to its watch-overflow constraint.
+
+- **Live image store boundary**: Core now opens a live image through an injected `LiveImageStore` service. Applications provide a scoped storage Layer; core owns image validation and volume shutdown. No live-image storage provider is shipped.
+
+- **NFS read-lock state**: Recorded bounded read-lock owner stateids, exact-range unlock, and lease cleanup in the NFS operation ledger. Write locks and read/write conflict replies remain part of the writable profile.
+
+- **Live image boundary**: Added a versioned private image preserving live identity, counters, revisions, hard links, limits, and retained unlinked files. The injected store contract classifies commits as committed, rejected, or unknown; no built-in provider or stronger durability claim is included.
+
 - **Live staging integration**: Connected a fake commit provider to the core volume engine. Candidate mutations now stage node graphs, retained objects, handle records, reference invalidations, and watch events; pure observations use the same gate. Confirmed storage rejection leaves the candidate invisible, unknown outcomes stop access, and failed final close releases its runtime handle while stopping service. Persistent encoding and SQLite remain open.
 
 - **Durable staging inventory**: Identified the live node graph, retained unlinked objects, capability records, access-time writes, and watch events that must be staged and published together. The current coordinator now buffers events through commit, but remains separate from live engine operations.

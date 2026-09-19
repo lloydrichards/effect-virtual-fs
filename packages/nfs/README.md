@@ -2,7 +2,7 @@
 
 Read-only NFSv4.1 export for exposing one live Effect VFS volume to native tools.
 
-This package runs a scoped socket server over TCP or a UNIX-domain socket and implements the bounded NFSv4.1 session, metadata, directory, symlink, and regular-file read path. It is not a conformant NFSv4.1 server and no future profile will claim to be one: RFC 8881 requires RPCSEC_GSS with Kerberos, which this package permanently excludes because no viable server-side implementation exists in the JavaScript ecosystem. It also omits delegations, locking, layouts, migration, and recovery. Backchannels and connection trunking are implemented, but nothing is ever recalled over a backchannel because no delegation or layout is ever granted. Mutating operations return `NFS4ERR_ROFS`.
+This package runs a scoped socket server over TCP or a UNIX-domain socket and implements the bounded NFSv4.1 session, metadata, directory, symlink, and regular-file read path. It is not a conformant NFSv4.1 server and no future profile will claim to be one: RFC 8881 requires RPCSEC_GSS with Kerberos, which this package permanently excludes because no viable server-side implementation exists in the JavaScript ecosystem. It also omits delegations, write locks, layouts, migration, and recovery. Backchannels and connection trunking are implemented, but nothing is ever recalled over a backchannel because no delegation or layout is ever granted. Mutating filesystem operations return `NFS4ERR_ROFS`.
 
 ## Supported profile and maturity
 
@@ -14,6 +14,8 @@ The package describes what it does with a capability profile and how well that i
 | `read-only-networked` | `AUTH_SYS` identity mapped to VFS callers by application policy, non-loopback binding behind that policy and an explicit opt-in        | experimental |
 | `writable`            | create, write, rename, remove, durable `WRITE` and `COMMIT`, share reservations, and advisory byte-range locks                         | not started  |
 | `stateful`            | grace and reclaim, restart recovery, persistent filehandles                                                                            | not started  |
+
+The current read-only export tracks advisory byte-range read locks between NFS clients. `LOCK` requires an open stateid; `LOCKU` releases an exact range. Write locks still return `NFS4ERR_ROFS`. `maxLockOwners` and `maxLocks` bound the in-memory state, which is removed on lease expiry or client revocation. Direct VFS callers do not participate in NFS locks.
 
 `read-only-local` is currently `preview`: the protocol test suites pass, scripted macOS 26.6.2 and Linux kernel-client mounts each pass every read-side check, and a pinned pynfs run with every failure classified is recorded in the preview app's [conformance baseline](../../apps/nfs-preview/CONFORMANCE.md). The Linux mount is a repeatable opt-in CI gate rather than a manual run. Per-requirement status against RFC 8881 lives in the [operations](../../.okf/research/nfs/nfs-operations-ledger.md), [attributes](../../.okf/research/nfs/nfs-attributes-ledger.md), and [protocol rules](../../.okf/research/nfs/nfs-protocol-rules-ledger.md) ledgers. NFSv4.0 and NFSv4.2 are out of scope; mount with `vers=4.1` explicitly.
 

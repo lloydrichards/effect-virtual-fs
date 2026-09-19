@@ -394,7 +394,7 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(badDowngrade.status, Status.BAD_STATEID)
     }))
 
-  it.effect("rejects lock operations with operation-valid errors and SET_SSV with INVAL", () =>
+  it.effect("validates lock stateids and rejects write-lock tests on a read-only export", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
@@ -416,7 +416,7 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         writer.uint32(Operation.LOCK).uint32(1).boolean(false).uint64(0n).uint64(0xffff_ffff_ffff_ffffn)
           .boolean(true).uint32(0).fixedOpaque(new Uint8Array(16)).uint32(0).uint64(client).string("lock-owner")
 
-      assert.strictEqual(yield* onFile(1, lock), Status.ROFS)
+      assert.strictEqual(yield* onFile(1, lock), Status.BAD_STATEID)
 
       // A write-lock test reports the read-only file system; a read-lock test finds no conflict.
       const lockt = (writer: Writer) =>
@@ -1102,7 +1102,7 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(yield* status(root, lock(1)), Status.ISDIR)
       assert.strictEqual(yield* status(root, lookup("link"), lockt(1)), Status.SYMLINK)
       assert.strictEqual(yield* status(root, lookup("file"), lock(2)), Status.ROFS, "WRITE_LT")
-      assert.strictEqual(yield* status(root, lookup("file"), lock(1)), Status.ROFS, "READ_LT cannot be recorded")
+      assert.strictEqual(yield* status(root, lookup("file"), lock(1)), Status.BAD_STATEID, "READ_LT needs open state")
       assert.strictEqual(yield* status(root, lookup("file"), lockt(1)), Status.OK, "no lock conflicts with a read test")
       assert.strictEqual(yield* status(root, lookup("file"), lockt(4)), Status.ROFS, "WRITEW_LT")
       assert.strictEqual(yield* status(root, lookup("file"), locku), Status.BAD_STATEID)

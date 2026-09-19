@@ -9,6 +9,7 @@ import * as Schedule from "effect/Schedule"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import { type InvalidFilehandleError, InvalidNameError, type NfsExport, validateName } from "./export.js"
+import { type LockRange, lockRange, overlaps, sameRange } from "./lockRanges.js"
 import { type CompoundCall, type Connection, RpcPolicyDenied } from "./rpc.js"
 import { type DecodeLimits, Reader, Writer, XdrDecodeError } from "./xdr.js"
 
@@ -48,6 +49,7 @@ export const Status = {
   BAD_STATEID: 10025,
   BAD_SEQID: 10026,
   NOT_SAME: 10027,
+  LOCK_RANGE: 10028,
   SYMLINK: 10029,
   ATTRNOTSUPP: 10032,
   NO_GRACE: 10033,
@@ -322,6 +324,8 @@ export interface Nfs4Limits extends DecodeLimits {
   readonly maxSlotsPerSession: number
   readonly maxReplayBytes: ByteSize.ByteSize
   readonly maxOpens: number
+  readonly maxLockOwners: number
+  readonly maxLocks: number
   readonly maxOwnerBytes: ByteSize.ByteSize
   readonly maxReadBytes: ByteSize.ByteSize
   readonly maxWriteBytes: ByteSize.ByteSize
@@ -360,6 +364,10 @@ export interface Nfs4Handler {
 
 /** @internal */
 export const nextSequenceId = (sequence: number): number => (sequence + 1) >>> 0
+
+type LockOwnerArgument =
+  | { readonly kind: "new"; readonly stateid: Uint8Array; readonly owner: Uint8Array }
+  | { readonly kind: "existing"; readonly stateid: Uint8Array }
 
 type ParsedOperation =
   | { readonly kind: "Access"; readonly code: typeof Operation.ACCESS; readonly value: number }
@@ -484,9 +492,32 @@ type ParsedOperation =
     readonly code: typeof Operation.COMMIT
     readonly value: { readonly offset: bigint; readonly count: number }
   }
-  | { readonly kind: "Lock"; readonly code: typeof Operation.LOCK; readonly value: { readonly lockType: number } }
-  | { readonly kind: "Lockt"; readonly code: typeof Operation.LOCKT; readonly value: { readonly lockType: number } }
-  | { readonly kind: "Locku"; readonly code: typeof Operation.LOCKU; readonly value: Uint8Array }
+  | {
+    readonly kind: "Lock"
+    readonly code: typeof Operation.LOCK
+    readonly value: {
+      readonly lockType: number
+      readonly reclaim: boolean
+      readonly offset: bigint
+      readonly length: bigint
+      readonly locker: LockOwnerArgument
+    }
+  }
+  | {
+    readonly kind: "Lockt"
+    readonly code: typeof Operation.LOCKT
+    readonly value: {
+      readonly lockType: number
+      readonly offset: bigint
+      readonly length: bigint
+      readonly owner: Uint8Array
+    }
+  }
+  | {
+    readonly kind: "Locku"
+    readonly code: typeof Operation.LOCKU
+    readonly value: { readonly stateid: Uint8Array; readonly offset: bigint; readonly length: bigint }
+  }
   | {
     readonly kind: "Verify"
     readonly code: typeof Operation.VERIFY | typeof Operation.NVERIFY
@@ -626,6 +657,16 @@ interface OpenState {
   readonly close: Effect.Effect<void>
 }
 
+interface LockState {
+  id: Uint8Array
+  sequence: number
+  readonly client: ClientState
+  readonly owner: Uint8Array
+  readonly ownerKey: string
+  readonly open: OpenState
+  readonly ranges: Array<{ readonly range: LockRange; readonly type: number }>
+}
+
 /** Adds `direction` to what `connection` already carries for `session` (Section 2.10.3.1). */
 const associate = (session: SessionState, connection: Connection, direction: number): void => {
   session.connections.set(connection, (session.connections.get(connection) ?? 0) | direction)
@@ -739,9 +780,10 @@ const readAttributes = (reader: Reader, limits: Nfs4Limits) => {
   return { bitmap: words, values }
 }
 
-const readStateOwner = (reader: Reader, limits: Nfs4Limits): void => {
+const readStateOwner = (reader: Reader, limits: Nfs4Limits): Uint8Array => {
   reader.uint64()
-  reader.opaque(limits.maxOwnerBytes)
+
+  return reader.opaque(limits.maxOwnerBytes)
 }
 
 interface ChannelAttrs {
@@ -1055,40 +1097,42 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
       return { kind: "Commit", code, value: { offset: reader.uint64(), count: reader.uint32() } }
     case Operation.LOCK: {
       const lockType = readLockType(reader)
-      reader.boolean()
-      reader.uint64()
-      reader.uint64()
+      const reclaim = reader.boolean()
+      const offset = reader.uint64()
+      const length = reader.uint64()
+      let locker: LockOwnerArgument
 
       if (reader.boolean()) {
         reader.uint32()
-        reader.fixedOpaque(16)
+        const stateid = reader.fixedOpaque(16)
         reader.uint32()
-        readStateOwner(reader, limits)
+        locker = { kind: "new", stateid, owner: readStateOwner(reader, limits) }
       } else {
-        reader.fixedOpaque(16)
+        const stateid = reader.fixedOpaque(16)
         reader.uint32()
+        locker = { kind: "existing", stateid }
       }
 
-      return { kind: "Lock", code, value: { lockType } }
+      return { kind: "Lock", code, value: { lockType, reclaim, offset, length, locker } }
     }
 
     case Operation.LOCKT: {
       const lockType = readLockType(reader)
-      reader.uint64()
-      reader.uint64()
-      readStateOwner(reader, limits)
+      const offset = reader.uint64()
+      const length = reader.uint64()
+      const owner = readStateOwner(reader, limits)
 
-      return { kind: "Lockt", code, value: { lockType } }
+      return { kind: "Lockt", code, value: { lockType, offset, length, owner } }
     }
 
     case Operation.LOCKU: {
       readLockType(reader)
       reader.uint32()
       const stateid = reader.fixedOpaque(16)
-      reader.uint64()
-      reader.uint64()
+      const offset = reader.uint64()
+      const length = reader.uint64()
 
-      return { kind: "Locku", code, value: stateid }
+      return { kind: "Locku", code, value: { stateid, offset, length } }
     }
 
     case Operation.NVERIFY:
@@ -1793,6 +1837,8 @@ const replayReplyBound = (
         break
       case "Close":
       case "OpenDowngrade":
+      case "Lock":
+      case "Locku":
         bytes += 8 + 16
         break
       case "TestStateid":
@@ -1833,9 +1879,11 @@ export const makeNfs4Handler = (
     const clientsByOwner = new Map<string, ClientState>()
     const sessions = new Map<string, SessionState>()
     const opens = new Map<string, OpenState>()
+    const lockStates = new Map<string, LockState>()
     let clientSerial = 1n
     let sessionSerial = 1n
     let openSerial = 1n
+    let lockCount = 0
     let replayBytes = ByteSize.bytes(0)
     const maxRpcRequestBytes = ByteSize.min(options.limits.maxRecordBytes, options.limits.maxCompoundBytes)
     const maxRpcResponseBytes = ByteSize.min(options.limits.maxRecordBytes, options.limits.maxCompoundBytes)
@@ -1950,6 +1998,12 @@ export const makeNfs4Handler = (
           }
 
           sessions.delete(key)
+        }
+
+        for (const [key, lock] of lockStates) {
+          if (lock.client !== client) continue
+          lockCount -= lock.ranges.length
+          lockStates.delete(key)
         }
 
         for (const [key, open] of opens) {
@@ -3610,16 +3664,19 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
                 }
 
-                const open = opens.get(stateIdKey(effectiveStateid))
+                const stateKey = stateIdKey(effectiveStateid)
+                const lock = lockStates.get(stateKey)
+                const open = opens.get(stateKey) ?? lock?.open
 
                 if (open === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
                 const suppliedSequence = stateIdSequence(effectiveStateid)
+                const stateSequence = lock?.sequence ?? open.sequence
 
-                if (suppliedSequence !== 0 && suppliedSequence < open.sequence) {
+                if (suppliedSequence !== 0 && suppliedSequence < stateSequence) {
                   return Effect.succeed({ code: operation.code, status: Status.OLD_STATEID })
                 }
 
-                if (suppliedSequence > open.sequence) {
+                if (suppliedSequence > stateSequence) {
                   return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
                 }
 
@@ -3689,6 +3746,25 @@ export const makeNfs4Handler = (
 
                 const open = isSpecialStateId(operation.value) ? undefined : opens.get(stateIdKey(operation.value))
 
+                if (open === undefined && !isSpecialStateId(operation.value)) {
+                  const key = stateIdKey(operation.value)
+                  const lock = lockStates.get(key)
+
+                  if (lock !== undefined && lock.client === activeSession.client) {
+                    const status = checkStateIdSequence(operation.value, lock)
+
+                    if (status !== Status.OK) return Effect.succeed({ code: operation.code, status })
+
+                    if (lock.ranges.length !== 0) {
+                      return Effect.succeed({ code: operation.code, status: Status.LOCKS_HELD })
+                    }
+
+                    lockStates.delete(key)
+
+                    return Effect.succeed({ code: operation.code, status: Status.OK })
+                  }
+                }
+
                 // An open stateid still backs a live open, so it cannot be freed (Section 18.38.3).
                 return Effect.succeed({
                   code: operation.code,
@@ -3710,7 +3786,15 @@ export const makeNfs4Handler = (
                   if (isSpecialStateId(stateid)) return Status.BAD_STATEID
                   const open = opens.get(stateIdKey(stateid))
 
-                  if (open === undefined || open.client !== session.client) return Status.BAD_STATEID
+                  if (open === undefined) {
+                    const lock = lockStates.get(stateIdKey(stateid))
+
+                    return lock === undefined || lock.client !== session.client
+                      ? Status.BAD_STATEID
+                      : checkStateIdSequence(stateid, lock)
+                  }
+
+                  if (open.client !== session.client) return Status.BAD_STATEID
 
                   return checkStateIdSequence(stateid, open)
                 })
@@ -3725,27 +3809,138 @@ export const makeNfs4Handler = (
               case "SetSsv":
                 // State protection is always SP4_NONE (RFC 8881 Section 18.47.3).
                 return Effect.succeed({ code: operation.code, status: Status.INVAL })
-              case "Lock":
-                // Byte-range lock state arrives with the stateful profile. A write lock on a
-                // read-only file system is NFS4ERR_ROFS; a read lock cannot be recorded either, and
-                // ROFS is the only listed error that says so without inventing a conflict.
-                return statusResult(
-                  withCurrent(requireRegularFile).pipe(Effect.andThen(Effect.fail(Status.ROFS)))
+              case "Lock": {
+                if (current === undefined) return Effect.succeed(noCurrent())
+                const value = operation.value
+                const range = lockRange(value.offset, value.length)
+
+                return requireRegularFile(current).pipe(
+                  Effect.andThen(Effect.sync((): ResultPart => {
+                    if (range === undefined) return { code: operation.code, status: Status.INVAL }
+
+                    if (value.reclaim) return { code: operation.code, status: Status.NO_GRACE }
+
+                    if (WRITE_LOCK_TYPES.has(value.lockType)) return { code: operation.code, status: Status.ROFS }
+
+                    if (activeSession === undefined) return { code: operation.code, status: Status.BADSESSION }
+
+                    const client = activeSession.client
+                    const locker = value.locker
+                    let lock: LockState | undefined
+                    let created = false
+
+                    if (locker.kind === "new") {
+                      const stateid = isCurrentStateId(locker.stateid) ? currentStateid : locker.stateid
+
+                      if (stateid === undefined) return { code: operation.code, status: Status.BAD_STATEID }
+
+                      const open = opens.get(stateIdKey(stateid))
+
+                      if (open === undefined) return { code: operation.code, status: Status.BAD_STATEID }
+
+                      const status = checkOpenStateId(stateid, open)
+
+                      if (status !== Status.OK) return { code: operation.code, status }
+                      const ownerKey = bytesKey(locker.owner)
+                      lock = [...lockStates.values()].find((entry) =>
+                        entry.client === client && entry.ownerKey === ownerKey && entry.open === open
+                      )
+
+                      if (lock === undefined) {
+                        if (lockStates.size >= options.limits.maxLockOwners) {
+                          return { code: operation.code, status: Status.DELAY }
+                        }
+
+                        const id = makeStateId(options.generation, openSerial++, 0)
+                        lock = {
+                          id,
+                          sequence: 0,
+                          client: activeSession.client,
+                          owner: locker.owner,
+                          ownerKey,
+                          open,
+                          ranges: []
+                        }
+                        created = true
+                      }
+                    } else {
+                      const stateid = isCurrentStateId(locker.stateid) ? currentStateid : locker.stateid
+
+                      if (stateid === undefined) return { code: operation.code, status: Status.BAD_STATEID }
+                      lock = lockStates.get(stateIdKey(stateid))
+
+                      if (lock === undefined) return { code: operation.code, status: Status.BAD_STATEID }
+                      const status = checkLockStateId(stateid, lock)
+
+                      if (status !== Status.OK) return { code: operation.code, status }
+                    }
+
+                    if (
+                      [...lockStates.values()].some((state) =>
+                        state.client === lock.client && state.ownerKey === lock.ownerKey &&
+                        state.open.reference === lock.open.reference &&
+                        state.ranges.some((entry) => overlaps(entry.range, range))
+                      )
+                    ) {
+                      return { code: operation.code, status: Status.LOCK_RANGE }
+                    }
+
+                    if (lockCount >= options.limits.maxLocks) return { code: operation.code, status: Status.DELAY }
+
+                    if (created) lockStates.set(stateIdKey(lock.id), lock)
+                    lock.ranges.push({ range, type: value.lockType })
+                    lockCount++
+                    advanceStateId(lock)
+                    currentStateid = lock.id
+
+                    return { code: operation.code, status: Status.OK, body: new Writer().fixedOpaque(lock.id).bytes() }
+                  })),
+                  Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
                 )
+              }
+
               case "Lockt":
-                // No lock exists, so a read-lock test finds no conflict; a write-lock test
-                // reports the read-only file system.
                 return statusResult(
                   withCurrent(requireRegularFile).pipe(
                     Effect.andThen(
-                      WRITE_LOCK_TYPES.has(operation.value.lockType) ? Effect.fail(Status.ROFS) : Effect.void
+                      lockRange(operation.value.offset, operation.value.length) === undefined
+                        ? Effect.fail(Status.INVAL)
+                        : WRITE_LOCK_TYPES.has(operation.value.lockType)
+                        ? Effect.fail(Status.ROFS)
+                        : Effect.void
                     )
                   )
                 )
-              case "Locku":
-                // No lock stateid can exist, so any supplied one is invalid. LOCKU's error list
-                // has no object-type errors, so only the filehandle is checked first.
-                return statusResult(withCurrent(() => Effect.fail(Status.BAD_STATEID)))
+              case "Locku": {
+                if (current === undefined) return Effect.succeed(noCurrent())
+                const value = operation.value
+                const range = lockRange(value.offset, value.length)
+
+                if (range === undefined) return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+
+                if (stateid === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                const lock = lockStates.get(stateIdKey(stateid))
+
+                if (lock === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                const status = checkLockStateId(stateid, lock)
+
+                if (status !== Status.OK) return Effect.succeed({ code: operation.code, status })
+                const index = lock.ranges.findIndex((entry) => sameRange(entry.range, range))
+
+                if (index === -1) return Effect.succeed({ code: operation.code, status: Status.LOCK_RANGE })
+                lock.ranges.splice(index, 1)
+                lockCount--
+                advanceStateId(lock)
+                currentStateid = lock.id
+
+                return Effect.succeed({
+                  code: operation.code,
+                  status: Status.OK,
+                  body: new Writer().fixedOpaque(lock.id).bytes()
+                })
+              }
+
               case "Close": {
                 if (current === undefined) return Effect.succeed(noCurrent())
                 const value = operation.value
@@ -3760,6 +3955,11 @@ export const makeNfs4Handler = (
                 const stateidStatus = checkOpenStateId(stateid, open)
 
                 if (stateidStatus !== Status.OK) return Effect.succeed({ code: operation.code, status: stateidStatus })
+
+                if ([...lockStates.values()].some((lock) => lock.open === open && lock.ranges.length > 0)) {
+                  return Effect.succeed({ code: operation.code, status: Status.LOCKS_HELD })
+                }
+
                 const closedStateid = new Uint8Array(open.id)
                 new DataView(closedStateid.buffer).setUint32(0, open.sequence + 1)
 
@@ -3771,6 +3971,11 @@ export const makeNfs4Handler = (
                     Effect.tap(() =>
                       Effect.sync(() => {
                         opens.delete(key)
+
+                        for (const [lockKey, lock] of lockStates) {
+                          if (lock.open === open) lockStates.delete(lockKey)
+                        }
+
                         currentStateid = closedStateid
                       })
                     )
@@ -3845,7 +4050,7 @@ export const makeNfs4Handler = (
             return isAllZero(stateid) || isAllOnes(stateid) || isCurrentStateId(stateid)
           }
 
-          function checkStateIdSequence(stateid: Uint8Array, open: OpenState): number {
+          function checkStateIdSequence(stateid: Uint8Array, open: OpenState | LockState): number {
             const suppliedSequence = stateIdSequence(stateid)
 
             if (suppliedSequence !== 0 && suppliedSequence < open.sequence) return Status.OLD_STATEID
@@ -3870,7 +4075,22 @@ export const makeNfs4Handler = (
             return Status.OK
           }
 
-          function advanceStateId(open: OpenState): void {
+          function checkLockStateId(stateid: Uint8Array, lock: LockState): number {
+            const sequenceStatus = checkStateIdSequence(stateid, lock)
+
+            if (sequenceStatus !== Status.OK) return sequenceStatus
+
+            if (
+              activeSession === undefined || current === undefined || lock.client !== activeSession.client ||
+              lock.open.reference !== current
+            ) {
+              return Status.BAD_STATEID
+            }
+
+            return Status.OK
+          }
+
+          function advanceStateId(open: OpenState | LockState): void {
             open.sequence += 1
             open.id = makeStateId(
               options.generation,
