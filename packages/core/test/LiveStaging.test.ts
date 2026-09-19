@@ -1,7 +1,8 @@
 import { assert, describe } from "@effect/vitest"
-import { Deferred, Effect, Fiber, Predicate, Stream } from "effect"
+import { ByteSize, Deferred, Effect, Fiber, Predicate, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { makeVolume, VolumeSource } from "../src/internal/virtualFileSystem.js"
+import * as LiveImage from "../src/internal/liveImage.js"
+import { captureLiveImage, makeVolume, VolumeIdentity, VolumeSource } from "../src/internal/virtualFileSystem.js"
 import { it } from "./TestEffect.js"
 
 describe("live volume staging", () => {
@@ -127,6 +128,39 @@ describe("live volume staging", () => {
       assert.deepEqual(retained.at(-1), [inode])
       yield* handle.close
       assert.deepEqual(retained.at(-1), [])
+    })))
+
+  it.effect("captures inode identity and unlinked content in private commit images", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const images: Array<Uint8Array> = []
+      const identity = VolumeIdentity.make("0123456789abcdef0123456789abcdef")
+      const limits = {
+        maxBytes: undefined,
+        maxFileBytes: ByteSize.bytes(0xffffffff),
+        maxEntries: undefined,
+        maxPathBytes: undefined
+      }
+      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, {
+        commit: (candidate) =>
+          captureLiveImage(candidate, identity, limits).pipe(
+            Effect.tap((bytes) => Effect.sync(() => images.push(bytes))),
+            Effect.as("committed" as const),
+            Effect.orDie
+          )
+      })
+      const caller = yield* volume.caller()
+      const handle = yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
+      const inode = (yield* handle.stat).ino
+      yield* handle.write(new Uint8Array([1]))
+      yield* caller.unlink("/file")
+      const retained = yield* LiveImage.decode(images.at(-1)!, ByteSize.bytes(4096))
+
+      assert.deepEqual(retained.retainedFiles, [inode])
+      assert.deepEqual(retained.records.map((record) => record.ino), [1n, inode])
+      yield* handle.close
+      const released = yield* LiveImage.decode(images.at(-1)!, ByteSize.bytes(4096))
+      assert.deepEqual(released.retainedFiles, [])
+      assert.deepEqual(released.records.map((record) => record.ino), [1n])
     })))
 
   it.effect("keeps hard-link identity and directory revisions across a rejected rename", () =>

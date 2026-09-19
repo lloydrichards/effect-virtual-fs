@@ -30,6 +30,7 @@ import type {
 } from "../VirtualFileSystem.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import * as Image from "./image.js"
+import * as LiveImage from "./liveImage.js"
 import * as MetadataDomain from "./metadata.js"
 import { ConfigurationError, decodeConfiguration, FsCode as FsCodeSchema, FsError } from "./virtualFileSystem/errors.js"
 import * as Content from "./virtualFileSystem/overlayContent.js"
@@ -466,6 +467,71 @@ interface EngineState {
   entries: number
   usedBytes: bigint
 }
+
+/** @internal */
+export const captureLiveImage = Effect.fnUntraced(function*(
+  state: EngineState,
+  identity: VolumeIdentity,
+  limits: VolumeLimits
+) {
+  const records: Array<LiveImage.Record> = []
+  const visited = new Set<bigint>()
+  const pending: Array<Node> = [state.root, ...state.retainedFiles.values()]
+
+  for (let index = 0; index < pending.length; index++) {
+    if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
+    const node = pending[index]
+
+    if (node === undefined || visited.has(node.metadata.ino)) continue
+    visited.add(node.metadata.ino)
+    const common = {
+      ino: node.metadata.ino,
+      revision: node.revision,
+      ...(node.lineage === undefined ? {} : { lineage: node.lineage }),
+      metadata: {
+        ...storedMetadata(node.metadata),
+        nlink: node.metadata.nlink,
+        size: node.metadata.size
+      }
+    }
+
+    if (node.kind === "directory") {
+      const entries: Array<{ name: typeof CanonicalBase64.Encoded.Type; target: bigint }> = []
+
+      for (const [name, child] of node.entries) {
+        entries.push({ name: CanonicalBase64.encode(nameBytes(name)), target: child.metadata.ino })
+        pending.push(child)
+      }
+
+      records.push(LiveImage.Record.cases.directory.make({ ...common, entries }))
+    } else if (node.kind === "file") {
+      records.push(LiveImage.Record.cases.file.make({ ...common, data: CanonicalBase64.encode(node.data.bytes) }))
+    } else {
+      records.push(LiveImage.Record.cases.symlink.make({ ...common, target: CanonicalBase64.encode(node.target) }))
+    }
+  }
+
+  const document: LiveImage.Document = {
+    format: "effect-vfs-live",
+    version: 1,
+    identity,
+    root: state.root.metadata.ino,
+    nextInode: state.nextInode,
+    revisionCounter: state.revisionCounter,
+    entries: state.entries,
+    usedBytes: state.usedBytes,
+    limits: {
+      ...(limits.maxEntries === undefined ? {} : { maxEntries: limits.maxEntries }),
+      ...(limits.maxBytes === undefined ? {} : { maxBytes: ByteSize.toBigInt(limits.maxBytes) }),
+      ...(limits.maxFileBytes === undefined ? {} : { maxFileBytes: ByteSize.toBigInt(limits.maxFileBytes) }),
+      ...(limits.maxPathBytes === undefined ? {} : { maxPathBytes: ByteSize.toBigInt(limits.maxPathBytes) })
+    },
+    retainedFiles: [...state.retainedFiles.keys()],
+    records
+  }
+
+  return yield* LiveImage.encode(document)
+})
 
 interface ObjectReferenceState {
   readonly volume: symbol
