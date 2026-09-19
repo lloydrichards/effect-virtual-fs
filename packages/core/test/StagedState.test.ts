@@ -1,5 +1,6 @@
 import { assert, describe } from "@effect/vitest"
 import { Deferred, Effect, Fiber } from "effect"
+import { FsError } from "../src/internal/virtualFileSystem/errors.js"
 import { makeStagedState } from "../src/internal/virtualFileSystem/stagedState.js"
 import { it } from "./TestEffect.js"
 
@@ -105,6 +106,42 @@ describe("staged state", () => {
         Effect.sync(() => {
           candidate.value = 3
         }))
+      assert.strictEqual(yield* state.read("read", (current) => Effect.succeed(current.value)), 3)
+    }))
+
+  it.effect("rejects preparation before storage without poisoning the volume", () =>
+    Effect.gen(function*() {
+      let reject = true
+      let commits = 0
+      const state = makeStagedState(
+        { value: 1 },
+        (current) => Effect.succeed({ ...current }),
+        {
+          prepare: () => reject ? new FsError({ code: "StorageRejected", operation: "write" }) : Effect.void,
+          commit: () =>
+            Effect.sync(() => {
+              commits++
+              return "committed" as const
+            })
+        }
+      )
+
+      assert.strictEqual(
+        (yield* Effect.flip(state.mutate("write", (candidate) =>
+          Effect.sync(() => {
+            candidate.value = 2
+          })))).code,
+        "StorageRejected"
+      )
+      assert.strictEqual(commits, 0)
+      assert.strictEqual(yield* state.read("read", (current) => Effect.succeed(current.value)), 1)
+
+      reject = false
+      yield* state.mutate("write", (candidate) =>
+        Effect.sync(() => {
+          candidate.value = 3
+        }))
+      assert.strictEqual(commits, 1)
       assert.strictEqual(yield* state.read("read", (current) => Effect.succeed(current.value)), 3)
     }))
 

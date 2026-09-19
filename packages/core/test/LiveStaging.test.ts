@@ -157,6 +157,11 @@ describe("live volume staging", () => {
 
       assert.deepEqual(retained.retainedFiles, [inode])
       assert.deepEqual(retained.records.map((record) => record.ino), [1n, inode])
+      const recovered = yield* makeVolume(VolumeSource.Live({ document: retained }))
+      assert.strictEqual(recovered.identity, identity)
+      assert.notStrictEqual(recovered.incarnation, volume.incarnation)
+      assert.deepEqual(yield* recovered.usage, { usedBytes: 0n, entries: 0 })
+      assert.strictEqual((yield* Effect.flip((yield* recovered.caller()).stat("/file"))).code, "NotFound")
       yield* handle.close
       const released = yield* LiveImage.decode(images.at(-1)!, ByteSize.bytes(4096))
       assert.deepEqual(released.retainedFiles, [])
