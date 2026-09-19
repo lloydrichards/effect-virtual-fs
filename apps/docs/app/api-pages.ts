@@ -8,6 +8,10 @@ export const apiPages = [
     contentPath: "content/api/core/virtual-file-system.mdx",
     relatedLinks: [
       {
+        label: "Filesystem error types",
+        href: "/api/core/virtual-file-system-error"
+      },
+      {
         label: "Volumes, callers, and handles",
         href: "/concepts/filesystem-model"
       },
@@ -20,6 +24,14 @@ export const apiPages = [
         href: "/guides/overlay-filesystems"
       }
     ]
+  },
+  {
+    packageDir: "packages/core",
+    moduleName: "VirtualFileSystemError",
+    label: "Core · VirtualFileSystemError",
+    href: "/api/core/virtual-file-system-error",
+    routePath: "core/virtual-file-system-error",
+    contentPath: "content/api/core/virtual-file-system-error.mdx"
   },
   {
     packageDir: "packages/core",

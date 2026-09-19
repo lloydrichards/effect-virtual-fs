@@ -43,6 +43,10 @@
       "types": "./dist/VirtualFileSystem.d.ts",
       "import": "./dist/VirtualFileSystem.js"
     },
+    "./VirtualFileSystemError": {
+      "types": "./dist/VirtualFileSystemError.d.ts",
+      "import": "./dist/VirtualFileSystemError.js"
+    },
     "./LiveVolume": {
       "types": "./dist/LiveVolume.d.ts",
       "import": "./dist/LiveVolume.js"

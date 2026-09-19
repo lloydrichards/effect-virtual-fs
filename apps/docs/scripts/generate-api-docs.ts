@@ -105,6 +105,45 @@ const expandTypeAliases = async (packagePath: string, moduleName: string, conten
   return result
 }
 
+// Docgen omits the base type of tagged error classes, including their public fields.
+// oxlint-disable-next-line effecttsgo/async-function -- Prettier exposes an asynchronous formatting API.
+const expandTaggedErrorClasses = async (packagePath: string, moduleName: string, content: string): Promise<string> => {
+  if (moduleName !== "VirtualFileSystemError") return content
+
+  let project = projects.get(packagePath)
+
+  if (project === undefined) {
+    project = new Project({ tsConfigFilePath: path.join(root, packagePath, "tsconfig.json") })
+    projects.set(packagePath, project)
+  }
+
+  const source = project.getSourceFileOrThrow(path.join(root, packagePath, "src", `${moduleName}.ts`))
+  let result = content
+
+  for (const declaration of source.getClasses()) {
+    if (!declaration.isExported()) continue
+
+    const name = declaration.getNameOrThrow()
+    const base = declaration.getExtends()?.getText()
+
+    if (base === undefined) continue
+
+    const signature = (await format(`export declare class ${name} extends ${base} {}`, {
+      parser: "typescript",
+      printWidth: 100,
+      semi: false
+    })).trimEnd()
+
+    const original = `export declare class ${name}`
+
+    if (!result.includes(original)) throw new Error(`Missing signature for ${moduleName}.${name}`)
+
+    result = result.replace(original, signature)
+  }
+
+  return result
+}
+
 const keepPublishedExports = (moduleName: string, content: string): string => {
   if (moduleName === "BytePath") {
     return content.replace(/^# utils[\s\S]*$/m, "")
@@ -149,7 +188,7 @@ for (const packagePath of packageDirs) {
       facade.replace(
         /^export\s*\{[\s\S]*?\}\s*from\s*"\.\/(?:Snapshot|BytePath|SnapshotDelta)\.js"\n/gm,
         ""
-      ),
+      ).replace(/^export \{ (?:FsError|ConfigurationError) \} from "\.\/VirtualFileSystemError\.js"\n/gm, ""),
       "utf8"
     )
   }
@@ -197,10 +236,14 @@ for (const packagePath of packageDirs) {
       "utf8"
     )
 
-    const transformed = await expandTypeAliases(
+    const transformed = await expandTaggedErrorClasses(
       packagePath,
       page.moduleName,
-      transformContent(keepPublishedExports(page.moduleName, content))
+      await expandTypeAliases(
+        packagePath,
+        page.moduleName,
+        transformContent(keepPublishedExports(page.moduleName, content))
+      )
     )
 
     const related = "relatedLinks" in page

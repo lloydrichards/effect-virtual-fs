@@ -13,6 +13,14 @@
 export * as VirtualFileSystem from "./VirtualFileSystem.js"
 
 /**
+ * Structured filesystem and configuration failures.
+ *
+ * @category re-exports
+ * @since 0.4.0
+ */
+export * as VirtualFileSystemError from "./VirtualFileSystemError.js"
+
+/**
  * Live volume image boundary for storage adapters.
  *
  * @category re-exports
