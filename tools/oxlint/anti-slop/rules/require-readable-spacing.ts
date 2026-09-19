@@ -2,6 +2,9 @@ import type { CreateRule } from "@oxlint/plugins"
 
 import createPaddingLineRule from "../vendor/eslint-stylistic/padding-line-between-statements.ts"
 
+const screamingCaseConst =
+  ":matches(VariableDeclaration[kind=\"const\"][declarations.length=1], ExportNamedDeclaration[declaration.kind=\"const\"][declaration.declarations.length=1]):has(VariableDeclarator[id.name=/^[A-Z][A-Z0-9_]*$/])"
+
 const paddingRule = createPaddingLineRule([
   { blankLine: "always", prev: "import", next: "*" },
   { blankLine: "always", prev: "*", next: { selector: "Program > :not(ImportDeclaration)" } },
@@ -21,6 +24,15 @@ const paddingRule = createPaddingLineRule([
   { blankLine: "always", prev: "*", next: ["return", "if", "switch", "try", "for", "while", "do"] },
   { blankLine: "always", prev: "block-like", next: "*" },
   { blankLine: "any", prev: "import", next: "import" },
+  {
+    blankLine: "any",
+    prev: {
+      selector: screamingCaseConst
+    },
+    next: {
+      selector: screamingCaseConst
+    }
+  },
   {
     blankLine: "any",
     prev: {
