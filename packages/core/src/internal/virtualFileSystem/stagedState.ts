@@ -1,0 +1,71 @@
+import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Semaphore from "effect/Semaphore"
+import { FsError } from "./errors.js"
+
+/** @internal */
+export type CommitOutcome = "committed" | "rejected" | "unknown"
+
+/** @internal */
+export interface CommitProvider<State> {
+  /** Classifies a candidate as committed, definitely rejected, or uncertain. */
+  readonly commit: (candidate: State) => Effect.Effect<CommitOutcome>
+}
+
+/** @internal */
+export const makeStagedState = <State>(
+  initial: State,
+  // The copy must detach every mutable value that change can reach.
+  copy: (current: State) => Effect.Effect<State>,
+  provider: CommitProvider<State>
+) => {
+  const gate = Semaphore.makeUnsafe(1)
+  let current = initial
+  let available = true
+
+  const checkAvailable = (operation: string) =>
+    available
+      ? Effect.void
+      : Effect.fail(new FsError({ code: "VolumeUnavailable", operation }))
+
+  const read = <A, E, R>(operation: string, inspect: (state: Readonly<State>) => Effect.Effect<A, E, R>) =>
+    gate.withPermit(Effect.gen(function*() {
+      yield* checkAvailable(operation)
+
+      return yield* inspect(current)
+    }))
+
+  const mutate = <A, E, R>(operation: string, change: (candidate: State) => Effect.Effect<A, E, R>) =>
+    gate.withPermit(Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function*() {
+        yield* checkAvailable(operation)
+        const candidate = yield* restore(copy(current))
+        const value = yield* restore(change(candidate))
+        const committed = yield* Effect.exit(provider.commit(candidate))
+
+        if (Exit.isFailure(committed)) {
+          available = false
+
+          return yield* new FsError({ code: "OutcomeUnknown", operation })
+        }
+
+        const outcome = committed.value
+
+        if (outcome === "rejected") {
+          return yield* new FsError({ code: "StorageRejected", operation })
+        }
+
+        if (outcome === "unknown") {
+          available = false
+
+          return yield* new FsError({ code: "OutcomeUnknown", operation })
+        }
+
+        current = candidate
+
+        return value
+      })
+    ))
+
+  return { read, mutate }
+}
