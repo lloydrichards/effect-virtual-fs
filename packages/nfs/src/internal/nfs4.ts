@@ -3480,10 +3480,9 @@ export const makeNfs4Handler = (
                           open.client === activeSession!.client && open.owner === owner && open.reference === reference
                         )
 
-                        // Section 18.16.3: a share reservation of another open-owner denies this
-                        // access, or this deny mode collides with an access already granted.
+                        // Section 9.7 checks every open, including this open-owner's own state.
                         const denied = [...opens.values()].some((open) =>
-                          open !== existing && open.reference === reference &&
+                          open.reference === reference &&
                           ((open.deny & accessMode) !== 0 || (value.deny & OPEN4_SHARE_DENY_READ) !== 0)
                         )
 

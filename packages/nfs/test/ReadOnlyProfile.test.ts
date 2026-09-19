@@ -1168,17 +1168,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(denyRead.status, Status.OK)
       assert.strictEqual((yield* attempt(root, openAs("b", 0))).status, Status.SHARE_DENIED)
 
-      // The same open-owner combines its reservation: deny WRITE joins deny READ, so b stays refused.
+      // A new read OPEN conflicts with a's own deny READ reservation too.
       const reopened = yield* attempt(root, openAs("a", 2))
-      assert.strictEqual(reopened.status, Status.OK)
+      assert.strictEqual(reopened.status, Status.SHARE_DENIED)
       const first = stateidOf(denyRead, 2)
-      const combined = stateidOf(reopened, 2)
-      assert.deepStrictEqual(combined.subarray(4), first.subarray(4), "same open, new seqid")
-      assert.strictEqual(new DataView(combined.buffer, combined.byteOffset).getUint32(0), 2)
       assert.strictEqual((yield* attempt(root, openAs("b", 0))).status, Status.SHARE_DENIED, "deny READ retained")
 
-      // Downgrading a's reservation to deny WRITE only is observable: b may now read.
-      const released = yield* attempt(root, lookup("file"), downgrade(combined, 1, 2))
+      // Downgrading a's reservation to deny NONE is observable: b may now read.
+      const released = yield* attempt(root, lookup("file"), downgrade(first, 1, 0))
       assert.strictEqual(released.status, Status.OK)
       const readerB0 = yield* attempt(root, openAs("b", 0))
       assert.strictEqual(readerB0.status, Status.OK, "deny READ released by OPEN_DOWNGRADE")
@@ -1422,11 +1419,10 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
 
       // Section 9.1.2: the anonymous stateid respects a deny-read reservation; all ones bypasses it.
       assert.strictEqual(yield* status(root, lookup("file"), read(anonymous)), Status.OK)
-      assert.strictEqual((yield* attempt(root, openAs("holder", 1))).status, Status.OK)
+      const holder = yield* attempt(root, openAs("holder", 1))
+      assert.strictEqual(holder.status, Status.OK)
       assert.strictEqual(yield* status(root, lookup("file"), read(anonymous)), Status.LOCKED)
       assert.strictEqual(yield* status(root, lookup("file"), read(bypass)), Status.OK)
-      const holder = yield* attempt(root, openAs("holder", 1))
-      assert.strictEqual(holder.status, Status.OK, "the holder reopens to learn its current stateid")
       // SAFETY: OPEN succeeded, so its body is the OPEN result shape.
       const holderStateid = (holder.operations[2]!.value as { readonly stateid: Uint8Array }).stateid
       const close = (writer: Writer) => writer.uint32(Operation.CLOSE).uint32(0).fixedOpaque(holderStateid)
