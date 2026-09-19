@@ -460,6 +460,7 @@ type Node = Directory | RegularFile | SymbolicLink
 
 interface EngineState {
   root: Directory
+  retainedFiles: Map<bigint, RegularFile>
   revisionCounter: bigint
   nextInode: bigint
   entries: number
@@ -764,6 +765,7 @@ export const makeVolume = Effect.fnUntraced(
         revision: 1n,
         objectReference: undefined
       },
+      retainedFiles: new Map(),
       revisionCounter: 1n,
       nextInode: 2n,
       entries: 0,
@@ -916,7 +918,13 @@ export const makeVolume = Effect.fnUntraced(
           return copy
         }
 
-        const candidate: EngineState = { ...current, root: copyDirectory(current.root) }
+        const candidate: EngineState = { ...current, root: copyDirectory(current.root), retainedFiles: new Map() }
+
+        for (const [ino, file] of current.retainedFiles) {
+          const copy = copyNode(file)
+
+          if (copy.kind === "file") candidate.retainedFiles.set(ino, copy)
+        }
 
         // Open resources keep zero-link objects alive after the namespace stops reaching them.
         for (const reference of fileReferences) {
@@ -1226,6 +1234,7 @@ export const makeVolume = Effect.fnUntraced(
       if (file.metadata.nlink === 0 && file.openCount === 0) {
         state.usedBytes -= BigInt(file.data.bytes.length)
         file.data = Content.empty()
+        state.retainedFiles.delete(file.metadata.ino)
         invalidateReference(file)
       }
     }
@@ -1255,8 +1264,10 @@ export const makeVolume = Effect.fnUntraced(
         node.metadata = { ...node.metadata, nlink: node.metadata.nlink - 1, ctimeNs: now }
         advanceRevision(node)
 
-        if (node.kind === "file") reclaim(node)
-        else if (node.metadata.nlink === 0) {
+        if (node.kind === "file") {
+          if (node.metadata.nlink === 0 && node.openCount > 0) state.retainedFiles.set(node.metadata.ino, node)
+          reclaim(node)
+        } else if (node.metadata.nlink === 0) {
           state.usedBytes -= BigInt(node.target.length)
           invalidateReference(node)
         }
