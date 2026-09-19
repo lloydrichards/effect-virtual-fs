@@ -1158,6 +1158,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      yield* caller.writeFile("/other", new Uint8Array([1]), { access: "write", create: "exclusive" })
 
       const handler = yield* makeNfs4Handler(
         makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
@@ -1196,7 +1197,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* handler.compound(call([
           sequence(client.session, 4),
           (writer) => writer.uint32(Operation.PUTROOTFH),
-          openReadOnly(client.client, "file"),
+          openReadOnly(client.client, "other"),
           (writer) => writer.uint32(Operation.GETFH)
         ]))
       )
@@ -1719,6 +1720,61 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(yield* readStatus(3, stateidWithSequence(second.stateid, 0)), Status.OK)
       assert.strictEqual(yield* readStatus(4, first.stateid), Status.OLD_STATEID)
       assert.strictEqual(yield* readStatus(5, stateidWithSequence(second.stateid, 3)), Status.BAD_STATEID)
+    }))
+
+  it.effect("checks an open-owner's own deny mode on a repeated OPEN", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits }
+      )
+
+      const { client, session } = yield* startSession(handler, "self-deny")
+
+      const first = parseOpen(
+        yield* handler.compound(call([
+          sequence(session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          openByName(client, "file", 1, 1),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
+
+      assert.strictEqual(
+        statuses(
+          yield* handler.compound(call([
+            sequence(session, 2),
+            (writer) => writer.uint32(Operation.PUTROOTFH),
+            openReadOnly(client, "file")
+          ]))
+        ).status,
+        Status.SHARE_DENIED
+      )
+
+      assert.strictEqual(
+        statuses(
+          yield* handler.compound(call([
+            sequence(session, 3),
+            (writer) => writer.uint32(Operation.PUTFH).opaque(first.filehandle),
+            (writer) => writer.uint32(Operation.OPEN_DOWNGRADE).fixedOpaque(first.stateid).uint32(0).uint32(1).uint32(0)
+          ]))
+        ).status,
+        Status.OK
+      )
+
+      assert.strictEqual(
+        statuses(
+          yield* handler.compound(call([
+            sequence(session, 4),
+            (writer) => writer.uint32(Operation.PUTROOTFH),
+            openReadOnly(client, "file")
+          ]))
+        ).status,
+        Status.OK
+      )
     }))
 
   it.effect("supports anonymous and current-stateid READ forms", () =>
