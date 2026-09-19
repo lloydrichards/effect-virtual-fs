@@ -17,10 +17,16 @@ export const makeStagedState = <State, Event = never>(
   initial: State,
   // The copy must detach every mutable value that change can reach.
   copy: (current: State) => Effect.Effect<State>,
-  provider: CommitProvider<State>,
+  rawProvider: CommitProvider<State>,
   publish?: (candidate: State, events: ReadonlyArray<Event>) => void
 ) => {
   const gate = Semaphore.makeUnsafe(1)
+
+  const provider = {
+    ...rawProvider,
+    commit: (candidate: State) => Effect.suspend(() => rawProvider.commit(candidate))
+  }
+
   let current = initial
   let available = true
 
