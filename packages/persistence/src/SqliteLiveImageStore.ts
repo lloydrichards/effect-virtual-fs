@@ -8,7 +8,7 @@ import { ByteSize, Crypto, Effect, Exit, FileSystem, Layer, Path, Schema } from 
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 
 /**
- * Limits and the local database path used for directory synchronization.
+ * Limits and the local database path used to verify the supplied SQL client.
  * Supply a dedicated SQLite `SqlClient` for this same path.
  *
  * @since 0.4.0
@@ -55,10 +55,6 @@ export const layer = (options: Options) =>
         !path.isAbsolute(options.filename) || maxImage <= 0n || maxImage > BigInt(Number.MAX_SAFE_INTEGER) ||
         maxDatabase <= 0n || !Number.isSafeInteger(timeout) || timeout < 0
       ) return yield* fail("InvalidConfiguration")
-
-      const existed = yield* filesystem.exists(options.filename).pipe(
-        Effect.mapError((cause) => fail("Storage", cause))
-      )
 
       const connection = yield* sql.reserve.pipe(Effect.mapError((cause) => fail("Storage", cause)))
       const run = (statement: string, params: ReadonlyArray<unknown> = []) => connection.executeRaw(statement, params)
@@ -149,13 +145,6 @@ export const layer = (options: Options) =>
         Effect.mapError((cause) => fail("Storage", cause))
       )
 
-      if (!existed) {
-        yield* Effect.scoped(Effect.gen(function*() {
-          const directory = yield* filesystem.open(path.dirname(options.filename), { flag: "r" })
-          yield* directory.sync
-        })).pipe(Effect.mapError((cause) => fail("Storage", cause)))
-      }
-
       let generation: number | undefined
       let available = true
 
@@ -213,6 +202,7 @@ export const layer = (options: Options) =>
           if (!available || generation === undefined) return "unknown" as const
 
           if (BigInt(image.length) > maxImage) return "rejected" as const
+          if (generation === Number.MAX_SAFE_INTEGER) return "rejected" as const
 
           const hash = yield* digest(image).pipe(Effect.orElseSucceed(() => ""))
 

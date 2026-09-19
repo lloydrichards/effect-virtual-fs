@@ -77,7 +77,7 @@ The [writable export scope](../decisions/nfs/writable-export-scope.md "constrain
 
 The [reference-mutation decision](../decisions/core/reference-mutations.md "constrained by") keeps share reservations, advisory byte-range locks, stateids, and leases in NFS. The [volume facts decision](../decisions/core/volume-durability-and-usage-facts.md "constrained by") keeps a static durability tier, stable logical identity, fresh incarnation on construction, and a byte-count write result. These remain unchanged.
 
-SQLite mode, the private image format, staging mechanics, resource limits, and storage-error API below are engineering recommendations, not accepted decisions. The required core changes need review before implementation. The separate [watch overflow draft](../decisions/core/watch-event-overflow.md "constrained by") owns the bounded-watch contract.
+Core staging, the private image format, the storage-error API, and the first SQLite provider are implemented. The remaining storage qualification and NFS rules below are proposals for the writable milestone. The separate [watch overflow draft](../decisions/core/watch-event-overflow.md "constrained by") owns the bounded-watch contract.
 
 ## Durability promise
 
@@ -201,8 +201,8 @@ Set a finite SQLite busy timeout and bounded retry count before commit. These do
 
 ## Implementation slices and proof
 
-1. Fix the provider boundary and typed failure channels, then refactor the core to staged state with a fake commit provider. Preserve existing memory behavior and run the core contracts. This slice must inventory every mutation, read-atime path, and resource-release path. Benchmark full-image work at candidate volume limits before committing to the one-row storage representation.
-2. Implement a storage provider Layer with exclusive ownership, atomic image replacement, durable initialization, finite limits, and recovery. Qualify its driver before advertising durability. Keep NFS read-only while fault testing the shared API.
+1. Core now stages state through the `LiveImageStore` boundary and classifies committed, rejected, and unknown outcomes. Its tests cover candidate publication and failures. Full-image throughput at candidate volume limits still needs measurement.
+2. The SQLite provider Layer now owns exclusive access, atomic image replacement, finite image and database limits, and process recovery. [#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129) owns database-creation directory synchronization, driver and crash qualification before any stronger durability claim. NFS remains read-only.
 3. Resolve the separate watch-overflow contract and qualify the stated crash boundary on Linux and macOS. Document the filesystem, SQLite build, driver, sync settings, and storage assumptions. Only a storage configuration qualified for that crash boundary advertises `survives-power-loss`; bounded watches are a separate writable-milestone requirement.
 4. After #47, implement NFS admission and replay changes, then #48 dispatch and #49 `WRITE` and `COMMIT`. #50 remains separate. No protocol implementation is part of this proposal.
 

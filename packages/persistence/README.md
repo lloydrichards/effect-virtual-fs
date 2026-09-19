@@ -27,7 +27,9 @@ acknowledgements also verify that the live volume stops serving operations until
 against operating-system crashes or power loss on a specific filesystem and device. `Volume.durability` therefore
 remains `memory-only`. This provider must not yet be used to promise NFS `FILE_SYNC4`. The database page limit does
 not cap temporary rollback-journal space, so the application must reserve disk space for a complete-image
-transaction. The current core watch queue is also unbounded. Use this provider for bounded local experiments until
+transaction. Database creation also happens inside the supplied SQL Layer, before this provider can inspect the
+path; the provider does not establish that the containing directory was synchronized after creation. The current
+core watch queue is also unbounded. Use this provider for bounded local experiments until
 those limits and crash tests are completed. Crash and power-loss qualification is tracked in
 [#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129); bounded admission and watch delivery are
 tracked in [#122](https://github.com/lloydrichards/effect-virtual-fs/issues/122).
