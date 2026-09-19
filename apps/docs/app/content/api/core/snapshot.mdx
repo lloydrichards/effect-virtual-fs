@@ -63,7 +63,12 @@ Resource limits applied while decoding a snapshot.
 **Signature**
 
 ```ts
-export type DecodeLimits = typeof DecodeLimits.Type
+export type DecodeLimits = {
+  readonly maxEncodedBytes: ByteSize.ByteSize
+  readonly maxRecords: number
+  readonly maxEntries: number
+  readonly maxDecodedBytes: ByteSize.ByteSize
+}
 ```
 
 Added in v0.1.0
@@ -151,7 +156,7 @@ Type identifier for opaque filesystem snapshots.
 **Signature**
 
 ```ts
-export type SnapshotTypeId = typeof SnapshotTypeId
+export type SnapshotTypeId = "@effect-vfs/core/Snapshot"
 ```
 
 Added in v0.1.0

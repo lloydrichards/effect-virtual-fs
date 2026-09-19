@@ -3,6 +3,8 @@
 import { spawn } from "bun"
 import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { format } from "prettier"
+import { Project, ts } from "ts-morph"
 import { apiPages } from "../app/api-pages"
 
 const stripFrontmatter = (content: string): string => content.replace(/^---[\s\S]*?---\n*/, "")
@@ -49,6 +51,58 @@ const transformContent = (content: string): string => {
   const headingsAdjusted = withoutMetadata.replace(/^(#{1,5}) /gm, "#$1 ")
 
   return escapeMdxUnsafe(headingsAdjusted.replace(/^#{2,6} /m, "# "))
+}
+
+const typeFlags = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.InTypeAlias
+
+const projects = new Map<string, Project>()
+
+// oxlint-disable-next-line effecttsgo/async-function -- Prettier exposes an asynchronous formatting API.
+const expandTypeAliases = async (packagePath: string, moduleName: string, content: string): Promise<string> => {
+  let project = projects.get(packagePath)
+
+  if (project === undefined) {
+    project = new Project({ tsConfigFilePath: path.join(root, packagePath, "tsconfig.json") })
+    projects.set(packagePath, project)
+  }
+
+  const source = project.getSourceFileOrThrow(path.join(root, packagePath, "src", `${moduleName}.ts`))
+  let result = content
+
+  for (const alias of source.getTypeAliases()) {
+    if (!alias.isExported() || !alias.getTypeNodeOrThrow().getText().includes("typeof")) continue
+
+    const heading = `### ${alias.getName()} (type alias)`
+    const headingStart = result.indexOf(heading)
+
+    if (headingStart === -1) continue
+
+    const codeStart = result.indexOf("```ts\n", headingStart) + "```ts\n".length
+    const codeEnd = result.indexOf("\n```", codeStart)
+
+    if (codeStart < "```ts\n".length || codeEnd === -1) throw new Error(`Missing signature for ${heading}`)
+
+    const signature = result.slice(codeStart, codeEnd)
+
+    if (!signature.startsWith(`export type ${alias.getName()} =`) || !signature.includes("typeof")) continue
+
+    const resolved = alias.getTypeNodeOrThrow().getType().getText(alias, typeFlags)
+      .replace(/import\("[^"]*\/node_modules\/effect\/dist\/([^"/]+)"\)\.([A-Za-z_$][\w$]*)/g, "$1.$2")
+
+    if (resolved.includes("import(\"") || resolved === alias.getName()) {
+      throw new Error(`Could not render public type ${packagePath}/${moduleName}.${alias.getName()}`)
+    }
+
+    const readable = (await format(`export type ${alias.getName()} = ${resolved}`, {
+      parser: "typescript",
+      printWidth: 100,
+      semi: false
+    })).trimEnd()
+
+    result = result.slice(0, codeStart) + readable + result.slice(codeEnd)
+  }
+
+  return result
 }
 
 const keepPublishedExports = (moduleName: string, content: string): string => {
@@ -143,8 +197,10 @@ for (const packagePath of packageDirs) {
       "utf8"
     )
 
-    const transformed = transformContent(
-      keepPublishedExports(page.moduleName, content)
+    const transformed = await expandTypeAliases(
+      packagePath,
+      page.moduleName,
+      transformContent(keepPublishedExports(page.moduleName, content))
     )
 
     const related = "relatedLinks" in page

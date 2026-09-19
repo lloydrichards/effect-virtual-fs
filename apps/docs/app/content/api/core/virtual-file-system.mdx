@@ -255,7 +255,7 @@ Describes an invalid volume or caller option and names the rejected field.
 **Signature**
 
 ```ts
-export declare const ConfigurationError: typeof VfsModel.ConfigurationError
+export declare const ConfigurationError: new (options: { readonly field: string }) => ConfigurationError
 ```
 
 **Example**
@@ -282,6 +282,21 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 
 Added in v0.1.0
 
+### ConfigurationError (interface)
+
+An invalid option, identified by its field name.
+
+**Signature**
+
+```ts
+export interface ConfigurationError extends Error, Effect.Effect<never, ConfigurationError> {
+  readonly _tag: "ConfigurationError"
+  readonly field: string
+}
+```
+
+Added in v0.1.0
+
 ### FsError
 
 Describes an expected filesystem operation failure.
@@ -293,7 +308,11 @@ serve further operations until recovery). Built-in memory volumes never emit the
 **Signature**
 
 ```ts
-export declare const FsError: typeof VfsModel.FsError
+export declare const FsError: new (options: {
+  readonly code: FsCode
+  readonly operation: string
+  readonly path?: PathInput
+}) => FsError
 ```
 
 **Example**
@@ -319,6 +338,23 @@ const program = Effect.gen(function* () {
 
 Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // Uint8Array(0) []
+```
+
+Added in v0.1.0
+
+### FsError (interface)
+
+An expected filesystem failure with a portable code and operation name.
+
+**Signature**
+
+```ts
+export interface FsError extends Error, Effect.Effect<never, FsError> {
+  readonly _tag: "FsError"
+  readonly code: FsCode
+  readonly operation: string
+  readonly path?: PathInput
+}
 ```
 
 Added in v0.1.0
@@ -636,7 +672,7 @@ A directory revision transition captured inside one coordinated operation.
 **Signature**
 
 ```ts
-export type DirectoryChange = typeof DirectoryChange.Type
+export type DirectoryChange = { readonly before: bigint; readonly after: bigint }
 ```
 
 Added in v0.4.0
@@ -768,7 +804,65 @@ A complete filesystem fixture accepted by `fromFixture`.
 **Signature**
 
 ```ts
-export type Fixture = typeof Fixture.Type
+export type Fixture = {
+  readonly entries: readonly (
+    | {
+        readonly kind: "directory"
+        readonly path: string | BytePath
+        readonly metadata?: {
+          readonly uid?: number
+          readonly gid?: number
+          readonly mode?: number
+          readonly atimeNs?: bigint
+          readonly mtimeNs?: bigint
+          readonly ctimeNs?: bigint
+          readonly birthtimeNs?: bigint
+        }
+      }
+    | {
+        readonly kind: "file"
+        readonly path: string | BytePath
+        readonly bytes: Uint8Array<ArrayBufferLike>
+        readonly metadata?: {
+          readonly uid?: number
+          readonly gid?: number
+          readonly mode?: number
+          readonly atimeNs?: bigint
+          readonly mtimeNs?: bigint
+          readonly ctimeNs?: bigint
+          readonly birthtimeNs?: bigint
+        }
+      }
+    | {
+        readonly kind: "symlink"
+        readonly path: string | BytePath
+        readonly target: string | BytePath
+        readonly metadata?: {
+          readonly uid?: number
+          readonly gid?: number
+          readonly mode?: number
+          readonly atimeNs?: bigint
+          readonly mtimeNs?: bigint
+          readonly ctimeNs?: bigint
+          readonly birthtimeNs?: bigint
+        }
+      }
+    | {
+        readonly kind: "hardLink"
+        readonly path: string | BytePath
+        readonly target: string | BytePath
+      }
+  )[]
+  readonly rootMetadata?: {
+    readonly uid?: number
+    readonly gid?: number
+    readonly mode?: number
+    readonly atimeNs?: bigint
+    readonly mtimeNs?: bigint
+    readonly ctimeNs?: bigint
+    readonly birthtimeNs?: bigint
+  }
+}
 ```
 
 Added in v0.1.0
@@ -780,7 +874,30 @@ A portable virtual filesystem error code.
 **Signature**
 
 ```ts
-export type FsCode = typeof FsCode.Type
+export type FsCode =
+  | "NotFound"
+  | "AlreadyExists"
+  | "NotEmpty"
+  | "NotDirectory"
+  | "AccessDenied"
+  | "InvalidHandle"
+  | "ForeignHandle"
+  | "InvalidReference"
+  | "ForeignReference"
+  | "StaleReference"
+  | "ClosedCaller"
+  | "InvalidArgument"
+  | "InvalidPathEncoding"
+  | "PathTooLong"
+  | "NoSpace"
+  | "IsDirectory"
+  | "FileTooLarge"
+  | "NoData"
+  | "SymlinkLoop"
+  | "UnrepresentableName"
+  | "StorageRejected"
+  | "OutcomeUnknown"
+  | "VolumeUnavailable"
 ```
 
 Added in v0.1.0
@@ -792,7 +909,12 @@ A caller identity used for permission checks.
 **Signature**
 
 ```ts
-export type Identity = typeof Identity.Type
+export type Identity = {
+  readonly uid: number
+  readonly gid: number
+  readonly groups: readonly number[]
+  readonly privileged: boolean
+}
 ```
 
 Added in v0.1.0
@@ -804,7 +926,19 @@ Metadata for a directory, regular file, or symbolic link.
 **Signature**
 
 ```ts
-export type Metadata = typeof Metadata.Type
+export type Metadata = {
+  readonly kind: "directory" | "file" | "symlink"
+  readonly ino: bigint
+  readonly nlink: number
+  readonly size: bigint
+  readonly uid: number
+  readonly gid: number
+  readonly mode: number
+  readonly atimeNs: bigint
+  readonly mtimeNs: bigint
+  readonly ctimeNs: bigint
+  readonly birthtimeNs: bigint
+}
 ```
 
 Added in v0.1.0
@@ -863,7 +997,19 @@ Settings for creating a directory through a parent object reference.
 **Signature**
 
 ```ts
-export type MkdirReferenceSettings = typeof MkdirReferenceSettings.Type
+export type MkdirReferenceSettings = {
+  readonly mode?: number
+  readonly times?: {
+    readonly access:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+    readonly modification:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+  }
+}
 ```
 
 Added in v0.4.0
@@ -951,7 +1097,24 @@ Settings for atomically looking up or creating and opening one referenced child.
 **Signature**
 
 ```ts
-export type OpenChildReferenceSettings = typeof OpenChildReferenceSettings.Type
+export type OpenChildReferenceSettings = {
+  readonly access: "read" | "write" | "readWrite"
+  readonly mode?: number
+  readonly create?: "never" | "ifMissing" | "exclusive"
+  readonly append?: boolean
+  readonly truncate?: boolean
+  readonly followFinalSymlink?: boolean
+  readonly times?: {
+    readonly access:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+    readonly modification:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+  }
+}
 ```
 
 Added in v0.4.0
@@ -963,7 +1126,14 @@ Options for acquiring a scoped file handle.
 **Signature**
 
 ```ts
-export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
+export type OpenOptions = {
+  readonly access: "read" | "write" | "readWrite"
+  readonly mode?: number
+  readonly create?: "never" | "ifMissing" | "exclusive"
+  readonly append?: boolean
+  readonly truncate?: boolean
+  readonly followFinalSymlink?: boolean
+} & RelativeOptions
 ```
 
 Added in v0.1.0
@@ -975,7 +1145,11 @@ Settings for opening an existing regular-file reference.
 **Signature**
 
 ```ts
-export type OpenReferenceSettings = typeof OpenReferenceSettings.Type
+export type OpenReferenceSettings = {
+  readonly access: "read" | "write" | "readWrite"
+  readonly append?: boolean
+  readonly truncate?: boolean
+}
 ```
 
 Added in v0.4.0
@@ -1033,7 +1207,43 @@ A path-oriented final-state difference from an overlay's immutable base.
 **Signature**
 
 ```ts
-export type OverlayChange = typeof OverlayChange.Type
+export type OverlayChange =
+  | {
+      readonly _tag: "Added"
+      readonly path: BytePath
+      readonly kind: "directory" | "file" | "symlink"
+    }
+  | {
+      readonly _tag: "Removed"
+      readonly path: BytePath
+      readonly kind: "directory" | "file" | "symlink"
+    }
+  | {
+      readonly _tag: "Replaced"
+      readonly path: BytePath
+      readonly beforeKind: "directory" | "file" | "symlink"
+      readonly afterKind: "directory" | "file" | "symlink"
+      readonly differences: readonly (
+        "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
+      )[]
+    }
+  | {
+      readonly _tag: "Renamed"
+      readonly from: BytePath
+      readonly to: BytePath
+      readonly kind: "directory" | "file" | "symlink"
+      readonly differences: readonly (
+        "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
+      )[]
+    }
+  | {
+      readonly _tag: "Updated"
+      readonly path: BytePath
+      readonly kind: "directory" | "file" | "symlink"
+      readonly differences: readonly (
+        "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
+      )[]
+    }
 ```
 
 Added in v0.1.0
@@ -1045,7 +1255,7 @@ Filtering options for an overlay final-difference summary.
 **Signature**
 
 ```ts
-export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
+export type OverlayChangesOptions = { readonly includeTimestamps?: boolean }
 ```
 
 Added in v0.1.0
@@ -1057,7 +1267,8 @@ A content, ownership, permission, or timestamp field that differs from the overl
 **Signature**
 
 ```ts
-export type OverlayDifference = typeof OverlayDifference.Type
+export type OverlayDifference =
+  "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
 ```
 
 Added in v0.1.0
@@ -1069,7 +1280,7 @@ A filesystem entry kind reported by an overlay summary.
 **Signature**
 
 ```ts
-export type OverlayNodeKind = typeof OverlayNodeKind.Type
+export type OverlayNodeKind = "directory" | "file" | "symlink"
 ```
 
 Added in v0.1.0
@@ -1128,7 +1339,7 @@ An owner update for `chown` operations.
 **Signature**
 
 ```ts
-export type OwnerUpdate = typeof OwnerUpdate.Type
+export type OwnerUpdate = { readonly uid?: number; readonly gid?: number }
 ```
 
 Added in v0.1.0
@@ -1187,7 +1398,16 @@ The directory transitions produced by a same-directory or cross-directory rename
 **Signature**
 
 ```ts
-export type RenameReferenceResult = typeof RenameReferenceResult.Type
+export type RenameReferenceResult =
+  | {
+      readonly _tag: "SameDirectory"
+      readonly directory: { readonly before: bigint; readonly after: bigint }
+    }
+  | {
+      readonly _tag: "DifferentDirectories"
+      readonly sourceDirectory: { readonly before: bigint; readonly after: bigint }
+      readonly destinationDirectory: { readonly before: bigint; readonly after: bigint }
+    }
 ```
 
 Added in v0.4.0
@@ -1199,7 +1419,15 @@ Options for creating a root caller on a volume.
 **Signature**
 
 ```ts
-export type RootCallerOptions = typeof RootCallerOptions.Type
+export type RootCallerOptions = {
+  readonly identity?: {
+    readonly uid: number
+    readonly gid: number
+    readonly groups: readonly number[]
+    readonly privileged: boolean
+  }
+  readonly umask?: number
+}
 ```
 
 Added in v0.1.0
@@ -1211,7 +1439,7 @@ The origin used by a file handle seek operation.
 **Signature**
 
 ```ts
-export type SeekMode = typeof SeekMode.Type
+export type SeekMode = "start" | "current" | "end" | "data" | "hole"
 ```
 
 Added in v0.1.0
@@ -1223,7 +1451,18 @@ Settings for creating a symbolic link through a parent object reference.
 **Signature**
 
 ```ts
-export type SymlinkReferenceSettings = typeof SymlinkReferenceSettings.Type
+export type SymlinkReferenceSettings = {
+  readonly times?: {
+    readonly access:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+    readonly modification:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+  }
+}
 ```
 
 Added in v0.4.0
@@ -1235,7 +1474,16 @@ Access and modification time updates for `utimes` operations.
 **Signature**
 
 ```ts
-export type Times = typeof Times.Type
+export type Times = {
+  readonly access:
+    | { readonly kind: "now" }
+    | { readonly kind: "omit" }
+    | { readonly kind: "value"; readonly nanoseconds: bigint }
+  readonly modification:
+    | { readonly kind: "now" }
+    | { readonly kind: "omit" }
+    | { readonly kind: "value"; readonly nanoseconds: bigint }
+}
 ```
 
 Added in v0.1.0
@@ -1305,7 +1553,11 @@ The failure boundary survived by an acknowledged volume write.
 **Signature**
 
 ```ts
-export type VolumeDurability = typeof VolumeDurability.Type
+export type VolumeDurability =
+  | "memory-only"
+  | "survives-process-crash"
+  | "survives-operating-system-crash"
+  | "survives-power-loss"
 ```
 
 Added in v0.1.0
@@ -1317,7 +1569,7 @@ Stable logical identity of a volume as a branded 128-bit lowercase hexadecimal s
 **Signature**
 
 ```ts
-export type VolumeIdentity = typeof VolumeIdentity.Type
+export type VolumeIdentity = string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
 ```
 
 Added in v0.1.0
@@ -1329,7 +1581,7 @@ One uninterrupted storage lifetime as a branded 128-bit lowercase hexadecimal st
 **Signature**
 
 ```ts
-export type VolumeIncarnation = typeof VolumeIncarnation.Type
+export type VolumeIncarnation = string & Brand.Brand<"@effect-vfs/core/VolumeIncarnation">
 ```
 
 Added in v0.1.0
@@ -1359,7 +1611,13 @@ Capacity and path limits for a volume.
 **Signature**
 
 ```ts
-export type VolumeOptions = typeof VolumeOptions.Type
+export type VolumeOptions = {
+  readonly identity?: string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
+  readonly maxEntries?: number
+  readonly maxBytes?: ByteSize.ByteSize
+  readonly maxFileBytes?: ByteSize.ByteSize
+  readonly maxPathBytes?: ByteSize.ByteSize
+}
 ```
 
 Added in v0.1.0
@@ -2397,7 +2655,7 @@ Optional Effect service for providing an existing filesystem caller.
 **Signature**
 
 ```ts
-export declare const CurrentFileSystem: typeof VfsModel.CurrentFileSystem
+export declare const CurrentFileSystem: Context.Service<CurrentFileSystem, Caller>
 ```
 
 **Example**
@@ -2432,6 +2690,18 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 
 Added in v0.1.0
 
+### CurrentFileSystem (interface)
+
+The caller supplied by the optional filesystem service.
+
+**Signature**
+
+```ts
+export interface CurrentFileSystem extends Caller {}
+```
+
+Added in v0.1.0
+
 ## snapshots
 
 ### applySnapshotDelta
@@ -2446,122 +2716,11 @@ Requires the platform-neutral `Crypto.Crypto` service for base identity. Provide
 export declare const applySnapshotDelta: (
   base: Snapshot,
   delta: SnapshotDeltaModel.SnapshotDelta,
-  limits?: {
-    readonly maxEncodedBytes: ByteSize.ByteSize
-    readonly maxIdentityBytes: ByteSize.ByteSize
-    readonly maxDeltaRecords: number
-    readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-    readonly maxBaseRecords: number
-    readonly maxTargetRecords: number
-    readonly maxEntries: number
-    readonly maxOutputRecords: number
-    readonly maxOutputBytes: ByteSize.ByteSize
-    readonly maxInheritedRecords: number
-  }
+  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) => Effect.Effect<
   Snapshot,
-  [
-    | Effect.Effect<never, VfsModel.ConfigurationError, never>
-    | Effect.Effect<
-        {
-          readonly maxEncodedBytes: ByteSize.ByteSize
-          readonly maxIdentityBytes: ByteSize.ByteSize
-          readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-          readonly maxBaseRecords: number
-          readonly maxTargetRecords: number
-          readonly maxEntries: number
-          readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize.ByteSize
-          readonly maxInheritedRecords: number
-        },
-        never,
-        never
-      >
-    | Effect.Effect<
-        Snapshot,
-        ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-        Crypto.Crypto
-      >
-  ] extends [never]
-    ? never
-    : [
-          | Effect.Effect<never, VfsModel.ConfigurationError, never>
-          | Effect.Effect<
-              {
-                readonly maxEncodedBytes: ByteSize.ByteSize
-                readonly maxIdentityBytes: ByteSize.ByteSize
-                readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-                readonly maxBaseRecords: number
-                readonly maxTargetRecords: number
-                readonly maxEntries: number
-                readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize.ByteSize
-                readonly maxInheritedRecords: number
-              },
-              never,
-              never
-            >
-          | Effect.Effect<
-              Snapshot,
-              ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-              Crypto.Crypto
-            >
-        ] extends [Effect.Effect<infer _A, infer E, infer _R>]
-      ? E
-      : never,
-  [
-    | Effect.Effect<never, VfsModel.ConfigurationError, never>
-    | Effect.Effect<
-        {
-          readonly maxEncodedBytes: ByteSize.ByteSize
-          readonly maxIdentityBytes: ByteSize.ByteSize
-          readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-          readonly maxBaseRecords: number
-          readonly maxTargetRecords: number
-          readonly maxEntries: number
-          readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize.ByteSize
-          readonly maxInheritedRecords: number
-        },
-        never,
-        never
-      >
-    | Effect.Effect<
-        Snapshot,
-        ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-        Crypto.Crypto
-      >
-  ] extends [never]
-    ? never
-    : [
-          | Effect.Effect<never, VfsModel.ConfigurationError, never>
-          | Effect.Effect<
-              {
-                readonly maxEncodedBytes: ByteSize.ByteSize
-                readonly maxIdentityBytes: ByteSize.ByteSize
-                readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-                readonly maxBaseRecords: number
-                readonly maxTargetRecords: number
-                readonly maxEntries: number
-                readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize.ByteSize
-                readonly maxInheritedRecords: number
-              },
-              never,
-              never
-            >
-          | Effect.Effect<
-              Snapshot,
-              ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-              Crypto.Crypto
-            >
-        ] extends [Effect.Effect<infer _A, infer _E, infer R>]
-      ? R
-      : never
+  ConfigurationError | ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+  Crypto.Crypto
 >
 ```
 
@@ -2610,106 +2769,11 @@ Requires the platform-neutral `Crypto.Crypto` service for base identity. Provide
 export declare const diffSnapshots: (
   base: Snapshot,
   target: Snapshot,
-  limits?: {
-    readonly maxEncodedBytes: ByteSize.ByteSize
-    readonly maxIdentityBytes: ByteSize.ByteSize
-    readonly maxDeltaRecords: number
-    readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-    readonly maxBaseRecords: number
-    readonly maxTargetRecords: number
-    readonly maxEntries: number
-    readonly maxOutputRecords: number
-    readonly maxOutputBytes: ByteSize.ByteSize
-    readonly maxInheritedRecords: number
-  }
+  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) => Effect.Effect<
   SnapshotDeltaModel.SnapshotDelta,
-  [
-    | Effect.Effect<never, VfsModel.ConfigurationError, never>
-    | Effect.Effect<
-        {
-          readonly maxEncodedBytes: ByteSize.ByteSize
-          readonly maxIdentityBytes: ByteSize.ByteSize
-          readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-          readonly maxBaseRecords: number
-          readonly maxTargetRecords: number
-          readonly maxEntries: number
-          readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize.ByteSize
-          readonly maxInheritedRecords: number
-        },
-        never,
-        never
-      >
-    | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError.PlatformError, Crypto.Crypto>
-  ] extends [never]
-    ? never
-    : [
-          | Effect.Effect<never, VfsModel.ConfigurationError, never>
-          | Effect.Effect<
-              {
-                readonly maxEncodedBytes: ByteSize.ByteSize
-                readonly maxIdentityBytes: ByteSize.ByteSize
-                readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-                readonly maxBaseRecords: number
-                readonly maxTargetRecords: number
-                readonly maxEntries: number
-                readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize.ByteSize
-                readonly maxInheritedRecords: number
-              },
-              never,
-              never
-            >
-          | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError.PlatformError, Crypto.Crypto>
-        ] extends [Effect.Effect<infer _A, infer E, infer _R>]
-      ? E
-      : never,
-  [
-    | Effect.Effect<never, VfsModel.ConfigurationError, never>
-    | Effect.Effect<
-        {
-          readonly maxEncodedBytes: ByteSize.ByteSize
-          readonly maxIdentityBytes: ByteSize.ByteSize
-          readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-          readonly maxBaseRecords: number
-          readonly maxTargetRecords: number
-          readonly maxEntries: number
-          readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize.ByteSize
-          readonly maxInheritedRecords: number
-        },
-        never,
-        never
-      >
-    | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError.PlatformError, Crypto.Crypto>
-  ] extends [never]
-    ? never
-    : [
-          | Effect.Effect<never, VfsModel.ConfigurationError, never>
-          | Effect.Effect<
-              {
-                readonly maxEncodedBytes: ByteSize.ByteSize
-                readonly maxIdentityBytes: ByteSize.ByteSize
-                readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-                readonly maxBaseRecords: number
-                readonly maxTargetRecords: number
-                readonly maxEntries: number
-                readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize.ByteSize
-                readonly maxInheritedRecords: number
-              },
-              never,
-              never
-            >
-          | Effect.Effect<SnapshotDeltaModel.SnapshotDelta, ImageError | PlatformError.PlatformError, Crypto.Crypto>
-        ] extends [Effect.Effect<infer _A, infer _E, infer R>]
-      ? R
-      : never
+  ConfigurationError | ImageError | PlatformError.PlatformError,
+  Crypto.Crypto
 >
 ```
 
@@ -2756,233 +2820,12 @@ Requires the platform-neutral `Crypto.Crypto` service for base identity. Provide
 export declare const inspectSnapshotDelta: (
   base: Snapshot,
   delta: SnapshotDeltaModel.SnapshotDelta,
-  options?: { readonly includeTimestamps?: boolean },
-  limits?: {
-    readonly maxEncodedBytes: ByteSize.ByteSize
-    readonly maxIdentityBytes: ByteSize.ByteSize
-    readonly maxDeltaRecords: number
-    readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-    readonly maxBaseRecords: number
-    readonly maxTargetRecords: number
-    readonly maxEntries: number
-    readonly maxOutputRecords: number
-    readonly maxOutputBytes: ByteSize.ByteSize
-    readonly maxInheritedRecords: number
-  }
+  options?: SnapshotDeltaModel.SnapshotChangesOptions,
+  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) => Effect.Effect<
-  readonly (
-    | { readonly _tag: "Added"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
-    | { readonly _tag: "Removed"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
-    | {
-        readonly _tag: "Updated"
-        readonly path: BytePath
-        readonly beforeKind: "directory" | "file" | "symlink"
-        readonly afterKind: "directory" | "file" | "symlink"
-        readonly differences: readonly (
-          | "kind"
-          | "uid"
-          | "gid"
-          | "mode"
-          | "atimeNs"
-          | "mtimeNs"
-          | "ctimeNs"
-          | "birthtimeNs"
-          | "content"
-          | "target"
-          | "hardLinks"
-        )[]
-      }
-  )[],
-  [
-    | Effect.Effect<never, VfsModel.ConfigurationError, never>
-    | Effect.Effect<
-        {
-          readonly maxEncodedBytes: ByteSize.ByteSize
-          readonly maxIdentityBytes: ByteSize.ByteSize
-          readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-          readonly maxBaseRecords: number
-          readonly maxTargetRecords: number
-          readonly maxEntries: number
-          readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize.ByteSize
-          readonly maxInheritedRecords: number
-        },
-        never,
-        never
-      >
-    | Effect.Effect<
-        readonly (
-          | { readonly _tag: "Added"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
-          | { readonly _tag: "Removed"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
-          | {
-              readonly _tag: "Updated"
-              readonly path: BytePath
-              readonly beforeKind: "directory" | "file" | "symlink"
-              readonly afterKind: "directory" | "file" | "symlink"
-              readonly differences: readonly (
-                | "kind"
-                | "uid"
-                | "gid"
-                | "mode"
-                | "atimeNs"
-                | "mtimeNs"
-                | "ctimeNs"
-                | "birthtimeNs"
-                | "content"
-                | "target"
-                | "hardLinks"
-              )[]
-            }
-        )[],
-        ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-        Crypto.Crypto
-      >
-  ] extends [never]
-    ? never
-    : [
-          | Effect.Effect<never, VfsModel.ConfigurationError, never>
-          | Effect.Effect<
-              {
-                readonly maxEncodedBytes: ByteSize.ByteSize
-                readonly maxIdentityBytes: ByteSize.ByteSize
-                readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-                readonly maxBaseRecords: number
-                readonly maxTargetRecords: number
-                readonly maxEntries: number
-                readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize.ByteSize
-                readonly maxInheritedRecords: number
-              },
-              never,
-              never
-            >
-          | Effect.Effect<
-              readonly (
-                | { readonly _tag: "Added"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
-                | { readonly _tag: "Removed"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
-                | {
-                    readonly _tag: "Updated"
-                    readonly path: BytePath
-                    readonly beforeKind: "directory" | "file" | "symlink"
-                    readonly afterKind: "directory" | "file" | "symlink"
-                    readonly differences: readonly (
-                      | "kind"
-                      | "uid"
-                      | "gid"
-                      | "mode"
-                      | "atimeNs"
-                      | "mtimeNs"
-                      | "ctimeNs"
-                      | "birthtimeNs"
-                      | "content"
-                      | "target"
-                      | "hardLinks"
-                    )[]
-                  }
-              )[],
-              ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-              Crypto.Crypto
-            >
-        ] extends [Effect.Effect<infer _A, infer E, infer _R>]
-      ? E
-      : never,
-  [
-    | Effect.Effect<never, VfsModel.ConfigurationError, never>
-    | Effect.Effect<
-        {
-          readonly maxEncodedBytes: ByteSize.ByteSize
-          readonly maxIdentityBytes: ByteSize.ByteSize
-          readonly maxDeltaRecords: number
-          readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-          readonly maxBaseRecords: number
-          readonly maxTargetRecords: number
-          readonly maxEntries: number
-          readonly maxOutputRecords: number
-          readonly maxOutputBytes: ByteSize.ByteSize
-          readonly maxInheritedRecords: number
-        },
-        never,
-        never
-      >
-    | Effect.Effect<
-        readonly (
-          | { readonly _tag: "Added"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
-          | { readonly _tag: "Removed"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
-          | {
-              readonly _tag: "Updated"
-              readonly path: BytePath
-              readonly beforeKind: "directory" | "file" | "symlink"
-              readonly afterKind: "directory" | "file" | "symlink"
-              readonly differences: readonly (
-                | "kind"
-                | "uid"
-                | "gid"
-                | "mode"
-                | "atimeNs"
-                | "mtimeNs"
-                | "ctimeNs"
-                | "birthtimeNs"
-                | "content"
-                | "target"
-                | "hardLinks"
-              )[]
-            }
-        )[],
-        ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-        Crypto.Crypto
-      >
-  ] extends [never]
-    ? never
-    : [
-          | Effect.Effect<never, VfsModel.ConfigurationError, never>
-          | Effect.Effect<
-              {
-                readonly maxEncodedBytes: ByteSize.ByteSize
-                readonly maxIdentityBytes: ByteSize.ByteSize
-                readonly maxDeltaRecords: number
-                readonly maxDecodedDeltaBytes: ByteSize.ByteSize
-                readonly maxBaseRecords: number
-                readonly maxTargetRecords: number
-                readonly maxEntries: number
-                readonly maxOutputRecords: number
-                readonly maxOutputBytes: ByteSize.ByteSize
-                readonly maxInheritedRecords: number
-              },
-              never,
-              never
-            >
-          | Effect.Effect<
-              readonly (
-                | { readonly _tag: "Added"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
-                | { readonly _tag: "Removed"; readonly path: BytePath; readonly kind: "directory" | "file" | "symlink" }
-                | {
-                    readonly _tag: "Updated"
-                    readonly path: BytePath
-                    readonly beforeKind: "directory" | "file" | "symlink"
-                    readonly afterKind: "directory" | "file" | "symlink"
-                    readonly differences: readonly (
-                      | "kind"
-                      | "uid"
-                      | "gid"
-                      | "mode"
-                      | "atimeNs"
-                      | "mtimeNs"
-                      | "ctimeNs"
-                      | "birthtimeNs"
-                      | "content"
-                      | "target"
-                      | "hardLinks"
-                    )[]
-                  }
-              )[],
-              ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
-              Crypto.Crypto
-            >
-        ] extends [Effect.Effect<infer _A, infer _E, infer R>]
-      ? R
-      : never
+  ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
+  ConfigurationError | ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+  Crypto.Crypto
 >
 ```
 

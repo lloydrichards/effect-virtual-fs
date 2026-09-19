@@ -56,7 +56,36 @@ A path-oriented semantic difference between two snapshots.
 **Signature**
 
 ```ts
-export type SnapshotChange = typeof SnapshotChange.Type
+export type SnapshotChange =
+  | {
+      readonly _tag: "Added"
+      readonly path: BytePath
+      readonly kind: "directory" | "file" | "symlink"
+    }
+  | {
+      readonly _tag: "Removed"
+      readonly path: BytePath
+      readonly kind: "directory" | "file" | "symlink"
+    }
+  | {
+      readonly _tag: "Updated"
+      readonly path: BytePath
+      readonly beforeKind: "directory" | "file" | "symlink"
+      readonly afterKind: "directory" | "file" | "symlink"
+      readonly differences: readonly (
+        | "uid"
+        | "gid"
+        | "kind"
+        | "mode"
+        | "atimeNs"
+        | "mtimeNs"
+        | "ctimeNs"
+        | "birthtimeNs"
+        | "content"
+        | "target"
+        | "hardLinks"
+      )[]
+    }
 ```
 
 Added in v0.1.0
@@ -68,7 +97,7 @@ Filtering options for snapshot-delta inspection.
 **Signature**
 
 ```ts
-export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type
+export type SnapshotChangesOptions = { readonly includeTimestamps?: boolean }
 ```
 
 Added in v0.1.0
@@ -94,7 +123,18 @@ Resource limits shared by delta creation, inspection, encoding, decoding, and ap
 **Signature**
 
 ```ts
-export type SnapshotDeltaLimits = typeof SnapshotDeltaLimitsSchema.Type
+export type SnapshotDeltaLimits = {
+  readonly maxEncodedBytes: ByteSize.ByteSize
+  readonly maxIdentityBytes: ByteSize.ByteSize
+  readonly maxDeltaRecords: number
+  readonly maxDecodedDeltaBytes: ByteSize.ByteSize
+  readonly maxBaseRecords: number
+  readonly maxTargetRecords: number
+  readonly maxEntries: number
+  readonly maxOutputRecords: number
+  readonly maxOutputBytes: ByteSize.ByteSize
+  readonly maxInheritedRecords: number
+}
 ```
 
 Added in v0.1.0
@@ -106,7 +146,18 @@ A semantic field that differs between two snapshots.
 **Signature**
 
 ```ts
-export type SnapshotDifference = typeof SnapshotDifference.Type
+export type SnapshotDifference =
+  | "uid"
+  | "gid"
+  | "kind"
+  | "mode"
+  | "atimeNs"
+  | "mtimeNs"
+  | "ctimeNs"
+  | "birthtimeNs"
+  | "content"
+  | "target"
+  | "hardLinks"
 ```
 
 Added in v0.1.0
@@ -118,7 +169,7 @@ A filesystem entry kind reported by snapshot inspection.
 **Signature**
 
 ```ts
-export type SnapshotNodeKind = typeof SnapshotNodeKind.Type
+export type SnapshotNodeKind = "directory" | "file" | "symlink"
 ```
 
 Added in v0.1.0
@@ -397,7 +448,7 @@ Type identifier for opaque snapshot deltas.
 **Signature**
 
 ```ts
-export type SnapshotDeltaTypeId = typeof SnapshotDeltaTypeId
+export type SnapshotDeltaTypeId = "@effect-vfs/core/SnapshotDelta"
 ```
 
 Added in v0.1.0
