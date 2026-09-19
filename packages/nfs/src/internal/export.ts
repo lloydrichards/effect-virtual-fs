@@ -43,7 +43,10 @@ export interface NfsExport {
   ) => Effect.Effect<Vfs.ObjectReference, Vfs.FsError | InvalidNameError>
   readonly parent: (directory: Vfs.ObjectReference) => Effect.Effect<Vfs.ObjectReference, Vfs.FsError>
   readonly readLink: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, Vfs.FsError>
-  readonly open: (reference: Vfs.ObjectReference) => Effect.Effect<OpenedFile, Vfs.FsError>
+  readonly open: (
+    reference: Vfs.ObjectReference,
+    access?: Vfs.OpenReferenceSettings["access"]
+  ) => Effect.Effect<OpenedFile, Vfs.FsError>
   readonly fsid: readonly [bigint, bigint]
 }
 
@@ -204,13 +207,17 @@ export const makeExport = (
       )
     })
 
-  const open = (activeCaller: Vfs.Caller, reference: Vfs.ObjectReference): Effect.Effect<OpenedFile, Vfs.FsError> =>
+  const open = (
+    activeCaller: Vfs.Caller,
+    reference: Vfs.ObjectReference,
+    access: Vfs.OpenReferenceSettings["access"] = "read"
+  ): Effect.Effect<OpenedFile, Vfs.FsError> =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function*() {
         const scope = yield* Scope.make()
 
         const opened = yield* Effect.exit(restore(
-          activeCaller.openReference(reference).pipe(Effect.provideService(Scope.Scope, scope))
+          activeCaller.openReference(reference, { access }).pipe(Effect.provideService(Scope.Scope, scope))
         ))
 
         if (Exit.isFailure(opened)) {
@@ -247,7 +254,7 @@ export const makeExport = (
       }),
     parent: activeCaller.parentReference,
     readLink: activeCaller.readLinkReference,
-    open: (reference) => open(activeCaller, reference),
+    open: (reference, access) => open(activeCaller, reference, access),
     fsid: [uint64From(identityCopy, 0), uint64From(identityCopy, 8)]
   })
 

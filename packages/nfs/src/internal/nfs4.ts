@@ -39,6 +39,7 @@ export const Status = {
   SAME: 10009,
   EXPIRED: 10011,
   LOCKED: 10012,
+  OPENMODE: 10038,
   FHEXPIRED: 10014,
   SHARE_DENIED: 10015,
   CLID_INUSE: 10017,
@@ -336,6 +337,8 @@ export interface Nfs4Limits extends DecodeLimits {
 
 /** @internal */
 export interface Nfs4Options {
+  /** Staged writable-state support; the public export remains read-only until durability is qualified. */
+  readonly writable?: boolean
   readonly leaseDurationSeconds: number
   /** How long a callback waits for the client's reply before the path is treated as down. */
   readonly callbackTimeout: Duration.Input
@@ -648,13 +651,14 @@ interface CallbackSlot {
 interface OpenState {
   id: Uint8Array
   sequence: number
-  /** Share reservation held by this open-owner; access is always OPEN4_SHARE_ACCESS_READ. */
+  /** Aggregate access and deny modes held by this open-owner on this file. */
+  access: number
   deny: number
   readonly owner: string
   readonly client: ClientState
   readonly reference: Vfs.ObjectReference
-  readonly file: Vfs.FileHandle
-  readonly close: Effect.Effect<void>
+  file: Vfs.FileHandle
+  close: Effect.Effect<void>
 }
 
 interface LockState {
@@ -3593,7 +3597,7 @@ export const makeNfs4Handler = (
                 return target.pipe(
                   Effect.tap(({ reference }) => requireRegularFile(reference)),
                   // Write access is refused only once the target is known to be a regular file.
-                  Effect.tap(() => wantsWrite ? Effect.fail(Status.ROFS) : Effect.void),
+                  Effect.tap(() => wantsWrite && !options.writable ? Effect.fail(Status.ROFS) : Effect.void),
                   Effect.flatMap(({ revision, reference }) =>
                     Effect.uninterruptibleMask((restore) =>
                       Effect.suspend(() => {
@@ -3606,7 +3610,7 @@ export const makeNfs4Handler = (
                         // Section 9.7 checks every open, including this open-owner's own state.
                         const denied = [...opens.values()].some((open) =>
                           open.reference === reference &&
-                          ((open.deny & accessMode) !== 0 || (value.deny & OPEN4_SHARE_DENY_READ) !== 0)
+                          ((open.deny & accessMode) !== 0 || (value.deny & open.access) !== 0)
                         )
 
                         if (denied) {
@@ -3618,17 +3622,48 @@ export const makeNfs4Handler = (
                         if (existing !== undefined) {
                           // The same open-owner upgrades its reservation (Section 9.7).
                           // Its mapped caller may have lost access since the earlier OPEN.
-                          const permission = activeCaller === undefined
-                            ? Effect.void
-                            : mapFs(activeCaller.accessReference(reference, 0o4))
+                          const nextAccess = existing.access | accessMode
 
-                          return restore(permission).pipe(Effect.map(() => {
-                            existing.deny |= value.deny
-                            advanceStateId(existing)
-                            current = reference
+                          const permission = activeCaller === undefined ?
+                            Effect.void :
+                            mapFs(
+                              activeCaller.accessReference(
+                                reference,
+                                (accessMode & 1 ? 0o4 : 0) | (accessMode & 2 ? 0o2 : 0)
+                              )
+                            )
 
-                            return openResult(existing.id, revision, value.claim === 4)
-                          }))
+                          const addedAccess = nextAccess & ~existing.access
+
+                          const replacement = addedAccess === 0 ?
+                            Effect.succeed(null) :
+                            mapFs(export_.open(reference, addedAccess === OPEN4_SHARE_ACCESS_READ ? "read" : "write"))
+
+                          let transferred = false
+
+                          return restore(permission).pipe(
+                            Effect.andThen(Effect.acquireUseRelease(
+                              restore(replacement),
+                              (opened) =>
+                                opened === null ? Effect.void : Effect.sync(() => {
+                                  const previousClose = existing.close
+
+                                  if (addedAccess === OPEN4_SHARE_ACCESS_READ) existing.file = opened.handle
+
+                                  existing.close = opened.close.pipe(Effect.andThen(previousClose))
+                                  transferred = true
+                                }),
+                              (opened) => opened === null || transferred ? Effect.void : opened.close
+                            )),
+                            Effect.map(() => {
+                              existing.access = nextAccess
+                              existing.deny |= value.deny
+                              advanceStateId(existing)
+                              current = reference
+
+                              return openResult(existing.id, revision, value.claim === 4)
+                            })
+                          )
                         }
 
                         if (opens.size >= options.limits.maxOpens) {
@@ -3637,12 +3672,15 @@ export const makeNfs4Handler = (
 
                         const serial = openSerial++
 
-                        return restore(mapFs(export_.open(reference))).pipe(
+                        return restore(
+                          mapFs(export_.open(reference, accessMode === 3 ? "readWrite" : wantsWrite ? "write" : "read"))
+                        ).pipe(
                           Effect.map((opened): ResultPart => {
                             const id = makeStateId(options.generation, serial, 1)
                             opens.set(stateIdKey(id), {
                               id,
                               sequence: 1,
+                              access: accessMode,
                               deny: value.deny,
                               owner,
                               client: activeSession!.client,
@@ -3756,6 +3794,10 @@ export const makeNfs4Handler = (
                   return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
                 }
 
+                if ((open.access & OPEN4_SHARE_ACCESS_READ) === 0) {
+                  return Effect.succeed({ code: operation.code, status: Status.OPENMODE })
+                }
+
                 return readPermission.pipe(
                   Effect.andThen(readFrom(open.file)),
                   Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
@@ -3790,13 +3832,14 @@ export const makeNfs4Handler = (
                 if (stateidStatus !== Status.OK) return Effect.succeed({ code: operation.code, status: stateidStatus })
 
                 // Section 18.18.3: delegation want bits are masked off, and the new modes must be
-                // non-empty subsets of what is held. Only read access is ever held here.
+                // non-empty subsets of what is held.
                 const access = value.access & ~OPEN4_SHARE_ACCESS_WANT_DELEG_MASK
 
-                if (access !== OPEN4_SHARE_ACCESS_READ || (value.deny & ~open.deny) !== 0) {
+                if (access === 0 || (access & ~open.access) !== 0 || (value.deny & ~open.deny) !== 0) {
                   return Effect.succeed({ code: operation.code, status: Status.INVAL })
                 }
 
+                open.access = access
                 open.deny = value.deny
                 advanceStateId(open)
                 currentStateid = open.id
