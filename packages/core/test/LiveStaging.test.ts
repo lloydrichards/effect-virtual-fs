@@ -105,6 +105,30 @@ describe("live volume staging", () => {
       assert.deepEqual(yield* volume.usage, { usedBytes: 0n, entries: 0 })
     })))
 
+  it.effect("includes open unlinked files in each candidate until final close", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const retained = new Array<ReadonlyArray<bigint>>()
+
+      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, {
+        commit: (candidate) => {
+          retained.push([...candidate.retainedFiles.keys()])
+
+          return Effect.succeed("committed" as const)
+        }
+      })
+
+      const caller = yield* volume.caller()
+      const handle = yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
+      const inode = (yield* handle.stat).ino
+
+      yield* caller.unlink("/file")
+      assert.deepEqual(retained.at(-1), [inode])
+      yield* handle.write(new Uint8Array([1]))
+      assert.deepEqual(retained.at(-1), [inode])
+      yield* handle.close
+      assert.deepEqual(retained.at(-1), [])
+    })))
+
   it.effect("keeps hard-link identity and directory revisions across a rejected rename", () =>
     Effect.gen(function*() {
       let outcome: "committed" | "rejected" = "committed"
