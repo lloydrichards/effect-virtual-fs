@@ -232,52 +232,62 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(statuses(refused).status, Status.ACCESS)
     }))
 
-  it.effect("uses storage incarnation rather than server generation for COMMIT", () =>
+  it.effect("uses both storage incarnation and server generation for COMMIT", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const storageGeneration = generation.map(() => 9)
+      const verifiers: Array<Uint8Array> = []
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, storageGeneration, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          storageGeneration,
-          now: () => 0,
+      for (const [serverByte, storageByte] of [[7, 9], [8, 9], [6, 8]] as const) {
+        const serverGeneration = generation.map(() => serverByte)
+        const storageGeneration = generation.map(() => storageByte)
+
+        const handler = yield* makeNfs4Handler(
+          makeExport(caller, storageGeneration, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+          {
+            leaseDurationSeconds: 30,
+            callbackTimeout: "1 second",
+            generation: serverGeneration,
+            storageGeneration,
+            now: () => 0,
+            limits
+          }
+        )
+
+        const { session } = yield* startSession(handler, "commit-storage-generation")
+
+        const response = new Reader(
+          yield* handler.compound(call([
+            sequence(session, 1),
+            (writer) => writer.uint32(Operation.PUTROOTFH),
+            (writer) => writer.uint32(Operation.LOOKUP).string("file"),
+            (writer) => writer.uint32(Operation.COMMIT).uint64(0n).uint32(0)
+          ])),
           limits
-        }
-      )
+        )
 
-      const { session } = yield* startSession(handler, "commit-storage-generation")
-
-      const response = new Reader(
-        yield* handler.compound(call([
-          sequence(session, 1),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.LOOKUP).string("file"),
-          (writer) => writer.uint32(Operation.COMMIT).uint64(0n).uint32(0)
-        ])),
-        limits
-      )
-
-      assert.strictEqual(response.uint32(), Status.OK)
-      response.string()
-      assert.strictEqual(response.uint32(), 4)
-      assert.strictEqual(response.uint32(), Operation.SEQUENCE)
-      assert.strictEqual(response.uint32(), Status.OK)
-      response.fixedOpaque(16)
-
-      for (let field = 0; field < 5; field++) response.uint32()
-
-      for (const operation of [Operation.PUTROOTFH, Operation.LOOKUP, Operation.COMMIT]) {
-        assert.strictEqual(response.uint32(), operation)
         assert.strictEqual(response.uint32(), Status.OK)
+        response.string()
+        assert.strictEqual(response.uint32(), 4)
+        assert.strictEqual(response.uint32(), Operation.SEQUENCE)
+        assert.strictEqual(response.uint32(), Status.OK)
+        response.fixedOpaque(16)
+
+        for (let field = 0; field < 5; field++) response.uint32()
+
+        for (const operation of [Operation.PUTROOTFH, Operation.LOOKUP, Operation.COMMIT]) {
+          assert.strictEqual(response.uint32(), operation)
+          assert.strictEqual(response.uint32(), Status.OK)
+        }
+
+        verifiers.push(response.fixedOpaque(8))
+        response.finish()
       }
 
-      assert.deepStrictEqual(response.fixedOpaque(8), storageGeneration.subarray(0, 8))
-      response.finish()
+      assert.strictEqual(verifiers.length, 3)
+      assert.isFalse(verifiers[0]!.every((byte, index) => byte === verifiers[1]![index]))
+      assert.isFalse(verifiers[0]!.every((byte, index) => byte === verifiers[2]![index]))
+      assert.isFalse(verifiers[1]!.every((byte, index) => byte === verifiers[2]![index]))
     }))
 
   it("wraps client sequence IDs at the uint32 boundary", () => {

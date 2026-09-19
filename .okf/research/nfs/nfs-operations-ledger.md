@@ -23,10 +23,13 @@ sources:
   - id: lock-tests
     resource: ../../../packages/nfs/test/NfsLocks.test.ts
     title: Byte-range lock behavior tests
+  - id: write-tests
+    resource: ../../../packages/nfs/test/NfsWrite.test.ts
+    title: Internal write and commit behavior tests
   - id: knfsd
     resource: https://docs.kernel.org/filesystems/nfs/nfs41-server.html
     title: Linux knfsd NFSv4.1 implementation status table
-generated: { by: codex/okf, at: 2026-09-19T19:30:16Z }
+generated: { by: codex/okf, at: 2026-09-19T19:47:28Z }
 ---
 
 # NFS operations ledger
@@ -99,7 +102,7 @@ Rows follow RFC 8881 Table 16 and Table 17.[^rfc8881-17] Status uses the vocabul
 
 The internal NFS handler can enable write access for existing regular files. An `OPEN` records the open owner's read and write access alongside its deny bits. Conflicts compare new access with held denials and new denials with held access, including the same owner's earlier open. A repeated `OPEN` can extend access by opening only the newly requested mode and retaining the earlier handle. This permits an upgrade when permissions changed after the first open; interruption leaves the original handle usable. `OPEN_DOWNGRADE` keeps only a nonempty subset of held access and denial; `CLOSE` and lease revocation release the reservation. `READ` with a write-only stateid returns `OPENMODE`. Session replay prevents a retried `OPEN` from applying twice.[^dispatcher][^tests]
 
-This mode is not exposed by `NfsServer`. The public read-only profile and the table above still reject write opens with `ROFS`, and `WRITE` remains `ROFS`. The writable export requires qualified durability and the remaining writable operations under [writable export scope](../../decisions/nfs/writable-export-scope.md "constrained by").
+This mode is not exposed by `NfsServer`. The internal writable handler also accepts `WRITE` with a valid open or lock stateid, returns the exact `pwrite` count and `FILE_SYNC4`, and answers `COMMIT` with the same server-and-volume-lifetime verifier. Focused tests exercise the wire reply and controlled storage outcomes.[^write-tests] The public read-only profile and the table above still reject write opens and `WRITE` with `ROFS`. The writable export requires qualified durability and the remaining writable operations under [writable export scope](../../decisions/nfs/writable-export-scope.md "constrained by").
 
 The same staged handler grants write byte-range locks when writable mode is enabled. `LOCK` and `LOCKT` return `DENIED` with the conflicting NFS client's owner, type, and range; read locks can overlap each other. For one lock owner with multiple open stateids, the last `LOCK` assigns each byte to its open stateid, and `LOCKU` releases the owner's bytes across those stateids. Other stateids keep their sequence numbers. A lock owner can replace or release part of its own range. Range splits remain subject to `maxLocks`, while owner state remains subject to `maxLockOwners`. Waiting lock types receive an immediate conflict response and do not create a queue. `CLOSE` requires held ranges to be unlocked first; successful close, lease expiry, and client revocation invalidate the associated lock stateids.[^dispatcher][^lock-tests]
 
@@ -144,6 +147,8 @@ Behavior claims are grounded in the dispatcher and the two protocol test suites,
 [^dispatcher]: The opcode table, `decodeOperation`, and the `execute` switch define which operations exist and how they answer.
 
 [^tests]: The compound suite drives `handler.compound()` with hand-encoded XDR and covers negotiation, replay, filehandles, directory reads, opens, reads, and mutation rejection.
+
+[^write-tests]: The internal write suite checks the actual short-write count, zero write, verifier, replay, confirmed storage rejection, and an unknown storage outcome.
 
 [^profile-tests]: The profile suite covers the operations added for read-only completeness, the client-record cases, and the session guards.
 

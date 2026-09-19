@@ -12,5 +12,6 @@
 - [NFS operations ledger](nfs/nfs-operations-ledger.md) maps every RFC 8881 operation to profile, status, and follow-up issue.
 - [NFS attributes ledger](nfs/nfs-attributes-ledger.md) does the same for REQUIRED and RECOMMENDED attributes.
 - [NFS protocol rules ledger](nfs/nfs-protocol-rules-ledger.md) covers cross-cutting requirements, errata, and the client matrix.
+- [NFS WRITE and COMMIT design](nfs/write-commit-issue-127.md) records protocol facts, staged behavior, accepted decisions, and remaining prerequisites for issue #127.
 
 Path-workload measurements are not a separate concept. Their durable conclusion is represented by the accepted optional total-path-limit decision: repository workloads do not justify a universal fixed cap.
