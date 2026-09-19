@@ -335,10 +335,20 @@ export const NfsServerTcpAddress = Schema.Struct({
  */
 export type NfsServerTcpAddress = typeof NfsServerTcpAddress.Type
 
-/** Schema for a TCP address that may be reachable beyond the local host. */
+/**
+ * Schema for a TCP address that may be reachable beyond the local host.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const NfsServerNetworkTcpAddress = Schema.Struct({ host: Schema.NonEmptyString, port: Port })
 
-/** A TCP address that may be reachable beyond the local host. */
+/**
+ * A TCP address that may be reachable beyond the local host.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type NfsServerNetworkTcpAddress = typeof NfsServerNetworkTcpAddress.Type
 
 /**
