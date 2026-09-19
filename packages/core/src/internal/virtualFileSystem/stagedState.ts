@@ -8,6 +8,8 @@ export type CommitOutcome = "committed" | "rejected" | "unknown"
 
 /** @internal */
 export interface CommitProvider<State> {
+  /** Checks and encodes a candidate before the commit boundary. Failure leaves the volume available. */
+  readonly prepare?: (candidate: State) => Effect.Effect<void, FsError>
   /** Classifies a candidate as committed, definitely rejected, or uncertain. */
   readonly commit: (candidate: State) => Effect.Effect<CommitOutcome>
 }
@@ -57,6 +59,7 @@ export const makeStagedState = <State, Event = never>(
         const candidate = yield* restore(copy(current))
         const events: Array<Event> = []
         const value = yield* restore(change(candidate, (event) => events.push(event)))
+        if (provider.prepare !== undefined) yield* restore(provider.prepare(candidate))
         const committed = yield* Effect.exit(provider.commit(candidate))
 
         if (Exit.isFailure(committed)) {

@@ -622,6 +622,7 @@ const storedMetadata = (metadata: Metadata): Image.StoredMetadata => ({
 type VolumeSource =
   | { readonly _tag: "Empty" }
   | { readonly _tag: "Snapshot"; readonly image: Image.Document }
+  | { readonly _tag: "Live"; readonly document: LiveImage.Document }
   | {
     readonly _tag: "Overlay"
     readonly base: Snapshot
@@ -641,7 +642,15 @@ const UpdateChange = Schema.TaggedStruct("Update", { path: BytePath })
 export const makeVolume = Effect.fnUntraced(
   function*<S extends VolumeSource>(source: S, options?: VolumeOptions, commitProvider?: CommitProvider<EngineState>) {
     const image = "image" in source ? source.image : undefined
-    const decoded = decodeConfiguration(VolumeOptions, options === undefined ? {} : options)
+    const live = Predicate.isTagged("Live")(source) ? source.document : undefined
+    const restoredOptions: VolumeOptions | undefined = live === undefined ? options : {
+      identity: VolumeIdentity.make(live.identity),
+      ...(live.limits.maxEntries === undefined ? {} : { maxEntries: live.limits.maxEntries }),
+      ...(live.limits.maxBytes === undefined ? {} : { maxBytes: ByteSize.bytes(live.limits.maxBytes) }),
+      ...(live.limits.maxFileBytes === undefined ? {} : { maxFileBytes: ByteSize.bytes(live.limits.maxFileBytes) }),
+      ...(live.limits.maxPathBytes === undefined ? {} : { maxPathBytes: ByteSize.bytes(live.limits.maxPathBytes) })
+    }
+    const decoded = decodeConfiguration(VolumeOptions, restoredOptions === undefined ? {} : restoredOptions)
 
     if (Result.isFailure(decoded)) return yield* decoded.failure
     const settings = { ...decoded.success }
@@ -952,6 +961,83 @@ export const makeVolume = Effect.fnUntraced(
 
       state.entries = count
       state.usedBytes = content
+    }
+
+    if (live !== undefined) {
+      const incoming = new Map<bigint, Node>()
+
+      for (const record of live.records) {
+        const metadata: Metadata = {
+          ...record.metadata,
+          kind: record._tag,
+          ino: record.ino
+        }
+
+        if (LiveImage.Record.guards.directory(record)) {
+          incoming.set(record.ino, {
+            kind: "directory",
+            lineage: record.lineage,
+            parent: undefined,
+            entries: new Map(),
+            metadata,
+            revision: record.revision,
+            objectReference: undefined
+          })
+        } else if (LiveImage.Record.guards.file(record)) {
+          incoming.set(record.ino, {
+            kind: "file",
+            lineage: record.lineage,
+            data: Content.make(yield* CanonicalBase64.decode(record.data)),
+            openCount: 0,
+            metadata,
+            revision: record.revision,
+            objectReference: undefined
+          })
+        } else {
+          incoming.set(record.ino, {
+            kind: "symlink",
+            lineage: record.lineage,
+            target: yield* CanonicalBase64.decode(record.target),
+            metadata,
+            revision: record.revision,
+            objectReference: undefined
+          })
+        }
+      }
+
+      for (const record of live.records) {
+        if (!LiveImage.Record.guards.directory(record)) continue
+        const parent = incoming.get(record.ino)
+
+        if (parent?.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
+
+        for (const entry of record.entries) {
+          const child = incoming.get(entry.target)
+
+          if (child === undefined) return yield* new ImageError({ code: "InvalidStructure" })
+          parent.entries.set(Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name)), child)
+
+          if (child.kind === "directory") child.parent = parent
+        }
+      }
+
+      const root = incoming.get(live.root)
+
+      if (root?.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
+      state.root = root
+      state.nextInode = live.nextInode
+      state.revisionCounter = live.revisionCounter
+      state.entries = live.entries
+      state.usedBytes = live.usedBytes
+
+      // A previous process's handles no longer exist. Their zero-link files
+      // remain in the stored image but are reclaimed from this runtime state.
+      for (const ino of live.retainedFiles) {
+        const orphan = incoming.get(ino)
+
+        if (orphan?.kind !== "file") return yield* new ImageError({ code: "InvalidStructure" })
+        state.usedBytes -= BigInt(orphan.data.bytes.length)
+      }
     }
 
     const contexts = new WeakMap<EngineState, CandidateContext>()
