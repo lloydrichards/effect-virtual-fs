@@ -1286,8 +1286,12 @@ export const makeVolume = Effect.fnUntraced(
 
     const finalizeFile = (ref: FileReference) =>
       Effect.suspend(() =>
-        ref.closed || ref.file === undefined
+        ref.closed
           ? Effect.void
+          : ref.file === undefined
+          ? Effect.sync(() => {
+            ref.closed = true
+          })
           : coordinated("close", Effect.sync(() => releaseFile(ref)), () => releaseFile(ref)).pipe(
             Effect.catch(() =>
               coordinatedCleanup(Effect.sync(() => {
