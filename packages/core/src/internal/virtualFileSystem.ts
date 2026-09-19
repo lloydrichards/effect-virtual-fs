@@ -468,6 +468,28 @@ interface EngineState {
   usedBytes: bigint
 }
 
+interface LiveImageCommon {
+  ino: bigint
+  revision: bigint
+  lineage?: string
+  metadata: LiveImage.Record["metadata"]
+}
+
+interface MutableLiveImageLimits {
+  maxEntries?: number
+  maxBytes?: bigint
+  maxFileBytes?: bigint
+  maxPathBytes?: bigint
+}
+
+interface RestoredVolumeOptions {
+  identity: VolumeIdentity
+  maxEntries?: number
+  maxBytes?: ByteSize.ByteSize
+  maxFileBytes?: ByteSize.ByteSize
+  maxPathBytes?: ByteSize.ByteSize
+}
+
 /** @internal */
 export const captureLiveImage = Effect.fnUntraced(function*(
   state: EngineState,
@@ -484,16 +506,18 @@ export const captureLiveImage = Effect.fnUntraced(function*(
 
     if (node === undefined || visited.has(node.metadata.ino)) continue
     visited.add(node.metadata.ino)
-    const common = {
+
+    const common: LiveImageCommon = {
       ino: node.metadata.ino,
       revision: node.revision,
-      ...(node.lineage === undefined ? {} : { lineage: node.lineage }),
       metadata: {
         ...storedMetadata(node.metadata),
         nlink: node.metadata.nlink,
         size: node.metadata.size
       }
     }
+
+    if (node.lineage !== undefined) common.lineage = node.lineage
 
     if (node.kind === "directory") {
       const entries: Array<{ name: typeof CanonicalBase64.Encoded.Type; target: bigint }> = []
@@ -511,6 +535,16 @@ export const captureLiveImage = Effect.fnUntraced(function*(
     }
   }
 
+  const storedLimits: MutableLiveImageLimits = {}
+
+  if (limits.maxEntries !== undefined) storedLimits.maxEntries = limits.maxEntries
+
+  if (limits.maxBytes !== undefined) storedLimits.maxBytes = ByteSize.toBigInt(limits.maxBytes)
+
+  if (limits.maxFileBytes !== undefined) storedLimits.maxFileBytes = ByteSize.toBigInt(limits.maxFileBytes)
+
+  if (limits.maxPathBytes !== undefined) storedLimits.maxPathBytes = ByteSize.toBigInt(limits.maxPathBytes)
+
   const document: LiveImage.Document = {
     format: "effect-vfs-live",
     version: 1,
@@ -520,12 +554,7 @@ export const captureLiveImage = Effect.fnUntraced(function*(
     revisionCounter: state.revisionCounter,
     entries: state.entries,
     usedBytes: state.usedBytes,
-    limits: {
-      ...(limits.maxEntries === undefined ? {} : { maxEntries: limits.maxEntries }),
-      ...(limits.maxBytes === undefined ? {} : { maxBytes: ByteSize.toBigInt(limits.maxBytes) }),
-      ...(limits.maxFileBytes === undefined ? {} : { maxFileBytes: ByteSize.toBigInt(limits.maxFileBytes) }),
-      ...(limits.maxPathBytes === undefined ? {} : { maxPathBytes: ByteSize.toBigInt(limits.maxPathBytes) })
-    },
+    limits: storedLimits,
     retainedFiles: [...state.retainedFiles.keys()],
     records
   }
@@ -640,16 +669,33 @@ const UpdateChange = Schema.TaggedStruct("Update", { path: BytePath })
 
 /** @internal */
 export const makeVolume = Effect.fnUntraced(
-  function*<S extends VolumeSource>(source: S, options?: VolumeOptions, commitProvider?: CommitProvider<EngineState>) {
+  function*<S extends VolumeSource>(
+    source: S,
+    options?: VolumeOptions,
+    commitProvider?: CommitProvider<EngineState>,
+    captureInitial?: (
+      state: EngineState,
+      identity: VolumeIdentity,
+      limits: VolumeLimits
+    ) => Effect.Effect<void, ImageError>
+  ) {
     const image = "image" in source ? source.image : undefined
     const live = Predicate.isTagged("Live")(source) ? source.document : undefined
-    const restoredOptions: VolumeOptions | undefined = live === undefined ? options : {
-      identity: VolumeIdentity.make(live.identity),
-      ...(live.limits.maxEntries === undefined ? {} : { maxEntries: live.limits.maxEntries }),
-      ...(live.limits.maxBytes === undefined ? {} : { maxBytes: ByteSize.bytes(live.limits.maxBytes) }),
-      ...(live.limits.maxFileBytes === undefined ? {} : { maxFileBytes: ByteSize.bytes(live.limits.maxFileBytes) }),
-      ...(live.limits.maxPathBytes === undefined ? {} : { maxPathBytes: ByteSize.bytes(live.limits.maxPathBytes) })
+    let restoredOptions = options
+
+    if (live !== undefined) {
+      const recovered: RestoredVolumeOptions = { identity: VolumeIdentity.make(live.identity) }
+
+      if (live.limits.maxEntries !== undefined) recovered.maxEntries = live.limits.maxEntries
+
+      if (live.limits.maxBytes !== undefined) recovered.maxBytes = ByteSize.bytes(live.limits.maxBytes)
+
+      if (live.limits.maxFileBytes !== undefined) recovered.maxFileBytes = ByteSize.bytes(live.limits.maxFileBytes)
+
+      if (live.limits.maxPathBytes !== undefined) recovered.maxPathBytes = ByteSize.bytes(live.limits.maxPathBytes)
+      restoredOptions = recovered
     }
+
     const decoded = decodeConfiguration(VolumeOptions, restoredOptions === undefined ? {} : restoredOptions)
 
     if (Result.isFailure(decoded)) return yield* decoded.failure
@@ -1040,6 +1086,8 @@ export const makeVolume = Effect.fnUntraced(
       }
     }
 
+    if (captureInitial !== undefined) yield* captureInitial(state, identity, limits)
+
     const contexts = new WeakMap<EngineState, CandidateContext>()
 
     const copyState = (current: EngineState) =>
@@ -1133,6 +1181,8 @@ export const makeVolume = Effect.fnUntraced(
         for (const event of events) event()
       }
     )
+
+    if (staged !== undefined) commitProvider?.onReady?.(staged.shutdown)
 
     // Permit waits stay interruptible. Changes and their publication run under one permit.
     const coordinated = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>, onStorageFailure?: () => void) =>
@@ -3811,6 +3861,81 @@ export const makeVolume = Effect.fnUntraced(
 /** @internal */
 export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: VolumeOptions) {
   return yield* makeVolume(VolumeSource.Empty(), options).pipe(Effect.catchTag("ImageError", Effect.die))
+})
+
+/** @internal */
+export const prepareEmptyLiveImage = Effect.fnUntraced(function*(options?: VolumeOptions) {
+  let bytes: Uint8Array | undefined
+
+  yield* makeVolume(
+    VolumeSource.Empty(),
+    options,
+    undefined,
+    (initial, identity, limits) =>
+      captureLiveImage(initial, identity, limits).pipe(
+        Effect.tap((image) =>
+          Effect.sync(() => {
+            bytes = image
+          })
+        ),
+        Effect.asVoid
+      )
+  )
+
+  if (bytes === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "liveImage" })
+
+  return bytes
+})
+
+/** @internal */
+export const openImageVolume = Effect.fnUntraced(function*(
+  image: Uint8Array,
+  maxImageBytes: ByteSize.ByteSize,
+  commit: (image: Uint8Array) => Effect.Effect<"committed" | "rejected" | "unknown">
+) {
+  const document = yield* LiveImage.decode(image, maxImageBytes)
+  const prepared = new WeakMap<EngineState, Uint8Array>()
+  const identity = VolumeIdentity.make(document.identity)
+  let shutdown: Effect.Effect<void> | undefined
+
+  const limits: VolumeLimits = {
+    maxEntries: document.limits.maxEntries,
+    maxBytes: document.limits.maxBytes === undefined ? undefined : ByteSize.bytes(document.limits.maxBytes),
+    maxFileBytes: document.limits.maxFileBytes === undefined
+      ? ByteSize.bytes(0xffffffff)
+      : ByteSize.bytes(document.limits.maxFileBytes),
+    maxPathBytes: document.limits.maxPathBytes === undefined ? undefined : ByteSize.bytes(document.limits.maxPathBytes)
+  }
+
+  const volume = yield* makeVolume(VolumeSource.Live({ document }), undefined, {
+    onReady: (effect) => {
+      shutdown = effect
+    },
+    prepare: (candidate) =>
+      captureLiveImage(candidate, identity, limits).pipe(
+        Effect.flatMap((bytes) =>
+          ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxImageBytes)
+            ? new FsError({ code: "StorageRejected", operation: "commit" })
+            : Effect.sync(() => {
+              prepared.set(candidate, bytes)
+            })
+        ),
+        Effect.mapError(() => new FsError({ code: "StorageRejected", operation: "commit" }))
+      ),
+    commit: (candidate) =>
+      Effect.suspend(() => {
+        const bytes = prepared.get(candidate)
+
+        if (bytes === undefined) return Effect.succeed("unknown" as const)
+        prepared.delete(candidate)
+
+        return commit(bytes)
+      })
+  })
+
+  if (shutdown === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "liveImage" })
+
+  return Object.freeze({ volume, shutdown })
 })
 
 /** @internal */

@@ -2,7 +2,14 @@ import { assert, describe } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Fiber, Predicate, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import * as LiveImage from "../src/internal/liveImage.js"
-import { captureLiveImage, makeVolume, VolumeIdentity, VolumeSource } from "../src/internal/virtualFileSystem.js"
+import {
+  captureLiveImage,
+  makeVolume,
+  openImageVolume,
+  prepareEmptyLiveImage,
+  VolumeIdentity,
+  VolumeSource
+} from "../src/internal/virtualFileSystem.js"
 import { it } from "./TestEffect.js"
 
 describe("live volume staging", () => {
@@ -134,12 +141,14 @@ describe("live volume staging", () => {
     Effect.scoped(Effect.gen(function*() {
       const images: Array<Uint8Array> = []
       const identity = VolumeIdentity.make("0123456789abcdef0123456789abcdef")
+
       const limits = {
         maxBytes: undefined,
         maxFileBytes: ByteSize.bytes(0xffffffff),
         maxEntries: undefined,
         maxPathBytes: undefined
       }
+
       const volume = yield* makeVolume(VolumeSource.Empty(), undefined, {
         commit: (candidate) =>
           captureLiveImage(candidate, identity, limits).pipe(
@@ -148,6 +157,7 @@ describe("live volume staging", () => {
             Effect.orDie
           )
       })
+
       const caller = yield* volume.caller()
       const handle = yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
       const inode = (yield* handle.stat).ino
@@ -167,6 +177,36 @@ describe("live volume staging", () => {
       assert.deepEqual(released.retainedFiles, [])
       assert.deepEqual(released.records.map((record) => record.ino), [1n])
     })))
+
+  it.effect("reopens committed bytes with the same hard-link inode and a fresh incarnation", () =>
+    Effect.gen(function*() {
+      let stored = yield* prepareEmptyLiveImage()
+      const bound = ByteSize.bytes(64 * 1024)
+
+      const session = yield* openImageVolume(stored, bound, (bytes) =>
+        Effect.sync(() => {
+          stored = new Uint8Array(bytes)
+
+          return "committed" as const
+        }))
+
+      const volume = session.volume
+
+      const caller = yield* volume.caller()
+      yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
+      yield* caller.link("/file", "/alias")
+      const original = yield* caller.stat("/file")
+      const reopened = (yield* openImageVolume(stored, bound, () => Effect.succeed("committed" as const))).volume
+      const restored = yield* reopened.caller()
+
+      assert.strictEqual(reopened.identity, volume.identity)
+      assert.notStrictEqual(reopened.incarnation, volume.incarnation)
+      assert.strictEqual((yield* restored.stat("/file")).ino, original.ino)
+      assert.strictEqual((yield* restored.stat("/alias")).ino, original.ino)
+      assert.deepEqual(yield* restored.readFile("/alias"), new Uint8Array([1, 2, 3]))
+      yield* session.shutdown
+      assert.strictEqual((yield* Effect.flip(volume.usage)).code, "VolumeUnavailable")
+    }))
 
   it.effect("keeps hard-link identity and directory revisions across a rejected rename", () =>
     Effect.gen(function*() {

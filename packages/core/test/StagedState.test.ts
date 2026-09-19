@@ -113,6 +113,7 @@ describe("staged state", () => {
     Effect.gen(function*() {
       let reject = true
       let commits = 0
+
       const state = makeStagedState(
         { value: 1 },
         (current) => Effect.succeed({ ...current }),
@@ -121,6 +122,7 @@ describe("staged state", () => {
           commit: () =>
             Effect.sync(() => {
               commits++
+
               return "committed" as const
             })
         }
