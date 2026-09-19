@@ -1,5 +1,37 @@
 # @effect-vfs/core
 
+## 0.4.0
+
+### Minor Changes
+
+- [#128](https://github.com/lloydrichards/effect-virtual-fs/pull/128) [`34b912a`](https://github.com/lloydrichards/effect-virtual-fs/commit/34b912ad2f9a9aa55d4b3d76fdc4d1bc98540539) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Expose `VirtualFileSystemError` as a public module with constructible `FsError` and `ConfigurationError` classes. Existing `VirtualFileSystem` error exports remain available.
+
+- [#106](https://github.com/lloydrichards/effect-virtual-fs/pull/106) [`9acfa79`](https://github.com/lloydrichards/effect-virtual-fs/commit/9acfa796e0a76686b91fcfb045ac5b5426ba337b) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Volumes now expose an ordered durability level, a stable logical identity, and a fresh incarnation for each construction.
+
+  They also expose effective `limits` and a live `usage` effect. For example, `yield* volume.usage` returns the current content byte and directory entry totals, including bytes retained by an open unlinked file.
+
+  Volume construction now requires an Effect `Crypto.Crypto` service so identities come from an explicit platform entropy source. For example:
+
+  ```ts
+  import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+  import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+  import { Effect } from "effect"
+
+  const volume = Vfs.make().pipe(Effect.provide(BunCrypto.layer))
+  ```
+
+- [`49313a0`](https://github.com/lloydrichards/effect-virtual-fs/commit/49313a0ddc0b5fca4d4d850f4ded4e1439435938) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `Volume.usage`, `watch`, `snapshot`, `caller`, and overlay observations now include `FsError` in their failure types. `MemoryFileSystem.bind` also exposes `FsError` if its volume is unavailable. In-memory volumes do not emit storage failures.
+
+- [#105](https://github.com/lloydrichards/effect-virtual-fs/pull/105) [`a1f3e76`](https://github.com/lloydrichards/effect-virtual-fs/commit/a1f3e76f3689b2095f4efb36ac0406da227b56bc) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Add reference-based mutation operations for changing filesystem objects and directory entries without resolving absolute paths.
+
+  Callers can now create, link, rename, remove, open, and modify objects relative to a live directory or object reference while receiving stable identities and directory revision transitions.
+
+  `Caller.accessReference` checks permissions on an exact object without resolving a path.
+
+- [`77daba8`](https://github.com/lloydrichards/effect-virtual-fs/commit/77daba8ed9cbc0c99e19beace63120834d1bba0e) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `FsCode` now includes `StorageRejected`, `OutcomeUnknown`, and `VolumeUnavailable` for durable storage failures. In-memory volumes do not emit these codes.
+
+- [#117](https://github.com/lloydrichards/effect-virtual-fs/pull/117) [`ced5052`](https://github.com/lloydrichards/effect-virtual-fs/commit/ced5052b374a8b1235cc32826e408404ee0f296c) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Add a provider-neutral live image boundary and `LiveImageStore` service. Applications can supply a scoped storage Layer; core stages each mutation, validates recovered images, and stops the volume after an uncertain commit.
+
 ## 0.3.1
 
 ### Patch Changes
