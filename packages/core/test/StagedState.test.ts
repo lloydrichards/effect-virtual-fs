@@ -246,6 +246,39 @@ describe("staged state", () => {
       assert.strictEqual(yield* state.read("read", (current) => Effect.succeed(current.value)), 1)
     }))
 
+  it.effect("settles and publishes a pending commit before honoring interruption", () =>
+    Effect.gen(function*() {
+      const entered = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+
+      const state = makeStagedState(
+        { value: 1 },
+        (current) => Effect.succeed({ ...current }),
+        {
+          commit: () =>
+            Effect.as(
+              Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))),
+              "committed" as const
+            )
+        }
+      )
+
+      const write = yield* state.mutate("write", (candidate) =>
+        Effect.sync(() => {
+          candidate.value = 2
+        })).pipe(Effect.forkChild({ startImmediately: true }))
+
+      yield* Deferred.await(entered)
+
+      const interruption = yield* Fiber.interrupt(write).pipe(Effect.forkChild({ startImmediately: true }))
+      yield* Effect.yieldNow
+      assert.isUndefined(interruption.pollUnsafe())
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(interruption)
+
+      assert.strictEqual(yield* state.read("read", (current) => Effect.succeed(current.value)), 2)
+    }))
+
   it.effect("holds reads behind a pending commit", () =>
     Effect.gen(function*() {
       const entered = yield* Deferred.make<void>()

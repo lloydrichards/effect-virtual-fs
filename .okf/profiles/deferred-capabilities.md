@@ -4,7 +4,7 @@ title: Deferred capabilities
 description: Lists capabilities intentionally outside the current filesystem contract so future exploration is not mistaken for implemented support.
 status: draft
 tags: [profile, roadmap, deferred]
-generated: { by: claude/okf, at: 2026-09-19T10:02:47Z }
+generated: { by: codex/okf, at: 2026-09-19T15:39:46Z }
 ---
 
 # Deferred capabilities
@@ -19,7 +19,7 @@ The current profile does not include:
 - advisory locks or descriptor duplication;
 - caller-specific restricted roots or subtree confinement;
 - sparse allocation or copy-on-write storage optimization;
-- automatic persistence of live writes, host `fsync`, or crash/power-loss durability (the [durability and usage facts decision](../decisions/core/volume-durability-and-usage-facts.md "refined by") publishes the complete durability vocabulary, while built-in volumes truthfully report only `memory-only`);
+- qualified operating-system crash or power-loss durability for live writes, or host `fsync` semantics (the [durability and usage facts decision](../decisions/core/volume-durability-and-usage-facts.md "refined by") publishes the durability vocabulary; the experimental SQLite live-image store passes process-restart tests but still reports `memory-only`);
 - complete Node package resolution, dependency installation, or HMR inside the virtual build integration.
 
 These are exclusions, not rejected designs. Active investigation may be represented separately as draft research, but it must not imply implementation or acceptance. Snapshot checkpoints provide explicit reconstruction, not live-write durability; dense zero-filled gaps provide filesystem behavior without sparse allocation.

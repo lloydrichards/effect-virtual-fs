@@ -29,6 +29,9 @@ sources:
   - id: live-store
     resource: ../../packages/core/src/LiveVolume.ts
     title: Provider-neutral live image store service and scoped opening
+  - id: sqlite-live-store
+    resource: ../../packages/persistence/src/SqliteLiveImageStore.ts
+    title: Effect SQL live image store provider
   - id: nfs
     resource: ../../packages/nfs/src/internal/nfs4.ts
     title: Replay admission, operation interruption, and slot rollback
@@ -59,14 +62,14 @@ sources:
   - id: issue-50
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
     title: Restart recovery
-generated: { by: codex/okf, at: 2026-09-19T15:00:31Z }
+generated: { by: codex/okf, at: 2026-09-19T15:39:46Z }
 ---
 
 # Live durable volume proposal
 
 Recommend an application-supplied, bounded storage Layer behind core's `LiveImageStore` service. Each operation builds a private candidate state, commits its image, then publishes the candidate and watch events. One possible provider replaces one complete engine image per transaction. This costs time proportional to volume size but keeps the recovery proof small. It targets small volumes, not large or high-throughput storage.
 
-This remains a design proposal for the unfinished writable milestone. Core staging, a private image codec, and an injected `LiveImageStore` service now exist. No live-image storage provider is shipped. Power-loss qualification, bounded watches and admission, and writable NFS dispatch remain open. The core boundary implements neither #48 nor #49 and does not change the accepted decisions.
+This remains a design proposal for the unfinished writable milestone. Core staging, a private image codec, and an injected `LiveImageStore` service now exist. An Effect `SqlClient`-based SQLite provider implements bounded whole-image commits and has process-restart coverage. [#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129) tracks crash and power-loss qualification and rollback-journal space; [#122](https://github.com/lloydrichards/effect-virtual-fs/issues/122) tracks bounded watches and admission. Writable NFS dispatch remains open. The provider does not establish #48 or #49 and leaves `Volume.durability` at `memory-only`.[^sqlite-live-store]
 
 ## Accepted requirements and proposed choices
 
@@ -111,7 +114,7 @@ The engine audit identifies five state groups that must move together at publica
 | Access times from file, path, and directory reads                                                          | Read methods inside `coordinated`         | Commit the metadata change before returning the read result.                                                   |
 | Watch changes                                                                                              | `WatchHub` calls inside mutations         | Buffer candidate events and publish them only after the provider confirms commit.                              |
 
-This audit rules out a graph-only copy. The core now stages reachable and retained nodes, capability records, reference invalidation, and watch events before publication. Its private image preserves inodes, hard links, revisions, counters, limits, and retained unlinked files. Recovery drops zero-link files because their handles ended with the prior process. Core tests cover injected committed and rejected outcomes, image validation, and staged publication. No storage provider or crash-recovery guarantee is shipped. Bounded admission, power-loss qualification, and writable NFS dispatch remain open. Memory volumes still use the direct path.[^live-image][^live-store]
+This audit rules out a graph-only copy. The core now stages reachable and retained nodes, capability records, reference invalidation, and watch events before publication. Its private image preserves inodes, hard links, revisions, counters, limits, and retained unlinked files. Recovery drops zero-link files because their handles ended with the prior process. Core tests cover injected committed and rejected outcomes, image validation, and staged publication. The SQLite provider has process-restart tests, but no crash or power-loss qualification. Bounded admission and watches and writable NFS dispatch remain open. Memory volumes still use the direct path.[^live-image][^live-store][^sqlite-live-store]
 
 Introduce a core-owned `EngineState` and stable runtime object keys. Capabilities retain keys and resolve them against the current state under the gate. A candidate owns copied metadata, maps, mutable bytes, counters, and changed handle state. Immutable content can be shared, but no candidate write may modify a live buffer. Reference invalidations, newly opened handles, cursor advances, and quota charges publish with the state swap. Pure handle movement stays volatile and coordinated.
 
@@ -163,12 +166,12 @@ Physical disk exhaustion is distinct from logical `maxBytes`. `pwrite` and `writ
 
 ## Shared API and ownership
 
-| Owner          | Proposed responsibility                                                                                                                                                                     |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Core           | Candidate construction and publication; capability identity; reference and path parity; private image codec; quotas; watch ordering; a narrow provider commit contract.                     |
-| Store provider | A scoped Layer that owns storage, exclusive access, generation fencing, recovery, atomic image replacement, and commit outcome classification. A concrete SQLite provider remains proposed. |
-| NFS            | Authorization, share reservations, advisory locks, exclusive-create interpretation, replay admission, reply caching, verifier derivation, and eventual #50 recovery.                        |
-| Application    | Supported host and driver composition, store path, limits, backup policy, and explicit writable export opt-in.                                                                              |
+| Owner          | Proposed responsibility                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Core           | Candidate construction and publication; capability identity; reference and path parity; private image codec; quotas; watch ordering; a narrow provider commit contract.                                                               |
+| Store provider | A scoped Layer owns storage, exclusive access, generation fencing, recovery, atomic image replacement, and commit outcome classification. An Effect `SqlClient` implementation exists; its crash-boundary qualification remains open. |
+| NFS            | Authorization, share reservations, advisory locks, exclusive-create interpretation, replay admission, reply caching, verifier derivation, and eventual #50 recovery.                                                                  |
+| Application    | Supported host and driver composition, store path, limits, backup policy, and explicit writable export opt-in.                                                                                                                        |
 
 The implemented core `LiveImageStore` service has `loadOrCreate(initialImage)` and `commit(candidateImage)` operations. Its scoped provider Layer owns the storage resource. Core prepares and validates the image, coordinates publication, checks recovered limits, and shuts down the volume before the provider Layer closes. `commit` reports committed, definitely rejected, or unknown; an unknown outcome stops the volume. The core must never accept an arbitrary caller-supplied durability label without the corresponding provider contract. A provider must not call public volume operations recursively while holding the gate. A Postgres provider may implement the service separately, but must establish its own ownership and outcome guarantees rather than reuse SQLite assumptions. A generic `SqlClient` alone does not establish connection affinity, exclusive ownership, or a known result after a failed commit.
 
@@ -221,6 +224,8 @@ The open performance question is the maximum useful volume size with full-image 
 [^live-image]: The live image schema validates graph reachability, link counts, byte usage, names, and stored limits before recovery.
 
 [^live-store]: `LiveVolume.open` consumes the injected store service, validates recovered image limits, and coordinates scoped shutdown.
+
+[^sqlite-live-store]: `SqliteLiveImageStore.layer` reserves an application-supplied Effect `SqlClient` connection and its exclusive SQLite lock, uses DELETE journaling and `synchronous=EXTRA`, verifies stored image digests, and classifies commit results. Its tests use Bun SQLite to cover process restart, ownership contention, and image corruption, but not operating-system crash or power loss.
 
 [^snapshot]: Public snapshots exclude callers, open handles, watch subscriptions, and unlinked content.
 

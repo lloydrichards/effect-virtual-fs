@@ -2,6 +2,8 @@
 
 ## 2026-09-19
 
+- **Experimental SQLite live-image store**: Added a provider-neutral Effect `SqlClient` Layer with exclusive ownership, bounded full-image commits, image digest checks, and process-restart tests. Power-loss qualification, temporary journal-space bounds, and bounded watches remain open; the volume still reports `memory-only`.
+
 - **NFS read-lock profile**: Aligned the read-only profile and protocol rules with bounded volatile read locks; write locks and full conflict handling remain in the writable profile. Corrected the live-volume proposal link to its watch-overflow constraint.
 
 - **Live image store boundary**: Core now opens a live image through an injected `LiveImageStore` service. Applications provide a scoped storage Layer; core owns image validation and volume shutdown. No live-image storage provider is shipped.

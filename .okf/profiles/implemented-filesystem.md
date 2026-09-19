@@ -17,7 +17,7 @@ sources:
   - id: nfs-source
     resource: ../../packages/nfs/src/NfsServer.ts
     title: NFS server public implementation
-generated: { by: claude/okf, at: 2026-09-19T09:59:22Z }
+generated: { by: codex/okf, at: 2026-09-19T15:39:46Z }
 ---
 
 # Implemented filesystem
@@ -35,6 +35,8 @@ Snapshots use a strict version 1 JSON/base64 representation. Capture and restore
 The core can also create, inspect, Schema-encode, decode, and apply [portable snapshot deltas](../contracts/snapshot-deltas.md "refined by"). A delta reconstructs an exact target only from a semantically matching immutable base. Path-oriented summaries do not infer renames, and finite shared policies bound creation, codec, and application work.
 
 `@effect-vfs/persistence` adds named, create-only SQLite checkpoints over encoded snapshots. Applications supply the SQLite client and run the migration explicitly. Loading returns an opaque snapshot for restoration into a fresh volume. This implements the [checkpoint persistence decision](../decisions/named-checkpoint-persistence.md "implements") and is specified by the [checkpoint persistence contract](../contracts/checkpoint-persistence.md "refined by").
+
+The package also exports a provider-neutral, scoped SQLite live-image store with bounded whole-image commits and exclusive ownership. It passes process-restart tests. Its power-loss behavior and temporary journal-space bound remain unqualified, so volumes opened through it still report `memory-only`. [Issue #129](https://github.com/lloydrichards/effect-virtual-fs/issues/129) tracks qualification; the [live durable volume proposal](../research/live-durable-volume.md "qualified by") records the design.
 
 `@effect-vfs/nfs` exports one live volume read-only to NFSv4.1 clients. The [NFS read-only-local profile](nfs/nfs-read-only-local.md "refined by") serves loopback TCP or a UNIX-domain socket and is interoperable with Linux and macOS kernel clients. The [NFS read-only-networked profile](nfs/nfs-read-only-networked.md "refined by") maps trusted credentials and peers to VFS callers and permits non-loopback binding behind policy and explicit opt-in. Both are protocol-complete for reads but not conformant; networked mode remains experimental.
 

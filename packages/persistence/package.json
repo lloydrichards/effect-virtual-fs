@@ -1,7 +1,7 @@
 {
   "name": "@effect-vfs/persistence",
   "version": "0.3.1",
-  "description": "Named SQLite checkpoints for Effect virtual filesystems.",
+  "description": "SQLite checkpoints and live-image storage for Effect virtual filesystems.",
   "homepage": "https://github.com/lloydrichards/effect-virtual-fs#readme",
   "type": "module",
   "sideEffects": false,
@@ -21,6 +21,10 @@
     "./CheckpointStore": {
       "types": "./dist/CheckpointStore.d.ts",
       "import": "./dist/CheckpointStore.js"
+    },
+    "./SqliteLiveImageStore": {
+      "types": "./dist/SqliteLiveImageStore.d.ts",
+      "import": "./dist/SqliteLiveImageStore.js"
     },
     "./package.json": "./package.json"
   },
