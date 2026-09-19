@@ -1,10 +1,17 @@
-# SQLite checkpoints
+# SQLite persistence
 
 `@effect-vfs/persistence` saves named filesystem snapshots and loads them for restoration in a later process.
-The application chooses when to capture, supplies its SQLite connection, and controls startup migrations.
+The application chooses when to capture, supplies its SQLite connection through a `SqlClient` Layer, and controls
+startup migrations.
 
-The first supported integration is Bun with `@effect/sql-sqlite-bun@4.0.0-rc.114`. The package depends on core and
-Effect, so importing it does not open a database or import a runtime-specific driver.
+The package does not load a runtime-specific database driver. The examples below use
+`@effect/sql-sqlite-bun@4.0.0-rc.114` as an application-supplied Layer; another compatible SQLite `SqlClient` Layer
+can be supplied by the application.
+
+Core's `LiveVolume.open` uses a `LiveImageStore` service for live image commits. The application must provide a
+scoped Layer that owns storage and classifies commit outcomes. This package does not provide a live-image store Layer.
+`SqlClient` alone does not guarantee exclusive ownership, connection affinity, or a known outcome after a failed
+commit; those are requirements for any live store implementation.
 
 ## Save and restore
 

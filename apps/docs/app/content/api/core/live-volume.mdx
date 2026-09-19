@@ -1,0 +1,203 @@
+# LiveVolume overview
+
+Image boundary for a storage adapter that commits each live volume mutation.
+
+An adapter must preserve the supplied bytes atomically and classify each
+commit as confirmed, definitely rejected, or uncertain. The opened volume
+stays at `memory-only` until the adapter's durability is qualified.
+
+Added in v0.4.0
+
+---
+
+## errors
+
+### LiveVolumeError (class)
+
+A failed live-store startup or recovery.
+
+**Signature**
+
+```ts
+export declare class LiveVolumeError
+```
+
+Added in v0.4.0
+
+## models
+
+### ImageSession (interface)
+
+A live volume and the shutdown action its storage adapter must run before
+closing the underlying store.
+
+**Signature**
+
+```ts
+export interface ImageSession {
+  readonly volume: Volume
+  readonly shutdown: Effect.Effect<void>
+}
+```
+
+**Example**
+
+```ts
+import type { ImageSession } from "@effect-vfs/core/LiveVolume"
+
+const shutdown = (session: ImageSession) => session.shutdown
+```
+
+Added in v0.4.0
+
+### Options (interface)
+
+Configuration shared by every live-image provider.
+
+**Signature**
+
+```ts
+export interface Options {
+  readonly maxImageBytes: ByteSize.ByteSize
+  readonly volume: VolumeOptions
+}
+```
+
+Added in v0.4.0
+
+## utils
+
+### CommitOutcome (type alias)
+
+A storage commit's observed outcome.
+
+**Signature**
+
+```ts
+export type CommitOutcome = "committed" | "rejected" | "unknown"
+```
+
+Added in v0.4.0
+
+### LiveImageStore (class)
+
+One exclusively owned store. Its Layer holds the storage resource until the
+volume has shut down. Providers must atomically replace each image and
+classify ambiguous commits as `unknown`.
+
+**Signature**
+
+```ts
+export declare class LiveImageStore
+```
+
+Added in v0.4.0
+
+### open
+
+Open a live volume using the supplied store Layer. The caller owns a Scope;
+the volume shuts down before that Layer releases its storage resource.
+
+**Signature**
+
+```ts
+export declare const open: (
+  options: Options
+) => Effect.Effect<
+  Volume,
+  [
+    | Effect.Effect<
+        {
+          readonly loadOrCreate: (initial: Uint8Array) => Effect.Effect<Uint8Array, LiveVolumeError>
+          readonly commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>
+        },
+        never,
+        LiveImageStore
+      >
+    | Effect.Effect<Uint8Array, LiveVolumeError, Crypto.Crypto>
+    | Effect.Effect<ImageSession, LiveVolumeError, Crypto.Crypto>
+    | Effect.Effect<void, never, Scope>
+  ] extends [never]
+    ? never
+    : [
+          | Effect.Effect<
+              {
+                readonly loadOrCreate: (initial: Uint8Array) => Effect.Effect<Uint8Array, LiveVolumeError>
+                readonly commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>
+              },
+              never,
+              LiveImageStore
+            >
+          | Effect.Effect<Uint8Array, LiveVolumeError, Crypto.Crypto>
+          | Effect.Effect<ImageSession, LiveVolumeError, Crypto.Crypto>
+          | Effect.Effect<void, never, Scope>
+        ] extends [Effect.Effect<infer _A, infer E, infer _R>]
+      ? E
+      : never,
+  [
+    | Effect.Effect<
+        {
+          readonly loadOrCreate: (initial: Uint8Array) => Effect.Effect<Uint8Array, LiveVolumeError>
+          readonly commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>
+        },
+        never,
+        LiveImageStore
+      >
+    | Effect.Effect<Uint8Array, LiveVolumeError, Crypto.Crypto>
+    | Effect.Effect<ImageSession, LiveVolumeError, Crypto.Crypto>
+    | Effect.Effect<void, never, Scope>
+  ] extends [never]
+    ? never
+    : [
+          | Effect.Effect<
+              {
+                readonly loadOrCreate: (initial: Uint8Array) => Effect.Effect<Uint8Array, LiveVolumeError>
+                readonly commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>
+              },
+              never,
+              LiveImageStore
+            >
+          | Effect.Effect<Uint8Array, LiveVolumeError, Crypto.Crypto>
+          | Effect.Effect<ImageSession, LiveVolumeError, Crypto.Crypto>
+          | Effect.Effect<void, never, Scope>
+        ] extends [Effect.Effect<infer _A, infer _E, infer R>]
+      ? R
+      : never
+>
+```
+
+Added in v0.4.0
+
+### openImage
+
+Open a validated image and stage every mutation before calling `commit`.
+The returned session contains the volume and a coordinated shutdown effect.
+Run shutdown before releasing the storage connection. An uncertain commit
+makes the volume unavailable until it is reopened.
+
+**Signature**
+
+```ts
+export declare const openImage: (
+  image: Uint8Array,
+  maxImageBytes: ByteSize.ByteSize,
+  commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>
+) => Effect.Effect<ImageSession, ConfigurationError | ImageError | PlatformError.PlatformError, Crypto.Crypto>
+```
+
+Added in v0.4.0
+
+### prepareEmptyImage
+
+Construct a versioned image for a new, empty volume.
+Store this image before opening it for mutation.
+
+**Signature**
+
+```ts
+export declare const prepareEmptyImage: (
+  options?: VolumeOptions
+) => Effect.Effect<Uint8Array, ConfigurationError | ImageError | PlatformError.PlatformError, Crypto.Crypto>
+```
+
+Added in v0.4.0

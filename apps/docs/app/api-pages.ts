@@ -46,6 +46,14 @@ export const apiPages = [
     contentPath: "content/api/core/snapshot-delta.mdx"
   },
   {
+    packageDir: "packages/core",
+    moduleName: "LiveVolume",
+    label: "Core · LiveVolume",
+    href: "/api/core/live-volume",
+    routePath: "core/live-volume",
+    contentPath: "content/api/core/live-volume.mdx"
+  },
+  {
     packageDir: "packages/memory",
     moduleName: "MemoryFileSystem",
     label: "Memory · MemoryFileSystem",
