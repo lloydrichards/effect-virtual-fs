@@ -34,6 +34,21 @@ those limits and crash tests are completed. Crash and power-loss qualification i
 [#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129); bounded admission and watch delivery are
 tracked in [#122](https://github.com/lloydrichards/effect-virtual-fs/issues/122).
 
+### Crash recovery gate
+
+The opt-in [SQLite crash recovery workflow](../../.github/workflows/sqlite-crash-gate.yml) runs on `ubuntu-24.04`.
+Trigger it manually with `workflow_dispatch`, or add the `sqlite-crash-gate` label to a pull request. It runs the
+provider test file, then repeats four real-provider process-death cases ten times: kill after the image update,
+before `COMMIT`, after `COMMIT` but before its result reaches the volume, and after an acknowledged write. Each
+case uses a fresh database, checks the reopened file contents, runs SQLite `integrity_check`, and verifies the
+stored image digest. The uploaded artifact records the runner, Bun and SQLite versions, filesystem, commit
+connection PRAGMAs, journal size at the kill point when present, and each case's results.
+
+For a local rehearsal, run `GATE_ITERATIONS=1 bash packages/persistence/scripts/linux-crash-gate.sh` from the
+repository root after installing dependencies. This process-death gate does not stop the guest operating system or
+model lost storage writes. Issue #129 still requires an OS-crash run with retained virtual storage, storage fault
+injection, and a tested finite journal/temp-file budget before a stronger durability tier can be claimed.
+
 ## Save and restore
 
 ```ts

@@ -3,7 +3,7 @@ import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
-import { ByteSize, Config, Console, Effect, FileSystem, Layer } from "effect"
+import { ByteSize, Config, Console, Effect, FileSystem, Layer, Schema } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import * as SqliteLiveImageStore from "../../src/SqliteLiveImageStore.js"
 
@@ -20,10 +20,12 @@ const options = {
 const program = Effect.gen(function*() {
   const mode = yield* Config.String("LIVE_STORE_MODE")
   const filename = yield* Config.String("LIVE_STORE_FILE")
+  const evidence = yield* Config.String("LIVE_STORE_EVIDENCE_FILE").pipe(Config.withDefault(""))
+  const pragmas: Array<string> = []
 
   const sqlite = SqliteClient.layer({ filename, disableWAL: true, busyTimeout: 0 })
 
-  const database = mode === "pause-before-commit"
+  const database = mode.startsWith("pause-") || evidence !== ""
     ? Layer.effect(
       SqlClient,
       Effect.gen(function*() {
@@ -33,13 +35,47 @@ const program = Effect.gen(function*() {
         return Object.assign(client, {
           reserve: Effect.map(client.reserve, (connection) => ({
             ...connection,
-            executeRaw: (statement: string, params: ReadonlyArray<unknown>) =>
-              statement === "COMMIT"
-                ? filesystem.writeFileString(`${filename}.before-commit`, "ready").pipe(
-                  Effect.orDie,
-                  Effect.flatMap(() => Effect.never)
+            executeRaw: (statement: string, params: ReadonlyArray<unknown>) => {
+              const execute = connection.executeRaw(statement, params).pipe(
+                Effect.tap((rows) =>
+                  Effect.gen(function*() {
+                    if (
+                      evidence === "" ||
+                      !/^PRAGMA (journal_mode|synchronous|fullfsync|locking_mode|page_size)$/.test(statement)
+                    ) {
+                      return
+                    }
+
+                    const decoded = yield* Schema.decodeUnknownEffect(
+                      Schema.Array(Schema.Record(Schema.String, Schema.Unknown))
+                    )(rows)
+
+                    for (const row of decoded) {
+                      for (const [key, value] of Object.entries(row)) {
+                        pragmas.push(`${key}=${String(value)}`)
+                      }
+                    }
+
+                    if (pragmas.length === 5) {
+                      yield* filesystem.writeFileString(evidence, `${pragmas.join("\n")}\n`)
+                    }
+                  })
                 )
-                : connection.executeRaw(statement, params)
+              )
+
+              return (mode === "pause-before-commit" && statement === "COMMIT") ||
+                  (mode === "pause-after-update" && statement.startsWith("UPDATE effect_vfs_live_image")) ||
+                  (mode === "pause-after-commit" && statement === "COMMIT")
+                ? (mode === "pause-before-commit" ? Effect.void : execute).pipe(
+                  Effect.andThen(filesystem.writeFileString(
+                    `${filename}.${mode === "pause-before-commit" ? "before-commit" : mode}`,
+                    "ready"
+                  )),
+                  Effect.orDie,
+                  Effect.andThen(Effect.never)
+                )
+                : execute
+            }
           }))
         })
       })
@@ -66,8 +102,12 @@ const program = Effect.gen(function*() {
       yield* caller.link("/first", "/alias")
       yield* caller.rename("/first", "/renamed")
       yield* caller.chmod("/renamed", 0o640)
-    } else if (mode === "pause-before-commit") {
+    } else if (mode.startsWith("pause-")) {
       yield* caller.writeFile("/durable", new Uint8Array([4, 5, 6]), { access: "write" })
+    } else if (mode === "verify-pending") {
+      const bytes = yield* caller.readFile("/durable")
+
+      if (bytes.toString() !== "4,5,6") return yield* Effect.die("pending image did not commit")
     } else if (mode === "verify-linked") {
       const renamed = yield* caller.readFile("/renamed")
       const alias = yield* caller.readFile("/alias")
