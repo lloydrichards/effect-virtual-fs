@@ -2,6 +2,8 @@
 
 ## 2026-09-19
 
+- **Staged NFS read/write locks**: Recorded two-client conflict replies, partial range changes, replay, and bounded range storage in the internal writable handler. The public export remains read-only.
+
 - **NFS upgrade permission continuity**: Recorded that a same-owner upgrade retains its earlier open handle and acquires only newly requested access, so later permission changes do not invalidate the held reservation.
 
 - **Staged NFS write opens**: Recorded internal write-access reservations, upgrades, downgrades, and write-only stateid reads. The public export and `WRITE` remain read-only pending the qualified writable profile.
