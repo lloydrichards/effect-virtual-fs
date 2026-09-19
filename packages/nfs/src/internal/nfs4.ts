@@ -1227,30 +1227,33 @@ const encodeCompound = (
   return writer.bytes()
 }
 
-const failureForFs = (error: Vfs.FsError): number => {
-  switch (error.code) {
-    case "NotFound":
-      return Status.NOENT
-    case "NotDirectory":
-      return Status.NOTDIR
-    case "IsDirectory":
-      return Status.ISDIR
-    case "AccessDenied":
-      return Status.ACCESS
-    case "InvalidArgument":
-      return Status.INVAL
-    case "PathTooLong":
-      return Status.NAMETOOLONG
-    case "NoSpace":
-      return Status.NOSPC
-    case "FileTooLarge":
-      return Status.FBIG
-    case "StaleReference":
-      return Status.STALE
-    default:
-      return Status.SERVERFAULT
-  }
+const fsStatuses: Readonly<Record<Vfs.FsCode, number>> = {
+  NotFound: Status.NOENT,
+  AlreadyExists: Status.EXIST,
+  NotEmpty: Status.NOTEMPTY,
+  NotDirectory: Status.NOTDIR,
+  AccessDenied: Status.ACCESS,
+  InvalidHandle: Status.SERVERFAULT,
+  ForeignHandle: Status.SERVERFAULT,
+  InvalidReference: Status.SERVERFAULT,
+  ForeignReference: Status.SERVERFAULT,
+  StaleReference: Status.STALE,
+  ClosedCaller: Status.SERVERFAULT,
+  InvalidArgument: Status.INVAL,
+  InvalidPathEncoding: Status.INVAL,
+  PathTooLong: Status.NAMETOOLONG,
+  NoSpace: Status.NOSPC,
+  IsDirectory: Status.ISDIR,
+  FileTooLarge: Status.FBIG,
+  NoData: Status.SERVERFAULT,
+  // NFSv4.1 has no LOOP status. The reference-based NFS read path never follows symbolic links.
+  SymlinkLoop: Status.INVAL,
+  UnrepresentableName: Status.INVAL
 }
+
+/** @internal */
+export const failureForFs = (error: Vfs.FsError): number =>
+  Object.hasOwn(fsStatuses, error.code) ? fsStatuses[error.code] : Status.SERVERFAULT
 
 const encodeStatusBody = (build: (writer: Writer) => void): Uint8Array => {
   const writer = new Writer()
