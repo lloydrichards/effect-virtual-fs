@@ -119,6 +119,17 @@
   },
   "overrides": [
     {
+      "files": [
+        "packages/persistence/src/**/*.ts",
+        "packages/persistence/test/SqliteLiveImageStore.test.ts",
+        "packages/persistence/test/fixtures/live-restart.ts"
+      ],
+      "rules": {
+        "effecttsgo/node-builtin-import": "error",
+        "eslint/no-restricted-imports": ["error", { "paths": ["bun:sqlite"], "patterns": ["node:*"] }]
+      }
+    },
+    {
       "files": ["apps/**"],
       "rules": {
         "anti-slop/require-public-effect-fn-signature": "off",

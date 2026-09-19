@@ -8,10 +8,29 @@ The package does not load a runtime-specific database driver. The examples below
 `@effect/sql-sqlite-bun@4.0.0-rc.114` as an application-supplied Layer; another compatible SQLite `SqlClient` Layer
 can be supplied by the application.
 
-Core's `LiveVolume.open` uses a `LiveImageStore` service for live image commits. The application must provide a
-scoped Layer that owns storage and classifies commit outcomes. This package does not provide a live-image store Layer.
-`SqlClient` alone does not guarantee exclusive ownership, connection affinity, or a known outcome after a failed
-commit; those are requirements for any live store implementation.
+Core's `LiveVolume.open` uses a `LiveImageStore` service for live image commits.
+`@effect-vfs/persistence/SqliteLiveImageStore` provides a scoped SQLite Layer through Effect's `SqlClient` service.
+The application supplies a dedicated SQLite client for the same absolute local database path, plus Effect
+`FileSystem`, `Path`, and `Crypto` Layers. The store reserves one SQL connection, holds SQLite's exclusive file lock
+until release, and commits one complete image per mutation. It requires explicit image and database size limits.
+The Bun SQLite client is one possible application-supplied Layer; it is not a production dependency of this package.
+
+The provider uses SQLite's DELETE journal and `synchronous=EXTRA`, with `fullfsync=ON` on macOS. It checks these
+settings on its commit connection, verifies image integrity, and distinguishes a confirmed rollback from an
+uncertain commit result. A confirmed rejection leaves the live volume unchanged; an uncertain outcome makes it
+unavailable until the application closes and reopens it. Reopening preserves the logical volume identity and
+creates a new runtime incarnation. A second `LiveVolume.open` on the same provider Layer fails `Ownership`.
+
+This provider has process-restart coverage. Tests kill the writer after an acknowledged commit and after an
+unacknowledged image update but before `COMMIT`, then reopen the database. Injected lost commit and rollback
+acknowledgements also verify that the live volume stops serving operations until reopen. It has not been qualified
+against operating-system crashes or power loss on a specific filesystem and device. `Volume.durability` therefore
+remains `memory-only`. This provider must not yet be used to promise NFS `FILE_SYNC4`. The database page limit does
+not cap temporary rollback-journal space, so the application must reserve disk space for a complete-image
+transaction. The current core watch queue is also unbounded. Use this provider for bounded local experiments until
+those limits and crash tests are completed. Crash and power-loss qualification is tracked in
+[#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129); bounded admission and watch delivery are
+tracked in [#122](https://github.com/lloydrichards/effect-virtual-fs/issues/122).
 
 ## Save and restore
 
