@@ -14,6 +14,9 @@ sources:
   - id: persistence-source
     resource: ../../packages/persistence/src/CheckpointStore.ts
     title: Checkpoint store public implementation
+  - id: live-store-source
+    resource: ../../packages/persistence/src/SqliteLiveImageStore.ts
+    title: SQLite live image store public implementation
   - id: nfs-source
     resource: ../../packages/nfs/src/NfsServer.ts
     title: NFS server public implementation
@@ -36,7 +39,7 @@ The core can also create, inspect, Schema-encode, decode, and apply [portable sn
 
 `@effect-vfs/persistence` adds named, create-only SQLite checkpoints over encoded snapshots. Applications supply the SQLite client and run the migration explicitly. Loading returns an opaque snapshot for restoration into a fresh volume. This implements the [checkpoint persistence decision](../decisions/named-checkpoint-persistence.md "implements") and is specified by the [checkpoint persistence contract](../contracts/checkpoint-persistence.md "refined by").
 
-The package also exports a provider-neutral, scoped SQLite live-image store with bounded whole-image commits and exclusive ownership. It passes process-restart tests. Its power-loss behavior and temporary journal-space bound remain unqualified, so volumes opened through it still report `memory-only`. [Issue #129](https://github.com/lloydrichards/effect-virtual-fs/issues/129) tracks qualification; the [live durable volume proposal](../research/live-durable-volume.md "qualified by") records the design.
+The package also exports a scoped SQLite live-image store built on an application-supplied Effect `SqlClient`. It commits bounded whole images under exclusive ownership and passes process-restart tests. Its power-loss behavior and temporary journal-space bound remain unqualified, so volumes opened through it still report `memory-only`. [Issue #129](https://github.com/lloydrichards/effect-virtual-fs/issues/129) tracks qualification; the [live durable volume proposal](../research/live-durable-volume.md "qualified by") records the design.
 
 `@effect-vfs/nfs` exports one live volume read-only to NFSv4.1 clients. The [NFS read-only-local profile](nfs/nfs-read-only-local.md "refined by") serves loopback TCP or a UNIX-domain socket and is interoperable with Linux and macOS kernel clients. The [NFS read-only-networked profile](nfs/nfs-read-only-networked.md "refined by") maps trusted credentials and peers to VFS callers and permits non-loopback binding behind policy and explicit opt-in. Both are protocol-complete for reads but not conformant; networked mode remains experimental.
 
