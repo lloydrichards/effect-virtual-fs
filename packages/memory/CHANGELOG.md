@@ -1,5 +1,35 @@
 # @effect-vfs/memory
 
+## 0.4.0
+
+### Minor Changes
+
+- [`49313a0`](https://github.com/lloydrichards/effect-virtual-fs/commit/49313a0ddc0b5fca4d4d850f4ded4e1439435938) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `Volume.usage`, `watch`, `snapshot`, `caller`, and overlay observations now include `FsError` in their failure types. `MemoryFileSystem.bind` also exposes `FsError` if its volume is unavailable. In-memory volumes do not emit storage failures.
+
+- [#139](https://github.com/lloydrichards/effect-virtual-fs/pull/139) [`f54cccc`](https://github.com/lloydrichards/effect-virtual-fs/commit/f54cccc7dd0fd581b86e568fda155f90b5a08842) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Volumes now bound work waiting for admission and retain a finite number of events per watch subscriber. An excess operation fails with retryable `VolumeBusy` before it changes the volume. A subscriber that loses events receives a `Rescan` change and must rescan; it can continue using the same core watch. Configure the limits with `maxPendingOperations` and `maxWatchEvents`.
+
+  The memory `FileSystem.watch` stream ends on overflow with a platform error identified by `MemoryFileSystem.isWatchOverflow`. Open a new memory watch before rescanning its path. NFS maps `VolumeBusy` to `NFS4ERR_DELAY`; its public export remains read-only.
+
+- [#109](https://github.com/lloydrichards/effect-virtual-fs/pull/109) [`47f0840`](https://github.com/lloydrichards/effect-virtual-fs/commit/47f08405376d8cd11ec49f0305ef15504c4814fc) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Add `MemoryFileSystem.makeCrypto` and `MemoryFileSystem.layerCrypto`, self-contained variants that carry their own `Crypto` implementation. An in-memory filesystem no longer needs a platform crypto layer:
+
+  ```ts
+  import { MemoryFileSystem } from "@effect-vfs/memory"
+  import { Effect, FileSystem } from "effect"
+
+  const program = Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+
+    return yield* fs.exists("/tmp")
+  }).pipe(Effect.provide(MemoryFileSystem.layerCrypto))
+  ```
+
+  The built-in implementation mints the volume's identity and incarnation from a reproducible sequence, not a cryptographically secure one. `make` and `layer` are unchanged and still take a `Crypto.Crypto` service, so use those with `NodeCrypto`, `BunCrypto`, or your own implementation when those values must be unpredictable.
+
+### Patch Changes
+
+- Updated dependencies [[`34b912a`](https://github.com/lloydrichards/effect-virtual-fs/commit/34b912ad2f9a9aa55d4b3d76fdc4d1bc98540539), [`9acfa79`](https://github.com/lloydrichards/effect-virtual-fs/commit/9acfa796e0a76686b91fcfb045ac5b5426ba337b), [`49313a0`](https://github.com/lloydrichards/effect-virtual-fs/commit/49313a0ddc0b5fca4d4d850f4ded4e1439435938), [`a1f3e76`](https://github.com/lloydrichards/effect-virtual-fs/commit/a1f3e76f3689b2095f4efb36ac0406da227b56bc), [`77daba8`](https://github.com/lloydrichards/effect-virtual-fs/commit/77daba8ed9cbc0c99e19beace63120834d1bba0e), [`f54cccc`](https://github.com/lloydrichards/effect-virtual-fs/commit/f54cccc7dd0fd581b86e568fda155f90b5a08842), [`ced5052`](https://github.com/lloydrichards/effect-virtual-fs/commit/ced5052b374a8b1235cc32826e408404ee0f296c), [`62e04d2`](https://github.com/lloydrichards/effect-virtual-fs/commit/62e04d27f813e98fa090df2c80822242bbd0c005)]:
+  - @effect-vfs/core@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes
