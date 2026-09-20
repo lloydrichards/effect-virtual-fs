@@ -32,6 +32,9 @@ sources:
   - id: sqlite-live-store
     resource: ../../packages/persistence/src/SqliteLiveImageStore.ts
     title: Effect SQL live image store provider
+  - id: sqlite-write-order
+    resource: ../../packages/persistence/scripts/linux-write-order-gate.sh
+    title: SQLite successful-sync write-loss and reorder fault gate
   - id: nfs
     resource: ../../packages/nfs/src/internal/nfs4.ts
     title: Replay admission, operation interruption, and slot rollback
@@ -62,7 +65,7 @@ sources:
   - id: issue-50
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
     title: Restart recovery
-generated: { by: codex/okf, at: 2026-09-20T00:00:00Z }
+generated: { by: codex/okf, at: 2026-09-20T07:41:00Z }
 ---
 
 # Live durable volume proposal
@@ -114,7 +117,7 @@ The engine audit identifies five state groups that must move together at publica
 | Access times from file, path, and directory reads                                                          | Read methods inside `coordinated`         | Commit the metadata change before returning the read result.                                                   |
 | Watch changes                                                                                              | `WatchHub` calls inside mutations         | Buffer candidate events and publish them only after the provider confirms commit.                              |
 
-This audit rules out a graph-only copy. The core now stages reachable and retained nodes, capability records, reference invalidation, and watch events before publication. Its private image preserves inodes, hard links, revisions, counters, limits, and retained unlinked files. Recovery drops zero-link files because their handles ended with the prior process. Core tests cover injected committed and rejected outcomes, image validation, and staged publication. The SQLite provider has process-restart tests, but no crash or power-loss qualification. Writable NFS dispatch remains open. Memory volumes still use the direct path.[^live-image][^live-store][^sqlite-live-store]
+This audit rules out a graph-only copy. The core now stages reachable and retained nodes, capability records, reference invalidation, and watch events before publication. Its private image preserves inodes, hard links, revisions, counters, limits, and retained unlinked files. Recovery drops zero-link files because their handles ended with the prior process. Core tests cover injected committed and rejected outcomes, image validation, and staged publication. The SQLite provider has process-death and guest OS forced-stop recovery tests, plus returned I/O-error tests. These do not qualify physical power loss. Writable NFS dispatch remains open. Memory volumes still use the direct path.[^live-image][^live-store][^sqlite-live-store]
 
 Introduce a core-owned `EngineState` and stable runtime object keys. Capabilities retain keys and resolve them against the current state under the gate. A candidate owns copied metadata, maps, mutable bytes, counters, and changed handle state. Immutable content can be shared, but no candidate write may modify a live buffer. Reference invalidations, newly opened handles, cursor advances, and quota charges publish with the state swap. Pure handle movement stays volatile and coordinated.
 
@@ -217,6 +220,11 @@ The smallest convincing test set exercises observable boundaries, not only injec
 - Use a SQLite fault VFS or controlled VM/block-device crash setup to lose unsynced writes at storage boundaries and reopen the store. `SIGKILL` alone proves only process-crash behavior. Repeated power-cut cases must never lose an acknowledged commit; hardware qualification and SQLite assumptions remain part of the claim.
 - In later NFS wire tests, drop the reply and retransmit mutating compounds with cached and uncached replies, interrupt after the first committed operation, and exhaust replay capacity before dispatch. Assert no repeated mutation, correct short count and `FILE_SYNC4`, unchanged verifier within a lifetime, changed verifier after reconstruction, and required remount after restart.
 
+### Successful-sync write faults
+
+The test-only SQLite VFS now has `lost-write` and `reorder-write` modes. The first reports `SQLITE_OK` while omitting one selected main-file write. The second defers that write until after the next write to the same file. Both leave `xSync` to the underlying VFS and log successful sync calls. This is a deterministic model of a device or filesystem that does not honor the order or persistence SQLite expects; it is not a physical power-cut simulation. The bounded Linux matrix uses the existing live-volume worker, acknowledgement output, reopen check, and `PRAGMA integrity_check`.[^sqlite-live-store]
+
+One exploratory matrix on Debian 12, Linux 6.1 arm64, ext4 on a QEMU VirtIO disk, Bun 1.2.21, `@effect/sql-sqlite-bun` 4.0.0-rc.114, and SQLite 3.50.4 covered twelve cases. The six acknowledged cases injected the first, second, or third matching main-file write. All six writers reported `committed` after successful sync calls. The three lost-write cases failed to reopen and failed `PRAGMA integrity_check`; the first had an invalid page reference. The three reordered-write cases reopened the complete new image and passed integrity checking. In the six unacknowledged cases, both fault modes recovered the old image after UPDATE and before COMMIT, and the complete new image after COMMIT. All six passed integrity checking. The commit connection reported DELETE journaling, `synchronous=3` (`EXTRA`), `fullfsync=1`, and exclusive locking. These results show that the provider cannot promise acknowledged durability when the storage stack lies about writes and syncs. They do not establish a supported power-loss configuration. The gate returns failure for an invariant breach. Its fault placement and results must be rerun for any proposed driver or storage configuration.
 The open performance question is the maximum useful volume size with full-image commits and durable atime reads. Measure it before choosing defaults. If the bound is too small for the intended workload, change the persistence representation to transactional rows while retaining the same staging, failure, and publication contract.
 
 [^engine]: `coordinated`, `replaceContent`, `fileHandle`, `releaseFile`, `captureSnapshot`, and the returned `volume` in the engine source.
@@ -227,7 +235,7 @@ The open performance question is the maximum useful volume size with full-image 
 
 [^live-store]: `LiveVolume.open` consumes the injected store service, validates recovered image limits, and coordinates scoped shutdown.
 
-[^sqlite-live-store]: `SqliteLiveImageStore.layer` reserves an application-supplied Effect `SqlClient` connection and its exclusive SQLite lock, uses DELETE journaling and `synchronous=EXTRA`, verifies stored image digests, and classifies commit results. Its tests use Bun SQLite to cover process restart, ownership contention, and image corruption, but not operating-system crash or power loss.
+[^sqlite-live-store]: `SqliteLiveImageStore.layer` reserves an application-supplied Effect `SqlClient` connection and its exclusive SQLite lock, uses DELETE journaling and `synchronous=EXTRA`, verifies stored image digests, and classifies commit results. `packages/persistence/scripts/linux-crash-gate.sh`, `linux-fault-gate.sh`, and `linux-write-order-gate.sh` cover distinct failure models. None proves physical power-loss durability.
 
 [^snapshot]: Public snapshots exclude callers, open handles, watch subscriptions, and unlinked content.
 
