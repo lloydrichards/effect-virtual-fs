@@ -4,7 +4,6 @@
   "enforceVersion": true,
   "enforceExamples": true,
   "exclude": [
-    "src/internal/**/*.ts",
     "src/index.ts"
   ],
   "parseCompilerOptions": "tsconfig.docgen.json",

@@ -1500,7 +1500,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
 
           const error = yield* fs.watch(missing).pipe(Stream.runDrain, Effect.flip)
 
-          assertSystemError(error, { tag: "NotFound", method: "stat", pathOrDescriptor: missing })
+          assertSystemError(error, { tag: "NotFound", method: "watch", pathOrDescriptor: missing })
         }))
     })
   })

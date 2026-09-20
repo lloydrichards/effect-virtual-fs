@@ -9,6 +9,14 @@ sources:
     title: Public memory adapter API
   - resource: ../../packages/memory/src/internal/memoryFileSystem.ts
     title: Core-to-Effect adapter implementation
+  - resource: ../../packages/memory/src/internal/fileHandle.ts
+    title: Effect file handle and cursor implementation
+  - resource: ../../packages/memory/src/internal/treeOperations.ts
+    title: Scoped traversal and recursive directory operations
+  - resource: ../../packages/memory/src/internal/copyOperations.ts
+    title: Adapter copy operations
+  - resource: ../../packages/memory/src/internal/platformError.ts
+    title: Core-to-Effect error translation
   - resource: ../../packages/memory/test/AdapterCompatibility.test.ts
     title: Effect compatibility tests
   - resource: ../../packages/memory/test/CoreBinding.test.ts
@@ -16,21 +24,27 @@ sources:
   - id: adapter-tests
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Adapter behavior tests
+  - resource: ../../packages/memory/test/ErrorMapping.test.ts
+    title: Error mapping regressions
   - id: overlay-binding
     resource: ../../packages/memory/test/OverlayBinding.test.ts
     title: Overlay volume binding tests
-generated: { by: codex/okf, at: 2026-09-13T14:53:40Z }
+generated: { by: codex/okf, at: 2026-09-20T16:11:30Z }
 ---
 
 # Memory adapter compatibility
 
 `@effect-vfs/memory` exposes Effect's path-based `FileSystem` service while `@effect-vfs/core` owns filesystem behavior. A fresh adapter creates a volume containing `/tmp`; `bind` attaches to an existing volume without modifying it.
+The binding composes file handles, recursive traversal, and copy operations from separate internal modules; core retains namespace, content, and watch ownership.
 
 Bindings share namespace and contents while retaining independent callers, descriptor tables, file cursors, and lifetimes. The adapter preserves Effect cursor and convenience behavior where it intentionally differs from the POSIX-oriented core, and maps expected core failures to `PlatformError`.
+It translates `FsError` only when an operation crosses into Effect's `FileSystem` service. The translation preserves the core error as the cause and records the public method and path or descriptor. It maps volume admission pressure to `Busy`; failures without a matching Effect system-error tag, including capacity rejection, use `Unknown` with the core code in the description.
 
 The adapter follows Effect's byte and cursor types at its public boundary. File metadata exposes exact `ByteSize.ByteSize` values, reads and writes return byte counts as numbers, and seeks accept and return bigint positions.
 Seeks before the start fail with `BadArgument` without changing the cursor, and
 `readAlloc` rejects missing, coerced, negative, and non-integer runtime sizes.
+
+Directory copy rejects a destination child that is a symbolic link instead of following it as a directory. It also rejects copying `/` into one of its descendants before creating the destination. Recursive copy remains a sequence of core operations, so failures after earlier entries are copied can leave those entries in place.
 
 The shared adapter suite in `packages/memory/test/FileSystemTest.ts` states this contract as executable assertions, and it runs against the memory adapter alone. Its requirements are unconditional: a handle used after its scope closes reports `BadResource` against the descriptor it held; `copy` with `overwrite: false` onto an existing destination fails `AlreadyExists` without changing either path; `utimes` reports its failing method as `utimes`; `copy` with `preserveTimestamps` carries both the access and the modification time; `chmod` and `chown` apply the requested mode and ownership without host privileges; derived stream and sink handles finalize on success, failure, and interruption; and a watcher stops receiving events once it is released.
 
