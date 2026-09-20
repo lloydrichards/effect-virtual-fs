@@ -7,21 +7,17 @@
  * and incarnation without pulling a platform dependency into a test.
  *
  * @internal
+ * @since 0.1.0
  */
 import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 
 const SEED = 0x9e3779b97f4a7c15n
-
 const MULTIPLIER = 0xbf58476d1ce4e5b9n
-
 const SCRAMBLER = 0x94d049bb133111ebn
-
 const MASK_64 = 0xffffffffffffffffn
-
 const FNV_OFFSET = 0xcbf29ce484222325n
-
 const FNV_PRIME = 0x00000100000001b3n
 
 const DIGEST_SIZE: Record<Crypto.DigestAlgorithm, number> = {

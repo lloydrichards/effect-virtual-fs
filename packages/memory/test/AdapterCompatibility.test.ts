@@ -38,6 +38,35 @@ it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
       }))
   }
 
+  it.effect("rejects a destination directory symlink without writing through it", () =>
+    Effect.gen(function*() {
+      const fs = yield* Memory.make
+      yield* fs.makeDirectory("/source/child", { recursive: true })
+      yield* fs.makeDirectory("/destination")
+      yield* fs.makeDirectory("/outside")
+      yield* fs.writeFileString("/source/child/file", "copied")
+      yield* fs.symlink("/outside", "/destination/child")
+
+      const error = yield* Effect.flip(fs.copy("/source", "/destination", { overwrite: true }))
+
+      assert.strictEqual(error.reason._tag, "BadResource")
+      assert.strictEqual(yield* fs.readLink("/destination/child"), "/outside")
+      assert.deepStrictEqual(yield* fs.readDirectory("/outside"), [])
+    }))
+
+  it.effect("rejects copying root into a descendant before creating the destination", () =>
+    Effect.gen(function*() {
+      const fs = yield* Memory.make
+      yield* fs.makeDirectory("/parent")
+      yield* fs.writeFileString("/parent/file", "keep")
+
+      const error = yield* Effect.flip(fs.copy("/", "/parent/copy"))
+
+      assert.strictEqual(error.reason._tag, "BadArgument")
+      assert.deepStrictEqual(yield* fs.readDirectory("/parent"), ["file"])
+      assert.strictEqual(yield* fs.readFileString("/parent/file"), "keep")
+    }))
+
   it.effect("preserves the destination symlink and target when replacement exceeds volume capacity", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(45) })
@@ -53,7 +82,7 @@ it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
       )
 
       const error = yield* Effect.flip(fs.copy("/source", "/destination", { overwrite: true }))
-      assert.strictEqual(error.reason._tag, "BadResource")
+      assert.strictEqual(error.reason._tag, "Unknown")
       assert.strictEqual(yield* fs.readLink("/destination"), "/external")
       assert.strictEqual(yield* fs.readFileString("/external"), "safe")
       assert.deepStrictEqual(yield* fs.readDirectory("/"), ["destination", "external", "source"])

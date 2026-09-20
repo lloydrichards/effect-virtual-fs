@@ -2,6 +2,12 @@
 
 ## 2026-09-20
 
+- **Memory adapter error boundary**: Aligned core error translation with Effect's system-error tags, preserved core causes, and labeled failed watch lookups as watch operations. Memory internal modules now pass through docgen, Effect's internal-export lint rule checks unused exports and public API leaks, and the memory declaration build strips internal exports before its consumer type check.
+
+- **Memory adapter module boundaries**: Split conversion, file-handle cursors, tree traversal, and copy operations into focused internal modules. The public binding and its core ownership model remain the same.
+
+- **Memory directory copy boundaries**: Rejected destination directory symlinks during overwrite and copying `/` into a descendant. Public adapter regressions verify that these cases cannot write outside the requested destination or create a recursive copy.
+
 - **Read-only NFS beta and physical-cut handoff**: Made the NFS package publishable in the fixed release group and labeled its public read path accurately. Added a Linux prepare/verify kit and CI rehearsal for contributors with disposable hardware. The kit has not yet produced physical power-cut evidence; public writes and a stronger durability tier remain unavailable.
 - **Internal NFS namespace and metadata mutations**: Added directory and symlink CREATE, LINK, atomic type-independent REMOVE, RENAME, and core-backed SETATTR. Wire tests cover change information, mapped authority, owner strings, partial attributes, and injected-image reopen. Public writable exports remain gated by storage qualification.
 - **Regular-file NFS creation**: Added internal writable `OPEN` creation for ordinary, guarded, and both exclusive modes. Verifiers and initial attributes commit with the new file; conditional core child opens protect adapter checks from direct-caller races. Public exports remain read-only and storage qualification remains separate.

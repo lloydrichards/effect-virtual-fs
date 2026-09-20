@@ -2,9 +2,11 @@
  * Compiles and matches the bounded POSIX glob syntax used by the memory adapter.
  *
  * @internal
+ * @since 0.1.0
  */
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import { badArgument } from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
 
@@ -64,7 +66,7 @@ interface GlobCharacterClassAtom {
 
 const globSyntaxCharacters = new Set(["*", "?", "[", "]", "{", "}", ",", "\\"])
 
-const findBraceExpansion = (pattern: string): BraceExpansion | undefined => {
+const findBraceExpansion = (pattern: string): Option.Option<BraceExpansion> => {
   for (let start = 0; start < pattern.length; start++) {
     if (pattern[start] === "\\") {
       start += 1
@@ -98,12 +100,12 @@ const findBraceExpansion = (pattern: string): BraceExpansion | undefined => {
           if (commas.length === 0) {
             const nested = findBraceExpansion(pattern.slice(start + 1, end))
 
-            if (nested !== undefined) {
-              return {
-                start: start + nested.start + 1,
-                end: start + nested.end + 1,
-                alternatives: nested.alternatives
-              }
+            if (Option.isSome(nested)) {
+              return Option.some({
+                start: start + nested.value.start + 1,
+                end: start + nested.value.end + 1,
+                alternatives: nested.value.alternatives
+              })
             }
 
             start = end
@@ -118,33 +120,40 @@ const findBraceExpansion = (pattern: string): BraceExpansion | undefined => {
             alternativeStart = comma + 1
           }
 
-          return { start, end, alternatives }
+          return Option.some({ start, end, alternatives })
         }
       } else if (!characterClass && pattern[end] === "," && depth === 1) {
         commas.push(end)
       }
     }
 
-    if (!closed) return undefined
+    if (!closed) return Option.none()
   }
 
-  return undefined
+  return Option.none()
 }
 
-const expandBraces = (method: string, pattern: string) => {
+const expandBraces = Effect.fnUntraced(function*(method: string, pattern: string) {
   let patterns = [pattern]
 
   while (true) {
-    const index = patterns.findIndex((pattern) => findBraceExpansion(pattern) !== undefined)
+    let match: readonly [index: number, expansion: BraceExpansion] | undefined
 
-    if (index === -1) return Effect.succeed(patterns)
+    for (let index = 0; index < patterns.length; index++) {
+      const expansion = findBraceExpansion(patterns[index]!)
+
+      if (Option.isSome(expansion)) {
+        match = [index, expansion.value]
+        break
+      }
+    }
+
+    if (match === undefined) return patterns
+    const [index, expansion] = match
     const current = patterns[index]!
-    const expansion = findBraceExpansion(current)
-
-    if (expansion === undefined) return Effect.succeed(patterns)
 
     if (patterns.length - 1 + expansion.alternatives.length > MAX_BRACE_EXPANSIONS) {
-      return Effect.fail(argumentError(method, `brace expansion exceeds ${MAX_BRACE_EXPANSIONS} alternatives`))
+      return yield* argumentError(method, `brace expansion exceeds ${MAX_BRACE_EXPANSIONS} alternatives`)
     }
 
     patterns = [
@@ -155,7 +164,7 @@ const expandBraces = (method: string, pattern: string) => {
       ...patterns.slice(index + 1)
     ]
   }
-}
+})
 
 const parseCharacterClass = (method: string, segment: string, start: number) => {
   let index = start + 1
