@@ -6,7 +6,7 @@ import * as Memory from "../src/MemoryFileSystem.js"
 
 it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
   for (const root of ["/", "//", ".", "/directory/..", "/alias/../"]) {
-    it.effect(`rejects recursive removal of ${root} before changing the tree`, () =>
+    it.effect(`should reject recursive removal of ${root} without changing the tree`, () =>
       Effect.gen(function*() {
         const fs = yield* Memory.make
         yield* fs.makeDirectory("/directory")
@@ -21,7 +21,7 @@ it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
   }
 
   for (const nested of [false, true]) {
-    it.effect(`replaces destination symlinks during ${nested ? "directory" : "file"} copy without writing their targets`, () =>
+    it.effect(`should replace a destination symlink without changing its target when copying a ${nested ? "directory" : "file"}`, () =>
       Effect.gen(function*() {
         const fs = yield* Memory.make
         yield* fs.makeDirectory("/source")
@@ -38,7 +38,7 @@ it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
       }))
   }
 
-  it.effect("rejects a destination directory symlink without writing through it", () =>
+  it.effect("should preserve a destination directory symlink when copying a tree over it", () =>
     Effect.gen(function*() {
       const fs = yield* Memory.make
       yield* fs.makeDirectory("/source/child", { recursive: true })
@@ -54,7 +54,7 @@ it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
       assert.deepStrictEqual(yield* fs.readDirectory("/outside"), [])
     }))
 
-  it.effect("rejects copying root into a descendant before creating the destination", () =>
+  it.effect("should leave the destination absent when copying root into its descendant is rejected", () =>
     Effect.gen(function*() {
       const fs = yield* Memory.make
       yield* fs.makeDirectory("/parent")
@@ -67,7 +67,7 @@ it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
       assert.strictEqual(yield* fs.readFileString("/parent/file"), "keep")
     }))
 
-  it.effect("preserves the destination symlink and target when replacement exceeds volume capacity", () =>
+  it.effect("should preserve a destination symlink and its target when replacement exceeds capacity", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(45) })
       const fs = yield* Memory.bind(volume)
@@ -90,7 +90,7 @@ it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
       assert.deepStrictEqual(yield* Fiber.join(watched), [{ _tag: "Create", path: "/sentinel" }])
     }))
 
-  it.effect("reuses the replaced symlink's capacity without staging a temporary entry", () =>
+  it.effect("should replace a symlink within capacity when its storage can be reused", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(19), maxEntries: 3 })
       const fs = yield* Memory.bind(volume)
@@ -113,7 +113,7 @@ it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
       assert.deepStrictEqual(yield* fs.readDirectory("/"), ["destination", "external", "source"])
     }))
 
-  it.effect("copies the source mode while preserving an existing copyFile destination and its aliases", () =>
+  it.effect("should copy source mode and contents to existing destination aliases when copying a file", () =>
     Effect.gen(function*() {
       const fs = yield* Memory.make
       yield* fs.writeFileString("/source", "copied", { mode: 0o600 })
@@ -142,7 +142,7 @@ it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
       ])
     }))
 
-  it.effect("rejects a copied mode without ownership before changing destination bytes or metadata", () =>
+  it.effect("should preserve destination bytes and metadata when copying mode is denied", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
       const owner = yield* Memory.bind(volume)
@@ -169,7 +169,7 @@ it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
       assert.deepStrictEqual(yield* Fiber.join(watched), [{ _tag: "Create", path: "/sentinel" }])
     }))
 
-  it.effect("treats copyFile to itself or a hard-link alias as a no-op", () =>
+  it.effect("should leave a file unchanged when copied to itself or a hard-link alias", () =>
     Effect.gen(function*() {
       const fs = yield* Memory.make
       yield* fs.writeFileString("/source", "unchanged", { mode: 0o600 })

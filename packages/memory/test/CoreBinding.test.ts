@@ -7,13 +7,12 @@ import * as Memory from "../src/MemoryFileSystem.js"
 const bytes = new TextEncoder()
 
 it.layer(layerDeterministicCrypto)("core-backed memory bindings", (it) => {
-  it.effect("shares direct core writes and independent adapter cursors between bindings", () =>
+  it.effect("should share file contents and keep cursors independent when bindings use one volume", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
       const core = yield* volume.caller()
       const a = yield* Memory.bind(volume)
       const b = yield* Memory.bind(volume)
-      assert.isFalse(yield* a.exists("/tmp"))
       yield* core.writeFile("/f", bytes.encode("abc"), { access: "write", create: "exclusive" })
       const af = yield* a.open("/f")
       const bf = yield* b.open("/f")
@@ -22,15 +21,30 @@ it.layer(layerDeterministicCrypto)("core-backed memory bindings", (it) => {
       assert.strictEqual(yield* bf.seek(0n, "current"), 0n)
       yield* b.writeFileString("/f", "xyz")
       assert.strictEqual(new TextDecoder().decode(Option.getOrThrow(yield* bf.readAlloc(3))), "xyz")
+    }))
+
+  it.effect("should leave the volume namespace unchanged when binding an adapter", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const adapter = yield* Memory.bind(volume)
+      assert.isFalse(yield* adapter.exists("/tmp"))
+    }))
+
+  it.effect("should close only the handle owned by a binding when its scope closes", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const a = yield* Memory.bind(volume)
+      const b = yield* Memory.bind(volume)
+      yield* b.writeFileString("/f", "xyz")
       const scope = yield* Scope.make()
       const closed = yield* a.open("/f").pipe(Scope.provide(scope))
       yield* Scope.close(scope, Exit.void)
       yield* Effect.flip(closed.readAlloc(1))
       assert.strictEqual(yield* closed.seek(10n, "start"), 0n)
-      assert.strictEqual(yield* a.readFileString("/f"), "xyz")
+      assert.strictEqual(yield* b.readFileString("/f"), "xyz")
     }))
 
-  it.effect("delivers direct-core and alias writes to adapter watchers in commit order", () =>
+  it.effect("should deliver direct core and alias writes in commit order when an adapter watches", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
       const core = yield* volume.caller()
@@ -54,7 +68,7 @@ it.layer(layerDeterministicCrypto)("core-backed memory bindings", (it) => {
       ])
     }))
 
-  it.effect("recovers a watched subtree after overflow without losing a change during rescan", () =>
+  it.effect("should recover subtree changes when a watch overflows during rescan", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make({ maxWatchEvents: 2 })
       const core = yield* volume.caller()
@@ -122,7 +136,7 @@ it.layer(layerDeterministicCrypto)("core-backed memory bindings", (it) => {
       ])
     }))
 
-  it.effect("preserves the old file and publishes nothing when a whole-file write exceeds quota", () =>
+  it.effect("should preserve the old file and publish no update when a whole-file write exceeds quota", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(3) })
       const core = yield* volume.caller()
@@ -143,7 +157,7 @@ it.layer(layerDeterministicCrypto)("core-backed memory bindings", (it) => {
       assert.deepStrictEqual(yield* Fiber.join(watch), [{ _tag: "Create", path: "/sentinel" }])
     }))
 
-  it.effect("filters unrelated byte names before strict watch conversion", () =>
+  it.effect("should filter unrelated byte names when converting watched paths to strings", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
       const core = yield* volume.caller()
@@ -163,7 +177,7 @@ it.layer(layerDeterministicCrypto)("core-backed memory bindings", (it) => {
       assert.strictEqual(invalid.reason._tag, "InvalidData")
     }))
 
-  it.effect("preserves copied hard-link topology and directory timestamps", () =>
+  it.effect("should preserve hard-link topology when copying a directory", () =>
     Effect.gen(function*() {
       const fs = yield* Memory.make
       yield* fs.makeDirectory("/source/nested", { recursive: true })
@@ -172,10 +186,18 @@ it.layer(layerDeterministicCrypto)("core-backed memory bindings", (it) => {
       yield* fs.utimes("/source/nested", 100, 200)
       yield* fs.copy("/source", "/copy", { preserveTimestamps: true })
       assert.deepStrictEqual((yield* fs.stat("/copy/nested/a")).ino, (yield* fs.stat("/copy/nested/b")).ino)
+    }))
+
+  it.effect("should preserve directory timestamps when copying with metadata preservation", () =>
+    Effect.gen(function*() {
+      const fs = yield* Memory.make
+      yield* fs.makeDirectory("/source/nested", { recursive: true })
+      yield* fs.utimes("/source/nested", 100, 200)
+      yield* fs.copy("/source", "/copy", { preserveTimestamps: true })
       assert.strictEqual(Option.getOrThrow((yield* fs.stat("/copy/nested")).mtime).getTime(), 200_000)
     }))
 
-  it.effect("preserves adapter append-truncate and path-truncate cursor behavior", () =>
+  it.effect("should retain an append handle cursor when its file is truncated", () =>
     Effect.gen(function*() {
       const fs = yield* Memory.make
       yield* fs.writeFileString("/f", "abcd")
@@ -183,10 +205,24 @@ it.layer(layerDeterministicCrypto)("core-backed memory bindings", (it) => {
       yield* f.seek(4n, "start")
       yield* f.truncate(1)
       assert.strictEqual(yield* f.seek(0n, "current"), 4n)
+    }))
+
+  it.effect("should retain an open cursor when its path is truncated", () =>
+    Effect.gen(function*() {
+      const fs = yield* Memory.make
+      yield* fs.writeFileString("/f", "abcd")
       const g = yield* fs.open("/f", { flag: "r+" })
       yield* g.seek(3n, "start")
       yield* fs.truncate("/f", 0)
       assert.strictEqual(yield* g.seek(0n, "current"), 3n)
+    }))
+
+  it.effect("should preserve the cursor when a seek before the start is rejected", () =>
+    Effect.gen(function*() {
+      const fs = yield* Memory.make
+      yield* fs.writeFileString("/f", "abcd")
+      const g = yield* fs.open("/f", { flag: "r+" })
+      yield* g.seek(3n, "start")
       const error = yield* Effect.flip(g.seek(-1n, "start"))
       assert.strictEqual(error.reason._tag, "BadArgument")
       assert.strictEqual(error.reason.method, "seek")

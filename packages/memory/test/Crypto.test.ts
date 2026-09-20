@@ -14,7 +14,7 @@ const suppliedCrypto = Layer.succeed(
   })
 )
 
-it.effect("mints a filesystem without a platform crypto service", () =>
+it.effect("should mint a usable filesystem when no platform crypto service is provided", () =>
   Effect.gen(function*() {
     const fs = yield* MemoryFileSystem.makeCrypto
 
@@ -23,7 +23,7 @@ it.effect("mints a filesystem without a platform crypto service", () =>
     assert.strictEqual(yield* fs.readFileString("/tmp/greeting.txt"), "hello")
   }))
 
-it.effect("gives each volume its own identity and incarnation", () =>
+it.effect("should give each core volume a distinct identity and incarnation when crypto is deterministic", () =>
   Effect.gen(function*() {
     const first = yield* Vfs.make().pipe(Effect.provide(layerDeterministicCrypto))
     const second = yield* Vfs.make().pipe(Effect.provide(layerDeterministicCrypto))
@@ -33,7 +33,7 @@ it.effect("gives each volume its own identity and incarnation", () =>
     assert.notStrictEqual(String(first.identity), String(first.incarnation))
   }))
 
-it.effect("takes a caller-supplied crypto service", () =>
+it.effect("should mint a usable filesystem when a caller supplies crypto", () =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
 
