@@ -37,7 +37,7 @@ it.layer(layerDeterministicCrypto)("adapter timestamp conversion", (it) => {
     }
   }
 
-  it.effect("should return owned valid dates when timestamps reach either Date boundary", () =>
+  it.effect("should return independent valid dates when timestamps reach Date boundaries", () =>
     Effect.gen(function*() {
       const maximumMs = 8_640_000_000_000_000
       const maximumNs = BigInt(maximumMs) * 1_000_000n

@@ -263,7 +263,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assertSystemError(error, { tag: "NotFound", method: "access", pathOrDescriptor: missing })
         }))
 
-      it.effect("should remove directories addressed with a trailing separator", () =>
+      it.effect("should remove a directory when its path ends in a separator", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const directory = path("directory")
@@ -274,7 +274,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.isFalse(yield* fs.exists(directory))
         }))
 
-      it.effect("should rename directories addressed with trailing separators", () =>
+      it.effect("should rename a directory when its paths end in separators", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const source = path("source")
@@ -288,7 +288,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.strictEqual(yield* fs.readFileString(`${destination}/file.txt`), "content")
         }))
 
-      it.effect("should copy directories to a destination with a trailing separator", () =>
+      it.effect("should copy a directory when its destination ends in a separator", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const source = path("source")
@@ -302,7 +302,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.strictEqual(yield* fs.readFileString(`${destination}/file.txt`), "content")
         }))
 
-      it.effect("should reject removing a file addressed as a directory", () =>
+      it.effect("should reject removing a file when its path ends in a separator", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const file = path("file.txt")
@@ -903,7 +903,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.strictEqual(yield* file.seek(-2n, "current"), 4n)
         }))
 
-      it.effect("should reject seeks before the start without moving the cursor", () =>
+      it.effect("should preserve the cursor when a seek before the start is rejected", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const file = yield* fs.open(path("negative-seek.txt"), { flag: "w+" })
@@ -918,7 +918,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.strictEqual(yield* file.seek(0n, "current"), 4n)
         }))
 
-      it.effect("should reject invalid runtime readAlloc sizes while preserving truncate's default", () =>
+      it.effect("should reject invalid runtime sizes when allocating a read", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const filePath = path("invalid-read-size.txt")
@@ -945,12 +945,20 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
               description: "size must be a non-negative integer"
             })
           }
+        }))
+
+      it.effect("should truncate to zero when no size is supplied", () =>
+        Effect.gen(function*() {
+          const { fs, path } = yield* makeTestContext
+          const filePath = path("default-truncate.txt")
+          yield* fs.writeFileString(filePath, "content")
+          const file = yield* fs.open(filePath, { flag: "r+" })
 
           yield* file.truncate()
           assert.strictEqual((yield* fs.stat(filePath)).size, ByteSize.bytes(0))
         }))
 
-      it.effect("should preserve or clamp a file-handle cursor based on the truncated length", () =>
+      it.effect("should preserve or clamp the cursor when a file handle truncates its file", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const filePath = path("truncate-cursor.txt")
@@ -967,7 +975,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.strictEqual(yield* fs.readFileString(filePath), "lorem?")
         }))
 
-      it.effect("should read appended bytes from a cursor clamped by truncation", () =>
+      it.effect("should read appended bytes when truncation clamps the cursor", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const filePath = path("truncate-append-cursor.txt")
@@ -1356,7 +1364,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assertSystemError(error, { method: "realPath", pathOrDescriptor: first })
         }))
 
-      it.effect("should report the requested permission bits after changing a file mode", () =>
+      it.effect("should report permission bits when a file mode changes", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const file = path("mode.txt")
@@ -1376,7 +1384,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
         }))
 
       // Ownership changes require host privileges on a real filesystem; the virtual adapter grants them unconditionally.
-      it.effect("should report the requested owner and group after changing file ownership", () =>
+      it.effect("should report owner and group when file ownership changes", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const file = path("ownership.txt")
@@ -1441,7 +1449,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.isTrue(matches.some((entry) => entry.endsWith("src/index.ts")))
         }))
 
-      it.effect("should deliver events to a watcher that subscribed before the mutation", () =>
+      it.effect("should deliver events when a watcher subscribes before mutation", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const directory = path("watched")
@@ -1460,7 +1468,7 @@ export const suite = <E>(name: string, layer: Layer.Layer<FileSystem.FileSystem,
           assert.isTrue(events[0]!.path.replaceAll("\\", "/").endsWith("created.txt"))
         }))
 
-      it.effect("should stop delivering events after a watcher is interrupted", () =>
+      it.effect("should stop delivering events when a watcher is interrupted", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext
           const directory = path("released")

@@ -42,7 +42,7 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
         assert.strictEqual((yield* fs.stat("/")).type, "Directory")
       }))
 
-    it.effect("should resolve dot, dot-dot, and repeated separators", () =>
+    it.effect("should resolve normalized paths when they contain dot segments or repeated separators", () =>
       Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
         yield* fs.makeDirectory("/paths/child", { recursive: true })
@@ -98,7 +98,7 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
       }))
   })
 
-  it.effect("should provide one isolated virtual volume per fresh layer", () =>
+  it.effect("should isolate virtual volumes when each layer is fresh", () =>
     Effect.gen(function*() {
       const writeInFirstVolume = Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
@@ -117,11 +117,10 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
       assert.isFalse(existsInFreshVolume)
     }))
 
-  it.effect("should serialize concurrent appends and exclusive creates", () =>
+  it.effect("should preserve both writes when separate handles append concurrently", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const appendPath = "/concurrent-append.txt"
-      const createPath = "/exclusive-create.txt"
       yield* fs.writeFileString(appendPath, "")
       const first = yield* fs.open(appendPath, { flag: "a" })
       const second = yield* fs.open(appendPath, { flag: "a" })
@@ -131,15 +130,23 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
         second.writeAll(encoder.encode("B"))
       ], { concurrency: "unbounded", discard: true })
 
+      const contents = yield* fs.readFileString(appendPath)
+      assert.isTrue(contents === "AB" || contents === "BA")
+    }))
+
+  it.effect("should allow one writer when exclusive creates race", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const createPath = "/exclusive-create.txt"
+
       const creates = yield* Effect.all([
         fs.writeFileString(createPath, "first", { flag: "wx" }).pipe(Effect.result),
         fs.writeFileString(createPath, "second", { flag: "wx" }).pipe(Effect.result)
       ], { concurrency: "unbounded" })
 
-      const contents = yield* fs.readFileString(appendPath)
-      assert.isTrue(contents === "AB" || contents === "BA")
       assert.strictEqual(creates.filter(Result.isSuccess).length, 1)
       assert.strictEqual(creates.filter(Result.isFailure).length, 1)
+      assert.include(["first", "second"], yield* fs.readFileString(createPath))
     }))
 
   it.effect("should leave bytes unchanged when file-size mutations are invalid", () =>
@@ -165,7 +172,7 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
       assert.strictEqual(yield* fs.readFileString(path), "content")
     }))
 
-  it.effect("should store POSIX metadata without enforcing a virtual user identity", () =>
+  it.effect("should retain POSIX metadata when no virtual user identity is enforced", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       yield* TestClock.setTime(1_000)
@@ -184,7 +191,7 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
       yield* fs.access("/metadata.txt", { readable: true, writable: true })
     }))
 
-  it.effect("should not traverse directory symbolic links while globbing", () =>
+  it.effect("should skip directory symbolic links when globbing recursively", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       yield* fs.makeDirectory("/glob/real", { recursive: true })
@@ -226,63 +233,67 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
       }))
   }
 
-  it.effect("should write, list, copy, and rename a deeply nested volume", () =>
-    Effect.gen(function*() {
-      const fs = yield* MemoryFileSystem.makeCrypto
-      yield* fs.writeFileString("/file.txt", "before")
-      const file = yield* fs.open("/file.txt", { flag: "r+" })
-      // This depth exercises traversal beyond the JavaScript call stack through public operations.
-      yield* fs.makeDirectory("/d".repeat(6_000), { recursive: true })
+  it.effect(
+    "should complete filesystem operations when directory depth exceeds the call stack",
+    () =>
+      Effect.gen(function*() {
+        const fs = yield* MemoryFileSystem.makeCrypto
+        yield* fs.writeFileString("/file.txt", "before")
+        const file = yield* fs.open("/file.txt", { flag: "r+" })
+        // This depth exercises traversal beyond the JavaScript call stack through public operations.
+        yield* fs.makeDirectory("/d".repeat(6_000), { recursive: true })
 
-      const written = yield* Effect.exit(file.writeAll(encoder.encode("AFTER!")))
+        const written = yield* Effect.exit(file.writeAll(encoder.encode("AFTER!")))
 
-      const withoutWatchers = {
-        succeeded: Exit.isSuccess(written),
-        contents: yield* fs.readFileString("/file.txt"),
-        position: yield* file.seek(0n, "current")
-      }
+        const withoutWatchers = {
+          succeeded: Exit.isSuccess(written),
+          contents: yield* fs.readFileString("/file.txt"),
+          position: yield* file.seek(0n, "current")
+        }
 
-      const watcher = yield* fs.watch("/file.txt").pipe(
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkChild({ startImmediately: true })
-      )
+        const watcher = yield* fs.watch("/file.txt").pipe(
+          Stream.take(1),
+          Stream.runCollect,
+          Effect.forkChild({ startImmediately: true })
+        )
 
-      yield* file.seek(0n, "start")
-      const watchedWrite = yield* Effect.exit(file.writeAll(encoder.encode("second")))
+        yield* file.seek(0n, "start")
+        const watchedWrite = yield* Effect.exit(file.writeAll(encoder.encode("second")))
 
-      const withWatcher = {
-        succeeded: Exit.isSuccess(watchedWrite),
-        contents: yield* fs.readFileString("/file.txt"),
-        position: yield* file.seek(0n, "current")
-      }
+        const withWatcher = {
+          succeeded: Exit.isSuccess(watchedWrite),
+          contents: yield* fs.readFileString("/file.txt"),
+          position: yield* file.seek(0n, "current")
+        }
 
-      assert.deepStrictEqual({ withoutWatchers, withWatcher }, {
-        withoutWatchers: { succeeded: true, contents: "AFTER!", position: 6n },
-        withWatcher: { succeeded: true, contents: "second", position: 6n }
-      })
-      const events = yield* Fiber.join(watcher)
-      assert.deepStrictEqual(events, [{ _tag: "Update", path: "/file.txt" }])
+        assert.deepStrictEqual({ withoutWatchers, withWatcher }, {
+          withoutWatchers: { succeeded: true, contents: "AFTER!", position: 6n },
+          withWatcher: { succeeded: true, contents: "second", position: 6n }
+        })
+        const events = yield* Fiber.join(watcher)
+        assert.deepStrictEqual(events, [{ _tag: "Update", path: "/file.txt" }])
 
-      const listed = yield* Effect.exit(fs.readDirectory("/d", { recursive: true }))
-      const copied = yield* Effect.exit(fs.copy("/d", "/copy"))
-      const moved = yield* Effect.exit(fs.rename("/d", "/moved"))
+        const listed = yield* Effect.exit(fs.readDirectory("/d", { recursive: true }))
+        const copied = yield* Effect.exit(fs.copy("/d", "/copy"))
+        const moved = yield* Effect.exit(fs.rename("/d", "/moved"))
 
-      assert.deepStrictEqual({
-        listing: Exit.isFailure(listed) ? Cause.pretty(listed.cause) : undefined,
-        copy: Exit.isFailure(copied) ? Cause.pretty(copied.cause) : undefined,
-        rename: Exit.isFailure(moved) ? Cause.pretty(moved.cause) : undefined
-      }, { listing: undefined, copy: undefined, rename: undefined })
+        assert.deepStrictEqual({
+          listing: Exit.isFailure(listed) ? Cause.pretty(listed.cause) : undefined,
+          copy: Exit.isFailure(copied) ? Cause.pretty(copied.cause) : undefined,
+          rename: Exit.isFailure(moved) ? Cause.pretty(moved.cause) : undefined
+        }, { listing: undefined, copy: undefined, rename: undefined })
 
-      if (Exit.isSuccess(listed)) {
-        assert.strictEqual(listed.value.length, 5_999)
-        assert.strictEqual(listed.value[5_998], Array(5_999).fill("d").join("/"))
-      }
+        if (Exit.isSuccess(listed)) {
+          assert.strictEqual(listed.value.length, 5_999)
+          assert.strictEqual(listed.value[5_998], Array(5_999).fill("d").join("/"))
+        }
 
-      assert.isFalse(yield* fs.exists("/d"))
-      assert.strictEqual((yield* fs.stat(`/copy${"/d".repeat(5_999)}`)).type, "Directory")
-      assert.strictEqual((yield* fs.stat(`/moved${"/d".repeat(5_999)}`)).type, "Directory")
-    }), 60_000)
+        assert.isFalse(yield* fs.exists("/d"))
+        assert.strictEqual((yield* fs.stat(`/copy${"/d".repeat(5_999)}`)).type, "Directory")
+        assert.strictEqual((yield* fs.stat(`/moved${"/d".repeat(5_999)}`)).type, "Directory")
+      }),
+    60_000
+  )
 
   for (const suffix of [".", ".."]) {
     it.effect(`should publish directory creation when recursive mkdir ends in ${suffix}`, () =>
@@ -303,7 +314,7 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
       }))
   }
 
-  it.effect("should publish committed normalized events for memory mutations", () =>
+  it.effect("should publish normalized events in commit order when memory paths mutate", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       yield* fs.makeDirectory("/watch-events")
@@ -330,7 +341,7 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
       ])
     }))
 
-  it.effect("should publish updates through every current hard-link path", () =>
+  it.effect("should publish an update through an alias when its hard-linked file changes", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       yield* fs.writeFileString("/original.txt", "content")

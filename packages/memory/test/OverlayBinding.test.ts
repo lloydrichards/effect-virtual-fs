@@ -7,7 +7,7 @@ import * as Memory from "../src/MemoryFileSystem.js"
 const bytes = new TextEncoder()
 
 it.layer(layerDeterministicCrypto)("overlay memory binding", (it) => {
-  it.effect("should bind as an ordinary Volume and observe direct and adapter writes", () =>
+  it.effect("should expose direct and adapter writes when bound to an overlay volume", () =>
     Effect.gen(function*() {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/f", bytes: bytes.encode("base") }]
@@ -24,7 +24,7 @@ it.layer(layerDeterministicCrypto)("overlay memory binding", (it) => {
       assert.strictEqual((yield* overlay.changes()).length, 1)
     }))
 
-  it.effect("should keep sibling adapter bindings isolated after same-sized writes", () =>
+  it.effect("should keep sibling overlay bindings isolated when writes have the same size", () =>
     Effect.gen(function*() {
       const base = yield* (yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/f", bytes: bytes.encode("same") }]

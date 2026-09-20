@@ -9,7 +9,7 @@ import * as Memory from "../src/MemoryFileSystem.js"
 const systemReason = (error: PlatformError.PlatformError): PlatformError.SystemError =>
   error.reason instanceof PlatformError.SystemError ? error.reason : assert.fail("Expected a system error")
 
-it("maps volume admission pressure to Busy", () => {
+it("should map volume admission pressure to Busy when translating a core error", () => {
   const coreError = new Vfs.FsError({ code: "VolumeBusy", operation: "writeFile" })
   const error = toPlatformError(coreError, "writeFile", "/file")
 
@@ -21,7 +21,7 @@ it("maps volume admission pressure to Busy", () => {
 })
 
 it.layer(layerDeterministicCrypto)("memory adapter error mapping", (it) => {
-  it.effect("reports capacity rejection without calling the resource invalid", () =>
+  it.effect("should report NoSpace when a write exceeds capacity", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(1) })
       const fs = yield* Memory.bind(volume)
@@ -35,7 +35,7 @@ it.layer(layerDeterministicCrypto)("memory adapter error mapping", (it) => {
       assert.strictEqual(reason.description, "NoSpace")
     }))
 
-  it.effect("attributes a missing watched path to watch", () =>
+  it.effect("should attribute a missing path to watch when watch subscription fails", () =>
     Effect.gen(function*() {
       const fs = yield* Memory.make
       const error = yield* Effect.flip(fs.watch("/missing").pipe(Stream.runDrain))
