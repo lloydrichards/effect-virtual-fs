@@ -1,9 +1,9 @@
 // Immutable regular-file payloads shared by overlay workspaces.
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import type { Snapshot } from "../../Snapshot.js"
-import { CanonicalBase64 } from "../canonicalBase64.js"
-import * as Image from "../image.js"
+import type { Snapshot } from "../Snapshot.js"
+import { CanonicalBase64 } from "./canonicalBase64.js"
+import * as Image from "./image.js"
 
 /** @internal */
 export interface Content {

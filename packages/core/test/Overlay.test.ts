@@ -1,7 +1,7 @@
 import { assert, describe } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { setObservationHook, setRegistrationHook } from "../src/internal/virtualFileSystem/testHooks.js"
+import { setObservationHook, setRegistrationHook } from "../src/internal/testHooks.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
 

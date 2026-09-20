@@ -7,5 +7,17 @@
     ".cache/docgen-src/internal/**/*.ts",
     ".cache/docgen-src/index.ts"
   ],
-  "parseCompilerOptions": "tsconfig.docgen.json"
+  "parseCompilerOptions": "tsconfig.docgen.json",
+  "examplesCompilerOptions": {
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "target": "ES2022",
+    "strict": true,
+    "moduleResolution": "bundler",
+    "module": "Preserve",
+    "skipLibCheck": true,
+    "noEmit": true
+  }
 }

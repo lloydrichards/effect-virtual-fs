@@ -2,10 +2,12 @@
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import { ImageError } from "../../Snapshot.js"
-import type { Fixture, PathInput, VolumeOptions } from "../../VirtualFileSystem.js"
-import { CanonicalBase64 } from "../canonicalBase64.js"
-import * as Image from "../image.js"
+import { ImageError } from "../Snapshot.js"
+import type { Fixture, PathInput, VolumeOptions } from "../VirtualFileSystem.js"
+import { CanonicalBase64 } from "./canonicalBase64.js"
+import { decodeConfiguration, FsError } from "./errors.js"
+import * as Image from "./image.js"
+import { inputBytes, isAttachedBytes, isDotComponent, nameBytes, preparePath } from "./path.js"
 import {
   Fixture as FixtureSchema,
   FixtureEntry,
@@ -14,9 +16,7 @@ import {
   VolumeIdentity,
   VolumeOptions as VolumeOptionsSchema,
   VolumeSource
-} from "../virtualFileSystem.js"
-import { decodeConfiguration, FsError } from "./errors.js"
-import { inputBytes, isAttachedBytes, isDotComponent, nameBytes, preparePath } from "./path.js"
+} from "./virtualFileSystem.js"
 
 const DEFAULT_MODE: Record<Image.Record["_tag"], number> = { directory: 0o755, file: 0o644, symlink: 0o777 }
 

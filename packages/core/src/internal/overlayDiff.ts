@@ -2,8 +2,8 @@ import * as Data from "effect/Data"
 import * as Encoding from "effect/Encoding"
 import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
-import { bytesOrder, sameBytes } from "../bytes.js"
-import type { StoredMetadata } from "../metadata.js"
+import { bytesOrder, sameBytes } from "./bytes.js"
+import type { StoredMetadata } from "./metadata.js"
 
 /** @internal */
 export interface ObservationEntry {

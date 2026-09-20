@@ -1,11 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Predicate, Schema } from "effect"
 import type { StoredMetadata } from "../src/internal/metadata.js"
-import {
-  compareOverlay,
-  type ObservationEntry,
-  type RawOverlayChange
-} from "../src/internal/virtualFileSystem/overlayDiff.js"
+import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "../src/internal/overlayDiff.js"
 
 const encoder = new TextEncoder()
 
@@ -227,6 +223,6 @@ describe("overlay comparison", () => {
     inputPath[1] = 98
     assert.deepStrictEqual(printable(changes), [{ _tag: "Added", path: [...path("/a")], kind: "file" }])
     assert.isTrue(Object.isFrozen(changes))
-    assert.isTrue(Object.isFrozen(changes[0]!))
+    assert.isTrue(Object.isFrozen(changes[0]))
   })
 })

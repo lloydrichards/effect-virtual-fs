@@ -1,7 +1,7 @@
 import { assert, describe } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber, Option, PubSub, Queue, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { setRegistrationHook } from "../src/internal/virtualFileSystem/testHooks.js"
+import { setRegistrationHook } from "../src/internal/testHooks.js"
 import { it } from "./TestEffect.js"
 
 describe("bounded watches", () => {

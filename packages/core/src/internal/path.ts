@@ -4,9 +4,9 @@ import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
-import type { BytePath } from "../../BytePath.js"
-import type { PathInput } from "../../VirtualFileSystem.js"
-import { getBytes as getBytePathBytes, make as makeBytePath } from "../bytePath.js"
+import type { BytePath } from "../BytePath.js"
+import type { PathInput } from "../VirtualFileSystem.js"
+import { getBytes as getBytePathBytes, make as makeBytePath } from "./bytePath.js"
 import { FsError } from "./errors.js"
 
 // Components are hex-encoded bytes so names compare as bytes, not text: 2f is "/", 2e is ".", 2e2e is "..".

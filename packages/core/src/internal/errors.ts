@@ -3,7 +3,7 @@ import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as SchemaIssue from "effect/SchemaIssue"
-import { ConfigurationError, FsError } from "../../VirtualFileSystemError.js"
+import { ConfigurationError, FsError } from "../VirtualFileSystemError.js"
 
 /** @internal */
 export { ConfigurationError, FsError }

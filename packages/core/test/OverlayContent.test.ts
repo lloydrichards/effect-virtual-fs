@@ -2,7 +2,7 @@ import { assert, describe } from "@effect/vitest"
 import { ByteSize, Effect, Predicate } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import * as Image from "../src/internal/image.js"
-import * as Content from "../src/internal/virtualFileSystem/overlayContent.js"
+import * as Content from "../src/internal/overlayContent.js"
 
 import { it } from "./TestEffect.js"
 

@@ -1,8 +1,8 @@
 // Package-internal synchronization hooks for deterministic volume tests.
 
 import type * as Effect from "effect/Effect"
-import type { Snapshot } from "../../Snapshot.js"
-import type { Volume } from "../../VirtualFileSystem.js"
+import type { Snapshot } from "../Snapshot.js"
+import type { Volume } from "../VirtualFileSystem.js"
 
 /** @internal */
 export interface ObservationHook {
