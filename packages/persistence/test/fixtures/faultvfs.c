@@ -82,7 +82,16 @@ static int fault_write(sqlite3_file *file, const void *buffer, int amount, sqlit
     fault->delayed = NULL;
     return result;
   }
-  return fault->original->xWrite(file, buffer, amount, offset);
+  int result = fault->original->xWrite(file, buffer, amount, offset);
+  if (result == SQLITE_OK && fault_operation && strcmp(fault_operation, "observe") == 0 &&
+    matches_target(fault->flags) && fault_log) {
+    FILE *log = fopen(fault_log, "a");
+    if (log) {
+      fprintf(log, "write-end bytes=%lld flags=%d\n", (long long)(offset + amount), fault->flags);
+      fclose(log);
+    }
+  }
+  return result;
 }
 
 static int fault_sync(sqlite3_file *file, int flags) {

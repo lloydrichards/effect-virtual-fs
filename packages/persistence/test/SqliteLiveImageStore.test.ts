@@ -30,6 +30,28 @@ const store = (filename: string, maxDatabaseBytes = ByteSize.megabytes(2)) =>
   )
 
 describe("SQLite live image store", () => {
+  it.effect("uses bounded temporary-file settings on the commit connection", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const filesystem = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
+      const filename = path.join(directory, "live.sqlite")
+      const evidence = path.join(directory, "pragmas.txt")
+      const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
+
+      yield* spawner.string(ChildProcess.make("bun", [worker], {
+        env: { LIVE_STORE_MODE: "write", LIVE_STORE_FILE: filename, LIVE_STORE_EVIDENCE_FILE: evidence },
+        extendEnv: true
+      }))
+
+      const settings = yield* filesystem.readFileString(evidence)
+      assert.match(settings, /^journal_mode=delete$/m)
+      assert.match(settings, /^temp_store=2$/m)
+      assert.match(settings, /^cache_spill=0$/m)
+      assert.match(settings, /^journal_size_limit=0$/m)
+    })).pipe(Effect.provide(platform)))
+
   it.effect("preserves an acknowledged write across process exit", () =>
     Effect.scoped(Effect.gen(function*() {
       const filesystem = yield* FileSystem.FileSystem
@@ -169,6 +191,31 @@ describe("SQLite live image store", () => {
 
       const damaged = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(store(filename))))
       assert.strictEqual(damaged.code, "CorruptStore")
+    })).pipe(Effect.provide(platform)))
+
+  it.effect("rejects extra schema objects that could create statement journals", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const filesystem = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
+      const filename = path.join(directory, "live.sqlite")
+      const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
+
+      yield* spawner.string(ChildProcess.make("bun", [worker], {
+        env: { LIVE_STORE_MODE: "write", LIVE_STORE_FILE: filename },
+        extendEnv: true
+      }))
+
+      yield* Effect.gen(function*() {
+        const sql = yield* SqlClient
+        yield* sql.unsafe(
+          "CREATE TRIGGER extra_change AFTER UPDATE ON effect_vfs_live_image BEGIN SELECT 1; END"
+        )
+      }).pipe(Effect.provide(SqliteClient.layer({ filename, disableWAL: true })))
+
+      const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(store(filename))))
+      assert.strictEqual(error.code, "CorruptStore")
     })).pipe(Effect.provide(platform)))
 
   it.effect("rejects a SQLite client bound to another database", () =>
