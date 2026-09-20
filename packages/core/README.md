@@ -410,9 +410,17 @@ candidate.
 - Components are limited to 255 bytes. Symbolic-link traversal is limited to 40 links.
 - Omitted logical quotas are unbounded by configuration, apart from fixed file and component bounds.
 - Absolute paths ignore a supplied directory base. Relative paths can use a live, same-volume directory handle.
-- Operations coordinate through one permit per volume. Interruption while waiting makes no change; interruption after
-  a commit does not roll it back.
-- Watch streams contain byte paths and report future committed creates, updates, and removals without replay.
+- Operations coordinate through one permit per volume. At most 65 operations are admitted at once by
+  default, including the active operation; set `maxPendingOperations` to change the waiting budget.
+  Excess work fails with retryable `FsError` code `VolumeBusy`
+  before mutation or storage commit. Interruption while waiting makes no change; interruption after a commit
+  does not roll it back.
+- Each watch subscriber retains at most 256 events by default; set `maxWatchEvents` to change this bound
+  (minimum 2). A subscriber that loses events receives `Rescan` with path `/` after its buffered events.
+  Rescan the volume, then continue consuming the watch; repeat the scan if another `Rescan` arrives.
+  Delivered events retain their order. The memory `FileSystem.watch` stream fails with a platform error
+  identified by `MemoryFileSystem.isWatchOverflow`. Open a new watch before rescanning its path so changes
+  during the scan remain observable.
 - `sync` checks handle liveness. An in-memory volume provides no host or crash durability.
 
 For the complete contract, read the

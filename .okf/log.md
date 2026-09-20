@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-09-20
+
+- **Bounded volume admission and watches**: Accepted a fourth core `Change` tag, `Rescan`, with per-subscriber queues, finite defaults, a retryable `VolumeBusy` admission result, and a `WatchOverflow` memory-adapter error. A focused probe confirmed the shared bounded PubSub failure mode. Updated the mutation contract and live-volume proposal; writable NFS and storage qualification remain separate.
+
 ## 2026-09-19
 
 - **Staged NFS WRITE and COMMIT**: Added internal WRITE count, stability, stateid, storage-failure, and replay handling. The handler retains at most one read and one write handle across OPEN upgrade and downgrade cycles. WRITE and COMMIT share a verifier hashed from both volume incarnation and NFS server generation. Recorded the protocol rules and remaining prerequisites for the public writable export, which remains read-only.

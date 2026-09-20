@@ -156,6 +156,38 @@ Effect.runPromise(program).then(console.log)
 
 Added in v0.4.0
 
+## guards
+
+### isWatchOverflow
+
+Identifies a watch stream failure caused by lost events. Open a new watch before
+rescanning its path, and repeat if the new watch also overflows.
+
+**Signature**
+
+```ts
+export declare const isWatchOverflow: (error: PlatformError.PlatformError) => boolean
+```
+
+**Example**
+
+```ts
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as PlatformError from "effect/PlatformError"
+
+const error = PlatformError.systemError({
+  _tag: "Unknown",
+  module: "FileSystem",
+  method: "watch",
+  description: "WatchOverflow"
+})
+
+console.log(MemoryFileSystem.isWatchOverflow(error))
+// true
+```
+
+Added in v0.4.0
+
 ## layers
 
 ### layer

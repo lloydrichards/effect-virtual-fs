@@ -512,9 +512,9 @@ A committed namespace or content change emitted by a volume watch stream.
 
 ```ts
 export interface Change {
-  /** Kind of committed namespace or content change. */
-  readonly _tag: "Create" | "Update" | "Remove"
-  /** Absolute path of the changed entry. */
+  /** Kind of committed change. `Rescan` means this subscriber lost events. */
+  readonly _tag: "Create" | "Update" | "Remove" | "Rescan"
+  /** Absolute path of the changed entry, or `/` when retained events were lost. */
   readonly path: BytePath
 }
 ```
@@ -785,6 +785,7 @@ export type FsCode =
   | "StorageRejected"
   | "OutcomeUnknown"
   | "VolumeUnavailable"
+  | "VolumeBusy"
 ```
 
 Added in v0.1.0
@@ -1393,7 +1394,7 @@ export interface Volume {
   readonly limits: VolumeLimits
   /** Samples content bytes and directory entries together from the current committed state. */
   readonly usage: Effect.Effect<VolumeUsage, FsError>
-  /** Opens a scoped stream of future committed changes. Events are not replayed. */
+  /** Opens a scoped stream of future changes. `Rescan` at `/` requires a full rescan; events are not replayed. */
   readonly watch: Effect.Effect<Stream.Stream<Change>, FsError, Scope.Scope>
   /** Captures an isolated snapshot of the reachable namespace and metadata. */
   readonly snapshot: Effect.Effect<Snapshot, ImageError | FsError>
@@ -1486,6 +1487,10 @@ export interface VolumeLimits {
   readonly maxFileBytes: ByteSize.ByteSize
   readonly maxEntries: number | undefined
   readonly maxPathBytes: ByteSize.ByteSize | undefined
+  /** Waiting budget; at most this many plus one callers are admitted at once. */
+  readonly maxPendingOperations: number
+  /** Maximum retained events per watch subscriber, including the rescan marker. */
+  readonly maxWatchEvents: number
 }
 ```
 
@@ -1493,7 +1498,8 @@ Added in v0.1.0
 
 ### VolumeOptions (type alias)
 
-Capacity and path limits for a volume.
+Capacity, admission, watch retention, and path limits for a volume.
+`maxPendingOperations` defaults to 64 and `maxWatchEvents` defaults to 256.
 
 **Signature**
 
@@ -1501,6 +1507,8 @@ Capacity and path limits for a volume.
 export type VolumeOptions = {
   readonly identity?: string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
   readonly maxEntries?: number
+  readonly maxPendingOperations?: number
+  readonly maxWatchEvents?: number
   readonly maxBytes?: ByteSize.ByteSize
   readonly maxFileBytes?: ByteSize.ByteSize
   readonly maxPathBytes?: ByteSize.ByteSize
@@ -1757,7 +1765,8 @@ export declare const FsCode: Schema.Literals<
     "UnrepresentableName",
     "StorageRejected",
     "OutcomeUnknown",
-    "VolumeUnavailable"
+    "VolumeUnavailable",
+    "VolumeBusy"
   ]
 >
 ```
@@ -2418,6 +2427,8 @@ Schema for optional volume capacity and path limits.
 export declare const VolumeOptions: Schema.Struct<{
   readonly identity: Schema.optionalKey<Schema.brand<Schema.String, "@effect-vfs/core/VolumeIdentity">>
   readonly maxEntries: Schema.optionalKey<Schema.Natural>
+  readonly maxPendingOperations: Schema.optionalKey<Schema.Int>
+  readonly maxWatchEvents: Schema.optionalKey<Schema.Int>
   readonly maxBytes: Schema.optionalKey<Schema.ByteSize>
   readonly maxFileBytes: Schema.optionalKey<Schema.ByteSize>
   readonly maxPathBytes: Schema.optionalKey<Schema.ByteSize>
