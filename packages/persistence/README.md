@@ -129,6 +129,10 @@ guest, storage, PRAGMA, and per-case evidence to the printed directory. Use `GAT
 `GATE_ITERATIONS`, and `GATE_OUTPUT_DIR` to select the VM, repeat count, and output directory. Set
 `GATE_STOP_MODE=kill` to use UTM's VM-process kill instead of its forced power-off event. The VM must be
 dedicated to this test because the gate stops it without guest shutdown.
+Set `GATE_STOP_MODE=panic` to trigger Linux SysRq `c` and let the guest reboot after a kernel panic.
+This mode checks that the guest boot ID changes before it verifies recovery. The gate syncs its Bun
+runtime and fixture files before injecting crashes, so a lost test executable cannot masquerade as
+a database recovery result.
 
 On the earlier recorded run, all 12 guest hard-stop cases passed with Debian 12, Linux 6.1.0-13-arm64, ext4 on a QEMU
 virtual disk, Bun 1.2.21, and SQLite 3.50.4. The commit connection reported DELETE journaling,
@@ -144,6 +148,11 @@ first passed three cases and hung after the acknowledged case; a second restart
 recovered that acknowledged image with integrity `ok`. The second run passed the
 after-update case and hung after the before-`COMMIT` case. These are failed gate
 runs, not a qualified guest OS-crash result for the new startup configuration.
+With directory sync enabled, a separate one-iteration `GATE_STOP_MODE=panic` run
+passed all four phases on 2026-09-20. Each case reopened a complete image with
+`integrity_check=ok`; the acknowledged case reopened generation 2. Evidence:
+`/tmp/effect-vfs-dir-sync-vm-panic-20260920-r4`. This is a guest kernel-crash
+result. The two forced-stop runs above remain failed gates.
 
 The [VM fault gate](scripts/utm-vm-fault-gate.sh) runs the same bundled provider on
 Debian 12, Linux 6.1.0-13-arm64, ext4, and Bun 1.2.21. Its SQLite VFS reported a
