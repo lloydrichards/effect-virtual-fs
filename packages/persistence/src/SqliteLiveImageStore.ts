@@ -30,6 +30,12 @@ export interface Options {
   readonly maxImageBytes: ByteSize.ByteSize
   readonly maxDatabaseBytes: ByteSize.ByteSize
   readonly busyTimeoutMs?: number
+  /**
+   * Sync the containing directory after the supplied SQL client opens the
+   * database. The implementation must report sync errors as failures.
+   * Required before this store can be qualified for crash durability.
+   */
+  readonly syncDatabaseDirectory?: ((directory: string) => Effect.Effect<void, Error>) | undefined
 }
 
 const StoreRow = Schema.Struct({
@@ -161,6 +167,14 @@ export const layer = (options: Options) =>
         !Number.isSafeInteger(page.page_size) || page.page_size <= 0 ||
         (version?.user_version !== 0 && version?.user_version !== 1) || expectedPath !== actualPath
       ) return yield* fail("InvalidConfiguration")
+
+      // SqlClient may have created the file before this Layer starts. Sync the
+      // verified parent before any schema write or store becomes available.
+      if (options.syncDatabaseDirectory !== undefined) {
+        yield* options.syncDatabaseDirectory(expectedParent).pipe(
+          Effect.mapError((cause) => fail("Storage", cause))
+        )
+      }
 
       const maxPages = maxDatabase / BigInt(page.page_size)
 

@@ -5,7 +5,7 @@ import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, FileSystem, Layer, Option, Path, Stream } from "effect"
+import { ByteSize, Data, Effect, FileSystem, Layer, Option, Path, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { ConnectionError, SqlError } from "effect/unstable/sql/SqlError"
@@ -24,12 +24,128 @@ const files = Layer.mergeAll(NodeCrypto.layer, NodeFileSystem.layer, NodePath.la
 
 const platform = Layer.mergeAll(files, NodeChildProcessSpawner.layer.pipe(Layer.provide(files)))
 
+class DirectorySyncFailure extends Data.TaggedError("DirectorySyncFailure") {}
+
 const store = (filename: string, maxDatabaseBytes = ByteSize.megabytes(2)) =>
   SqliteLiveImageStore.layer({ filename, maxImageBytes: options.maxImageBytes, maxDatabaseBytes }).pipe(
     Layer.provide(SqliteClient.layer({ filename, disableWAL: true, busyTimeout: 0 }))
   )
 
 describe("SQLite live image store", () => {
+  it.effect("syncs the verified parent after first creation and again on reopen", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const filesystem = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
+      const filename = path.join(directory, "live.sqlite")
+      const realDirectory = yield* filesystem.realPath(directory)
+      const observed: Array<boolean> = []
+
+      const syncDatabaseDirectory = (parent: string) =>
+        Effect.scoped(Effect.gen(function*() {
+          assert.strictEqual(parent, realDirectory)
+          observed.push(yield* filesystem.exists(filename))
+
+          const handle = yield* filesystem.open(parent, { flag: "r" })
+          yield* handle.sync
+        }))
+
+      const live = SqliteLiveImageStore.layer({
+        filename,
+        maxImageBytes: options.maxImageBytes,
+        maxDatabaseBytes: ByteSize.megabytes(2),
+        syncDatabaseDirectory
+      }).pipe(Layer.provide(SqliteClient.layer({ filename, disableWAL: true })))
+
+      yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(live)))
+      yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(live)))
+      assert.deepStrictEqual(observed, [true, true])
+    })).pipe(Effect.provide(files)))
+
+  it.effect("fails startup when directory sync fails, then reopens the new database", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const filesystem = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
+      const filename = path.join(directory, "live.sqlite")
+
+      const failed = SqliteLiveImageStore.layer({
+        filename,
+        maxImageBytes: options.maxImageBytes,
+        maxDatabaseBytes: ByteSize.megabytes(2),
+        syncDatabaseDirectory: () => Effect.fail(new DirectorySyncFailure())
+      }).pipe(Layer.provide(SqliteClient.layer({ filename, disableWAL: true })))
+
+      const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(failed)))
+      assert.strictEqual(error.code, "Storage")
+      assert.strictEqual(yield* filesystem.exists(filename), true)
+
+      // A prior process can leave a newly opened database without a schema.
+      let synced = false
+
+      const recovered = SqliteLiveImageStore.layer({
+        filename,
+        maxImageBytes: options.maxImageBytes,
+        maxDatabaseBytes: ByteSize.megabytes(2),
+        syncDatabaseDirectory: (parent) =>
+          Effect.scoped(Effect.gen(function*() {
+            const handle = yield* filesystem.open(parent, { flag: "r" })
+            yield* handle.sync
+            synced = true
+          }))
+      }).pipe(Layer.provide(SqliteClient.layer({ filename, disableWAL: true })))
+
+      yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(recovered)))
+      assert.strictEqual(synced, true)
+    })).pipe(Effect.provide(files)))
+
+  it.live(
+    "reopens after the SQLite creator is killed before directory sync",
+    () =>
+      Effect.scoped(Effect.gen(function*() {
+        const filesystem = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+
+        const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
+        const filename = path.join(directory, "live.sqlite")
+
+        const creatorScript =
+          "import { Database } from 'bun:sqlite'; const db = new Database(process.argv[1]); console.log('opened'); await new Promise(() => {})"
+
+        const creator = yield* spawner.spawn(ChildProcess.make("bun", [
+          "-e",
+          creatorScript,
+          filename
+        ]))
+
+        const opened = yield* Stream.runHead(creator.stdout)
+
+        if (Option.isNone(opened)) return yield* Effect.die("SQLite creator did not open the database")
+
+        yield* creator.kill({ killSignal: "SIGKILL" })
+        assert.strictEqual(yield* filesystem.exists(filename), true)
+
+        let synced = false
+
+        const recovered = SqliteLiveImageStore.layer({
+          filename,
+          maxImageBytes: options.maxImageBytes,
+          maxDatabaseBytes: ByteSize.megabytes(2),
+          syncDatabaseDirectory: (parent) =>
+            Effect.scoped(Effect.gen(function*() {
+              const handle = yield* filesystem.open(parent, { flag: "r" })
+              yield* handle.sync
+              synced = true
+            }))
+        }).pipe(Layer.provide(SqliteClient.layer({ filename, disableWAL: true })))
+
+        yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(recovered)))
+        assert.strictEqual(synced, true)
+      })).pipe(Effect.provide(platform)),
+    15_000
+  )
+
   it.effect("uses bounded temporary-file settings on the commit connection", () =>
     Effect.scoped(Effect.gen(function*() {
       const filesystem = yield* FileSystem.FileSystem
