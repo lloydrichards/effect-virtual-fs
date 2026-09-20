@@ -24,13 +24,6 @@ export interface OpenedFile {
 }
 
 /** @internal */
-export interface OpenedChild extends OpenedFile {
-  readonly reference: Vfs.ObjectReference
-  readonly created: boolean
-  readonly directory: Vfs.DirectoryChange
-}
-
-/** @internal */
 export interface NfsExport {
   readonly capacity: Pick<Vfs.Volume, "limits" | "usage"> | undefined
   /** Selects a caller for one compound while retaining the export's filehandle registry. */
@@ -57,9 +50,11 @@ export interface NfsExport {
   readonly openChild: (
     directory: Vfs.ObjectReference,
     name: Uint8Array,
-    settings: Vfs.OpenChildReferenceSettings,
-    expected: Vfs.ObjectReference | null
-  ) => Effect.Effect<OpenedChild, Vfs.FsError | InvalidNameError | ExportCapacityError>
+    settings: Vfs.OpenChildReferenceSettings
+  ) => Effect.Effect<
+    Vfs.OpenChildReferenceResult & { readonly close: Effect.Effect<void> },
+    Vfs.FsError | InvalidNameError | ExportCapacityError
+  >
   readonly fsid: readonly [bigint, bigint]
 }
 
@@ -164,40 +159,48 @@ export const makeExport = (
   const registryGate = Semaphore.makeUnsafe(1)
   let nextId = 1n
 
-  const handleFor = (reference: Vfs.ObjectReference): Effect.Effect<Uint8Array, ExportCapacityError> =>
-    registryGate.withPermit(Effect.gen(function*() {
-      // SAFETY: ObjectReference values are opaque object identities created by the core volume.
-      let id = idsByReference.get(reference)
+  const admitHandle = Effect.gen(function*() {
+    if (referencesById.size >= limits.maxFilehandles) {
+      for (const [candidateId, candidate] of referencesById) {
+        const result = yield* Effect.result(caller.observeMetadata(candidate))
 
-      if (id === undefined) {
-        if (referencesById.size >= limits.maxFilehandles) {
-          for (const [candidateId, candidate] of referencesById) {
-            const result = yield* Effect.result(caller.observeMetadata(candidate))
-
-            if (Result.isFailure(result) && result.failure.code === "StaleReference") {
-              referencesById.delete(candidateId)
-              // SAFETY: ObjectReference values are opaque object identities created by the core volume.
-              idsByReference.delete(candidate)
-            }
-          }
-
-          if (referencesById.size >= limits.maxFilehandles) {
-            return yield* new ExportCapacityError("Filehandle registry is full")
-          }
+        if (Result.isFailure(result) && result.failure.code === "StaleReference") {
+          referencesById.delete(candidateId)
+          // SAFETY: ObjectReference values are opaque object identities created by the core volume.
+          idsByReference.delete(candidate)
         }
-
-        id = nextId++
-        // SAFETY: ObjectReference values are opaque object identities created by the core volume.
-        idsByReference.set(reference, id)
-        referencesById.set(id, reference)
       }
 
-      const bytes = new Uint8Array(HANDLE_BYTES)
-      bytes[0] = HANDLE_VERSION
-      bytes.set(generationCopy, 1)
-      new DataView(bytes.buffer).setBigUint64(17, id)
+      if (referencesById.size >= limits.maxFilehandles) {
+        return yield* new ExportCapacityError("Filehandle registry is full")
+      }
+    }
+  })
 
-      return bytes
+  const registerHandle = (reference: Vfs.ObjectReference): Uint8Array => {
+    // SAFETY: ObjectReference values are opaque object identities created by the core volume.
+    let id = idsByReference.get(reference)
+
+    if (id === undefined) {
+      id = nextId++
+      // SAFETY: ObjectReference values are opaque object identities created by the core volume.
+      idsByReference.set(reference, id)
+      referencesById.set(id, reference)
+    }
+
+    const bytes = new Uint8Array(HANDLE_BYTES)
+    bytes[0] = HANDLE_VERSION
+    bytes.set(generationCopy, 1)
+    new DataView(bytes.buffer).setBigUint64(17, id)
+
+    return bytes
+  }
+
+  const handleFor = (reference: Vfs.ObjectReference): Effect.Effect<Uint8Array, ExportCapacityError> =>
+    registryGate.withPermit(Effect.gen(function*() {
+      if (!idsByReference.has(reference)) yield* admitHandle
+
+      return registerHandle(reference)
     }))
 
   const resolve = (handle: Uint8Array): Effect.Effect<Vfs.ObjectReference, InvalidFilehandleError> =>
@@ -250,71 +253,6 @@ export const makeExport = (
       })
     )
 
-  const openChild = (
-    activeCaller: Vfs.Caller,
-    directory: Vfs.ObjectReference,
-    name: Uint8Array,
-    settings: Vfs.OpenChildReferenceSettings,
-    expected: Vfs.ObjectReference | null
-  ): Effect.Effect<OpenedChild, Vfs.FsError | InvalidNameError | ExportCapacityError> =>
-    Effect.suspend<OpenedChild, Vfs.FsError | InvalidNameError | ExportCapacityError, never>(() => {
-      try {
-        validateName(name, limits.maxNameBytes)
-      } catch (error) {
-        if (error instanceof InvalidNameError) return Effect.fail(error)
-        throw error
-      }
-
-      return registryGate.withPermit(Effect.uninterruptibleMask((restore) =>
-        Effect.gen(function*() {
-          if (
-            (expected === null || idsByReference.get(expected) === undefined) &&
-            referencesById.size >= limits.maxFilehandles
-          ) {
-            for (const [id, reference] of referencesById) {
-              const result = yield* Effect.result(activeCaller.observeMetadata(reference))
-
-              if (Result.isFailure(result) && result.failure.code === "StaleReference") {
-                referencesById.delete(id)
-                idsByReference.delete(reference)
-              }
-            }
-
-            if (referencesById.size >= limits.maxFilehandles) {
-              return yield* new ExportCapacityError("Filehandle registry is full")
-            }
-          }
-
-          const scope = yield* Scope.make()
-
-          const result = yield* Effect.exit(restore(
-            activeCaller.openChildReference(directory, name, settings, expected).pipe(
-              Effect.provideService(Scope.Scope, scope)
-            )
-          ))
-
-          if (Exit.isFailure(result)) {
-            yield* Scope.close(scope, result)
-
-            return yield* Effect.failCause(result.cause)
-          }
-
-          const opened = result.value
-
-          if (idsByReference.get(opened.reference) === undefined) {
-            const id = nextId++
-            idsByReference.set(opened.reference, id)
-            referencesById.set(id, opened.reference)
-          }
-
-          return {
-            ...opened,
-            close: Scope.close(scope, Exit.void).pipe(Effect.orDie)
-          }
-        })
-      ))
-    })
-
   const withCaller = (activeCaller: Vfs.Caller): NfsExport => ({
     capacity,
     withCaller,
@@ -337,7 +275,38 @@ export const makeExport = (
     parent: activeCaller.parentReference,
     readLink: activeCaller.readLinkReference,
     open: (reference, access) => open(activeCaller, reference, access),
-    openChild: (directory, name, settings, expected) => openChild(activeCaller, directory, name, settings, expected),
+    openChild: (directory, name, settings) =>
+      registryGate.withPermit(
+        Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function*() {
+            yield* Effect.try({
+              try: () => validateName(name, limits.maxNameBytes),
+              catch: (error) => {
+                if (error instanceof InvalidNameError) return error
+                throw error
+              }
+            })
+            const expected = settings.expectedChild
+
+            if (expected == null || !idsByReference.has(expected.reference)) yield* restore(admitHandle)
+            const scope = yield* Scope.make()
+
+            const opened = yield* Effect.exit(restore(
+              activeCaller.openChildReference(directory, name, settings).pipe(Effect.provideService(Scope.Scope, scope))
+            ))
+
+            if (Exit.isFailure(opened)) {
+              yield* Scope.close(scope, opened)
+
+              return yield* Effect.failCause(opened.cause)
+            }
+
+            registerHandle(opened.value.reference)
+
+            return { ...opened.value, close: Scope.close(scope, Exit.void).pipe(Effect.orDie) }
+          })
+        )
+      ),
     fsid: [uint64From(identityCopy, 0), uint64From(identityCopy, 8)]
   })
 

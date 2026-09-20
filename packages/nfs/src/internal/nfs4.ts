@@ -7,10 +7,11 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import type * as PlatformError from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
-import * as Result from "effect/Result"
 import * as Schedule from "effect/Schedule"
+import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
+import type * as Types from "effect/Types"
 import {
   ExportCapacityError,
   type InvalidFilehandleError,
@@ -63,6 +64,7 @@ export const Status = {
   LOCK_RANGE: 10028,
   SYMLINK: 10029,
   ATTRNOTSUPP: 10032,
+  BADOWNER: 10039,
   NO_GRACE: 10033,
   BADXDR: 10036,
   LOCKS_HELD: 10037,
@@ -418,8 +420,11 @@ type ParsedOperation =
       readonly client: bigint
       readonly owner: Uint8Array
       readonly openHow: number
-      readonly createMode: number | undefined
-      readonly createAttrs: ReturnType<typeof readAttributes> | undefined
+      readonly create: {
+        readonly mode: number
+        readonly verifier: Uint8Array
+        readonly attrs: ReturnType<typeof readAttributes>
+      } | undefined
       readonly claim: number
       readonly name: Uint8Array
     }
@@ -843,6 +848,94 @@ const readAttributes = (reader: Reader, limits: Nfs4Limits) => {
   return { bitmap: words, values }
 }
 
+const isNumericOwner = Schema.is(Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]*)$/)))
+
+const creationAttributes = Effect.fnUntraced(function*(
+  create: NonNullable<Extract<ParsedOperation, { kind: "Open" }>["value"]["create"]>,
+  limits: Nfs4Limits,
+  existing: boolean
+) {
+  const attributes = attributesIn(create.attrs.bitmap)
+  const supported = create.mode === 3 ? [4, 33, 36, 37] : [4, 33, 36, 37, 48, 54]
+  const supportedAttrs = attributes.every((attribute) => supported.includes(attribute))
+
+  if (!supportedAttrs && !(existing && create.mode === 0)) {
+    return yield* Effect.fail(create.mode === 3 ? Status.INVAL : Status.ATTRNOTSUPP)
+  }
+
+  const reader = new Reader(create.attrs.values, limits)
+  let mode = create.mode === 2 ? 0o600 : undefined
+  let size: bigint | undefined
+  const owner: Types.Mutable<Vfs.OwnerUpdate> = {}
+
+  const times: Types.Mutable<Vfs.Times> = {
+    access: { kind: "omit" },
+    modification: { kind: "omit" }
+  }
+
+  for (const attribute of attributes) {
+    // Unknown ignored attributes have no decoded width. Size can still be read
+    // when it precedes them, matching ordinary creation's existing-file behavior.
+    if (!supported.includes(attribute)) break
+
+    if (attribute === 4) size = reader.uint64()
+    else if (attribute === 33) {
+      const value = reader.uint32()
+
+      if (!existing) {
+        if (value > 0o7777) return yield* Effect.fail(Status.INVAL)
+        mode = value
+      }
+    } else if (attribute === 36 || attribute === 37) {
+      const value = reader.string(limits.maxStringBytes)
+
+      if (existing) continue
+
+      if (!isNumericOwner(value) || Number(value) > 0xffff_ffff) return yield* Effect.fail(Status.BADOWNER)
+
+      if (attribute === 36) owner.uid = Number(value)
+      else owner.gid = Number(value)
+    } else {
+      const how = reader.uint32()
+
+      const time: Vfs.Times["access"] = how === 0 ? { kind: "now" } : {
+        kind: "value",
+        nanoseconds: BigInt.asIntN(64, reader.uint64()) * 1_000_000_000n + BigInt(reader.uint32())
+      }
+
+      if (attribute === 48) times.access = time
+      else times.modification = time
+    }
+  }
+
+  if (supportedAttrs) reader.finish()
+
+  if (create.mode >= 2) {
+    // RFC 8881 18.16.4 permits timestamp storage. Both verifier halves enter
+    // the creation candidate so a crash cannot separate the file from its verifier.
+    const verifier = new Reader(create.verifier, limits)
+    times.access = { kind: "value", nanoseconds: BigInt(verifier.uint32()) * 1_000_000_000n }
+    times.modification = { kind: "value", nanoseconds: BigInt(verifier.uint32()) * 1_000_000_000n }
+  }
+
+  const settings:
+    & Types.Mutable<Pick<Vfs.OpenChildReferenceSettings, "mode" | "initialSize" | "owner" | "exactMode">>
+    & {
+      readonly times: Vfs.Times
+    } = { times }
+
+  if (mode !== undefined) {
+    settings.mode = mode
+    settings.exactMode = true
+  }
+
+  if (size !== undefined) settings.initialSize = size
+
+  if (Object.keys(owner).length !== 0) settings.owner = owner
+
+  return { attributes, settings }
+})
+
 const readStateOwner = (reader: Reader, limits: Nfs4Limits): Uint8Array => {
   reader.uint64()
 
@@ -1018,22 +1111,25 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
       const client = reader.uint64()
       const owner = reader.opaque(limits.maxOwnerBytes)
       const openHow = reader.uint32()
-      let createMode: number | undefined
-      let createAttrs: ReturnType<typeof readAttributes> | undefined
+      let create: Extract<ParsedOperation, { kind: "Open" }>["value"]["create"]
 
       if (openHow === 1) {
-        createMode = reader.uint32()
+        const createMode = reader.uint32()
+        let verifier: Uint8Array = empty
+        let attrs: ReturnType<typeof readAttributes> = { bitmap: [], values: empty }
 
         if (createMode === 0 || createMode === 1) {
-          createAttrs = readAttributes(reader, limits)
+          attrs = readAttributes(reader, limits)
         } else if (createMode === 2) {
-          reader.fixedOpaque(8)
+          verifier = reader.fixedOpaque(8)
         } else if (createMode === 3) {
-          reader.fixedOpaque(8)
-          readAttributes(reader, limits)
+          verifier = reader.fixedOpaque(8)
+          attrs = readAttributes(reader, limits)
         } else {
           throw new XdrDecodeError("Invalid OPEN create mode")
         }
+
+        create = { mode: createMode, verifier, attrs }
       } else if (openHow !== 0) {
         throw new XdrDecodeError("Invalid OPEN how discriminant")
       }
@@ -1049,11 +1145,7 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
       } else if (claim === 5) reader.fixedOpaque(16)
       else if (claim !== 4 && claim !== 6) throw new XdrDecodeError("Invalid OPEN claim")
 
-      return {
-        kind: "Open",
-        code,
-        value: { sequence, access, deny, client, owner, openHow, createMode, createAttrs, claim, name }
-      }
+      return { kind: "Open", code, value: { sequence, access, deny, client, owner, openHow, create, claim, name } }
     }
 
     case Operation.PUTFH:
@@ -1606,7 +1698,7 @@ const encodeAttributeValues = (
         if (!encodeTime(values, metadata.mtimeNs)) return undefined
         break
       case 75:
-        writeBitmap(values, [])
+        writeBitmap(values, options.writable ? wordsFor([4, 33, 36, 37]) : [])
         break
     }
   }
@@ -1915,7 +2007,7 @@ const replayReplyBound = (
         bytes += 8 + 16 + 4 + 4 + 28 + 32
         break
       case "Open":
-        bytes += 8 + 16 + 4 + 16 + 4 + 8 + 8
+        bytes += 8 + 16 + 4 + 16 + 4 + 12 + 8
         break
       case "Create":
         bytes += 64
@@ -3695,174 +3787,143 @@ export const makeNfs4Handler = (
 
                   if (!options.writable) return rejectMutation([value.name], "none", Status.SYMLINK)
 
-                  if (value.createMode !== 0 && value.createMode !== 1) {
-                    return Effect.succeed({ code: operation.code, status: Status.NOTSUPP })
-                  }
+                  return Effect.uninterruptibleMask((restore) =>
+                    Effect.gen(function*() {
+                      yield* restore(requireDirectory(directory, Status.SYMLINK))
+                      const create = value.create!
 
-                  const attrs = value.createAttrs!
-                  const requested = attributesIn(attrs.bitmap)
-                  const supportedAttrs = requested.every((attribute) => attribute === 4 || attribute === 33)
-
-                  return requireDirectory(directory, Status.SYMLINK).pipe(
-                    Effect.andThen(Effect.suspend(() => {
-                      try {
-                        validateName(value.name, options.limits.maxNameBytes)
-                      } catch (error) {
-                        if (error instanceof InvalidNameError) return Effect.fail(nameStatus(error))
-                        throw error
-                      }
-
-                      return Effect.void
-                    })),
-                    Effect.andThen(Effect.gen(function*() {
-                      const owner = bytesKey(value.owner)
-                      const found = yield* Effect.result(export_.lookup(directory, value.name))
-                      const prior = Result.isSuccess(found) ? found.success : undefined
-
-                      if (prior !== undefined) {
-                        if (value.createMode === 1) return yield* Effect.fail(Status.EXIST)
-
-                        const denied = [...opens.values()].some((open) =>
-                          open.reference === prior &&
-                          ((open.deny & accessMode) !== 0 || (value.deny & open.access) !== 0)
+                      const found = yield* restore(
+                        export_.lookup(directory, value.name).pipe(
+                          Effect.catch((error) =>
+                            error instanceof InvalidNameError || error.code !== "NotFound"
+                              ? Effect.fail(nameStatus(error)) :
+                              Effect.void
+                          )
                         )
+                      )
 
-                        if (denied) return yield* Effect.fail(Status.SHARE_DENIED)
-                      } else if (Result.isFailure(found)) {
-                        if (found.failure instanceof InvalidNameError) {
-                          return yield* Effect.fail(nameStatus(found.failure))
+                      const observed = found === undefined
+                        ? undefined
+                        : yield* restore(mapFs(export_.observeMetadata(found)))
+
+                      if (observed !== undefined && create.mode === 1) return yield* Effect.fail(Status.EXIST)
+
+                      // Existing-file creates ignore initial values; the attribute mask and
+                      // XDR structure still obey the selected create mode's restrictions.
+                      const attrs = yield* creationAttributes(create, options.limits, observed !== undefined)
+
+                      if (observed !== undefined) {
+                        if (create.mode >= 2) {
+                          const times = attrs.settings.times
+
+                          if (
+                            observed.value.kind !== "file" || times.access.kind !== "value" ||
+                            times.modification.kind !== "value" ||
+                            observed.value.atimeNs !== times.access.nanoseconds ||
+                            observed.value.mtimeNs !== times.modification.nanoseconds
+                          ) return yield* Effect.fail(Status.EXIST)
                         }
 
-                        if (found.failure.code !== "NotFound") {
-                          return yield* Effect.fail(failureForFs(found.failure))
+                        if (observed.value.kind !== "file") {
+                          return yield* Effect.fail(observed.value.kind === "symlink" ? Status.SYMLINK : Status.ISDIR)
                         }
                       }
 
-                      if (prior === undefined && !supportedAttrs) return yield* Effect.fail(Status.ATTRNOTSUPP)
+                      const owner = bytesKey(value.owner)
 
-                      const values = new Reader(attrs.values, options.limits)
-                      let mode: number | undefined
-                      let truncate = false
-                      let initialSize: bigint | undefined
-
-                      // Existing UNCHECKED4 ignores createattrs except size zero. Unsupported
-                      // attributes have no known XDR width, so only decode size when it comes first.
-                      for (const attribute of requested) {
-                        if (!supportedAttrs && attribute !== 4) break
-
-                        if (attribute === 4) {
-                          initialSize = values.uint64()
-                          truncate = initialSize === 0n
-                        } else if (attribute === 33) mode = values.uint32()
-                      }
-
-                      const existing = prior === undefined ?
+                      const existing = found === undefined ?
                         undefined :
                         [...opens.values()].find((open) =>
-                          open.client === activeSession!.client && open.owner === owner && open.reference === prior
+                          open.client === activeSession!.client && open.owner === owner && open.reference === found
                         )
+
+                      if (
+                        found !== undefined && [...opens.values()].some((open) =>
+                          open.reference === found &&
+                          ((open.deny & accessMode) !== 0 || (value.deny & open.access) !== 0)
+                        )
+                      ) {
+                        return yield* Effect.fail(Status.SHARE_DENIED)
+                      }
 
                       if (existing === undefined && opens.size >= options.limits.maxOpens) {
                         return yield* Effect.fail(Status.DELAY)
                       }
 
-                      const baseSettings = {
-                        access: truncate && !wantsWrite
-                          ? "readWrite"
-                          : accessMode === 3
-                          ? "readWrite"
-                          : wantsWrite
-                          ? "write"
-                          : "read",
-                        create: value.createMode === 1 ? "exclusive" : "ifMissing",
-                        followFinalSymlink: false
-                      } satisfies Vfs.OpenChildReferenceSettings
+                      const truncate = create.mode === 0 && attrs.settings.initialSize === 0n && observed !== undefined
 
-                      const modeSettings = mode === undefined || prior !== undefined
-                        ? baseSettings
-                        : { ...baseSettings, mode, exactMode: true }
+                      if (truncate && !wantsWrite) return yield* Effect.fail(Status.INVAL)
 
-                      const sizeSettings = initialSize === undefined ? modeSettings : { ...modeSettings, initialSize }
-                      const settings = truncate ? { ...sizeSettings, truncate: true } : sizeSettings
+                      const opened = yield* restore(
+                        export_.openChild(directory, value.name, {
+                          ...attrs.settings,
+                          access: accessMode === 3 ? "readWrite" : wantsWrite ? "write" : "read",
+                          create: found === undefined ? "exclusive" : "ifMissing",
+                          followFinalSymlink: false,
+                          truncate,
+                          expectedChild: found === undefined ? null : {
+                            reference: found,
+                            revision: observed!.revision,
+                            atimeNs: observed!.value.atimeNs,
+                            mtimeNs: observed!.value.mtimeNs
+                          }
+                        }).pipe(Effect.mapError((error) => {
+                          if (error instanceof ExportCapacityError) return Status.DELAY
 
-                      return yield* Effect.uninterruptibleMask((restore) =>
-                        Effect.gen(function*() {
-                          const opened = yield* restore(
-                            export_.openChild(directory, value.name, settings, prior ?? null).pipe(
-                              Effect.mapError((error) =>
-                                error instanceof InvalidNameError ?
-                                  nameStatus(error) :
-                                  error instanceof ExportCapacityError
-                                  ? Status.DELAY
-                                  : error.code === "SymlinkLoop"
-                                  ? Status.SYMLINK
-                                  : failureForFs(error)
-                              )
-                            )
-                          )
+                          if (error instanceof InvalidNameError) return nameStatus(error)
 
-                          let transferred = false
+                          if (error.code === "StaleReference") return Status.DELAY
 
-                          return yield* Effect.acquireUseRelease(
-                            Effect.succeed(opened),
-                            (child) =>
-                              Effect.sync(() => {
-                                const matched = [...opens.values()].find((open) =>
-                                  open.client === activeSession!.client && open.owner === owner &&
-                                  open.reference === child.reference
-                                )
-
-                                current = child.reference
-                                const attrset = child.created ? requested : truncate ? [4] : []
-
-                                if (matched !== undefined) {
-                                  const added = accessMode & ~matched.access
-
-                                  if (added !== 0) {
-                                    if ((added & OPEN4_SHARE_ACCESS_READ) !== 0) matched.readFile = child.handle
-
-                                    if ((added & OPEN4_SHARE_ACCESS_WRITE) !== 0) matched.writeFile = child.handle
-                                    matched.close = child.close.pipe(Effect.andThen(matched.close))
-                                    transferred = true
-                                  }
-
-                                  matched.access |= accessMode
-                                  matched.deny |= value.deny
-                                  advanceStateId(matched)
-
-                                  return openResult(
-                                    matched.id,
-                                    child.directory.before,
-                                    child.directory.after,
-                                    true,
-                                    attrset
-                                  )
-                                }
-
-                                const id = makeStateId(options.generation, openSerial++, 1)
-                                opens.set(stateIdKey(id), {
-                                  id,
-                                  sequence: 1,
-                                  access: accessMode,
-                                  deny: value.deny,
-                                  owner,
-                                  client: activeSession!.client,
-                                  reference: child.reference,
-                                  readFile: (accessMode & OPEN4_SHARE_ACCESS_READ) !== 0 ? child.handle : undefined,
-                                  writeFile: wantsWrite ? child.handle : undefined,
-                                  close: child.close
-                                })
-                                transferred = true
-
-                                return openResult(id, child.directory.before, child.directory.after, true, attrset)
-                              }),
-                            (child) => transferred ? Effect.void : child.close
-                          )
-                        })
+                          return failureForFs(error)
+                        }))
                       )
-                    })),
-                    Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
-                  )
+
+                      let id: Uint8Array
+
+                      if (existing === undefined) {
+                        id = makeStateId(options.generation, openSerial++, 1)
+                        opens.set(stateIdKey(id), {
+                          id,
+                          sequence: 1,
+                          access: accessMode,
+                          deny: value.deny,
+                          owner,
+                          client: activeSession!.client,
+                          reference: opened.reference,
+                          readFile: accessMode & OPEN4_SHARE_ACCESS_READ ? opened.handle : undefined,
+                          writeFile: wantsWrite ? opened.handle : undefined,
+                          close: opened.close
+                        })
+                      } else {
+                        const needsRead = (accessMode & OPEN4_SHARE_ACCESS_READ) !== 0 &&
+                          existing.readFile === undefined
+
+                        const needsWrite = wantsWrite && existing.writeFile === undefined
+
+                        if (needsRead || needsWrite) {
+                          if (needsRead) existing.readFile = opened.handle
+
+                          if (needsWrite) existing.writeFile = opened.handle
+                          existing.close = opened.close.pipe(Effect.andThen(existing.close))
+                        } else yield* opened.close
+                        existing.access |= accessMode
+                        existing.deny |= value.deny
+                        advanceStateId(existing)
+                        id = existing.id
+                      }
+
+                      current = opened.reference
+                      const applied = opened.created ? attrs.attributes : truncate ? [4] : []
+
+                      return openResult(
+                        id,
+                        opened.directory.before,
+                        true,
+                        opened.directory.after,
+                        create.mode >= 2 ? [...applied, 47, 53] : applied
+                      )
+                    })
+                  ).pipe(Effect.catch((status) => Effect.succeed({ code: operation.code, status })))
                 }
 
                 const target = value.claim === 4
@@ -3950,7 +4011,7 @@ export const makeNfs4Handler = (
                               advanceStateId(existing)
                               current = reference
 
-                              return openResult(existing.id, revision, revision, value.claim === 4)
+                              return openResult(existing.id, revision, value.claim === 4)
                             })
                           )
                         }
@@ -3980,7 +4041,7 @@ export const makeNfs4Handler = (
                             })
                             current = reference
 
-                            return openResult(id, revision, revision, value.claim === 4)
+                            return openResult(id, revision, value.claim === 4)
                           })
                         )
                       })
@@ -3991,18 +4052,18 @@ export const makeNfs4Handler = (
 
                 function openResult(
                   id: Uint8Array,
-                  before: bigint,
-                  after: bigint,
+                  revision: bigint,
                   atomic: boolean,
-                  attrset: ReadonlyArray<number> = []
+                  after = revision,
+                  attributes: ReadonlyArray<number> = []
                 ): ResultPart {
                   currentStateid = id
 
                   const body = encodeStatusBody((writer) => {
                     writer.fixedOpaque(id).boolean(atomic)
-                      .uint64(BigInt.asUintN(64, before))
+                      .uint64(BigInt.asUintN(64, revision))
                       .uint64(BigInt.asUintN(64, after)).uint32(0)
-                    writeBitmap(writer, wordsFor(attrset))
+                    writeBitmap(writer, wordsFor(attributes))
 
                     if (delegationWant === 0) {
                       writer.uint32(OPEN_DELEGATE_NONE)

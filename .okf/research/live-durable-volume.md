@@ -83,7 +83,7 @@ sources:
   - id: issue-50
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
     title: Restart recovery
-generated: { by: codex/okf, at: 2026-09-20T11:10:00Z }
+generated: { by: codex/okf, at: 2026-09-20T11:50:43Z }
 ---
 
 # Live durable volume proposal
@@ -206,11 +206,11 @@ NFS first validates the session, credential mapping, stateid, share reservation,
 
 The NFS handler reserves response and replay bytes at `SEQUENCE`. Before dispatching a compound that may change state, it records a consumed-slot marker. Operations remain interruptible while waiting on the export; their own commit boundaries protect state changes. If cancellation or a late bound check prevents a full reply, the marker remains, so a retry cannot execute the compound again. A compound with no possible state change can release its slot on interruption.[^nfs]
 
-This boundary does not make the compound a transaction. If a later operation fails, earlier changes remain committed, and a cached reply retains each operation's result. Tests cover lost `OPEN` replies, a later operation failure, cancellation after `OPEN`, an operation defect, and capacity rejection before `OPEN`. Writable namespace and data operations still return `NFS4ERR_ROFS`; their reply bounds and storage failures need tests when dispatch is added. A stalled driver also needs the fail-closed recovery rule above.
+This boundary does not make the compound a transaction. If a later operation fails, earlier changes remain committed, and a cached reply retains each operation's result. Tests cover lost `OPEN` replies, a later operation failure, cancellation after `OPEN`, an operation defect, and capacity rejection before `OPEN`. The internal writable handler implements regular-file `OPEN` creation and `WRITE`/`COMMIT`; namespace operations still return `NFS4ERR_ROFS`. Public exports remain read-only pending the writable release gates. A stalled driver also needs the fail-closed recovery rule above.
 
 With `cachethis=false`, retain the consumed-slot record and return `NFS4ERR_RETRY_UNCACHED_REP` on retry instead of rerunning mutations. Fatal unknown storage outcomes invalidate the affected export/session lifetime, even if no final reply can be formed. A crash after storage commit but before replay publication requires remount; this proposal does not promise exactly-once execution across restart or durable session state. #50 owns that extension.
 
-Both exclusive `OPEN` create modes require their verifier and required creation attributes to enter the same core candidate that creates the exact object. NFS owns their interpretation; durable metadata owns the resulting bytes. A create followed by a separate verifier write has a crash gap. Verify that the accepted initial timestamp encoding covers each mode and its attribute restrictions before dispatch implementation. Sections 9, 18.3, and 18.32 also do not relax the full #47 open and lock prerequisite.[^rfc]
+Both exclusive `OPEN` create modes commit their verifier and required creation attributes in the same candidate as the file. NFS interprets the verifier; core stores its timestamp encoding. The [OPEN creation contract](nfs/open-create-issue-125.md "refined by") records the implemented modes, attribute restrictions, conditional child checks, and recovery evidence. Public writable dispatch still depends on the accepted scope and qualified storage.[^rfc]
 
 ## Resource bounds
 

@@ -7,3 +7,5 @@ Add reference-based mutation operations for changing filesystem objects and dire
 Callers can now create, link, rename, remove, open, and modify objects relative to a live directory or object reference while receiving stable identities and directory revision transitions.
 
 `Caller.accessReference` checks permissions on an exact object without resolving a path.
+
+`Caller.openChildReference` can set initial size and ownership atomically. Use `expectedChild: null` to require an absent entry, or pass a reference with its observed revision and timestamps to reject a changed child before opening or truncating it.

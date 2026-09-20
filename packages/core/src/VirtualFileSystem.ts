@@ -800,6 +800,11 @@ export const OpenChildReferenceSettings: typeof VfsModel.OpenChildReferenceSetti
 /**
  * Settings for atomically looking up or creating and opening one referenced child.
  * `exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
+ * Initial mode, times, `initialSize`, and owner apply only to a newly created file.
+ * `expectedChild: null` requires an absent direct child. An observation requires
+ * the same direct object, revision, and timestamps; a mismatch fails with
+ * `StaleReference` before changing the file. Omission skips this observation check.
+ * This condition checks the named entry before any final symbolic-link traversal.
  *
  * @category models
  * @since 0.4.0

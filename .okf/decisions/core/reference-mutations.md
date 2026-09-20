@@ -44,16 +44,16 @@ sources:
   - id: go-nfs
     resource: https://github.com/willscott/go-nfs
     title: Path-based NFS server and its documented limitations
-generated: { by: codex/okf, at: 2026-09-18T16:40:52+02:00 }
+generated: { by: codex/okf, at: 2026-09-20T11:50:43Z }
 ---
 
 # Reference-based mutations
 
-Accepted by the user on 2026-09-17 while resolving the mutation half of issue #46.[^issue] The [object references contract](../../contracts/object-references.md "extends") gives adapters stable identity and read-only reference operations; every mutation is still addressed by path. A writable network adapter needs to mutate the object a filehandle names without a path, learn the result without a second lookup, and report directory changes from the same state transition. This concept fixes how core provides that and what stays outside it. The durability half of the issue is recorded in [volume durability and usage facts](volume-durability-and-usage-facts.md "complements").
+Accepted by the user on 2026-09-17 while resolving the mutation half of issue #46.[^issue] The [object references contract](../../contracts/object-references.md "extends") initially gave adapters stable identity and read-only reference operations, while mutations used paths. A writable network adapter needs to mutate the object a filehandle names without a path, learn the result without a second lookup, and report directory changes from the same state transition. This concept fixes how core provides that and what stays outside it. The durability half of the issue is recorded in [volume durability and usage facts](volume-durability-and-usage-facts.md "complements").
 
 ## Why not path calls
 
-Every path mutation already accepts a live `DirectoryHandle` base, but no operation converts an `ObjectReference` into a directory handle or a path, no operation opens a reference for writing, and every mutation returns `void`.[^core] An adapter would have to look the name up again after creating it, and a concurrent replacement between the two calls hands the client a handle for the wrong object. Every surveyed backend addresses mutations by directory reference and name component: the FUSE low-level API, the ganesha FSAL, Linux nfsd, Buildbarn, nfs4j, and 9P2000.L.[^fuse][^ganesha][^knfsd][^buildbarn][^nfs4j] The one path-based server documents the resulting breakage of hard links and renamed handles.[^go-nfs]
+Before reference mutations, path operations accepted a live `DirectoryHandle` base, but adapters could not open an object reference for writing or obtain mutation results tied to its identity.[^core] An adapter would have to look the name up again after creating it, and a concurrent replacement between the two calls hands the client a handle for the wrong object. Every surveyed backend addresses mutations by directory reference and name component: the FUSE low-level API, the ganesha FSAL, Linux nfsd, Buildbarn, nfs4j, and 9P2000.L.[^fuse][^ganesha][^knfsd][^buildbarn][^nfs4j] The one path-based server documents the resulting breakage of hard links and renamed handles.[^go-nfs]
 
 ## Decisions
 
@@ -71,15 +71,15 @@ Every path mutation already accepts a live `DirectoryHandle` base, but no operat
 - Reference mutations extend the [object references](../../contracts/object-references.md "extends") and [mutation revisions](../../contracts/mutation-revisions.md "extends") contracts, which record the per-operation authority and revision rules once the operations land. They preserve [explicit caller privilege](explicit-caller-privilege.md "constrained by") and the [mutation and observation contract](../../contracts/mutation-and-observation.md "constrained by"): compositions of several reference calls remain compositions, not transactions.
 - Watch events stay path addressed, so a reference mutation on an object no name reaches publishes nothing, as the contract already states.
 - The NFS export wrapper grows the matching operations and the error map gains rows for `AlreadyExists`, `NotEmpty`, `SymlinkLoop`, `IsDirectory`, `NotDirectory`, and link-count failures before the writable profile (#48) depends on them.[^export] Revisions reduce to the 64-bit `changeid4` by truncation, never hashing, so inequality survives.
-- A revision-conditional mutation, and an expected-child guard on unlink and rename as ganesha and WinFsp offer, were considered and deferred; no adapter needs them yet.
+- Issue #125 adds an optional expected-child condition to `openChildReference` so adapter share checks and exclusive-create verifier comparisons cannot race direct callers. It compares the direct object, revision, and both timestamps under the same gate; timestamp comparison is required because access-time changes do not always advance revision. Initial size through `initialSize` and ownership through `owner` join mode and times in the creation candidate, with existing quota and ownership authority rules. Conditional unlink and rename remain deferred.
 
 [^issue]: Issue #46 holds the original questions; the review session's decisions are recorded here.
 
-[^core]: `RelativeOptions.relativeTo` accepts a `DirectoryHandle`; `openReference` is the only reference open and takes no options; mutation signatures return `void`.
+[^core]: `Caller` exposes reference-based mutations, `openReference` with access settings, and atomic `openChildReference` with initial attributes and optional child conditions.
 
 [^engine]: One `Semaphore(1)` gate coordinates mutations and observations; `Metadata` timestamps are bigint nanoseconds; unlinked open files survive through `openCount`.
 
-[^export]: `NfsExport` exposes only read operations today and maps ten `FsError` codes to NFS statuses.
+[^export]: `NfsExport.openChild` reserves registry capacity and owns the scoped core handle. The dispatcher maps core failures to NFS statuses.
 
 [^dispatcher]: `OpenState` holds `deny` per open-owner in a server-side map that core never sees.
 

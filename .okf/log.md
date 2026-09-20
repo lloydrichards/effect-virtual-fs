@@ -3,7 +3,7 @@
 ## 2026-09-20
 
 - **Read-only NFS beta and physical-cut handoff**: Made the NFS package publishable in the fixed release group and labeled its public read path accurately. Added a Linux prepare/verify kit and CI rehearsal for contributors with disposable hardware. The kit has not yet produced physical power-cut evidence; public writes and a stronger durability tier remain unavailable.
-
+- **Regular-file NFS creation**: Added internal writable `OPEN` creation for ordinary, guarded, and both exclusive modes. Verifiers and initial attributes commit with the new file; conditional core child opens protect adapter checks from direct-caller races. Public exports remain read-only and storage qualification remains separate.
 - **OPEN creation review fixes**: Confirmed and fixed existing-name attribute precedence, registered filehandle reuse at capacity, exact NFS mode application, and initial-size watch event order. Added wire and watch regression tests; the public export and exclusive modes remain unchanged.
 
 - **Staged NFS OPEN creation**: Added internal ordinary and guarded regular-file creation through the core's atomic child-open operation. Core now accepts an initial size and an expected-child guard in the same candidate. Wire tests cover replay, stateids, authority, share and capacity rejection, replacement races, storage outcomes, and read-only precedence. Exclusive verifier modes remain a separate part of #125; the public export stays read-only.
