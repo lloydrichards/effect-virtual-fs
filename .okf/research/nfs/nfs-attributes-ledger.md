@@ -20,7 +20,7 @@ sources:
   - id: core
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: Core metadata and capacity model
-generated: { by: codex/okf, at: 2026-09-20T12:00:00Z }
+generated: { by: codex/okf, at: 2026-09-20T11:50:43Z }
 ---
 
 # NFS attributes ledger
@@ -44,7 +44,7 @@ Rows follow RFC 8881 Table 4 and Table 5.[^rfc8881-5] Status vocabulary comes fr
 | lease_time         | 10 | read-only-local | supported | `leaseDurationSeconds`, default 30                                                                                     | Same                                                                                               |       |
 | rdattr_error       | 11 | read-only-local | supported | NFS4_OK in GETATTR; READDIR reports a failing entry with only `rdattr_error` when the client requested it, per 18.23.3 | Same                                                                                               |       |
 | filehandle         | 19 | read-only-local | supported | 25-byte handle                                                                                                         | Same                                                                                               |       |
-| suppattr_exclcreat | 75 | read-only-local | supported | Empty bitmap                                                                                                           | Same for read-only exports; populate in `writable`                                                 | #48   |
+| suppattr_exclcreat | 75 | read-only-local | supported | Empty bitmap                                                                                                           | Empty for read-only; internal writable handler advertises size, mode, owner, and owner_group       | #48   |
 
 ## RECOMMENDED attributes advertised (Table 5)
 

@@ -983,6 +983,11 @@ Added in v0.4.0
 
 Settings for atomically looking up or creating and opening one referenced child.
 `exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
+Initial mode, times, `initialSize`, and owner apply only to a newly created file.
+`expectedChild: null` requires an absent direct child. An observation requires
+the same direct object, revision, and timestamps; a mismatch fails with
+`StaleReference` before changing the file. Omission skips this observation check.
+This condition checks the named entry before any final symbolic-link traversal.
 
 **Signature**
 
@@ -1006,6 +1011,13 @@ export type OpenChildReferenceSettings = {
   }
   readonly initialSize?: bigint
   readonly exactMode?: boolean
+  readonly owner?: { readonly uid?: number; readonly gid?: number }
+  readonly expectedChild?: {
+    readonly reference: ObjectReference
+    readonly revision: bigint
+    readonly atimeNs: bigint
+    readonly mtimeNs: bigint
+  } | null
 }
 ```
 
@@ -1927,6 +1939,22 @@ export declare const OpenChildReferenceSettings: Schema.Struct<{
   >
   readonly initialSize: Schema.optionalKey<Schema.BigInt>
   readonly exactMode: Schema.optionalKey<Schema.Boolean>
+  readonly owner: Schema.optionalKey<
+    Schema.Struct<{
+      readonly uid: Schema.optionalKey<Schema.Natural>
+      readonly gid: Schema.optionalKey<Schema.Natural>
+    }>
+  >
+  readonly expectedChild: Schema.optionalKey<
+    Schema.NullOr<
+      Schema.Struct<{
+        readonly reference: Schema.declare<ObjectReference, ObjectReference>
+        readonly revision: Schema.BigInt
+        readonly atimeNs: Schema.BigInt
+        readonly mtimeNs: Schema.BigInt
+      }>
+    >
+  >
   readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
   readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
   readonly mode: Schema.optionalKey<Schema.Natural>

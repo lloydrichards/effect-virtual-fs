@@ -17,7 +17,10 @@ sources:
   - id: mutation-tests
     resource: ../../packages/core/test/ReferenceMutation.test.ts
     title: Reference mutation identity, authority, and lifetime tests
-generated: { by: codex/okf, at: 2026-09-19T10:41:33Z }
+  - id: create-tests
+    resource: ../../packages/core/test/ReferenceCreate.test.ts
+    title: Conditional child creation and initial metadata tests
+generated: { by: codex/okf, at: 2026-09-20T11:50:43Z }
 ---
 
 # Object references independent of paths
@@ -27,6 +30,8 @@ Core exposes canonical opaque `ObjectReference` values for runtime files, direct
 `Caller` owns reference operations for the volume root, single-component byte-name lookup, directory parent lookup, permission checks, metadata and directory observation, symbolic-link reads, named-entry mutations, exact-object metadata and truncation, writable file opening, and atomic child lookup-or-create-and-open. Wire encoding and export identifiers remain adapter responsibilities.[^mutation-tests]
 
 The reference identifies an object; it does not carry the authority of the caller that obtained it. Permission checks apply to the invoking caller. Operations preserve the [resource and authority contract](resources-and-authority.md "constrained by"). Restore constructs fresh references under [snapshot-local identity](../decisions/core/snapshot-local-file-identity.md "constrained by").
+
+`openChildReference` accepts `initialSize`, ownership, mode, and timestamps in the same creation operation. Those initial attributes are ignored when opening an existing file. `exactMode` preserves an explicit mode without applying the caller's umask, subject to core permission policy. Its optional `expectedChild` condition requires either an absent direct entry or the same observed object, revision, and timestamps under the volume gate. A mismatch fails with `StaleReference` before any creation or truncation. The condition checks the direct entry before optional symbolic-link traversal; adapters that require the observed file itself disable traversal.[^create-tests]
 
 ## Authority
 
@@ -51,3 +56,7 @@ Focused tests demonstrate rename followed by path reuse, hard-link identity, own
 [^authority-tests]: `ObjectReference.test.ts` checks a non-privileged caller against a mode `0o000` file and symbolic link: metadata and link-target reads succeed where opening fails.
 
 [^link-tests]: The link tests ground alias and rename behavior; `ObjectReference.test.ts` covers the reference interface itself.
+
+[^mutation-tests]: `ReferenceMutation.test.ts` checks named-entry mutation results, permissions, and retained object identity.
+
+[^create-tests]: `ReferenceCreate.test.ts` checks missing and replaced children, timestamp changes, initial ownership, capacity rejection, and existing-file attribute preservation.

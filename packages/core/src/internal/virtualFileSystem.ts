@@ -296,7 +296,16 @@ export const OpenChildReferenceSettings = Schema.Struct({
   ...OpenSettings.fields,
   times: Schema.optionalKey(Times),
   initialSize: Schema.optionalKey(Schema.BigInt),
-  exactMode: Schema.optionalKey(Schema.Boolean)
+  exactMode: Schema.optionalKey(Schema.Boolean),
+  owner: Schema.optionalKey(OwnerUpdate),
+  expectedChild: Schema.optionalKey(Schema.NullOr(Schema.Struct({
+    reference: Schema.declare<ObjectReference>((input): input is ObjectReference =>
+      Predicate.hasProperty(ObjectReferenceId)(input) && input[ObjectReferenceId] === true
+    ),
+    revision: Schema.BigInt,
+    atimeNs: MetadataDomain.Timestamp,
+    mtimeNs: MetadataDomain.Timestamp
+  })))
 })
 
 const WriteFileSettings = Schema.Struct({
@@ -2835,7 +2844,7 @@ export const makeVolume = Effect.fnUntraced(
 
             if (
               (chosen.mode !== undefined || chosen.times !== undefined || chosen.initialSize !== undefined ||
-                chosen.exactMode !== undefined) &&
+                chosen.exactMode !== undefined || chosen.owner !== undefined) &&
               (chosen.create === undefined || chosen.create === "never")
             ) {
               return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
@@ -2874,6 +2883,22 @@ export const makeVolume = Effect.fnUntraced(
 
                   if (direct !== expectedNode) {
                     return yield* new FsError({ code: "VolumeBusy", operation: "openChildReference" })
+                  }
+                }
+
+                if (chosen.expectedChild === null) {
+                  if (direct !== undefined) {
+                    return yield* new FsError({ code: "StaleReference", operation: "openChildReference" })
+                  }
+                } else if (chosen.expectedChild !== undefined) {
+                  const expected = chosen.expectedChild
+                  const observed = yield* referencedNode(expected.reference, "openChildReference")
+
+                  if (
+                    direct !== observed || observed.revision !== expected.revision ||
+                    observed.metadata.atimeNs !== expected.atimeNs || observed.metadata.mtimeNs !== expected.mtimeNs
+                  ) {
+                    return yield* new FsError({ code: "StaleReference", operation: "openChildReference" })
                   }
                 }
 
@@ -2923,12 +2948,41 @@ export const makeVolume = Effect.fnUntraced(
                     return yield* new FsError({ code: "NoSpace", operation: "openChildReference" })
                   }
 
+                  const size = chosen.initialSize ?? 0n
+
+                  if (size < 0n) {
+                    return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
+                  }
+
+                  if (size > BigInt(maxFileBytes)) {
+                    return yield* new FsError({ code: "FileTooLarge", operation: "openChildReference" })
+                  }
+
+                  if (
+                    settings.maxBytes !== undefined && size > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes
+                  ) {
+                    return yield* new FsError({ code: "NoSpace", operation: "openChildReference" })
+                  }
+
+                  if (
+                    !identity.privileged &&
+                    ((chosen.owner?.uid !== undefined && chosen.owner.uid !== identity.uid) ||
+                      (chosen.owner?.gid !== undefined && chosen.owner.gid !== identity.gid &&
+                        !identity.groups.includes(chosen.owner.gid)))
+                  ) {
+                    return yield* new FsError({ code: "AccessDenied", operation: "openChildReference" })
+                  }
+
                   const now = yield* timestamp("openChildReference")
                   const initial = creationTimes(chosen.times, now)
 
                   const creationMode = chosen.exactMode
                     ? yield* permittedMode(
-                      { kind: "file", uid: identity.uid, gid: mutationParent.metadata.gid },
+                      {
+                        kind: "file",
+                        uid: chosen.owner?.uid ?? identity.uid,
+                        gid: chosen.owner?.gid ?? mutationParent.metadata.gid
+                      },
                       chosen.mode!,
                       "openChildReference"
                     )
@@ -2937,35 +2991,29 @@ export const makeVolume = Effect.fnUntraced(
                   const createdFile: RegularFile = {
                     kind: "file",
                     lineage: undefined,
-                    data: Content.empty(),
+                    data: Content.make(new Uint8Array(Number(size))),
                     openCount: 0,
                     metadata: {
                       ...directoryMetadata(
                         state.nextInode,
-                        identity.uid,
-                        mutationParent.metadata.gid,
+                        chosen.owner?.uid ?? identity.uid,
+                        chosen.owner?.gid ?? mutationParent.metadata.gid,
                         creationMode,
                         now
                       ),
                       ...initial,
                       kind: "file",
+                      size,
                       nlink: 1
                     },
                     revision: nextRevision(),
                     objectReference: undefined
                   }
 
-                  if (chosen.initialSize !== undefined) {
-                    yield* resize(createdFile, chosen.initialSize, "openChildReference", false)
-
-                    if (chosen.exactMode) {
-                      createdFile.metadata = { ...createdFile.metadata, mode: creationMode }
-                    }
-                  }
-
                   file = createdFile
                   attach(mutationParent, mutationName, createdFile, now)
                   state.entries += 1
+                  state.usedBytes += size
                   state.nextInode += 1n
                   created = true
                   publishEntry("Create", mutationParent, mutationName)

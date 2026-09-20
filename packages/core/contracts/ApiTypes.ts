@@ -12,6 +12,25 @@ import { VirtualFileSystem as Vfs, VirtualFileSystemError as VfsError } from "..
 export const publicErrorIdentity: typeof Vfs.FsError = VfsError.FsError
 export const publicConfigurationErrorIdentity: typeof Vfs.ConfigurationError = VfsError.ConfigurationError
 
+export const conditionalChildOpen = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
+  Effect.gen(function*() {
+    const observation = yield* caller.observeMetadata(reference)
+    const settings: Vfs.OpenChildReferenceSettings = {
+      access: "readWrite",
+      create: "ifMissing",
+      initialSize: 3n,
+      owner: { uid: 1, gid: 2 },
+      expectedChild: {
+        reference,
+        revision: observation.revision,
+        atimeNs: observation.value.atimeNs,
+        mtimeNs: observation.value.mtimeNs
+      }
+    }
+    yield* caller.openChildReference(reference, new Uint8Array([102]), settings)
+    return yield* caller.openChildReference(reference, new Uint8Array([103]), { ...settings, expectedChild: null })
+  }) satisfies Effect.Effect<Vfs.OpenChildReferenceResult, Vfs.FsError, Scope.Scope>
+
 export const references = (caller: Vfs.Caller) =>
   Effect.gen(function*() {
     const root: Vfs.ObjectReference = yield* caller.rootReference
