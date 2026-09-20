@@ -19,7 +19,7 @@ sources:
     title: Public snapshot exclusions
   - id: watch
     resource: ../../packages/core/src/internal/virtualFileSystem/watchHub.ts
-    title: Current unbounded watch queue
+    title: Bounded per-subscriber watch queues
   - id: checkpoint
     resource: ../../packages/persistence/src/CheckpointStore.ts
     title: Application-driven named checkpoints
@@ -62,14 +62,14 @@ sources:
   - id: issue-50
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
     title: Restart recovery
-generated: { by: codex/okf, at: 2026-09-19T18:55:26Z }
+generated: { by: codex/okf, at: 2026-09-20T00:00:00Z }
 ---
 
 # Live durable volume proposal
 
 Recommend an application-supplied, bounded storage Layer behind core's `LiveImageStore` service. Each operation builds a private candidate state, commits its image, then publishes the candidate and watch events. One possible provider replaces one complete engine image per transaction. This costs time proportional to volume size but keeps the recovery proof small. It targets small volumes, not large or high-throughput storage.
 
-This remains a design proposal for the unfinished writable milestone. Core staging, a private image codec, and an injected `LiveImageStore` service now exist. An Effect `SqlClient`-based SQLite provider implements bounded whole-image commits and has process-restart coverage. [#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129) tracks crash and power-loss qualification and rollback-journal space; [#122](https://github.com/lloydrichards/effect-virtual-fs/issues/122) tracks bounded watches and admission. Writable NFS dispatch remains open. The provider does not establish #48 or #49 and leaves `Volume.durability` at `memory-only`.[^sqlite-live-store]
+This remains a design proposal for the unfinished writable milestone. Core staging, a private image codec, and an injected `LiveImageStore` service now exist. An Effect `SqlClient`-based SQLite provider implements bounded whole-image commits and has process-restart coverage. [#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129) tracks crash and power-loss qualification and rollback-journal space; [#122](https://github.com/lloydrichards/effect-virtual-fs/issues/122) provides bounded watches and admission. Writable NFS dispatch remains open. The provider does not establish #48 or #49 and leaves `Volume.durability` at `memory-only`.[^sqlite-live-store]
 
 ## Accepted requirements and proposed choices
 
@@ -77,7 +77,7 @@ The [writable export scope](../decisions/nfs/writable-export-scope.md "constrain
 
 The [reference-mutation decision](../decisions/core/reference-mutations.md "constrained by") keeps share reservations, advisory byte-range locks, stateids, and leases in NFS. The [volume facts decision](../decisions/core/volume-durability-and-usage-facts.md "constrained by") keeps a static durability tier, stable logical identity, fresh incarnation on construction, and a byte-count write result. These remain unchanged.
 
-Core staging, the private image format, the storage-error API, and the first SQLite provider are implemented. The remaining storage qualification and NFS rules below are proposals for the writable milestone. The separate [watch overflow draft](../decisions/core/watch-event-overflow.md "constrained by") owns the bounded-watch contract.
+Core staging, the private image format, the storage-error API, and the first SQLite provider are implemented. The remaining storage qualification and NFS rules below are proposals for the writable milestone. The separate [watch overflow decision](../decisions/core/watch-event-overflow.md "constrained by") owns the bounded-watch contract.
 
 ## Durability promise
 
@@ -114,13 +114,13 @@ The engine audit identifies five state groups that must move together at publica
 | Access times from file, path, and directory reads                                                          | Read methods inside `coordinated`         | Commit the metadata change before returning the read result.                                                   |
 | Watch changes                                                                                              | `WatchHub` calls inside mutations         | Buffer candidate events and publish them only after the provider confirms commit.                              |
 
-This audit rules out a graph-only copy. The core now stages reachable and retained nodes, capability records, reference invalidation, and watch events before publication. Its private image preserves inodes, hard links, revisions, counters, limits, and retained unlinked files. Recovery drops zero-link files because their handles ended with the prior process. Core tests cover injected committed and rejected outcomes, image validation, and staged publication. The SQLite provider has process-restart tests, but no crash or power-loss qualification. Bounded admission and watches and writable NFS dispatch remain open. Memory volumes still use the direct path.[^live-image][^live-store][^sqlite-live-store]
+This audit rules out a graph-only copy. The core now stages reachable and retained nodes, capability records, reference invalidation, and watch events before publication. Its private image preserves inodes, hard links, revisions, counters, limits, and retained unlinked files. Recovery drops zero-link files because their handles ended with the prior process. Core tests cover injected committed and rejected outcomes, image validation, and staged publication. The SQLite provider has process-restart tests, but no crash or power-loss qualification. Writable NFS dispatch remains open. Memory volumes still use the direct path.[^live-image][^live-store][^sqlite-live-store]
 
 Introduce a core-owned `EngineState` and stable runtime object keys. Capabilities retain keys and resolve them against the current state under the gate. A candidate owns copied metadata, maps, mutable bytes, counters, and changed handle state. Immutable content can be shared, but no candidate write may modify a live buffer. Reference invalidations, newly opened handles, cursor advances, and quota charges publish with the state swap. Pure handle movement stays volatile and coordinated.
 
 Start with one gate and one candidate at a time. Readers, snapshots, usage queries, watcher registration, closes, and other writers wait while a candidate commits. This deliberately trades read latency for a simple ordering rule. Direct path calls, reference calls, and existing writable handles all use this mechanism. No writable memory volume is exposed beside it.
 
-1. Own and validate inputs, with a bounded admission queue. Waiting for the gate remains interruptible.
+1. Own and validate inputs, then apply bounded admission. Mutation and observation permit waits remain interruptible.
 2. Under the gate, check provider health and build the candidate from the current state. Evaluate authority, timestamps, byte counts, namespace change pairs, quotas, and every operation-specific failure. Prepare owned result bytes and watch paths. Reserve publication capacity before storage begins.
 3. Encode and validate a versioned durable image of the candidate. Allocation, encoding failure, or interruption here discards the candidate. No live revision, cursor, reference, or event changes.
 4. Enter a masked commit-and-publication region. On the dedicated connection, `BEGIN IMMEDIATE`, replace the image and increment its generation with an expected-generation condition, then `COMMIT`. A generation mismatch closes the provider; it is not a retry of the filesystem operation. The database transaction includes every durable effect of this one core operation.
@@ -197,7 +197,7 @@ Require finite content, entry, object, image-byte, input-byte, handle, caller, s
 
 The database retains one current image and reusable free pages, not one row per commit. Cap database pages and SQLite cache; budget rollback-journal space separately, including page and journal overhead. `maxBytes` remains logical content capacity and cannot promise physical free disk. Bound retained snapshots through application lifetimes. Compaction and backup are separate maintenance operations with explicit temporary-space budgets; ordinary commits must not depend on an unbounded history cleanup.
 
-The current watch hub is unbounded, so a fully bounded provider needs an additional core change.[^watch] Do not let a stalled watcher reject an otherwise valid filesystem mutation: watch consumers must not gain write authority by leaving a queue unread. Follow the [watch overflow draft](../decisions/core/watch-event-overflow.md "constrained by") toward bounded subscriber queues and an in-band rescan signal. The marker, adapter projection, per-subscriber accounting, and capacity remain decisions in that draft. The fake-provider staging slice can retain today's unbounded watch behavior, but the trusted bounded writable milestone must resolve and implement the overflow contract. Never silently drop events or block while holding the gate waiting for a subscriber.
+The core and staged provider use bounded per-subscriber watch queues and a rescan marker.[^watch] The accepted [watch overflow decision](../decisions/core/watch-event-overflow.md "constrained by") defines the marker, adapter projection, capacity, and admission result. A stalled watcher cannot block or reject an unrelated mutation.
 
 Set a finite SQLite busy timeout and bounded retry count before commit. These do not bound a kernel flush that never returns. Document that limitation; worker isolation can allow application responsiveness, but killing a worker makes the transaction outcome unknown until recovery. No fixed shutdown-latency promise follows from Effect interruption masking.
 
@@ -231,7 +231,7 @@ The open performance question is the maximum useful volume size with full-image 
 
 [^snapshot]: Public snapshots exclude callers, open handles, watch subscriptions, and unlinked content.
 
-[^watch]: `WatchHub.make` uses `PubSub.unbounded` and synchronous publication.
+[^watch]: `WatchHub.make` uses independent bounded subscriber queues and synchronous publication.
 
 [^nfs]: `compound` reserves replay bytes at `SEQUENCE` and installs a consumed-slot marker before state-changing dispatch. Post-execution size checks remain as defensive bounds.
 
