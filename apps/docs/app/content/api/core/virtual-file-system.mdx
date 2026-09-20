@@ -982,6 +982,7 @@ Added in v0.4.0
 ### OpenChildReferenceSettings (type alias)
 
 Settings for atomically looking up or creating and opening one referenced child.
+`exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
 
 **Signature**
 
@@ -1004,6 +1005,7 @@ export type OpenChildReferenceSettings = {
       | { readonly kind: "value"; readonly nanoseconds: bigint }
   }
   readonly initialSize?: bigint
+  readonly exactMode?: boolean
 }
 ```
 
@@ -1899,6 +1901,7 @@ Added in v0.4.0
 ### OpenChildReferenceSettings
 
 Settings for atomically looking up or creating and opening one referenced child.
+`exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
 
 **Signature**
 
@@ -1923,6 +1926,7 @@ export declare const OpenChildReferenceSettings: Schema.Struct<{
     }>
   >
   readonly initialSize: Schema.optionalKey<Schema.BigInt>
+  readonly exactMode: Schema.optionalKey<Schema.Boolean>
   readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
   readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
   readonly mode: Schema.optionalKey<Schema.Natural>

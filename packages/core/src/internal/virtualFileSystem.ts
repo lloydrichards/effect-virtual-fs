@@ -295,7 +295,8 @@ export const OpenReferenceSettings = Schema.Struct({
 export const OpenChildReferenceSettings = Schema.Struct({
   ...OpenSettings.fields,
   times: Schema.optionalKey(Times),
-  initialSize: Schema.optionalKey(Schema.BigInt)
+  initialSize: Schema.optionalKey(Schema.BigInt),
+  exactMode: Schema.optionalKey(Schema.Boolean)
 })
 
 const WriteFileSettings = Schema.Struct({
@@ -1528,7 +1529,7 @@ export const makeVolume = Effect.fnUntraced(
       )
 
     // Replacing a payload clears setuid and setgid, and charges the volume for the size delta.
-    const replaceContent = (file: RegularFile, data: Uint8Array, now: bigint) => {
+    const replaceContent = (file: RegularFile, data: Uint8Array, now: bigint, publish = true) => {
       state.usedBytes += BigInt(data.length - file.data.bytes.length)
       file.data = Content.make(data)
       file.metadata = {
@@ -1539,10 +1540,11 @@ export const makeVolume = Effect.fnUntraced(
         ctimeNs: now
       }
       advanceRevision(file)
-      publishNode(file)
+
+      if (publish) publishNode(file)
     }
 
-    const resize = Effect.fnUntraced(function*(file: RegularFile, length: bigint, operation: string) {
+    const resize = Effect.fnUntraced(function*(file: RegularFile, length: bigint, operation: string, publish = true) {
       if (!Predicate.isBigInt(length) || length < 0n) {
         return yield* new FsError({ code: "InvalidArgument", operation: operation })
       }
@@ -1559,7 +1561,7 @@ export const makeVolume = Effect.fnUntraced(
 
       const data = new Uint8Array(size)
       data.set(file.data.bytes.subarray(0, size))
-      replaceContent(file, data, yield* timestamp(operation))
+      replaceContent(file, data, yield* timestamp(operation), publish)
     })
 
     const fileHandle = (ref: FileReference): FileHandle => {
@@ -2832,9 +2834,14 @@ export const makeVolume = Effect.fnUntraced(
             }
 
             if (
-              (chosen.mode !== undefined || chosen.times !== undefined || chosen.initialSize !== undefined) &&
+              (chosen.mode !== undefined || chosen.times !== undefined || chosen.initialSize !== undefined ||
+                chosen.exactMode !== undefined) &&
               (chosen.create === undefined || chosen.create === "never")
             ) {
+              return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
+            }
+
+            if (chosen.exactMode && chosen.mode === undefined) {
               return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
             }
 
@@ -2919,6 +2926,14 @@ export const makeVolume = Effect.fnUntraced(
                   const now = yield* timestamp("openChildReference")
                   const initial = creationTimes(chosen.times, now)
 
+                  const creationMode = chosen.exactMode
+                    ? yield* permittedMode(
+                      { kind: "file", uid: identity.uid, gid: mutationParent.metadata.gid },
+                      chosen.mode!,
+                      "openChildReference"
+                    )
+                    : (chosen.mode ?? 0o666) & 0o777 & ~umask
+
                   const createdFile: RegularFile = {
                     kind: "file",
                     lineage: undefined,
@@ -2929,7 +2944,7 @@ export const makeVolume = Effect.fnUntraced(
                         state.nextInode,
                         identity.uid,
                         mutationParent.metadata.gid,
-                        (chosen.mode ?? 0o666) & 0o777 & ~umask,
+                        creationMode,
                         now
                       ),
                       ...initial,
@@ -2941,7 +2956,11 @@ export const makeVolume = Effect.fnUntraced(
                   }
 
                   if (chosen.initialSize !== undefined) {
-                    yield* resize(createdFile, chosen.initialSize, "openChildReference")
+                    yield* resize(createdFile, chosen.initialSize, "openChildReference", false)
+
+                    if (chosen.exactMode) {
+                      createdFile.metadata = { ...createdFile.metadata, mode: creationMode }
+                    }
                   }
 
                   file = createdFile

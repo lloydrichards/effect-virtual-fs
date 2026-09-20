@@ -789,6 +789,7 @@ export type OpenReferenceSettings = typeof OpenReferenceSettings.Type
 
 /**
  * Settings for atomically looking up or creating and opening one referenced child.
+ * `exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
  *
  * @category schemas
  * @since 0.4.0
@@ -798,6 +799,7 @@ export const OpenChildReferenceSettings: typeof VfsModel.OpenChildReferenceSetti
 
 /**
  * Settings for atomically looking up or creating and opening one referenced child.
+ * `exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
  *
  * @category models
  * @since 0.4.0

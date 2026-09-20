@@ -267,7 +267,10 @@ export const makeExport = (
 
       return registryGate.withPermit(Effect.uninterruptibleMask((restore) =>
         Effect.gen(function*() {
-          if (referencesById.size >= limits.maxFilehandles) {
+          if (
+            (expected === null || idsByReference.get(expected) === undefined) &&
+            referencesById.size >= limits.maxFilehandles
+          ) {
             for (const [id, reference] of referencesById) {
               const result = yield* Effect.result(activeCaller.observeMetadata(reference))
 
