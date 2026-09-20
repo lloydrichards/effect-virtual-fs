@@ -7,6 +7,7 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 worker="${GATE_WORKER:-$repo_root/packages/persistence/test/fixtures/live-restart.ts}"
 source_file="${GATE_SOURCE:-$repo_root/packages/persistence/test/fixtures/faultvfs.c}"
+export LIVE_STORE_SYNC_DIRECTORY=1
 bun_bin="${GATE_BUN:-bun}"
 output_dir="${GATE_OUTPUT_DIR:-$(mktemp -d -t effect-vfs-write-order-XXXXXX)}"
 iterations="${GATE_ORDER_ITERATIONS:-2}"

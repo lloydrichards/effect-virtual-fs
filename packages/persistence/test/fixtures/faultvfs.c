@@ -109,6 +109,13 @@ static int fault_open(sqlite3_vfs *vfs, const char *name, sqlite3_file *file, in
   (void)vfs;
   int result = original_vfs->xOpen(original_vfs, name, file, flags, out_flags);
   if (result != SQLITE_OK) return result;
+  if (fault_log) {
+    FILE *log = fopen(fault_log, "a");
+    if (log) {
+      fprintf(log, "sector-size value=%d flags=%d\n", file->pMethods->xSectorSize(file), flags);
+      fclose(log);
+    }
+  }
 
   FaultMethods *fault = malloc(sizeof(*fault));
   if (!fault) {

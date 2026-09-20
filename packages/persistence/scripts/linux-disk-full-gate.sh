@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Exercise the real Bun SQLite provider when its journal or image cannot grow.
-# Mount and fill only a disposable tmpfs; never fill the runner's root disk.
+# Mount and fill only a disposable tmpfs or ext4 loop image; never fill the runner's root disk.
 set -euo pipefail
 
 [[ "$(uname -s)" == Linux ]] || { echo "Linux only" >&2; exit 2; }
@@ -8,12 +8,16 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 worker="${GATE_WORKER:-$repo_root/packages/persistence/test/fixtures/live-restart.ts}"
 source_file="${GATE_SOURCE:-$repo_root/packages/persistence/test/fixtures/faultvfs.c}"
+export LIVE_STORE_SYNC_DIRECTORY=1
 bun_bin="${GATE_BUN:-bun}"
 output_dir="${GATE_OUTPUT_DIR:-$(mktemp -d -t effect-vfs-disk-full-XXXXXX)}"
+gate_filesystem="${GATE_FILESYSTEM:-tmpfs}"
 mountpoint="$(mktemp -d -t effect-vfs-disk-full-mount-XXXXXX)"
 writer_pid=""
 mounted=false
 mkdir -p "$output_dir"
+[[ "$gate_filesystem" == tmpfs || "$gate_filesystem" == ext4-loop ]] ||
+  { echo "GATE_FILESYSTEM must be tmpfs or ext4-loop" >&2; exit 2; }
 cc -std=c11 -Wall -Wextra -Werror -fPIC -shared -o "$output_dir/faultvfs.so" "$source_file"
 
 cleanup() {
@@ -26,8 +30,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-sudo mount -t tmpfs -o size=4m,mode=0777 tmpfs "$mountpoint"
+if [[ "$gate_filesystem" == ext4-loop ]]; then
+  fallocate -l 16M "$output_dir/ext4.img"
+  mkfs.ext4 -F -q "$output_dir/ext4.img"
+  tune2fs -m 0 "$output_dir/ext4.img" > "$output_dir/ext4-reserved-blocks.txt"
+  sudo mount -t ext4 -o loop "$output_dir/ext4.img" "$mountpoint"
+else
+  sudo mount -t tmpfs -o size=4m,mode=0777 tmpfs "$mountpoint"
+fi
 mounted=true
+printf 'filesystem=%s\n' "$(findmnt -T "$mountpoint" -n -o SOURCE,FSTYPE,OPTIONS)" > "$output_dir/filesystem.txt"
 database="$mountpoint/live.sqlite"
 
 LIVE_STORE_MODE=write LIVE_STORE_FILE="$database" "$bun_bin" "$worker" > "$output_dir/baseline.log"
@@ -111,7 +123,11 @@ df -B1 "$mountpoint" > "$output_dir/space-at-write.txt"
 find "$mountpoint" -maxdepth 1 -type f -printf '%f %s bytes\n' > "$output_dir/files-at-write.txt"
 
 touch "$database.resume"
-wait "$writer_pid"
+if ! wait "$writer_pid"; then
+  cat "$output_dir/writer.log" >&2
+  echo "Writer did not return a classified disk-full outcome" >&2
+  exit 1
+fi
 writer_pid=""
 
 awk -F '[= ]' '/^write-end bytes=/{ if ($3 > maximum) maximum=$3 } END { print maximum + 0 }' \

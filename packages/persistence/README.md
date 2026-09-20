@@ -56,12 +56,31 @@ containing directory on the target driver and operating system. The provider
 calls it after the supplied `SqlClient` opens the database and after it verifies
 `PRAGMA database_list` against `filename`, but before it creates the schema or
 returns the store. The call runs on every startup, including an existing database.
-A failed or unknown sync result fails startup with `Storage`; no live store is
-exposed. On Linux with a local filesystem, an application can open the directory
+A reported sync error fails startup with `Storage`. A callback that never returns
+or dies also cannot expose the live store. On Linux with a local filesystem, an application can open the directory
 and call `fsync` on its file descriptor. The application must test that operation
 on its chosen driver, OS, and filesystem. Without it, startup remains experimental
 for crash durability. Storage flush behavior and the rest of #129 still require
 qualification even when directory sync succeeds.
+
+With `NodeFileSystem.layer` on Linux, the tested callback is:
+
+```ts
+import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
+import { Effect, FileSystem } from "effect"
+
+const syncDatabaseDirectory = (directory: string) =>
+  Effect.scoped(Effect.gen(function*() {
+    const filesystem = yield* FileSystem.FileSystem
+    const handle = yield* filesystem.open(directory, { flag: "r" })
+    yield* handle.sync
+  })).pipe(Effect.provide(NodeFileSystem.layer))
+```
+
+The [live restart fixture](test/fixtures/live-restart.ts) enables this callback with
+`LIVE_STORE_SYNC_DIRECTORY=1`. The process-death, VM hard-stop, write/sync fault,
+write-order, and space gates use that setting and record `directory_sync=ok` only
+after `handle.sync` succeeds.
 
 This provider has process-restart coverage. Tests kill the writer after an acknowledged commit and after an
 unacknowledged image update but before `COMMIT`, then reopen the database. Injected lost commit and rollback
@@ -92,8 +111,9 @@ The workflow also checks a real disk-full response on a disposable 4 MiB `tmpfs`
 loaded before the provider opens its Bun connection, injects write and sync errors. One persistent main-database
 write fault reaches rollback. The gate verifies the provider's result, post-error availability, recovered old or
 new image, and `integrity_check`. These
-tests characterize failures on the recorded runner; they do not yet impose a finite journal/temp-file admission
-budget or simulate lost and reordered writes after an apparently successful sync.
+tests characterize failures on the recorded runner. The separate
+[write-order gate](scripts/linux-write-order-gate.sh) models writes lost or reordered
+after successful sync calls. The finite space policy and its limits are described above.
 
 For a local rehearsal, run `GATE_ITERATIONS=1 bash packages/persistence/scripts/linux-crash-gate.sh` from the
 repository root after installing dependencies. This process-death gate does not stop the guest operating system or
@@ -110,15 +130,35 @@ guest, storage, PRAGMA, and per-case evidence to the printed directory. Use `GAT
 `GATE_STOP_MODE=kill` to use UTM's VM-process kill instead of its forced power-off event. The VM must be
 dedicated to this test because the gate stops it without guest shutdown.
 
-On the recorded run, all 12 guest hard-stop cases passed with Debian 12, Linux 6.1.0-13-arm64, ext4 on a QEMU
+On the earlier recorded run, all 12 guest hard-stop cases passed with Debian 12, Linux 6.1.0-13-arm64, ext4 on a QEMU
 virtual disk, Bun 1.2.21, and SQLite 3.50.4. The commit connection reported DELETE journaling,
 `synchronous=EXTRA`, `fullfsync=ON`, and exclusive locking. This establishes a guest OS-crash result for that
-configuration. A forced VM stop does not establish physical power-loss durability. Issue #129 still needs
-lost/reordered write simulation and a tested finite rollback-journal and temporary-file budget before a stronger
-durability tier can be claimed. The VM result assumes SQLite's sync requests reach the virtual disk; it does not
+configuration. A forced VM stop does not establish physical power-loss durability. The VM result assumes SQLite's
+sync requests reach the virtual disk; it does not
 verify how UTM/QEMU, the Mac filesystem, or the physical device handle flushes.
 An exploratory VM-process-kill run later encountered a guest boot hang; an additional restart recovered the
 database, but the gate reports a boot hang as a failed run.
+Two one-iteration runs with directory sync enabled on 2026-09-20 also failed the
+complete four-case gate because the guest did not restart after a hard stop. The
+first passed three cases and hung after the acknowledged case; a second restart
+recovered that acknowledged image with integrity `ok`. The second run passed the
+after-update case and hung after the before-`COMMIT` case. These are failed gate
+runs, not a qualified guest OS-crash result for the new startup configuration.
+
+The [VM fault gate](scripts/utm-vm-fault-gate.sh) runs the same bundled provider on
+Debian 12, Linux 6.1.0-13-arm64, ext4, and Bun 1.2.21. Its SQLite VFS reported a
+4,096-byte sector size for the main file and rollback journal. The VirtIO device
+reports 512-byte logical and physical blocks and a write-back cache. On a
+disposable 16 MiB ext4 loop filesystem with reserved blocks disabled, the
+2,000,000-byte database cap and 4,096-byte page size produced a 4,068,288-byte
+conservative provision. The gate committed near that provision, then observed
+`StorageRejected` and the old complete image with 3,072 bytes free. This finite
+test does not reserve that space for a production database. The same gate reproduced
+three acknowledged-image breaches when its VFS lied about successful syncs.
+The running UTM command uses a VirtIO qcow2 image without `cache.no-flush`; QEMU's
+documented default is write-back with flushes enabled. No test here proves that
+host APFS and the physical device complete those flushes before acknowledgement.
+The database therefore remains experimental for physical power loss.
 
 ## Save and restore
 

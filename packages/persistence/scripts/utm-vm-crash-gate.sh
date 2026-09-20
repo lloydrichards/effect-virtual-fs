@@ -98,9 +98,13 @@ for iteration in $(seq 1 "$iterations"); do
     utmctl file pull "$vm" "$guest_case_dir/commit-connection-pragmas.txt" > "$case_dir/commit-connection-pragmas.txt"
     [[ -s "$case_dir/commit-connection-pragmas.txt" ]] || { echo "Missing PRAGMA evidence: $case_name" >&2; exit 1; }
     utmctl file pull "$vm" "$guest_case_dir/writer.log" > "$case_dir/writer.log"
+    grep -q '^directory_sync=ok ' "$case_dir/writer.log" ||
+      { echo "Writer did not sync the database directory: $case_name" >&2; exit 1; }
     if [[ "$phase" != acknowledged ]]; then
       utmctl file pull "$vm" "$guest_case_dir/baseline.log" > "$case_dir/baseline.log"
       [[ -s "$case_dir/baseline.log" ]] || { echo "Missing baseline evidence: $case_name" >&2; exit 1; }
+      grep -q '^directory_sync=ok ' "$case_dir/baseline.log" ||
+        { echo "Baseline did not sync the database directory: $case_name" >&2; exit 1; }
     fi
     utmctl stop "$vm" "--$stop_mode"
     utmctl start "$vm"
@@ -119,6 +123,8 @@ for iteration in $(seq 1 "$iterations"); do
     done
     [[ "$verified" == "passed=$phase" ]] || { echo "Verification failed: $case_name" >&2; exit 1; }
     utmctl file pull "$vm" "$guest_case_dir/reopen.log" > "$case_dir/reopen.log"
+    grep -q '^directory_sync=ok ' "$case_dir/reopen.log" ||
+      { echo "Reopen did not sync the database directory: $case_name" >&2; exit 1; }
     utmctl file pull "$vm" "$guest_case_dir/integrity.json" > "$case_dir/integrity.json"
     [[ -s "$case_dir/reopen.log" && -s "$case_dir/integrity.json" ]] ||
       { echo "Missing recovery evidence: $case_name" >&2; exit 1; }
