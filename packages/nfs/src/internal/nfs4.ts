@@ -3701,22 +3701,7 @@ export const makeNfs4Handler = (
 
                   const attrs = value.createAttrs!
                   const requested = attributesIn(attrs.bitmap)
-
-                  if (requested.some((attribute) => attribute !== 4 && attribute !== 33)) {
-                    return Effect.succeed({ code: operation.code, status: Status.ATTRNOTSUPP })
-                  }
-
-                  const values = new Reader(attrs.values, options.limits)
-                  let mode: number | undefined
-                  let truncate = false
-                  let initialSize: bigint | undefined
-
-                  for (const attribute of requested) {
-                    if (attribute === 4) {
-                      initialSize = values.uint64()
-                      truncate = initialSize === 0n
-                    } else if (attribute === 33) mode = values.uint32()
-                  }
+                  const supportedAttrs = requested.every((attribute) => attribute === 4 || attribute === 33)
 
                   return requireDirectory(directory, Status.SYMLINK).pipe(
                     Effect.andThen(Effect.suspend(() => {
@@ -3753,6 +3738,24 @@ export const makeNfs4Handler = (
                         }
                       }
 
+                      if (prior === undefined && !supportedAttrs) return yield* Effect.fail(Status.ATTRNOTSUPP)
+
+                      const values = new Reader(attrs.values, options.limits)
+                      let mode: number | undefined
+                      let truncate = false
+                      let initialSize: bigint | undefined
+
+                      // Existing UNCHECKED4 ignores createattrs except size zero. Unsupported
+                      // attributes have no known XDR width, so only decode size when it comes first.
+                      for (const attribute of requested) {
+                        if (!supportedAttrs && attribute !== 4) break
+
+                        if (attribute === 4) {
+                          initialSize = values.uint64()
+                          truncate = initialSize === 0n
+                        } else if (attribute === 33) mode = values.uint32()
+                      }
+
                       const existing = prior === undefined ?
                         undefined :
                         [...opens.values()].find((open) =>
@@ -3775,7 +3778,10 @@ export const makeNfs4Handler = (
                         followFinalSymlink: false
                       } satisfies Vfs.OpenChildReferenceSettings
 
-                      const modeSettings = mode === undefined ? baseSettings : { ...baseSettings, mode }
+                      const modeSettings = mode === undefined || prior !== undefined
+                        ? baseSettings
+                        : { ...baseSettings, mode, exactMode: true }
+
                       const sizeSettings = initialSize === undefined ? modeSettings : { ...modeSettings, initialSize }
                       const settings = truncate ? { ...sizeSettings, truncate: true } : sizeSettings
 

@@ -2,6 +2,8 @@
 
 ## 2026-09-20
 
+- **OPEN creation review fixes**: Confirmed and fixed existing-name attribute precedence, registered filehandle reuse at capacity, exact NFS mode application, and initial-size watch event order. Added wire and watch regression tests; the public export and exclusive modes remain unchanged.
+
 - **Staged NFS OPEN creation**: Added internal ordinary and guarded regular-file creation through the core's atomic child-open operation. Core now accepts an initial size and an expected-child guard in the same candidate. Wire tests cover replay, stateids, authority, share and capacity rejection, replacement races, storage outcomes, and read-only precedence. Exclusive verifier modes remain a separate part of #125; the public export stays read-only.
 
 - **Writable owner-string translation**: Chose canonical unsigned 32-bit decimal uid/gid strings for writable `SETATTR`, matching `GETATTR`; unsupported names return `BADOWNER`. The mapped core caller decides ownership authority; SETATTR maps ownership denial to PERM. Implementation and round-trip tests belong to #126. No domain or name mapper is added to the first writable profile.

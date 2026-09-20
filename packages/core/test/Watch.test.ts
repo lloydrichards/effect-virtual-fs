@@ -6,6 +6,35 @@ import { setRegistrationHook } from "../src/internal/virtualFileSystem/testHooks
 import { it } from "./TestEffect.js"
 
 describe("volume watch", () => {
+  it.effect("publishes one Create event for a child with initial size", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      const stream = yield* volume.watch
+
+      const watcher = yield* Stream.runCollect(Stream.take(stream, 2)).pipe(
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      const opened = yield* caller.openChildReference(
+        yield* caller.rootReference,
+        new TextEncoder().encode("sized"),
+        { access: "read", create: "exclusive", initialSize: 3n }
+      )
+
+      yield* opened.handle.close
+      yield* caller.mkdir("/sentinel")
+
+      const events = yield* Fiber.join(watcher)
+      const changes: Array<string> = []
+
+      for (const event of events) {
+        changes.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+      }
+
+      assert.deepStrictEqual(changes, ["Create /sized", "Create /sentinel"])
+    }))
+
   it.effect("does not lose a change while a watcher is registering", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()

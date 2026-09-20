@@ -158,6 +158,80 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       assert.deepInclude(yield* caller.stat("/old"), { mode: 0o600, size: 0n })
     }))
 
+  it.effect("ignores unsupported create attributes on existing names", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      yield* caller.writeFile("/old", new Uint8Array([1]), { access: "write", create: "exclusive" })
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }, generation, volume),
+        { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits, writable: true }
+      )
+
+      const { client, session } = yield* startSession(handler, "ignored-attrs")
+
+      parseOpen(
+        yield* handler.compound(call([
+          sequence(session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          create(client, "old", 0, 1, "owner", [[35, 1]]),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
+      assert.strictEqual(
+        statusOf(
+          yield* handler.compound(call([
+            sequence(session, 2),
+            (writer) => writer.uint32(Operation.PUTROOTFH),
+            create(client, "old", 1, 1, "owner", [[35, 1]])
+          ]))
+        ),
+        Status.EXIST
+      )
+      parseOpen(
+        yield* handler.compound(call([
+          sequence(session, 3),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          create(client, "old", 0, 1, "owner", [[33, 0o10000]]),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
+      assert.deepStrictEqual(yield* caller.readFile("/old"), new Uint8Array([1]))
+    }))
+
+  it.effect("applies an explicit mode exactly and rejects undefined mode bits", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }, generation, volume),
+        { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits, writable: true }
+      )
+
+      const { client, session } = yield* startSession(handler, "mode")
+
+      parseOpen(
+        yield* handler.compound(call([
+          sequence(session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          create(client, "exact", 0, 3, "owner", [[4, 0n], [33, 0o1666]]),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
+      assert.deepInclude(yield* caller.stat("/exact"), { mode: 0o1666 })
+
+      const invalid = yield* handler.compound(call([
+        sequence(session, 2),
+        (writer) => writer.uint32(Operation.PUTROOTFH),
+        create(client, "invalid", 0, 3, "owner", [[33, 0o10000]])
+      ]))
+
+      assert.strictEqual(statusOf(invalid), Status.INVAL)
+      assert.isTrue(Result.isFailure(yield* Effect.result(caller.stat("/invalid"))))
+    }))
+
   it.effect("sets a new file's requested size inside creation", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
@@ -372,6 +446,46 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       assert.strictEqual(statusOf(reply), Status.DELAY)
       assert.strictEqual(Result.isFailure(yield* Effect.result(caller.stat("/no-room"))), true)
+    }))
+
+  it.effect("reuses a registered filehandle when the registry is full", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      yield* caller.writeFile("/old", new Uint8Array([1]), { access: "write", create: "exclusive" })
+
+      const export_ = makeExport(
+        caller,
+        generation,
+        { maxFilehandles: 2, maxNameBytes: ByteSize.bytes(255) },
+        generation,
+        volume
+      )
+
+      yield* export_.handleFor(yield* caller.rootReference)
+      const old = yield* caller.lookupReference(yield* caller.rootReference, new TextEncoder().encode("old"))
+
+      yield* export_.handleFor(old)
+
+      const handler = yield* makeNfs4Handler(export_, {
+        leaseDurationSeconds: 30,
+        callbackTimeout: "1 second",
+        generation,
+        now: () => 0,
+        limits,
+        writable: true
+      })
+
+      const { client, session } = yield* startSession(handler, "reused-handle")
+
+      parseOpen(
+        yield* handler.compound(call([
+          sequence(session, 1),
+          (writer) => writer.uint32(Operation.PUTROOTFH),
+          create(client, "old"),
+          (writer) => writer.uint32(Operation.GETFH)
+        ]))
+      )
     }))
 
   it.effect("does not publish a file when its requested size exceeds the core limit", () =>
