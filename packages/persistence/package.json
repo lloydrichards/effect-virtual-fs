@@ -28,7 +28,7 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["dist/**", "README.md", "LICENSE"],
+  "files": ["dist/**", "README.md", "POWER_LOSS_TESTING.md", "LICENSE"],
   "publishConfig": {
     "access": "public"
   },

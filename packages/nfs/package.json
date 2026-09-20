@@ -1,9 +1,14 @@
 {
   "name": "@effect-vfs/nfs",
   "version": "0.1.0",
-  "private": true,
-  "description": "Experimental read-only NFSv4.1 server for one live Effect VFS volume.",
+  "description": "Read-only NFSv4.1 server for one live Effect VFS volume.",
   "homepage": "https://github.com/lloydrichards/effect-virtual-fs#readme",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lloydrichards/effect-virtual-fs.git",
+    "directory": "packages/nfs"
+  },
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -23,7 +28,10 @@
     "./*/index": null,
     "./package.json": "./package.json"
   },
-  "files": ["dist/**", "README.md"],
+  "files": ["dist/**", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",

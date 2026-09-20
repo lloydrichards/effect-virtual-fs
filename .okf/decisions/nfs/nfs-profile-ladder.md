@@ -23,7 +23,7 @@ sources:
   - id: pynfs
     resource: https://github.com/kofemann/pynfs
     title: pynfs NFSv4.1 server tester
-generated: { by: codex/okf, at: 2026-09-19T15:00:31Z }
+generated: { by: codex/okf, at: 2026-09-20T12:00:00Z }
 ---
 
 # NFS profile ladder
@@ -57,7 +57,7 @@ RFC 8881 defines no read-only server profile; its read-only allowance in Section
 
 ## Publication
 
-`read-only-local` is a publishable target. The package leaves `private` and publishes once the `experimental` evidence exists, and it joins the fixed Changesets group with core, memory, and persistence, so its first version follows that group.[^nfs-package][^changesets] Maturity graduates in place without renaming the package or its exports.
+`read-only-local` is a publishable target. The package manifest now permits public publication, and NFS joins the fixed Changesets group with core, memory, and persistence. The first registry release still depends on applying the release changeset and checking the packed artifact.[^nfs-package][^changesets] Maturity graduates in place without renaming the package or its exports. Public NFS mutations remain disabled.
 
 ## Evidence ladder
 
@@ -71,7 +71,7 @@ Claims stay no broader than their evidence, following the [evidence and validati
 
 [^rfc8881]: Sections 2.2.1.1.1 and 17 state the server MUSTs still unmet. Sections 2.10.3 and 2.10.5, backchannels and trunking, were met by #44.
 
-[^nfs-package]: The manifest currently declares the package private at version 0.0.0.
+[^nfs-package]: The manifest is publishable at the current source version, 0.1.0; publication itself is a separate release action.
 
 [^changesets]: The fixed group defines which packages share a version.
 
