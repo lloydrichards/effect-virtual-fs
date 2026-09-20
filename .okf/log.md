@@ -2,6 +2,8 @@
 
 ## 2026-09-20
 
+- **SQLite creation directory sync**: Added an application-supplied startup directory-sync operation after the SQLite path check and before schema creation. Startup fails if it reports an error. Tests cover first creation, existing databases, and reopen after a SQLite creator is killed before directory sync. The callback and storage stack still require configuration-specific qualification; durability stays `memory-only`.
+
 - **SQLite temporary-space policy**: Restricted the live-image commit connection to one database, disabled cache spilling, kept eligible temporary files in memory, and truncated retained journals. Documented a database-plus-journal provisioning formula and recorded a disposable 4 MiB tmpfs shortage test. Physical-space reservation and power-loss qualification remain configuration dependent; durability stays `memory-only`.
 
 - **SQLite successful-sync write faults**: Extended the test VFS to omit or reorder selected writes while reporting success. A twelve-case Linux matrix found three acknowledged lost-write cases that failed recovery and integrity checking. The other acknowledged cases and six unacknowledged transaction and commit cases recovered complete images. This records the storage-assumption limit; `Volume.durability` remains `memory-only`.

@@ -32,6 +32,9 @@ sources:
   - id: sqlite-live-store
     resource: ../../packages/persistence/src/SqliteLiveImageStore.ts
     title: Effect SQL live image store provider
+  - id: sqlite-live-test
+    resource: ../../packages/persistence/test/SqliteLiveImageStore.test.ts
+    title: SQLite startup directory-sync tests
   - id: sqlite-write-order
     resource: ../../packages/persistence/scripts/linux-write-order-gate.sh
     title: SQLite successful-sync write-loss and reorder fault gate
@@ -65,7 +68,7 @@ sources:
   - id: issue-50
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
     title: Restart recovery
-generated: { by: codex/okf, at: 2026-09-20T08:20:00Z }
+generated: { by: codex/okf, at: 2026-09-20T10:44:00Z }
 ---
 
 # Live durable volume proposal
@@ -209,7 +212,7 @@ Set a finite SQLite busy timeout and bounded retry count before commit. These do
 ## Implementation slices and proof
 
 1. Core now stages state through the `LiveImageStore` boundary and classifies committed, rejected, and unknown outcomes. Its tests cover candidate publication and failures. Full-image throughput at candidate volume limits still needs measurement.
-2. The SQLite provider Layer now owns exclusive access, atomic image replacement, finite image and database limits, and process recovery. [#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129) owns database-creation directory synchronization, driver and crash qualification before any stronger durability claim. NFS remains read-only.
+2. The SQLite provider Layer now owns exclusive access, atomic image replacement, finite image and database limits, and process recovery. Its optional `syncDatabaseDirectory` callback runs after the supplied client opens the verified database path and before schema creation or store exposure. A reported sync failure rejects startup; the provider cannot verify that an application callback actually syncs. Focused tests cover first creation, existing database, sync failure, and reopen after a SQLite creator is killed before directory sync.[^sqlite-live-store][^sqlite-live-test] [#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129) still owns driver, filesystem, and storage-flush qualification before any stronger durability claim. NFS remains read-only.
 3. Resolve the separate watch-overflow contract and qualify the stated crash boundary on Linux and macOS. Document the filesystem, SQLite build, driver, sync settings, and storage assumptions. Only a storage configuration qualified for that crash boundary advertises `survives-power-loss`; bounded watches are a separate writable-milestone requirement.
 4. After #47, implement NFS admission and replay changes, then #48 dispatch and #49 `WRITE` and `COMMIT`. #50 remains separate. No protocol implementation is part of this proposal.
 

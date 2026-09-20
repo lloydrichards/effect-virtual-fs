@@ -50,9 +50,18 @@ The bounded Linux gate records each successful rollback-journal write extent thr
 disposable 4 MiB `tmpfs`, it commits and reopens with free space within 8,192 bytes of the calculated provision,
 then fills the filesystem to 4,096 free bytes and checks rejection, whole-image recovery, and
 `PRAGMA integrity_check`. The largest write extent observed in this finite test is not a general peak-size
-guarantee. Database creation and hot-journal recovery use the same directory; their directory synchronization
-and storage-flush assumptions
-still require qualification for a specified configuration.
+guarantee. Database creation and hot-journal recovery use the same directory.
+Set `syncDatabaseDirectory` to an operation that opens and syncs the verified
+containing directory on the target driver and operating system. The provider
+calls it after the supplied `SqlClient` opens the database and after it verifies
+`PRAGMA database_list` against `filename`, but before it creates the schema or
+returns the store. The call runs on every startup, including an existing database.
+A failed or unknown sync result fails startup with `Storage`; no live store is
+exposed. On Linux with a local filesystem, an application can open the directory
+and call `fsync` on its file descriptor. The application must test that operation
+on its chosen driver, OS, and filesystem. Without it, startup remains experimental
+for crash durability. Storage flush behavior and the rest of #129 still require
+qualification even when directory sync succeeds.
 
 This provider has process-restart coverage. Tests kill the writer after an acknowledged commit and after an
 unacknowledged image update but before `COMMIT`, then reopen the database. Injected lost commit and rollback
@@ -62,8 +71,10 @@ qualified for physical power loss or arbitrary storage stacks. `Volume.durabilit
 `memory-only`. This provider must not yet be used to promise NFS `FILE_SYNC4`. The database page limit does
 not cap temporary rollback-journal space by itself; apply the temporary-space policy above for a complete-image
 transaction. Database creation also happens inside the supplied SQL Layer, before this provider can inspect the
-path; the provider does not establish that the containing directory was synchronized after creation. Use this
-provider for bounded local experiments until the remaining storage assumptions and crash tests are completed.
+path. The optional `syncDatabaseDirectory` operation establishes the creation-entry
+sync only when the application supplies and validates a working implementation.
+Use this provider for bounded local experiments until the remaining storage
+assumptions and crash tests are completed.
 Crash and power-loss qualification is tracked in
 [#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129).
 
