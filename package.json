@@ -25,6 +25,7 @@
     "release": "bun run build && changeset publish",
     "test": "turbo run test",
     "type-check": "turbo run type-check",
+    "validate": "bun run format:check && bun run build && bun scripts/check-generated-api.mjs && bun run lint && bun run lint:effects && bun run type-check && bun run test",
     "lint:effects": "bash scripts/lint-effects.sh",
     "version-packages": "changeset version"
   },
