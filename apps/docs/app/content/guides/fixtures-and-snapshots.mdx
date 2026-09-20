@@ -11,26 +11,27 @@ explicitly, even when their children appear first in the `entries` array.
 Install the core package and its exact Effect peer:
 
 ```sh
-npm install @effect-vfs/core effect@4.0.0-rc.114
+npm install @effect-vfs/core effect@4.0.0-rc.114 @effect/platform-bun@4.0.0-rc.114
 ```
 
 The following program creates a small project, captures it, transports the snapshot as bytes, and restores independent
 writable state:
 
 ```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core";
-import { Effect } from "effect";
-import * as ByteSize from "effect/ByteSize";
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { Effect } from "effect"
+import * as ByteSize from "effect/ByteSize"
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
 
 const decodeLimits: Vfs.DecodeLimits = {
   maxEncodedBytes: ByteSize.kibibytes(64),
   maxRecords: 20,
   maxEntries: 20,
-  maxDecodedBytes: ByteSize.kibibytes(32),
-};
+  maxDecodedBytes: ByteSize.kibibytes(32)
+}
 
 const program = Effect.gen(function* () {
   const source = yield* Vfs.fromFixture({
@@ -39,26 +40,28 @@ const program = Effect.gen(function* () {
       {
         kind: "file",
         path: "/project/config.json",
-        bytes: encoder.encode('{"mode":"development"}'),
-      },
-    ],
-  });
+        bytes: encoder.encode('{"mode":"development"}')
+      }
+    ]
+  })
 
-  const base = yield* source.snapshot;
-  const encoded = yield* Vfs.encodeSnapshot(base);
+  const base = yield* source.snapshot
+  const encoded = yield* Vfs.encodeSnapshot(base)
 
   // Treat transported or stored bytes as untrusted input.
-  const decoded = yield* Vfs.decodeSnapshot(encoded, decodeLimits);
-  const restored = yield* Vfs.fromSnapshot(decoded);
-  const restoredFs = yield* restored.caller();
+  const decoded = yield* Vfs.decodeSnapshot(encoded, decodeLimits)
+  const restored = yield* Vfs.fromSnapshot(decoded)
+  const restoredFs = yield* restored.caller()
 
   return {
     encodedBytes: encoded.byteLength,
-    config: decoder.decode(yield* restoredFs.readFile("/project/config.json")),
-  };
-});
+    config: decoder.decode(yield* restoredFs.readFile("/project/config.json"))
+  }
+})
 
-console.log(await Effect.runPromise(program));
+console.log(
+  await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer)))
+)
 ```
 
 The restored config contains `{"mode":"development"}`. Writing to the restored volume does not change the source
@@ -107,38 +110,50 @@ npm install @effect/platform-bun@4.0.0-rc.114
 The following program creates two snapshots and reconstructs the second from their delta:
 
 ```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core";
-import * as BunCrypto from "@effect/platform-bun/BunCrypto";
-import { Effect } from "effect";
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { Effect } from "effect"
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
 
 const program = Effect.gen(function* () {
   const baseVolume = yield* Vfs.fromFixture({
-    entries: [{ kind: "file", path: "/config.json", bytes: encoder.encode('{"mode":"development"}') }],
-  });
-  const targetVolume = yield* Vfs.fromSnapshot(yield* baseVolume.snapshot);
-  const targetFs = yield* targetVolume.caller();
-  yield* targetFs.writeFile("/config.json", encoder.encode('{"mode":"preview"}'), {
-    access: "write",
-    truncate: true,
-  });
+    entries: [
+      {
+        kind: "file",
+        path: "/config.json",
+        bytes: encoder.encode('{"mode":"development"}')
+      }
+    ]
+  })
+  const targetVolume = yield* Vfs.fromSnapshot(yield* baseVolume.snapshot)
+  const targetFs = yield* targetVolume.caller()
+  yield* targetFs.writeFile(
+    "/config.json",
+    encoder.encode('{"mode":"preview"}'),
+    {
+      access: "write",
+      truncate: true
+    }
+  )
 
-  const base = yield* baseVolume.snapshot;
-  const target = yield* targetVolume.snapshot;
-  const delta = yield* Vfs.diffSnapshots(base, target);
-  const changes = yield* Vfs.inspectSnapshotDelta(base, delta);
-  const reconstructed = yield* Vfs.applySnapshotDelta(base, delta);
-  const restoredFs = yield* (yield* Vfs.fromSnapshot(reconstructed)).caller();
+  const base = yield* baseVolume.snapshot
+  const target = yield* targetVolume.snapshot
+  const delta = yield* Vfs.diffSnapshots(base, target)
+  const changes = yield* Vfs.inspectSnapshotDelta(base, delta)
+  const reconstructed = yield* Vfs.applySnapshotDelta(base, delta)
+  const restoredFs = yield* (yield* Vfs.fromSnapshot(reconstructed)).caller()
 
   return {
     changedKinds: changes.map((change) => change._tag),
-    config: decoder.decode(yield* restoredFs.readFile("/config.json")),
-  };
-});
+    config: decoder.decode(yield* restoredFs.readFile("/config.json"))
+  }
+})
 
-console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))));
+console.log(
+  await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer)))
+)
 ```
 
 The reconstructed config contains `{"mode":"preview"}`, and `changedKinds` contains `Updated`.

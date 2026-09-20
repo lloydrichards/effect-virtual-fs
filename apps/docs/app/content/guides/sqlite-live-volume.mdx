@@ -1,0 +1,34 @@
+# Back a live volume with SQLite
+
+Use `SqliteLiveImageStore` with `LiveVolume.open` to commit a complete volume image for each mutation. This is separate from named, create-only [SQLite checkpoints](/guides/sqlite-checkpoints).
+
+## Supply a dedicated database
+
+Create a dedicated SQLite `SqlClient` for one absolute local database path. Supply the same path to `SqliteLiveImageStore.layer`, along with explicit image and database byte limits. The application also provides Effect's `FileSystem`, `Path`, and `Crypto` services. The store reserves one SQL connection and holds an exclusive SQLite lock for its scope.
+
+```ts
+import * as SqliteLiveImageStore from "@effect-vfs/persistence/SqliteLiveImageStore"
+import { ByteSize } from "effect"
+
+const liveStore = SqliteLiveImageStore.layer({
+  filename: "/var/lib/my-app/live.sqlite",
+  maxImageBytes: ByteSize.megabytes(4),
+  maxDatabaseBytes: ByteSize.megabytes(16)
+})
+```
+
+Provide your SQLite and platform layers to `liveStore`, then provide the resulting layer to `LiveVolume.open(options)` inside an Effect scope. Reopening the same database restores the logical volume identity and creates a new runtime incarnation. A second open through the same store layer fails with `Ownership`.
+
+## Handle rejected and uncertain commits
+
+The store distinguishes a confirmed rejection from an unknown commit outcome. A confirmed rejection leaves the live volume unchanged. After an unknown outcome, the volume stops serving operations. Close and reopen it before continuing; do not retry writes against the frozen instance.
+
+Provision disk space for both the database and its adjacent DELETE-mode rollback journal. `maxDatabaseBytes` does not cap peak journal space. For database cap `D`, page size `P`, and journal header sector size `S`, reserve at least `D + S + floor(D / P) * (P + 8)` bytes, plus filesystem allocation and directory overhead. This bound assumes the SQLite VFS honors the page cap, reports a finite sector size, and runs without `ATTACH`, `VACUUM`, external writers, or other SQL that creates disk temporary files. Check those assumptions on the target driver and filesystem. The application must reserve this space on a dedicated filesystem or quota if admission depends on the bound.
+
+## Durability qualification
+
+The store has process-restart and recorded VM hard-stop evidence, but not physical power-loss qualification or a guarantee across storage stacks. `Volume.durability` remains `memory-only`, and the store must not be used to promise NFS `FILE_SYNC4`.
+
+For crash-durability experiments, supply `syncDatabaseDirectory` and verify that it syncs the database's containing directory on the target driver, OS, and filesystem. The store calls it during every startup after verifying the database path and before exposing the store. A working callback alone does not qualify crash or power-loss durability. Validate the SQLite flush behavior, temporary-space assumptions, and recovery gates for the intended deployment. Until then, use this provider for bounded local experiments.
+
+See the [`SqliteLiveImageStore` API reference](/api/persistence/sqlite-live-image-store) and [`LiveVolume` API reference](/api/core/live-volume) for exact options and errors.

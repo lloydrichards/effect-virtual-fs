@@ -1,0 +1,85 @@
+# Export a volume over local NFS
+
+Use `@effect-vfs/nfs` to let a native NFSv4.1 client read one live VFS volume. This guide starts a loopback-only server, mounts it, and reads a file. The local read-only profile is a preview, not a production or conformant NFS server.
+
+## Install the packages
+
+Use Bun to run the server. You also need a native NFSv4.1 client: `mount_nfs` on macOS or `nfs-common` on Linux. Mounting requires `sudo`, and TCP port 2049 must be available on loopback.
+
+```sh
+bun add @effect-vfs/core @effect-vfs/nfs @effect/platform-bun@4.0.0-rc.114 effect@4.0.0-rc.114
+```
+
+## Create and serve a volume
+
+Save this as `server.ts`. The fixture creates `/hello.txt`, and the caller supplies the authority used for every NFS read. `NfsServer.make` starts the socket server. `Effect.never` keeps its scope, volume, and caller alive until you stop the process.
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { NfsServer } from "@effect-vfs/nfs"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import * as BunRuntime from "@effect/platform-bun/BunRuntime"
+import * as BunSocketServer from "@effect/platform-bun/BunSocketServer"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+
+const program = Effect.scoped(
+  Effect.gen(function*() {
+    const volume = yield* Vfs.fromFixture({
+      entries: [
+        { kind: "file", path: "/hello.txt", bytes: new TextEncoder().encode("hello from Effect VFS\n") }
+      ]
+    })
+    const caller = yield* volume.caller()
+    const server = yield* NfsServer.make({ volume, caller })
+
+    const address = server.address
+    yield* Effect.log("path" in address ? `NFS listening at ${address.path}` :
+      `NFS listening at ${address.host}:${address.port}`)
+    return yield* Effect.never
+  })
+).pipe(
+  Effect.provide(Layer.merge(
+    BunCrypto.layer,
+    BunSocketServer.layer({ host: "127.0.0.1", port: 2049 })
+  ))
+)
+
+BunRuntime.runMain(program)
+```
+
+Start the server in one terminal:
+
+```sh
+bun run server.ts
+```
+
+Wait for `NFS listening at 127.0.0.1:2049`. The program does not mount the export. Keep it running while a second terminal mounts and reads the file.
+
+## Mount and read the export
+
+On macOS:
+
+```sh
+sudo mkdir -p /Volumes/effect-vfs
+sudo mount_nfs -o vers=4.1,tcp,sec=sys,port=2049,noowners 127.0.0.1:/ /Volumes/effect-vfs
+cat /Volumes/effect-vfs/hello.txt
+```
+
+On Linux:
+
+```sh
+sudo mkdir -p /mnt/effect-vfs
+sudo mount -t nfs -o nfsvers=4.1,tcp,sec=sys,port=2049 127.0.0.1:/ /mnt/effect-vfs
+cat /mnt/effect-vfs/hello.txt
+```
+
+The `cat` command prints `hello from Effect VFS`. Mount with NFSv4.1 explicitly; this server does not support NFSv4.0 or NFSv4.2. The example listens only on `127.0.0.1` and uses the supplied caller for every read. Client `AUTH_SYS` fields do not grant VFS authority.
+
+Unmount before stopping the server. Use `sudo umount /Volumes/effect-vfs` on macOS or `sudo umount /mnt/effect-vfs` on Linux, then press `Ctrl-C` in the server terminal. A restart creates new sessions and filehandles, so mount again after restarting.
+
+## Extend the example
+
+Application code can change the same volume through its VFS caller while NFS clients read it. The server rejects mutating NFS operations with `NFS4ERR_ROFS`. It tracks advisory read locks between NFS clients, but direct VFS callers do not participate in those locks.
+
+For a fixture that updates a file every two seconds, see the [NFS preview app](https://github.com/lloydrichards/effect-virtual-fs/tree/main/apps/nfs-preview). The [`NfsServer` API reference](/api/nfs/nfs-server) lists options and limits. The networked profile needs an application identity policy, peer resolver, and explicit non-loopback opt-in; it remains `experimental`. Neither profile provides RPCSEC_GSS or full NFSv4.1 conformance.

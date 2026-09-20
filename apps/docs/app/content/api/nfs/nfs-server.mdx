@@ -1,0 +1,831 @@
+# NfsServer overview
+
+Models and constructors for the experimental read-only NFSv4.1 server.
+
+The server exports one live `@effect-vfs/core` volume over NFSv4.1 so that
+ordinary NFS clients can mount a virtual filesystem. It implements the
+supported read-only operations, returns `NFS4ERR_ROFS` for filesystem
+mutations, and rejects other unsupported operations.
+
+Added in v0.1.0
+
+---
+
+## errors
+
+### ConfigurationError (class)
+
+Raised when a server option fails validation before the server starts.
+
+The `option` field names the rejected configuration key.
+
+**Signature**
+
+```ts
+export declare class ConfigurationError
+```
+
+Added in v0.1.0
+
+### NfsServerError (class)
+
+Raised when the NFS server cannot start or cannot continue listening.
+
+**Signature**
+
+```ts
+export declare class NfsServerError
+```
+
+Added in v0.1.0
+
+## models
+
+### LoopbackHost (type alias)
+
+A literal IPv4 or IPv6 loopback address.
+
+**Signature**
+
+```ts
+export type LoopbackHost = "127.0.0.1" | "::1"
+```
+
+Added in v0.1.0
+
+### NfsServerAddress (type alias)
+
+The bound server address.
+
+**Signature**
+
+```ts
+export type NfsServerAddress =
+  { readonly host: string; readonly port: number } | { readonly path: string }
+```
+
+Added in v0.1.0
+
+### NfsServerConfig (type alias)
+
+Complete server configuration.
+
+**Signature**
+
+```ts
+export type NfsServerConfig = {
+  readonly leaseDurationSeconds: number
+  readonly callbackTimeoutSeconds: number
+  readonly limits: {
+    readonly maxConnections: number
+    readonly maxFragmentBytes: ByteSize.ByteSize
+    readonly maxRecordBytes: ByteSize.ByteSize
+    readonly maxFragmentsPerRecord: number
+    readonly maxOpaqueBytes: ByteSize.ByteSize
+    readonly maxStringBytes: ByteSize.ByteSize
+    readonly maxArrayElements: number
+    readonly maxAuthBytes: ByteSize.ByteSize
+    readonly maxMachineNameBytes: ByteSize.ByteSize
+    readonly maxSupplementaryGroups: number
+    readonly maxCompoundBytes: ByteSize.ByteSize
+    readonly maxOperations: number
+    readonly maxBitmapWords: number
+    readonly maxClients: number
+    readonly maxIdentities: number
+    readonly maxPendingClientReplacements: number
+    readonly maxSessions: number
+    readonly maxSlotsPerSession: number
+    readonly maxReplayBytes: ByteSize.ByteSize
+    readonly maxOpens: number
+    readonly maxLockOwners: number
+    readonly maxLocks: number
+    readonly maxOwnerBytes: ByteSize.ByteSize
+    readonly maxReadBytes: ByteSize.ByteSize
+    readonly maxWriteBytes: ByteSize.ByteSize
+    readonly maxReaddirEntries: number
+    readonly maxReaddirReplyBytes: ByteSize.ByteSize
+    readonly maxNameBytes: ByteSize.ByteSize
+    readonly maxFilehandles: number
+  }
+}
+```
+
+Added in v0.1.0
+
+### NfsServerConfigOverrides (type alias)
+
+Optional configuration accepted when constructing an NFS server.
+
+**Signature**
+
+```ts
+export type NfsServerConfigOverrides = {
+  readonly leaseDurationSeconds?: number
+  readonly callbackTimeoutSeconds?: number
+  readonly limits?: {
+    readonly maxConnections?: number
+    readonly maxFragmentBytes?: ByteSize.ByteSize
+    readonly maxRecordBytes?: ByteSize.ByteSize
+    readonly maxFragmentsPerRecord?: number
+    readonly maxOpaqueBytes?: ByteSize.ByteSize
+    readonly maxStringBytes?: ByteSize.ByteSize
+    readonly maxArrayElements?: number
+    readonly maxAuthBytes?: ByteSize.ByteSize
+    readonly maxMachineNameBytes?: ByteSize.ByteSize
+    readonly maxSupplementaryGroups?: number
+    readonly maxCompoundBytes?: ByteSize.ByteSize
+    readonly maxOperations?: number
+    readonly maxBitmapWords?: number
+    readonly maxClients?: number
+    readonly maxIdentities?: number
+    readonly maxPendingClientReplacements?: number
+    readonly maxSessions?: number
+    readonly maxSlotsPerSession?: number
+    readonly maxReplayBytes?: ByteSize.ByteSize
+    readonly maxOpens?: number
+    readonly maxLockOwners?: number
+    readonly maxLocks?: number
+    readonly maxOwnerBytes?: ByteSize.ByteSize
+    readonly maxReadBytes?: ByteSize.ByteSize
+    readonly maxWriteBytes?: ByteSize.ByteSize
+    readonly maxReaddirEntries?: number
+    readonly maxReaddirReplyBytes?: ByteSize.ByteSize
+    readonly maxNameBytes?: ByteSize.ByteSize
+    readonly maxFilehandles?: number
+  }
+}
+```
+
+Added in v0.1.0
+
+### NfsServerLimitOverrides (type alias)
+
+A selective override of the default NFS server resource policy.
+
+**Signature**
+
+```ts
+export type NfsServerLimitOverrides = {
+  readonly maxConnections?: number
+  readonly maxFragmentBytes?: ByteSize.ByteSize
+  readonly maxRecordBytes?: ByteSize.ByteSize
+  readonly maxFragmentsPerRecord?: number
+  readonly maxOpaqueBytes?: ByteSize.ByteSize
+  readonly maxStringBytes?: ByteSize.ByteSize
+  readonly maxArrayElements?: number
+  readonly maxAuthBytes?: ByteSize.ByteSize
+  readonly maxMachineNameBytes?: ByteSize.ByteSize
+  readonly maxSupplementaryGroups?: number
+  readonly maxCompoundBytes?: ByteSize.ByteSize
+  readonly maxOperations?: number
+  readonly maxBitmapWords?: number
+  readonly maxClients?: number
+  readonly maxIdentities?: number
+  readonly maxPendingClientReplacements?: number
+  readonly maxSessions?: number
+  readonly maxSlotsPerSession?: number
+  readonly maxReplayBytes?: ByteSize.ByteSize
+  readonly maxOpens?: number
+  readonly maxLockOwners?: number
+  readonly maxLocks?: number
+  readonly maxOwnerBytes?: ByteSize.ByteSize
+  readonly maxReadBytes?: ByteSize.ByteSize
+  readonly maxWriteBytes?: ByteSize.ByteSize
+  readonly maxReaddirEntries?: number
+  readonly maxReaddirReplyBytes?: ByteSize.ByteSize
+  readonly maxNameBytes?: ByteSize.ByteSize
+  readonly maxFilehandles?: number
+}
+```
+
+Added in v0.1.0
+
+### NfsServerLimits (type alias)
+
+Every resource bound enforced by the preview server.
+
+**Signature**
+
+```ts
+export type NfsServerLimits = {
+  readonly maxConnections: number
+  readonly maxFragmentBytes: ByteSize.ByteSize
+  readonly maxRecordBytes: ByteSize.ByteSize
+  readonly maxFragmentsPerRecord: number
+  readonly maxOpaqueBytes: ByteSize.ByteSize
+  readonly maxStringBytes: ByteSize.ByteSize
+  readonly maxArrayElements: number
+  readonly maxAuthBytes: ByteSize.ByteSize
+  readonly maxMachineNameBytes: ByteSize.ByteSize
+  readonly maxSupplementaryGroups: number
+  readonly maxCompoundBytes: ByteSize.ByteSize
+  readonly maxOperations: number
+  readonly maxBitmapWords: number
+  readonly maxClients: number
+  readonly maxIdentities: number
+  readonly maxPendingClientReplacements: number
+  readonly maxSessions: number
+  readonly maxSlotsPerSession: number
+  readonly maxReplayBytes: ByteSize.ByteSize
+  readonly maxOpens: number
+  readonly maxLockOwners: number
+  readonly maxLocks: number
+  readonly maxOwnerBytes: ByteSize.ByteSize
+  readonly maxReadBytes: ByteSize.ByteSize
+  readonly maxWriteBytes: ByteSize.ByteSize
+  readonly maxReaddirEntries: number
+  readonly maxReaddirReplyBytes: ByteSize.ByteSize
+  readonly maxNameBytes: ByteSize.ByteSize
+  readonly maxFilehandles: number
+}
+```
+
+Added in v0.1.0
+
+### NfsServerLocalOptions (type alias)
+
+Validated configuration paired with the live volume and caller capabilities.
+
+**Signature**
+
+```ts
+export type NfsServerLocalOptions = NfsServerConfigOverrides & {
+  readonly volume: Vfs.Volume
+  readonly caller: Vfs.Caller
+  readonly policy?: never
+  readonly peer?: never
+  readonly allowNonLoopback?: never
+  readonly acceptedFlavors?: never
+}
+```
+
+Added in v0.1.0
+
+### NfsServerNetworkTcpAddress (type alias)
+
+A TCP address that may be reachable beyond the local host.
+
+**Signature**
+
+```ts
+export type NfsServerNetworkTcpAddress = { readonly host: string; readonly port: number }
+```
+
+Added in v0.1.0
+
+### NfsServerTcpAddress (type alias)
+
+A bound loopback TCP address.
+
+**Signature**
+
+```ts
+export type NfsServerTcpAddress = { readonly host: "127.0.0.1" | "::1"; readonly port: number }
+```
+
+Added in v0.1.0
+
+### NfsServerUnixAddress (type alias)
+
+A bound UNIX-domain socket path.
+
+**Signature**
+
+```ts
+export type NfsServerUnixAddress = { readonly path: string }
+```
+
+Added in v0.1.0
+
+### Port (type alias)
+
+A TCP port, including `0` for an ephemeral port.
+
+**Signature**
+
+```ts
+export type Port = number
+```
+
+Added in v0.1.0
+
+## schemas
+
+### LoopbackHost
+
+Schema for a literal IPv4 or IPv6 loopback address.
+
+**Signature**
+
+```ts
+export declare const LoopbackHost: Schema.Literals<readonly ["127.0.0.1", "::1"]>
+```
+
+Added in v0.1.0
+
+### NfsServerAddress
+
+Schema for the bound server address: TCP or a UNIX-domain socket path.
+
+**Signature**
+
+```ts
+export declare const NfsServerAddress: Schema.Union<
+  readonly [
+    Schema.Struct<{ readonly host: Schema.NonEmptyString; readonly port: Schema.Finite }>,
+    Schema.Struct<{ readonly path: Schema.NonEmptyString }>
+  ]
+>
+```
+
+Added in v0.1.0
+
+### NfsServerConfig
+
+Complete server configuration schema with a frozen default policy.
+
+**Signature**
+
+```ts
+export declare const NfsServerConfig: Schema.Struct<{
+  readonly leaseDurationSeconds: Schema.Finite
+  readonly callbackTimeoutSeconds: Schema.Finite
+  readonly limits: Schema.Struct<{
+    readonly maxConnections: Schema.Finite
+    readonly maxFragmentBytes: Schema.ByteSize
+    readonly maxRecordBytes: Schema.ByteSize
+    readonly maxFragmentsPerRecord: Schema.Finite
+    readonly maxOpaqueBytes: Schema.ByteSize
+    readonly maxStringBytes: Schema.ByteSize
+    readonly maxArrayElements: Schema.Finite
+    readonly maxAuthBytes: Schema.ByteSize
+    readonly maxMachineNameBytes: Schema.ByteSize
+    readonly maxSupplementaryGroups: Schema.Finite
+    readonly maxCompoundBytes: Schema.ByteSize
+    readonly maxOperations: Schema.Finite
+    readonly maxBitmapWords: Schema.Finite
+    readonly maxClients: Schema.Finite
+    readonly maxIdentities: Schema.Finite
+    readonly maxPendingClientReplacements: Schema.Finite
+    readonly maxSessions: Schema.Finite
+    readonly maxSlotsPerSession: Schema.Finite
+    readonly maxReplayBytes: Schema.ByteSize
+    readonly maxOpens: Schema.Finite
+    readonly maxLockOwners: Schema.Finite
+    readonly maxLocks: Schema.Finite
+    readonly maxOwnerBytes: Schema.ByteSize
+    readonly maxReadBytes: Schema.ByteSize
+    readonly maxWriteBytes: Schema.ByteSize
+    readonly maxReaddirEntries: Schema.Finite
+    readonly maxReaddirReplyBytes: Schema.ByteSize
+    readonly maxNameBytes: Schema.ByteSize
+    readonly maxFilehandles: Schema.Finite
+  }> & {
+    constrained: {
+      readonly maxConnections: number
+      readonly maxFragmentBytes: ByteSize.ByteSize
+      readonly maxRecordBytes: ByteSize.ByteSize
+      readonly maxFragmentsPerRecord: number
+      readonly maxOpaqueBytes: ByteSize.ByteSize
+      readonly maxStringBytes: ByteSize.ByteSize
+      readonly maxArrayElements: number
+      readonly maxAuthBytes: ByteSize.ByteSize
+      readonly maxMachineNameBytes: ByteSize.ByteSize
+      readonly maxSupplementaryGroups: number
+      readonly maxCompoundBytes: ByteSize.ByteSize
+      readonly maxOperations: number
+      readonly maxBitmapWords: number
+      readonly maxClients: number
+      readonly maxIdentities: number
+      readonly maxPendingClientReplacements: number
+      readonly maxSessions: number
+      readonly maxSlotsPerSession: number
+      readonly maxReplayBytes: ByteSize.ByteSize
+      readonly maxOpens: number
+      readonly maxLockOwners: number
+      readonly maxLocks: number
+      readonly maxOwnerBytes: ByteSize.ByteSize
+      readonly maxReadBytes: ByteSize.ByteSize
+      readonly maxWriteBytes: ByteSize.ByteSize
+      readonly maxReaddirEntries: number
+      readonly maxReaddirReplyBytes: ByteSize.ByteSize
+      readonly maxNameBytes: ByteSize.ByteSize
+      readonly maxFilehandles: number
+    }
+    default: {
+      readonly maxConnections: number
+      readonly maxFragmentBytes: ByteSize.ByteSize
+      readonly maxRecordBytes: ByteSize.ByteSize
+      readonly maxFragmentsPerRecord: number
+      readonly maxOpaqueBytes: ByteSize.ByteSize
+      readonly maxStringBytes: ByteSize.ByteSize
+      readonly maxArrayElements: number
+      readonly maxAuthBytes: ByteSize.ByteSize
+      readonly maxMachineNameBytes: ByteSize.ByteSize
+      readonly maxSupplementaryGroups: number
+      readonly maxCompoundBytes: ByteSize.ByteSize
+      readonly maxOperations: number
+      readonly maxBitmapWords: number
+      readonly maxClients: number
+      readonly maxIdentities: number
+      readonly maxPendingClientReplacements: number
+      readonly maxSessions: number
+      readonly maxSlotsPerSession: number
+      readonly maxReplayBytes: ByteSize.ByteSize
+      readonly maxOpens: number
+      readonly maxLockOwners: number
+      readonly maxLocks: number
+      readonly maxOwnerBytes: ByteSize.ByteSize
+      readonly maxReadBytes: ByteSize.ByteSize
+      readonly maxWriteBytes: ByteSize.ByteSize
+      readonly maxReaddirEntries: number
+      readonly maxReaddirReplyBytes: ByteSize.ByteSize
+      readonly maxNameBytes: ByteSize.ByteSize
+      readonly maxFilehandles: number
+    }
+  }
+}> & {
+  default: {
+    readonly leaseDurationSeconds: number
+    readonly callbackTimeoutSeconds: number
+    readonly limits: {
+      readonly maxConnections: number
+      readonly maxFragmentBytes: ByteSize.ByteSize
+      readonly maxRecordBytes: ByteSize.ByteSize
+      readonly maxFragmentsPerRecord: number
+      readonly maxOpaqueBytes: ByteSize.ByteSize
+      readonly maxStringBytes: ByteSize.ByteSize
+      readonly maxArrayElements: number
+      readonly maxAuthBytes: ByteSize.ByteSize
+      readonly maxMachineNameBytes: ByteSize.ByteSize
+      readonly maxSupplementaryGroups: number
+      readonly maxCompoundBytes: ByteSize.ByteSize
+      readonly maxOperations: number
+      readonly maxBitmapWords: number
+      readonly maxClients: number
+      readonly maxIdentities: number
+      readonly maxPendingClientReplacements: number
+      readonly maxSessions: number
+      readonly maxSlotsPerSession: number
+      readonly maxReplayBytes: ByteSize.ByteSize
+      readonly maxOpens: number
+      readonly maxLockOwners: number
+      readonly maxLocks: number
+      readonly maxOwnerBytes: ByteSize.ByteSize
+      readonly maxReadBytes: ByteSize.ByteSize
+      readonly maxWriteBytes: ByteSize.ByteSize
+      readonly maxReaddirEntries: number
+      readonly maxReaddirReplyBytes: ByteSize.ByteSize
+      readonly maxNameBytes: ByteSize.ByteSize
+      readonly maxFilehandles: number
+    }
+  }
+}
+```
+
+Added in v0.1.0
+
+### NfsServerConfigOverrides
+
+Optional configuration accepted when constructing an NFS server.
+
+**Signature**
+
+```ts
+export declare const NfsServerConfigOverrides: Schema.Struct<{
+  readonly leaseDurationSeconds: Schema.optionalKey<Schema.Finite>
+  readonly callbackTimeoutSeconds: Schema.optionalKey<Schema.Finite>
+  readonly limits: Schema.optionalKey<
+    Schema.Struct<{
+      readonly maxConnections: Schema.optionalKey<Schema.Finite>
+      readonly maxFragmentBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxRecordBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxFragmentsPerRecord: Schema.optionalKey<Schema.Finite>
+      readonly maxOpaqueBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxStringBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxArrayElements: Schema.optionalKey<Schema.Finite>
+      readonly maxAuthBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxMachineNameBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxSupplementaryGroups: Schema.optionalKey<Schema.Finite>
+      readonly maxCompoundBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxOperations: Schema.optionalKey<Schema.Finite>
+      readonly maxBitmapWords: Schema.optionalKey<Schema.Finite>
+      readonly maxClients: Schema.optionalKey<Schema.Finite>
+      readonly maxIdentities: Schema.optionalKey<Schema.Finite>
+      readonly maxPendingClientReplacements: Schema.optionalKey<Schema.Finite>
+      readonly maxSessions: Schema.optionalKey<Schema.Finite>
+      readonly maxSlotsPerSession: Schema.optionalKey<Schema.Finite>
+      readonly maxReplayBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxOpens: Schema.optionalKey<Schema.Finite>
+      readonly maxLockOwners: Schema.optionalKey<Schema.Finite>
+      readonly maxLocks: Schema.optionalKey<Schema.Finite>
+      readonly maxOwnerBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxReadBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxWriteBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxReaddirEntries: Schema.optionalKey<Schema.Finite>
+      readonly maxReaddirReplyBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxNameBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxFilehandles: Schema.optionalKey<Schema.Finite>
+    }>
+  >
+}>
+```
+
+Added in v0.1.0
+
+### NfsServerLimitOverrides
+
+Schema for selectively overriding the default NFS server resource policy.
+
+**Signature**
+
+```ts
+export declare const NfsServerLimitOverrides: Schema.Struct<{
+  readonly maxConnections: Schema.optionalKey<Schema.Finite>
+  readonly maxFragmentBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxRecordBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxFragmentsPerRecord: Schema.optionalKey<Schema.Finite>
+  readonly maxOpaqueBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxStringBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxArrayElements: Schema.optionalKey<Schema.Finite>
+  readonly maxAuthBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxMachineNameBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxSupplementaryGroups: Schema.optionalKey<Schema.Finite>
+  readonly maxCompoundBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxOperations: Schema.optionalKey<Schema.Finite>
+  readonly maxBitmapWords: Schema.optionalKey<Schema.Finite>
+  readonly maxClients: Schema.optionalKey<Schema.Finite>
+  readonly maxIdentities: Schema.optionalKey<Schema.Finite>
+  readonly maxPendingClientReplacements: Schema.optionalKey<Schema.Finite>
+  readonly maxSessions: Schema.optionalKey<Schema.Finite>
+  readonly maxSlotsPerSession: Schema.optionalKey<Schema.Finite>
+  readonly maxReplayBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxOpens: Schema.optionalKey<Schema.Finite>
+  readonly maxLockOwners: Schema.optionalKey<Schema.Finite>
+  readonly maxLocks: Schema.optionalKey<Schema.Finite>
+  readonly maxOwnerBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxReadBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxWriteBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxReaddirEntries: Schema.optionalKey<Schema.Finite>
+  readonly maxReaddirReplyBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxNameBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxFilehandles: Schema.optionalKey<Schema.Finite>
+}>
+```
+
+Added in v0.1.0
+
+### NfsServerLimits
+
+Schema for every resource bound enforced by the preview server, with frozen presets.
+
+**Signature**
+
+```ts
+export declare const NfsServerLimits: Schema.Struct<{
+  readonly maxConnections: Schema.Finite
+  readonly maxFragmentBytes: Schema.ByteSize
+  readonly maxRecordBytes: Schema.ByteSize
+  readonly maxFragmentsPerRecord: Schema.Finite
+  readonly maxOpaqueBytes: Schema.ByteSize
+  readonly maxStringBytes: Schema.ByteSize
+  readonly maxArrayElements: Schema.Finite
+  readonly maxAuthBytes: Schema.ByteSize
+  readonly maxMachineNameBytes: Schema.ByteSize
+  readonly maxSupplementaryGroups: Schema.Finite
+  readonly maxCompoundBytes: Schema.ByteSize
+  readonly maxOperations: Schema.Finite
+  readonly maxBitmapWords: Schema.Finite
+  readonly maxClients: Schema.Finite
+  readonly maxIdentities: Schema.Finite
+  readonly maxPendingClientReplacements: Schema.Finite
+  readonly maxSessions: Schema.Finite
+  readonly maxSlotsPerSession: Schema.Finite
+  readonly maxReplayBytes: Schema.ByteSize
+  readonly maxOpens: Schema.Finite
+  readonly maxLockOwners: Schema.Finite
+  readonly maxLocks: Schema.Finite
+  readonly maxOwnerBytes: Schema.ByteSize
+  readonly maxReadBytes: Schema.ByteSize
+  readonly maxWriteBytes: Schema.ByteSize
+  readonly maxReaddirEntries: Schema.Finite
+  readonly maxReaddirReplyBytes: Schema.ByteSize
+  readonly maxNameBytes: Schema.ByteSize
+  readonly maxFilehandles: Schema.Finite
+}> & {
+  constrained: {
+    readonly maxConnections: number
+    readonly maxFragmentBytes: ByteSize.ByteSize
+    readonly maxRecordBytes: ByteSize.ByteSize
+    readonly maxFragmentsPerRecord: number
+    readonly maxOpaqueBytes: ByteSize.ByteSize
+    readonly maxStringBytes: ByteSize.ByteSize
+    readonly maxArrayElements: number
+    readonly maxAuthBytes: ByteSize.ByteSize
+    readonly maxMachineNameBytes: ByteSize.ByteSize
+    readonly maxSupplementaryGroups: number
+    readonly maxCompoundBytes: ByteSize.ByteSize
+    readonly maxOperations: number
+    readonly maxBitmapWords: number
+    readonly maxClients: number
+    readonly maxIdentities: number
+    readonly maxPendingClientReplacements: number
+    readonly maxSessions: number
+    readonly maxSlotsPerSession: number
+    readonly maxReplayBytes: ByteSize.ByteSize
+    readonly maxOpens: number
+    readonly maxLockOwners: number
+    readonly maxLocks: number
+    readonly maxOwnerBytes: ByteSize.ByteSize
+    readonly maxReadBytes: ByteSize.ByteSize
+    readonly maxWriteBytes: ByteSize.ByteSize
+    readonly maxReaddirEntries: number
+    readonly maxReaddirReplyBytes: ByteSize.ByteSize
+    readonly maxNameBytes: ByteSize.ByteSize
+    readonly maxFilehandles: number
+  }
+  default: {
+    readonly maxConnections: number
+    readonly maxFragmentBytes: ByteSize.ByteSize
+    readonly maxRecordBytes: ByteSize.ByteSize
+    readonly maxFragmentsPerRecord: number
+    readonly maxOpaqueBytes: ByteSize.ByteSize
+    readonly maxStringBytes: ByteSize.ByteSize
+    readonly maxArrayElements: number
+    readonly maxAuthBytes: ByteSize.ByteSize
+    readonly maxMachineNameBytes: ByteSize.ByteSize
+    readonly maxSupplementaryGroups: number
+    readonly maxCompoundBytes: ByteSize.ByteSize
+    readonly maxOperations: number
+    readonly maxBitmapWords: number
+    readonly maxClients: number
+    readonly maxIdentities: number
+    readonly maxPendingClientReplacements: number
+    readonly maxSessions: number
+    readonly maxSlotsPerSession: number
+    readonly maxReplayBytes: ByteSize.ByteSize
+    readonly maxOpens: number
+    readonly maxLockOwners: number
+    readonly maxLocks: number
+    readonly maxOwnerBytes: ByteSize.ByteSize
+    readonly maxReadBytes: ByteSize.ByteSize
+    readonly maxWriteBytes: ByteSize.ByteSize
+    readonly maxReaddirEntries: number
+    readonly maxReaddirReplyBytes: ByteSize.ByteSize
+    readonly maxNameBytes: ByteSize.ByteSize
+    readonly maxFilehandles: number
+  }
+}
+```
+
+Added in v0.1.0
+
+### NfsServerNetworkTcpAddress
+
+Schema for a TCP address that may be reachable beyond the local host.
+
+**Signature**
+
+```ts
+export declare const NfsServerNetworkTcpAddress: Schema.Struct<{
+  readonly host: Schema.NonEmptyString
+  readonly port: Schema.Finite
+}>
+```
+
+Added in v0.1.0
+
+### NfsServerTcpAddress
+
+Schema for a bound loopback TCP address.
+
+**Signature**
+
+```ts
+export declare const NfsServerTcpAddress: Schema.Struct<{
+  readonly host: Schema.Literals<readonly ["127.0.0.1", "::1"]>
+  readonly port: Schema.Finite
+}>
+```
+
+Added in v0.1.0
+
+### NfsServerUnixAddress
+
+Schema for a bound UNIX-domain socket path. A filesystem socket is reachable only from the
+same host, so it counts as a local address alongside loopback TCP.
+
+**Signature**
+
+```ts
+export declare const NfsServerUnixAddress: Schema.Struct<{ readonly path: Schema.NonEmptyString }>
+```
+
+Added in v0.1.0
+
+### Port
+
+Schema for a TCP port, including `0` for an ephemeral port.
+
+**Signature**
+
+```ts
+export declare const Port: Schema.Finite
+```
+
+Added in v0.1.0
+
+## services
+
+### NfsServer (class)
+
+The running NFS server, exposing the address it bound to.
+
+**Signature**
+
+```ts
+export declare class NfsServer
+```
+
+Added in v0.1.0
+
+## utils
+
+### NfsCredential (type alias)
+
+RPC identity claims. They grant no authority until the application policy maps them.
+
+**Signature**
+
+```ts
+export type NfsCredential =
+  | { readonly flavor: "none" }
+  | {
+      readonly flavor: "sys"
+      readonly uid: number
+      readonly gid: number
+      readonly groups: ReadonlyArray<number>
+      readonly machineName: string
+    }
+```
+
+Added in v0.1.0
+
+### NfsIdentityPolicy (type alias)
+
+A policy returns an identity for this volume or null to deny the request.
+
+**Signature**
+
+```ts
+export type NfsIdentityPolicy = (request: {
+  readonly credential: NfsCredential
+  readonly peer: NfsPeer
+}) => NonNullable<Vfs.RootCallerOptions["identity"]> | null
+```
+
+Added in v0.1.0
+
+### NfsPeer (type alias)
+
+Peer details from the transport; UNIX sockets do not expose a client IP or port.
+
+**Signature**
+
+```ts
+export type NfsPeer =
+  | { readonly transport: "tcp"; readonly address: string; readonly port: number }
+  | { readonly transport: "unix"; readonly address: null; readonly port: null; readonly path: string }
+```
+
+Added in v0.1.0
+
+### NfsServerNetworkedOptions (type alias)
+
+**Signature**
+
+```ts
+export type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
+  readonly volume: Vfs.Volume
+  readonly policy: NfsIdentityPolicy
+  /** Evaluated in each accepted socket's context; null closes a connection without a trustworthy peer. */
+  readonly peer: Effect.Effect<NfsPeer | null>
+  /** Required when the supplied socket server binds outside loopback. */
+  readonly allowNonLoopback?: true
+  /** Flavors advertised by SECINFO; defaults to AUTH_SYS only. */
+  readonly acceptedFlavors?: ReadonlyArray<"sys" | "none">
+  readonly caller?: never
+}
+```
+
+Added in v0.1.0
+
+### NfsServerOptions (type alias)
+
+**Signature**
+
+```ts
+export type NfsServerOptions = NfsServerLocalOptions | NfsServerNetworkedOptions
+```
+
+Added in v0.1.0
