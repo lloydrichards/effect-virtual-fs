@@ -2,6 +2,8 @@
 
 ## 2026-09-20
 
+- **SQLite successful-sync write faults**: Extended the test VFS to omit or reorder selected writes while reporting success. A twelve-case Linux matrix found three acknowledged lost-write cases that failed recovery and integrity checking. The other acknowledged cases and six unacknowledged transaction and commit cases recovered complete images. This records the storage-assumption limit; `Volume.durability` remains `memory-only`.
+
 - **Bounded volume admission and watches**: Accepted a fourth core `Change` tag, `Rescan`, with per-subscriber queues, finite defaults, a retryable `VolumeBusy` admission result, and a `WatchOverflow` memory-adapter error. A focused probe confirmed the shared bounded PubSub failure mode. Updated the mutation contract and live-volume proposal; writable NFS and storage qualification remain separate.
 
 ## 2026-09-19
