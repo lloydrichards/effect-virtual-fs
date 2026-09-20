@@ -32,6 +32,10 @@ jobs:
           GATE_OUTPUT_DIR: ${{ runner.temp }}/sqlite-crash-gate
           GATE_ITERATIONS: 10
         run: bash packages/persistence/scripts/linux-crash-gate.sh
+      - name: Rehearse the physical-power test kit without a power cut
+        env:
+          GATE_OUTPUT_DIR: ${{ runner.temp }}/sqlite-crash-gate/physical-rehearsal
+        run: bash packages/persistence/scripts/linux-physical-power-rehearsal.sh
       - name: Check real disk-full behavior
         env:
           GATE_OUTPUT_DIR: ${{ runner.temp }}/sqlite-crash-gate/disk-full

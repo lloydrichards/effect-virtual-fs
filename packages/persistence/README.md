@@ -95,7 +95,7 @@ sync only when the application supplies and validates a working implementation.
 Use this provider for bounded local experiments until the remaining storage
 assumptions and crash tests are completed.
 Crash and power-loss qualification is tracked in
-[#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129).
+[#144](https://github.com/lloydrichards/effect-virtual-fs/issues/144). Contributors with disposable physical storage can use the [power-loss test guide](POWER_LOSS_TESTING.md) from a tagged source checkout. The published npm package does not contain the test fixture or scripts.
 
 ### Crash recovery gate
 
