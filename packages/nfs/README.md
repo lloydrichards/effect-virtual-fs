@@ -1,8 +1,14 @@
 # @effect-vfs/nfs
 
-Read-only NFSv4.1 export for exposing one live Effect VFS volume to native tools. The package is an experimental beta. Its local read-only profile has `preview` evidence; its trusted-network profile remains `experimental`.
+`@effect-vfs/nfs` exports one live VFS volume to native NFSv4.1 clients. The loopback read-only profile has `preview`
+evidence; the trusted-network profile remains `experimental`. Start with the [runnable preview app](../../apps/nfs-preview/README.md)
+to mount a fixture and observe live updates.
 
-This package runs a scoped socket server over TCP or a UNIX-domain socket and implements the bounded NFSv4.1 session, metadata, directory, symlink, and regular-file read path. It is not a conformant NFSv4.1 server and no future profile will claim to be one: RFC 8881 requires RPCSEC_GSS with Kerberos, which this package permanently excludes because no viable server-side implementation exists in the JavaScript ecosystem. It also omits delegations, write locks, layouts, migration, and recovery. Backchannels and connection trunking are implemented, but nothing is ever recalled over a backchannel because no delegation or layout is ever granted. Mutating filesystem operations return `NFS4ERR_ROFS`.
+The scoped server supports TCP or a UNIX-domain socket, metadata and directory reads, symlinks, regular-file reads,
+and NFSv4.1 sessions. Mutations return `NFS4ERR_ROFS`. It is not a conformant NFSv4.1 server: RFC 8881 requires
+RPCSEC_GSS with Kerberos, which this package excludes. It also omits delegations, write locks, layouts, migration,
+and recovery. Backchannels and connection trunking are implemented, but the server grants no delegation or layout to
+recall.
 
 ## Supported profile and maturity
 
@@ -24,6 +30,9 @@ The current read-only export tracks advisory byte-range read locks between NFS c
 In local mode, one application-supplied caller performs every read. Decoded `AUTH_SYS` fields never grant VFS authority, and ACCESS answers derived from them are advisory. In networked mode, the application supplies a peer resolver evaluated for each accepted socket and a policy that maps the decoded credential and peer to a VFS identity or denies it. The server creates and caches callers per distinct identity, bounded by `maxIdentities`. Policy denials and cache exhaustion answer RPC `AUTH_FAILED` before the compound executes. A resolver returning `null` closes the connection. UNIX peers have `address: null` and `port: null`; `path` is the server socket path, not a client address. Applications must enforce their trusted-client boundary in the policy. This profile is experimental: protocol and socket tests pass, but a networked kernel-client gate has not been recorded. See the [authentication and export policy decision](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.okf/decisions/nfs/nfs-authentication-and-export-policy.md).
 
 `NfsServerConfig`, `NfsServerConfigOverrides`, `NfsServerLimits`, `NfsServerLimitOverrides`, `NfsServerAddress`, `NfsServerTcpAddress`, `NfsServerNetworkTcpAddress`, and `NfsServerUnixAddress` are public Effect schemas. Byte limits use `effect/ByteSize`, so their units are explicit and validated before the server converts them to the numeric representation used by XDR. `NfsServerConfig.default`, `NfsServerLimits.default`, and `NfsServerLimits.constrained` expose frozen complete policies. Callers can override only the settings they need. `Volume`, `Caller`, and `SocketServer` remain live Effect capabilities rather than schema data.
+
+The following configuration assumes an existing `volume` and `caller`. The preview app supplies both in a complete
+runnable example.
 
 ```ts
 import { NfsServer } from "@effect-vfs/nfs/NfsServer"

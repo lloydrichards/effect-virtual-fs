@@ -1,14 +1,10 @@
 # @effect-vfs/memory
 
-`@effect-vfs/memory` provides Effect's `FileSystem` service without touching the
-host filesystem. Existing programs can keep using `effect/FileSystem`; provide
-the memory layer when you want isolated, disposable filesystem state for tests,
-build previews, code generators, or browser tools.
+`@effect-vfs/memory` implements Effect's `FileSystem` service over a virtual volume. Provide its layer to run existing
+Effect programs with disposable filesystem state, without changing their file operations.
 
-The adapter supports regular files, directories, symbolic links, hard links,
-file handles, temporary resources, globbing, and watch streams. Filesystem state
-and POSIX behavior come from `@effect-vfs/core`. This package presents that state
-through Effect's string-based `FileSystem` API.
+The adapter supports files, directories, links, scoped handles, temporary resources, globbing, and watches. The
+underlying state and permissions come from `@effect-vfs/core`.
 
 ## Install
 
@@ -20,12 +16,10 @@ The binding and snapshot examples below import `@effect-vfs/core` directly. Add 
 those APIs:
 
 ```sh
-npm install @effect-vfs/core
+npm install @effect-vfs/core @effect/platform-node-shared@4.0.0-rc.114
 ```
 
-Version `0.1.0` targets exactly `effect@4.0.0-rc.114`. Effect v4 is still a
-release candidate, so a later Effect release may require a matching version of
-this package.
+The package currently requires the exact peer version `effect@4.0.0-rc.114`.
 
 ## Replace the host filesystem
 
@@ -52,15 +46,16 @@ const buildManifest = Effect.gen(function*() {
 })
 
 const manifest = await Effect.runPromise(
-  buildManifest.pipe(Effect.provide(MemoryFileSystem.layer))
+  buildManifest.pipe(Effect.provide(MemoryFileSystem.layerCrypto))
 )
 
 console.log(manifest)
+// { "files": ["index.js", "index.css"] }
 ```
 
-`MemoryFileSystem.layer` creates a fresh volume containing `/tmp` and uses `/`
-as its working directory. `MemoryFileSystem.make` returns the service directly
-when a layer is unnecessary.
+`layerCrypto` creates a fresh volume containing `/tmp` and supplies its own `Crypto` service. Use
+`MemoryFileSystem.layer` when your application already provides `Crypto`; use `MemoryFileSystem.make` when you need the
+service directly.
 
 ## Choose isolated or shared state
 
@@ -71,6 +66,7 @@ an existing `@effect-vfs/core` volume.
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function*() {
@@ -91,7 +87,7 @@ const program = Effect.gen(function*() {
   }
 })
 
-console.log(await Effect.runPromise(program))
+console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))))
 // { isolatedBHasFile: false, sharedContents: "visible to both" }
 ```
 
@@ -113,6 +109,7 @@ core volume and expose it through `MemoryFileSystem.bind`.
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 
@@ -142,7 +139,7 @@ const program = Effect.gen(function*() {
   }
 })
 
-console.log(await Effect.runPromise(program))
+console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))))
 // { current: "version 2", restored: "version 1" }
 ```
 

@@ -1,179 +1,26 @@
-# SQLite persistence
+# @effect-vfs/persistence
 
-`@effect-vfs/persistence` saves named filesystem snapshots and loads them for restoration in a later process.
-The application chooses when to capture, supplies its SQLite connection through a `SqlClient` Layer, and controls
-startup migrations.
+`@effect-vfs/persistence` offers two SQLite-backed ways to retain a virtual filesystem. Use
+[`CheckpointStore`](#save-and-restore) to save a named snapshot and restore a separate volume later. Use
+`SqliteLiveImageStore` with `LiveVolume.open` to commit a complete image on each mutation. The live store is for
+bounded local experiments, not a claim of power-loss durability.
 
-The package does not load a runtime-specific database driver. The examples below use
-`@effect/sql-sqlite-bun@4.0.0-rc.114` as an application-supplied Layer; another compatible SQLite `SqlClient` Layer
-can be supplied by the application.
+## Install
 
-Core's `LiveVolume.open` uses a `LiveImageStore` service for live image commits.
-`@effect-vfs/persistence/SqliteLiveImageStore` provides a scoped SQLite Layer through Effect's `SqlClient` service.
-The application supplies a dedicated SQLite client for the same absolute local database path, plus Effect
-`FileSystem`, `Path`, and `Crypto` Layers. The store reserves one SQL connection, holds SQLite's exclusive file lock
-until release, and commits one complete image per mutation. It requires explicit image and database size limits.
-The Bun SQLite client is one possible application-supplied Layer; it is not a production dependency of this package.
-
-The provider uses SQLite's DELETE journal and `synchronous=EXTRA`, with `fullfsync=ON` on macOS. It checks these
-settings on its commit connection, verifies image integrity, and distinguishes a confirmed rollback from an
-uncertain commit result. A confirmed rejection leaves the live volume unchanged; an uncertain outcome makes it
-unavailable until the application closes and reopens it. Reopening preserves the logical volume identity and
-creates a new runtime incarnation. A second `LiveVolume.open` on the same provider Layer fails `Ownership`.
-
-### Temporary-space policy
-
-The provider uses one database and one transaction at a time. It rejects an attached database, disables SQLite
-cache spilling, keeps eligible temporary files in memory, and sets `journal_size_limit=0` so an exclusive-lock
-journal is truncated after a transaction. The last setting limits retained size, not peak size. The on-disk
-DELETE rollback journal can still hold every original database page. For a configured database cap `D`, page
-size `P`, and rollback-journal header sector size `S`, provision at least
-`D + S + floor(D / P) * (P + 8)` bytes for the database and journal together, plus filesystem allocation and
-directory overhead. The journal term includes one original-page record per database page. This bound assumes
-the supplied SQLite VFS honors the configured page cap, reports a finite sector size, and uses the provider's
-SQL without `ATTACH`, `VACUUM`, external writers, or other SQL that creates disk temporary files. Check those
-assumptions on the intended driver and filesystem. The provider cannot inspect free filesystem space through
-Effect's `FileSystem` service, so an application must reserve this physical budget on a dedicated filesystem or
-quota before treating it as an admission guarantee. Exhausting the budget during a commit still yields a
-confirmed rejection or an unknown outcome, followed by the provider's reopen rule.
-
-SQLite's possible temporary-file classes are accounted for as follows. Database creation, ordinary commits,
-and hot-journal recovery use the database's adjacent rollback journal; recovery reads an existing hot journal.
-The provider updates one keyed row and rejects extra schema objects, including triggers, so its statements do
-not need a statement journal. Temporary tables, indices, and query materialization use memory under the checked
-`temp_store=2` setting and a build with `TEMP_STORE` other than `0`. The provider's SQL does not run `VACUUM`,
-`ATTACH`, or explicit temporary tables. It rejects a connection with an attached database, which excludes a
-super-journal for provider transactions. DELETE mode excludes WAL and shared-memory files. SQL run by another
-user of the dedicated client is outside this policy.
-
-The bounded Linux gate records each successful rollback-journal write extent through the test VFS. On a
-disposable 4 MiB `tmpfs`, it commits and reopens with free space within 8,192 bytes of the calculated provision,
-then fills the filesystem to 4,096 free bytes and checks rejection, whole-image recovery, and
-`PRAGMA integrity_check`. The largest write extent observed in this finite test is not a general peak-size
-guarantee. Database creation and hot-journal recovery use the same directory.
-Set `syncDatabaseDirectory` to an operation that opens and syncs the verified
-containing directory on the target driver and operating system. The provider
-calls it after the supplied `SqlClient` opens the database and after it verifies
-`PRAGMA database_list` against `filename`, but before it creates the schema or
-returns the store. The call runs on every startup, including an existing database.
-A reported sync error fails startup with `Storage`. A callback that never returns
-or dies also cannot expose the live store. On Linux with a local filesystem, an application can open the directory
-and call `fsync` on its file descriptor. The application must test that operation
-on its chosen driver, OS, and filesystem. Without it, startup remains experimental
-for crash durability. Storage flush behavior and the rest of #129 still require
-qualification even when directory sync succeeds.
-
-With `NodeFileSystem.layer` on Linux, the tested callback is:
-
-```ts
-import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
-import { Effect, FileSystem } from "effect"
-
-const syncDatabaseDirectory = (directory: string) =>
-  Effect.scoped(Effect.gen(function*() {
-    const filesystem = yield* FileSystem.FileSystem
-    const handle = yield* filesystem.open(directory, { flag: "r" })
-    yield* handle.sync
-  })).pipe(Effect.provide(NodeFileSystem.layer))
+```sh
+npm install @effect-vfs/core @effect-vfs/persistence @effect/sql-sqlite-bun@4.0.0-rc.114 @effect/platform-node-shared@4.0.0-rc.114 effect@4.0.0-rc.114
 ```
 
-The [live restart fixture](test/fixtures/live-restart.ts) enables this callback with
-`LIVE_STORE_SYNC_DIRECTORY=1`. The process-death, VM hard-stop, write/sync fault,
-write-order, and space gates use that setting and record `directory_sync=ok` only
-after `handle.sync` succeeds.
-
-This provider has process-restart coverage. Tests kill the writer after an acknowledged commit and after an
-unacknowledged image update but before `COMMIT`, then reopen the database. Injected lost commit and rollback
-acknowledgements also verify that the live volume stops serving operations until reopen. A UTM gate now exercises
-guest operating-system hard stops on one recorded Debian/ext4 virtual disk configuration. It has not been
-qualified for physical power loss or arbitrary storage stacks. `Volume.durability` therefore remains
-`memory-only`. This provider must not yet be used to promise NFS `FILE_SYNC4`. The database page limit does
-not cap temporary rollback-journal space by itself; apply the temporary-space policy above for a complete-image
-transaction. Database creation also happens inside the supplied SQL Layer, before this provider can inspect the
-path. The optional `syncDatabaseDirectory` operation establishes the creation-entry
-sync only when the application supplies and validates a working implementation.
-Use this provider for bounded local experiments until the remaining storage
-assumptions and crash tests are completed.
-Crash and power-loss qualification is tracked in
-[#144](https://github.com/lloydrichards/effect-virtual-fs/issues/144). Contributors with disposable physical storage can use the [power-loss test guide](POWER_LOSS_TESTING.md) from a tagged source checkout. The published npm package does not contain the test fixture or scripts.
-
-### Crash recovery gate
-
-The opt-in [SQLite crash recovery workflow](../../.github/workflows/sqlite-crash-gate.yml) runs on `ubuntu-24.04`.
-Trigger it manually with `workflow_dispatch`, or add the `sqlite-crash-gate` label to a pull request. It runs the
-provider test file, then repeats four real-provider process-death cases ten times: kill after the image update,
-before `COMMIT`, after `COMMIT` but before its result reaches the volume, and after an acknowledged write. Each
-case uses a fresh database, checks the reopened file contents, runs SQLite `integrity_check`, and verifies the
-stored image digest. The uploaded artifact records the runner, Bun and SQLite versions, filesystem, commit
-connection PRAGMAs, journal size at the kill point when present, and each case's results.
-
-The workflow also checks a real disk-full response on a disposable 4 MiB `tmpfs` mount. A test-only SQLite VFS,
-loaded before the provider opens its Bun connection, injects write and sync errors. One persistent main-database
-write fault reaches rollback. The gate verifies the provider's result, post-error availability, recovered old or
-new image, and `integrity_check`. These
-tests characterize failures on the recorded runner. The separate
-[write-order gate](scripts/linux-write-order-gate.sh) models writes lost or reordered
-after successful sync calls. The finite space policy and its limits are described above.
-
-For a local rehearsal, run `GATE_ITERATIONS=1 bash packages/persistence/scripts/linux-crash-gate.sh` from the
-repository root after installing dependencies. This process-death gate does not stop the guest operating system or
-model lost storage writes.
-
-The [UTM VM gate](scripts/utm-vm-crash-gate.sh) runs on one Apple Silicon Mac with a dedicated ARM64 Linux VM named
-`Crash Test` and its QEMU guest agent. With UTM and `utmctl` installed, run
-`bash packages/persistence/scripts/utm-vm-crash-gate.sh`. The host bundles the same real-provider fixture,
-transfers Bun 1.2.21 and the fixture into the guest, then forcibly stops and reboots the VM at each of the
-four boundaries, three times each. The guest disk persists across boots. The gate reopens through the provider,
-checks the expected complete image, SQLite `integrity_check`, and the stored SHA-256 digest. It writes host,
-guest, storage, PRAGMA, and per-case evidence to the printed directory. Use `GATE_VM_NAME`,
-`GATE_ITERATIONS`, and `GATE_OUTPUT_DIR` to select the VM, repeat count, and output directory. Set
-`GATE_STOP_MODE=kill` to use UTM's VM-process kill instead of its forced power-off event. The VM must be
-dedicated to this test because the gate stops it without guest shutdown.
-Set `GATE_STOP_MODE=panic` to trigger Linux SysRq `c` and let the guest reboot after a kernel panic.
-This mode checks that the guest boot ID changes before it verifies recovery. The gate syncs its Bun
-runtime and fixture files before injecting crashes, so a lost test executable cannot masquerade as
-a database recovery result.
-
-On the earlier recorded run, all 12 guest hard-stop cases passed with Debian 12, Linux 6.1.0-13-arm64, ext4 on a QEMU
-virtual disk, Bun 1.2.21, and SQLite 3.50.4. The commit connection reported DELETE journaling,
-`synchronous=EXTRA`, `fullfsync=ON`, and exclusive locking. This establishes a guest OS-crash result for that
-configuration. A forced VM stop does not establish physical power-loss durability. The VM result assumes SQLite's
-sync requests reach the virtual disk; it does not
-verify how UTM/QEMU, the Mac filesystem, or the physical device handle flushes.
-An exploratory VM-process-kill run later encountered a guest boot hang; an additional restart recovered the
-database, but the gate reports a boot hang as a failed run.
-Two one-iteration runs with directory sync enabled on 2026-09-20 also failed the
-complete four-case gate because the guest did not restart after a hard stop. The
-first passed three cases and hung after the acknowledged case; a second restart
-recovered that acknowledged image with integrity `ok`. The second run passed the
-after-update case and hung after the before-`COMMIT` case. These are failed gate
-runs, not a qualified guest OS-crash result for the new startup configuration.
-With directory sync enabled, a separate one-iteration `GATE_STOP_MODE=panic` run
-passed all four phases on 2026-09-20. Each case reopened a complete image with
-`integrity_check=ok`; the acknowledged case reopened generation 2. Evidence:
-`/tmp/effect-vfs-dir-sync-vm-panic-20260920-r4`. This is a guest kernel-crash
-result. The two forced-stop runs above remain failed gates.
-
-The [VM fault gate](scripts/utm-vm-fault-gate.sh) runs the same bundled provider on
-Debian 12, Linux 6.1.0-13-arm64, ext4, and Bun 1.2.21. Its SQLite VFS reported a
-4,096-byte sector size for the main file and rollback journal. The VirtIO device
-reports 512-byte logical and physical blocks and a write-back cache. On a
-disposable 16 MiB ext4 loop filesystem with reserved blocks disabled, the
-2,000,000-byte database cap and 4,096-byte page size produced a 4,068,288-byte
-conservative provision. The gate committed near that provision, then observed
-`StorageRejected` and the old complete image with 3,072 bytes free. This finite
-test does not reserve that space for a production database. The same gate reproduced
-three acknowledged-image breaches when its VFS lied about successful syncs.
-The running UTM command uses a VirtIO qcow2 image without `cache.no-flush`; QEMU's
-documented default is write-back with flushes enabled. No test here proves that
-host APFS and the physical device complete those flushes before acknowledgement.
-The database therefore remains experimental for physical power loss.
+The application supplies the SQLite `SqlClient` Layer and runs checkpoint migrations at startup. Start with the
+[save-and-restore example](#save-and-restore). For live commits, read the [durability and storage limits](#live-image-commits)
+before choosing a database path and size limits.
 
 ## Save and restore
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { CheckpointStore } from "@effect-vfs/persistence"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { Effect, Layer } from "effect"
 import * as ByteSize from "effect/ByteSize"
@@ -200,7 +47,7 @@ const save = Effect.gen(function*() {
 })
 
 // Run once. Reusing the same name fails with AlreadyExists.
-await Effect.runPromise(save.pipe(Effect.provide(Checkpoints)))
+await Effect.runPromise(save.pipe(Effect.provide(Checkpoints), Effect.provide(NodeCrypto.layer)))
 
 // This can run in another process with the same database and layer setup.
 const restore = Effect.gen(function*() {
@@ -210,12 +57,31 @@ const restore = Effect.gen(function*() {
   return yield* (yield* volume.caller()).readFile("/hello.txt")
 })
 
-const bytes = await Effect.runPromise(restore.pipe(Effect.provide(Checkpoints)))
+const bytes = await Effect.runPromise(restore.pipe(Effect.provide(Checkpoints), Effect.provide(NodeCrypto.layer)))
+console.log(new TextDecoder().decode(bytes)) // hello
 ```
 
 `CheckpointStore.make(limits)` also constructs a store directly when `SqlClient` is already provided.
 Neither `make` nor `layer` runs migrations. The example's explicit migration layer runs before store construction.
 Applications with an existing startup sequence can instead yield `CheckpointStore.migrate` there.
+
+## Live image commits
+
+`SqliteLiveImageStore.layer` supplies the `LiveImageStore` service used by `LiveVolume.open`. The application
+provides a dedicated SQLite client for an absolute local database path, plus Effect `FileSystem`, `Path`, and
+`Crypto` services. The store holds an exclusive SQLite lock and commits a complete image per mutation. A confirmed
+storage rejection leaves the volume unchanged. An uncertain commit outcome makes the volume unavailable until reopen.
+
+The provider uses SQLite DELETE journaling and `synchronous=EXTRA`; it enables `fullfsync=ON` on macOS. Configure
+both an image limit and a database limit. The database limit does not bound the adjacent rollback journal. Reserve
+space for both before use. The provider cannot check free space through Effect's `FileSystem` service, and a disk-full
+commit can still have an uncertain outcome.
+
+Process-restart, fault-injection, and bounded VM tests cover specific configurations. The provider has not been
+qualified for physical power loss or arbitrary storage stacks, so `Volume.durability` remains `memory-only`.
+Do not use it to promise NFS `FILE_SYNC4`. See the [live volume guide](../../apps/docs/app/content/guides/sqlite-live-volume.mdx)
+for setup and recovery, [power-loss testing](POWER_LOSS_TESTING.md) for qualification work, and the
+[SQLite crash recovery workflow](../../.github/workflows/sqlite-crash-gate.yml) for the opt-in gate.
 
 ## Contract
 
