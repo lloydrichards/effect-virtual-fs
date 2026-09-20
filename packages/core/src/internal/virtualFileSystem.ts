@@ -28,12 +28,12 @@ import type {
   VolumeUsage
 } from "../VirtualFileSystem.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
+import { ConfigurationError, decodeConfiguration, FsCode as FsCodeSchema, FsError } from "./errors.js"
 import * as Image from "./image.js"
 import * as LiveImage from "./liveImage.js"
 import * as MetadataDomain from "./metadata.js"
-import { ConfigurationError, decodeConfiguration, FsCode as FsCodeSchema, FsError } from "./virtualFileSystem/errors.js"
-import * as Content from "./virtualFileSystem/overlayContent.js"
-import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./virtualFileSystem/overlayDiff.js"
+import * as Content from "./overlayContent.js"
+import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./overlayDiff.js"
 import {
   DOT_DOT_HEX,
   DOT_HEX,
@@ -48,10 +48,10 @@ import {
   SLASH_BYTE,
   SLASH_HEX,
   strictString
-} from "./virtualFileSystem/path.js"
-import { type CommitProvider, makeStagedState } from "./virtualFileSystem/stagedState.js"
-import * as TestHooks from "./virtualFileSystem/testHooks.js"
-import * as WatchHub from "./virtualFileSystem/watchHub.js"
+} from "./path.js"
+import { type CommitProvider, makeStagedState } from "./stagedState.js"
+import * as TestHooks from "./testHooks.js"
+import * as WatchHub from "./watchHub.js"
 
 /** @internal */
 export const VolumeId = Symbol("@effect-vfs/core/Volume")

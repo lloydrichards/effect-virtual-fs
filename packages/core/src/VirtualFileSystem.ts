@@ -30,12 +30,12 @@ import type { DecodeLimits, ImageError, Snapshot } from "./Snapshot.js"
 
 export { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 
+import { decodeConfiguration } from "./internal/errors.js"
+import * as FixtureInternal from "./internal/fixture.js"
 import * as Image from "./internal/image.js"
+import * as Path from "./internal/path.js"
 import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
 import * as VfsModel from "./internal/virtualFileSystem.js"
-import { decodeConfiguration } from "./internal/virtualFileSystem/errors.js"
-import * as FixtureInternal from "./internal/virtualFileSystem/fixture.js"
-import * as Path from "./internal/virtualFileSystem/path.js"
 import * as SnapshotDeltaModel from "./SnapshotDelta.js"
 
 export {

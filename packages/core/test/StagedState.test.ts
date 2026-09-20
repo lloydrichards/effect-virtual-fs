@@ -1,7 +1,7 @@
 import { assert, describe } from "@effect/vitest"
 import { Deferred, Effect, Fiber } from "effect"
-import { FsError } from "../src/internal/virtualFileSystem/errors.js"
-import { makeStagedState } from "../src/internal/virtualFileSystem/stagedState.js"
+import { FsError } from "../src/internal/errors.js"
+import { makeStagedState } from "../src/internal/stagedState.js"
 import { it } from "./TestEffect.js"
 
 describe("staged state", () => {
