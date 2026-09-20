@@ -1,5 +1,17 @@
 # @effect-vfs/persistence
 
+## 0.4.0
+
+### Minor Changes
+
+- [#130](https://github.com/lloydrichards/effect-virtual-fs/pull/130) [`cd40df5`](https://github.com/lloydrichards/effect-virtual-fs/commit/cd40df5027a9b822093e7f79655caa8234b890e2) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Add a provider-neutral SQLite live-image Layer for bounded volumes. Applications supply the SQLite client and Effect platform services. Reopening after a process restart retains acknowledged file contents, names, hard links, and volume identity. Applications can supply `syncDatabaseDirectory` to sync the verified database parent during startup. The provider has not yet been qualified for operating-system crashes or power loss.
+
+### Patch Changes
+
+- [#141](https://github.com/lloydrichards/effect-virtual-fs/pull/141) [`e2524fd`](https://github.com/lloydrichards/effect-virtual-fs/commit/e2524fd14a81da454c45a99d285e1b66e89423cf) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce SQLite live-image temporary-file growth and document rollback-journal space requirements.
+- Updated dependencies [[`34b912a`](https://github.com/lloydrichards/effect-virtual-fs/commit/34b912ad2f9a9aa55d4b3d76fdc4d1bc98540539), [`9acfa79`](https://github.com/lloydrichards/effect-virtual-fs/commit/9acfa796e0a76686b91fcfb045ac5b5426ba337b), [`49313a0`](https://github.com/lloydrichards/effect-virtual-fs/commit/49313a0ddc0b5fca4d4d850f4ded4e1439435938), [`a1f3e76`](https://github.com/lloydrichards/effect-virtual-fs/commit/a1f3e76f3689b2095f4efb36ac0406da227b56bc), [`77daba8`](https://github.com/lloydrichards/effect-virtual-fs/commit/77daba8ed9cbc0c99e19beace63120834d1bba0e), [`f54cccc`](https://github.com/lloydrichards/effect-virtual-fs/commit/f54cccc7dd0fd581b86e568fda155f90b5a08842), [`ced5052`](https://github.com/lloydrichards/effect-virtual-fs/commit/ced5052b374a8b1235cc32826e408404ee0f296c), [`62e04d2`](https://github.com/lloydrichards/effect-virtual-fs/commit/62e04d27f813e98fa090df2c80822242bbd0c005)]:
+  - @effect-vfs/core@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes
