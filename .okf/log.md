@@ -2,6 +2,8 @@
 
 ## 2026-09-20
 
+- **Writable owner-string translation**: Chose canonical unsigned 32-bit decimal uid/gid strings for writable `SETATTR`, matching `GETATTR`; unsupported names return `BADOWNER`. The mapped core caller decides ownership authority; SETATTR maps ownership denial to PERM. Implementation and round-trip tests belong to #126. No domain or name mapper is added to the first writable profile.
+
 - **SQLite guest kernel-panic gate**: Added a panic mode that verifies a changed guest boot ID and flushes test runtime files before crashes. One four-phase Debian/ext4 UTM run with the directory callback passed, including acknowledged-image recovery. Two forced-stop matrices still failed on guest boot hangs. Physical storage flush behavior remains unproven, so durability stays `memory-only`.
 
 - **SQLite VM directory-sync qualification attempt**: Ran the callback in the Debian/ext4 UTM gates. Measured 4,096-byte SQLite VFS sectors, passed the ext4 loop near-budget and injected I/O fault cases, and reproduced acknowledged breaches under lying storage. Two VM hard-stop matrices failed because the guest hung on reboot. Host-device flush behavior remains unproven, so the configuration stays experimental and durability stays `memory-only`.
