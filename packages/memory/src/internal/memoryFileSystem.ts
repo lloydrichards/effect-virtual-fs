@@ -14,7 +14,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
-import { badArgument, type PlatformError, systemError, type SystemErrorTag } from "effect/PlatformError"
+import { badArgument, type PlatformError, SystemError, systemError, type SystemErrorTag } from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Semaphore from "effect/Semaphore"
@@ -30,6 +30,13 @@ const resourceError = (method: string, pathOrDescriptor: string | number, descri
     ? systemError({ module: "FileSystem", method, pathOrDescriptor, _tag: "BadResource" })
     : systemError({ module: "FileSystem", method, pathOrDescriptor, _tag: "BadResource", description })
 
+/** @internal */
+export const isWatchOverflow = (error: PlatformError): boolean =>
+  error.reason instanceof SystemError &&
+  error.reason.module === "FileSystem" &&
+  error.reason.method === "watch" &&
+  error.reason.description === "WatchOverflow"
+
 const translate = (error: Vfs.FsError, method: string, pathOrDescriptor: string | number): PlatformError => {
   if (error.code === "InvalidArgument") return argumentError(method, error.code)
 
@@ -42,7 +49,8 @@ const translate = (error: Vfs.FsError, method: string, pathOrDescriptor: string 
     PathTooLong: "InvalidData",
     StorageRejected: "Unknown",
     OutcomeUnknown: "Unknown",
-    VolumeUnavailable: "Unknown"
+    VolumeUnavailable: "Unknown",
+    VolumeBusy: "Unknown"
   }
 
   return systemError({
@@ -673,22 +681,39 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
 
         return stream.pipe(
           Stream.filterEffect((event) =>
-            mapped(Vfs.pathToBytes(event.path), "watch", path).pipe(Effect.map((bytes) => {
-              if (!prefix.every((byte, index) => bytes[index] === byte)) return false
+            Predicate.isTagged("Rescan")(event) ?
+              Effect.succeed(true) :
+              mapped(Vfs.pathToBytes(event.path), "watch", path).pipe(Effect.map((bytes) => {
+                if (!prefix.every((byte, index) => bytes[index] === byte)) return false
 
-              if (bytes.length === prefix.length) return true
-              const start = resolved === "/" ? 1 : prefix.length + 1
+                if (bytes.length === prefix.length) return true
+                const start = resolved === "/" ? 1 : prefix.length + 1
 
-              if (resolved !== "/" && bytes[prefix.length] !== 47) return false
+                if (resolved !== "/" && bytes[prefix.length] !== 47) return false
 
-              return options?.recursive === true || !bytes.subarray(start).includes(47)
-            }))
+                return options?.recursive === true || !bytes.subarray(start).includes(47)
+              }))
           ),
-          Stream.mapEffect((event) =>
-            mapped(textPath(event.path, "watch"), "watch", path).pipe(
-              Effect.map((name) => ({ _tag: event._tag, path: name }))
+          Stream.mapEffect((event) => {
+            if (Predicate.isTagged("Rescan")(event)) {
+              return Effect.fail(
+                systemError({
+                  module: "FileSystem",
+                  method: "watch",
+                  pathOrDescriptor: path,
+                  _tag: "Unknown",
+                  description: "WatchOverflow"
+                })
+              )
+            }
+
+            // SAFETY: the Rescan branch returns above, so only platform watch tags remain.
+            const tag = event._tag as Exclude<Vfs.Change["_tag"], "Rescan">
+
+            return mapped(textPath(event.path, "watch"), "watch", path).pipe(
+              Effect.map((name) => ({ _tag: tag, path: name }))
             )
-          )
+          })
         )
       })),
     glob: Effect.fn("MemoryFileSystem.glob")(function*(pattern, options) {

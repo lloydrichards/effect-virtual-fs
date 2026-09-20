@@ -62,7 +62,9 @@ it.effect("publishes effective limits and samples live usage across writes and r
       maxBytes: ByteSize.bytes(20),
       maxFileBytes: ByteSize.bytes(0xffffffff),
       maxEntries: 3,
-      maxPathBytes: ByteSize.bytes(64)
+      maxPathBytes: ByteSize.bytes(64),
+      maxPendingOperations: 64,
+      maxWatchEvents: 256
     })
     assert.deepStrictEqual(yield* volume.usage, { usedBytes: 0n, entries: 0 })
 

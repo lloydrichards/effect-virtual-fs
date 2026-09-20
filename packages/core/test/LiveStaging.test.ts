@@ -146,7 +146,9 @@ describe("live volume staging", () => {
         maxBytes: undefined,
         maxFileBytes: ByteSize.bytes(0xffffffff),
         maxEntries: undefined,
-        maxPathBytes: undefined
+        maxPathBytes: undefined,
+        maxPendingOperations: 64,
+        maxWatchEvents: 256
       }
 
       const volume = yield* makeVolume(VolumeSource.Empty(), undefined, {

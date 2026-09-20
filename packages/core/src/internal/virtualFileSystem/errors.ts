@@ -35,7 +35,8 @@ export const FsCode = Schema.Literals([
   // A commit or publication failed after its outcome ceased to be knowable to the caller.
   "OutcomeUnknown",
   // The provider stopped serving operations until recovery establishes its state.
-  "VolumeUnavailable"
+  "VolumeUnavailable",
+  "VolumeBusy"
 ])
 
 /** @internal */

@@ -1,6 +1,6 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Effect, Exit, Fiber, Option, Scope, Stream } from "effect"
+import { ByteSize, Deferred, Effect, Exit, Fiber, Option, Scope, Stream } from "effect"
 import { layerDeterministicCrypto } from "../src/internal/crypto.js"
 import * as Memory from "../src/MemoryFileSystem.js"
 
@@ -51,6 +51,74 @@ it.layer(layerDeterministicCrypto)("core-backed memory bindings", (it) => {
         { _tag: "Update", path: "/alias" },
         { _tag: "Remove", path: "/alias" },
         { _tag: "Create", path: "/renamed" }
+      ])
+    }))
+
+  it.effect("recovers a watched subtree after overflow without losing a change during rescan", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make({ maxWatchEvents: 2 })
+      const core = yield* volume.caller()
+      yield* core.mkdir("/sub")
+      const adapter = yield* Memory.bind(volume)
+      const scope = yield* Scope.make()
+      const stream = yield* volume.watch.pipe(Scope.provide(scope))
+      yield* core.mkdir("/sub/a")
+      yield* core.mkdir("/sub/b")
+      const marker = yield* Stream.runCollect(Stream.take(stream, 2))
+      assert.deepEqual(Array.from(marker, (event) => event._tag), ["Create", "Rescan"])
+      yield* Scope.close(scope, Exit.void)
+
+      const first = yield* Deferred.make<void>()
+      const resume = yield* Deferred.make<void>()
+
+      const watch = yield* adapter.watch("/sub").pipe(
+        Stream.tap(() => Deferred.succeed(first, undefined).pipe(Effect.andThen(Deferred.await(resume)))),
+        Stream.runDrain,
+        Effect.flip,
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Effect.yieldNow
+      yield* core.mkdir("/sub/c")
+      yield* Deferred.await(first)
+      yield* core.mkdir("/sub/d")
+      yield* core.mkdir("/sub/e")
+      yield* Deferred.succeed(resume, undefined)
+      const error = yield* Fiber.join(watch)
+      assert.strictEqual(error.reason._tag, "Unknown")
+      assert.isTrue(Memory.isWatchOverflow(error))
+
+      const newWatchReady = yield* Deferred.make<void>()
+
+      const recovered = yield* adapter.watch("/sub").pipe(
+        Stream.take(2),
+        Stream.tap(() => Deferred.succeed(newWatchReady, undefined)),
+        Stream.runCollect,
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Effect.yieldNow
+      yield* core.mkdir("/sub/ready")
+      yield* Deferred.await(newWatchReady)
+
+      const scanRead = yield* Deferred.make<void>()
+      const finishScan = yield* Deferred.make<void>()
+
+      const scan = yield* adapter.readDirectory("/sub").pipe(
+        Effect.tap(() => Deferred.succeed(scanRead, undefined)),
+        Effect.tap(() => Deferred.await(finishScan)),
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Deferred.await(scanRead)
+      yield* core.mkdir("/sub/during-rescan")
+      yield* Deferred.succeed(finishScan, undefined)
+      const scanned = yield* Fiber.join(scan)
+      assert.isTrue(scanned.includes("ready"))
+      assert.isFalse(scanned.includes("during-rescan"))
+      assert.deepStrictEqual(yield* Fiber.join(recovered), [
+        { _tag: "Create", path: "/sub/ready" },
+        { _tag: "Create", path: "/sub/during-rescan" }
       ])
     }))
 
