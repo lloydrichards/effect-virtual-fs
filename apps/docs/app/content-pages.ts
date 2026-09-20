@@ -49,6 +49,20 @@ export const contentPages = [
     contentPath: "content/guides/sqlite-checkpoints.mdx"
   },
   {
+    section: "Guides",
+    label: "SQLite Live Volume",
+    href: "/guides/sqlite-live-volume",
+    routePath: "guides/sqlite-live-volume",
+    contentPath: "content/guides/sqlite-live-volume.mdx"
+  },
+  {
+    section: "Guides",
+    label: "Local NFS Export",
+    href: "/guides/local-nfs",
+    routePath: "guides/local-nfs",
+    contentPath: "content/guides/local-nfs.mdx"
+  },
+  {
     section: "Reference",
     label: "Compatibility and Limits",
     href: "/reference/compatibility-and-limits",

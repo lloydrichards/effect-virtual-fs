@@ -1,6 +1,6 @@
 # Test with an isolated filesystem
 
-Use `@effect/vitest` with `MemoryFileSystem.layer` when each test should receive disposable filesystem state without
+Use `@effect/vitest` with `MemoryFileSystem.layerCrypto` when each test should receive disposable filesystem state without
 reading or writing the host disk.
 
 ## Install the test dependencies
@@ -21,7 +21,7 @@ Write production code against Effect's `FileSystem.FileSystem` service:
 import { Effect, FileSystem } from "effect"
 
 export const writeManifest = (version: string) =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
 
     yield* fs.makeDirectory("/dist", { recursive: true })
@@ -48,19 +48,25 @@ import { Effect, FileSystem } from "effect"
 import { writeManifest } from "./writeManifest.js"
 
 describe("writeManifest", () => {
-  it.effect("should write the requested version when the filesystem is empty", () =>
-    Effect.gen(function*() {
-      const result = yield* writeManifest("1.2.3")
+  it.effect(
+    "should write the requested version when the filesystem is empty",
+    () =>
+      Effect.gen(function* () {
+        const result = yield* writeManifest("1.2.3")
 
-      assert.deepStrictEqual(JSON.parse(result), { version: "1.2.3" })
-    }).pipe(Effect.provide(MemoryFileSystem.layer)))
+        assert.deepStrictEqual(JSON.parse(result), { version: "1.2.3" })
+      }).pipe(Effect.provide(MemoryFileSystem.layerCrypto))
+  )
 
-  it.effect("should start without files from another test when a fresh layer is provided", () =>
-    Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
+  it.effect(
+    "should start without files from another test when a fresh layer is provided",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
 
-      assert.isFalse(yield* fs.exists("/dist/manifest.json"))
-    }).pipe(Effect.provide(MemoryFileSystem.layer)))
+        assert.isFalse(yield* fs.exists("/dist/manifest.json"))
+      }).pipe(Effect.provide(MemoryFileSystem.layerCrypto))
+  )
 })
 ```
 
@@ -86,14 +92,16 @@ const encoder = new TextEncoder()
 
 const seededFileSystem = Layer.effect(
   FileSystem.FileSystem,
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const volume = yield* Vfs.fromFixture({
       entries: [
         { kind: "directory", path: "/project" },
         {
           kind: "file",
           path: "/project/package.json",
-          bytes: encoder.encode(JSON.stringify({ name: "example", version: "1.2.3" }))
+          bytes: encoder.encode(
+            JSON.stringify({ name: "example", version: "1.2.3" })
+          )
         }
       ]
     })
@@ -102,13 +110,18 @@ const seededFileSystem = Layer.effect(
   })
 )
 
-it.effect("should read the version when the project fixture contains a package file", () =>
-  Effect.gen(function*() {
-    const fs = yield* FileSystem.FileSystem
-    const manifest = JSON.parse(yield* fs.readFileString("/project/package.json"))
+it.effect(
+  "should read the version when the project fixture contains a package file",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const manifest = JSON.parse(
+        yield* fs.readFileString("/project/package.json")
+      )
 
-    assert.strictEqual(manifest.version, "1.2.3")
-  }).pipe(Effect.provide(seededFileSystem)))
+      assert.strictEqual(manifest.version, "1.2.3")
+    }).pipe(Effect.provide(seededFileSystem))
+)
 ```
 
 Providing `seededFileSystem` inside `it.effect` builds a new volume for that test. Other tests can reuse the same layer

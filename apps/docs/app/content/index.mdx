@@ -13,14 +13,17 @@ npm install @effect-vfs/memory effect@4.0.0-rc.114
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { Effect, FileSystem } from "effect"
 
-const program = Effect.gen(function*() {
+const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
-  yield* fs.writeFileString("/settings.json", JSON.stringify({ mode: "preview" }))
+  yield* fs.writeFileString(
+    "/settings.json",
+    JSON.stringify({ mode: "preview" })
+  )
   return yield* fs.readFileString("/settings.json")
 })
 
 const settings = await Effect.runPromise(
-  program.pipe(Effect.provide(MemoryFileSystem.layer))
+  program.pipe(Effect.provide(MemoryFileSystem.layerCrypto))
 )
 
 console.log(settings)
@@ -35,7 +38,7 @@ can use a host filesystem while tests and tools use disposable in-memory state.
   `FileSystem.FileSystem` service. This is the usual starting point.
 - [`@effect-vfs/core`](https://www.npmjs.com/package/@effect-vfs/core) provides byte-preserving paths, explicit callers and permissions,
   shared volumes, fixtures, quotas, watches, overlays, and portable encoded snapshots.
-- [`@effect-vfs/persistence`](https://www.npmjs.com/package/@effect-vfs/persistence) saves named snapshots to SQLite and restores them as
-  fresh volumes in a later process.
+- [`@effect-vfs/persistence`](https://www.npmjs.com/package/@effect-vfs/persistence) stores named checkpoints or backs a live volume with SQLite.
+- [`@effect-vfs/nfs`](https://www.npmjs.com/package/@effect-vfs/nfs) exports a live volume to local NFSv4.1 clients in a read-only preview profile.
 
-All three packages are ESM-only and currently target `effect@4.0.0-rc.114`.
+All four packages are ESM-only and target `effect@4.0.0-rc.114`.

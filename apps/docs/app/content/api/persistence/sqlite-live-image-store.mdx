@@ -1,0 +1,78 @@
+# SqliteLiveImageStore overview
+
+A bounded live-image store using Effect's SQL and platform services.
+
+Added in v0.4.0
+
+---
+
+## utils
+
+### Options (interface)
+
+Limits and the local database path used to verify the supplied SQL client.
+Supply a dedicated SQLite `SqlClient` for this same path.
+
+**Signature**
+
+```ts
+export interface Options {
+  readonly filename: string
+  readonly maxImageBytes: ByteSize.ByteSize
+  readonly maxDatabaseBytes: ByteSize.ByteSize
+  readonly busyTimeoutMs?: number
+  /**
+   * Sync the containing directory after the supplied SQL client opens the
+   * database. The implementation must report sync errors as failures.
+   * Required before this store can be qualified for crash durability.
+   */
+  readonly syncDatabaseDirectory?: ((directory: string) => Effect.Effect<void, Error>) | undefined
+}
+```
+
+**Example**
+
+```ts
+import type { Options } from "@effect-vfs/persistence/SqliteLiveImageStore"
+import { ByteSize } from "effect"
+
+const options: Options = {
+  filename: "/var/lib/my-app/live.sqlite",
+  maxImageBytes: ByteSize.megabytes(4),
+  maxDatabaseBytes: ByteSize.megabytes(16)
+}
+```
+
+Added in v0.4.0
+
+### layer
+
+Reserve one SQLite connection and its exclusive lock for the Layer scope.
+The application supplies `SqlClient`, `FileSystem`, `Path`, and `Crypto`.
+
+**Signature**
+
+```ts
+export declare const layer: (
+  options: Options
+) => Layer.Layer<
+  LiveVolume.LiveImageStore,
+  LiveVolume.LiveVolumeError,
+  SqlClient | Crypto.Crypto | FileSystem.FileSystem | Path.Path
+>
+```
+
+**Example**
+
+```ts
+import * as SqliteLiveImageStore from "@effect-vfs/persistence/SqliteLiveImageStore"
+import { ByteSize } from "effect"
+
+const liveStore = SqliteLiveImageStore.layer({
+  filename: "/var/lib/my-app/live.sqlite",
+  maxImageBytes: ByteSize.megabytes(4),
+  maxDatabaseBytes: ByteSize.megabytes(16)
+})
+```
+
+Added in v0.4.0

@@ -3,8 +3,8 @@
  *
  * The server exports one live `@effect-vfs/core` volume over NFSv4.1 so that
  * ordinary NFS clients can mount a virtual filesystem. It implements the
- * required read-only operation set and answers every other operation with
- * `NFS4ERR_NOTSUPP`.
+ * supported read-only operations, returns `NFS4ERR_ROFS` for filesystem
+ * mutations, and rejects other unsupported operations.
  *
  * @since 0.1.0
  */
@@ -401,12 +401,20 @@ export type NfsServerLocalOptions = NfsServerConfigOverrides & {
   readonly acceptedFlavors?: never
 }
 
-/** Peer details from the transport; UNIX sockets do not expose a client IP or port. */
+/**
+ * Peer details from the transport; UNIX sockets do not expose a client IP or port.
+ *
+ * @since 0.1.0
+ */
 export type NfsPeer =
   | { readonly transport: "tcp"; readonly address: string; readonly port: number }
   | { readonly transport: "unix"; readonly address: null; readonly port: null; readonly path: string }
 
-/** RPC identity claims. They grant no authority until the application policy maps them. */
+/**
+ * RPC identity claims. They grant no authority until the application policy maps them.
+ *
+ * @since 0.1.0
+ */
 export type NfsCredential =
   | { readonly flavor: "none" }
   | {
@@ -417,12 +425,17 @@ export type NfsCredential =
     readonly machineName: string
   }
 
-/** A policy returns an identity for this volume or null to deny the request. */
+/**
+ * A policy returns an identity for this volume or null to deny the request.
+ *
+ * @since 0.1.0
+ */
 export type NfsIdentityPolicy = (request: {
   readonly credential: NfsCredential
   readonly peer: NfsPeer
 }) => NonNullable<Vfs.RootCallerOptions["identity"]> | null
 
+/** @since 0.1.0 */
 export type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
   readonly volume: Vfs.Volume
   readonly policy: NfsIdentityPolicy
@@ -435,6 +448,7 @@ export type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
   readonly caller?: never
 }
 
+/** @since 0.1.0 */
 export type NfsServerOptions = NfsServerLocalOptions | NfsServerNetworkedOptions
 
 /**

@@ -1,6 +1,6 @@
 # Compatibility and limits
 
-The three published Effect Virtual FS packages implement a documented subset of POSIX filesystem behavior in memory.
+The four published Effect Virtual FS packages implement a documented subset of POSIX filesystem behavior.
 They do not provide a mounted host filesystem, a complete POSIX implementation, or a way to intercept direct calls to
 `node:fs`.
 
@@ -13,7 +13,8 @@ the API links for exact types and signatures.
 | ------------------------- | -------------- | ------------- | ------------------------------------------------------------------ |
 | `@effect-vfs/core`        | `4.0.0-rc.114` | ESM only      | Runtime-neutral volumes, callers, handles, snapshots, and overlays |
 | `@effect-vfs/memory`      | `4.0.0-rc.114` | ESM only      | Effect `FileSystem.FileSystem` adapter                             |
-| `@effect-vfs/persistence` | `4.0.0-rc.114` | ESM only      | Named SQLite snapshot checkpoints                                  |
+| `@effect-vfs/persistence` | `4.0.0-rc.114` | ESM only      | Named SQLite checkpoints and live-image storage                    |
+| `@effect-vfs/nfs`         | `4.0.0-rc.114` | ESM only      | Read-only NFSv4.1 export                                           |
 
 Use an ES module build and install the exact Effect peer version shown above.
 
@@ -29,7 +30,7 @@ been run on every JavaScript runtime.
 | Area           | What the repository checks                                                                                     |
 | -------------- | -------------------------------------------------------------------------------------------------------------- |
 | Core package   | TypeScript build, NodeNext import compatibility, and behavior tests under the repository test runner           |
-| Memory adapter | NodeNext import compatibility and a browser-target bundle                                                     |
+| Memory adapter | NodeNext import compatibility and a browser-target bundle                                                      |
 | Browser target | The bundle runs as a smoke test under Node.js; this is not a browser runtime test                              |
 | Persistence    | Real SQLite tests under Bun and NodeNext declaration compatibility; Node SQLite runtime behavior is not tested |
 
@@ -50,10 +51,10 @@ The behavior follows documented POSIX.1-2024 rules for this subset, with these i
 - storage is dense and in memory, not sparse or host-backed; and
 - the memory adapter may follow Effect `FileSystem` behavior where it differs from the lower-level core contract.
 
-These published packages do not claim full POSIX conformance. They do not provide a C filesystem API, host mount,
-simulated process, host-directory import or export, device files, FIFOs, filesystem sockets, advisory locks, or
-descriptor duplication. Snapshot checkpoints are explicit copies, not automatic persistence of live writes or host
-`fsync` durability.
+These packages do not claim full POSIX conformance. They do not provide a C filesystem API, simulated process,
+host-directory import or export, device files, FIFOs, filesystem sockets, or descriptor duplication. The NFS server
+tracks read locks between NFS clients, but direct VFS callers do not participate in those locks. Named checkpoints
+are explicit copies. The separate SQLite live-image store does not currently qualify for host `fsync` durability.
 
 ## Path limits
 
@@ -93,11 +94,11 @@ accept it.
 
 - Events are not replayed.
 - Registration is coordinated with mutations so an event cannot be lost while the subscription becomes active.
-- The current implementation uses an unbounded queue and exposes no caller-configurable event or byte limit.
+- `maxWatchEvents` defaults to 256 queued events per subscriber and can be configured on a volume.
+- When a subscriber loses events, it receives `Rescan` at `/` and must read the volume again.
 - Closing the owning scope releases the subscription.
 
-A slow consumer can therefore retain queued events in memory. Apply an application-level consumption or lifetime policy
-when event volume is not already bounded by the workload.
+A slow consumer does not retain an unbounded event history. Treat `Rescan` as an invalidation signal, not a replay.
 
 ## Glob limits
 

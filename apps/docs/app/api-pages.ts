@@ -86,5 +86,21 @@ export const apiPages = [
         href: "/guides/sqlite-checkpoints"
       }
     ]
+  },
+  {
+    packageDir: "packages/persistence",
+    moduleName: "SqliteLiveImageStore",
+    label: "Persistence · SqliteLiveImageStore",
+    href: "/api/persistence/sqlite-live-image-store",
+    routePath: "persistence/sqlite-live-image-store",
+    contentPath: "content/api/persistence/sqlite-live-image-store.mdx"
+  },
+  {
+    packageDir: "packages/nfs",
+    moduleName: "NfsServer",
+    label: "NFS · NfsServer",
+    href: "/api/nfs/nfs-server",
+    routePath: "nfs/nfs-server",
+    contentPath: "content/api/nfs/nfs-server.mdx"
   }
 ] as const

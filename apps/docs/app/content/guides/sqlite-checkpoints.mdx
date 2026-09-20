@@ -12,7 +12,7 @@ If snapshots are new to you, first read [Build and transport filesystem snapshot
 Install the persistence package, its exact Effect peer, and the Bun SQLite provider:
 
 ```sh
-npm install @effect-vfs/persistence effect@4.0.0-rc.114 @effect/sql-sqlite-bun@4.0.0-rc.114
+npm install @effect-vfs/persistence effect@4.0.0-rc.114 @effect/sql-sqlite-bun@4.0.0-rc.114 @effect/platform-bun@4.0.0-rc.114
 ```
 
 `@effect-vfs/persistence` includes `@effect-vfs/core`. The SQLite provider is a separate runtime dependency because
@@ -24,24 +24,25 @@ Choose limits for the encoded snapshot and the filesystem data it can contain. T
 when it saves and loads a checkpoint.
 
 ```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core";
-import { CheckpointError, CheckpointStore } from "@effect-vfs/persistence";
-import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient";
-import { ByteSize, Effect, Layer } from "effect";
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { CheckpointError, CheckpointStore } from "@effect-vfs/persistence"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
+import { ByteSize, Effect, Layer } from "effect"
 
 const limits = {
   maxEncodedBytes: ByteSize.megabytes(10),
   maxRecords: 10_000,
   maxEntries: 20_000,
-  maxDecodedBytes: ByteSize.megabytes(5),
-};
+  maxDecodedBytes: ByteSize.megabytes(5)
+}
 
-const Database = SqliteClient.layer({ filename: "checkpoints.sqlite" });
+const Database = SqliteClient.layer({ filename: "checkpoints.sqlite" })
 
 const Checkpoints = CheckpointStore.layer(limits).pipe(
   Layer.provide(Layer.effectDiscard(CheckpointStore.migrate)),
-  Layer.provide(Database),
-);
+  Layer.provide(Database)
+)
 ```
 
 Use a file-backed database when another process must load the checkpoint. An in-memory database such as `:memory:`
@@ -56,21 +57,23 @@ Capture a snapshot explicitly and pass it to `save`:
 
 ```ts
 const save = Effect.gen(function* () {
-  const store = yield* CheckpointStore;
+  const store = yield* CheckpointStore
   const volume = yield* Vfs.fromFixture({
     entries: [
       {
         kind: "file",
         path: "/hello.txt",
-        bytes: new TextEncoder().encode("hello"),
-      },
-    ],
-  });
+        bytes: new TextEncoder().encode("hello")
+      }
+    ]
+  })
 
-  yield* store.save("run-42", yield* volume.snapshot);
-});
+  yield* store.save("run-42", yield* volume.snapshot)
+})
 
-await Effect.runPromise(save.pipe(Effect.provide(Checkpoints)));
+await Effect.runPromise(
+  save.pipe(Effect.provide(Checkpoints), Effect.provide(BunCrypto.layer))
+)
 ```
 
 Each name is create-only. Saving `run-42` again fails with `AlreadyExists` and leaves the original checkpoint
@@ -83,19 +86,21 @@ Load the named snapshot and use it to create a fresh, independent volume:
 
 ```ts
 const restore = Effect.gen(function* () {
-  const store = yield* CheckpointStore;
-  const snapshot = yield* store.load("run-42");
+  const store = yield* CheckpointStore
+  const snapshot = yield* store.load("run-42")
   const volume = yield* Vfs.fromSnapshot(snapshot, {
-    maxBytes: ByteSize.megabytes(5),
-  });
-  const caller = yield* volume.caller();
+    maxBytes: ByteSize.megabytes(5)
+  })
+  const caller = yield* volume.caller()
 
-  return new TextDecoder().decode(yield* caller.readFile("/hello.txt"));
-});
+  return new TextDecoder().decode(yield* caller.readFile("/hello.txt"))
+})
 
-const text = await Effect.runPromise(restore.pipe(Effect.provide(Checkpoints)));
+const text = await Effect.runPromise(
+  restore.pipe(Effect.provide(Checkpoints), Effect.provide(BunCrypto.layer))
+)
 
-console.log(text);
+console.log(text)
 ```
 
 The program prints:
@@ -116,21 +121,21 @@ const handleCheckpointError = (error: CheckpointError) => {
   switch (error.code) {
     case "InvalidName":
       return Effect.logError(
-        "Use a nonempty checkpoint name of at most 255 UTF-8 bytes",
-      );
+        "Use a nonempty checkpoint name of at most 255 UTF-8 bytes"
+      )
     case "NotFound":
-      return Effect.logWarning("The checkpoint does not exist");
+      return Effect.logWarning("The checkpoint does not exist")
     case "AlreadyExists":
-      return Effect.logWarning("The checkpoint name is already in use");
+      return Effect.logWarning("The checkpoint name is already in use")
     case "Storage":
-      return Effect.logError("SQLite checkpoint operation failed", error.cause);
+      return Effect.logError("SQLite checkpoint operation failed", error.cause)
   }
-};
+}
 
 const load = Effect.gen(function* () {
-  const store = yield* CheckpointStore;
-  return yield* store.load("run-42");
-}).pipe(Effect.catchTag("CheckpointError", handleCheckpointError));
+  const store = yield* CheckpointStore
+  return yield* store.load("run-42")
+}).pipe(Effect.catchTag("CheckpointError", handleCheckpointError))
 ```
 
 The error also records the `operation` (`save`, `load`, or `migrate`) and, when applicable, the checkpoint `name`.

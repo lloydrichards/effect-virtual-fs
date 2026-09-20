@@ -9,11 +9,12 @@ Start with a snapshot of the files that every workspace should see. This example
 base, edits one of them, reviews the result, and captures it:
 
 ```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core";
-import { Effect } from "effect";
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { Effect } from "effect"
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
 
 const program = Effect.gen(function* () {
   const source = yield* Vfs.fromFixture({
@@ -22,45 +23,47 @@ const program = Effect.gen(function* () {
       {
         kind: "file",
         path: "/project/package.json",
-        bytes: encoder.encode('{"scripts":{}}'),
-      },
-    ],
-  });
-  const base = yield* source.snapshot;
+        bytes: encoder.encode('{"scripts":{}}')
+      }
+    ]
+  })
+  const base = yield* source.snapshot
 
-  const workspace = yield* Vfs.makeOverlay(base);
-  const sibling = yield* Vfs.makeOverlay(base);
-  const fs = yield* workspace.caller();
+  const workspace = yield* Vfs.makeOverlay(base)
+  const sibling = yield* Vfs.makeOverlay(base)
+  const fs = yield* workspace.caller()
 
   yield* fs.writeFile(
     "/project/package.json",
     encoder.encode('{"scripts":{"check":"tsc --noEmit"}}'),
-    { access: "write", truncate: true },
-  );
+    { access: "write", truncate: true }
+  )
   yield* fs.writeFile(
     "/project/notes.md",
     encoder.encode("Review the generated type errors.\n"),
-    { access: "write", create: "exclusive" },
-  );
+    { access: "write", create: "exclusive" }
+  )
 
-  const changes = yield* workspace.changes();
-  const changedKinds = changes.map((change) => change._tag);
+  const changes = yield* workspace.changes()
+  const changedKinds = changes.map((change) => change._tag)
 
-  const siblingFs = yield* sibling.caller();
+  const siblingFs = yield* sibling.caller()
   const unchanged = decoder.decode(
-    yield* siblingFs.readFile("/project/package.json"),
-  );
+    yield* siblingFs.readFile("/project/package.json")
+  )
 
-  const accepted = yield* workspace.capture();
+  const accepted = yield* workspace.capture()
   const acceptedFs = yield* (yield* Vfs.fromSnapshot(
-    accepted.snapshot,
-  )).caller();
-  const notes = decoder.decode(yield* acceptedFs.readFile("/project/notes.md"));
+    accepted.snapshot
+  )).caller()
+  const notes = decoder.decode(yield* acceptedFs.readFile("/project/notes.md"))
 
-  return { changedKinds, unchanged, notes };
-});
+  return { changedKinds, unchanged, notes }
+})
 
-console.log(await Effect.runPromise(program));
+console.log(
+  await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer)))
+)
 ```
 
 `changedKinds` contains `Updated` and `Added`. The sibling still
@@ -115,7 +118,7 @@ must match. A mutation can commit between those observations.
 Create another overlay from the original base and replace the workspace reference in your application:
 
 ```ts
-const freshWorkspaceEffect = Vfs.makeOverlay(base);
+const freshWorkspaceEffect = Vfs.makeOverlay(base)
 ```
 
 Execute the effect where your application installs the replacement workspace.
