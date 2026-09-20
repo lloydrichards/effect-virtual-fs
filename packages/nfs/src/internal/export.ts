@@ -43,6 +43,24 @@ export interface NfsExport {
   ) => Effect.Effect<Vfs.ObjectReference, Vfs.FsError | InvalidNameError>
   readonly parent: (directory: Vfs.ObjectReference) => Effect.Effect<Vfs.ObjectReference, Vfs.FsError>
   readonly readLink: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, Vfs.FsError>
+  readonly mkdir: (
+    directory: Vfs.ObjectReference,
+    name: Uint8Array,
+    settings?: Vfs.MkdirReferenceSettings
+  ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.FsError | InvalidNameError | ExportCapacityError>
+  readonly symlink: (
+    target: Vfs.PathInput,
+    directory: Vfs.ObjectReference,
+    name: Uint8Array,
+    settings?: Vfs.SymlinkReferenceSettings
+  ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.FsError | InvalidNameError | ExportCapacityError>
+  readonly link: Vfs.Caller["linkReference"]
+  readonly remove: Vfs.Caller["removeReference"]
+  readonly rename: Vfs.Caller["renameReference"]
+  readonly chmod: Vfs.Caller["chmodReference"]
+  readonly chown: Vfs.Caller["chownReference"]
+  readonly utimes: Vfs.Caller["utimesReference"]
+  readonly truncate: Vfs.Caller["truncateReference"]
   readonly open: (
     reference: Vfs.ObjectReference,
     access?: Vfs.OpenReferenceSettings["access"]
@@ -274,6 +292,43 @@ export const makeExport = (
       }),
     parent: activeCaller.parentReference,
     readLink: activeCaller.readLinkReference,
+    mkdir: (directory, name, settings) =>
+      registryGate.withPermit(Effect.gen(function*() {
+        yield* Effect.try({
+          try: () => validateName(name, limits.maxNameBytes),
+          catch: (error) => {
+            if (error instanceof InvalidNameError) return error
+            throw error
+          }
+        })
+        yield* admitHandle
+        const result = yield* activeCaller.mkdirReference(directory, name, settings)
+        registerHandle(result.reference)
+
+        return result
+      })),
+    symlink: (target, directory, name, settings) =>
+      registryGate.withPermit(Effect.gen(function*() {
+        yield* Effect.try({
+          try: () => validateName(name, limits.maxNameBytes),
+          catch: (error) => {
+            if (error instanceof InvalidNameError) return error
+            throw error
+          }
+        })
+        yield* admitHandle
+        const result = yield* activeCaller.symlinkReference(target, directory, name, settings)
+        registerHandle(result.reference)
+
+        return result
+      })),
+    link: activeCaller.linkReference,
+    remove: activeCaller.removeReference,
+    rename: activeCaller.renameReference,
+    chmod: activeCaller.chmodReference,
+    chown: activeCaller.chownReference,
+    utimes: activeCaller.utimesReference,
+    truncate: activeCaller.truncateReference,
     open: (reference, access) => open(activeCaller, reference, access),
     openChild: (directory, name, settings) =>
       registryGate.withPermit(

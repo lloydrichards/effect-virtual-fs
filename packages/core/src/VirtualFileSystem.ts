@@ -741,6 +741,7 @@ export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
 
 /**
  * Settings for creating a directory through a parent object reference.
+ * `exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
  *
  * @category schemas
  * @since 0.4.0
@@ -749,6 +750,7 @@ export const MkdirReferenceSettings: typeof VfsModel.MkdirReferenceSettings = Vf
 
 /**
  * Settings for creating a directory through a parent object reference.
+ * `exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
  *
  * @category models
  * @since 0.4.0
@@ -1049,6 +1051,8 @@ export interface Caller {
   readonly unlinkReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsError>
   /** Removes an empty directory child and returns the parent directory transition. */
   readonly rmdirReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsError>
+  /** Removes a child of either type in one coordinated mutation and returns the parent directory transition. */
+  readonly removeReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsError>
   /** Renames one referenced child and returns one transition per distinct parent directory. */
   readonly renameReference: (
     sourceDirectory: ObjectReference,

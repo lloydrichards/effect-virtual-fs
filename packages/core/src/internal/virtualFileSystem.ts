@@ -276,6 +276,7 @@ export const RenameReferenceResult = Schema.TaggedUnion({
 /** @internal */
 export const MkdirReferenceSettings = Schema.Struct({
   mode: Schema.optionalKey(Mode),
+  exactMode: Schema.optionalKey(Schema.Boolean),
   times: Schema.optionalKey(Times)
 })
 
@@ -2340,6 +2341,11 @@ export const makeVolume = Effect.fnUntraced(
           }
 
           const chosen = { ...decoded.success }
+
+          if (chosen.exactMode && chosen.mode === undefined) {
+            return yield* new FsError({ code: "InvalidArgument", operation: "mkdirReference" })
+          }
+
           const mode = chosen.mode ?? 0o777
 
           return yield* coordinated(
@@ -2357,6 +2363,14 @@ export const makeVolume = Effect.fnUntraced(
               const now = yield* timestamp("mkdirReference")
               const initial = creationTimes(chosen.times, now)
 
+              const creationMode = chosen.exactMode
+                ? yield* permittedMode(
+                  { kind: "directory", uid: identity.uid, gid: parent.metadata.gid },
+                  mode,
+                  "mkdirReference"
+                )
+                : (mode & 0o777 & ~umask) | (mode & STICKY_BIT)
+
               const child: Directory = {
                 kind: "directory",
                 lineage: undefined,
@@ -2367,7 +2381,7 @@ export const makeVolume = Effect.fnUntraced(
                     state.nextInode,
                     identity.uid,
                     parent.metadata.gid,
-                    (mode & 0o777 & ~umask) | (mode & STICKY_BIT),
+                    creationMode,
                     now
                   ),
                   ...initial
@@ -2550,6 +2564,51 @@ export const makeVolume = Effect.fnUntraced(
               advanceRevision(parent)
               advanceRevision(child)
               invalidateReference(child)
+              state.entries -= 1
+              publishEntry("Remove", parent, name)
+
+              return { before, after: parent.revision }
+            })
+          )
+        }),
+        removeReference: Effect.fn("Caller.removeReference")(function*(directoryReference, input) {
+          const name = yield* referencedName(input, "removeReference")
+
+          return yield* coordinated(
+            "removeReference",
+            Effect.gen(function*() {
+              const parent = yield* referencedDirectory(directoryReference, "removeReference")
+              yield* authorize(parent, identity, WRITE | EXECUTE, "removeReference")
+              const child = parent.entries.get(name)
+
+              if (child === undefined) return yield* new FsError({ code: "NotFound", operation: "removeReference" })
+              yield* authorizeRemoval(parent, child, "removeReference")
+
+              if (child.kind === "directory" && child.entries.size > 0) {
+                return yield* new FsError({ code: "NotEmpty", operation: "removeReference" })
+              }
+
+              const before = parent.revision
+              const now = yield* timestamp("removeReference")
+              parent.entries.delete(name)
+              parent.metadata = {
+                ...parent.metadata,
+                nlink: parent.metadata.nlink - (child.kind === "directory" ? 1 : 0),
+                mtimeNs: now,
+                ctimeNs: now
+              }
+
+              if (child.kind === "directory") {
+                child.parent = undefined
+                child.metadata = { ...child.metadata, nlink: 0, ctimeNs: now }
+                advanceRevision(parent)
+                advanceRevision(child)
+                invalidateReference(child)
+              } else {
+                advanceRevision(parent)
+                detach(child, now)
+              }
+
               state.entries -= 1
               publishEntry("Remove", parent, name)
 

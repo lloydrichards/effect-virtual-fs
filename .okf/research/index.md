@@ -14,5 +14,6 @@
 - [NFS protocol rules ledger](nfs/nfs-protocol-rules-ledger.md) covers cross-cutting requirements, errata, and the client matrix.
 - [NFS WRITE and COMMIT design](nfs/write-commit-issue-127.md) records protocol facts, staged behavior, accepted decisions, and remaining prerequisites for issue #127.
 - [NFS OPEN creation](nfs/open-create-issue-125.md) records all four internal create modes, atomic verifier storage, and the remaining public release gates.
+- [NFS namespace and metadata mutations](nfs/namespace-metadata-issue-126.md) records internal CREATE, LINK, REMOVE, RENAME, and SETATTR behavior and its wire evidence.
 
 Path-workload measurements are not a separate concept. Their durable conclusion is represented by the accepted optional total-path-limit decision: repository workloads do not justify a universal fixed cap.
