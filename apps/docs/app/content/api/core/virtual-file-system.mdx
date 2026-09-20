@@ -310,6 +310,8 @@ export interface Caller {
   readonly unlinkReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsError>
   /** Removes an empty directory child and returns the parent directory transition. */
   readonly rmdirReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsError>
+  /** Removes a child of either type in one coordinated mutation and returns the parent directory transition. */
+  readonly removeReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsError>
   /** Renames one referenced child and returns one transition per distinct parent directory. */
   readonly renameReference: (
     sourceDirectory: ObjectReference,
@@ -882,12 +884,14 @@ Added in v0.1.0
 ### MkdirReferenceSettings (type alias)
 
 Settings for creating a directory through a parent object reference.
+`exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
 
 **Signature**
 
 ```ts
 export type MkdirReferenceSettings = {
   readonly mode?: number
+  readonly exactMode?: boolean
   readonly times?: {
     readonly access:
       | { readonly kind: "now" }
@@ -999,6 +1003,7 @@ export type OpenChildReferenceSettings = {
   readonly append?: boolean
   readonly truncate?: boolean
   readonly followFinalSymlink?: boolean
+  readonly exactMode?: boolean
   readonly times?: {
     readonly access:
       | { readonly kind: "now" }
@@ -1010,7 +1015,6 @@ export type OpenChildReferenceSettings = {
       | { readonly kind: "value"; readonly nanoseconds: bigint }
   }
   readonly initialSize?: bigint
-  readonly exactMode?: boolean
   readonly owner?: { readonly uid?: number; readonly gid?: number }
   readonly expectedChild?: {
     readonly reference: ObjectReference
@@ -1881,12 +1885,14 @@ Added in v0.1.0
 ### MkdirReferenceSettings
 
 Settings for creating a directory through a parent object reference.
+`exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
 
 **Signature**
 
 ```ts
 export declare const MkdirReferenceSettings: Schema.Struct<{
   readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly exactMode: Schema.optionalKey<Schema.Boolean>
   readonly times: Schema.optionalKey<
     Schema.Struct<{
       readonly access: Schema.Union<

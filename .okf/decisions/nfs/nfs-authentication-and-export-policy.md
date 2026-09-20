@@ -32,7 +32,7 @@ sources:
   - id: buildbarn
     resource: https://github.com/buildbarn/bb-remote-execution
     title: Buildbarn userspace NFSv4.1 server
-generated: { by: claude/okf, at: 2026-09-20T12:00:00Z }
+generated: { by: claude/okf, at: 2026-09-20T12:11:27Z }
 ---
 
 # NFS authentication and export policy
@@ -57,7 +57,7 @@ Accepted by the user on 2026-09-16 while resolving issue #45.[^issue] Authentica
 - The server, not the application, mints callers. `read-only-networked` receives the `Volume` and calls `volume.caller` once per distinct identity, caching callers under `maxIdentities` and answering RPC `AUTH_FAILED` on denial or cache pressure rather than sharing a caller between identities.[^core] Root squash is therefore a policy that never returns `privileged: true`. The `caller` option remains the `read-only-local` shorthand.
 - The client-record principal and slot replay request match stay derived from the raw credential, as Linux nfsd does, so two credentials squashed to one identity do not share client ownership. A cached reply is returned only while the policy still maps the request to the same caller; a remap is denied before replay.[^dispatcher]
 - ACCESS is advisory in `read-only-local`: it reports mode bits against the wire identity while OPEN and READ run through the privileged caller with no mode check. In `read-only-networked` ACCESS asks the mapped caller, so ACCESS and OPEN agree by construction. Core's `observeMetadata` and `readLinkReference` deliberately check nothing on the object, matching POSIX `stat` and `readlink`, so neither profile's GETATTR or READLINK contradicts what ACCESS reports.
-- `owner` and `owner_group` stay bare decimal uid and gid strings in both read-only profiles. Core has no name source, numeric ids are exactly what `AUTH_SYS` carries, and both the Linux client under `sec=sys` and macOS accept them. Section 5.9 permits this form. The [writable owner-string decision](writable-owner-strings.md "refined by") fixes canonical uint32 decimal input and `NFS4ERR_BADOWNER` for untranslatable values; implementation remains in #126.
+- `owner` and `owner_group` stay bare decimal uid and gid strings in both read-only profiles. Core has no name source, numeric ids are exactly what `AUTH_SYS` carries, and both the Linux client under `sec=sys` and macOS accept them. Section 5.9 permits this form. The [writable owner-string decision](writable-owner-strings.md "refined by") fixes canonical uint32 decimal input and `NFS4ERR_BADOWNER` for untranslatable values; the internal writable handler implements that translation in #126.
 
 ## Binding
 

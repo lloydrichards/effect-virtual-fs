@@ -29,12 +29,14 @@ sources:
   - id: knfsd
     resource: https://docs.kernel.org/filesystems/nfs/nfs41-server.html
     title: Linux knfsd NFSv4.1 implementation status table
-generated: { by: codex/okf, at: 2026-09-19T19:47:28Z }
+generated: { by: codex/okf, at: 2026-09-20T12:11:27Z }
 ---
 
 # NFS operations ledger
 
 Rows follow RFC 8881 Table 16 and Table 17.[^rfc8881-17] Status uses the vocabulary from the [NFS profile ladder](../../decisions/nfs/nfs-profile-ladder.md "implements"): `supported`, `partial`, `rejected(error)`, `deferred(profile)`, `gap(issue)`, `excluded`, `planned`, `not-applicable`. "Required by" names the first profile in which the operation must do real work; a REQUIRED operation that a read-only export must merely reject correctly is required by `read-only-local` for rejection and by a later profile for implementation. Current support describes the dispatcher today.[^dispatcher] Evidence names the focused test file (`Nfs4.test`, `Profile.test`), the pynfs baseline (`pynfs`), or a client result.
+
+The public export still rejects CREATE, LINK, REMOVE, RENAME, and SETATTR as read-only. Internal writable handlers for these operations are implemented and exercised through [issue #126 wire tests](namespace-metadata-issue-126.md "refined by"); the table's rejected status describes the public export until #48 and #144 qualify writable release.
 
 ## Forward operations (Table 16)
 

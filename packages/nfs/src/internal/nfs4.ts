@@ -45,6 +45,7 @@ export const Status = {
   NOTSUPP: 10004,
   TOOSMALL: 10005,
   SERVERFAULT: 10006,
+  BADTYPE: 10007,
   DELAY: 10008,
   SAME: 10009,
   EXPIRED: 10011,
@@ -398,6 +399,7 @@ type ParsedOperation =
       readonly kind: number
       readonly name: Uint8Array
       readonly attrs: ReturnType<typeof readAttributes>
+      readonly target: string | undefined
     }
   }
   | { readonly kind: "Getattr"; readonly code: typeof Operation.GETATTR; readonly value: ReadonlyArray<number> }
@@ -936,6 +938,57 @@ const creationAttributes = Effect.fnUntraced(function*(
   return { attributes, settings }
 })
 
+type SetAttribute =
+  | { readonly kind: "size"; readonly attribute: 4; readonly value: bigint }
+  | { readonly kind: "mode"; readonly attribute: 33; readonly value: number }
+  | { readonly kind: "owner"; readonly attribute: 36 | 37; readonly value: number }
+  | { readonly kind: "time"; readonly attribute: 48 | 54; readonly value: Vfs.Times["access"] }
+
+const setattrAttributes = Effect.fnUntraced(function*(
+  attrs: ReturnType<typeof readAttributes>,
+  limits: Nfs4Limits,
+  supportedAttributes: ReadonlyArray<number>
+) {
+  const attributes = attributesIn(attrs.bitmap)
+
+  const invalid = attributes.find((attribute) => ![4, 33, 36, 37, 48, 54].includes(attribute))
+
+  if (invalid !== undefined) {
+    return yield* Effect.fail(supportedAttributes.includes(invalid) ? Status.INVAL : Status.ATTRNOTSUPP)
+  }
+
+  const reader = new Reader(attrs.values, limits)
+  const changes: Array<SetAttribute> = []
+
+  for (const attribute of attributes) {
+    if (attribute === 4) changes.push({ kind: "size", attribute, value: reader.uint64() })
+    else if (attribute === 33) {
+      const value = reader.uint32()
+
+      if (value > 0o7777) return yield* Effect.fail(Status.INVAL)
+      changes.push({ kind: "mode", attribute, value })
+    } else if (attribute === 36 || attribute === 37) {
+      const value = reader.string(limits.maxStringBytes)
+
+      if (!isNumericOwner(value) || Number(value) > 0xffff_ffff) return yield* Effect.fail(Status.BADOWNER)
+      changes.push({ kind: "owner", attribute, value: Number(value) })
+    } else if (attribute === 48 || attribute === 54) {
+      const how = reader.uint32()
+
+      const value: Vfs.Times["access"] = how === 0 ? { kind: "now" } : {
+        kind: "value",
+        nanoseconds: BigInt.asIntN(64, reader.uint64()) * 1_000_000_000n + BigInt(reader.uint32())
+      }
+
+      changes.push({ kind: "time", attribute, value })
+    }
+  }
+
+  reader.finish()
+
+  return changes
+})
+
 const readStateOwner = (reader: Reader, limits: Nfs4Limits): Uint8Array => {
   reader.uint64()
 
@@ -1072,8 +1125,9 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
     case Operation.CREATE: {
       const kind = reader.uint32()
 
-      if (kind === 5) reader.string(limits.maxStringBytes)
-      else if (kind === 3 || kind === 4) {
+      const target = kind === 5 ? reader.string(limits.maxStringBytes) : undefined
+
+      if (kind === 3 || kind === 4) {
         reader.uint32()
         reader.uint32()
       }
@@ -1081,7 +1135,7 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
       const name = reader.opaque(limits.maxOpaqueBytes)
       const attrs = readAttributes(reader, limits)
 
-      return { kind: "Create", code, value: { kind, name, attrs } }
+      return { kind: "Create", code, value: { kind, name, attrs, target } }
     }
 
     case Operation.GETATTR:
@@ -2694,6 +2748,19 @@ export const makeNfs4Handler = (
               )
 
               return statusResult(checks)
+            }
+
+            const validName = (name: Uint8Array): Effect.Effect<void, number> =>
+              Effect.try({
+                try: () => {
+                  validateName(name, options.limits.maxNameBytes)
+                },
+                catch: (error) => error instanceof InvalidNameError ? nameStatus(error) : Status.SERVERFAULT
+              })
+
+            const writeChangeInfo = (writer: Writer, change: Vfs.DirectoryChange): void => {
+              writer.boolean(true).uint64(BigInt.asUintN(64, change.before))
+                .uint64(BigInt.asUintN(64, change.after))
             }
 
             switch (operation.kind) {
@@ -4603,19 +4670,258 @@ export const makeNfs4Handler = (
                 )
               }
 
-              case "Setattr":
-                return Effect.succeed(
-                  current === undefined ? noCurrent() : { code: operation.code, status: Status.ROFS }
-                )
+              case "Setattr": {
+                const emptyAttrs = new Writer().uint32(0).bytes()
+
+                if (current === undefined) {
+                  return Effect.succeed({ ...noCurrent(), body: emptyAttrs })
+                }
+
+                if (!options.writable) {
+                  return Effect.succeed({ code: operation.code, status: Status.ROFS, body: emptyAttrs })
+                }
+
+                const reference = current
+                const value = operation.value
+
+                return Effect.gen(function*() {
+                  const applied: Array<number> = []
+
+                  const reply = (status: number): ResultPart => ({
+                    code: operation.code,
+                    status,
+                    body: encodeStatusBody((writer) => writeBitmap(writer, wordsFor(applied)))
+                  })
+
+                  const decoded = yield* setattrAttributes(value.attrs, options.limits, supportedAttributes).pipe(
+                    Effect.map((changes) => ({ changes })),
+                    Effect.catch((status) => Effect.succeed({ status }))
+                  )
+
+                  if ("status" in decoded) return reply(decoded.status)
+
+                  if (decoded.changes.some((change) => change.kind === "size")) {
+                    const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+
+                    if (stateid === undefined || isAllZero(stateid) || isAllOnes(stateid)) {
+                      return reply(Status.BAD_STATEID)
+                    }
+
+                    const key = stateIdKey(stateid)
+                    const lock = lockStates.get(key)
+                    const open = opens.get(key) ?? lock?.open
+
+                    if (open === undefined || open.reference !== reference) return reply(Status.BAD_STATEID)
+
+                    const stateStatus = lock === undefined
+                      ? checkOpenStateId(stateid, open)
+                      : checkLockStateId(stateid, lock)
+
+                    if (stateStatus !== Status.OK) return reply(stateStatus)
+
+                    if ((open.access & OPEN4_SHARE_ACCESS_WRITE) === 0) return reply(Status.OPENMODE)
+
+                    if (
+                      [...opens.values()].some((state) =>
+                        state.reference === reference && (state.deny & OPEN4_SHARE_ACCESS_WRITE) !== 0
+                      )
+                    ) return reply(Status.SHARE_DENIED)
+                  }
+
+                  const accessTime = decoded.changes.find((change) => change.attribute === 48)
+                  const modificationTime = decoded.changes.find((change) => change.attribute === 54)
+
+                  for (const change of decoded.changes) {
+                    if (change.attribute === 54 && accessTime !== undefined) continue
+
+                    const mutation = change.kind === "size"
+                      ? export_.truncate(reference, change.value)
+                      : change.kind === "mode"
+                      ? export_.chmod(reference, change.value)
+                      : change.kind === "owner"
+                      ? export_.chown(
+                        reference,
+                        change.attribute === 36 ? { uid: change.value } : { gid: change.value }
+                      )
+                      : export_.utimes(reference, {
+                        access: change.attribute === 48 ? change.value : { kind: "omit" },
+                        modification: modificationTime?.kind === "time" ? modificationTime.value : { kind: "omit" }
+                      })
+
+                    const status = yield* mutation.pipe(
+                      Effect.as(Status.OK),
+                      Effect.catch((error) =>
+                        Effect.succeed(
+                          change.kind === "owner" && error.code === "AccessDenied" ? Status.PERM : failureForFs(error)
+                        )
+                      )
+                    )
+
+                    if (status !== Status.OK) return reply(status)
+
+                    applied.push(change.attribute)
+
+                    if (change.attribute === 48 && modificationTime !== undefined) applied.push(54)
+                  }
+
+                  return reply(Status.OK)
+                })
+              }
+
               // Section 15.2 lists NFS4ERR_SYMLINK for LINK but not for CREATE, REMOVE, or RENAME.
-              case "Create":
-                return rejectMutation([operation.value.name], "none", Status.NOTDIR)
-              case "Remove":
-                return rejectMutation([operation.value], "none", Status.NOTDIR)
-              case "Rename":
-                return rejectMutation([operation.value.oldName, operation.value.newName], "directory", Status.NOTDIR)
-              case "Link":
-                return rejectMutation([operation.value], "object", Status.SYMLINK)
+              case "Create": {
+                if (current === undefined) return Effect.succeed(noCurrent())
+
+                if (!options.writable) return rejectMutation([operation.value.name], "none", Status.NOTDIR)
+
+                const value = operation.value
+                const parent = current
+
+                return statusResult(
+                  Effect.gen(function*() {
+                    yield* requireDirectory(parent, Status.NOTDIR)
+                    yield* validName(value.name)
+
+                    if (value.kind !== 2 && value.kind !== 5) return yield* Effect.fail(Status.BADTYPE)
+
+                    const attributes = attributesIn(value.attrs.bitmap)
+                    const supported = value.kind === 2 ? [33, 48, 54] : [48, 54]
+
+                    if (!attributes.every((attribute) => supported.includes(attribute))) {
+                      return yield* Effect.fail(Status.ATTRNOTSUPP)
+                    }
+
+                    const reader = new Reader(value.attrs.values, options.limits)
+                    let mode: number | undefined
+
+                    const times: Types.Mutable<Vfs.Times> = {
+                      access: { kind: "omit" },
+                      modification: { kind: "omit" }
+                    }
+
+                    for (const attribute of attributes) {
+                      if (attribute === 33) {
+                        mode = reader.uint32()
+
+                        if (mode > 0o7777) return yield* Effect.fail(Status.INVAL)
+                      } else {
+                        const how = reader.uint32()
+
+                        const time: Vfs.Times["access"] = how === 0 ? { kind: "now" } : {
+                          kind: "value",
+                          nanoseconds: BigInt.asIntN(64, reader.uint64()) * 1_000_000_000n + BigInt(reader.uint32())
+                        }
+
+                        if (attribute === 48) times.access = time
+                        else times.modification = time
+                      }
+                    }
+
+                    reader.finish()
+
+                    const result = yield* (value.kind === 2
+                      ? export_.mkdir(
+                        parent,
+                        value.name,
+                        mode === undefined ? { times } : { mode, times, exactMode: true }
+                      )
+                      : export_.symlink(value.target!, parent, value.name, { times })).pipe(
+                        Effect.mapError((error) =>
+                          error instanceof ExportCapacityError ?
+                            Status.DELAY :
+                            error instanceof InvalidNameError
+                            ? nameStatus(error)
+                            : failureForFs(error)
+                        )
+                      )
+
+                    setCurrent(result.reference)
+
+                    return { change: result.directory, attributes }
+                  }),
+                  ({ change, attributes }) =>
+                    encodeStatusBody((writer) => {
+                      writeChangeInfo(writer, change)
+                      writeBitmap(writer, wordsFor(attributes))
+                    })
+                )
+              }
+
+              case "Remove": {
+                if (current === undefined) return Effect.succeed(noCurrent())
+
+                if (!options.writable) return rejectMutation([operation.value], "none", Status.NOTDIR)
+                const directory = current
+
+                return statusResult(
+                  Effect.gen(function*() {
+                    yield* requireDirectory(directory, Status.NOTDIR)
+                    yield* validName(operation.value)
+
+                    return yield* mapFs(export_.remove(directory, operation.value))
+                  }),
+                  (change) => encodeStatusBody((writer) => writeChangeInfo(writer, change))
+                )
+              }
+
+              case "Rename": {
+                if (current === undefined || saved === undefined) return Effect.succeed(noCurrent())
+
+                if (!options.writable) {
+                  return rejectMutation([operation.value.oldName, operation.value.newName], "directory", Status.NOTDIR)
+                }
+
+                const destination = current
+                const source = saved
+
+                return statusResult(
+                  Effect.gen(function*() {
+                    yield* requireDirectory(destination, Status.NOTDIR)
+                    yield* requireDirectory(source, Status.NOTDIR)
+                    yield* validName(operation.value.oldName)
+                    yield* validName(operation.value.newName)
+
+                    return yield* export_.rename(source, operation.value.oldName, destination, operation.value.newName)
+                      .pipe(Effect.mapError((error) =>
+                        error.code === "IsDirectory" || error.code === "NotDirectory" || error.code === "NotEmpty"
+                          ? Status.EXIST
+                          : failureForFs(error)
+                      ))
+                  }),
+                  (change) =>
+                    encodeStatusBody((writer) => {
+                      const sourceChange = Predicate.isTagged(change, "SameDirectory")
+                        ? change.directory
+                        : change.sourceDirectory
+
+                      const destinationChange = Predicate.isTagged(change, "SameDirectory")
+                        ? change.directory
+                        : change.destinationDirectory
+
+                      writeChangeInfo(writer, sourceChange)
+                      writeChangeInfo(writer, destinationChange)
+                    })
+                )
+              }
+
+              case "Link": {
+                if (current === undefined || saved === undefined) return Effect.succeed(noCurrent())
+
+                if (!options.writable) return rejectMutation([operation.value], "object", Status.SYMLINK)
+                const destination = current
+                const source = saved
+
+                return statusResult(
+                  Effect.gen(function*() {
+                    yield* requireDirectory(destination, Status.SYMLINK)
+                    yield* validName(operation.value)
+
+                    return yield* mapFs(export_.link(source, destination, operation.value))
+                  }),
+                  (result) => encodeStatusBody((writer) => writeChangeInfo(writer, result.directory))
+                )
+              }
+
               case "NotSupported":
                 return Effect.succeed({ code: operation.code, status: Status.NOTSUPP })
               case "Unknown":

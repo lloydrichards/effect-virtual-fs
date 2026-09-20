@@ -8,6 +8,40 @@ const name = (value: string) => new TextEncoder().encode(value)
 import { it } from "./TestEffect.js"
 
 describe("reference mutations", () => {
+  it.effect("applies umask to ordinary directories but preserves an explicit exact mode", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller({ umask: 0o077 })
+      const root = yield* fs.rootReference
+      const ordinary = yield* fs.mkdirReference(root, name("ordinary"), { mode: 0o777 })
+      const exact = yield* fs.mkdirReference(root, name("exact"), { mode: 0o6777, exactMode: true })
+
+      assert.strictEqual((yield* fs.observeMetadata(ordinary.reference)).value.mode, 0o700)
+      assert.strictEqual((yield* fs.observeMetadata(exact.reference)).value.mode, 0o6777)
+      assert.strictEqual(
+        (yield* Effect.flip(fs.mkdirReference(root, name("invalid"), { exactMode: true }))).code,
+        "InvalidArgument"
+      )
+    }))
+
+  it.effect("removes files and empty directories in one operation", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      const root = yield* fs.rootReference
+      const file = yield* fs.openChildReference(root, name("file"), { access: "write", create: "exclusive" })
+      yield* file.handle.close
+      const directory = yield* fs.mkdirReference(root, name("directory"))
+      const nested = yield* fs.mkdirReference(root, name("nested"))
+      yield* fs.mkdirReference(nested.reference, name("child"))
+
+      assert.strictEqual((yield* Effect.flip(fs.removeReference(root, name("nested")))).code, "NotEmpty")
+      const fileChange = yield* fs.removeReference(root, name("file"))
+      const directoryChange = yield* fs.removeReference(root, name("directory"))
+      assert.isTrue(fileChange.after > fileChange.before)
+      assert.isTrue(directoryChange.after > directoryChange.before)
+      assert.strictEqual((yield* Effect.flip(fs.lookupReference(root, name("file")))).code, "NotFound")
+      assert.strictEqual((yield* Effect.flip(fs.observeMetadata(directory.reference))).code, "StaleReference")
+    }))
+
   it.effect(
     "creates entries with exact identities, initial times, and coordinated directory changes",
     () =>

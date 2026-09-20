@@ -35,7 +35,7 @@ sources:
   - id: tests
     resource: ../../../packages/nfs/test/NfsWrite.test.ts
     title: Internal WRITE and COMMIT wire tests
-generated: { by: codex/okf, at: 2026-09-19T20:09:53Z }
+generated: { by: codex/okf, at: 2026-09-20T12:11:27Z }
 ---
 
 # NFS WRITE and COMMIT design for issue 127
@@ -55,7 +55,7 @@ The decoder accepts bounded `WRITE` data and `COMMIT` arguments. An internal `wr
 
 ## Prerequisites and likely implementation path
 
-Issue #124's lock and stateid changes are present in the local dispatcher. Issue #123's replay preparation is complete. Issues #122, #125, and #126 remain for bounded admission, writable creation, and namespace and metadata mutations. Issue #144 must qualify a provider for the required failure boundary. The public writable profile also needs independent client and fault evidence under #51.
+Issue #124's lock and stateid changes are present in the local dispatcher. Issue #123's replay preparation is complete. Issues #122, #125, and #126 now provide bounded admission, internal writable creation, and namespace and metadata mutations. Issue #144 must qualify a provider for the required failure boundary. The public writable profile also needs independent client and fault evidence under #51.
 
 The remaining public path must enforce the `survives-power-loss` startup gate, use the explicit one-user authorization policy, and enable internal writable dispatch only after the complete writable profile's prerequisites. An unknown commit outcome now returns no success and leaves the core volume unavailable; a later `PUTFH` returns `SERVERFAULT`, which is valid for that operation. Persistent reply recovery still belongs to #50.[^dispatcher][^export][^core][^live][^rfc-replay]
 
