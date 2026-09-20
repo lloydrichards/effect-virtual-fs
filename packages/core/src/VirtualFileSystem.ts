@@ -337,7 +337,8 @@ export type VolumeIncarnation = typeof VolumeIncarnation.Type
 export const VolumeOptions: typeof VfsModel.VolumeOptions = VfsModel.VolumeOptions
 
 /**
- * Capacity and path limits for a volume.
+ * Capacity, admission, watch retention, and path limits for a volume.
+ * `maxPendingOperations` defaults to 64 and `maxWatchEvents` defaults to 256.
  *
  * @category models
  * @since 0.1.0
@@ -356,6 +357,10 @@ export interface VolumeLimits {
   readonly maxFileBytes: ByteSize.ByteSize
   readonly maxEntries: number | undefined
   readonly maxPathBytes: ByteSize.ByteSize | undefined
+  /** Waiting budget; at most this many plus one callers are admitted at once. */
+  readonly maxPendingOperations: number
+  /** Maximum retained events per watch subscriber, including the rescan marker. */
+  readonly maxWatchEvents: number
 }
 
 /**
@@ -1184,9 +1189,9 @@ export interface Caller {
  * @since 0.1.0
  */
 export interface Change {
-  /** Kind of committed namespace or content change. */
-  readonly _tag: "Create" | "Update" | "Remove"
-  /** Absolute path of the changed entry. */
+  /** Kind of committed change. `Rescan` means this subscriber lost events. */
+  readonly _tag: "Create" | "Update" | "Remove" | "Rescan"
+  /** Absolute path of the changed entry, or `/` when retained events were lost. */
   readonly path: BytePath
 }
 
@@ -1370,7 +1375,7 @@ export interface Volume {
   readonly limits: VolumeLimits
   /** Samples content bytes and directory entries together from the current committed state. */
   readonly usage: Effect.Effect<VolumeUsage, FsError>
-  /** Opens a scoped stream of future committed changes. Events are not replayed. */
+  /** Opens a scoped stream of future changes. `Rescan` at `/` requires a full rescan; events are not replayed. */
   readonly watch: Effect.Effect<Stream.Stream<Change>, FsError, Scope.Scope>
   /** Captures an isolated snapshot of the reachable namespace and metadata. */
   readonly snapshot: Effect.Effect<Snapshot, ImageError | FsError>

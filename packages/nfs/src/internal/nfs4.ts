@@ -1352,6 +1352,7 @@ const fsStatuses: Readonly<Record<Vfs.FsCode, number>> = {
   StorageRejected: Status.IO,
   OutcomeUnknown: Status.IO,
   VolumeUnavailable: Status.IO,
+  VolumeBusy: Status.DELAY,
   // NFSv4.1 has no LOOP status. The reference-based NFS read path never follows symbolic links.
   SymlinkLoop: Status.INVAL,
   UnrepresentableName: Status.INVAL

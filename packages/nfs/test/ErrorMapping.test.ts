@@ -24,6 +24,7 @@ const expected = {
   StorageRejected: Status.IO,
   OutcomeUnknown: Status.IO,
   VolumeUnavailable: Status.IO,
+  VolumeBusy: Status.DELAY,
   SymlinkLoop: Status.INVAL,
   UnrepresentableName: Status.INVAL
 } satisfies Readonly<Record<Vfs.FsCode, number>>

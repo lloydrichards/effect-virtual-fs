@@ -13,7 +13,33 @@ import type * as Crypto from "effect/Crypto"
 import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Layer from "effect/Layer"
+import type * as PlatformError from "effect/PlatformError"
 import * as internal from "./internal/memoryFileSystem.js"
+
+/**
+ * Identifies a watch stream failure caused by lost events. Open a new watch before
+ * rescanning its path, and repeat if the new watch also overflows.
+ *
+ * @example
+ * ```ts
+ * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import * as PlatformError from "effect/PlatformError"
+ *
+ * const error = PlatformError.systemError({
+ *   _tag: "Unknown",
+ *   module: "FileSystem",
+ *   method: "watch",
+ *   description: "WatchOverflow"
+ * })
+ *
+ * console.log(MemoryFileSystem.isWatchOverflow(error))
+ * // true
+ * ```
+ *
+ * @category guards
+ * @since 0.4.0
+ */
+export const isWatchOverflow: (error: PlatformError.PlatformError) => boolean = internal.isWatchOverflow
 
 /**
  * Creates a `FileSystem.FileSystem` service backed by a fresh in-memory volume.

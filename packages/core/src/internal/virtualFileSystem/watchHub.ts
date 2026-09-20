@@ -1,6 +1,5 @@
-// Change broadcasting for Volume.watch: one PubSub per volume, published to only while someone listens.
 import * as Effect from "effect/Effect"
-import * as PubSub from "effect/PubSub"
+import * as Queue from "effect/Queue"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 
@@ -9,7 +8,6 @@ export interface Coordinator {
   <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>
 }
 
-// Events are passed as thunks so nothing is allocated when there are no subscribers.
 /** @internal */
 export interface WatchHub<A, E = never> {
   readonly publishUnsafe: (event: () => A) => void
@@ -17,44 +15,79 @@ export interface WatchHub<A, E = never> {
   readonly subscribe: (afterSubscribe?: Effect.Effect<void>) => Effect.Effect<Stream.Stream<A>, E, Scope.Scope>
 }
 
+interface Subscriber<A> {
+  readonly queue: Queue.Queue<A>
+  overflowed: boolean
+  marker: A | undefined
+}
+
 /** @internal */
 export const make = Effect.fnUntraced(function*<A, E = never>(
   coordinate: Coordinator,
+  capacity: number,
+  rescan: () => A,
   checkAvailable?: Effect.Effect<void, E>
 ): Effect.fn.Return<WatchHub<A, E>> {
-  const pubsub = yield* PubSub.unbounded<A>()
-  // Guarded by `coordinate`: publishers run inside coordinated mutations and both writes below hold the gate.
-  let activeSubscribers = 0
+  const subscribers = new Set<Subscriber<A>>()
+
+  const publish = (event: A): void => {
+    for (const subscriber of subscribers) {
+      if (subscriber.overflowed) continue
+
+      if (Queue.sizeUnsafe(subscriber.queue) < capacity - 1) {
+        Queue.offerUnsafe(subscriber.queue, event)
+      } else {
+        subscriber.overflowed = true
+        subscriber.marker = rescan()
+        Queue.offerUnsafe(subscriber.queue, subscriber.marker)
+      }
+    }
+  }
 
   const publishUnsafe = (event: () => A): void => {
-    if (activeSubscribers === 0) return
-    PubSub.publishUnsafe(pubsub, event())
+    if (subscribers.size > 0) publish(event())
   }
 
   const publishManyUnsafe = (events: () => Iterable<A>): void => {
-    if (activeSubscribers === 0) return
-
-    for (const event of events()) PubSub.publishUnsafe(pubsub, event)
+    if (subscribers.size > 0) { for (const event of events()) publish(event) }
   }
 
-  // Registration is uninterruptible end to end, including the permit wait, so a watcher is never
-  // half-registered. This deliberately tightens the engine's "permit waits stay interruptible" rule.
   const subscribe = (afterSubscribe?: Effect.Effect<void>) =>
     Effect.acquireRelease(
       coordinate(Effect.gen(function*() {
         if (checkAvailable !== undefined) yield* checkAvailable
-        const subscription = yield* PubSub.subscribe(pubsub)
+        const queue = yield* Queue.bounded<A>(capacity)
+
+        const subscriber: Subscriber<A> = {
+          queue,
+          overflowed: false,
+          marker: undefined
+        }
 
         if (afterSubscribe !== undefined) yield* afterSubscribe
-        activeSubscribers += 1
+        subscribers.add(subscriber)
 
-        return subscription
+        return subscriber
       })),
-      () =>
+      (subscriber) =>
         coordinate(Effect.sync(() => {
-          activeSubscribers -= 1
-        }))
-    ).pipe(Effect.map(Stream.fromSubscription))
+          subscribers.delete(subscriber)
+        })).pipe(
+          Effect.andThen(Queue.shutdown(subscriber.queue))
+        ),
+      { interruptible: true }
+    ).pipe(Effect.map((subscriber) =>
+      Stream.fromEffectRepeat(Queue.take(subscriber.queue)).pipe(
+        Stream.map((event) => {
+          if (subscriber.overflowed && event === subscriber.marker) {
+            subscriber.overflowed = false
+            subscriber.marker = undefined
+          }
+
+          return event
+        })
+      )
+    ))
 
   return { publishUnsafe, publishManyUnsafe, subscribe }
 })

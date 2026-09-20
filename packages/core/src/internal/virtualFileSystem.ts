@@ -173,6 +173,8 @@ export type VolumeIncarnation = typeof VolumeIncarnation.Type
 export const VolumeOptions = Schema.Struct({
   identity: Schema.optionalKey(VolumeIdentity),
   maxEntries: Schema.optionalKey(Schema.Natural),
+  maxPendingOperations: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+  maxWatchEvents: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(2))),
   maxBytes: Schema.optionalKey(Schema.ByteSize),
   maxFileBytes: Schema.optionalKey(
     Schema.ByteSize.check(
@@ -659,6 +661,8 @@ type VolumeFor<S extends VolumeSource> = S extends { readonly _tag: "Overlay" } 
 
 const UpdateChange = Schema.TaggedStruct("Update", { path: BytePath })
 
+const RescanChange = Schema.TaggedStruct("Rescan", { path: BytePath })
+
 // Each execution constructs a fresh volume and captures its Clock.
 
 /** @internal */
@@ -869,6 +873,21 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const gate = Semaphore.makeUnsafe(1)
+    const maxPendingOperations = settings.maxPendingOperations ?? 64
+    let admitted = 0
+
+    const admit = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FsError, R> =>
+      Effect.suspend((): Effect.Effect<A, E | FsError, R> => {
+        if (admitted >= maxPendingOperations + 1) {
+          return Effect.fail(new FsError({ code: "VolumeBusy", operation }))
+        }
+
+        admitted += 1
+
+        return effect.pipe(Effect.ensuring(Effect.sync(() => {
+          admitted -= 1
+        })))
+      })
 
     let state: EngineState = {
       root: {
@@ -896,7 +915,9 @@ export const makeVolume = Effect.fnUntraced(
       maxBytes: settings.maxBytes,
       maxFileBytes: ByteSize.bytes(maxFileBytes),
       maxEntries: settings.maxEntries,
-      maxPathBytes: settings.maxPathBytes
+      maxPathBytes: settings.maxPathBytes,
+      maxPendingOperations: settings.maxPendingOperations ?? 64,
+      maxWatchEvents: settings.maxWatchEvents ?? 256
     })
 
     if (image !== undefined) {
@@ -1180,30 +1201,33 @@ export const makeVolume = Effect.fnUntraced(
 
     // Permit waits stay interruptible. Changes and their publication run under one permit.
     const coordinated = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>, onStorageFailure?: () => void) =>
-      staged === undefined
-        ? gate.withPermit(Effect.uninterruptible(effect))
-        : staged.mutate(operation, (candidate, emit) =>
-          Effect.gen(function*() {
-            const previous = state
-            const context = contexts.get(candidate)
+      admit(
+        operation,
+        staged === undefined
+          ? gate.withPermit(Effect.uninterruptible(effect))
+          : staged.mutate(operation, (candidate, emit) =>
+            Effect.gen(function*() {
+              const previous = state
+              const context = contexts.get(candidate)
 
-            if (context === undefined) return yield* Effect.die("Missing staged engine state")
-            state = candidate
-            activeStage = context
-            const result = yield* Effect.exit(effect)
-            state = previous
-            activeStage = undefined
+              if (context === undefined) return yield* Effect.die("Missing staged engine state")
+              state = candidate
+              activeStage = context
+              const result = yield* Effect.exit(effect)
+              state = previous
+              activeStage = undefined
 
-            if (Exit.isFailure(result)) return yield* Effect.failCause(result.cause)
+              if (Exit.isFailure(result)) return yield* Effect.failCause(result.cause)
 
-            for (const event of context.events) emit(event)
+              for (const event of context.events) emit(event)
 
-            return result.value
-          }), onStorageFailure)
+              return result.value
+            }), onStorageFailure)
+      )
 
     // Pure observations share the permit without making a candidate or calling the provider.
     const coordinatedRead = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>) =>
-      staged === undefined ? gate.withPermit(effect) : staged.read(operation, () => effect)
+      admit(operation, staged === undefined ? gate.withPermit(effect) : staged.read(operation, () => effect))
 
     const coordinatedCleanup = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       staged === undefined
@@ -1213,7 +1237,12 @@ export const makeVolume = Effect.fnUntraced(
     const watchCoordinate: WatchHub.Coordinator = (effect) =>
       staged === undefined ? gate.withPermit(effect) : staged.coordinate(effect)
 
-    const watchHub = yield* WatchHub.make<Change, FsError>(watchCoordinate, staged?.checkAvailable("watch"))
+    const watchHub = yield* WatchHub.make<Change, FsError>(
+      watchCoordinate,
+      settings.maxWatchEvents ?? 256,
+      () => RescanChange.make({ path: ownedPath(new Uint8Array([47])) }),
+      staged?.checkAvailable("watch")
+    )
 
     const queuePublish = (publish: () => void) => {
       if (activeStage === undefined) publish()
@@ -3792,7 +3821,7 @@ export const makeVolume = Effect.fnUntraced(
       watch: Effect.gen(function*() {
         const hook = TestHooks.getRegistrationHook(surface)
 
-        return yield* watchHub.subscribe(hook?.afterSubscribe)
+        return yield* admit("watch", watchHub.subscribe(hook?.afterSubscribe))
       }).pipe(Effect.withSpan("Volume.watch")),
       snapshot: coordinatedRead("snapshot", captureSnapshot()).pipe(Effect.withSpan("Volume.snapshot")),
 
@@ -3898,7 +3927,9 @@ export const openImageVolume = Effect.fnUntraced(function*(
     maxFileBytes: document.limits.maxFileBytes === undefined
       ? ByteSize.bytes(0xffffffff)
       : ByteSize.bytes(document.limits.maxFileBytes),
-    maxPathBytes: document.limits.maxPathBytes === undefined ? undefined : ByteSize.bytes(document.limits.maxPathBytes)
+    maxPathBytes: document.limits.maxPathBytes === undefined ? undefined : ByteSize.bytes(document.limits.maxPathBytes),
+    maxPendingOperations: 64,
+    maxWatchEvents: 256
   }
 
   const volume = yield* makeVolume(VolumeSource.Live({ document }), undefined, {
