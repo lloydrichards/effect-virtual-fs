@@ -2,6 +2,8 @@
 
 ## 2026-09-20
 
+- **SQLite VM directory-sync qualification attempt**: Ran the callback in the Debian/ext4 UTM gates. Measured 4,096-byte SQLite VFS sectors, passed the ext4 loop near-budget and injected I/O fault cases, and reproduced acknowledged breaches under lying storage. Two VM hard-stop matrices failed because the guest hung on reboot. Host-device flush behavior remains unproven, so the configuration stays experimental and durability stays `memory-only`.
+
 - **SQLite creation directory sync**: Added an application-supplied startup directory-sync operation after the SQLite path check and before schema creation. Startup fails if it reports an error. Tests cover first creation, existing databases, and reopen after a SQLite creator is killed before directory sync. The callback and storage stack still require configuration-specific qualification; durability stays `memory-only`.
 
 - **SQLite temporary-space policy**: Restricted the live-image commit connection to one database, disabled cache spilling, kept eligible temporary files in memory, and truncated retained journals. Documented a database-plus-journal provisioning formula and recorded a disposable 4 MiB tmpfs shortage test. Physical-space reservation and power-loss qualification remain configuration dependent; durability stays `memory-only`.

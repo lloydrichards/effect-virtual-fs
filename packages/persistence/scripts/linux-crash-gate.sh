@@ -5,6 +5,7 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 worker="$repo_root/packages/persistence/test/fixtures/live-restart.ts"
+export LIVE_STORE_SYNC_DIRECTORY=1
 iterations="${GATE_ITERATIONS:-10}"
 output_dir="${GATE_OUTPUT_DIR:-$(mktemp -d -t effect-vfs-crash-gate-XXXXXX)}"
 writer_pid=""
@@ -88,7 +89,12 @@ for iteration in $(seq 1 "$iterations"); do
 
     ready=false
     for _ in $(seq 1 200); do
-      if [[ -s "$marker" ]]; then ready=true; break; fi
+      if [[ "$phase" == acknowledged ]]; then
+        if grep -Eq '^[0-9a-f]{32}$' "$marker" 2>/dev/null; then ready=true; break; fi
+      elif [[ -s "$marker" ]]; then
+        ready=true
+        break
+      fi
       if ! kill -0 "$writer_pid" 2>/dev/null; then break; fi
       sleep 0.05
     done

@@ -16,7 +16,7 @@ mkdir -p "$case_dir"
 case "$action" in
   prepare)
     if [[ "$phase" != acknowledged ]]; then
-      LIVE_STORE_MODE=write LIVE_STORE_FILE="$database" "$bun" "$worker" > "$case_dir/baseline.log" 2>&1
+      LIVE_STORE_SYNC_DIRECTORY=1 LIVE_STORE_MODE=write LIVE_STORE_FILE="$database" "$bun" "$worker" > "$case_dir/baseline.log" 2>&1
     fi
 
     if [[ "$phase" == acknowledged ]]; then
@@ -27,14 +27,19 @@ case "$action" in
       marker="$database.${phase/pause-before-commit/before-commit}"
     fi
 
-    nohup env LIVE_STORE_MODE="$mode" LIVE_STORE_FILE="$database" \
+    nohup env LIVE_STORE_SYNC_DIRECTORY=1 LIVE_STORE_MODE="$mode" LIVE_STORE_FILE="$database" \
       LIVE_STORE_EVIDENCE_FILE="$case_dir/commit-connection-pragmas.txt" \
       "$bun" "$worker" > "$case_dir/writer.log" 2>&1 < /dev/null &
     echo "$!" > "$case_dir/writer.pid"
 
     ready=false
     for _ in {1..200}; do
-      if [[ -s "$marker" ]]; then ready=true; break; fi
+      if [[ "$phase" == acknowledged ]]; then
+        if grep -Eq '^[0-9a-f]{32}$' "$marker" 2>/dev/null; then ready=true; break; fi
+      elif [[ -s "$marker" ]]; then
+        ready=true
+        break
+      fi
       if ! kill -0 "$(cat "$case_dir/writer.pid")" 2>/dev/null; then break; fi
       sleep 0.05
     done
@@ -53,7 +58,7 @@ case "$action" in
       expected=1
     fi
 
-    LIVE_STORE_MODE="$mode" LIVE_STORE_FILE="$database" "$bun" "$worker" > "$case_dir/reopen.log" 2>&1
+    LIVE_STORE_SYNC_DIRECTORY=1 LIVE_STORE_MODE="$mode" LIVE_STORE_FILE="$database" "$bun" "$worker" > "$case_dir/reopen.log" 2>&1
     "$bun" -e '
       import { Database } from "bun:sqlite"
       import { createHash } from "node:crypto"

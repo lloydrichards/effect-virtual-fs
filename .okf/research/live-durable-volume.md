@@ -38,6 +38,12 @@ sources:
   - id: sqlite-write-order
     resource: ../../packages/persistence/scripts/linux-write-order-gate.sh
     title: SQLite successful-sync write-loss and reorder fault gate
+  - id: sqlite-vm-fault
+    resource: ../../packages/persistence/scripts/utm-vm-fault-gate.sh
+    title: Debian ext4 VM fault and space gate
+  - id: sqlite-vm-crash
+    resource: ../../packages/persistence/scripts/utm-vm-crash-gate.sh
+    title: Debian VM hard-stop crash gate
   - id: nfs
     resource: ../../packages/nfs/src/internal/nfs4.ts
     title: Replay admission, operation interruption, and slot rollback
@@ -53,6 +59,12 @@ sources:
   - id: sqlite-wal
     resource: https://sqlite.org/wal.html
     title: SQLite WAL and checkpoint growth
+  - id: linux-fsync
+    resource: https://man7.org/linux/man-pages/man2/fsync.2.html
+    title: Linux fsync and directory-entry semantics
+  - id: qemu-cache
+    resource: https://www.qemu.org/docs/master/system/qemu-manpage.html
+    title: QEMU disk cache and flush options
   - id: rfc
     resource: https://www.rfc-editor.org/rfc/rfc8881.html
     title: NFSv4.1 sections 9, 18.3, and 18.32
@@ -68,7 +80,7 @@ sources:
   - id: issue-50
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
     title: Restart recovery
-generated: { by: codex/okf, at: 2026-09-20T10:44:00Z }
+generated: { by: codex/okf, at: 2026-09-20T11:10:00Z }
 ---
 
 # Live durable volume proposal
@@ -204,6 +216,10 @@ Require finite content, entry, object, image-byte, input-byte, handle, caller, s
 The database retains one current image and reusable free pages, not one row per commit. Cap database pages and budget rollback-journal space separately, including page and journal overhead. The provider now disables cache spilling, selects memory for eligible SQLite temporary files, truncates retained journals, and rejects attached databases. For database cap `D`, page size `P`, and VFS journal-header sector size `S`, the documented physical provision is at least `D + S + floor(D / P) * (P + 8)` bytes plus allocation and directory overhead. It covers the single database and its one rollback journal for the provider's SQL; `journal_size_limit=0` does not cap journal peak size. A dedicated filesystem or quota must preserve that provision because the Effect `FileSystem` service cannot query free physical space. The VFS sector size, filesystem allocation overhead, and absence of other SQLite temporary-file paths must be verified for a supported storage configuration. `maxBytes` remains logical content capacity and cannot promise physical free disk. Bound retained snapshots through application lifetimes. Compaction and backup are separate maintenance operations with explicit temporary-space budgets; ordinary commits must not depend on an unbounded history cleanup.
 
 On a disposable Debian 12 arm64 Linux 6.1 guest, Bun 1.2.21 and SQLite 3.50.4 (`TEMP_STORE=1`) with a 4 MiB `tmpfs`, the gate calculated a 4,068,288-byte database-plus-journal provision from a 2,000,000-byte database cap, 4,096-byte pages, and a conservative 65,536-byte sector allowance. With 4,071,424 bytes free, a mutation committed and reopened as a complete new image. After UPDATE and before COMMIT in a separate transaction, the database was 8,192 bytes and the rollback journal was 4,616 bytes. The test VFS recorded successful journal writes across the paused, near-budget, and disk-full transactions; the largest observed logical write end was 8,720 bytes. The commit connection reported DELETE, `synchronous=3`, `fullfsync=1`, exclusive locking, `temp_store=2`, `cache_spill=0`, `journal_size_limit=0`, and 4,096-byte pages. At 4,096 free bytes the attempted write returned `StorageRejected`; reopen recovered the old complete image and `PRAGMA integrity_check` returned `ok`. This finite observation is not a general peak-size guarantee or a physical-space reservation. It does not qualify power-loss durability.
+
+The 2026-09-20 UTM follow-up ran the application-supplied directory callback on every provider startup. It opens the verified parent through `NodeFileSystem` and calls the handle's `sync` before the store becomes available. The exact guest was Debian 12, Linux 6.1.0-13-arm64, ext4 on VirtIO qcow2 hosted by macOS 26.6.2 APFS, Bun 1.2.21, `@effect/sql-sqlite-bun` 4.0.0-rc.114, and SQLite 3.50.4. Its SQLite VFS returned 4,096-byte sectors for the main database and journal, while VirtIO reported 512-byte logical and physical blocks and a write-back cache. A disposable ext4 loop filesystem on that guest, with reserved blocks disabled, committed at 4,071,424 free bytes under the 4,068,288-byte conservative provision. At 3,072 free bytes, a 16,000-byte candidate returned `StorageRejected`; reopen recovered the old image. Five injected write or sync failures recovered the old image. Three successful-sync lost-write cases still breached acknowledged recovery, as expected for lying storage.[^sqlite-vm-fault] The loop filesystem tests ext4 allocation near this limit but does not reserve space for the root ext4 database.
+
+Two one-iteration UTM hard-stop runs with the callback failed because the guest did not boot cleanly after one stop in each run. The first passed three cases before hanging after acknowledgement; the second passed one case before hanging before `COMMIT`. A second restart recovered the interrupted databases with `integrity_check=ok`, but neither run is a passing four-case gate.[^sqlite-vm-crash] Linux documents that a separate directory `fsync` is needed for a new entry.[^linux-fsync] The observed UTM command has no no-flush option; QEMU documents write-back with flushes enabled as the default.[^qemu-cache] These facts do not establish that host APFS and the physical device honor flushes under power loss. This configuration remains experimental, and `Volume.durability` remains `memory-only`.
 
 The core and staged provider use bounded per-subscriber watch queues and a rescan marker.[^watch] The accepted [watch overflow decision](../decisions/core/watch-event-overflow.md "constrained by") defines the marker, adapter projection, capacity, and admission result. A stalled watcher cannot block or reject an unrelated mutation.
 

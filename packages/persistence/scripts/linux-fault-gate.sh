@@ -5,8 +5,10 @@ set -euo pipefail
 [[ "$(uname -s)" == Linux ]] || { echo "Linux only" >&2; exit 2; }
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
-worker="$repo_root/packages/persistence/test/fixtures/live-restart.ts"
-source_file="$repo_root/packages/persistence/test/fixtures/faultvfs.c"
+worker="${GATE_WORKER:-$repo_root/packages/persistence/test/fixtures/live-restart.ts}"
+source_file="${GATE_SOURCE:-$repo_root/packages/persistence/test/fixtures/faultvfs.c}"
+bun_bin="${GATE_BUN:-bun}"
+export LIVE_STORE_SYNC_DIRECTORY=1
 output_dir="${GATE_OUTPUT_DIR:-$(mktemp -d -t effect-vfs-fault-gate-XXXXXX)}"
 iterations="${GATE_FAULT_ITERATIONS:-3}"
 [[ "$iterations" =~ ^[1-9][0-9]*$ ]] || { echo "GATE_FAULT_ITERATIONS must be positive" >&2; exit 2; }
@@ -19,7 +21,7 @@ for iteration in $(seq 1 "$iterations"); do
     case_dir="$output_dir/$iteration-$case"
     mkdir -p "$case_dir"
     database="$case_dir/live.sqlite"
-    LIVE_STORE_MODE=write LIVE_STORE_FILE="$database" bun "$worker" > "$case_dir/baseline.log"
+    LIVE_STORE_MODE=write LIVE_STORE_FILE="$database" "$bun_bin" "$worker" > "$case_dir/baseline.log"
 
     persistent=""
     operation="${case%%-*}"
@@ -35,7 +37,7 @@ for iteration in $(seq 1 "$iterations"); do
       EFFECT_VFS_FAULT_LOG="$case_dir/hits.log" \
       LIVE_STORE_MODE=fault-write LIVE_STORE_FILE="$database" \
       LIVE_STORE_FAULT_VFS="$output_dir/faultvfs.so" \
-      bun "$worker" > "$case_dir/writer.log" 2>&1
+      "$bun_bin" "$worker" > "$case_dir/writer.log" 2>&1
 
     [[ -s "$case_dir/hits.log" ]] || { echo "VFS fault did not fire: $case" >&2; exit 1; }
     if [[ "$persistent" == 1 && "$(wc -l < "$case_dir/hits.log")" -lt 2 ]]; then
@@ -45,7 +47,7 @@ for iteration in $(seq 1 "$iterations"); do
     outcome="$(grep -E '^(committed|StorageRejected|OutcomeUnknown)$' "$case_dir/writer.log" | head -1)"
     [[ -n "$outcome" ]] || { cat "$case_dir/writer.log" >&2; exit 1; }
 
-    LIVE_STORE_MODE=verify-fault LIVE_STORE_FILE="$database" bun "$worker" > "$case_dir/reopen.log"
+    LIVE_STORE_MODE=verify-fault LIVE_STORE_FILE="$database" "$bun_bin" "$worker" > "$case_dir/reopen.log"
     recovered="$(grep -E '^recovered=(old|new)$' "$case_dir/reopen.log" | head -1)"
     [[ -n "$recovered" ]] || { cat "$case_dir/reopen.log" >&2; exit 1; }
     if [[ "$outcome" == committed && "$recovered" != recovered=new ]] ||
@@ -54,7 +56,7 @@ for iteration in $(seq 1 "$iterations"); do
       exit 1
     fi
 
-    bun -e '
+    "$bun_bin" -e '
       import { Database } from "bun:sqlite"
       const db = new Database(process.argv[1])
       const check = db.query("PRAGMA integrity_check").get()

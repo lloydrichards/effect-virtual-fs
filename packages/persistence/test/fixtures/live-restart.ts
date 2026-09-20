@@ -22,6 +22,7 @@ const program = Effect.gen(function*() {
   const filename = yield* Config.String("LIVE_STORE_FILE")
   const evidence = yield* Config.String("LIVE_STORE_EVIDENCE_FILE").pipe(Config.withDefault(""))
   const faultVfs = yield* Config.String("LIVE_STORE_FAULT_VFS").pipe(Config.withDefault(""))
+  const syncDirectory = yield* Config.String("LIVE_STORE_SYNC_DIRECTORY").pipe(Config.withDefault(""))
   const pragmas: Array<string> = []
 
   const sqlite = SqliteClient.layer({ filename, disableWAL: true, busyTimeout: 0 })
@@ -87,7 +88,16 @@ const program = Effect.gen(function*() {
   const storage = SqliteLiveImageStore.layer({
     filename,
     maxImageBytes: options.maxImageBytes,
-    maxDatabaseBytes: ByteSize.megabytes(2)
+    maxDatabaseBytes: ByteSize.megabytes(2),
+    syncDatabaseDirectory: syncDirectory === "1"
+      ? (directory) =>
+        Effect.scoped(Effect.gen(function*() {
+          const filesystem = yield* FileSystem.FileSystem
+          const handle = yield* filesystem.open(directory, { flag: "r" })
+          yield* handle.sync
+          yield* Console.log(`directory_sync=ok path=${directory}`)
+        })).pipe(Effect.provide(NodeFileSystem.layer))
+      : undefined
   }).pipe(
     Layer.provide(database),
     Layer.provide(Layer.mergeAll(NodeCrypto.layer, NodeFileSystem.layer, NodePath.layer))
@@ -115,8 +125,9 @@ const program = Effect.gen(function*() {
       }
 
       const target = mode === "disk-full" ? "/disk-full" : "/fault"
+      const candidateBytes = mode === "disk-full" ? 16_000 : 14_000
 
-      const result = yield* Effect.exit(caller.writeFile(target, new Uint8Array(14_000), {
+      const result = yield* Effect.exit(caller.writeFile(target, new Uint8Array(candidateBytes), {
         access: "write",
         create: "exclusive"
       }))
@@ -167,10 +178,11 @@ const program = Effect.gen(function*() {
       if (baseline.toString() !== "7,8,9") return yield* Effect.die("baseline image changed")
 
       const target = mode === "verify-disk-full" ? "/disk-full" : "/fault"
+      const expectedBytes = mode === "verify-disk-full" ? 16_000 : 14_000
       const candidate = yield* Effect.exit(caller.readFile(target))
 
       if (Exit.isSuccess(candidate)) {
-        if (candidate.value.length !== 14_000 || candidate.value.some((byte) => byte !== 0)) {
+        if (candidate.value.length !== expectedBytes || candidate.value.some((byte) => byte !== 0)) {
           return yield* Effect.die("recovered candidate is partial")
         }
 
