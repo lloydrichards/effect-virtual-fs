@@ -32,35 +32,41 @@ const store = (filename: string, maxDatabaseBytes = ByteSize.megabytes(2)) =>
   )
 
 describe("SQLite live image store", () => {
-  it.effect("syncs the verified parent after first creation and again on reopen", () =>
-    Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
-      const realDirectory = yield* filesystem.realPath(directory)
-      const observed: Array<boolean> = []
-
-      const syncDatabaseDirectory = (parent: string) =>
+  for (const existing of [false, true]) {
+    it.effect(
+      existing ? "syncs the verified parent of an existing database" : "syncs the verified parent after first creation",
+      () =>
         Effect.scoped(Effect.gen(function*() {
-          assert.strictEqual(parent, realDirectory)
-          observed.push(yield* filesystem.exists(filename))
+          const filesystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
+          const filename = path.join(directory, "live.sqlite")
+          const realDirectory = yield* filesystem.realPath(directory)
 
-          const handle = yield* filesystem.open(parent, { flag: "r" })
-          yield* handle.sync
-        }))
+          if (existing) yield* filesystem.writeFile(filename, new Uint8Array())
+          let observed = false
 
-      const live = SqliteLiveImageStore.layer({
-        filename,
-        maxImageBytes: options.maxImageBytes,
-        maxDatabaseBytes: ByteSize.megabytes(2),
-        syncDatabaseDirectory
-      }).pipe(Layer.provide(SqliteClient.layer({ filename, disableWAL: true })))
+          const syncDatabaseDirectory = (parent: string) =>
+            Effect.scoped(Effect.gen(function*() {
+              assert.strictEqual(parent, realDirectory)
+              observed = yield* filesystem.exists(filename)
 
-      yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(live)))
-      yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(live)))
-      assert.deepStrictEqual(observed, [true, true])
-    })).pipe(Effect.provide(files)))
+              const handle = yield* filesystem.open(parent, { flag: "r" })
+              yield* handle.sync
+            }))
+
+          const live = SqliteLiveImageStore.layer({
+            filename,
+            maxImageBytes: options.maxImageBytes,
+            maxDatabaseBytes: ByteSize.megabytes(2),
+            syncDatabaseDirectory
+          }).pipe(Layer.provide(SqliteClient.layer({ filename, disableWAL: true })))
+
+          yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(live)))
+          assert.strictEqual(observed, true)
+        })).pipe(Effect.provide(files))
+    )
+  }
 
   it.effect("fails startup when directory sync fails, then reopens the new database", () =>
     Effect.scoped(Effect.gen(function*() {
