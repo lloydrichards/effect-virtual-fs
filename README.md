@@ -1,7 +1,7 @@
 # Effect VirtualFileSystem
 
-Run Effect programs against an in-memory filesystem without touching the host disk. Use it for isolated tests, build
-previews, or tools that need reproducible filesystem state.
+Use an in-memory filesystem with Effect. The packages cover the standard `FileSystem` service, direct access to a
+shared virtual volume, SQLite persistence, and a read-only NFSv4.1 export.
 
 ## Quick start
 
@@ -20,14 +20,14 @@ const program = Effect.gen(function*() {
 })
 
 const settings = await Effect.runPromise(
-  program.pipe(Effect.provide(MemoryFileSystem.layer))
+  program.pipe(Effect.provide(MemoryFileSystem.layerCrypto))
 )
 
-console.log(settings)
+console.log(settings) // {"mode":"preview"}
 ```
 
-The program uses Effect's normal `FileSystem` service. Only the provided layer changes, so the same application code
-can use a host filesystem in production and an isolated in-memory filesystem in tests.
+The program uses Effect's `FileSystem` service. `layerCrypto` provides a fresh virtual volume and the `Crypto` service
+it needs. Use `MemoryFileSystem.layer` when your application already provides `Crypto`.
 
 ## Choose a package
 
@@ -35,29 +35,15 @@ can use a host filesystem in production and an isolated in-memory filesystem in 
   `FileSystem.FileSystem` implementation. This is the usual starting point.
 - Use [`@effect-vfs/core`](packages/core/README.md) when you need byte-preserving names, explicit callers and
   permissions, shared volumes, fixtures, quotas, watches, or portable snapshots.
-- Use [`@effect-vfs/persistence`](packages/persistence/README.md) to save named SQLite checkpoints and restore
-  them as fresh volumes in a later process.
+- Use [`@effect-vfs/persistence`](packages/persistence/README.md) for named SQLite checkpoints or experimental live
+  image commits.
+- Use [`@effect-vfs/nfs`](packages/nfs/README.md) to expose one live volume through the preview read-only NFSv4.1
+  profile. It is not a conformant or production NFS server.
 
-The core, memory, and persistence packages are versioned at `0.1.0`. All packages target the
-exact peer version `effect@4.0.0-rc.114` while Effect 4 remains a release candidate.
+Check each package's peer dependencies before upgrading Effect 4. The packages currently target
+`effect@4.0.0-rc.114` exactly.
 
-## Explore project knowledge
-
-The [OKF bundle](.okf/index.md) connects the current architecture, behavioral contracts, accepted decisions,
-research, and validation guidance. With [Bun](https://bun.sh) installed, start from the project overview and explore
-its neighboring concepts interactively:
-
-```sh
-npx --yes okf-graph@0.2.0 concept .okf profiles/project-overview --interactive
-```
-
-Concept IDs are paths inside `.okf` without the `.md` extension. You can also validate the bundle or inspect a
-focused neighborhood directly:
-
-```sh
-npx --yes okf-graph@0.2.0 validate .okf
-npx --yes okf-graph@0.2.0 graph neighbors .okf contracts/snapshots-and-fixtures
-```
+For architecture and behavioral contracts, start with the [project knowledge overview](.okf/profiles/project-overview.md).
 
 ## Repository development
 
@@ -77,11 +63,6 @@ bun run --filter @repo/scratchpad dev
 Reference repositories under `.reference/` are optional and excluded from builds.
 
 `@repo/virtual-build` is a private example package that demonstrates Vite build and rebuild flows over virtual files.
-
-## Core development context
-
-Start with the [project knowledge overview](.okf/profiles/project-overview.md) for the current system boundary, then
-follow its graph links into the implemented profile, focused contracts, accepted decisions, and draft research.
 
 ## License
 

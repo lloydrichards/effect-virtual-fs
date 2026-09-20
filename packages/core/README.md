@@ -1,13 +1,10 @@
 # @effect-vfs/core
 
-`@effect-vfs/core` is a runtime-neutral virtual filesystem engine for Effect. It gives you isolated in-memory volumes,
-byte-preserving paths, POSIX-inspired permissions, logical quotas, change streams, deterministic fixtures, and portable
-encoded snapshots without reading from or writing to the host filesystem.
+`@effect-vfs/core` manages in-memory volumes with byte-preserving paths, callers with explicit permissions, quotas,
+watches, fixtures, and portable snapshots. It does not access the host filesystem.
 
-Use it when filesystem state is part of your domain: sandboxing a tool, modeling several users against one namespace,
-testing permission behavior, building repeatable fixtures, or saving and restoring an in-memory workspace. If you need
-Effect's standard `FileSystem` service, use [`@effect-vfs/memory`](https://www.npmjs.com/package/@effect-vfs/memory),
-which adapts this package to that interface.
+Use core when you need direct control over a shared volume or byte-oriented paths. For Effect's standard
+`FileSystem` service, use [`@effect-vfs/memory`](../memory/README.md).
 
 The package implements a documented subset of POSIX behavior. It does not claim full POSIX conformance. See the
 [implemented profile](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.okf/profiles/implemented-filesystem.md)
@@ -19,7 +16,8 @@ for the exact permission, path, timestamp, quota, and atomicity rules.
 npm install @effect-vfs/core effect@4.0.0-rc.114
 ```
 
-Version `0.1.0` targets the exact peer version `effect@4.0.0-rc.114`.
+The package currently requires the exact peer version `effect@4.0.0-rc.114`. The examples also need a `Crypto`
+service; on Node or Bun, install `@effect/platform-node-shared@4.0.0-rc.114` and provide `NodeCrypto.layer`.
 
 ## The mental model
 
@@ -40,6 +38,7 @@ lifetime are explicit values that can be composed in one Effect program.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Effect } from "effect"
 
 const utf8 = new TextEncoder()
@@ -76,7 +75,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   }
 }))
 
-const result = await Effect.runPromise(program)
+const result = await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))
 console.log(result) // { config: { feature: "preview" }, mode: "640" }
 ```
 
@@ -94,6 +93,7 @@ contain names which are not valid UTF-8.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function*() {
@@ -112,7 +112,7 @@ const program = Effect.gen(function*() {
   return { names: names.map((name) => Array.from(name)), roundTrip: Array.from(roundTrip) }
 })
 
-console.log(await Effect.runPromise(program))
+console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))))
 // { names: [[255]], roundTrip: [47, 255] }
 ```
 
@@ -128,6 +128,7 @@ resettable sandboxes.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 
@@ -165,7 +166,7 @@ const program = Effect.gen(function*() {
   return new TextDecoder().decode(yield* b.readFile("/project/settings.json"))
 })
 
-console.log(await Effect.runPromise(program)) // {"theme":"dark"}
+console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))) // {"theme":"dark"}
 ```
 
 Fixture paths must be absolute and unique, and parent directories must be listed explicitly. Fixtures can also contain
@@ -175,140 +176,15 @@ Snapshot decoding requires explicit work limits because encoded bytes may come f
 contains the reachable namespace and metadata. It excludes callers, open handles, cursor positions, watch
 subscriptions, and unlinked content. Each restored volume is independent.
 
-## Branch from one immutable snapshot
+## Overlays and snapshot deltas
 
-Use `makeOverlay` when several writable workspaces start from the same snapshot. Untouched regular-file contents are
-shared internally. A content change copies that whole file for the editing workspace; namespace and metadata state are
-always private. Logical quotas still count the complete visible volume, including shared base files and unlinked-open
-contents.
+An overlay creates a writable workspace from an immutable snapshot. Untouched file bytes remain shared until a
+workspace edits them. See the [overlay guide](../../apps/docs/app/content/guides/overlay-filesystems.mdx) for the
+workflow and conflict rules.
 
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { Effect } from "effect"
-import * as ByteSize from "effect/ByteSize"
-
-const branch = Effect.gen(function*() {
-  const template = yield* Vfs.fromFixture({
-    entries: [
-      { kind: "directory", path: "/project" },
-      { kind: "file", path: "/project/settings.json", bytes: new Uint8Array() }
-    ]
-  })
-  const base = yield* template.snapshot
-  const workspace = yield* Vfs.makeOverlay(base, { maxBytes: ByteSize.megabytes(1) })
-  const fs = yield* workspace.caller()
-
-  yield* fs.rename("/project/settings.json", "/project/preferences.json")
-  return yield* workspace.capture()
-})
-```
-
-`makeOverlay(base, options)` returns a reusable Effect. Each execution creates a fresh workspace from `base`; it does
-not memoize or reset an earlier workspace. Invalid volume options fail with `ConfigurationError`, while failure to
-inspect the base snapshot fails with `ImageError`.
-
-`changes()` reports final differences from the base. It hides timestamp-only differences unless called with
-`{ includeTimestamps: true }`. Renames are paired only from retained object identity; equal contents are never treated
-as rename evidence. Paths in summaries are `BytePath` values, so inspect them with `pathToBytes` when names may not be
-UTF-8. Although `OverlayChange` and its options have schemas, a summary is an in-process value containing opaque
-`BytePath` objects. The schema is not a portable summary encoding.
-
-`capture()` returns a complete version 1 snapshot and matching summary from one committed state. Later writes change
-neither result. The snapshot works with `encodeSnapshot`, `fromSnapshot`, and `@effect-vfs/persistence` checkpoints.
-Restoring it recovers the complete filesystem state, not the earlier overlay base relationship or summary. To reset,
-create a fresh overlay from the base and replace your application reference; existing callers, handles, and watches
-remain attached to the old workspace until their own lifetimes end.
-
-The Effects returned by `changes(options)` and `capture(options)` are also reusable. Each execution observes the
-workspace again. Invalid summary options fail with `ConfigurationError`; failure to construct the complete observed
-snapshot fails with `ImageError`. Reusing a previously completed `capture()` result does not observe later writes.
-
-## Store and apply exact snapshot deltas
-
-Use `diffSnapshots` when you need a portable description of the exact difference between two immutable snapshots.
-The result is an opaque `SnapshotDelta`: inspect it for a path-oriented summary, encode it with Effect Schema, or apply
-it to a semantically identical base to reconstruct the target snapshot.
-
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import { Effect, Schema } from "effect"
-import * as ByteSize from "effect/ByteSize"
-
-const Delta = Vfs.SnapshotDeltaFromBytes()
-
-const program = Effect.gen(function*() {
-  const baseVolume = yield* Vfs.fromFixture({
-    entries: [{ kind: "file", path: "/old.txt", bytes: new TextEncoder().encode("before") }]
-  })
-  const targetVolume = yield* Vfs.fromFixture({
-    entries: [{ kind: "file", path: "/new.txt", bytes: new TextEncoder().encode("after") }]
-  })
-  const base = yield* baseVolume.snapshot
-  const target = yield* targetVolume.snapshot
-
-  const delta = yield* Vfs.diffSnapshots(base, target)
-  const changes = yield* Vfs.inspectSnapshotDelta(base, delta)
-  const bytes = yield* Schema.encodeEffect(Delta)(delta)
-  const decoded = yield* Schema.decodeEffect(Delta)(bytes)
-  const restored = yield* Vfs.applySnapshotDelta(base, decoded)
-
-  return { changes, restored }
-})
-
-await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))
-```
-
-Inspection verifies the delta against its semantic base before reporting what the two snapshots prove. It does not guess renames from equal contents or paths: a move is a
-`Removed` change followed by an `Added` change. `Updated` records identify changed semantic fields, including content,
-metadata, symbolic-link targets, and hard-link topology. Summaries do not contain replay payloads; the opaque delta does.
-
-Each delta records the semantic identity of its required base. Inspecting or applying it against a different valid snapshot fails with a
-`SnapshotDeltaError` whose `code` is `BaseMismatch`. Equivalent snapshots are accepted even if their encoded bytes or
-internal record identifiers differ. Applying a delta returns another immutable `Snapshot`; call `fromSnapshot` when
-you need a writable volume.
-
-Creation, inspection, encoding, decoding, and application use finite `SnapshotDeltaLimits.default` limits when none are supplied.
-Delta creation, inspection, and application require Effect's platform-neutral `Crypto.Crypto` service for SHA-256 base identity.
-Provide the official Node, Bun, browser, or Deno crypto layer at the application edge; the core never imports a host
-crypto implementation. Memory-sensitive applications can use one policy throughout the workflow:
-
-```ts
-const limits = Vfs.SnapshotDeltaLimits.constrained
-const Delta = Vfs.SnapshotDeltaFromBytes(limits)
-
-const constrained = Effect.gen(function*() {
-  const delta = yield* Vfs.diffSnapshots(base, target, limits)
-  const bytes = yield* Schema.encodeEffect(Delta)(delta)
-  const decoded = yield* Schema.decodeEffect(Delta)(bytes)
-  return yield* Vfs.applySnapshotDelta(base, decoded, limits)
-})
-```
-
-Both presets are frozen complete policies. The shipped values are:
-
-| limit                               | `constrained` | `default` |
-| ----------------------------------- | ------------: | --------: |
-| encoded bytes                       |         2 MiB |    16 MiB |
-| canonical identity bytes            |         4 MiB |    32 MiB |
-| stored records plus summary changes |         6,500 |    50,000 |
-| decoded delta bytes                 |       512 KiB |     8 MiB |
-| base records                        |         6,500 |    50,000 |
-| target records                      |         6,500 |    50,000 |
-| namespace entries                   |         6,500 |   100,000 |
-| output records                      |         6,500 |    50,000 |
-| output payload bytes                |       256 KiB |     4 MiB |
-| inherited records                   |         6,500 |    50,000 |
-
-These are conservative finite defaults, not universal workspace-size or memory guarantees. To tune one dimension,
-spread a preset into a complete `SnapshotDeltaLimits` value and replace that field.
-
-```ts
-const limits = {
-  ...Vfs.SnapshotDeltaLimits.default,
-  maxOutputBytes: ByteSize.mebibytes(8)
-}
-```
+Snapshot deltas encode exact changes between compatible images. They have separate decode and application limits;
+check those limits before accepting an untrusted delta. See the
+[snapshot delta API](../../apps/docs/app/content/api/core/snapshot-delta.mdx) for operations and defaults.
 
 ## Use scoped handles for incremental I/O
 
@@ -318,6 +194,7 @@ interruption.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.scoped(Effect.gen(function*() {
@@ -335,7 +212,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   return [first, second, preview].map((bytes) => new TextDecoder().decode(bytes))
 }))
 
-console.log(await Effect.runPromise(program)) // ["one\n", "two\n", "one"]
+console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))) // ["one\n", "two\n", "one"]
 ```
 
 Handles also expose an explicit `close` effect when early release matters. Calling explicit close twice fails, while
@@ -349,6 +226,7 @@ expected failures.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function*() {
@@ -362,7 +240,7 @@ const program = Effect.gen(function*() {
   )
 })
 
-const bytes = await Effect.runPromise(program)
+const bytes = await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))
 console.log(new TextDecoder().decode(bytes)) // {}
 ```
 
@@ -374,6 +252,7 @@ current directory.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const loadConfig = Effect.gen(function*() {
@@ -391,7 +270,7 @@ const program = Effect.gen(function*() {
   return yield* loadConfig.pipe(Effect.provideService(Vfs.CurrentFileSystem, fs))
 })
 
-const bytes = await Effect.runPromise(program)
+const bytes = await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))
 console.log(new TextDecoder().decode(bytes)) // {}
 ```
 

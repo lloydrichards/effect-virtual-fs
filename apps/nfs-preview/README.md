@@ -154,5 +154,6 @@ failure is expected.
 ## Scope
 
 This is a local single-user interoperability preview, not a conformant or production NFS server. It is read-only and
-does not implement remote authentication, encryption, locking, delegations, durable recovery, or the full NFSv4.1
-operation set. Do not expose port 2049 beyond the local machine.
+does not implement remote authentication, encryption, write locks, delegations, durable recovery, or the full NFSv4.1
+operation set. The server tracks advisory read locks between NFS clients; direct VFS callers do not participate.
+Do not expose port 2049 beyond the local machine.
