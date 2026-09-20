@@ -69,6 +69,15 @@ describe("reference mutations", () => {
         assert.isTrue(created.created)
         assert.isTrue(created.directory.after > created.directory.before)
         assert.deepInclude(yield* created.handle.stat, { mode: 0o640, atimeNs: 31n, mtimeNs: 32n })
+
+        const sized = yield* fs.openChildReference(root, name("sized"), {
+          access: "read",
+          create: "exclusive",
+          initialSize: 3n
+        })
+
+        assert.deepInclude(yield* sized.handle.stat, { size: 3n })
+        yield* sized.handle.close
         yield* created.handle.write(new Uint8Array([1, 2]))
         yield* created.handle.close
         const beforeExisting = (yield* fs.observeMetadata(created.reference)).value
@@ -216,6 +225,44 @@ describe("reference mutations", () => {
         }))).code,
         "AccessDenied"
       )
+    }))
+
+  it.effect("checks an expected child before changing an open target", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      const root = yield* fs.rootReference
+      const first = yield* fs.openChildReference(root, name("guarded"), { access: "write", create: "exclusive" })
+
+      assert.strictEqual(
+        (yield* Effect.flip(fs.openChildReference(root, name("guarded"), {
+          access: "write",
+          create: "ifMissing",
+          truncate: true
+        }, null))).code,
+        "VolumeBusy"
+      )
+
+      const same = yield* fs.openChildReference(root, name("guarded"), {
+        access: "read",
+        create: "ifMissing"
+      }, first.reference)
+
+      assert.strictEqual(same.reference, first.reference)
+      yield* same.handle.close
+
+      yield* fs.unlinkReference(root, name("guarded"))
+      yield* fs.writeFile("/guarded", new Uint8Array([7]), { access: "write", create: "exclusive" })
+
+      assert.strictEqual(
+        (yield* Effect.flip(fs.openChildReference(root, name("guarded"), {
+          access: "write",
+          create: "ifMissing",
+          truncate: true
+        }, first.reference))).code,
+        "VolumeBusy"
+      )
+      assert.deepStrictEqual(yield* fs.readFile("/guarded"), new Uint8Array([7]))
+      yield* first.handle.close
     }))
 
   it.effect("returns non-overlapping revision pairs under concurrent creation", () =>

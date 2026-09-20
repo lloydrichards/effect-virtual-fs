@@ -1062,11 +1062,12 @@ export interface Caller {
     reference: ObjectReference,
     settings?: OpenReferenceSettings
   ) => Effect.Effect<FileHandle, FsError, Scope.Scope>
-  /** Atomically looks up or creates and opens one child of a referenced directory. */
+  /** Atomically looks up or creates and opens one child; `expected` guards its current identity, with `null` meaning absent. */
   readonly openChildReference: (
     directory: ObjectReference,
     name: Uint8Array,
-    settings: OpenChildReferenceSettings
+    settings: OpenChildReferenceSettings,
+    expected?: ObjectReference | null
   ) => Effect.Effect<OpenChildReferenceResult, FsError, Scope.Scope>
   /** Reads metadata, following the final symbolic link by default. */
   readonly stat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>

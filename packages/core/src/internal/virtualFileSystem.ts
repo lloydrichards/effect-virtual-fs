@@ -294,7 +294,8 @@ export const OpenReferenceSettings = Schema.Struct({
 /** @internal */
 export const OpenChildReferenceSettings = Schema.Struct({
   ...OpenSettings.fields,
-  times: Schema.optionalKey(Times)
+  times: Schema.optionalKey(Times),
+  initialSize: Schema.optionalKey(Schema.BigInt)
 })
 
 const WriteFileSettings = Schema.Struct({
@@ -2816,7 +2817,7 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         openChildReference: Effect.fn("Caller.openChildReference")(
-          function*(directoryReference, input, raw) {
+          function*(directoryReference, input, raw, expected) {
             const name = yield* referencedName(input, "openChildReference")
             const decoded = decodeOpenChildReferenceSettings(raw)
 
@@ -2831,7 +2832,7 @@ export const makeVolume = Effect.fnUntraced(
             }
 
             if (
-              (chosen.mode !== undefined || chosen.times !== undefined) &&
+              (chosen.mode !== undefined || chosen.times !== undefined || chosen.initialSize !== undefined) &&
               (chosen.create === undefined || chosen.create === "never")
             ) {
               return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
@@ -2850,6 +2851,24 @@ export const makeVolume = Effect.fnUntraced(
                 const parent = yield* referencedDirectory(directoryReference, "openChildReference")
                 yield* authorize(parent, identity, EXECUTE, "openChildReference")
                 const direct = parent.entries.get(name)
+
+                if (expected !== undefined) {
+                  let expectedNode: Node | undefined
+
+                  if (expected !== null) {
+                    const observed = yield* Effect.result(referencedNode(expected, "openChildReference"))
+
+                    if (Result.isFailure(observed)) {
+                      return yield* new FsError({ code: "VolumeBusy", operation: "openChildReference" })
+                    }
+
+                    expectedNode = observed.success
+                  }
+
+                  if (direct !== expectedNode) {
+                    return yield* new FsError({ code: "VolumeBusy", operation: "openChildReference" })
+                  }
+                }
 
                 if (direct !== undefined && chosen.create === "exclusive") {
                   return yield* new FsError({ code: "AlreadyExists", operation: "openChildReference" })
@@ -2919,6 +2938,10 @@ export const makeVolume = Effect.fnUntraced(
                     },
                     revision: nextRevision(),
                     objectReference: undefined
+                  }
+
+                  if (chosen.initialSize !== undefined) {
+                    yield* resize(createdFile, chosen.initialSize, "openChildReference")
                   }
 
                   file = createdFile

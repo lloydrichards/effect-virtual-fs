@@ -2,6 +2,8 @@
 
 ## 2026-09-20
 
+- **Staged NFS OPEN creation**: Added internal ordinary and guarded regular-file creation through the core's atomic child-open operation. Core now accepts an initial size and an expected-child guard in the same candidate. Wire tests cover replay, stateids, authority, share and capacity rejection, replacement races, storage outcomes, and read-only precedence. Exclusive verifier modes remain a separate part of #125; the public export stays read-only.
+
 - **Writable owner-string translation**: Chose canonical unsigned 32-bit decimal uid/gid strings for writable `SETATTR`, matching `GETATTR`; unsupported names return `BADOWNER`. The mapped core caller decides ownership authority; SETATTR maps ownership denial to PERM. Implementation and round-trip tests belong to #126. No domain or name mapper is added to the first writable profile.
 
 - **SQLite guest kernel-panic gate**: Added a panic mode that verifies a changed guest boot ID and flushes test runtime files before crashes. One four-phase Debian/ext4 UTM run with the directory callback passed, including acknowledged-image recovery. Two forced-stop matrices still failed on guest boot hangs. Physical storage flush behavior remains unproven, so durability stays `memory-only`.

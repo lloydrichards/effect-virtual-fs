@@ -24,6 +24,13 @@ export interface OpenedFile {
 }
 
 /** @internal */
+export interface OpenedChild extends OpenedFile {
+  readonly reference: Vfs.ObjectReference
+  readonly created: boolean
+  readonly directory: Vfs.DirectoryChange
+}
+
+/** @internal */
 export interface NfsExport {
   readonly capacity: Pick<Vfs.Volume, "limits" | "usage"> | undefined
   /** Selects a caller for one compound while retaining the export's filehandle registry. */
@@ -47,6 +54,12 @@ export interface NfsExport {
     reference: Vfs.ObjectReference,
     access?: Vfs.OpenReferenceSettings["access"]
   ) => Effect.Effect<OpenedFile, Vfs.FsError>
+  readonly openChild: (
+    directory: Vfs.ObjectReference,
+    name: Uint8Array,
+    settings: Vfs.OpenChildReferenceSettings,
+    expected: Vfs.ObjectReference | null
+  ) => Effect.Effect<OpenedChild, Vfs.FsError | InvalidNameError | ExportCapacityError>
   readonly fsid: readonly [bigint, bigint]
 }
 
@@ -237,6 +250,68 @@ export const makeExport = (
       })
     )
 
+  const openChild = (
+    activeCaller: Vfs.Caller,
+    directory: Vfs.ObjectReference,
+    name: Uint8Array,
+    settings: Vfs.OpenChildReferenceSettings,
+    expected: Vfs.ObjectReference | null
+  ): Effect.Effect<OpenedChild, Vfs.FsError | InvalidNameError | ExportCapacityError> =>
+    Effect.suspend<OpenedChild, Vfs.FsError | InvalidNameError | ExportCapacityError, never>(() => {
+      try {
+        validateName(name, limits.maxNameBytes)
+      } catch (error) {
+        if (error instanceof InvalidNameError) return Effect.fail(error)
+        throw error
+      }
+
+      return registryGate.withPermit(Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function*() {
+          if (referencesById.size >= limits.maxFilehandles) {
+            for (const [id, reference] of referencesById) {
+              const result = yield* Effect.result(activeCaller.observeMetadata(reference))
+
+              if (Result.isFailure(result) && result.failure.code === "StaleReference") {
+                referencesById.delete(id)
+                idsByReference.delete(reference)
+              }
+            }
+
+            if (referencesById.size >= limits.maxFilehandles) {
+              return yield* new ExportCapacityError("Filehandle registry is full")
+            }
+          }
+
+          const scope = yield* Scope.make()
+
+          const result = yield* Effect.exit(restore(
+            activeCaller.openChildReference(directory, name, settings, expected).pipe(
+              Effect.provideService(Scope.Scope, scope)
+            )
+          ))
+
+          if (Exit.isFailure(result)) {
+            yield* Scope.close(scope, result)
+
+            return yield* Effect.failCause(result.cause)
+          }
+
+          const opened = result.value
+
+          if (idsByReference.get(opened.reference) === undefined) {
+            const id = nextId++
+            idsByReference.set(opened.reference, id)
+            referencesById.set(id, opened.reference)
+          }
+
+          return {
+            ...opened,
+            close: Scope.close(scope, Exit.void).pipe(Effect.orDie)
+          }
+        })
+      ))
+    })
+
   const withCaller = (activeCaller: Vfs.Caller): NfsExport => ({
     capacity,
     withCaller,
@@ -259,6 +334,7 @@ export const makeExport = (
     parent: activeCaller.parentReference,
     readLink: activeCaller.readLinkReference,
     open: (reference, access) => open(activeCaller, reference, access),
+    openChild: (directory, name, settings, expected) => openChild(activeCaller, directory, name, settings, expected),
     fsid: [uint64From(identityCopy, 0), uint64From(identityCopy, 8)]
   })
 

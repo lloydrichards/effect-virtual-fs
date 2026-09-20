@@ -7,10 +7,17 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import type * as PlatformError from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
+import * as Result from "effect/Result"
 import * as Schedule from "effect/Schedule"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
-import { type InvalidFilehandleError, InvalidNameError, type NfsExport, validateName } from "./export.js"
+import {
+  ExportCapacityError,
+  type InvalidFilehandleError,
+  InvalidNameError,
+  type NfsExport,
+  validateName
+} from "./export.js"
 import { type LockRange, lockRange, MAX_OFFSET, overlaps } from "./lockRanges.js"
 import { type CompoundCall, type Connection, RpcPolicyDenied } from "./rpc.js"
 import { type DecodeLimits, Reader, Writer, XdrDecodeError } from "./xdr.js"
@@ -411,6 +418,8 @@ type ParsedOperation =
       readonly client: bigint
       readonly owner: Uint8Array
       readonly openHow: number
+      readonly createMode: number | undefined
+      readonly createAttrs: ReturnType<typeof readAttributes> | undefined
       readonly claim: number
       readonly name: Uint8Array
     }
@@ -1009,12 +1018,14 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
       const client = reader.uint64()
       const owner = reader.opaque(limits.maxOwnerBytes)
       const openHow = reader.uint32()
+      let createMode: number | undefined
+      let createAttrs: ReturnType<typeof readAttributes> | undefined
 
       if (openHow === 1) {
-        const createMode = reader.uint32()
+        createMode = reader.uint32()
 
         if (createMode === 0 || createMode === 1) {
-          readAttributes(reader, limits)
+          createAttrs = readAttributes(reader, limits)
         } else if (createMode === 2) {
           reader.fixedOpaque(8)
         } else if (createMode === 3) {
@@ -1038,7 +1049,11 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
       } else if (claim === 5) reader.fixedOpaque(16)
       else if (claim !== 4 && claim !== 6) throw new XdrDecodeError("Invalid OPEN claim")
 
-      return { kind: "Open", code, value: { sequence, access, deny, client, owner, openHow, claim, name } }
+      return {
+        kind: "Open",
+        code,
+        value: { sequence, access, deny, client, owner, openHow, createMode, createAttrs, claim, name }
+      }
     }
 
     case Operation.PUTFH:
@@ -3678,7 +3693,170 @@ export const makeNfs4Handler = (
                   // were answered above). Structural errors keep their precedence over ROFS.
                   if (value.claim !== 0) return Effect.succeed({ code: operation.code, status: Status.INVAL })
 
-                  return rejectMutation([value.name], "none", Status.SYMLINK)
+                  if (!options.writable) return rejectMutation([value.name], "none", Status.SYMLINK)
+
+                  if (value.createMode !== 0 && value.createMode !== 1) {
+                    return Effect.succeed({ code: operation.code, status: Status.NOTSUPP })
+                  }
+
+                  const attrs = value.createAttrs!
+                  const requested = attributesIn(attrs.bitmap)
+
+                  if (requested.some((attribute) => attribute !== 4 && attribute !== 33)) {
+                    return Effect.succeed({ code: operation.code, status: Status.ATTRNOTSUPP })
+                  }
+
+                  const values = new Reader(attrs.values, options.limits)
+                  let mode: number | undefined
+                  let truncate = false
+                  let initialSize: bigint | undefined
+
+                  for (const attribute of requested) {
+                    if (attribute === 4) {
+                      initialSize = values.uint64()
+                      truncate = initialSize === 0n
+                    } else if (attribute === 33) mode = values.uint32()
+                  }
+
+                  return requireDirectory(directory, Status.SYMLINK).pipe(
+                    Effect.andThen(Effect.suspend(() => {
+                      try {
+                        validateName(value.name, options.limits.maxNameBytes)
+                      } catch (error) {
+                        if (error instanceof InvalidNameError) return Effect.fail(nameStatus(error))
+                        throw error
+                      }
+
+                      return Effect.void
+                    })),
+                    Effect.andThen(Effect.gen(function*() {
+                      const owner = bytesKey(value.owner)
+                      const found = yield* Effect.result(export_.lookup(directory, value.name))
+                      const prior = Result.isSuccess(found) ? found.success : undefined
+
+                      if (prior !== undefined) {
+                        if (value.createMode === 1) return yield* Effect.fail(Status.EXIST)
+
+                        const denied = [...opens.values()].some((open) =>
+                          open.reference === prior &&
+                          ((open.deny & accessMode) !== 0 || (value.deny & open.access) !== 0)
+                        )
+
+                        if (denied) return yield* Effect.fail(Status.SHARE_DENIED)
+                      } else if (Result.isFailure(found)) {
+                        if (found.failure instanceof InvalidNameError) {
+                          return yield* Effect.fail(nameStatus(found.failure))
+                        }
+
+                        if (found.failure.code !== "NotFound") {
+                          return yield* Effect.fail(failureForFs(found.failure))
+                        }
+                      }
+
+                      const existing = prior === undefined ?
+                        undefined :
+                        [...opens.values()].find((open) =>
+                          open.client === activeSession!.client && open.owner === owner && open.reference === prior
+                        )
+
+                      if (existing === undefined && opens.size >= options.limits.maxOpens) {
+                        return yield* Effect.fail(Status.DELAY)
+                      }
+
+                      const baseSettings = {
+                        access: truncate && !wantsWrite
+                          ? "readWrite"
+                          : accessMode === 3
+                          ? "readWrite"
+                          : wantsWrite
+                          ? "write"
+                          : "read",
+                        create: value.createMode === 1 ? "exclusive" : "ifMissing",
+                        followFinalSymlink: false
+                      } satisfies Vfs.OpenChildReferenceSettings
+
+                      const modeSettings = mode === undefined ? baseSettings : { ...baseSettings, mode }
+                      const sizeSettings = initialSize === undefined ? modeSettings : { ...modeSettings, initialSize }
+                      const settings = truncate ? { ...sizeSettings, truncate: true } : sizeSettings
+
+                      return yield* Effect.uninterruptibleMask((restore) =>
+                        Effect.gen(function*() {
+                          const opened = yield* restore(
+                            export_.openChild(directory, value.name, settings, prior ?? null).pipe(
+                              Effect.mapError((error) =>
+                                error instanceof InvalidNameError ?
+                                  nameStatus(error) :
+                                  error instanceof ExportCapacityError
+                                  ? Status.DELAY
+                                  : error.code === "SymlinkLoop"
+                                  ? Status.SYMLINK
+                                  : failureForFs(error)
+                              )
+                            )
+                          )
+
+                          let transferred = false
+
+                          return yield* Effect.acquireUseRelease(
+                            Effect.succeed(opened),
+                            (child) =>
+                              Effect.sync(() => {
+                                const matched = [...opens.values()].find((open) =>
+                                  open.client === activeSession!.client && open.owner === owner &&
+                                  open.reference === child.reference
+                                )
+
+                                current = child.reference
+                                const attrset = child.created ? requested : truncate ? [4] : []
+
+                                if (matched !== undefined) {
+                                  const added = accessMode & ~matched.access
+
+                                  if (added !== 0) {
+                                    if ((added & OPEN4_SHARE_ACCESS_READ) !== 0) matched.readFile = child.handle
+
+                                    if ((added & OPEN4_SHARE_ACCESS_WRITE) !== 0) matched.writeFile = child.handle
+                                    matched.close = child.close.pipe(Effect.andThen(matched.close))
+                                    transferred = true
+                                  }
+
+                                  matched.access |= accessMode
+                                  matched.deny |= value.deny
+                                  advanceStateId(matched)
+
+                                  return openResult(
+                                    matched.id,
+                                    child.directory.before,
+                                    child.directory.after,
+                                    true,
+                                    attrset
+                                  )
+                                }
+
+                                const id = makeStateId(options.generation, openSerial++, 1)
+                                opens.set(stateIdKey(id), {
+                                  id,
+                                  sequence: 1,
+                                  access: accessMode,
+                                  deny: value.deny,
+                                  owner,
+                                  client: activeSession!.client,
+                                  reference: child.reference,
+                                  readFile: (accessMode & OPEN4_SHARE_ACCESS_READ) !== 0 ? child.handle : undefined,
+                                  writeFile: wantsWrite ? child.handle : undefined,
+                                  close: child.close
+                                })
+                                transferred = true
+
+                                return openResult(id, child.directory.before, child.directory.after, true, attrset)
+                              }),
+                            (child) => transferred ? Effect.void : child.close
+                          )
+                        })
+                      )
+                    })),
+                    Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
+                  )
                 }
 
                 const target = value.claim === 4
@@ -3766,7 +3944,7 @@ export const makeNfs4Handler = (
                               advanceStateId(existing)
                               current = reference
 
-                              return openResult(existing.id, revision, value.claim === 4)
+                              return openResult(existing.id, revision, revision, value.claim === 4)
                             })
                           )
                         }
@@ -3796,7 +3974,7 @@ export const makeNfs4Handler = (
                             })
                             current = reference
 
-                            return openResult(id, revision, value.claim === 4)
+                            return openResult(id, revision, revision, value.claim === 4)
                           })
                         )
                       })
@@ -3805,14 +3983,20 @@ export const makeNfs4Handler = (
                   Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
                 )
 
-                function openResult(id: Uint8Array, revision: bigint, atomic: boolean): ResultPart {
+                function openResult(
+                  id: Uint8Array,
+                  before: bigint,
+                  after: bigint,
+                  atomic: boolean,
+                  attrset: ReadonlyArray<number> = []
+                ): ResultPart {
                   currentStateid = id
 
                   const body = encodeStatusBody((writer) => {
                     writer.fixedOpaque(id).boolean(atomic)
-                      .uint64(BigInt.asUintN(64, revision))
-                      .uint64(BigInt.asUintN(64, revision)).uint32(0)
-                    writeBitmap(writer, [])
+                      .uint64(BigInt.asUintN(64, before))
+                      .uint64(BigInt.asUintN(64, after)).uint32(0)
+                    writeBitmap(writer, wordsFor(attrset))
 
                     if (delegationWant === 0) {
                       writer.uint32(OPEN_DELEGATE_NONE)
