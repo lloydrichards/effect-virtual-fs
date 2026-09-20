@@ -42,7 +42,8 @@ const program = Effect.gen(function*() {
                   Effect.gen(function*() {
                     if (
                       evidence === "" ||
-                      !/^PRAGMA (journal_mode|synchronous|fullfsync|locking_mode|page_size)$/.test(statement)
+                      !/^PRAGMA (journal_mode|synchronous|fullfsync|locking_mode|temp_store|cache_spill|journal_size_limit|page_size)$/
+                        .test(statement)
                     ) {
                       return
                     }
@@ -57,7 +58,7 @@ const program = Effect.gen(function*() {
                       }
                     }
 
-                    if (pragmas.length === 5) {
+                    if (pragmas.length === 8) {
                       yield* filesystem.writeFileString(evidence, `${pragmas.join("\n")}\n`)
                     }
                   })

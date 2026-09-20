@@ -102,6 +102,11 @@ export const layer = (options: Options) =>
       yield* run("PRAGMA synchronous=EXTRA").pipe(Effect.mapError((cause) => fail("Storage", cause)))
       yield* run("PRAGMA fullfsync=ON").pipe(Effect.mapError((cause) => fail("Storage", cause)))
       yield* run("PRAGMA locking_mode=EXCLUSIVE").pipe(Effect.mapError((cause) => fail("Storage", cause)))
+      // Keep statement journals in memory and prevent mid-transaction cache spills.
+      // The rollback journal remains on disk beside the database.
+      yield* run("PRAGMA temp_store=MEMORY").pipe(Effect.mapError((cause) => fail("Storage", cause)))
+      yield* run("PRAGMA cache_spill=OFF").pipe(Effect.mapError((cause) => fail("Storage", cause)))
+      yield* run("PRAGMA journal_size_limit=0").pipe(Effect.mapError((cause) => fail("Storage", cause)))
 
       const lock = yield* Effect.exit(run("SELECT count(*) AS count FROM sqlite_schema"))
 
@@ -111,6 +116,14 @@ export const layer = (options: Options) =>
       const synchronous = (yield* query(Schema.Struct({ synchronous: Schema.Finite }), "PRAGMA synchronous"))[0]
       const fullfsync = (yield* query(Schema.Struct({ fullfsync: Schema.Finite }), "PRAGMA fullfsync"))[0]
       const locking = (yield* query(Schema.Struct({ locking_mode: Schema.String }), "PRAGMA locking_mode"))[0]
+      const tempStore = (yield* query(Schema.Struct({ temp_store: Schema.Finite }), "PRAGMA temp_store"))[0]
+      const cacheSpill = (yield* query(Schema.Struct({ cache_spill: Schema.Finite }), "PRAGMA cache_spill"))[0]
+
+      const journalSizeLimit = (yield* query(
+        Schema.Struct({ journal_size_limit: Schema.Finite }),
+        "PRAGMA journal_size_limit"
+      ))[0]
+
       const page = (yield* query(Schema.Struct({ page_size: Schema.Finite }), "PRAGMA page_size"))[0]
       const version = (yield* query(Schema.Struct({ user_version: Schema.Finite }), "PRAGMA user_version"))[0]
 
@@ -119,9 +132,17 @@ export const layer = (options: Options) =>
         "PRAGMA database_list"
       )
 
+      const compileOptions = yield* query(
+        Schema.Struct({ compile_options: Schema.String }),
+        "PRAGMA compile_options"
+      )
+
       const main = databases.find((database) => database.name === "main")
 
-      if (main === undefined || main.file === "") return yield* fail("InvalidConfiguration")
+      // ATTACH could create a super-journal outside the single-database budget.
+      if (databases.length !== 1 || main === undefined || main.file === "") {
+        return yield* fail("InvalidConfiguration")
+      }
 
       const expectedParent = yield* filesystem.realPath(path.dirname(options.filename)).pipe(
         Effect.mapError((cause) => fail("Storage", cause))
@@ -134,6 +155,9 @@ export const layer = (options: Options) =>
         journal?.journal_mode.toLowerCase() !== "delete" || synchronous?.synchronous !== 3 ||
         fullfsync?.fullfsync !== 1 ||
         locking?.locking_mode.toLowerCase() !== "exclusive" || page === undefined ||
+        tempStore?.temp_store !== 2 || cacheSpill?.cache_spill !== 0 ||
+        journalSizeLimit?.journal_size_limit !== 0 ||
+        compileOptions.some((option) => option.compile_options === "TEMP_STORE=0") ||
         !Number.isSafeInteger(page.page_size) || page.page_size <= 0 ||
         (version?.user_version !== 0 && version?.user_version !== 1) || expectedPath !== actualPath
       ) return yield* fail("InvalidConfiguration")
@@ -142,6 +166,10 @@ export const layer = (options: Options) =>
 
       if (maxPages < 1n || maxPages > BigInt(2_147_483_647)) return yield* fail("InvalidConfiguration")
       yield* run(`PRAGMA max_page_count=${maxPages}`).pipe(Effect.mapError((cause) => fail("Storage", cause)))
+
+      const pageLimit = (yield* query(Schema.Struct({ max_page_count: Schema.Finite }), "PRAGMA max_page_count"))[0]
+
+      if (pageLimit?.max_page_count !== Number(maxPages)) return yield* fail("IncompatibleStore")
 
       const pageCount = (yield* query(Schema.Struct({ page_count: Schema.Finite }), "PRAGMA page_count"))[0]
 
@@ -159,7 +187,11 @@ export const layer = (options: Options) =>
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'effect_vfs_live_image'"
       ))[0]
 
-      if ((table === undefined && count?.count !== 0) || (version.user_version === 1 && table === undefined)) {
+      if (
+        (table === undefined && count?.count !== 0) ||
+        (table !== undefined && count?.count !== 1) ||
+        (version.user_version === 1 && table === undefined)
+      ) {
         return yield* fail("CorruptStore")
       }
 

@@ -21,19 +21,51 @@ uncertain commit result. A confirmed rejection leaves the live volume unchanged;
 unavailable until the application closes and reopens it. Reopening preserves the logical volume identity and
 creates a new runtime incarnation. A second `LiveVolume.open` on the same provider Layer fails `Ownership`.
 
+### Temporary-space policy
+
+The provider uses one database and one transaction at a time. It rejects an attached database, disables SQLite
+cache spilling, keeps eligible temporary files in memory, and sets `journal_size_limit=0` so an exclusive-lock
+journal is truncated after a transaction. The last setting limits retained size, not peak size. The on-disk
+DELETE rollback journal can still hold every original database page. For a configured database cap `D`, page
+size `P`, and rollback-journal header sector size `S`, provision at least
+`D + S + floor(D / P) * (P + 8)` bytes for the database and journal together, plus filesystem allocation and
+directory overhead. The journal term includes one original-page record per database page. This bound assumes
+the supplied SQLite VFS honors the configured page cap, reports a finite sector size, and uses the provider's
+SQL without `ATTACH`, `VACUUM`, external writers, or other SQL that creates disk temporary files. Check those
+assumptions on the intended driver and filesystem. The provider cannot inspect free filesystem space through
+Effect's `FileSystem` service, so an application must reserve this physical budget on a dedicated filesystem or
+quota before treating it as an admission guarantee. Exhausting the budget during a commit still yields a
+confirmed rejection or an unknown outcome, followed by the provider's reopen rule.
+
+SQLite's possible temporary-file classes are accounted for as follows. Database creation, ordinary commits,
+and hot-journal recovery use the database's adjacent rollback journal; recovery reads an existing hot journal.
+The provider updates one keyed row and rejects extra schema objects, including triggers, so its statements do
+not need a statement journal. Temporary tables, indices, and query materialization use memory under the checked
+`temp_store=2` setting and a build with `TEMP_STORE` other than `0`. The provider's SQL does not run `VACUUM`,
+`ATTACH`, or explicit temporary tables. It rejects a connection with an attached database, which excludes a
+super-journal for provider transactions. DELETE mode excludes WAL and shared-memory files. SQL run by another
+user of the dedicated client is outside this policy.
+
+The bounded Linux gate records each successful rollback-journal write extent through the test VFS. On a
+disposable 4 MiB `tmpfs`, it commits and reopens with free space within 8,192 bytes of the calculated provision,
+then fills the filesystem to 4,096 free bytes and checks rejection, whole-image recovery, and
+`PRAGMA integrity_check`. The largest write extent observed in this finite test is not a general peak-size
+guarantee. Database creation and hot-journal recovery use the same directory; their directory synchronization
+and storage-flush assumptions
+still require qualification for a specified configuration.
+
 This provider has process-restart coverage. Tests kill the writer after an acknowledged commit and after an
 unacknowledged image update but before `COMMIT`, then reopen the database. Injected lost commit and rollback
 acknowledgements also verify that the live volume stops serving operations until reopen. A UTM gate now exercises
 guest operating-system hard stops on one recorded Debian/ext4 virtual disk configuration. It has not been
 qualified for physical power loss or arbitrary storage stacks. `Volume.durability` therefore remains
 `memory-only`. This provider must not yet be used to promise NFS `FILE_SYNC4`. The database page limit does
-not cap temporary rollback-journal space, so the application must reserve disk space for a complete-image
+not cap temporary rollback-journal space by itself; apply the temporary-space policy above for a complete-image
 transaction. Database creation also happens inside the supplied SQL Layer, before this provider can inspect the
-path; the provider does not establish that the containing directory was synchronized after creation. The current
-core watch queue is also unbounded. Use this provider for bounded local experiments until
-those limits and crash tests are completed. Crash and power-loss qualification is tracked in
-[#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129); bounded admission and watch delivery are
-tracked in [#122](https://github.com/lloydrichards/effect-virtual-fs/issues/122).
+path; the provider does not establish that the containing directory was synchronized after creation. Use this
+provider for bounded local experiments until the remaining storage assumptions and crash tests are completed.
+Crash and power-loss qualification is tracked in
+[#129](https://github.com/lloydrichards/effect-virtual-fs/issues/129).
 
 ### Crash recovery gate
 
