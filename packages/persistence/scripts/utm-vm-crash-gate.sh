@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Mac-hosted OS-crash gate. Requires a dedicated ARM64 Linux UTM VM with the
-# QEMU guest agent. UTM retains the guest disk across each forced power-off.
+# QEMU guest agent. UTM retains the guest disk across each crash or hard stop.
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -16,8 +16,8 @@ vm_config="$HOME/Library/Containers/com.utmapp.UTM/Data/Documents/$vm.utm/config
 
 [[ "$(uname -s)" == Darwin ]] || { echo "Run this gate on a Mac UTM host" >&2; exit 2; }
 [[ "$iterations" =~ ^[1-9][0-9]*$ ]] || { echo "GATE_ITERATIONS must be a positive integer" >&2; exit 2; }
-[[ "$stop_mode" == force || "$stop_mode" == kill ]] ||
-  { echo "GATE_STOP_MODE must be force or kill" >&2; exit 2; }
+[[ "$stop_mode" == force || "$stop_mode" == kill || "$stop_mode" == panic ]] ||
+  { echo "GATE_STOP_MODE must be force, kill, or panic" >&2; exit 2; }
 command -v utmctl >/dev/null
 command -v bun >/dev/null
 command -v curl >/dev/null
@@ -49,11 +49,14 @@ if [[ "$(guest_exec "$guest_bun" --version 2>/dev/null || true)" != "$bun_versio
   done
 fi
 [[ "$(guest_exec "$guest_bun" --version)" == "$bun_version" ]] || { echo "Guest Bun install failed" >&2; exit 1; }
+guest_exec sync
+[[ "$(guest_exec "$guest_bun" --version)" == "$bun_version" ]] || { echo "Guest Bun did not survive setup sync" >&2; exit 1; }
 
 bun build "$repo_root/packages/persistence/test/fixtures/live-restart.ts" \
   --target=bun --outfile="$output_dir/live-restart-bundle.js"
 utmctl file push "$vm" /root/effect-vfs-live-restart-bundle.js < "$output_dir/live-restart-bundle.js"
 utmctl file push "$vm" /root/effect-vfs-vm-gate.sh < "$repo_root/packages/persistence/scripts/utm-guest-crash-case.sh"
+guest_exec sync
 
 {
   printf 'gate=utm-guest-os-hard-stop\n'
@@ -106,14 +109,27 @@ for iteration in $(seq 1 "$iterations"); do
       grep -q '^directory_sync=ok ' "$case_dir/baseline.log" ||
         { echo "Baseline did not sync the database directory: $case_name" >&2; exit 1; }
     fi
-    utmctl stop "$vm" "--$stop_mode"
-    utmctl start "$vm"
+    if [[ "$stop_mode" == panic ]]; then
+      boot_before="$(guest_exec cat /proc/sys/kernel/random/boot_id)"
+      guest_exec /bin/bash -c 'printf "10\n" > /proc/sys/kernel/panic; printf "c\n" > /proc/sysrq-trigger' >/dev/null 2>&1 || true
+    else
+      utmctl stop "$vm" "--$stop_mode"
+      utmctl start "$vm"
+    fi
     guest_ready=false
     for _ in {1..30}; do
-      if guest_exec uname -s 2>/dev/null | grep -qx Linux; then guest_ready=true; break; fi
+      if guest_exec uname -s 2>/dev/null | grep -qx Linux; then
+        if [[ "$stop_mode" != panic || "$(guest_exec cat /proc/sys/kernel/random/boot_id 2>/dev/null || true)" != "$boot_before" ]]; then
+          guest_ready=true
+          break
+        fi
+      fi
       sleep 2
     done
     [[ "$guest_ready" == true ]] || { echo "Guest did not restart: $case_name" >&2; exit 1; }
+    if [[ "$stop_mode" == panic ]]; then
+      printf 'before=%s\nafter=%s\n' "$boot_before" "$(guest_exec cat /proc/sys/kernel/random/boot_id)" > "$case_dir/boot-ids.txt"
+    fi
     guest_exec /bin/bash /root/effect-vfs-vm-gate.sh verify "$phase" "$iteration" "$guest_dir"
     verified=""
     for _ in {1..30}; do
@@ -126,7 +142,7 @@ for iteration in $(seq 1 "$iterations"); do
     grep -q '^directory_sync=ok ' "$case_dir/reopen.log" ||
       { echo "Reopen did not sync the database directory: $case_name" >&2; exit 1; }
     utmctl file pull "$vm" "$guest_case_dir/integrity.json" > "$case_dir/integrity.json"
-    [[ -s "$case_dir/reopen.log" && -s "$case_dir/integrity.json" ]] ||
+    [[ -s "$case_dir/integrity.json" ]] ||
       { echo "Missing recovery evidence: $case_name" >&2; exit 1; }
     printf 'PASS iteration=%s phase=%s\n' "$iteration" "$phase"
   done

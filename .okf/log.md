@@ -2,6 +2,8 @@
 
 ## 2026-09-20
 
+- **SQLite guest kernel-panic gate**: Added a panic mode that verifies a changed guest boot ID and flushes test runtime files before crashes. One four-phase Debian/ext4 UTM run with the directory callback passed, including acknowledged-image recovery. Two forced-stop matrices still failed on guest boot hangs. Physical storage flush behavior remains unproven, so durability stays `memory-only`.
+
 - **SQLite VM directory-sync qualification attempt**: Ran the callback in the Debian/ext4 UTM gates. Measured 4,096-byte SQLite VFS sectors, passed the ext4 loop near-budget and injected I/O fault cases, and reproduced acknowledged breaches under lying storage. Two VM hard-stop matrices failed because the guest hung on reboot. Host-device flush behavior remains unproven, so the configuration stays experimental and durability stays `memory-only`.
 
 - **SQLite creation directory sync**: Added an application-supplied startup directory-sync operation after the SQLite path check and before schema creation. Startup fails if it reports an error. Tests cover first creation, existing databases, and reopen after a SQLite creator is killed before directory sync. The callback and storage stack still require configuration-specific qualification; durability stays `memory-only`.
