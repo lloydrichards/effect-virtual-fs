@@ -3878,10 +3878,17 @@ export const makeNfs4Handler = (
                         : 0
 
                       if (activeCaller !== undefined) {
+                        const writeFlags = observation.value.kind === "directory"
+                          ? [ACCESS4_MODIFY, ACCESS4_EXTEND, ACCESS4_DELETE]
+                          : [ACCESS4_MODIFY, ACCESS4_EXTEND]
+
+                        const writeBits = observation.value.kind === "directory" ? 0o3 : 0o2
+
                         for (
                           const [flag, bit] of [
                             [ACCESS4_READ, 0o4],
-                            [observation.value.kind === "directory" ? ACCESS4_LOOKUP : ACCESS4_EXECUTE, 0o1]
+                            [observation.value.kind === "directory" ? ACCESS4_LOOKUP : ACCESS4_EXECUTE, 0o1],
+                            ...(options.writable ? writeFlags.map((flag) => [flag, writeBits] as const) : [])
                           ] as const
                         ) {
                           if ((supported & flag) === 0) continue

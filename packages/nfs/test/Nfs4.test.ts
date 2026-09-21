@@ -34,6 +34,56 @@ import {
 } from "./support/harness.js"
 
 it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
+  it.effect("reports writable directory access for an authorized mapped caller", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
+        {
+          leaseDurationSeconds: 30,
+          callbackTimeout: "1 second",
+          generation,
+          now: () => 0,
+          limits,
+          writable: true,
+          callerFor: () => Effect.succeed(caller)
+        }
+      )
+
+      const { session } = yield* startSession(handler, "writable-access")
+
+      const reply = yield* handler.compound(
+        yield* call([
+          sequence(session, 1),
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.ACCESS)
+              yield* writer.write(XdrCodec.uint32, 0x1f)
+            })
+        ])
+      )
+
+      const reader = yield* make.openReader(reply, limits)
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+      yield* reader.read(XdrCodec.string())
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), 3)
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+      yield* reader.read(XdrCodec.fixedOpaque(16))
+
+      for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.PUTROOTFH)
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.ACCESS)
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), 0x1f)
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), 0x1f)
+      yield* reader.finish
+    }))
+
   it.effect("uses the mapped caller for ACCESS and OPEN", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
