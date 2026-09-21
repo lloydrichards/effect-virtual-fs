@@ -34,6 +34,7 @@ const program = Effect.scoped(Effect.gen(function*() {
 
   const base = yield* template.snapshot
 
+  // Both overlays start from this snapshot. Writes to either overlay leave the base unchanged.
   yield* showStage(
     1,
     "STARTING PROJECT",
@@ -84,6 +85,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   const sharedWorkspace = yield* Vfs.makeOverlay(base)
   const author = yield* sharedWorkspace.caller()
   const reviewer = yield* sharedWorkspace.caller()
+  // The watch belongs to the shared overlay, so it reports both callers' file changes.
   const watchQueue = yield* Queue.unbounded<Vfs.Change>()
   const watch = yield* sharedWorkspace.watch
   yield* watch.pipe(
@@ -134,6 +136,7 @@ const program = Effect.scoped(Effect.gen(function*() {
     action.role !== "planner" && action.operation === "write"
   ).length
 
+  // Drain the watch before printing the capture stage so late events stay with their writes.
   yield* Queue.takeN(watchQueue, sharedWrites)
   yield* showMessage("AUTHOR", `${authorResult.response} (${authorResult.turns} turns)`)
   yield* showMessage("REVIEWER", `${reviewerResult.response} (${reviewerResult.turns} turns)`)
@@ -161,6 +164,7 @@ const program = Effect.scoped(Effect.gen(function*() {
 
   const captured = yield* sharedWorkspace.capture()
   yield* showMessage("ORCHESTRATOR", "capture complete; mutate the live workspace once more")
+  // A later edit proves that restoring the capture reads frozen data, not the live overlay.
   yield* author.writeFile("/release-plan.md", encode("A later live edit."), {
     access: "write",
     truncate: true

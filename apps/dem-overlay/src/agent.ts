@@ -49,6 +49,7 @@ const ListDirectory = Tool.make("list_directory", {
 
 export const WorkspaceTools = Toolkit.make(ReadFile, WriteFile, ListDirectory)
 
+// Agent paths stay inside the assigned virtual project; callers never receive a host path.
 const projectPath = (input: string) => {
   if (input.startsWith("/")) {
     return Effect.fail("Use a path relative to the project root, not an absolute path")
@@ -74,6 +75,7 @@ export const makeWorkspaceToolkit = Effect.fn("Agent.makeWorkspaceToolkit")(func
 ) {
   const observed = (operation: ToolObservation["operation"], path: string) => observe({ role, operation, path })
 
+  // Bind each tool to this caller so the planner and shared-workspace agents cannot cross overlays.
   return yield* WorkspaceTools.pipe(Effect.provide(WorkspaceTools.toLayer(WorkspaceTools.of({
     read_file: Effect.fn("WorkspaceTools.readFile")(function*({ path }) {
       const relativePath = yield* projectPath(path)

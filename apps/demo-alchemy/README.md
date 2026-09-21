@@ -1,14 +1,21 @@
 # Alchemy R2 virtual notebook
 
-Alchemy provisions a private Cloudflare R2 bucket and a Worker. The Worker creates a virtual file tree with Effect `LiveVolume` and stores its image through the native R2 binding. The app needs no S3 credentials.
+The Worker uses Effect VFS as a filesystem: it creates directories, writes `/notes/hello.txt`, renames the file to
+`/published/hello.txt`, and reads it in a later request. Workers do not need a mounted disk for this. `LiveVolume`
+commits the virtual tree as one R2 image, while Alchemy supplies the Worker and a private bucket through its native
+binding. The app needs no S3 credentials.
 
-The pieces are:
+Read the example in this order:
 
-1. [`alchemy.run.ts`](alchemy.run.ts) declares the bucket and Worker.
-2. [`src/from-alchemy.ts`](src/from-alchemy.ts) connects the Worker's native R2 binding to `R2LiveImageStore`.
-3. [`src/notebook-worker.ts`](src/notebook-worker.ts) creates `/notes/hello.txt`, moves it to `/published/hello.txt`, and reopens it on a later request.
+1. [`src/notebook.ts`](src/notebook.ts) opens a virtual volume and performs the directory, file, and rename operations.
+2. [`src/notebook-worker.ts`](src/notebook-worker.ts) maps HTTP requests to those filesystem operations.
+3. [`src/from-alchemy.ts`](src/from-alchemy.ts) adapts the native R2 binding to the volume's image store.
+4. [`alchemy.run.ts`](alchemy.run.ts) provisions the Worker and private bucket.
 
-Each `POST` uses a new image key. A later `GET` opens that image in a new request scope and reads the published file. This demonstrates persistence across independent Worker requests. The image store still requires one writer per image; this example never edits a previously created image.
+Each `POST` uses a new image key. A later `GET` opens that image in a new request scope and reads the same virtual
+path. The file survives the request because VFS restores its tree from R2, not because the Worker kept a process or
+host directory alive. The image store still requires one writer per image; this example never edits a previously
+created image.
 
 ## Deploy
 
@@ -16,7 +23,7 @@ Set a long random `NOTEBOOK_TOKEN` in an ignored `.env` file. Configure a Cloudf
 
 ```sh
 bun install
-cd apps/alchemy-vfs-demo
+cd apps/demo-alchemy
 bun --env-file=.env alchemy plan
 bun --env-file=.env alchemy deploy
 ```
