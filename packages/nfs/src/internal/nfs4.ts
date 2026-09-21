@@ -359,7 +359,7 @@ export interface Nfs4Limits extends DecodeLimits {
 
 /** @internal */
 export interface Nfs4Options {
-  /** Staged writable-state support; the public export remains read-only until durability is qualified. */
+  /** Enables writable operation handling after the public server qualifies the volume and identity policy. */
   readonly writable?: boolean
   readonly leaseDurationSeconds: number
   /** How long a callback waits for the client's reply before the path is treated as down. */

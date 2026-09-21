@@ -8,10 +8,11 @@ mutable storage. You can also compute a portable delta when sending a complete s
 A fixture describes the final filesystem tree. It is not a sequence of filesystem commands. Declare parent directories
 explicitly, even when their children appear first in the `entries` array.
 
-Install the core package and its exact Effect peer:
+Install the core package and the matching Bun crypto provider:
 
 ```sh
-npm install @effect-vfs/core effect@4.0.0-rc.114 @effect/platform-bun@4.0.0-rc.114
+npm install @effect-vfs/core@latest
+npm install "@effect/platform-bun@$(npm view @effect-vfs/core peerDependencies.effect)"
 ```
 
 The following program creates a small project, captures it, transports the snapshot as bytes, and restores independent
@@ -100,12 +101,8 @@ the restored volume needs tighter file, path, entry, or total-byte limits.
 `diffSnapshots(base, target)` creates an opaque delta for one semantic base. Inspect it with
 `inspectSnapshotDelta(base, delta)`, or reconstruct the target with `applySnapshotDelta(base, delta)`.
 
-Install the Effect crypto provider for your runtime before using snapshot deltas. This Bun example uses the version
-matched to the Effect peer:
-
-```sh
-npm install @effect/platform-bun@4.0.0-rc.114
-```
+Install the Effect crypto provider for your runtime before using snapshot deltas. The install step above already adds
+the matching Bun provider.
 
 The following program creates two snapshots and reconstructs the second from their delta:
 

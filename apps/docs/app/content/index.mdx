@@ -6,7 +6,7 @@ previews, or tools that need reproducible filesystem state.
 ## Start with the memory filesystem
 
 ```sh
-npm install @effect-vfs/memory effect@4.0.0-rc.114
+npm install @effect-vfs/memory@latest
 ```
 
 ```ts
@@ -38,7 +38,7 @@ can use a host filesystem while tests and tools use disposable in-memory state.
   `FileSystem.FileSystem` service. This is the usual starting point.
 - [`@effect-vfs/core`](https://www.npmjs.com/package/@effect-vfs/core) provides byte-preserving paths, explicit callers and permissions,
   shared volumes, fixtures, quotas, watches, overlays, and portable encoded snapshots.
-- [`@effect-vfs/persistence`](https://www.npmjs.com/package/@effect-vfs/persistence) stores named checkpoints or backs a live volume with SQLite.
-- [`@effect-vfs/nfs`](https://www.npmjs.com/package/@effect-vfs/nfs) exports a live volume to local NFSv4.1 clients in a read-only preview profile.
+- [`@effect-vfs/persistence`](https://www.npmjs.com/package/@effect-vfs/persistence) stores named checkpoints or backs a live volume with SQLite or an experimental R2 store.
+- [`@effect-vfs/nfs`](https://www.npmjs.com/package/@effect-vfs/nfs) exports a live volume to NFSv4.1 clients. Local read-only access is a preview; qualified writable access is experimental.
 
-All four packages are ESM-only and target `effect@4.0.0-rc.114`.
+All four packages are ESM-only and declare their supported Effect version as an exact peer dependency.

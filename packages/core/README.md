@@ -13,11 +13,15 @@ for the exact permission, path, timestamp, quota, and atomicity rules.
 ## Install
 
 ```sh
-npm install @effect-vfs/core effect@4.0.0-rc.114
+npm install @effect-vfs/core@latest
 ```
 
-The package currently requires the exact peer version `effect@4.0.0-rc.114`. The examples also need a `Crypto`
-service; on Node or Bun, install `@effect/platform-node-shared@4.0.0-rc.114` and provide `NodeCrypto.layer`.
+The package declares its exact Effect version as a peer dependency. The examples also need a `Crypto` service. On Node
+or Bun, install the matching provider and supply `NodeCrypto.layer`:
+
+```sh
+npm install "@effect/platform-node-shared@$(npm view @effect-vfs/core peerDependencies.effect)"
+```
 
 ## The mental model
 

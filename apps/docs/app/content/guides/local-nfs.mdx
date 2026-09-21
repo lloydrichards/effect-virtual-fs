@@ -7,7 +7,8 @@ Use `@effect-vfs/nfs` to let a native NFSv4.1 client read one live VFS volume. T
 Use Bun to run the server. You also need a native NFSv4.1 client: `mount_nfs` on macOS or `nfs-common` on Linux. Mounting requires `sudo`, and TCP port 2049 must be available on loopback.
 
 ```sh
-bun add @effect-vfs/core @effect-vfs/nfs @effect/platform-bun@4.0.0-rc.114 effect@4.0.0-rc.114
+bun add @effect-vfs/core@latest @effect-vfs/nfs@latest
+bun add "effect@$(npm view @effect-vfs/nfs peerDependencies.effect)" "@effect/platform-bun@$(npm view @effect-vfs/nfs peerDependencies.effect)"
 ```
 
 ## Create and serve a volume
@@ -86,4 +87,4 @@ For a fixture that updates a file every two seconds, see the [NFS preview app](h
 
 ## Experimental writable profile
 
-`NfsServer.make({ writable: true, ... })` enables writes only when the volume reports `survives-power-loss` and the application supplies a peer and identity policy. A local caller shortcut cannot authorize writes. The application must keep one gateway as the sole owner of its storage image and remount clients after gateway restart. The [R2 writable test app](https://github.com/lloydrichards/effect-virtual-fs/tree/main/apps/nfs-r2-writable-test) is a runnable example with bounded storage, native-client checks, and lost-response recovery evidence. Its R2 durability assertion depends on Cloudflare's successful-write contract; do not copy it to an unqualified provider.
+`NfsServer.make({ writable: true, ... })` enables writes only when the volume reports `survives-power-loss` and the application supplies a peer and identity policy. A local caller shortcut cannot authorize writes. The application must keep one gateway as the sole owner of its storage image and remount clients after gateway restart. The [R2 writable test app](https://github.com/lloydrichards/effect-virtual-fs/tree/main/apps/demo-r2) is a runnable example with bounded storage, native-client checks, and lost-response recovery evidence. Its R2 durability assertion depends on Cloudflare's successful-write contract; do not copy it to an unqualified provider.

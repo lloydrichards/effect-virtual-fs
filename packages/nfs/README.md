@@ -30,7 +30,7 @@ The current read-only export tracks advisory byte-range read locks between NFS c
 
 The optional `writable: true` profile is limited to one gateway owning one qualified live volume. The application
 must prevent another gateway from opening the same storage image; the server does not provide a distributed lease.
-Successful mutations rely on the live provider's synchronous commit guarantee. The [R2 writable test app](../../apps/nfs-r2-writable-test/README.md)
+Successful mutations rely on the live provider's synchronous commit guarantee. The [R2 writable test app](../../apps/demo-r2/README.md)
 shows the public API with a bounded R2 image, a trusted-client policy, mounted Debian and macOS checks, restart
 recovery, and an injected lost R2 HTTP response. Remount clients after gateway restart; this is not the `stateful`
 recovery profile. Do not set a stronger `Volume.durability` for an unqualified storage provider.

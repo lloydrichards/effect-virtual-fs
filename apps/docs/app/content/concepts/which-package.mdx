@@ -9,8 +9,8 @@ packages can be used together.
 | ------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
 | `@effect-vfs/memory`      | Existing Effect code should use an isolated in-memory filesystem                                               | `FileSystem.FileSystem`                     |
 | `@effect-vfs/core`        | You need explicit volumes, callers, byte paths, permissions, fixtures, quotas, watches, snapshots, or overlays | `Volume` and `Caller`                       |
-| `@effect-vfs/persistence` | You need named SQLite checkpoints or a SQLite-backed live volume                                               | `CheckpointStore` or `SqliteLiveImageStore` |
-| `@effect-vfs/nfs`         | Native NFSv4.1 clients need read-only access to a live volume                                                  | `NfsServer`                                 |
+| `@effect-vfs/persistence` | You need named SQLite checkpoints or a live volume backed by SQLite or R2                                      | `CheckpointStore` or a `LiveImageStore`     |
+| `@effect-vfs/nfs`         | Native NFSv4.1 clients need read-only access or experimental writes to a qualified live volume                | `NfsServer`                                 |
 
 ## Start with memory
 
@@ -67,3 +67,7 @@ Read [Back a live volume with SQLite](/guides/sqlite-live-volume) for live-store
 `@effect-vfs/nfs` serves one live core volume to native NFSv4.1 clients. The local read-only profile is a preview.
 Mutating NFS operations return `NFS4ERR_ROFS`; applications can still change the volume through the VFS API.
 Read [Export a volume over local NFS](/guides/local-nfs) for the server setup and mount boundary.
+
+For experimental writes, the volume must report `survives-power-loss`, and the application must supply a peer and
+identity policy. The [writable R2 example](/guides/local-nfs#experimental-writable-profile) shows the bounded
+single-gateway profile and its limits.

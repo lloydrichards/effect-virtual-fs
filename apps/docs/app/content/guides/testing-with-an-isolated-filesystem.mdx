@@ -5,12 +5,11 @@ reading or writing the host disk.
 
 ## Install the test dependencies
 
-Install the core volume, memory adapter, and their exact Effect peer, then add the matching Effect test integration and
-Vitest 5:
+Install the core volume, memory adapter, and matching Effect test integration with Vitest 5:
 
 ```sh
-npm install @effect-vfs/core @effect-vfs/memory effect@4.0.0-rc.114
-npm install --save-dev @effect/vitest@4.0.0-rc.114 vitest@^5.0.0
+npm install @effect-vfs/core@latest @effect-vfs/memory@latest
+npm install --save-dev "@effect/vitest@$(npm view @effect-vfs/memory peerDependencies.effect)" vitest@^5.0.0
 ```
 
 ## Keep production code independent of storage
