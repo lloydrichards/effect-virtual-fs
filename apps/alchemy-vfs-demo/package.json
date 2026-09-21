@@ -1,0 +1,27 @@
+{
+  "name": "@repo/alchemy-vfs-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "plan": "alchemy plan",
+    "deploy": "alchemy deploy",
+    "test:live": "bun --env-file=.env scripts/smoke.ts"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.0.0-rc.115",
+    "alchemy": "2.0.0-beta.79",
+    "effect": "4.0.0-rc.115",
+    "mime": "^4.1.0",
+    "@effect-vfs/core": "workspace:*",
+    "@effect-vfs/persistence": "workspace:*"
+  },
+  "devDependencies": {
+    "@repo/config-typescript": "workspace:*",
+    "@types/bun": "^1.2.17",
+    "@effect/vitest": "4.0.0-rc.115"
+  }
+}

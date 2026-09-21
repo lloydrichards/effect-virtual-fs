@@ -1,0 +1,17 @@
+{
+  "extends": "@repo/config-typescript/base.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "types": [
+      "bun"
+    ]
+  },
+  "include": [
+    "alchemy.run.ts",
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ]
+}

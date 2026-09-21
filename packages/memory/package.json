@@ -47,12 +47,12 @@
     "type-check": "tsc --noEmit"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.114"
+    "effect": "4.0.0-rc.115"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.0-rc.114",
+    "@effect/vitest": "4.0.0-rc.115",
     "@repo/config-typescript": "workspace:*",
-    "effect": "4.0.0-rc.114",
+    "effect": "4.0.0-rc.115",
     "tsdown": "^0.23.0"
   },
   "dependencies": {

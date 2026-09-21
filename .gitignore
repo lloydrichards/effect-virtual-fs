@@ -7,6 +7,7 @@ build
 packages/*/docs
 .cache
 .turbo
+.alchemy/
 tsconfig.tsbuildinfo
 
 # local reference checkouts
