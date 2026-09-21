@@ -96,6 +96,14 @@ export const apiPages = [
     contentPath: "content/api/persistence/sqlite-live-image-store.mdx"
   },
   {
+    packageDir: "packages/persistence",
+    moduleName: "R2LiveImageStore",
+    label: "Persistence · R2LiveImageStore",
+    href: "/api/persistence/r2-live-image-store",
+    routePath: "persistence/r2-live-image-store",
+    contentPath: "content/api/persistence/r2-live-image-store.mdx"
+  },
+  {
     packageDir: "packages/nfs",
     moduleName: "NfsServer",
     label: "NFS · NfsServer",

@@ -67,6 +67,33 @@ Applications with an existing startup sequence can instead yield `CheckpointStor
 
 ## Live image commits
 
+### Experimental R2 store
+
+`@effect-vfs/persistence/R2LiveImageStore` provides an experimental `LiveImageStore` for a single, externally owned
+volume. Pass an AWS SDK `S3Client` configured for the R2 S3 endpoint to `R2LiveImageStore.fromS3`, then pass that
+client, an object key, and `maxImageBytes` to `R2LiveImageStore.layer`. The application supplies Effect `Crypto`.
+Each commit replaces the complete image with an ETag condition and stores a generation and SHA-256 digest. If a
+write outcome is uncertain, the store stops accepting commits until the volume is reopened.
+
+Local fake-client tests and one real-bucket smoke run cover conditional writes and reopening. The adapter has no
+cross-server ownership lease or physical fault test. Real-bucket tests cover a simulated lost reply, competing
+owners, a concurrent write race, and eight sequential commits to one key. They do not establish sustained NFS
+throughput or power-loss durability,
+change `Volume.durability`, or enable writable NFS.
+
+To run the real-bucket smoke test, use a dedicated private R2 bucket and a bucket-scoped R2 API token with object
+read and write access. Set `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` in the shell,
+then run `bun run --filter @effect-vfs/persistence test:r2`. The test creates a random key under
+`effect-vfs-smoke/`, checks conditional writes and reopening, and deletes that key in a `finally` block. It does not
+delete the bucket. Do not commit credentials or paste them into an issue or chat. A failed cleanup may leave the
+single test object; the command prints its key so it can be removed by the `effect-vfs-smoke/` prefix.
+Run `bun run --filter @effect-vfs/persistence test:r2:fault` for the real-bucket lost-reply, writer-race, and
+short sequential-write checks. These also use unique keys under `effect-vfs-smoke/` and remove them afterward.
+Run `bun run --filter @effect-vfs/persistence test:r2:volume` to write, update, and read a `LiveVolume` file across
+three fresh Bun processes. This checks image persistence through the public volume API. It does not exercise NFS.
+
+### SQLite store
+
 `SqliteLiveImageStore.layer` supplies the `LiveImageStore` service used by `LiveVolume.open`. The application
 provides a dedicated SQLite client for an absolute local database path, plus Effect `FileSystem`, `Path`, and
 `Crypto` services. The store holds an exclusive SQLite lock and commits a complete image per mutation. A confirmed
