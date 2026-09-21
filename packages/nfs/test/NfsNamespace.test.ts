@@ -5,66 +5,106 @@ import { Effect, Layer } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import { makeExport } from "../src/internal/export.js"
 import { makeNfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
-import { Reader, Writer } from "../src/internal/xdr.js"
+import { type EncoderSession, make, XdrCodec } from "../src/internal/xdr.js"
 import { call, generation, limits, sequence, startSession } from "./support/harness.js"
 
-const root = (writer: Writer) => writer.uint32(Operation.PUTROOTFH)
+const root = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)
 
-const save = (writer: Writer) => writer.uint32(Operation.SAVEFH)
+const save = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.SAVEFH)
 
-const lookup = (name: string) => (writer: Writer) => writer.uint32(Operation.LOOKUP).string(name)
+const lookup = (name: string) => (writer: EncoderSession) =>
+  Effect.gen(function*() {
+    yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+    yield* writer.write(XdrCodec.string(), name)
+  })
 
-const createDirectory = (name: string) => (writer: Writer) =>
-  writer.uint32(Operation.CREATE).uint32(2).string(name).uint32(0).opaque(new Uint8Array())
+const createDirectory = (name: string) => (writer: EncoderSession) =>
+  Effect.gen(function*() {
+    yield* writer.write(XdrCodec.uint32, Operation.CREATE)
+    yield* writer.write(XdrCodec.uint32, 2)
+    yield* writer.write(XdrCodec.string(), name)
+    yield* writer.write(XdrCodec.uint32, 0)
+    yield* writer.write(XdrCodec.opaque(), new Uint8Array())
+  })
 
-const createSymlink = (name: string, target: string) => (writer: Writer) =>
-  writer.uint32(Operation.CREATE).uint32(5).string(target).string(name).uint32(0).opaque(new Uint8Array())
+const createSymlink = (name: string, target: string) => (writer: EncoderSession) =>
+  Effect.gen(function*() {
+    yield* writer.write(XdrCodec.uint32, Operation.CREATE)
+    yield* writer.write(XdrCodec.uint32, 5)
+    yield* writer.write(XdrCodec.string(), target)
+    yield* writer.write(XdrCodec.string(), name)
+    yield* writer.write(XdrCodec.uint32, 0)
+    yield* writer.write(XdrCodec.opaque(), new Uint8Array())
+  })
 
-const link = (name: string) => (writer: Writer) => writer.uint32(Operation.LINK).string(name)
+const link = (name: string) => (writer: EncoderSession) =>
+  Effect.gen(function*() {
+    yield* writer.write(XdrCodec.uint32, Operation.LINK)
+    yield* writer.write(XdrCodec.string(), name)
+  })
 
-const remove = (name: string) => (writer: Writer) => writer.uint32(Operation.REMOVE).string(name)
+const remove = (name: string) => (writer: EncoderSession) =>
+  Effect.gen(function*() {
+    yield* writer.write(XdrCodec.uint32, Operation.REMOVE)
+    yield* writer.write(XdrCodec.string(), name)
+  })
 
-const rename = (from: string, to: string) => (writer: Writer) => writer.uint32(Operation.RENAME).string(from).string(to)
+const rename = (from: string, to: string) => (writer: EncoderSession) =>
+  Effect.gen(function*() {
+    yield* writer.write(XdrCodec.uint32, Operation.RENAME)
+    yield* writer.write(XdrCodec.string(), from)
+    yield* writer.write(XdrCodec.string(), to)
+  })
 
-const status = (bytes: Uint8Array) => new Reader(bytes, limits).uint32()
+const status = (bytes: Uint8Array) =>
+  Effect.gen(function*() {
+    return yield* (yield* make.openReader(bytes, limits)).read(XdrCodec.uint32)
+  })
 
-const namespaceChange = (bytes: Uint8Array, operation: number, prefix: ReadonlyArray<number>) => {
-  const reader = new Reader(bytes, limits)
-  assert.strictEqual(reader.uint32(), Status.OK)
-  reader.string()
-  assert.strictEqual(reader.uint32(), prefix.length + 2)
-  assert.strictEqual(reader.uint32(), Operation.SEQUENCE)
-  assert.strictEqual(reader.uint32(), Status.OK)
-  reader.fixedOpaque(16)
+const namespaceChange = (bytes: Uint8Array, operation: number, prefix: ReadonlyArray<number>) =>
+  Effect.gen(function*() {
+    const reader = yield* make.openReader(bytes, limits)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.string())
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), prefix.length + 2)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Operation.SEQUENCE)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    yield* reader.read(XdrCodec.fixedOpaque(16))
 
-  for (let field = 0; field < 5; field++) reader.uint32()
+    for (let field = 0; field < 5; field++) yield* reader.read(XdrCodec.uint32)
 
-  for (const code of prefix) {
-    assert.strictEqual(reader.uint32(), code)
-    assert.strictEqual(reader.uint32(), Status.OK)
-  }
+    for (const code of prefix) {
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), code)
+      assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
+    }
 
-  assert.strictEqual(reader.uint32(), operation)
-  assert.strictEqual(reader.uint32(), Status.OK)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), operation)
+    assert.strictEqual(yield* reader.read(XdrCodec.uint32), Status.OK)
 
-  const readChange = () => {
-    assert.isTrue(reader.boolean())
-    const before = reader.uint64()
-    const after = reader.uint64()
-    assert.notStrictEqual(before, after)
+    const readChange = () =>
+      Effect.gen(function*() {
+        assert.isTrue(yield* reader.read(XdrCodec.boolean))
+        const before = yield* reader.read(XdrCodec.uint64)
+        const after = yield* reader.read(XdrCodec.uint64)
+        assert.notStrictEqual(before, after)
 
-    return { before, after }
-  }
+        return {
+          before,
+          after
+        }
+      })
 
-  const first = readChange()
+    const first = yield* readChange()
+    const second = operation === Operation.RENAME ? yield* readChange() : undefined
 
-  const second = operation === Operation.RENAME ? readChange() : undefined
+    if (operation === Operation.CREATE) assert.deepStrictEqual(yield* reader.read(XdrCodec.array(XdrCodec.uint32)), [])
+    yield* reader.finish
 
-  if (operation === Operation.CREATE) assert.deepStrictEqual(reader.array((item) => item.uint32()), [])
-  reader.finish()
-
-  return { first, second }
-}
+    return {
+      first,
+      second
+    }
+  })
 
 const makeHandler = (
   caller: Parameters<typeof makeExport>[0],
@@ -81,8 +121,14 @@ const makeHandler = (
   } as const
 
   return makeNfs4Handler(
-    makeExport(caller, generation, { maxFilehandles: 32, maxNameBytes: ByteSize.bytes(255) }),
-    mapped === undefined ? options : { ...options, callerFor: () => Effect.succeed(mapped) }
+    makeExport(caller, generation, {
+      maxFilehandles: 32,
+      maxNameBytes: ByteSize.bytes(255)
+    }),
+    mapped === undefined ? options : {
+      ...options,
+      callerFor: () => Effect.succeed(mapped)
+    }
   )
 }
 
@@ -91,76 +137,160 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "namespace-create")
 
-      const response = new Reader(
-        yield* handler.compound(call([
-          sequence(session, 1),
-          root,
-          createDirectory("docs"),
-          (writer) => writer.uint32(Operation.GETFH)
-        ])),
+      const {
+        session
+      } = yield* startSession(handler, "namespace-create")
+
+      const response = yield* make.openReader(
+        yield* handler.compound(
+          yield* call([
+            sequence(session, 1),
+            root,
+            createDirectory("docs"),
+            (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
+          ])
+        ),
         limits
       )
 
-      assert.strictEqual(response.uint32(), Status.OK)
-      response.string()
-      assert.strictEqual(response.uint32(), 4)
-      assert.strictEqual(response.uint32(), Operation.SEQUENCE)
-      assert.strictEqual(response.uint32(), Status.OK)
-      response.fixedOpaque(16)
+      assert.strictEqual(yield* response.read(XdrCodec.uint32), Status.OK)
+      yield* response.read(XdrCodec.string())
+      assert.strictEqual(yield* response.read(XdrCodec.uint32), 4)
+      assert.strictEqual(yield* response.read(XdrCodec.uint32), Operation.SEQUENCE)
+      assert.strictEqual(yield* response.read(XdrCodec.uint32), Status.OK)
+      yield* response.read(XdrCodec.fixedOpaque(16))
 
-      for (let field = 0; field < 5; field++) response.uint32()
-      assert.strictEqual(response.uint32(), Operation.PUTROOTFH)
-      assert.strictEqual(response.uint32(), Status.OK)
-      assert.strictEqual(response.uint32(), Operation.CREATE)
-      assert.strictEqual(response.uint32(), Status.OK)
-      assert.strictEqual(response.boolean(), true)
-      assert.notStrictEqual(response.uint64(), response.uint64())
-      assert.deepStrictEqual(response.array((item) => item.uint32()), [])
-      assert.strictEqual(response.uint32(), Operation.GETFH)
-      assert.strictEqual(response.uint32(), Status.OK)
-      const directoryHandle = response.opaque()
+      for (let field = 0; field < 5; field++) yield* response.read(XdrCodec.uint32)
+      assert.strictEqual(yield* response.read(XdrCodec.uint32), Operation.PUTROOTFH)
+      assert.strictEqual(yield* response.read(XdrCodec.uint32), Status.OK)
+      assert.strictEqual(yield* response.read(XdrCodec.uint32), Operation.CREATE)
+      assert.strictEqual(yield* response.read(XdrCodec.uint32), Status.OK)
+      assert.strictEqual(yield* response.read(XdrCodec.boolean), true)
+      assert.notStrictEqual(yield* response.read(XdrCodec.uint64), yield* response.read(XdrCodec.uint64))
+      assert.deepStrictEqual(yield* response.read(XdrCodec.array(XdrCodec.uint32)), [])
+      assert.strictEqual(yield* response.read(XdrCodec.uint32), Operation.GETFH)
+      assert.strictEqual(yield* response.read(XdrCodec.uint32), Status.OK)
+      const directoryHandle = yield* response.read(XdrCodec.opaque())
       assert.ok(directoryHandle.length > 0)
-      response.finish()
-
+      yield* response.finish
       assert.strictEqual(
-        status(
-          yield* handler.compound(call([
-            sequence(session, 2),
-            root,
-            createSymlink("shortcut", "docs/guide")
-          ]))
+        yield* status(
+          yield* handler.compound(yield* call([sequence(session, 2), root, createSymlink("shortcut", "docs/guide")]))
         ),
         Status.OK
       )
       assert.strictEqual(yield* caller.readLink("/shortcut"), "docs/guide")
       assert.strictEqual(
-        status(
-          yield* handler.compound(call([
-            sequence(session, 3),
-            (writer) => writer.uint32(Operation.PUTFH).opaque(directoryHandle),
-            createDirectory("nested")
-          ]))
+        yield* status(
+          yield* handler.compound(
+            yield* call([sequence(session, 3), (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
+                yield* writer.write(XdrCodec.opaque(), directoryHandle)
+              }), createDirectory("nested")])
+          )
         ),
         Status.OK
       )
       assert.strictEqual((yield* caller.stat("/docs/nested")).kind, "directory")
     }))
-
   it.effect("links and renames by saved and current handles while preserving inode identity", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.mkdir("/from")
       yield* caller.mkdir("/to")
-      yield* caller.writeFile("/from/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      yield* caller.writeFile("/from/file", new Uint8Array([1]), {
+        access: "write",
+        create: "exclusive"
+      })
       const original = yield* caller.stat("/from/file")
       const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "namespace-move")
+
+      const {
+        session
+      } = yield* startSession(handler, "namespace-move")
 
       assert.strictEqual(
-        status(
-          yield* handler.compound(call([
+        yield* status(
+          yield* handler.compound(
+            yield* call([
+              sequence(session, 1),
+              root,
+              lookup("from"),
+              lookup("file"),
+              save,
+              root,
+              lookup("to"),
+              link("linked")
+            ])
+          )
+        ),
+        Status.OK
+      )
+      assert.strictEqual((yield* caller.stat("/to/linked")).ino, original.ino)
+      assert.strictEqual(
+        yield* status(
+          yield* handler.compound(
+            yield* call([sequence(session, 2), root, lookup("from"), save, root, lookup("to"), rename("file", "moved")])
+          )
+        ),
+        Status.OK
+      )
+      assert.strictEqual((yield* caller.stat("/to/moved")).ino, original.ino)
+      assert.strictEqual(
+        yield* status(
+          yield* handler.compound(yield* call([sequence(session, 3), root, lookup("to"), remove("linked")]))
+        ),
+        Status.OK
+      )
+      assert.deepStrictEqual(yield* caller.readFile("/to/moved"), new Uint8Array([1]))
+    }))
+  it.effect("keeps earlier compound mutations when a later operation fails", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      const handler = yield* makeHandler(caller)
+
+      const {
+        session
+      } = yield* startSession(handler, "namespace-partial")
+
+      const reply = yield* handler.compound(
+        yield* call([sequence(session, 1), root, createDirectory("kept"), root, remove("missing")])
+      )
+
+      assert.strictEqual(yield* status(reply), Status.NOENT)
+      assert.strictEqual((yield* caller.stat("/kept")).kind, "directory")
+    }))
+  it.effect("reports changes for links, directory removal, and replacement rename", () =>
+    Effect.gen(function*() {
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.mkdir("/from")
+      yield* caller.mkdir("/to")
+      yield* caller.mkdir("/to/empty")
+      yield* caller.writeFile("/from/file", new Uint8Array([1]), {
+        access: "write",
+        create: "exclusive"
+      })
+      yield* caller.writeFile("/to/replaced", new Uint8Array([2]), {
+        access: "write",
+        create: "exclusive"
+      })
+      const original = yield* caller.stat("/from/file")
+      const rootReference = yield* caller.rootReference
+      const fromReference = yield* caller.lookupReference(rootReference, new TextEncoder().encode("from"))
+      const toReference = yield* caller.lookupReference(rootReference, new TextEncoder().encode("to"))
+      const handler = yield* makeHandler(caller)
+
+      const {
+        session
+      } = yield* startSession(handler, "namespace-change")
+
+      const beforeLink = (yield* caller.observeMetadata(toReference)).revision
+
+      const linked = yield* namespaceChange(
+        yield* handler.compound(
+          yield* call([
             sequence(session, 1),
             root,
             lookup("from"),
@@ -168,88 +298,9 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
             save,
             root,
             lookup("to"),
-            link("linked")
-          ]))
+            link("alias")
+          ])
         ),
-        Status.OK
-      )
-      assert.strictEqual((yield* caller.stat("/to/linked")).ino, original.ino)
-
-      assert.strictEqual(
-        status(
-          yield* handler.compound(call([
-            sequence(session, 2),
-            root,
-            lookup("from"),
-            save,
-            root,
-            lookup("to"),
-            rename("file", "moved")
-          ]))
-        ),
-        Status.OK
-      )
-      assert.strictEqual((yield* caller.stat("/to/moved")).ino, original.ino)
-      assert.strictEqual(
-        status(
-          yield* handler.compound(call([
-            sequence(session, 3),
-            root,
-            lookup("to"),
-            remove("linked")
-          ]))
-        ),
-        Status.OK
-      )
-      assert.deepStrictEqual(yield* caller.readFile("/to/moved"), new Uint8Array([1]))
-    }))
-
-  it.effect("keeps earlier compound mutations when a later operation fails", () =>
-    Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
-      const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "namespace-partial")
-
-      const reply = yield* handler.compound(call([
-        sequence(session, 1),
-        root,
-        createDirectory("kept"),
-        root,
-        remove("missing")
-      ]))
-
-      assert.strictEqual(status(reply), Status.NOENT)
-      assert.strictEqual((yield* caller.stat("/kept")).kind, "directory")
-    }))
-
-  it.effect("reports changes for links, directory removal, and replacement rename", () =>
-    Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
-      yield* caller.mkdir("/from")
-      yield* caller.mkdir("/to")
-      yield* caller.mkdir("/to/empty")
-      yield* caller.writeFile("/from/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      yield* caller.writeFile("/to/replaced", new Uint8Array([2]), { access: "write", create: "exclusive" })
-      const original = yield* caller.stat("/from/file")
-      const rootReference = yield* caller.rootReference
-      const fromReference = yield* caller.lookupReference(rootReference, new TextEncoder().encode("from"))
-      const toReference = yield* caller.lookupReference(rootReference, new TextEncoder().encode("to"))
-      const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "namespace-change")
-
-      const beforeLink = (yield* caller.observeMetadata(toReference)).revision
-
-      const linked = namespaceChange(
-        yield* handler.compound(call([
-          sequence(session, 1),
-          root,
-          lookup("from"),
-          lookup("file"),
-          save,
-          root,
-          lookup("to"),
-          link("alias")
-        ])),
         Operation.LINK,
         [
           Operation.PUTROOTFH,
@@ -266,32 +317,27 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         after: (yield* caller.observeMetadata(toReference)).revision
       })
       assert.strictEqual((yield* caller.stat("/to/alias")).ino, original.ino)
-
-      namespaceChange(
-        yield* handler.compound(call([
-          sequence(session, 2),
-          root,
-          lookup("to"),
-          remove("empty")
-        ])),
+      yield* namespaceChange(
+        yield* handler.compound(yield* call([sequence(session, 2), root, lookup("to"), remove("empty")])),
         Operation.REMOVE,
         [Operation.PUTROOTFH, Operation.LOOKUP]
       )
       assert.strictEqual((yield* Effect.flip(caller.stat("/to/empty"))).code, "NotFound")
-
       const beforeFrom = (yield* caller.observeMetadata(fromReference)).revision
       const beforeTo = (yield* caller.observeMetadata(toReference)).revision
 
-      const renamed = namespaceChange(
-        yield* handler.compound(call([
-          sequence(session, 3),
-          root,
-          lookup("from"),
-          save,
-          root,
-          lookup("to"),
-          rename("file", "replaced")
-        ])),
+      const renamed = yield* namespaceChange(
+        yield* handler.compound(
+          yield* call([
+            sequence(session, 3),
+            root,
+            lookup("from"),
+            save,
+            root,
+            lookup("to"),
+            rename("file", "replaced")
+          ])
+        ),
         Operation.RENAME,
         [Operation.PUTROOTFH, Operation.LOOKUP, Operation.SAVEFH, Operation.PUTROOTFH, Operation.LOOKUP]
       )
@@ -307,93 +353,94 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
       assert.strictEqual((yield* caller.stat("/to/replaced")).ino, original.ino)
       assert.deepStrictEqual(yield* caller.readFile("/to/replaced"), new Uint8Array([1]))
     }))
-
   it.effect("validates namespace operands and keeps read-only exports unchanged", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
-      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      yield* caller.writeFile("/file", new Uint8Array([1]), {
+        access: "write",
+        create: "exclusive"
+      })
       const writable = yield* makeHandler(caller)
-      const { session } = yield* startSession(writable, "namespace-errors")
+
+      const {
+        session
+      } = yield* startSession(writable, "namespace-errors")
 
       assert.strictEqual(
-        status(yield* writable.compound(call([sequence(session, 1), root, remove("..")]))),
+        yield* status(yield* writable.compound(yield* call([sequence(session, 1), root, remove("..")]))),
         Status.BADNAME
       )
-      assert.strictEqual(status(yield* writable.compound(call([sequence(session, 2), root, remove("")]))), Status.INVAL)
       assert.strictEqual(
-        status(yield* writable.compound(call([sequence(session, 3), root, remove("absent")]))),
+        yield* status(yield* writable.compound(yield* call([sequence(session, 2), root, remove("")]))),
+        Status.INVAL
+      )
+      assert.strictEqual(
+        yield* status(yield* writable.compound(yield* call([sequence(session, 3), root, remove("absent")]))),
         Status.NOENT
       )
       assert.strictEqual(
-        status(yield* writable.compound(call([sequence(session, 4), root, lookup("file"), remove("x")]))),
+        yield* status(yield* writable.compound(yield* call([sequence(session, 4), root, lookup("file"), remove("x")]))),
         Status.NOTDIR
       )
       assert.strictEqual(
-        status(yield* writable.compound(call([sequence(session, 5), root, rename("file", "other")]))),
+        yield* status(yield* writable.compound(yield* call([sequence(session, 5), root, rename("file", "other")]))),
         Status.NOFILEHANDLE
       )
-
       const readOnly = yield* makeHandler(caller, false)
-      const { session: readOnlySession } = yield* startSession(readOnly, "namespace-read-only")
+
+      const {
+        session: readOnlySession
+      } = yield* startSession(readOnly, "namespace-read-only")
+
       assert.strictEqual(
-        status(
-          yield* readOnly.compound(call([
-            sequence(readOnlySession, 1),
-            root,
-            createDirectory("denied")
-          ]))
+        yield* status(
+          yield* readOnly.compound(yield* call([sequence(readOnlySession, 1), root, createDirectory("denied")]))
         ),
         Status.ROFS
       )
       assert.strictEqual(
-        status(
-          yield* readOnly.compound(call([
-            sequence(readOnlySession, 2),
-            root,
-            remove("file")
-          ]))
-        ),
+        yield* status(yield* readOnly.compound(yield* call([sequence(readOnlySession, 2), root, remove("file")]))),
         Status.ROFS
       )
     }))
-
   it.effect("enforces the mapped caller's directory permissions for namespace changes", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
       const admin = yield* volume.caller()
-      yield* admin.mkdir("/private", { mode: 0o700 })
-      yield* admin.writeFile("/private/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      yield* admin.mkdir("/private", {
+        mode: 0o700
+      })
+      yield* admin.writeFile("/private/file", new Uint8Array([1]), {
+        access: "write",
+        create: "exclusive"
+      })
 
       const guest = yield* volume.caller({
-        identity: { uid: 1000, gid: 1000, groups: [], privileged: false }
+        identity: {
+          uid: 1000,
+          gid: 1000,
+          groups: [],
+          privileged: false
+        }
       })
 
       const handler = yield* makeHandler(admin, true, guest)
-      const { session } = yield* startSession(handler, "namespace-mapped-denial")
+
+      const {
+        session
+      } = yield* startSession(handler, "namespace-mapped-denial")
+
       assert.strictEqual(
-        status(
-          yield* handler.compound(call([
-            sequence(session, 1),
-            root,
-            createDirectory("blocked")
-          ]))
-        ),
+        yield* status(yield* handler.compound(yield* call([sequence(session, 1), root, createDirectory("blocked")]))),
         Status.ACCESS
       )
       assert.strictEqual(
-        status(
-          yield* handler.compound(call([
-            sequence(session, 2),
-            root,
-            remove("private")
-          ]))
-        ),
+        yield* status(yield* handler.compound(yield* call([sequence(session, 2), root, remove("private")]))),
         Status.ACCESS
       )
       assert.strictEqual((yield* admin.stat("/private/file")).kind, "file")
       assert.strictEqual((yield* Effect.flip(admin.stat("/blocked"))).code, "NotFound")
     }))
-
   it.effect("reopens an injected committed image with NFS namespace and metadata changes", () => {
     let image: Uint8Array | undefined
 
@@ -426,44 +473,55 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         const caller = yield* volume.caller()
 
         const handler = yield* makeNfs4Handler(
-          makeExport(caller, generation, { maxFilehandles: 32, maxNameBytes: ByteSize.bytes(255) }, generation, volume),
-          { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits, writable: true }
+          makeExport(
+            caller,
+            generation,
+            {
+              maxFilehandles: 32,
+              maxNameBytes: ByteSize.bytes(255)
+            },
+            generation,
+            volume
+          ),
+          {
+            leaseDurationSeconds: 30,
+            callbackTimeout: "1 second",
+            generation,
+            now: () => 0,
+            limits,
+            writable: true
+          }
         )
 
-        const { session } = yield* startSession(handler, "namespace-live-before")
+        const {
+          session
+        } = yield* startSession(handler, "namespace-live-before")
+
         assert.strictEqual(
-          status(
-            yield* handler.compound(call([
-              sequence(session, 1),
-              root,
-              createDirectory("docs")
-            ]))
+          yield* status(yield* handler.compound(yield* call([sequence(session, 1), root, createDirectory("docs")]))),
+          Status.OK
+        )
+        assert.strictEqual(
+          yield* status(
+            yield* handler.compound(
+              yield* call([sequence(session, 2), root, lookup("docs"), createSymlink("guide", "../target")])
+            )
           ),
           Status.OK
         )
         assert.strictEqual(
-          status(
-            yield* handler.compound(call([
-              sequence(session, 2),
-              root,
-              lookup("docs"),
-              createSymlink("guide", "../target")
-            ]))
-          ),
-          Status.OK
-        )
-        assert.strictEqual(
-          status(
-            yield* handler.compound(call([
-              sequence(session, 3),
-              root,
-              lookup("docs"),
-              (writer) => {
-                const values = new Writer().uint32(0o750)
-                writer.uint32(Operation.SETATTR).fixedOpaque(new Uint8Array(16))
-                  .array([0, 1 << 1], (target, word) => target.uint32(word)).opaque(values.bytes())
-              }
-            ]))
+          yield* status(
+            yield* handler.compound(
+              yield* call([sequence(session, 3), root, lookup("docs"), (writer) =>
+                Effect.gen(function*() {
+                  const values = yield* make.openWriter(limits, 4)
+                  yield* values.write(XdrCodec.uint32, 0o750)
+                  yield* writer.write(XdrCodec.uint32, Operation.SETATTR)
+                  yield* writer.write(XdrCodec.fixedOpaque(16), new Uint8Array(16))
+                  yield* writer.write(XdrCodec.array(XdrCodec.uint32), [0, 1 << 1])
+                  yield* writer.write(XdrCodec.opaque(), yield* values.finish)
+                })])
+            )
           ),
           Status.OK
         )

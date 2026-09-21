@@ -2,14 +2,16 @@ import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
+import * as Result from "effect/Result"
 import type { NfsPeer } from "../NfsServer.js"
-import { type DecodeLimits, Reader, Writer, XdrDecodeError } from "./xdr.js"
+import { type DecodeLimits, type DecoderSession, make, XdrCodec, type XdrEncodeError } from "./xdr.js"
 
 /** @internal */
 export interface RpcLimits extends DecodeLimits {
   readonly maxAuthBytes: ByteSize.ByteSize
   readonly maxMachineNameBytes: ByteSize.ByteSize
   readonly maxSupplementaryGroups: number
+  readonly maxRecordBytes: ByteSize.ByteSize
 }
 
 /** @internal */
@@ -58,7 +60,7 @@ export interface CompoundCall {
 
 /** @internal */
 export interface RpcHandlers {
-  readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array, RpcPolicyDenied>
+  readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array, RpcPolicyDenied | XdrEncodeError>
   /** Called once when a connection ends, however it ended. */
   readonly disconnect: (connection: Connection) => Effect.Effect<void>
   /** Called with an RPC REPLY, which on a backchannel answers a callback the server sent. */
@@ -121,83 +123,117 @@ class VerifierError extends Data.TaggedError("VerifierError")<{ readonly detail:
   }
 }
 
-const decodeAuth = (reader: Reader, limits: RpcLimits): Credentials => {
-  const flavor = reader.uint32()
-  const body = reader.opaque(ByteSize.min(limits.maxAuthBytes, ByteSize.bytes(400)))
-  const auth = new Reader(body, limits)
+const AuthSysCodec = (limits: RpcLimits) =>
+  XdrCodec.struct({
+    stamp: XdrCodec.uint32,
+    machineName: XdrCodec.string(limits.maxMachineNameBytes),
+    uid: XdrCodec.uint32,
+    gid: XdrCodec.uint32,
+    supplementaryGroups: XdrCodec.array(XdrCodec.uint32, limits.maxSupplementaryGroups)
+  })
 
-  if (flavor === AUTH_NONE) {
-    auth.finish()
+const decodeAuth = (reader: DecoderSession, limits: RpcLimits): Effect.Effect<Credentials, CredentialError> =>
+  Effect.gen(function*() {
+    const flavor = yield* reader.read(XdrCodec.uint32)
+    const body = yield* reader.read(XdrCodec.opaque(ByteSize.min(limits.maxAuthBytes, ByteSize.bytes(400))))
+    const auth = yield* make.openReader(body, limits)
 
-    return Credentials.None()
-  }
+    if (flavor === AUTH_NONE) {
+      yield* auth.finish
 
-  // RPCSEC_GSS is a flavor this server understands but does not implement, so the reply says
-  // "server requires different authentication" (AUTH_TOOWEAK) rather than "credential is
-  // malformed". Nothing ever falls back to a broader identity: the compound is never dispatched.
-  if (flavor === RPCSEC_GSS) throw new CredentialError("RPCSEC_GSS is not implemented", AUTH_TOOWEAK)
+      return Credentials.None()
+    }
 
-  if (flavor !== AUTH_SYS) throw new CredentialError("Unsupported RPC authentication flavor")
+    // RPCSEC_GSS is recognized but not implemented. Do not fall back to AUTH_SYS or AUTH_NONE.
+    if (flavor === RPCSEC_GSS) {
+      return yield* new CredentialError("RPCSEC_GSS is not implemented", AUTH_TOOWEAK)
+    }
 
-  try {
-    const value = Credentials.Sys({
-      stamp: auth.uint32(),
-      machineName: auth.string(limits.maxMachineNameBytes),
-      uid: auth.uint32(),
-      gid: auth.uint32(),
-      supplementaryGroups: auth.array((item) => item.uint32(), limits.maxSupplementaryGroups)
-    })
+    if (flavor !== AUTH_SYS) return yield* new CredentialError("Unsupported RPC authentication flavor")
 
-    auth.finish()
+    const value = yield* auth.read(AuthSysCodec(limits))
+    yield* auth.finish
 
-    return value
-  } catch (error) {
-    if (error instanceof XdrDecodeError) throw new CredentialError(error.message)
-    throw error
-  }
-}
+    return Credentials.Sys(value)
+  }).pipe(Effect.catchTag("XdrDecodeError", (error) => Effect.fail(new CredentialError(error.message))))
 
-const decodeVerifier = (reader: Reader, limits: RpcLimits): void => {
-  try {
-    const flavor = reader.uint32()
-    const body = reader.opaque(ByteSize.min(limits.maxAuthBytes, ByteSize.bytes(400)))
+const decodeVerifier = (reader: DecoderSession, limits: RpcLimits): Effect.Effect<void, VerifierError> =>
+  Effect.gen(function*() {
+    const flavor = yield* reader.read(XdrCodec.uint32)
+    const body = yield* reader.read(XdrCodec.opaque(ByteSize.min(limits.maxAuthBytes, ByteSize.bytes(400))))
 
     if (flavor !== AUTH_NONE || body.length !== 0) {
-      throw new VerifierError("Only an empty AUTH_NONE verifier is accepted")
+      return yield* new VerifierError("Only an empty AUTH_NONE verifier is accepted")
     }
-  } catch (error) {
-    if (error instanceof XdrDecodeError) throw new VerifierError(error.message)
-    throw error
-  }
-}
+  }).pipe(Effect.catchTag("XdrDecodeError", (error) => Effect.fail(new VerifierError(error.message))))
+
+const AcceptedPrefixCodec = XdrCodec.struct({
+  xid: XdrCodec.uint32,
+  direction: XdrCodec.uint32,
+  replyStatus: XdrCodec.uint32,
+  verifierFlavor: XdrCodec.uint32,
+  verifierLength: XdrCodec.uint32,
+  acceptStatus: XdrCodec.uint32
+})
+
+const DeniedPrefixCodec = XdrCodec.struct({
+  xid: XdrCodec.uint32,
+  direction: XdrCodec.uint32,
+  replyStatus: XdrCodec.uint32,
+  rejectStatus: XdrCodec.uint32
+})
 
 const accepted = (
   xid: number,
   status: number,
+  limits: RpcLimits,
   payload?: Uint8Array,
   mismatch?: readonly [number, number]
-): Uint8Array => {
-  const writer = new Writer().uint32(xid).uint32(REPLY).uint32(MSG_ACCEPTED).uint32(0).uint32(0).uint32(status)
+): Effect.Effect<Uint8Array, XdrEncodeError> =>
+  Effect.gen(function*() {
+    const writer = yield* make.openWriter(limits, ByteSize.toNumberUnsafe(limits.maxRecordBytes))
+    yield* writer.write(AcceptedPrefixCodec, {
+      xid,
+      direction: REPLY,
+      replyStatus: MSG_ACCEPTED,
+      verifierFlavor: AUTH_NONE,
+      verifierLength: 0,
+      acceptStatus: status
+    })
 
-  if (mismatch !== undefined) writer.uint32(mismatch[0]).uint32(mismatch[1])
-  const prefix = writer.bytes()
+    if (mismatch !== undefined) {
+      yield* writer.write(XdrCodec.uint32, mismatch[0])
+      yield* writer.write(XdrCodec.uint32, mismatch[1])
+    }
 
-  if (payload === undefined) return prefix
-  const result = new Uint8Array(prefix.length + payload.length)
-  result.set(prefix)
-  result.set(payload, prefix.length)
+    if (payload !== undefined) yield* writer.appendEncoded(payload)
 
-  return result
-}
+    return yield* writer.finish
+  })
 
-const denied = (xid: number, status: number, detail: number | readonly [number, number]): Uint8Array => {
-  const writer = new Writer().uint32(xid).uint32(REPLY).uint32(MSG_DENIED).uint32(status)
+const denied = (
+  xid: number,
+  status: number,
+  detail: number | readonly [number, number],
+  limits: RpcLimits
+): Effect.Effect<Uint8Array, XdrEncodeError> =>
+  Effect.gen(function*() {
+    const writer = yield* make.openWriter(limits, ByteSize.toNumberUnsafe(limits.maxRecordBytes))
+    yield* writer.write(DeniedPrefixCodec, {
+      xid,
+      direction: REPLY,
+      replyStatus: MSG_DENIED,
+      rejectStatus: status
+    })
 
-  if (Predicate.isNumber(detail)) writer.uint32(detail)
-  else writer.uint32(detail[0]).uint32(detail[1])
+    if (Predicate.isNumber(detail)) yield* writer.write(XdrCodec.uint32, detail)
+    else {
+      yield* writer.write(XdrCodec.uint32, detail[0])
+      yield* writer.write(XdrCodec.uint32, detail[1])
+    }
 
-  return writer.bytes()
-}
+    return yield* writer.finish
+  })
 
 /** @internal */
 export const handleCall = (
@@ -205,61 +241,65 @@ export const handleCall = (
   message: Uint8Array,
   limits: RpcLimits,
   handlers: RpcHandlers
-): Effect.Effect<Uint8Array | undefined> =>
+): Effect.Effect<Uint8Array | undefined, XdrEncodeError> =>
   Effect.suspend(() => {
     if (message.length < 4) return Effect.as(Effect.void, undefined)
     const xid = new DataView(message.buffer, message.byteOffset, message.byteLength).getUint32(0)
-    const reader = new Reader(message, limits)
 
-    try {
-      reader.uint32()
+    return Effect.gen(function*() {
+      const reader = yield* make.openReader(message, limits)
+      yield* reader.read(XdrCodec.uint32)
 
-      if (reader.uint32() !== CALL) return Effect.succeed(accepted(xid, 4))
-      const rpcVersion = reader.uint32()
+      if ((yield* reader.read(XdrCodec.uint32)) !== CALL) return yield* accepted(xid, 4, limits)
+      const rpcVersion = yield* reader.read(XdrCodec.uint32)
 
-      if (rpcVersion !== RPC_VERSION) return Effect.succeed(denied(xid, 0, [RPC_VERSION, RPC_VERSION]))
-      const program = reader.uint32()
-      const version = reader.uint32()
-      const procedure = reader.uint32()
-      let credentials: Credentials
+      if (rpcVersion !== RPC_VERSION) return yield* denied(xid, 0, [RPC_VERSION, RPC_VERSION], limits)
+      const program = yield* reader.read(XdrCodec.uint32)
+      const version = yield* reader.read(XdrCodec.uint32)
+      const procedure = yield* reader.read(XdrCodec.uint32)
 
-      try {
-        credentials = decodeAuth(reader, limits)
-        decodeVerifier(reader, limits)
-      } catch (error) {
-        if (error instanceof VerifierError) return Effect.succeed(denied(xid, 1, AUTH_BADVERF))
+      const authentication = yield* Effect.result(Effect.gen(function*() {
+        const credentials = yield* decodeAuth(reader, limits)
+        yield* decodeVerifier(reader, limits)
 
-        if (error instanceof CredentialError) return Effect.succeed(denied(xid, 1, error.status))
+        return credentials
+      }))
 
-        if (error instanceof XdrDecodeError) return Effect.succeed(denied(xid, 1, AUTH_BADCRED))
+      if (Result.isFailure(authentication)) {
+        const error = authentication.failure
 
-        throw error
+        if (error instanceof VerifierError) return yield* denied(xid, 1, AUTH_BADVERF, limits)
+
+        return yield* denied(xid, 1, error.status, limits)
       }
 
-      if (program !== NFS_PROGRAM) return Effect.succeed(accepted(xid, 1))
+      if (program !== NFS_PROGRAM) return yield* accepted(xid, 1, limits)
 
-      if (version !== NFS_VERSION) return Effect.succeed(accepted(xid, 2, undefined, [NFS_VERSION, NFS_VERSION]))
+      if (version !== NFS_VERSION) return yield* accepted(xid, 2, limits, undefined, [NFS_VERSION, NFS_VERSION])
 
       if (procedure === 0) {
-        reader.finish()
+        yield* reader.finish
 
-        return Effect.succeed(accepted(xid, 0))
+        return yield* accepted(xid, 0, limits)
       }
 
-      if (procedure !== 1) return Effect.succeed(accepted(xid, 3))
-      const arguments_ = message.slice(message.length - reader.remaining)
+      if (procedure !== 1) return yield* accepted(xid, 3, limits)
+      const remaining = yield* reader.remaining
+      const arguments_ = message.slice(message.length - remaining)
 
-      return handlers.compound({
+      const result = yield* Effect.result(handlers.compound({
         connection,
-        credentials,
+        credentials: authentication.success,
         arguments: arguments_,
         requestBytes: message.length
-      }).pipe(
-        Effect.map((payload) => accepted(xid, 0, payload)),
-        Effect.catchTag("RpcPolicyDenied", () => Effect.succeed(denied(xid, 1, AUTH_FAILED)))
-      )
-    } catch (error) {
-      if (error instanceof XdrDecodeError) return Effect.succeed(accepted(xid, 4))
-      throw error
-    }
+      }))
+
+      if (Result.isFailure(result)) {
+        if (result.failure instanceof RpcPolicyDenied) return yield* denied(xid, 1, AUTH_FAILED, limits)
+
+        return yield* result.failure
+      }
+
+      return yield* accepted(xid, 0, limits, result.success)
+    }).pipe(Effect.catchTag("XdrDecodeError", () => accepted(xid, 4, limits)))
   })
