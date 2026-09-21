@@ -5,6 +5,9 @@
 - [Overlay filesystem direction](overlay-filesystem.md) retains the alternatives considered for overlay v1 and the parity cases a future harness should cover.
 - [Snapshot delta representation research](overlay-changes.md) retains the open delta questions: compressed encodings, checkpoint storage, profiling, and merge or rebase.
 - [Live durable volume proposal](live-durable-volume.md) records the staged core mutation boundary and proposes a bounded storage provider, with crash recovery and NFS replay prerequisites.
+- [Cloudflare Durable Object live image store](cloudflare-durable-object-live-image.md) examines the storage adapter, native NFS gateway, and durability evidence needed for a Cloudflare-backed volume.
+- [Cloudflare remote volume storage options](cloudflare-remote-volume-storage-options.md) compares DO SQLite, D1, and R2 for a remotely accessible volume with replaceable storage.
+- [Remote agent filesystem access through Cloudflare](cloudflare-remote-agent-filesystem.md) separates a TypeScript remote client from a native NFS mount and compares feasible connection paths.
 
 ## NFS export
 
