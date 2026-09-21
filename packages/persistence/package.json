@@ -26,6 +26,10 @@
       "types": "./dist/SqliteLiveImageStore.d.ts",
       "import": "./dist/SqliteLiveImageStore.js"
     },
+    "./R2LiveImageStore": {
+      "types": "./dist/R2LiveImageStore.d.ts",
+      "import": "./dist/R2LiveImageStore.js"
+    },
     "./package.json": "./package.json"
   },
   "files": ["dist/**", "README.md", "POWER_LOSS_TESTING.md", "LICENSE"],
@@ -36,9 +40,13 @@
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "build": "tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json",
     "test": "bun --bun run vitest run",
+    "test:r2": "bun scripts/r2-smoke.ts",
+    "test:r2:fault": "bun scripts/r2-fault-smoke.ts",
+    "test:r2:volume": "bun scripts/r2-volume-smoke.ts",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.883.0",
     "@effect-vfs/core": "^0.4.0"
   },
   "peerDependencies": {

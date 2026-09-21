@@ -1,0 +1,199 @@
+import { GetObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from "@aws-sdk/client-s3"
+import { LiveVolume } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import { assert, describe, it, vi } from "@effect/vitest"
+import { ByteSize, Effect, Layer } from "effect"
+import * as R2LiveImageStore from "../src/R2LiveImageStore.js"
+
+const bytes = (value: string) => new TextEncoder().encode(value)
+
+const text = (value: Uint8Array) => new TextDecoder().decode(value)
+
+const makeClient = () => {
+  let object: R2LiveImageStore.ObjectRecord | null = null
+  let revision = 0
+  let loseNextReply = false
+
+  const client: R2LiveImageStore.R2Client = {
+    read: () => Effect.sync(() => object === null ? null : { ...object, bytes: new Uint8Array(object.bytes) }),
+    write: (_key, image, generation, digest, condition) =>
+      Effect.suspend(() => {
+        if ("ifNoneMatch" in condition ? object !== null : object?.etag !== condition.ifMatch) {
+          return Effect.succeed(null)
+        }
+
+        revision++
+        object = { bytes: new Uint8Array(image), etag: `"${revision}"`, generation, digest }
+
+        if (loseNextReply) {
+          loseNextReply = false
+
+          return Effect.fail(
+            new LiveVolume.LiveVolumeError({ code: "Storage", cause: new Error("reply lost after write") })
+          )
+        }
+
+        return Effect.succeed({ etag: object.etag })
+      })
+  }
+
+  return {
+    client,
+    loseReply: () => {
+      loseNextReply = true
+    },
+    damage: () => {
+      if (object) object.bytes[0] = 0
+    }
+  }
+}
+
+const layer = (client: R2LiveImageStore.R2Client) =>
+  R2LiveImageStore.layer({ client, key: "volume/live", maxImageBytes: ByteSize.kilobytes(64) }).pipe(
+    Layer.provide(NodeCrypto.layer)
+  )
+
+describe("R2 live image store", () => {
+  it.effect("reopens the last acknowledged complete image", () =>
+    Effect.gen(function*() {
+      const remote = makeClient()
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          const store = yield* LiveVolume.LiveImageStore
+          assert.strictEqual(text(yield* store.loadOrCreate(bytes("initial"))), "initial")
+          assert.strictEqual(yield* store.commit(bytes("updated")), "committed")
+        }).pipe(Effect.provide(layer(remote.client)))
+      )
+
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          const store = yield* LiveVolume.LiveImageStore
+          assert.strictEqual(text(yield* store.loadOrCreate(bytes("ignored"))), "updated")
+        }).pipe(Effect.provide(layer(remote.client)))
+      )
+    }))
+
+  it.effect("freezes the old owner after a competing write", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const remote = makeClient()
+      const first = yield* LiveVolume.LiveImageStore.pipe(Effect.provide(layer(remote.client)))
+      const second = yield* LiveVolume.LiveImageStore.pipe(Effect.provide(layer(remote.client)))
+      yield* first.loadOrCreate(bytes("initial"))
+      yield* second.loadOrCreate(bytes("ignored"))
+      assert.strictEqual(yield* first.commit(bytes("winner")), "committed")
+      assert.strictEqual(yield* second.commit(bytes("stale")), "unknown")
+      assert.strictEqual(yield* second.commit(bytes("retry")), "unknown")
+    })))
+
+  it.effect("recovers a complete image after a lost commit reply", () =>
+    Effect.gen(function*() {
+      const remote = makeClient()
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          const store = yield* LiveVolume.LiveImageStore
+          yield* store.loadOrCreate(bytes("old"))
+          remote.loseReply()
+          assert.strictEqual(yield* store.commit(bytes("new")), "unknown")
+          assert.strictEqual(yield* store.commit(bytes("retry")), "unknown")
+        }).pipe(Effect.provide(layer(remote.client)))
+      )
+
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          const store = yield* LiveVolume.LiveImageStore
+          assert.strictEqual(text(yield* store.loadOrCreate(bytes("ignored"))), "new")
+        }).pipe(Effect.provide(layer(remote.client)))
+      )
+    }))
+
+  it.effect("rejects an image whose stored digest does not match", () =>
+    Effect.gen(function*() {
+      const remote = makeClient()
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          yield* (yield* LiveVolume.LiveImageStore).loadOrCreate(bytes("good"))
+        }).pipe(Effect.provide(layer(remote.client)))
+      )
+      remote.damage()
+
+      const error = yield* Effect.flip(Effect.scoped(
+        Effect.gen(function*() {
+          return yield* (yield* LiveVolume.LiveImageStore).loadOrCreate(bytes("ignored"))
+        }).pipe(Effect.provide(layer(remote.client)))
+      ))
+
+      assert.strictEqual(error.code, "CorruptStore")
+    }))
+
+  it.effect("sends an ETag condition through the S3 client", () =>
+    Effect.gen(function*() {
+      const commands: Array<PutObjectCommand> = []
+
+      const fake = new S3Client({
+        region: "auto",
+        endpoint: "https://example.invalid",
+        credentials: {
+          accessKeyId: "test",
+          secretAccessKey: "test"
+        }
+      })
+
+      vi.spyOn(fake, "send").mockImplementation((command) => {
+        if (command instanceof GetObjectCommand) {
+          return Promise.resolve({
+            Body: { transformToByteArray: () => Promise.resolve(bytes("stored")) },
+            ETag: "\"first\"",
+            Metadata: { generation: "0", digest: "test" }
+          })
+        }
+
+        if (command instanceof PutObjectCommand) {
+          commands.push(command)
+
+          return Promise.resolve({ ETag: "\"second\"" })
+        }
+
+        throw new Error("unexpected S3 command")
+      })
+
+      const client = R2LiveImageStore.fromS3(fake, "bucket")
+      assert.strictEqual(text((yield* client.read("key"))!.bytes), "stored")
+      yield* client.write("key", bytes("next"), "1", "digest", { ifMatch: "\"first\"" })
+      assert.strictEqual(commands[0]?.input.IfMatch, "\"first\"")
+      assert.strictEqual(commands[0]?.input.Metadata?.["generation"], "1")
+      fake.destroy()
+    }))
+
+  it.effect("treats a missing key as absent but keeps a missing bucket as an error", () =>
+    Effect.gen(function*() {
+      const fake = new S3Client({
+        region: "auto",
+        endpoint: "https://example.invalid",
+        credentials: {
+          accessKeyId: "test",
+          secretAccessKey: "test"
+        }
+      })
+
+      const send = vi.spyOn(fake, "send")
+      send.mockRejectedValue(
+        new S3ServiceException({
+          name: "NoSuchKey",
+          $fault: "client",
+          $metadata: { httpStatusCode: 404 }
+        })
+      )
+      assert.strictEqual(yield* R2LiveImageStore.fromS3(fake, "bucket").read("key"), null)
+
+      send.mockRejectedValue(
+        new S3ServiceException({
+          name: "NoSuchBucket",
+          $fault: "client",
+          $metadata: { httpStatusCode: 404 }
+        })
+      )
+      const error = yield* Effect.flip(R2LiveImageStore.fromS3(fake, "bucket").read("key"))
+      assert.strictEqual(error.cause instanceof S3ServiceException && error.cause.name, "NoSuchBucket")
+      fake.destroy()
+    }))
+})
