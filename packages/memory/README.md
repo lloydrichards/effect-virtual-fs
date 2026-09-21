@@ -9,17 +9,17 @@ underlying state and permissions come from `@effect-vfs/core`.
 ## Install
 
 ```sh
-npm install @effect-vfs/memory effect@4.0.0-rc.114
+npm install @effect-vfs/memory@latest
 ```
 
 The binding and snapshot examples below import `@effect-vfs/core` directly. Add it as a direct dependency when using
 those APIs:
 
 ```sh
-npm install @effect-vfs/core @effect/platform-node-shared@4.0.0-rc.114
+npm install @effect-vfs/core@latest "@effect/platform-node-shared@$(npm view @effect-vfs/memory peerDependencies.effect)"
 ```
 
-The package currently requires the exact peer version `effect@4.0.0-rc.114`.
+The second command installs the `NodeCrypto` provider at the version matching the package's Effect peer dependency.
 
 ## Replace the host filesystem
 

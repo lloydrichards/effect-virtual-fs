@@ -1,12 +1,12 @@
 # Effect VirtualFileSystem
 
 Use an in-memory filesystem with Effect. The packages cover the standard `FileSystem` service, direct access to a
-shared virtual volume, SQLite persistence, and a read-only NFSv4.1 export.
+shared virtual volume, SQLite persistence, and NFSv4.1 exports.
 
 ## Quick start
 
 ```sh
-npm install @effect-vfs/memory effect@4.0.0-rc.114
+npm install @effect-vfs/memory@latest
 ```
 
 ```ts
@@ -38,10 +38,10 @@ it needs. Use `MemoryFileSystem.layer` when your application already provides `C
 - Use [`@effect-vfs/persistence`](packages/persistence/README.md) for named SQLite checkpoints or experimental live
   image commits.
 - Use [`@effect-vfs/nfs`](packages/nfs/README.md) to expose one live volume through the preview read-only NFSv4.1
-  profile. It is not a conformant or production NFS server.
+  profile or the experimental writable profile with qualified storage. It is not a conformant or production NFS server.
 
-Check each package's peer dependencies before upgrading Effect 4. The packages currently target
-`effect@4.0.0-rc.114` exactly.
+The package declares the exact Effect version it supports as a peer dependency. Check that requirement before
+upgrading an existing Effect installation.
 
 For architecture and behavioral contracts, start with the [project knowledge overview](.okf/profiles/project-overview.md).
 

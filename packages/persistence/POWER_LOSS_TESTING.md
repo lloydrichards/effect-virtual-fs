@@ -63,4 +63,4 @@ For every case, send the complete case directory and the independent controller'
 
 Record the production admission rule separately: database size limit, page size, rollback-journal allowance, and how the filesystem reserves enough space for both database and journal. See the [temporary-space policy](README.md#temporary-space-policy). The test fixture's small size does not prove that a larger production image fits.
 
-Open or update [issue #144](https://github.com/lloydrichards/effect-virtual-fs/issues/144) with the configuration, results, and a link to the evidence. The maintainers will decide whether that exact setup supports a stronger durability tier. Until then, `Volume.durability` stays `memory-only` and public NFS `FILE_SYNC4` stays unavailable.
+Open or update [issue #144](https://github.com/lloydrichards/effect-virtual-fs/issues/144) with the configuration, results, and a link to the evidence. The maintainers will decide whether that exact SQLite setup supports a stronger durability tier. Until then, SQLite-backed volumes report `memory-only` and cannot support public NFS `FILE_SYNC4`.

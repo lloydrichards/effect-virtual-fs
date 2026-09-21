@@ -9,14 +9,16 @@ the API links for exact types and signatures.
 
 ## Package compatibility
 
-| Package                   | Effect peer    | Module format | Purpose                                                            |
-| ------------------------- | -------------- | ------------- | ------------------------------------------------------------------ |
-| `@effect-vfs/core`        | `4.0.0-rc.114` | ESM only      | Runtime-neutral volumes, callers, handles, snapshots, and overlays |
-| `@effect-vfs/memory`      | `4.0.0-rc.114` | ESM only      | Effect `FileSystem.FileSystem` adapter                             |
-| `@effect-vfs/persistence` | `4.0.0-rc.114` | ESM only      | Named SQLite checkpoints and live-image storage                    |
-| `@effect-vfs/nfs`         | `4.0.0-rc.114` | ESM only      | NFSv4.1 export with guarded experimental writes                   |
+| Package                   | Module format | Purpose                                                            |
+| ------------------------- | ------------- | ------------------------------------------------------------------ |
+| `@effect-vfs/core`        | ESM only      | Runtime-neutral volumes, callers, handles, snapshots, and overlays |
+| `@effect-vfs/memory`      | ESM only      | Effect `FileSystem.FileSystem` adapter                             |
+| `@effect-vfs/persistence` | ESM only      | Named SQLite checkpoints and live-image storage                    |
+| `@effect-vfs/nfs`         | ESM only      | NFSv4.1 export with guarded experimental writes                   |
 
-Use an ES module build and install the exact Effect peer version shown above.
+Use an ES module build. Each published package declares its exact supported Effect version in
+`peerDependencies.effect`. Read it with `npm view @effect-vfs/core peerDependencies.effect` and install matching
+versions of any `@effect/*` packages that your application uses.
 
 The published manifests do not declare a consumer Node.js version. The repository uses Node.js 24 or later and Bun
 1.2.21 for development and validation. That contributor-toolchain requirement is not evidence that every earlier Node.js

@@ -39,10 +39,10 @@ are for test images only.
 From the repository root:
 
 ```sh
-cp apps/nfs-r2-writable-test/.env.example apps/nfs-r2-writable-test/.env
+cp apps/demo-r2/.env.example apps/demo-r2/.env
 ```
 
-Edit `apps/nfs-r2-writable-test/.env` with the R2 S3 endpoint, bucket, and the new token's S3 Access Key ID and
+Edit `apps/demo-r2/.env` with the R2 S3 endpoint, bucket, and the new token's S3 Access Key ID and
 Secret Access Key. The root `.gitignore` excludes `.env`. Do not share or commit the credentials. Use the same
 `R2_IMAGE_KEY` on restarts to reopen the test volume; it must begin with `effect-vfs-nfs-test/`. Use a fresh key for
 this app, not an object that already holds other data. The default NFS port is 2049. `NFS_ALLOWED_UID` defaults to
