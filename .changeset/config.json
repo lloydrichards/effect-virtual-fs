@@ -9,10 +9,6 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
-    "@repo/config-typescript",
-    "@repo/scratchpad",
-    "@repo/nfs-preview",
-    "@repo/overlay-demo",
-    "@repo/virtual-build"
+    "@repo/*"
   ]
 }
