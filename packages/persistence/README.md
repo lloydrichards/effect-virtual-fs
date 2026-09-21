@@ -75,11 +75,14 @@ client, an object key, and `maxImageBytes` to `R2LiveImageStore.layer`. The appl
 Each commit replaces the complete image with an ETag condition and stores a generation and SHA-256 digest. If a
 write outcome is uncertain, the store stops accepting commits until the volume is reopened.
 
-Local fake-client tests and one real-bucket smoke run cover conditional writes and reopening. The adapter has no
-cross-server ownership lease or physical fault test. Real-bucket tests cover a simulated lost reply, competing
-owners, a concurrent write race, and eight sequential commits to one key. They do not establish sustained NFS
-throughput or power-loss durability,
-change `Volume.durability`, or enable writable NFS.
+The adapter has no cross-server ownership lease. It reports `memory-only` by default. An application that uses
+Cloudflare R2's documented synchronous durable-write contract, verifies its actual R2 endpoint, and enforces one
+gateway per image may explicitly pass `durability: "survives-power-loss"`. This assertion allows the public NFS
+server's guarded `writable: true` option. It must not be used with an arbitrary `R2Client` or S3-compatible store.
+Real-bucket tests cover conditional writes, reopening, lost HTTP responses, competing owners, and a concurrent
+write race. The [mounted NFS test app](../../apps/nfs-r2-writable-test/README.md) records independent clients,
+restart recovery, and a file `WRITE` whose successful R2 HTTP response was lost. These tests do not establish
+sustained NFS throughput or a distributed lease.
 
 To run the real-bucket smoke test, use a dedicated private R2 bucket and a bucket-scoped R2 API token with object
 read and write access. Set `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` in the shell,

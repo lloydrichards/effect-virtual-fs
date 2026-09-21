@@ -1,8 +1,8 @@
 /**
  * Experimental whole-image R2 storage for one externally owned live volume.
  * Each mutation replaces one object with an ETag condition. R2's concurrent
- * same-key write limit and the absence of a reader lease make this unsuitable for a
- * public writable NFS export without further qualification.
+ * same-key write limit and the absence of a reader lease require a single
+ * application-controlled gateway for the experimental writable NFS profile.
  *
  * @since 0.5.0
  */
@@ -152,6 +152,8 @@ export interface Options {
   readonly client: R2Client
   readonly key: string
   readonly maxImageBytes: ByteSize.ByteSize
+  /** Assert R2's documented synchronous durable-write contract for a verified R2 endpoint and single owner. */
+  readonly durability?: "survives-power-loss"
 }
 
 const fail = (code: LiveVolume.LiveVolumeError["code"], cause?: unknown) =>
@@ -216,6 +218,7 @@ export const layer = (options: Options) =>
       })
 
       return LiveVolume.LiveImageStore.of({
+        durability: options.durability ?? "memory-only",
         loadOrCreate: Effect.fnUntraced(function*(initial: Uint8Array) {
           if (!available) return yield* fail("Storage")
 

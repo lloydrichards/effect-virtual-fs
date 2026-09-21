@@ -73,7 +73,7 @@ Accepted by the user on 2026-09-17 while resolving the durability half of issue 
 
 ## Consequences
 
-- Issue #97 implements the durability, identity, and incarnation portion of this decision. All volume constructors require the platform-neutral `Crypto.Crypto` service and preserve its `PlatformError`; built-in volumes always report `memory-only`.[^implementation-issue][^evidence]
+- Issue #97 implements the durability, identity, and incarnation portion of this decision. All volume constructors require the platform-neutral `Crypto.Crypto` service and preserve its `PlatformError`; ordinary built-in volumes report `memory-only`. A live image provider can explicitly supply a qualified tier; omission remains `memory-only`. The R2 test app asserts `survives-power-loss` only for a verified Cloudflare R2 endpoint and one gateway, based on Cloudflare's successful-write contract.[^implementation-issue][^evidence]
 - Issue #98 implements the limits and live usage portion of this decision.[^capacity-issue]
 - The facts extend the [capacity and limits contract](../../contracts/capacity-and-limits.md "extends") and [volume capacity accounting](volume-capacity-accounting.md "extends"). They preserve [snapshot-local file identity](snapshot-local-file-identity.md "constrained by"): identity and incarnation are runtime state excluded from snapshot bytes, and a restored volume always mints a new incarnation.
 - NFS exposes `maxfilesize` on every export and the space and file-count attributes when the corresponding volume limit is bounded. The current read-only profile can report these facts. `GETATTR` omits unsupported requested attributes under RFC 8881 Section 18.7.3; `VERIFY` and `NVERIFY` answer `NFS4ERR_ATTRNOTSUPP` for them.

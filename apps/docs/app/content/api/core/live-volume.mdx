@@ -4,7 +4,8 @@ Image boundary for a storage adapter that commits each live volume mutation.
 
 An adapter must preserve the supplied bytes atomically and classify each
 commit as confirmed, definitely rejected, or uncertain. The opened volume
-stays at `memory-only` until the adapter's durability is qualified.
+stays at `memory-only` unless the adapter explicitly supplies a qualified
+durability tier.
 
 Added in v0.4.0
 
@@ -121,7 +122,8 @@ makes the volume unavailable until it is reopened.
 export declare const openImage: (
   image: Uint8Array,
   maxImageBytes: ByteSize.ByteSize,
-  commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>
+  commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>,
+  durability?: VolumeDurability
 ) => Effect.Effect<ImageSession, ConfigurationError | ImageError | PlatformError.PlatformError, Crypto.Crypto>
 ```
 

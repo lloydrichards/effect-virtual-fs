@@ -687,7 +687,8 @@ export const makeVolume = Effect.fnUntraced(
       state: EngineState,
       identity: VolumeIdentity,
       limits: VolumeLimits
-    ) => Effect.Effect<void, ImageError>
+    ) => Effect.Effect<void, ImageError>,
+    durability: VolumeDurability = "memory-only"
   ) {
     const image = "image" in source ? source.image : undefined
     const live = Predicate.isTagged("Live")(source) ? source.document : undefined
@@ -3956,7 +3957,7 @@ export const makeVolume = Effect.fnUntraced(
 
     const volume: Volume = Object.freeze({
       [VolumeId]: true as const,
-      durability: "memory-only",
+      durability,
       identity,
       incarnation,
       limits,
@@ -4063,7 +4064,8 @@ export const prepareEmptyLiveImage = Effect.fnUntraced(function*(options?: Volum
 export const openImageVolume = Effect.fnUntraced(function*(
   image: Uint8Array,
   maxImageBytes: ByteSize.ByteSize,
-  commit: (image: Uint8Array) => Effect.Effect<"committed" | "rejected" | "unknown">
+  commit: (image: Uint8Array) => Effect.Effect<"committed" | "rejected" | "unknown">,
+  durability: VolumeDurability = "memory-only"
 ) {
   const document = yield* LiveImage.decode(image, maxImageBytes)
   const prepared = new WeakMap<EngineState, Uint8Array>()
@@ -4081,31 +4083,37 @@ export const openImageVolume = Effect.fnUntraced(function*(
     maxWatchEvents: 256
   }
 
-  const volume = yield* makeVolume(VolumeSource.Live({ document }), undefined, {
-    onReady: (effect) => {
-      shutdown = effect
-    },
-    prepare: (candidate) =>
-      captureLiveImage(candidate, identity, limits).pipe(
-        Effect.flatMap((bytes) =>
-          ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxImageBytes)
-            ? new FsError({ code: "StorageRejected", operation: "commit" })
-            : Effect.sync(() => {
-              prepared.set(candidate, bytes)
-            })
+  const volume = yield* makeVolume(
+    VolumeSource.Live({ document }),
+    undefined,
+    {
+      onReady: (effect) => {
+        shutdown = effect
+      },
+      prepare: (candidate) =>
+        captureLiveImage(candidate, identity, limits).pipe(
+          Effect.flatMap((bytes) =>
+            ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxImageBytes)
+              ? new FsError({ code: "StorageRejected", operation: "commit" })
+              : Effect.sync(() => {
+                prepared.set(candidate, bytes)
+              })
+          ),
+          Effect.mapError(() => new FsError({ code: "StorageRejected", operation: "commit" }))
         ),
-        Effect.mapError(() => new FsError({ code: "StorageRejected", operation: "commit" }))
-      ),
-    commit: (candidate) =>
-      Effect.suspend(() => {
-        const bytes = prepared.get(candidate)
+      commit: (candidate) =>
+        Effect.suspend(() => {
+          const bytes = prepared.get(candidate)
 
-        if (bytes === undefined) return Effect.succeed("unknown" as const)
-        prepared.delete(candidate)
+          if (bytes === undefined) return Effect.succeed("unknown" as const)
+          prepared.delete(candidate)
 
-        return commit(bytes)
-      })
-  })
+          return commit(bytes)
+        })
+    },
+    undefined,
+    durability
+  )
 
   if (shutdown === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "liveImage" })
 
