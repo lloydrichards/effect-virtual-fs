@@ -1,5 +1,13 @@
 # Bundle update log
 
+## 2026-09-21
+
+- **Remote agent filesystem access**: Distinguished direct TypeScript filesystem calls over HTTP or WebSocket from native NFS mounts, which require a TCP process outside Workers. Compared local NFS gateway and direct R2 or D1 access as follow-up paths.
+
+- **Cloudflare remote volume storage options**: Compared DO SQLite, D1, and R2 for a remotely accessible live volume. Recorded the separate needs for a coherent volume owner, a persistence provider, and an NFS TCP gateway; no backend or public API has been selected.
+
+- **Cloudflare Durable Object live image research**: Recorded the feasible `LiveImageStore` adapter, the 2 MB SQLite row limit, and the separate TCP gateway required for native NFS. Distinguished a shared-volume agent demo from a mounted writable export and left storage qualification as an open question.
+
 ## 2026-09-20
 
 - **Read-only NFS beta and physical-cut handoff**: Made the NFS package publishable in the fixed release group and labeled its public read path accurately. Added a Linux prepare/verify kit and CI rehearsal for contributors with disposable hardware. The kit has not yet produced physical power-cut evidence; public writes and a stronger durability tier remain unavailable.
