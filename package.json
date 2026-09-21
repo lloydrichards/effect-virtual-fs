@@ -47,6 +47,6 @@
     "node": ">=24"
   },
   "overrides": {
-    "@effect/platform-node-shared": "4.0.0-rc.114"
+    "@effect/platform-node-shared": "4.0.0-rc.115"
   }
 }
