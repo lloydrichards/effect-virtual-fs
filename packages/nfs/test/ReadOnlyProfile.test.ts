@@ -6,7 +6,14 @@ import * as ByteSize from "effect/ByteSize"
 import { makeExport } from "../src/internal/export.js"
 import { makeNfs4Handler, type Nfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
 import type { CompoundCall } from "../src/internal/rpc.js"
-import { Reader, Writer } from "../src/internal/xdr.js"
+import {
+  type DecoderSession,
+  type EncoderSession,
+  make,
+  XdrCodec,
+  type XdrDecodeError,
+  type XdrEncodeError
+} from "../src/internal/xdr.js"
 import { call, generation, limits, openReadOnly, parseOpen, sequence, startSession } from "./support/harness.js"
 
 const ACCESS_ALL = 0x3f
@@ -20,12 +27,13 @@ const sys = (uid: number, gid: number, groups: ReadonlyArray<number> = []): Comp
   supplementaryGroups: groups
 })
 
-const callAs = (credentials: CompoundCall["credentials"], operations: ReadonlyArray<(writer: Writer) => void>) => ({
-  ...call(operations),
-  credentials
-})
+const callAs = (
+  credentials: CompoundCall["credentials"],
+  operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>
+) => Effect.map(call(operations), (request) => ({ ...request, credentials }))
 
 type DecodedBody =
+  | void
   | undefined
   | Uint8Array
   | ReadonlyArray<number>
@@ -36,108 +44,135 @@ type DecodedBody =
   | { readonly stateid: Uint8Array; readonly delegation: number; readonly why: number }
   | { readonly session: Uint8Array; readonly direction: number; readonly rdma: boolean }
 
-type BodyReader = (reader: Reader) => DecodedBody
+type BodyReader = (reader: DecoderSession) => Effect.Effect<DecodedBody, XdrDecodeError>
+
+type DecodedReply = {
+  readonly status: number
+  readonly operations: ReadonlyArray<{ readonly code: number; readonly status: number; readonly value?: unknown }>
+}
+
+const skipWords = (reader: DecoderSession, count: number) =>
+  Effect.forEach(Array.from({ length: count }), () => reader.read(XdrCodec.uint32), { discard: true })
 
 const bodyReaders = {
-  [Operation.SEQUENCE]: (reader) => {
-    reader.fixedOpaque(16)
+  [Operation.SEQUENCE]: (reader) =>
+    Effect.gen(function*() {
+      yield* reader.read(XdrCodec.fixedOpaque(16))
+      yield* skipWords(reader, 5)
+    }),
+  [Operation.PUTROOTFH]: () => Effect.void,
+  [Operation.PUTPUBFH]: () => Effect.void,
+  [Operation.PUTFH]: () => Effect.void,
+  [Operation.LOOKUP]: () => Effect.void,
+  [Operation.VERIFY]: () => Effect.void,
+  [Operation.NVERIFY]: () => Effect.void,
+  [Operation.FREE_STATEID]: () => Effect.void,
+  [Operation.GETFH]: (reader) => reader.read(XdrCodec.opaque()),
+  [Operation.ACCESS]: (reader) =>
+    Effect.gen(function*() {
+      const supported = yield* reader.read(XdrCodec.uint32)
+      const access = yield* reader.read(XdrCodec.uint32)
 
-    for (let field = 0; field < 5; field++) reader.uint32()
-  },
-  [Operation.PUTROOTFH]: () => undefined,
-  [Operation.PUTPUBFH]: () => undefined,
-  [Operation.PUTFH]: () => undefined,
-  [Operation.LOOKUP]: () => undefined,
-  [Operation.VERIFY]: () => undefined,
-  [Operation.NVERIFY]: () => undefined,
-  [Operation.FREE_STATEID]: () => undefined,
-  [Operation.GETFH]: (reader) => reader.opaque(),
-  [Operation.ACCESS]: (reader) => ({ supported: reader.uint32(), access: reader.uint32() }),
-  [Operation.COMMIT]: (reader) => reader.fixedOpaque(8),
-  [Operation.SECINFO]: (reader) => reader.array((item) => item.uint32()),
-  [Operation.TEST_STATEID]: (reader) => reader.array((item) => item.uint32()),
-  [Operation.OPEN_DOWNGRADE]: (reader) => reader.fixedOpaque(16),
-  [Operation.CLOSE]: (reader) => reader.fixedOpaque(16),
-  [Operation.LOCKT]: () => undefined,
-  [Operation.READLINK]: (reader) => reader.opaque(),
-  [Operation.BACKCHANNEL_CTL]: () => undefined,
-  [Operation.BIND_CONN_TO_SESSION]: (reader) => ({
-    session: reader.fixedOpaque(16),
-    direction: reader.uint32(),
-    rdma: reader.boolean()
-  }),
-  [Operation.READ]: (reader) => ({ eof: reader.boolean(), data: reader.opaque() }),
-  [Operation.OPEN]: (reader) => {
-    const stateid = reader.fixedOpaque(16)
-    reader.boolean()
-    reader.uint64()
-    reader.uint64()
-    reader.uint32()
-    reader.array((item) => item.uint32())
-    const delegation = reader.uint32()
-    const why = delegation === 3 ? reader.uint32() : -1
+      return { supported, access }
+    }),
+  [Operation.COMMIT]: (reader) => reader.read(XdrCodec.fixedOpaque(8)),
+  [Operation.SECINFO]: (reader) => reader.read(XdrCodec.array(XdrCodec.uint32)),
+  [Operation.TEST_STATEID]: (reader) => reader.read(XdrCodec.array(XdrCodec.uint32)),
+  [Operation.OPEN_DOWNGRADE]: (reader) => reader.read(XdrCodec.fixedOpaque(16)),
+  [Operation.CLOSE]: (reader) => reader.read(XdrCodec.fixedOpaque(16)),
+  [Operation.LOCKT]: () => Effect.void,
+  [Operation.READLINK]: (reader) => reader.read(XdrCodec.opaque()),
+  [Operation.BACKCHANNEL_CTL]: () => Effect.void,
+  [Operation.BIND_CONN_TO_SESSION]: (reader) =>
+    Effect.gen(function*() {
+      const session = yield* reader.read(XdrCodec.fixedOpaque(16))
+      const direction = yield* reader.read(XdrCodec.uint32)
+      const rdma = yield* reader.read(XdrCodec.boolean)
 
-    return { stateid, delegation, why }
-  },
-  [Operation.LOOKUPP]: () => undefined,
-  [Operation.SAVEFH]: () => undefined,
-  [Operation.RESTOREFH]: () => undefined,
-  [Operation.RECLAIM_COMPLETE]: () => undefined,
-  [Operation.DESTROY_SESSION]: () => undefined,
-  [Operation.SECINFO_NO_NAME]: (reader) => reader.array((item) => item.uint32()),
-  [Operation.EXCHANGE_ID]: (reader) => {
-    const clientid = reader.uint64()
-    const sequence = reader.uint32()
-    const flags = reader.uint32()
-    reader.uint32()
-    reader.uint64()
-    reader.opaque()
-    reader.opaque()
-    reader.array(() => undefined)
+      return { session, direction, rdma }
+    }),
+  [Operation.READ]: (reader) =>
+    Effect.gen(function*() {
+      const eof = yield* reader.read(XdrCodec.boolean)
+      const data = yield* reader.read(XdrCodec.opaque())
 
-    return { clientid, sequence, flags }
-  },
-  [Operation.CREATE_SESSION]: (reader) => {
-    const session = reader.fixedOpaque(16)
-    const sequence = reader.uint32()
-    reader.uint32()
+      return { eof, data }
+    }),
+  [Operation.OPEN]: (reader) =>
+    Effect.gen(function*() {
+      const stateid = yield* reader.read(XdrCodec.fixedOpaque(16))
+      yield* reader.read(XdrCodec.boolean)
+      yield* reader.read(XdrCodec.uint64)
+      yield* reader.read(XdrCodec.uint64)
+      yield* reader.read(XdrCodec.uint32)
+      yield* reader.read(XdrCodec.array(XdrCodec.uint32))
+      const delegation = yield* reader.read(XdrCodec.uint32)
+      const why = delegation === 3 ? yield* reader.read(XdrCodec.uint32) : -1
 
-    for (let channel = 0; channel < 2; channel++) {
-      for (let field = 0; field < 6; field++) reader.uint32()
-      reader.array((item) => item.uint32())
-    }
+      return { stateid, delegation, why }
+    }),
+  [Operation.LOOKUPP]: () => Effect.void,
+  [Operation.SAVEFH]: () => Effect.void,
+  [Operation.RESTOREFH]: () => Effect.void,
+  [Operation.RECLAIM_COMPLETE]: () => Effect.void,
+  [Operation.DESTROY_SESSION]: () => Effect.void,
+  [Operation.SECINFO_NO_NAME]: (reader) => reader.read(XdrCodec.array(XdrCodec.uint32)),
+  [Operation.EXCHANGE_ID]: (reader) =>
+    Effect.gen(function*() {
+      const clientid = yield* reader.read(XdrCodec.uint64)
+      const sequence = yield* reader.read(XdrCodec.uint32)
+      const flags = yield* reader.read(XdrCodec.uint32)
+      yield* reader.read(XdrCodec.uint32)
+      yield* reader.read(XdrCodec.uint64)
+      yield* reader.read(XdrCodec.opaque())
+      yield* reader.read(XdrCodec.opaque())
+      yield* reader.read(XdrCodec.array(XdrCodec.uint32))
 
-    return { session, sequence }
-  }
+      return { clientid, sequence, flags }
+    }),
+  [Operation.CREATE_SESSION]: (reader) =>
+    Effect.gen(function*() {
+      const session = yield* reader.read(XdrCodec.fixedOpaque(16))
+      const sequence = yield* reader.read(XdrCodec.uint32)
+      yield* reader.read(XdrCodec.uint32)
+      yield* Effect.forEach([0, 1], () =>
+        Effect.gen(function*() {
+          yield* skipWords(reader, 6)
+          yield* reader.read(XdrCodec.array(XdrCodec.uint32))
+        }), { discard: true })
+
+      return { session, sequence }
+    })
 } satisfies Readonly<Record<number, BodyReader>>
 
-const decode = (bytes: Uint8Array) => {
-  const reader = new Reader(bytes, limits)
-  const status = reader.uint32()
-  reader.string()
-  const count = reader.uint32()
-  const operations: Array<{ readonly code: number; readonly status: number; readonly value?: unknown }> = []
+const decode = (bytes: Uint8Array) =>
+  Effect.gen(function*() {
+    const reader = yield* make.openReader(bytes, limits)
+    const status = yield* reader.read(XdrCodec.uint32)
+    yield* reader.read(XdrCodec.string())
+    const count = yield* reader.read(XdrCodec.uint32)
+    const operations: Array<{ readonly code: number; readonly status: number; readonly value?: unknown }> = []
 
-  for (let index = 0; index < count; index++) {
-    const code = reader.uint32()
-    const operationStatus = reader.uint32()
+    for (let index = 0; index < count; index++) {
+      const code = yield* reader.read(XdrCodec.uint32)
+      const operationStatus = yield* reader.read(XdrCodec.uint32)
 
-    if (operationStatus !== Status.OK) {
-      operations.push({ code, status: operationStatus })
-      continue
+      if (operationStatus !== Status.OK) {
+        operations.push({ code, status: operationStatus })
+        continue
+      }
+
+      // SAFETY: The own-property check proves that a known operation code indexes this table.
+      const body = Object.hasOwn(bodyReaders, code) ? bodyReaders[code as keyof typeof bodyReaders] : undefined
+
+      if (body === undefined) throw new Error(`No body reader for operation ${code}`)
+      operations.push({ code, status: operationStatus, value: yield* body(reader) })
     }
 
-    // SAFETY: The own-property check proves that a known operation code indexes this table.
-    const body = Object.hasOwn(bodyReaders, code) ? bodyReaders[code as keyof typeof bodyReaders] : undefined
+    yield* reader.finish
 
-    if (body === undefined) throw new Error(`No body reader for operation ${code}`)
-    operations.push({ code, status: operationStatus, value: body(reader) })
-  }
-
-  reader.finish()
-
-  return { status, operations }
-}
+    return { status, operations }
+  })
 
 const makeHandler = (caller: Vfs.Caller) =>
   makeNfs4Handler(
@@ -145,15 +180,22 @@ const makeHandler = (caller: Vfs.Caller) =>
     { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits }
   )
 
-const run = (handler: Nfs4Handler, request: CompoundCall) => handler.compound(request).pipe(Effect.map(decode))
+const run = (handler: Nfs4Handler, request: Effect.Effect<CompoundCall, XdrEncodeError>) =>
+  Effect.flatMap(request, (call) => Effect.flatMap(handler.compound(call), decode))
 
-const fattr = (writer: Writer, attribute: number, value: (values: Writer) => void) => {
-  const values = new Writer()
-  value(values)
-  const words = Array.from<number>({ length: Math.floor(attribute / 32) + 1 }).fill(0)
-  words[Math.floor(attribute / 32)] = (1 << (attribute % 32)) >>> 0
-  writer.array(words, (item, word) => item.uint32(word)).opaque(values.bytes())
-}
+const fattr = (
+  writer: EncoderSession,
+  attribute: number,
+  value: (values: EncoderSession) => Effect.Effect<void, XdrEncodeError>
+) =>
+  Effect.gen(function*() {
+    const values = yield* make.openWriter(limits, ByteSize.toNumberUnsafe(limits.maxCompoundBytes))
+    yield* value(values)
+    const words = Array.from<number>({ length: Math.floor(attribute / 32) + 1 }).fill(0)
+    words[Math.floor(attribute / 32)] = 1 << attribute % 32 >>> 0
+    yield* writer.write(XdrCodec.array(XdrCodec.uint32), words)
+    yield* writer.write(XdrCodec.opaque(), yield* values.finish)
+  })
 
 it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
   it.effect("answers must-not-implement and optional operations with NOTSUPP", () =>
@@ -161,11 +203,27 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeHandler(caller)
 
-      const setclientid = yield* run(handler, call([(writer) => writer.uint32(Operation.SETCLIENTID).uint32(1)]))
+      const setclientid = yield* run(
+        handler,
+        call([(writer) =>
+          Effect.gen(function*() {
+            yield* writer.write(XdrCodec.uint32, Operation.SETCLIENTID)
+            yield* writer.write(XdrCodec.uint32, 1)
+          })])
+      )
+
       assert.strictEqual(setclientid.status, Status.NOTSUPP)
       assert.deepStrictEqual(setclientid.operations, [{ code: Operation.SETCLIENTID, status: Status.NOTSUPP }])
 
-      const optionalFirst = yield* run(handler, call([(writer) => writer.uint32(Operation.OPENATTR).boolean(false)]))
+      const optionalFirst = yield* run(
+        handler,
+        call([(writer) =>
+          Effect.gen(function*() {
+            yield* writer.write(XdrCodec.uint32, Operation.OPENATTR)
+            yield* writer.write(XdrCodec.boolean, false)
+          })])
+      )
+
       assert.strictEqual(optionalFirst.status, Status.OP_NOT_IN_SESSION)
 
       const { session } = yield* startSession(handler, "notsupp")
@@ -178,14 +236,20 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
           Operation.OPENATTR,
           Operation.LAYOUTGET,
           Operation.DELEGRETURN
-        ].entries()
+        ]
+          .entries()
       ) {
         const reply = yield* run(
           handler,
           call([
             sequence(session, index + 1),
-            (writer) => writer.uint32(Operation.PUTROOTFH),
-            (writer) => writer.uint32(code).uint32(0xdead_beef)
+            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+            (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, code)
+                yield* writer.write(XdrCodec.uint32, 0xdead_beef)
+              })
           ])
         )
 
@@ -197,7 +261,7 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
 
       const unknown = yield* run(
         handler,
-        call([sequence(session, 7), (writer) => writer.uint32(99_999)])
+        call([sequence(session, 7), (writer) => writer.write(XdrCodec.uint32, 99_999)])
       )
 
       assert.deepStrictEqual(unknown.operations[1], { code: Operation.ILLEGAL, status: Status.OP_ILLEGAL })
@@ -214,10 +278,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 1),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.GETFH),
-          (writer) => writer.uint32(Operation.PUTPUBFH),
-          (writer) => writer.uint32(Operation.GETFH)
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) => writer.write(XdrCodec.uint32, Operation.GETFH),
+
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTPUBFH),
+
+          (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
         ])
       )
 
@@ -228,9 +295,19 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 2),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.LOOKUP).string("file"),
-          (writer) => writer.uint32(Operation.COMMIT).uint64(0n).uint32(0)
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+              yield* writer.write(XdrCodec.string(), "file")
+            }),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.COMMIT)
+              yield* writer.write(XdrCodec.uint64, 0n)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })
         ])
       )
 
@@ -245,8 +322,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 3),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.COMMIT).uint64(0n).uint32(0)
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.COMMIT)
+              yield* writer.write(XdrCodec.uint64, 0n)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })
         ])
       )
 
@@ -256,9 +339,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 4),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.SECINFO).string("file"),
-          (writer) => writer.uint32(Operation.GETFH)
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.SECINFO)
+              yield* writer.write(XdrCodec.string(), "file")
+            }),
+          (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
         ])
       )
 
@@ -269,8 +357,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 5),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.SECINFO).string("missing")
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.SECINFO)
+              yield* writer.write(XdrCodec.string(), "missing")
+            })
         ])
       )
 
@@ -284,28 +377,54 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const handler = yield* makeHandler(caller)
       const { session } = yield* startSession(handler, "verify")
 
-      const probe = (sequenceId: number, code: number, attribute: number, value: (values: Writer) => void) =>
+      const probe = (
+        sequenceId: number,
+        code: number,
+        attribute: number,
+        value: (values: EncoderSession) => Effect.Effect<void, XdrEncodeError>
+      ) =>
         run(
           handler,
           call([
             sequence(session, sequenceId),
-            (writer) => writer.uint32(Operation.PUTROOTFH),
-            (writer) => writer.uint32(Operation.LOOKUP).string("file"),
-            (writer) => {
-              writer.uint32(code)
-              fattr(writer, attribute, value)
-            },
-            (writer) => writer.uint32(Operation.GETFH)
+            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+            (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+                yield* writer.write(XdrCodec.string(), "file")
+              }),
+            (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, code)
+                yield* fattr(writer, attribute, value)
+              }),
+            (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
           ])
         ).pipe(Effect.map((reply) => reply.status))
 
-      assert.strictEqual(yield* probe(1, Operation.VERIFY, 4, (values) => values.uint64(3n)), Status.OK)
-      assert.strictEqual(yield* probe(2, Operation.NVERIFY, 4, (values) => values.uint64(3n)), Status.SAME)
-      assert.strictEqual(yield* probe(3, Operation.VERIFY, 4, (values) => values.uint64(9n)), Status.NOT_SAME)
-      assert.strictEqual(yield* probe(4, Operation.NVERIFY, 4, (values) => values.uint64(9n)), Status.OK)
-      assert.strictEqual(yield* probe(5, Operation.VERIFY, 1, (values) => values.uint32(1)), Status.OK)
-      assert.strictEqual(yield* probe(6, Operation.VERIFY, 12, (values) => values.uint32(0)), Status.ATTRNOTSUPP)
-      assert.strictEqual(yield* probe(7, Operation.VERIFY, 11, (values) => values.uint32(0)), Status.INVAL)
+      assert.strictEqual(yield* probe(1, Operation.VERIFY, 4, (values) => values.write(XdrCodec.uint64, 3n)), Status.OK)
+      assert.strictEqual(
+        yield* probe(2, Operation.NVERIFY, 4, (values) => values.write(XdrCodec.uint64, 3n)),
+        Status.SAME
+      )
+      assert.strictEqual(
+        yield* probe(3, Operation.VERIFY, 4, (values) => values.write(XdrCodec.uint64, 9n)),
+        Status.NOT_SAME
+      )
+      assert.strictEqual(
+        yield* probe(4, Operation.NVERIFY, 4, (values) => values.write(XdrCodec.uint64, 9n)),
+        Status.OK
+      )
+      assert.strictEqual(yield* probe(5, Operation.VERIFY, 1, (values) => values.write(XdrCodec.uint32, 1)), Status.OK)
+      assert.strictEqual(
+        yield* probe(6, Operation.VERIFY, 12, (values) => values.write(XdrCodec.uint32, 0)),
+        Status.ATTRNOTSUPP
+      )
+      assert.strictEqual(
+        yield* probe(7, Operation.VERIFY, 11, (values) => values.write(XdrCodec.uint32, 0)),
+        Status.INVAL
+      )
     }))
 
   it.effect("manages open stateids with OPEN_DOWNGRADE, TEST_STATEID, and FREE_STATEID", () =>
@@ -315,21 +434,35 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const handler = yield* makeHandler(caller)
       const { client, session } = yield* startSession(handler, "stateids")
 
-      const opened = parseOpen(
-        yield* handler.compound(call([
-          sequence(session, 1, true),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          openReadOnly(client, "file"),
-          (writer) => writer.uint32(Operation.GETFH)
-        ]))
+      const opened = yield* parseOpen(
+        yield* handler.compound(
+          yield* call([
+            sequence(session, 1, true),
+            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+            openReadOnly(client, "file"),
+            (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
+          ])
+        )
       )
 
       const downgrade = yield* run(
         handler,
         call([
           sequence(session, 2),
-          (writer) => writer.uint32(Operation.PUTFH).opaque(opened.filehandle),
-          (writer) => writer.uint32(Operation.OPEN_DOWNGRADE).fixedOpaque(opened.stateid).uint32(0).uint32(1).uint32(0)
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
+              yield* writer.write(XdrCodec.opaque(), opened.filehandle)
+            }),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.OPEN_DOWNGRADE)
+              yield* writer.write(XdrCodec.fixedOpaque(opened.stateid.length), opened.stateid)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 1)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })
         ])
       )
 
@@ -343,8 +476,19 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 3),
-          (writer) => writer.uint32(Operation.PUTFH).opaque(opened.filehandle),
-          (writer) => writer.uint32(Operation.OPEN_DOWNGRADE).fixedOpaque(downgraded).uint32(0).uint32(2).uint32(0)
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
+              yield* writer.write(XdrCodec.opaque(), opened.filehandle)
+            }),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.OPEN_DOWNGRADE)
+              yield* writer.write(XdrCodec.fixedOpaque(downgraded.length), downgraded)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 2)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })
         ])
       )
 
@@ -357,10 +501,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         call([
           sequence(session, 4),
           (writer) =>
-            writer.uint32(Operation.TEST_STATEID).array(
-              [downgraded, opened.stateid, unknownStateid, new Uint8Array(16)],
-              (item, stateid) => item.fixedOpaque(stateid)
-            )
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.TEST_STATEID)
+              yield* writer.write(
+                XdrCodec.array(XdrCodec.fixedOpaque(16)),
+                [downgraded, opened.stateid, unknownStateid, new Uint8Array(16)]
+              )
+            })
         ])
       )
 
@@ -374,14 +521,22 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
 
       const held = yield* run(
         handler,
-        call([sequence(session, 5), (writer) => writer.uint32(Operation.FREE_STATEID).fixedOpaque(downgraded)])
+        call([sequence(session, 5), (writer) =>
+          Effect.gen(function*() {
+            yield* writer.write(XdrCodec.uint32, Operation.FREE_STATEID)
+            yield* writer.write(XdrCodec.fixedOpaque(downgraded.length), downgraded)
+          })])
       )
 
       assert.strictEqual(held.status, Status.LOCKS_HELD)
 
       const freeUnknown = yield* run(
         handler,
-        call([sequence(session, 6), (writer) => writer.uint32(Operation.FREE_STATEID).fixedOpaque(unknownStateid)])
+        call([sequence(session, 6), (writer) =>
+          Effect.gen(function*() {
+            yield* writer.write(XdrCodec.uint32, Operation.FREE_STATEID)
+            yield* writer.write(XdrCodec.fixedOpaque(unknownStateid.length), unknownStateid)
+          })])
       )
 
       assert.strictEqual(freeUnknown.status, Status.BAD_STATEID)
@@ -390,8 +545,19 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 7),
-          (writer) => writer.uint32(Operation.PUTFH).opaque(opened.filehandle),
-          (writer) => writer.uint32(Operation.OPEN_DOWNGRADE).fixedOpaque(unknownStateid).uint32(0).uint32(1).uint32(0)
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.PUTFH)
+              yield* writer.write(XdrCodec.opaque(), opened.filehandle)
+            }),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.OPEN_DOWNGRADE)
+              yield* writer.write(XdrCodec.fixedOpaque(unknownStateid.length), unknownStateid)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 1)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })
         ])
       )
 
@@ -405,41 +571,80 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const handler = yield* makeHandler(caller)
       const { client, session } = yield* startSession(handler, "locks")
 
-      const onFile = (sequenceId: number, operation: (writer: Writer) => void) =>
+      const onFile = (sequenceId: number, operation: (writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>) =>
         run(
           handler,
           call([
             sequence(session, sequenceId),
-            (writer) => writer.uint32(Operation.PUTROOTFH),
-            (writer) => writer.uint32(Operation.LOOKUP).string("file"),
+            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+            (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+                yield* writer.write(XdrCodec.string(), "file")
+              }),
             operation
           ])
         ).pipe(Effect.map((reply) => reply.status))
 
-      const lock = (writer: Writer) =>
-        writer.uint32(Operation.LOCK).uint32(1).boolean(false).uint64(0n).uint64(0xffff_ffff_ffff_ffffn)
-          .boolean(true).uint32(0).fixedOpaque(new Uint8Array(16)).uint32(0).uint64(client).string("lock-owner")
+      const lock = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCK)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.boolean, false)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 0xffff_ffff_ffff_ffffn)
+          yield* writer.write(XdrCodec.boolean, true)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).length), new Uint8Array(16))
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint64, client)
+          yield* writer.write(XdrCodec.string(), "lock-owner")
+        })
 
       assert.strictEqual(yield* onFile(1, lock), Status.BAD_STATEID)
 
       // A write-lock test reports the read-only file system; a read-lock test finds no conflict.
-      const lockt = (writer: Writer) =>
-        writer.uint32(Operation.LOCKT).uint32(2).uint64(0n).uint64(1n).uint64(client).string("lock-owner")
+      const lockt = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCKT)
+          yield* writer.write(XdrCodec.uint32, 2)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 1n)
+          yield* writer.write(XdrCodec.uint64, client)
+          yield* writer.write(XdrCodec.string(), "lock-owner")
+        })
 
       assert.strictEqual(yield* onFile(2, lockt), Status.ROFS)
 
-      const locku = (writer: Writer) =>
-        writer.uint32(Operation.LOCKU).uint32(1).uint32(0).fixedOpaque(new Uint8Array(16).fill(9)).uint64(0n)
-          .uint64(1n)
+      const locku = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCKU)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).fill(9).length), new Uint8Array(16).fill(9))
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 1n)
+        })
 
       assert.strictEqual(yield* onFile(3, locku), Status.BAD_STATEID)
 
-      const setSsv = (writer: Writer) =>
-        writer.uint32(Operation.SET_SSV).opaque(new Uint8Array(4)).opaque(new Uint8Array(4))
+      const setSsv = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.SET_SSV)
+          yield* writer.write(XdrCodec.opaque(), new Uint8Array(4))
+          yield* writer.write(XdrCodec.opaque(), new Uint8Array(4))
+        })
 
       assert.strictEqual(yield* onFile(4, setSsv), Status.INVAL)
 
-      const truncatedLock = (writer: Writer) => writer.uint32(Operation.LOCK).uint32(1).boolean(false)
+      const truncatedLock = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCK)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.boolean, false)
+        })
+
       assert.strictEqual(yield* onFile(5, truncatedLock), Status.BADXDR)
     }))
 
@@ -464,9 +669,18 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
           handler,
           callAs(credentials, [
             sequence(session, ++sequenceId),
-            (writer) => writer.uint32(Operation.PUTROOTFH),
-            (writer) => writer.uint32(Operation.LOOKUP).string(name),
-            (writer) => writer.uint32(Operation.ACCESS).uint32(ACCESS_ALL)
+            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+            (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+                yield* writer.write(XdrCodec.string(), name)
+              }),
+            (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.ACCESS)
+                yield* writer.write(XdrCodec.uint32, ACCESS_ALL)
+              })
           ])
         ).pipe(Effect.map((reply) => reply.operations[3]!.value))
 
@@ -496,8 +710,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
           handler,
           call([
             sequence(session, sequenceId),
-            (writer) => writer.uint32(Operation.PUTROOTFH),
-            (writer) => writer.uint32(Operation.LOOKUP).opaque(name)
+            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+            (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+                yield* writer.write(XdrCodec.opaque(), name)
+              })
           ])
         ).pipe(Effect.map((reply) => reply.status))
 
@@ -519,8 +738,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         run(
           handler,
           callAs(credentials, [(writer) =>
-            writer.uint32(Operation.EXCHANGE_ID).fixedOpaque(verifier).string(owner).uint32(flags).uint32(0)
-              .uint32(0)])
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.EXCHANGE_ID)
+              yield* writer.write(XdrCodec.fixedOpaque(verifier.length), verifier)
+              yield* writer.write(XdrCodec.string(), owner)
+              yield* writer.write(XdrCodec.uint32, flags)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })])
         ).pipe(Effect.map((reply) => {
           // SAFETY: EXCHANGE_ID succeeded, so the body reader table produced the EXCHANGE_ID result shape.
           const value = reply.operations[0]!.value as Exchanged
@@ -531,15 +756,26 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const createSession = (credentials: CompoundCall["credentials"], clientid: bigint, sequenceId: number) =>
         run(
           handler,
-          callAs(credentials, [(writer) => {
-            writer.uint32(Operation.CREATE_SESSION).uint64(clientid).uint32(sequenceId).uint32(0)
+          callAs(credentials, [(writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.CREATE_SESSION)
+              yield* writer.write(XdrCodec.uint64, clientid)
+              yield* writer.write(XdrCodec.uint32, sequenceId)
+              yield* writer.write(XdrCodec.uint32, 0)
 
-            for (let channel = 0; channel < 2; channel++) {
-              writer.uint32(0).uint32(8192).uint32(8192).uint32(8192).uint32(32).uint32(2).uint32(0)
-            }
+              for (let channel = 0; channel < 2; channel++) {
+                yield* writer.write(XdrCodec.uint32, 0)
+                yield* writer.write(XdrCodec.uint32, 8192)
+                yield* writer.write(XdrCodec.uint32, 8192)
+                yield* writer.write(XdrCodec.uint32, 8192)
+                yield* writer.write(XdrCodec.uint32, 32)
+                yield* writer.write(XdrCodec.uint32, 2)
+                yield* writer.write(XdrCodec.uint32, 0)
+              }
 
-            writer.uint32(0).uint32(0)
-          }])
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })])
         )
 
       const v1 = new Uint8Array(8).fill(1)
@@ -571,7 +807,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
 
       const destroyed = yield* run(
         handler,
-        call([(writer) => writer.uint32(Operation.DESTROY_SESSION).fixedOpaque(session)])
+        call([(writer) =>
+          Effect.gen(function*() {
+            yield* writer.write(XdrCodec.uint32, Operation.DESTROY_SESSION)
+            yield* writer.write(XdrCodec.fixedOpaque(session.length), session)
+          })])
       )
 
       assert.strictEqual(destroyed.status, Status.OK)
@@ -599,8 +839,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         callAs(sys(501, 20), [
           (writer) =>
-            writer.uint32(Operation.EXCHANGE_ID).fixedOpaque(new Uint8Array(8)).string("session-guards").uint32(0)
-              .uint32(0).uint32(0)
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.EXCHANGE_ID)
+              yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(8).length), new Uint8Array(8))
+              yield* writer.write(XdrCodec.string(), "session-guards")
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })
         ])
       )
 
@@ -611,12 +857,29 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       }
 
       const createSession =
-        (sequenceId: number, maxRequest = 8192, maxResponse = 8192, flags = 0) => (writer: Writer) => {
-          writer.uint32(Operation.CREATE_SESSION).uint64(clientid).uint32(sequenceId).uint32(flags)
-          writer.uint32(0).uint32(maxRequest).uint32(maxResponse).uint32(8192).uint32(32).uint32(2).uint32(0)
-          writer.uint32(0).uint32(8192).uint32(8192).uint32(8192).uint32(32).uint32(2).uint32(0)
-          writer.uint32(0).uint32(0)
-        }
+        (sequenceId: number, maxRequest = 8192, maxResponse = 8192, flags = 0) => (writer: EncoderSession) =>
+          Effect.gen(function*() {
+            yield* writer.write(XdrCodec.uint32, Operation.CREATE_SESSION)
+            yield* writer.write(XdrCodec.uint64, clientid)
+            yield* writer.write(XdrCodec.uint32, sequenceId)
+            yield* writer.write(XdrCodec.uint32, flags)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, maxRequest)
+            yield* writer.write(XdrCodec.uint32, maxResponse)
+            yield* writer.write(XdrCodec.uint32, 8192)
+            yield* writer.write(XdrCodec.uint32, 32)
+            yield* writer.write(XdrCodec.uint32, 2)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, 8192)
+            yield* writer.write(XdrCodec.uint32, 8192)
+            yield* writer.write(XdrCodec.uint32, 8192)
+            yield* writer.write(XdrCodec.uint32, 32)
+            yield* writer.write(XdrCodec.uint32, 2)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, 0)
+          })
 
       // An unconfirmed record rejects another principal without consuming the owner's slot.
       const inUse = yield* run(handler, callAs(sys(1111, 37), [createSession(firstSequence)]))
@@ -663,11 +926,16 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeHandler(caller)
       const { session } = yield* startSession(handler, "reclaim")
-      const reclaim = (oneFs: boolean) => (writer: Writer) => writer.uint32(Operation.RECLAIM_COMPLETE).boolean(oneFs)
+
+      const reclaim = (oneFs: boolean) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.RECLAIM_COMPLETE)
+          yield* writer.write(XdrCodec.boolean, oneFs)
+        })
 
       const oneFs = yield* run(
         handler,
-        call([sequence(session, 1), (writer) => writer.uint32(Operation.PUTROOTFH), reclaim(true)])
+        call([sequence(session, 1), (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH), reclaim(true)])
       )
 
       assert.strictEqual(oneFs.status, Status.OK)
@@ -693,9 +961,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 1),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.SECINFO_NO_NAME).uint32(0),
-          (writer) => writer.uint32(Operation.GETFH)
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.SECINFO_NO_NAME)
+              yield* writer.write(XdrCodec.uint32, 0)
+            }),
+          (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
         ])
       )
 
@@ -706,8 +979,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 2),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.SECINFO_NO_NAME).uint32(1)
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.SECINFO_NO_NAME)
+              yield* writer.write(XdrCodec.uint32, 1)
+            })
         ])
       )
 
@@ -717,9 +995,18 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 3),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.LOOKUP).string("dir"),
-          (writer) => writer.uint32(Operation.SECINFO_NO_NAME).uint32(1)
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+              yield* writer.write(XdrCodec.string(), "dir")
+            }),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.SECINFO_NO_NAME)
+              yield* writer.write(XdrCodec.uint32, 1)
+            })
         ])
       )
 
@@ -729,8 +1016,9 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 4),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.LOOKUPP)
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) => writer.write(XdrCodec.uint32, Operation.LOOKUPP)
         ])
       )
 
@@ -740,8 +1028,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 5),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.SECINFO_NO_NAME).uint32(7)
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.SECINFO_NO_NAME)
+              yield* writer.write(XdrCodec.uint32, 7)
+            })
         ])
       )
 
@@ -762,18 +1055,38 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
           handler,
           callAs(sys(501, 20), [
             sequence(session, ++sequenceId),
-            (writer) => writer.uint32(Operation.PUTROOTFH),
-            (writer) => writer.uint32(Operation.LOOKUP).string("file"),
+            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
             (writer) =>
-              writer.uint32(Operation.OPEN).uint32(1).uint32(shareAccess).uint32(0).uint64(1n).string("mac")
-                .uint32(0).uint32(4),
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+                yield* writer.write(XdrCodec.string(), "file")
+              }),
             (writer) =>
-              writer.uint32(Operation.READ).fixedOpaque(new Uint8Array([0, 0, 0, 1, ...new Uint8Array(12)]))
-                .uint64(0n).uint32(16)
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.OPEN)
+                yield* writer.write(XdrCodec.uint32, 1)
+                yield* writer.write(XdrCodec.uint32, shareAccess)
+                yield* writer.write(XdrCodec.uint32, 0)
+                yield* writer.write(XdrCodec.uint64, 1n)
+                yield* writer.write(XdrCodec.string(), "mac")
+                yield* writer.write(XdrCodec.uint32, 0)
+                yield* writer.write(XdrCodec.uint32, 4)
+              }),
+            (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.READ)
+                yield* writer.write(
+                  XdrCodec.fixedOpaque(new Uint8Array([0, 0, 0, 1, ...new Uint8Array(12)]).length),
+                  new Uint8Array([0, 0, 0, 1, ...new Uint8Array(12)])
+                )
+                yield* writer.write(XdrCodec.uint64, 0n)
+                yield* writer.write(XdrCodec.uint32, 16)
+              })
           ])
         )
 
-      const expectOpen = (reply: Awaited<ReturnType<typeof decode>>, delegation: number, why: number) => {
+      const expectOpen = (reply: DecodedReply, delegation: number, why: number) => {
         assert.strictEqual(reply.status, Status.OK)
         // SAFETY: OPEN succeeded, so the body reader table produced the OPEN result shape.
         const result = reply.operations[3]!.value as { readonly delegation: number; readonly why: number }
@@ -806,11 +1119,30 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 1),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
           openReadOnly(client, "file"),
-          (writer) => writer.uint32(Operation.OPEN_DOWNGRADE).fixedOpaque(current).uint32(0).uint32(1).uint32(0),
-          (writer) => writer.uint32(Operation.READ).fixedOpaque(current).uint64(0n).uint32(4),
-          (writer) => writer.uint32(Operation.CLOSE).uint32(0).fixedOpaque(current)
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.OPEN_DOWNGRADE)
+              yield* writer.write(XdrCodec.fixedOpaque(current.length), current)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 1)
+              yield* writer.write(XdrCodec.uint32, 0)
+            }),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.READ)
+              yield* writer.write(XdrCodec.fixedOpaque(current.length), current)
+              yield* writer.write(XdrCodec.uint64, 0n)
+              yield* writer.write(XdrCodec.uint32, 4)
+            }),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.CLOSE)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.fixedOpaque(current.length), current)
+            })
         ])
       )
 
@@ -835,8 +1167,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           (writer) =>
-            writer.uint32(Operation.EXCHANGE_ID).fixedOpaque(new Uint8Array(8)).string("precedence").uint32(0).uint32(0)
-              .uint32(0)
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.EXCHANGE_ID)
+              yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(8).length), new Uint8Array(8))
+              yield* writer.write(XdrCodec.string(), "precedence")
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })
         ])
       )
 
@@ -846,12 +1184,29 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         readonly sequence: number
       }
 
-      const createSession = (sequenceId: number, flags: number, maxResponse: number) => (writer: Writer) => {
-        writer.uint32(Operation.CREATE_SESSION).uint64(clientid).uint32(sequenceId).uint32(flags)
-        writer.uint32(0).uint32(8192).uint32(maxResponse).uint32(8192).uint32(32).uint32(2).uint32(0)
-        writer.uint32(0).uint32(8192).uint32(8192).uint32(8192).uint32(32).uint32(2).uint32(0)
-        writer.uint32(0).uint32(0)
-      }
+      const createSession = (sequenceId: number, flags: number, maxResponse: number) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.CREATE_SESSION)
+          yield* writer.write(XdrCodec.uint64, clientid)
+          yield* writer.write(XdrCodec.uint32, sequenceId)
+          yield* writer.write(XdrCodec.uint32, flags)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 8192)
+          yield* writer.write(XdrCodec.uint32, maxResponse)
+          yield* writer.write(XdrCodec.uint32, 8192)
+          yield* writer.write(XdrCodec.uint32, 32)
+          yield* writer.write(XdrCodec.uint32, 2)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 8192)
+          yield* writer.write(XdrCodec.uint32, 8192)
+          yield* writer.write(XdrCodec.uint32, 8192)
+          yield* writer.write(XdrCodec.uint32, 32)
+          yield* writer.write(XdrCodec.uint32, 2)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 0)
+        })
 
       // The smallest usable response channel is an RPC reply carrying a SEQUENCE-only compound.
       // The failed attempt consumes the slot, so the corrected request uses the next sequence.
@@ -869,12 +1224,18 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 1),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.LOOKUP).string("file"),
-          (writer) => {
-            writer.uint32(Operation.VERIFY)
-            fattr(writer, 48, (values) => values.uint32(0))
-          }
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+              yield* writer.write(XdrCodec.string(), "file")
+            }),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.VERIFY)
+              yield* fattr(writer, 48, (values) => values.write(XdrCodec.uint32, 0))
+            })
         ])
       )
 
@@ -895,9 +1256,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 1),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
           openReadOnly(client, "file"),
-          (writer) => writer.uint32(Operation.GETATTR).array(allAttributes, (item, word) => item.uint32(word))
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.GETATTR)
+              yield* writer.write(XdrCodec.array(XdrCodec.uint32), allAttributes)
+            })
         ])
       )
 
@@ -905,13 +1271,16 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(tooBig.operations.length, 1, "rejected at SEQUENCE, before OPEN executed")
 
       // The open never happened, so a fresh OPEN yields seqid 1 rather than a bumped seqid.
-      const opened = parseOpen(
-        yield* handler.compound(call([
-          sequence(session, 1),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          openReadOnly(client, "file"),
-          (writer) => writer.uint32(Operation.GETFH)
-        ]))
+      const opened = yield* parseOpen(
+        yield* handler.compound(
+          yield* call([
+            sequence(session, 1),
+            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+            openReadOnly(client, "file"),
+            (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
+          ])
+        )
       )
 
       assert.strictEqual(new DataView(opened.stateid.buffer).getUint32(0), 1)
@@ -921,11 +1290,22 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 2),
-          (writer) => writer.uint32(Operation.DESTROY_SESSION).fixedOpaque(other.session),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
           (writer) =>
-            writer.uint32(Operation.READDIR).uint64(0n).fixedOpaque(new Uint8Array(8)).uint32(0).uint32(16_384)
-              .uint32(0)
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.DESTROY_SESSION)
+              yield* writer.write(XdrCodec.fixedOpaque(other.session.length), other.session)
+            }),
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.READDIR)
+              yield* writer.write(XdrCodec.uint64, 0n)
+              yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(8).length), new Uint8Array(8))
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 16_384)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })
         ])
       )
 
@@ -947,8 +1327,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           (writer) =>
-            writer.uint32(Operation.EXCHANGE_ID).fixedOpaque(new Uint8Array(8)).string("lease").uint32(0).uint32(0)
-              .uint32(0)
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.EXCHANGE_ID)
+              yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(8).length), new Uint8Array(8))
+              yield* writer.write(XdrCodec.string(), "lease")
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })
         ])
       )
 
@@ -958,12 +1344,29 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         readonly sequence: number
       }
 
-      const createSession = (maxOperations: number, sequenceId: number) => (writer: Writer) => {
-        writer.uint32(Operation.CREATE_SESSION).uint64(clientid).uint32(sequenceId).uint32(0)
-        writer.uint32(0).uint32(8192).uint32(8192).uint32(8192).uint32(maxOperations).uint32(2).uint32(0)
-        writer.uint32(0).uint32(8192).uint32(8192).uint32(8192).uint32(32).uint32(2).uint32(0)
-        writer.uint32(0).uint32(0)
-      }
+      const createSession = (maxOperations: number, sequenceId: number) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.CREATE_SESSION)
+          yield* writer.write(XdrCodec.uint64, clientid)
+          yield* writer.write(XdrCodec.uint32, sequenceId)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 8192)
+          yield* writer.write(XdrCodec.uint32, 8192)
+          yield* writer.write(XdrCodec.uint32, 8192)
+          yield* writer.write(XdrCodec.uint32, maxOperations)
+          yield* writer.write(XdrCodec.uint32, 2)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 8192)
+          yield* writer.write(XdrCodec.uint32, 8192)
+          yield* writer.write(XdrCodec.uint32, 8192)
+          yield* writer.write(XdrCodec.uint32, 32)
+          yield* writer.write(XdrCodec.uint32, 2)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 0)
+        })
 
       assert.strictEqual((yield* run(handler, call([createSession(1, firstSequence)]))).status, Status.TOOSMALL)
 
@@ -988,15 +1391,37 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const { session } = yield* startSession(handler, "precedence")
       let sequenceId = 0
 
-      const attempt = (...operations: ReadonlyArray<(writer: Writer) => void>) =>
+      const attempt = (...operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>) =>
         run(handler, call([sequence(session, ++sequenceId), ...operations])).pipe(Effect.map((reply) => reply.status))
 
-      const root = (writer: Writer) => writer.uint32(Operation.PUTROOTFH)
-      const lookup = (name: string) => (writer: Writer) => writer.uint32(Operation.LOOKUP).string(name)
-      const remove = (name: string) => (writer: Writer) => writer.uint32(Operation.REMOVE).string(name)
-      const rename = (writer: Writer) => writer.uint32(Operation.RENAME).string("file").string("moved")
-      const link = (writer: Writer) => writer.uint32(Operation.LINK).string("linked")
-      const savefh = (writer: Writer) => writer.uint32(Operation.SAVEFH)
+      const root = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)
+
+      const lookup = (name: string) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+          yield* writer.write(XdrCodec.string(), name)
+        })
+
+      const remove = (name: string) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.REMOVE)
+          yield* writer.write(XdrCodec.string(), name)
+        })
+
+      const rename = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.RENAME)
+          yield* writer.write(XdrCodec.string(), "file")
+          yield* writer.write(XdrCodec.string(), "moved")
+        })
+
+      const link = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LINK)
+          yield* writer.write(XdrCodec.string(), "linked")
+        })
+
+      const savefh = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.SAVEFH)
 
       assert.strictEqual(yield* attempt(remove("file")), Status.NOFILEHANDLE)
       assert.strictEqual(yield* attempt(root, rename), Status.NOFILEHANDLE, "RENAME needs a saved filehandle")
@@ -1032,8 +1457,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         run(
           handler,
           call([(writer) =>
-            writer.uint32(Operation.EXCHANGE_ID).fixedOpaque(new Uint8Array(8)).string(owner).uint32(0).uint32(0)
-              .uint32(0)])
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.EXCHANGE_ID)
+              yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(8).length), new Uint8Array(8))
+              yield* writer.write(XdrCodec.string(), owner)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })])
         )
 
       assert.strictEqual((yield* exchange("bounded-a")).status, Status.OK)
@@ -1051,12 +1482,29 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
 
       const backTooSmall = yield* run(
         handler,
-        call([(writer) => {
-          writer.uint32(Operation.CREATE_SESSION).uint64(clientid).uint32(firstSequence).uint32(0)
-          writer.uint32(0).uint32(8192).uint32(8192).uint32(8192).uint32(32).uint32(2).uint32(0)
-          writer.uint32(0).uint32(10).uint32(8192).uint32(8192).uint32(32).uint32(1).uint32(0)
-          writer.uint32(0).uint32(0)
-        }])
+        call([(writer) =>
+          Effect.gen(function*() {
+            yield* writer.write(XdrCodec.uint32, Operation.CREATE_SESSION)
+            yield* writer.write(XdrCodec.uint64, clientid)
+            yield* writer.write(XdrCodec.uint32, firstSequence)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, 8192)
+            yield* writer.write(XdrCodec.uint32, 8192)
+            yield* writer.write(XdrCodec.uint32, 8192)
+            yield* writer.write(XdrCodec.uint32, 32)
+            yield* writer.write(XdrCodec.uint32, 2)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, 10)
+            yield* writer.write(XdrCodec.uint32, 8192)
+            yield* writer.write(XdrCodec.uint32, 8192)
+            yield* writer.write(XdrCodec.uint32, 32)
+            yield* writer.write(XdrCodec.uint32, 1)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, 0)
+          })])
       )
 
       assert.strictEqual(backTooSmall.status, Status.TOOSMALL)
@@ -1072,27 +1520,76 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const { client, session } = yield* startSession(handler, "object-types")
       let sequenceId = 0
 
-      const attempt = (...operations: ReadonlyArray<(writer: Writer) => void>) =>
+      const attempt = (...operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>) =>
         run(handler, call([sequence(session, ++sequenceId), ...operations]))
 
-      const status = (...operations: ReadonlyArray<(writer: Writer) => void>) =>
+      const status = (...operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>) =>
         attempt(...operations).pipe(Effect.map((reply) => reply.status))
 
-      const root = (writer: Writer) => writer.uint32(Operation.PUTROOTFH)
-      const lookup = (name: string) => (writer: Writer) => writer.uint32(Operation.LOOKUP).string(name)
+      const root = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)
+
+      const lookup = (name: string) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+          yield* writer.write(XdrCodec.string(), name)
+        })
+
       const anonymous = new Uint8Array(16)
-      const read = (writer: Writer) => writer.uint32(Operation.READ).fixedOpaque(anonymous).uint64(0n).uint32(4)
-      const commit = (writer: Writer) => writer.uint32(Operation.COMMIT).uint64(0n).uint32(0)
 
-      const lock = (lockType: number) => (writer: Writer) =>
-        writer.uint32(Operation.LOCK).uint32(lockType).boolean(false).uint64(0n).uint64(1n).boolean(true).uint32(0)
-          .fixedOpaque(anonymous).uint32(0).uint64(client).string("lock-owner")
+      const read = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.READ)
+          yield* writer.write(XdrCodec.fixedOpaque(anonymous.length), anonymous)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint32, 4)
+        })
 
-      const lockt = (lockType: number) => (writer: Writer) =>
-        writer.uint32(Operation.LOCKT).uint32(lockType).uint64(0n).uint64(1n).uint64(client).string("lock-owner")
+      const commit = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.COMMIT)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint32, 0)
+        })
 
-      const locku = (writer: Writer) =>
-        writer.uint32(Operation.LOCKU).uint32(1).uint32(0).fixedOpaque(anonymous).uint64(0n).uint64(1n)
+      const lock = (lockType: number) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCK)
+          yield* writer.write(XdrCodec.uint32, lockType)
+          yield* writer.write(XdrCodec.boolean, false)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 1n)
+          yield* writer.write(XdrCodec.boolean, true)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(
+            XdrCodec.fixedOpaque(
+              anonymous.length
+            ),
+            anonymous
+          )
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint64, client)
+          yield* writer.write(XdrCodec.string(), "lock-owner")
+        })
+
+      const lockt = (lockType: number) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCKT)
+          yield* writer.write(XdrCodec.uint32, lockType)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 1n)
+          yield* writer.write(XdrCodec.uint64, client)
+          yield* writer.write(XdrCodec.string(), "lock-owner")
+        })
+
+      const locku = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCKU)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(anonymous.length), anonymous)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 1n)
+        })
 
       // Sections 18.16.4 and 18.22.3 name the type; COMMIT lists SYMLINK and WRONG_TYPE, not INVAL.
       assert.strictEqual(yield* status(root, openReadOnly(client, "link")), Status.SYMLINK)
@@ -1119,7 +1616,15 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const badUnlockType = yield* attempt(
         root,
         lookup("file"),
-        (writer) => writer.uint32(Operation.LOCKU).uint32(0).uint32(0).fixedOpaque(anonymous).uint64(0n).uint64(1n)
+        (writer) =>
+          Effect.gen(function*() {
+            yield* writer.write(XdrCodec.uint32, Operation.LOCKU)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.uint32, 0)
+            yield* writer.write(XdrCodec.fixedOpaque(anonymous.length), anonymous)
+            yield* writer.write(XdrCodec.uint64, 0n)
+            yield* writer.write(XdrCodec.uint64, 1n)
+          })
       )
 
       assert.deepStrictEqual(badUnlockType.operations[3], { code: Operation.LOCKU, status: Status.BADXDR })
@@ -1133,32 +1638,58 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const { client, session } = yield* startSession(handler, "share-reservations")
       let sequenceId = 0
 
-      const attempt = (...operations: ReadonlyArray<(writer: Writer) => void>) =>
+      const attempt = (...operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>) =>
         run(handler, call([sequence(session, ++sequenceId), ...operations]))
 
-      const root = (writer: Writer) => writer.uint32(Operation.PUTROOTFH)
-      const lookup = (name: string) => (writer: Writer) => writer.uint32(Operation.LOOKUP).string(name)
+      const root = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)
 
-      const openAs = (owner: string, deny: number, claim = 0) => (writer: Writer) => {
-        writer.uint32(Operation.OPEN).uint32(0).uint32(1).uint32(deny).uint64(client).string(owner).uint32(0)
-          .uint32(claim)
+      const lookup = (name: string) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+          yield* writer.write(XdrCodec.string(), name)
+        })
 
-        if (claim === 0) writer.string("file")
-        else if (claim === 1) writer.uint32(0)
-        else if (claim === 3) writer.string("")
-        else if (claim === 2) writer.fixedOpaque(new Uint8Array(16)).string("file")
-        else if (claim === 5) writer.fixedOpaque(new Uint8Array(16))
-      }
+      const openAs = (owner: string, deny: number, claim = 0) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.OPEN)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.uint32, deny)
+          yield* writer.write(XdrCodec.uint64, client)
+          yield* writer.write(XdrCodec.string(), owner)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, claim)
 
-      const stateidOf = (reply: ReturnType<typeof decode>, index: number) =>
+          if (claim === 0) yield* writer.write(XdrCodec.string(), "file")
+          else if (claim === 1) yield* writer.write(XdrCodec.uint32, 0)
+          else if (claim === 3) yield* writer.write(XdrCodec.string(), "")
+          else if (claim === 2) {
+            yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).length), new Uint8Array(16))
+            yield* writer.write(XdrCodec.string(), "file")
+          } else if (claim === 5) {
+            yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).length), new Uint8Array(16))
+          }
+        })
+
+      const stateidOf = (reply: DecodedReply, index: number) =>
         // SAFETY: the caller asserted that OPEN at this index succeeded, so its body is the OPEN result shape.
         (reply.operations[index]!.value as { readonly stateid: Uint8Array }).stateid
 
-      const close = (stateid: Uint8Array) => (writer: Writer) =>
-        writer.uint32(Operation.CLOSE).uint32(0).fixedOpaque(stateid)
+      const close = (stateid: Uint8Array) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.CLOSE)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(stateid.length), stateid)
+        })
 
-      const downgrade = (stateid: Uint8Array, access: number, deny: number) => (writer: Writer) =>
-        writer.uint32(Operation.OPEN_DOWNGRADE).fixedOpaque(stateid).uint32(0).uint32(access).uint32(deny)
+      const downgrade = (stateid: Uint8Array, access: number, deny: number) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.OPEN_DOWNGRADE)
+          yield* writer.write(XdrCodec.fixedOpaque(stateid.length), stateid)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, access)
+          yield* writer.write(XdrCodec.uint32, deny)
+        })
 
       // Without a grace period a reclaim is NO_GRACE; a delegation stateid can never be valid.
       assert.strictEqual((yield* attempt(root, lookup("file"), openAs("a", 0, 1))).status, Status.NO_GRACE)
@@ -1209,13 +1740,29 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const handler = yield* makeHandler(caller)
       const { client, session } = yield* startSession(handler, "current-stateid-set")
       const current = new Uint8Array([0, 0, 0, 1, ...new Uint8Array(12)])
-      const root = (writer: Writer) => writer.uint32(Operation.PUTROOTFH)
-      const lookup = (name: string) => (writer: Writer) => writer.uint32(Operation.LOOKUP).string(name)
 
-      const read = (stateid: Uint8Array) => (writer: Writer) =>
-        writer.uint32(Operation.READ).fixedOpaque(stateid).uint64(0n).uint32(1)
+      const root = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)
 
-      const close = (writer: Writer) => writer.uint32(Operation.CLOSE).uint32(0).fixedOpaque(current)
+      const lookup = (name: string) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+          yield* writer.write(XdrCodec.string(), name)
+        })
+
+      const read = (stateid: Uint8Array) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.READ)
+          yield* writer.write(XdrCodec.fixedOpaque(stateid.length), stateid)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint32, 1)
+        })
+
+      const close = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.CLOSE)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(current.length), current)
+        })
 
       // Section 16.2.3.1.2: SAVEFH and RESTOREFH carry the stateid with the filehandle.
       const saved = yield* run(
@@ -1224,10 +1771,12 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
           sequence(session, 1),
           root,
           openReadOnly(client, "a"),
-          (writer) => writer.uint32(Operation.SAVEFH),
+          (writer) => writer.write(XdrCodec.uint32, Operation.SAVEFH),
+
           root,
           openReadOnly(client, "b"),
-          (writer) => writer.uint32(Operation.RESTOREFH),
+          (writer) => writer.write(XdrCodec.uint32, Operation.RESTOREFH),
+
           close
         ])
       )
@@ -1263,7 +1812,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 6),
-          (writer) => writer.uint32(Operation.OPEN_DOWNGRADE).fixedOpaque(current).uint32(0).uint32(1).uint32(0)
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.OPEN_DOWNGRADE)
+              yield* writer.write(XdrCodec.fixedOpaque(current.length), current)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* writer.write(XdrCodec.uint32, 1)
+              yield* writer.write(XdrCodec.uint32, 0)
+            })
         ])
       )
 
@@ -1276,11 +1832,21 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const handler = yield* makeHandler(caller)
       const { session } = yield* startSession(handler, "bind")
 
-      const bind = (id: Uint8Array) => (writer: Writer) =>
-        writer.uint32(Operation.BIND_CONN_TO_SESSION).fixedOpaque(id).uint32(3).boolean(false)
+      const bind = (id: Uint8Array) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.BIND_CONN_TO_SESSION)
+          yield* writer.write(XdrCodec.fixedOpaque(id.length), id)
+          yield* writer.write(XdrCodec.uint32, 3)
+          yield* writer.write(XdrCodec.boolean, false)
+        })
 
-      const bindDirection = (direction: number) => (writer: Writer) =>
-        writer.uint32(Operation.BIND_CONN_TO_SESSION).fixedOpaque(session).uint32(direction).boolean(false)
+      const bindDirection = (direction: number) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.BIND_CONN_TO_SESSION)
+          yield* writer.write(XdrCodec.fixedOpaque(session.length), session)
+          yield* writer.write(XdrCodec.uint32, direction)
+          yield* writer.write(XdrCodec.boolean, false)
+        })
 
       // Section 18.34.3: the sole operation of its compound, with or without a session; the
       // connection is already the fore channel, so fore-channel requests succeed as CDFS4_FORE.
@@ -1296,7 +1862,12 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         code: Operation.BIND_CONN_TO_SESSION,
         status: Status.NOT_ONLY_OP
       })
-      const followed = yield* run(handler, call([bind(session), (writer) => writer.uint32(Operation.PUTROOTFH)]))
+
+      const followed = yield* run(
+        handler,
+        call([bind(session), (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)])
+      )
+
       assert.deepStrictEqual(followed.operations, [{
         code: Operation.BIND_CONN_TO_SESSION,
         status: Status.NOT_ONLY_OP
@@ -1311,25 +1882,41 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const badDirection = yield* run(handler, call([bindDirection(4)]))
       assert.deepStrictEqual(badDirection.operations, [{ code: Operation.BIND_CONN_TO_SESSION, status: Status.BADXDR }])
 
-      const backchannelCtl = (flavors: (writer: Writer) => void) => (writer: Writer) => {
-        writer.uint32(Operation.BACKCHANNEL_CTL).uint32(0x4000_0001)
-        flavors(writer)
-      }
+      const backchannelCtl =
+        (flavors: (writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>) => (writer: EncoderSession) =>
+          Effect.gen(function*() {
+            yield* writer.write(XdrCodec.uint32, Operation.BACKCHANNEL_CTL)
+            yield* writer.write(XdrCodec.uint32, 0x4000_0001)
+            yield* flavors(writer)
+          })
 
-      const authSys = (writer: Writer) => {
-        writer.uint32(1).uint32(0).string("probe").uint32(501).uint32(20).array([], () => undefined)
-      }
+      const authSys = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.string(), "probe")
+          yield* writer.write(XdrCodec.uint32, 501)
+          yield* writer.write(XdrCodec.uint32, 20)
+          yield* writer.write(XdrCodec.array(XdrCodec.uint32), [])
+        })
 
-      const gss = (writer: Writer) => writer.uint32(6).uint32(0).opaque(new Uint8Array([1])).opaque(new Uint8Array([2]))
+      const gss = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, 6)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.opaque(), new Uint8Array([1]))
+          yield* writer.write(XdrCodec.opaque(), new Uint8Array([2]))
+        })
 
       const backchannel = yield* run(
         handler,
         call([
           sequence(session, 2),
           backchannelCtl((writer) =>
-            writer.array([0, 1], (item, flavor) => {
-              if (flavor === 0) item.uint32(0)
-              else authSys(item)
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, 2)
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* authSys(writer)
             })
           )
         ])
@@ -1343,11 +1930,24 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       // Section 18.33.3: an RPCSEC_GSS handle this server never issued is NOENT.
       const gssHandle = yield* run(
         handler,
-        call([sequence(session, 3), backchannelCtl((writer) => writer.array([1], (item) => gss(item)))])
+        call([
+          sequence(session, 3),
+          backchannelCtl((writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, 1)
+              yield* gss(writer)
+            })
+          )
+        ])
       )
 
       assert.deepStrictEqual(gssHandle.operations[1], { code: Operation.BACKCHANNEL_CTL, status: Status.NOENT })
-      const withoutSession = yield* run(handler, call([backchannelCtl((writer) => writer.array([], () => undefined))]))
+
+      const withoutSession = yield* run(
+        handler,
+        call([backchannelCtl((writer) => writer.write(XdrCodec.array(XdrCodec.uint32), []))])
+      )
+
       assert.deepStrictEqual(withoutSession.operations, [{
         code: Operation.BACKCHANNEL_CTL,
         status: Status.OP_NOT_IN_SESSION
@@ -1357,7 +1957,7 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 4),
-          backchannelCtl((writer) => writer.array([9], (item, flavor) => item.uint32(flavor)))
+          backchannelCtl((writer) => writer.write(XdrCodec.array(XdrCodec.uint32), [9]))
         ])
       )
 
@@ -1366,7 +1966,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       // A SEQUENCE after other operations answers SEQUENCE_POS in place; the earlier ones ran.
       const misplaced = yield* run(
         handler,
-        call([sequence(session, 5), (writer) => writer.uint32(Operation.PUTROOTFH), sequence(session, 6)])
+        call([
+          sequence(session, 5),
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+          sequence(session, 6)
+        ])
       )
 
       assert.strictEqual(misplaced.status, Status.SEQUENCE_POS)
@@ -1376,7 +1980,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
 
       const bootstrapPair = yield* run(
         handler,
-        call([(writer) => writer.uint32(Operation.DESTROY_SESSION).fixedOpaque(session), sequence(session, 7)])
+        call([(writer) =>
+          Effect.gen(function*() {
+            yield* writer.write(XdrCodec.uint32, Operation.DESTROY_SESSION)
+            yield* writer.write(XdrCodec.fixedOpaque(session.length), session)
+          }), sequence(session, 7)])
       )
 
       assert.deepStrictEqual(bootstrapPair.operations, [{
@@ -1395,31 +2003,62 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const { client, session } = yield* startSession(handler, "error-lists")
       let sequenceId = 0
 
-      const attempt = (...operations: ReadonlyArray<(writer: Writer) => void>) =>
+      const attempt = (...operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>) =>
         run(handler, call([sequence(session, ++sequenceId), ...operations]))
 
-      const status = (...operations: ReadonlyArray<(writer: Writer) => void>) =>
+      const status = (...operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>) =>
         attempt(...operations).pipe(Effect.map((reply) => reply.status))
 
-      const root = (writer: Writer) => writer.uint32(Operation.PUTROOTFH)
-      const lookup = (name: string) => (writer: Writer) => writer.uint32(Operation.LOOKUP).string(name)
-      const readlink = (writer: Writer) => writer.uint32(Operation.READLINK)
+      const root = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)
+
+      const lookup = (name: string) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+          yield* writer.write(XdrCodec.string(), name)
+        })
+
+      const readlink = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.READLINK)
+
       const anonymous = new Uint8Array(16)
       const bypass = new Uint8Array(16).fill(0xff)
 
-      const read = (stateid: Uint8Array) => (writer: Writer) =>
-        writer.uint32(Operation.READ).fixedOpaque(stateid).uint64(0n).uint32(2)
+      const read = (stateid: Uint8Array) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.READ)
+          yield* writer.write(XdrCodec.fixedOpaque(stateid.length), stateid)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint32, 2)
+        })
 
-      const openAs = (owner: string, deny: number) => (writer: Writer) =>
-        writer.uint32(Operation.OPEN).uint32(0).uint32(1).uint32(deny).uint64(client).string(owner).uint32(0)
-          .uint32(0).string("file")
+      const openAs = (owner: string, deny: number) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.OPEN)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.uint32, deny)
+          yield* writer.write(XdrCodec.uint64, client)
+          yield* writer.write(XdrCodec.string(), owner)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.string(), "file")
+        })
 
-      const create = (name: string, claim = 0, access = 1) => (writer: Writer) => {
-        writer.uint32(Operation.OPEN).uint32(0).uint32(access).uint32(0).uint64(client).string("creator").uint32(1)
-          .uint32(0).array([], () => undefined).opaque(new Uint8Array()).uint32(claim)
+      const create = (name: string, claim = 0, access = 1) => (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.OPEN)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint32, access)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.uint64, client)
+          yield* writer.write(XdrCodec.string(), "creator")
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.array(XdrCodec.uint32), [])
+          yield* writer.write(XdrCodec.opaque(), new Uint8Array())
+          yield* writer.write(XdrCodec.uint32, claim)
 
-        if (claim === 0) writer.string(name)
-      }
+          if (claim === 0) yield* writer.write(XdrCodec.string(), name)
+        })
 
       // Section 9.1.2: the anonymous stateid respects a deny-read reservation; all ones bypasses it.
       assert.strictEqual(yield* status(root, lookup("file"), read(anonymous)), Status.OK)
@@ -1429,7 +2068,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(yield* status(root, lookup("file"), read(bypass)), Status.OK)
       // SAFETY: OPEN succeeded, so its body is the OPEN result shape.
       const holderStateid = (holder.operations[2]!.value as { readonly stateid: Uint8Array }).stateid
-      const close = (writer: Writer) => writer.uint32(Operation.CLOSE).uint32(0).fixedOpaque(holderStateid)
+
+      const close = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.CLOSE)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(holderStateid.length), holderStateid)
+        })
+
       assert.strictEqual(yield* status(root, lookup("file"), close), Status.OK)
       assert.strictEqual(yield* status(root, lookup("file"), read(anonymous)), Status.OK, "reservation released")
 
@@ -1444,8 +2090,15 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(yield* status(root, lookup("link"), readlink), Status.OK)
 
       // LOCKU lists no object-type errors, so a directory is still BAD_STATEID.
-      const locku = (writer: Writer) =>
-        writer.uint32(Operation.LOCKU).uint32(1).uint32(0).fixedOpaque(anonymous).uint64(0n).uint64(1n)
+      const locku = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOCKU)
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.uint32, 0)
+          yield* writer.write(XdrCodec.fixedOpaque(anonymous.length), anonymous)
+          yield* writer.write(XdrCodec.uint64, 0n)
+          yield* writer.write(XdrCodec.uint64, 1n)
+        })
 
       assert.strictEqual(yield* status(root, locku), Status.BAD_STATEID)
 
@@ -1476,9 +2129,20 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 1),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.LOOKUP).string("file"),
-          (writer) => writer.uint32(Operation.READ).fixedOpaque(new Uint8Array(16)).uint64(0n).uint32(4_096)
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+              yield* writer.write(XdrCodec.string(), "file")
+            }),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.READ)
+              yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).length), new Uint8Array(16))
+              yield* writer.write(XdrCodec.uint64, 0n)
+              yield* writer.write(XdrCodec.uint32, 4_096)
+            })
         ])
       )
 
@@ -1489,9 +2153,20 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         handler,
         call([
           sequence(session, 1),
-          (writer) => writer.uint32(Operation.PUTROOTFH),
-          (writer) => writer.uint32(Operation.LOOKUP).string("file"),
-          (writer) => writer.uint32(Operation.READ).fixedOpaque(new Uint8Array(16)).uint64(0n).uint32(64)
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+              yield* writer.write(XdrCodec.string(), "file")
+            }),
+          (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.READ)
+              yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(16).length), new Uint8Array(16))
+              yield* writer.write(XdrCodec.uint64, 0n)
+              yield* writer.write(XdrCodec.uint32, 64)
+            })
         ])
       )
 
@@ -1506,9 +2181,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
 
       const oversized = call([
         sequence(session, 1),
-        (writer) => writer.uint32(Operation.LOOKUP).uint32(100),
-        (writer) => writer.uint32(Operation.GETFH),
-        (writer) => writer.uint32(Operation.GETFH)
+        (writer) =>
+          Effect.gen(function*() {
+            yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+            yield* writer.write(XdrCodec.uint32, 100)
+          }),
+        (writer) => writer.write(XdrCodec.uint32, Operation.GETFH),
+
+        (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
       ])
 
       assert.deepStrictEqual((yield* run(handler, oversized)).operations, [
@@ -1521,26 +2201,36 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const caller = yield* (yield* Vfs.make()).caller()
       const handler = yield* makeHandler(caller)
 
-      const illegal = yield* run(handler, call([(writer) => writer.uint32(99_999)]))
+      const illegal = yield* run(
+        handler,
+        call([(writer) => writer.write(XdrCodec.uint32, 99_999)])
+      )
+
       assert.deepStrictEqual(illegal.operations, [{ code: Operation.ILLEGAL, status: Status.OP_ILLEGAL }])
 
       // A LOOKUP whose name length exceeds the remaining bytes never decodes.
-      const truncatedLookup = (writer: Writer) => writer.uint32(Operation.LOOKUP).uint32(100)
+      const truncatedLookup = (writer: EncoderSession) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+          yield* writer.write(XdrCodec.uint32, 100)
+        })
+
       const beforeSession = yield* run(handler, call([truncatedLookup]))
       assert.deepStrictEqual(beforeSession.operations, [{ code: Operation.LOOKUP, status: Status.BADXDR }])
 
       const { session } = yield* startSession(handler, "malformed")
 
-      const request = call([
+      const request = yield* call([
         sequence(session, 1, true),
-        (writer) => writer.uint32(Operation.PUTROOTFH),
+        (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
         truncatedLookup,
-        (writer) => writer.uint32(Operation.GETFH)
+        (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
       ])
 
       // Section 15.1.1.1: the operations before the malformed one are processed and reported.
       const first = yield* handler.compound(request)
-      const reply = decode(first)
+      const reply = yield* decode(first)
       assert.strictEqual(reply.status, Status.BADXDR)
       assert.strictEqual(reply.operations.length, 3)
       assert.strictEqual(reply.operations[1]!.status, Status.OK)
@@ -1556,38 +2246,56 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const handler = yield* makeHandler(caller)
 
-      const exchange = (protection: (writer: Writer) => void) =>
+      const exchange = (protection: (writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>) =>
         run(
           handler,
-          call([(writer) => {
-            writer.uint32(Operation.EXCHANGE_ID).fixedOpaque(new Uint8Array(8)).string("protected").uint32(0)
-            protection(writer)
-            writer.array([], () => undefined)
-          }])
+          call([(writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, Operation.EXCHANGE_ID)
+              yield* writer.write(XdrCodec.fixedOpaque(new Uint8Array(8).length), new Uint8Array(8))
+              yield* writer.write(XdrCodec.string(), "protected")
+              yield* writer.write(XdrCodec.uint32, 0)
+              yield* protection(writer)
+              yield* writer.write(XdrCodec.array(XdrCodec.uint32), [])
+            })])
         )
 
-      const ops = (writer: Writer) => writer.array([], () => undefined).array([], () => undefined)
+      const ops = (writer: EncoderSession, how: number) =>
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, how)
+          yield* writer.write(XdrCodec.array(XdrCodec.uint32), [])
+          yield* writer.write(XdrCodec.array(XdrCodec.uint32), [])
+        })
 
       // Section 18.35.3: SP4_MACH_CRED needs RPCSEC_GSS integrity, which AUTH_SYS cannot give.
-      const machCred = yield* exchange((writer) => ops(writer.uint32(1)))
+      const machCred = yield* exchange((writer) => ops(writer, 1))
       assert.deepStrictEqual(machCred.operations, [{ code: Operation.EXCHANGE_ID, status: Status.INVAL }])
 
       const machCredWithOps = yield* exchange((writer) =>
-        writer.uint32(1).array([0x0800_0000, 0x0000_0002], (item, word) => item.uint32(word))
-          .array([0x0000_0400], (item, word) => item.uint32(word))
+        Effect.gen(function*() {
+          yield* writer.write(XdrCodec.uint32, 1)
+          yield* writer.write(XdrCodec.array(XdrCodec.uint32), [0x0800_0000, 0x0000_0002])
+          yield* writer.write(XdrCodec.array(XdrCodec.uint32), [0x0000_0400])
+        })
       )
 
       assert.deepStrictEqual(machCredWithOps.operations, [{ code: Operation.EXCHANGE_ID, status: Status.INVAL }])
 
       // SP4_SSV decodes fully and fails on the algorithm list rather than on the XDR.
-      const ssv = yield* exchange((writer) => {
-        ops(writer.uint32(2))
-        writer.array([new Uint8Array([1, 2])], (item, oid) => item.opaque(oid))
-          .array([new Uint8Array([3])], (item, oid) => item.opaque(oid)).uint32(8).uint32(1)
-      })
+      const ssv = yield* exchange((writer) =>
+        Effect.gen(function*() {
+          yield* ops(writer, 2)
+          yield* writer.write(XdrCodec.array(XdrCodec.opaque()), [new Uint8Array([1, 2])])
+          yield* writer.write(XdrCodec.array(XdrCodec.opaque()), [new Uint8Array([3])])
+          yield* writer.write(XdrCodec.uint32, 8)
+          yield* writer.write(XdrCodec.uint32, 1)
+        })
+      )
 
       assert.deepStrictEqual(ssv.operations, [{ code: Operation.EXCHANGE_ID, status: Status.ENCR_ALG_UNSUPP }])
-      const undefinedHow = yield* exchange((writer) => writer.uint32(3))
+
+      const undefinedHow = yield* exchange((writer) => writer.write(XdrCodec.uint32, 3))
+
       assert.deepStrictEqual(undefinedHow.operations, [{ code: Operation.EXCHANGE_ID, status: Status.BADXDR }])
 
       // Section 14.5: valid UTF-8 the file system cannot store is BADCHAR; invalid UTF-8 is INVAL.
@@ -1598,8 +2306,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
           handler,
           call([
             sequence(session, sequenceId),
-            (writer) => writer.uint32(Operation.PUTROOTFH),
-            (writer) => writer.uint32(Operation.LOOKUP).opaque(name)
+            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+
+            (writer) =>
+              Effect.gen(function*() {
+                yield* writer.write(XdrCodec.uint32, Operation.LOOKUP)
+                yield* writer.write(XdrCodec.opaque(), name)
+              })
           ])
         ).pipe(Effect.map((reply) => reply.status))
 

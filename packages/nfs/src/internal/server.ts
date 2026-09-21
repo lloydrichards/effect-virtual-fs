@@ -94,7 +94,10 @@ const handleConnection = (
         }
       })
     ).pipe(
-      Effect.catchTag("RecordMarkingError", () => Effect.void),
+      Effect.catchTags({
+        RecordMarkingError: () => Effect.void,
+        XdrEncodeError: (error) => Effect.logError("NFS response encoding failed", error)
+      }),
       Effect.catchReason("SocketError", "SocketCloseError", () => Effect.void),
       // A connection that ends for any reason releases the session state it was associated with.
       // `Effect.ensuring` runs this uninterruptibly, so `disconnect` must never block; see the

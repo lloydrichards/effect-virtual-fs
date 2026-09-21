@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import type * as PlatformError from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
+import * as Result from "effect/Result"
 import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
@@ -21,7 +22,15 @@ import {
 } from "./export.js"
 import { type LockRange, lockRange, MAX_OFFSET, overlaps } from "./lockRanges.js"
 import { type CompoundCall, type Connection, RpcPolicyDenied } from "./rpc.js"
-import { type DecodeLimits, Reader, Writer, XdrDecodeError } from "./xdr.js"
+import {
+  type DecodeLimits,
+  type DecoderSession,
+  type EncoderSession,
+  make as xdr,
+  XdrCodec,
+  XdrDecodeError,
+  XdrEncodeError
+} from "./xdr.js"
 
 /** @internal */
 export const Status = {
@@ -368,7 +377,7 @@ export interface Nfs4Options {
 
 /** @internal */
 export interface Nfs4Handler {
-  readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array, RpcPolicyDenied>
+  readonly compound: (call: CompoundCall) => Effect.Effect<Uint8Array, RpcPolicyDenied | XdrEncodeError>
   readonly disconnect: (connection: Connection) => Effect.Effect<void>
   readonly callbackReply: (connection: Connection, message: Uint8Array) => Effect.Effect<void>
   /**
@@ -398,7 +407,7 @@ type ParsedOperation =
     readonly value: {
       readonly kind: number
       readonly name: Uint8Array
-      readonly attrs: ReturnType<typeof readAttributes>
+      readonly attrs: ParsedAttributes
       readonly target: string | undefined
     }
   }
@@ -425,7 +434,7 @@ type ParsedOperation =
       readonly create: {
         readonly mode: number
         readonly verifier: Uint8Array
-        readonly attrs: ReturnType<typeof readAttributes>
+        readonly attrs: ParsedAttributes
       } | undefined
       readonly claim: number
       readonly name: Uint8Array
@@ -456,7 +465,7 @@ type ParsedOperation =
   | {
     readonly kind: "Setattr"
     readonly code: typeof Operation.SETATTR
-    readonly value: { readonly stateid: Uint8Array; readonly attrs: ReturnType<typeof readAttributes> }
+    readonly value: { readonly stateid: Uint8Array; readonly attrs: ParsedAttributes }
   }
   | {
     readonly kind: "Write"
@@ -802,11 +811,10 @@ const sameRequest = (left: Uint8Array | undefined, right: Uint8Array): boolean =
   return true
 }
 
-const bitmap = (reader: Reader, limit: number): ReadonlyArray<number> => reader.array((item) => item.uint32(), limit)
+const bitmap = (reader: DecoderSession, limit: number) => reader.read(XdrCodec.array(XdrCodec.uint32, limit))
 
-const writeBitmap = (writer: Writer, words: ReadonlyArray<number>): void => {
-  writer.array(words, (target, word) => target.uint32(word))
-}
+const writeBitmap = (writer: EncoderSession, words: ReadonlyArray<number>) =>
+  writer.write(XdrCodec.array(XdrCodec.uint32), words)
 
 const attributesIn = (words: ReadonlyArray<number>): ReadonlyArray<number> => {
   const result: Array<number> = []
@@ -818,37 +826,60 @@ const attributesIn = (words: ReadonlyArray<number>): ReadonlyArray<number> => {
   return result
 }
 
-const validateWritableAttributes = (words: ReadonlyArray<number>, bytes: Uint8Array, limits: Nfs4Limits): void => {
+const validateWritableAttributes = Effect.fnUntraced(function*(
+  words: ReadonlyArray<number>,
+  bytes: Uint8Array,
+  limits: Nfs4Limits
+) {
   const attributes = attributesIn(words)
 
   if (attributes.some((attribute) => ![4, 33, 36, 37, 48, 54].includes(attribute))) return
-  const values = new Reader(bytes, limits)
+  const values = yield* xdr.openReader(bytes, limits)
 
   for (const attribute of attributes) {
-    if (attribute === 4) values.uint64()
-    else if (attribute === 33) values.uint32()
-    else if (attribute === 36 || attribute === 37) values.string(limits.maxStringBytes)
+    if (attribute === 4) yield* values.read(XdrCodec.uint64)
+    else if (attribute === 33) yield* values.read(XdrCodec.uint32)
+    else if (attribute === 36 || attribute === 37) yield* values.read(XdrCodec.string(limits.maxStringBytes))
     else if (attribute === 48 || attribute === 54) {
-      const how = values.uint32()
+      const how = yield* values.read(XdrCodec.uint32)
 
       if (how === 1) {
-        values.uint64()
+        yield* values.read(XdrCodec.uint64)
 
-        if (values.uint32() >= 1_000_000_000) throw new XdrDecodeError("Invalid attribute nanoseconds")
-      } else if (how !== 0) throw new XdrDecodeError("Invalid set-time discriminant")
+        if ((yield* values.read(XdrCodec.uint32)) >= 1_000_000_000) {
+          return yield* new XdrDecodeError({
+            reason: "range",
+            offset: yield* values.position,
+            path: ["attributes", attribute],
+            detail: "Invalid attribute nanoseconds"
+          })
+        }
+      } else if (how !== 0) {
+        return yield* new XdrDecodeError({
+          reason: "discriminant",
+          offset: yield* values.position,
+          path: ["attributes", attribute],
+          detail: "Invalid set-time discriminant"
+        })
+      }
     }
   }
 
-  values.finish()
+  yield* values.finish
+})
+
+interface ParsedAttributes {
+  readonly bitmap: ReadonlyArray<number>
+  readonly values: Uint8Array
 }
 
-const readAttributes = (reader: Reader, limits: Nfs4Limits) => {
-  const words = bitmap(reader, limits.maxBitmapWords)
-  const values = reader.opaque(limits.maxOpaqueBytes)
-  validateWritableAttributes(words, values, limits)
+const readAttributes = Effect.fnUntraced(function*(reader: DecoderSession, limits: Nfs4Limits) {
+  const words = yield* bitmap(reader, limits.maxBitmapWords)
+  const values = yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))
+  yield* validateWritableAttributes(words, values, limits)
 
   return { bitmap: words, values }
-}
+})
 
 const isNumericOwner = Schema.is(Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]*)$/)))
 
@@ -865,7 +896,7 @@ const creationAttributes = Effect.fnUntraced(function*(
     return yield* Effect.fail(create.mode === 3 ? Status.INVAL : Status.ATTRNOTSUPP)
   }
 
-  const reader = new Reader(create.attrs.values, limits)
+  const reader = yield* xdr.openReader(create.attrs.values, limits)
   let mode = create.mode === 2 ? 0o600 : undefined
   let size: bigint | undefined
   const owner: Types.Mutable<Vfs.OwnerUpdate> = {}
@@ -880,16 +911,16 @@ const creationAttributes = Effect.fnUntraced(function*(
     // when it precedes them, matching ordinary creation's existing-file behavior.
     if (!supported.includes(attribute)) break
 
-    if (attribute === 4) size = reader.uint64()
+    if (attribute === 4) size = yield* reader.read(XdrCodec.uint64)
     else if (attribute === 33) {
-      const value = reader.uint32()
+      const value = yield* reader.read(XdrCodec.uint32)
 
       if (!existing) {
         if (value > 0o7777) return yield* Effect.fail(Status.INVAL)
         mode = value
       }
     } else if (attribute === 36 || attribute === 37) {
-      const value = reader.string(limits.maxStringBytes)
+      const value = yield* reader.read(XdrCodec.string(limits.maxStringBytes))
 
       if (existing) continue
 
@@ -898,11 +929,12 @@ const creationAttributes = Effect.fnUntraced(function*(
       if (attribute === 36) owner.uid = Number(value)
       else owner.gid = Number(value)
     } else {
-      const how = reader.uint32()
+      const how = yield* reader.read(XdrCodec.uint32)
 
       const time: Vfs.Times["access"] = how === 0 ? { kind: "now" } : {
         kind: "value",
-        nanoseconds: BigInt.asIntN(64, reader.uint64()) * 1_000_000_000n + BigInt(reader.uint32())
+        nanoseconds: BigInt.asIntN(64, yield* reader.read(XdrCodec.uint64)) * 1_000_000_000n +
+          BigInt(yield* reader.read(XdrCodec.uint32))
       }
 
       if (attribute === 48) times.access = time
@@ -910,14 +942,17 @@ const creationAttributes = Effect.fnUntraced(function*(
     }
   }
 
-  if (supportedAttrs) reader.finish()
+  if (supportedAttrs) yield* reader.finish
 
   if (create.mode >= 2) {
     // RFC 8881 18.16.4 permits timestamp storage. Both verifier halves enter
     // the creation candidate so a crash cannot separate the file from its verifier.
-    const verifier = new Reader(create.verifier, limits)
-    times.access = { kind: "value", nanoseconds: BigInt(verifier.uint32()) * 1_000_000_000n }
-    times.modification = { kind: "value", nanoseconds: BigInt(verifier.uint32()) * 1_000_000_000n }
+    const verifier = yield* xdr.openReader(create.verifier, limits)
+    times.access = { kind: "value", nanoseconds: BigInt(yield* verifier.read(XdrCodec.uint32)) * 1_000_000_000n }
+    times.modification = {
+      kind: "value",
+      nanoseconds: BigInt(yield* verifier.read(XdrCodec.uint32)) * 1_000_000_000n
+    }
   }
 
   const settings:
@@ -945,7 +980,7 @@ type SetAttribute =
   | { readonly kind: "time"; readonly attribute: 48 | 54; readonly value: Vfs.Times["access"] }
 
 const setattrAttributes = Effect.fnUntraced(function*(
-  attrs: ReturnType<typeof readAttributes>,
+  attrs: ParsedAttributes,
   limits: Nfs4Limits,
   supportedAttributes: ReadonlyArray<number>
 ) {
@@ -957,43 +992,44 @@ const setattrAttributes = Effect.fnUntraced(function*(
     return yield* Effect.fail(supportedAttributes.includes(invalid) ? Status.INVAL : Status.ATTRNOTSUPP)
   }
 
-  const reader = new Reader(attrs.values, limits)
+  const reader = yield* xdr.openReader(attrs.values, limits)
   const changes: Array<SetAttribute> = []
 
   for (const attribute of attributes) {
-    if (attribute === 4) changes.push({ kind: "size", attribute, value: reader.uint64() })
+    if (attribute === 4) changes.push({ kind: "size", attribute, value: yield* reader.read(XdrCodec.uint64) })
     else if (attribute === 33) {
-      const value = reader.uint32()
+      const value = yield* reader.read(XdrCodec.uint32)
 
       if (value > 0o7777) return yield* Effect.fail(Status.INVAL)
       changes.push({ kind: "mode", attribute, value })
     } else if (attribute === 36 || attribute === 37) {
-      const value = reader.string(limits.maxStringBytes)
+      const value = yield* reader.read(XdrCodec.string(limits.maxStringBytes))
 
       if (!isNumericOwner(value) || Number(value) > 0xffff_ffff) return yield* Effect.fail(Status.BADOWNER)
       changes.push({ kind: "owner", attribute, value: Number(value) })
     } else if (attribute === 48 || attribute === 54) {
-      const how = reader.uint32()
+      const how = yield* reader.read(XdrCodec.uint32)
 
       const value: Vfs.Times["access"] = how === 0 ? { kind: "now" } : {
         kind: "value",
-        nanoseconds: BigInt.asIntN(64, reader.uint64()) * 1_000_000_000n + BigInt(reader.uint32())
+        nanoseconds: BigInt.asIntN(64, yield* reader.read(XdrCodec.uint64)) * 1_000_000_000n +
+          BigInt(yield* reader.read(XdrCodec.uint32))
       }
 
       changes.push({ kind: "time", attribute, value })
     }
   }
 
-  reader.finish()
+  yield* reader.finish
 
   return changes
 })
 
-const readStateOwner = (reader: Reader, limits: Nfs4Limits): Uint8Array => {
-  reader.uint64()
+const readStateOwner = Effect.fnUntraced(function*(reader: DecoderSession, limits: Nfs4Limits) {
+  yield* reader.read(XdrCodec.uint64)
 
-  return reader.opaque(limits.maxOwnerBytes)
-}
+  return yield* reader.read(XdrCodec.opaque(limits.maxOwnerBytes))
+})
 
 interface ChannelAttrs {
   readonly headerPadding: number
@@ -1005,15 +1041,17 @@ interface ChannelAttrs {
   readonly rdmaIrd: ReadonlyArray<number>
 }
 
-const readChannelAttrs = (reader: Reader): ChannelAttrs => ({
-  headerPadding: reader.uint32(),
-  maxRequest: reader.uint32(),
-  maxResponse: reader.uint32(),
-  maxCachedResponse: reader.uint32(),
-  maxOperations: reader.uint32(),
-  maxRequests: reader.uint32(),
-  rdmaIrd: reader.array((item) => item.uint32(), 1)
+const ChannelAttrsCodec = XdrCodec.struct({
+  headerPadding: XdrCodec.uint32,
+  maxRequest: XdrCodec.uint32,
+  maxResponse: XdrCodec.uint32,
+  maxCachedResponse: XdrCodec.uint32,
+  maxOperations: XdrCodec.uint32,
+  maxRequests: XdrCodec.uint32,
+  rdmaIrd: XdrCodec.array(XdrCodec.uint32, 1)
 })
+
+const readChannelAttrs = (reader: DecoderSession) => reader.read(ChannelAttrsCodec)
 
 /**
  * One entry of csa_sec_parms. Section 18.36.3 calls these "acceptable security credentials the
@@ -1027,36 +1065,64 @@ interface CallbackSecurity {
   readonly credential?: Uint8Array
 }
 
-const readCallbackSecurity = (reader: Reader, limits: Nfs4Limits): CallbackSecurity => {
-  const flavor = reader.uint32()
+const readCallbackSecurity = Effect.fnUntraced(function*(reader: DecoderSession, limits: Nfs4Limits) {
+  const flavor = yield* reader.read(XdrCodec.uint32)
 
   if (flavor === 0) return { flavor }
 
   if (flavor === 1) {
-    const stamp = reader.uint32()
-    const machineName = reader.string(limits.maxStringBytes)
-    const uid = reader.uint32()
-    const gid = reader.uint32()
-    const groups = reader.array((item) => item.uint32(), limits.maxArrayElements)
+    const stamp = yield* reader.read(XdrCodec.uint32)
+    const machineName = yield* reader.read(XdrCodec.string(limits.maxStringBytes))
+    const uid = yield* reader.read(XdrCodec.uint32)
+    const gid = yield* reader.read(XdrCodec.uint32)
+    const groups = yield* reader.read(XdrCodec.array(XdrCodec.uint32, limits.maxArrayElements))
 
-    return {
-      flavor,
-      credential: new Writer().uint32(stamp).string(machineName).uint32(uid).uint32(gid)
-        .array(groups, (item, group) => item.uint32(group))
-        .bytes()
-    }
+    const credential = yield* xdr.encode(
+      { stamp, machineName, uid, gid, groups },
+      XdrCodec.struct({
+        stamp: XdrCodec.uint32,
+        machineName: XdrCodec.string(),
+        uid: XdrCodec.uint32,
+        gid: XdrCodec.uint32,
+        groups: XdrCodec.array(XdrCodec.uint32)
+      }),
+      limits,
+      ByteSize.toNumberUnsafe(limits.maxRecordBytes)
+    )
+
+    return { flavor, credential }
   }
 
   if (flavor === 6) {
-    reader.uint32()
-    reader.opaque(limits.maxOpaqueBytes)
-    reader.opaque(limits.maxOpaqueBytes)
+    yield* reader.read(XdrCodec.uint32)
+    yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))
+    yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))
 
     return { flavor }
   }
 
-  throw new XdrDecodeError("Unsupported callback security flavor")
-}
+  return yield* new XdrDecodeError({
+    reason: "discriminant",
+    offset: yield* reader.position,
+    path: [],
+    detail: "Unsupported callback security flavor"
+  })
+})
+
+const readCallbackSecurityArray = Effect.fnUntraced(function*(reader: DecoderSession, limits: Nfs4Limits) {
+  const count = yield* reader.read(XdrCodec.uint32)
+
+  if (count > limits.maxArrayElements) {
+    return yield* new XdrDecodeError({
+      reason: "length-limit",
+      offset: yield* reader.position,
+      path: [],
+      detail: "XDR array exceeds its element limit"
+    })
+  }
+
+  return yield* Effect.forEach(Array.from({ length: count }), () => readCallbackSecurity(reader, limits))
+})
 
 /**
  * Picks the credential a callback will carry. AUTH_NONE is preferred when the client offered it,
@@ -1074,72 +1140,84 @@ const chooseCallbackSecurity = (
   offered.find((entry) => entry.flavor === AUTH_NONE) ??
     offered.find((entry) => entry.flavor === AUTH_SYS && (entry.credential?.length ?? 0) <= MAX_OPAQUE_AUTH_BYTES)
 
-const writeChannelAttrs = (
-  writer: Writer,
-  attrs: ChannelAttrs
-): void => {
-  writer.uint32(attrs.headerPadding).uint32(attrs.maxRequest).uint32(attrs.maxResponse)
-    .uint32(attrs.maxCachedResponse).uint32(attrs.maxOperations).uint32(attrs.maxRequests)
-    .array(attrs.rdmaIrd, (item, value) => item.uint32(value))
-}
+const writeChannelAttrs = (writer: EncoderSession, attrs: ChannelAttrs) => writer.write(ChannelAttrsCodec, attrs)
 
 /** state_protect_ops4: the operations a client wants enforced and allowed under the protection. */
-const readStateProtectOps = (reader: Reader, limits: Nfs4Limits): void => {
-  bitmap(reader, limits.maxBitmapWords)
-  bitmap(reader, limits.maxBitmapWords)
-}
+const readStateProtectOps = Effect.fnUntraced(function*(reader: DecoderSession, limits: Nfs4Limits) {
+  yield* bitmap(reader, limits.maxBitmapWords)
+  yield* bitmap(reader, limits.maxBitmapWords)
+})
 
-const readStateProtection = (reader: Reader, limits: Nfs4Limits): number => {
-  const how = reader.uint32()
+const readStateProtection = Effect.fnUntraced(function*(reader: DecoderSession, limits: Nfs4Limits) {
+  const how = yield* reader.read(XdrCodec.uint32)
 
   if (how === SP4_MACH_CRED) {
-    readStateProtectOps(reader, limits)
+    yield* readStateProtectOps(reader, limits)
   } else if (how === SP4_SSV) {
     // ssv_sp_parms4: ops, hash and encryption algorithm lists, window, and GSS handle count.
-    readStateProtectOps(reader, limits)
-    reader.array((item) => item.opaque(limits.maxOpaqueBytes), limits.maxArrayElements)
-    reader.array((item) => item.opaque(limits.maxOpaqueBytes), limits.maxArrayElements)
-    reader.uint32()
-    reader.uint32()
+    yield* readStateProtectOps(reader, limits)
+    yield* reader.read(XdrCodec.array(XdrCodec.opaque(limits.maxOpaqueBytes), limits.maxArrayElements))
+    yield* reader.read(XdrCodec.array(XdrCodec.opaque(limits.maxOpaqueBytes), limits.maxArrayElements))
+    yield* reader.read(XdrCodec.uint32)
+    yield* reader.read(XdrCodec.uint32)
   } else if (how !== SP4_NONE) {
-    throw new XdrDecodeError("Invalid state protection discriminant")
+    return yield* new XdrDecodeError({
+      reason: "discriminant",
+      offset: yield* reader.position,
+      path: [],
+      detail: "Invalid state protection discriminant"
+    })
   }
 
   return how
-}
+})
 
-const readLockType = (reader: Reader): number => {
-  const lockType = reader.uint32()
+const readLockType = Effect.fnUntraced(function*(reader: DecoderSession) {
+  const lockType = yield* reader.read(XdrCodec.uint32)
 
-  if (lockType < 1 || lockType > 4) throw new XdrDecodeError("Invalid lock type")
+  if (lockType < 1 || lockType > 4) {
+    return yield* new XdrDecodeError({
+      reason: "range",
+      offset: yield* reader.position,
+      path: [],
+      detail: "Invalid lock type"
+    })
+  }
 
   return lockType
-}
+})
 
-const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): ParsedOperation => {
+const decodeOperation = Effect.fnUntraced(function*(code: number, reader: DecoderSession, limits: Nfs4Limits) {
   switch (code) {
     case Operation.ACCESS:
-      return { kind: "Access", code, value: reader.uint32() }
+      return { kind: "Access", code, value: (yield* reader.read(XdrCodec.uint32)) }
     case Operation.CLOSE:
-      return { kind: "Close", code, value: { sequence: reader.uint32(), stateid: reader.fixedOpaque(16) } }
+      return {
+        kind: "Close",
+        code,
+        value: {
+          sequence: (yield* reader.read(XdrCodec.uint32)),
+          stateid: (yield* reader.read(XdrCodec.fixedOpaque(16)))
+        }
+      }
     case Operation.CREATE: {
-      const kind = reader.uint32()
+      const kind = yield* reader.read(XdrCodec.uint32)
 
-      const target = kind === 5 ? reader.string(limits.maxStringBytes) : undefined
+      const target = kind === 5 ? (yield* reader.read(XdrCodec.string(limits.maxStringBytes))) : undefined
 
       if (kind === 3 || kind === 4) {
-        reader.uint32()
-        reader.uint32()
+        yield* reader.read(XdrCodec.uint32)
+        yield* reader.read(XdrCodec.uint32)
       }
 
-      const name = reader.opaque(limits.maxOpaqueBytes)
-      const attrs = readAttributes(reader, limits)
+      const name = yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))
+      const attrs = yield* readAttributes(reader, limits)
 
       return { kind: "Create", code, value: { kind, name, attrs, target } }
     }
 
     case Operation.GETATTR:
-      return { kind: "Getattr", code, value: bitmap(reader, limits.maxBitmapWords) }
+      return { kind: "Getattr", code, value: (yield* bitmap(reader, limits.maxBitmapWords)) }
     case Operation.GETFH:
       return { kind: "Getfh", code, value: undefined }
     case Operation.LOOKUPP:
@@ -1153,88 +1231,112 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
     case Operation.SAVEFH:
       return { kind: "Savefh", code, value: undefined }
     case Operation.LINK:
-      return { kind: "Link", code, value: reader.opaque(limits.maxOpaqueBytes) }
+      return { kind: "Link", code, value: (yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))) }
     case Operation.LOOKUP:
-      return { kind: "Lookup", code, value: reader.opaque(limits.maxOpaqueBytes) }
+      return { kind: "Lookup", code, value: (yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))) }
     case Operation.REMOVE:
-      return { kind: "Remove", code, value: reader.opaque(limits.maxOpaqueBytes) }
+      return { kind: "Remove", code, value: (yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))) }
     case Operation.OPEN: {
-      const sequence = reader.uint32()
-      const access = reader.uint32()
-      const deny = reader.uint32()
-      const client = reader.uint64()
-      const owner = reader.opaque(limits.maxOwnerBytes)
-      const openHow = reader.uint32()
+      const sequence = yield* reader.read(XdrCodec.uint32)
+      const access = yield* reader.read(XdrCodec.uint32)
+      const deny = yield* reader.read(XdrCodec.uint32)
+      const client = yield* reader.read(XdrCodec.uint64)
+      const owner = yield* reader.read(XdrCodec.opaque(limits.maxOwnerBytes))
+      const openHow = yield* reader.read(XdrCodec.uint32)
       let create: Extract<ParsedOperation, { kind: "Open" }>["value"]["create"]
 
       if (openHow === 1) {
-        const createMode = reader.uint32()
+        const createMode = yield* reader.read(XdrCodec.uint32)
         let verifier: Uint8Array = empty
-        let attrs: ReturnType<typeof readAttributes> = { bitmap: [], values: empty }
+        let attrs: ParsedAttributes = { bitmap: [], values: empty }
 
         if (createMode === 0 || createMode === 1) {
-          attrs = readAttributes(reader, limits)
+          attrs = yield* readAttributes(reader, limits)
         } else if (createMode === 2) {
-          verifier = reader.fixedOpaque(8)
+          verifier = yield* reader.read(XdrCodec.fixedOpaque(8))
         } else if (createMode === 3) {
-          verifier = reader.fixedOpaque(8)
-          attrs = readAttributes(reader, limits)
+          verifier = yield* reader.read(XdrCodec.fixedOpaque(8))
+          attrs = yield* readAttributes(reader, limits)
         } else {
-          throw new XdrDecodeError("Invalid OPEN create mode")
+          return yield* new XdrDecodeError({
+            reason: "discriminant",
+            offset: yield* reader.position,
+            path: [],
+            detail: "Invalid OPEN create mode"
+          })
         }
 
         create = { mode: createMode, verifier, attrs }
       } else if (openHow !== 0) {
-        throw new XdrDecodeError("Invalid OPEN how discriminant")
+        return yield* new XdrDecodeError({
+          reason: "discriminant",
+          offset: yield* reader.position,
+          path: [],
+          detail: "Invalid OPEN how discriminant"
+        })
       }
 
-      const claim = reader.uint32()
+      const claim = yield* reader.read(XdrCodec.uint32)
       let name: Uint8Array = empty
 
-      if (claim === 0 || claim === 3) name = reader.opaque(limits.maxOpaqueBytes)
-      else if (claim === 1) reader.uint32()
+      if (claim === 0 || claim === 3) name = yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))
+      else if (claim === 1) yield* reader.read(XdrCodec.uint32)
       else if (claim === 2) {
-        reader.fixedOpaque(16)
-        name = reader.opaque(limits.maxOpaqueBytes)
-      } else if (claim === 5) reader.fixedOpaque(16)
-      else if (claim !== 4 && claim !== 6) throw new XdrDecodeError("Invalid OPEN claim")
+        yield* reader.read(XdrCodec.fixedOpaque(16))
+        name = yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))
+      } else if (claim === 5) yield* reader.read(XdrCodec.fixedOpaque(16))
+      else if (claim !== 4 && claim !== 6) {
+        return yield* new XdrDecodeError({
+          reason: "discriminant",
+          offset: yield* reader.position,
+          path: [],
+          detail: "Invalid OPEN claim"
+        })
+      }
 
       return { kind: "Open", code, value: { sequence, access, deny, client, owner, openHow, create, claim, name } }
     }
 
     case Operation.PUTFH:
-      return { kind: "Putfh", code, value: reader.opaque(limits.maxOpaqueBytes) }
+      return { kind: "Putfh", code, value: (yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))) }
     case Operation.READ:
       return {
         code,
         kind: "Read",
-        value: { stateid: reader.fixedOpaque(16), offset: reader.uint64(), count: reader.uint32() }
+        value: {
+          stateid: (yield* reader.read(XdrCodec.fixedOpaque(16))),
+          offset: (yield* reader.read(XdrCodec.uint64)),
+          count: (yield* reader.read(XdrCodec.uint32))
+        }
       }
     case Operation.READDIR:
       return {
         code,
         kind: "Readdir",
         value: {
-          cookie: reader.uint64(),
-          verifier: reader.fixedOpaque(8),
-          dircount: reader.uint32(),
-          maxcount: reader.uint32(),
-          attrs: bitmap(reader, limits.maxBitmapWords)
+          cookie: (yield* reader.read(XdrCodec.uint64)),
+          verifier: (yield* reader.read(XdrCodec.fixedOpaque(8))),
+          dircount: (yield* reader.read(XdrCodec.uint32)),
+          maxcount: (yield* reader.read(XdrCodec.uint32)),
+          attrs: (yield* bitmap(reader, limits.maxBitmapWords))
         }
       }
     case Operation.RENAME:
       return {
         code,
         kind: "Rename",
-        value: { oldName: reader.opaque(limits.maxOpaqueBytes), newName: reader.opaque(limits.maxOpaqueBytes) }
+        value: {
+          oldName: (yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))),
+          newName: (yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes)))
+        }
       }
     case Operation.SETATTR:
       return {
         code,
         kind: "Setattr",
         value: {
-          stateid: reader.fixedOpaque(16),
-          attrs: readAttributes(reader, limits)
+          stateid: (yield* reader.read(XdrCodec.fixedOpaque(16))),
+          attrs: (yield* readAttributes(reader, limits))
         }
       }
     case Operation.WRITE:
@@ -1242,37 +1344,40 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
         code,
         kind: "Write",
         value: {
-          stateid: reader.fixedOpaque(16),
-          offset: reader.uint64(),
-          stable: reader.uint32(),
-          data: reader.opaque(limits.maxWriteBytes)
+          stateid: (yield* reader.read(XdrCodec.fixedOpaque(16))),
+          offset: (yield* reader.read(XdrCodec.uint64)),
+          stable: (yield* reader.read(XdrCodec.uint32)),
+          data: (yield* reader.read(XdrCodec.opaque(limits.maxWriteBytes)))
         }
       }
     case Operation.EXCHANGE_ID: {
-      const verifier = reader.fixedOpaque(8)
-      const owner = reader.opaque(limits.maxOwnerBytes)
-      const flags = reader.uint32()
-      const protection = readStateProtection(reader, limits)
+      const verifier = yield* reader.read(XdrCodec.fixedOpaque(8))
+      const owner = yield* reader.read(XdrCodec.opaque(limits.maxOwnerBytes))
+      const flags = yield* reader.read(XdrCodec.uint32)
+      const protection = yield* readStateProtection(reader, limits)
 
       // eia_client_impl_id<1>: at most one implementation record (RFC 5662).
-      reader.array((item) => {
-        item.string(limits.maxStringBytes)
-        item.string(limits.maxStringBytes)
-        item.uint64()
-        item.uint32()
-      }, 1)
+      yield* reader.read(XdrCodec.array(
+        XdrCodec.struct({
+          domain: XdrCodec.string(limits.maxStringBytes),
+          name: XdrCodec.string(limits.maxStringBytes),
+          seconds: XdrCodec.uint64,
+          nanoseconds: XdrCodec.uint32
+        }),
+        1
+      ))
 
       return { kind: "ExchangeId", code, value: { verifier, owner, flags, protection } }
     }
 
     case Operation.CREATE_SESSION: {
-      const client = reader.uint64()
-      const sequence = reader.uint32()
-      const flags = reader.uint32()
-      const fore = readChannelAttrs(reader)
-      const back = readChannelAttrs(reader)
-      const callbackProgram = reader.uint32()
-      const flavors = reader.array((item) => readCallbackSecurity(item, limits), limits.maxArrayElements)
+      const client = yield* reader.read(XdrCodec.uint64)
+      const sequence = yield* reader.read(XdrCodec.uint32)
+      const flags = yield* reader.read(XdrCodec.uint32)
+      const fore = yield* readChannelAttrs(reader)
+      const back = yield* readChannelAttrs(reader)
+      const callbackProgram = yield* reader.read(XdrCodec.uint32)
+      const flavors = yield* readCallbackSecurityArray(reader, limits)
 
       return {
         kind: "CreateSession",
@@ -1291,40 +1396,44 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
     }
 
     case Operation.DESTROY_SESSION:
-      return { kind: "DestroySession", code, value: reader.fixedOpaque(16) }
+      return { kind: "DestroySession", code, value: (yield* reader.read(XdrCodec.fixedOpaque(16))) }
     case Operation.SEQUENCE:
       return {
         code,
         kind: "Sequence",
         value: {
-          session: reader.fixedOpaque(16),
-          sequence: reader.uint32(),
-          slot: reader.uint32(),
-          highest: reader.uint32(),
-          cache: reader.boolean()
+          session: (yield* reader.read(XdrCodec.fixedOpaque(16))),
+          sequence: (yield* reader.read(XdrCodec.uint32)),
+          slot: (yield* reader.read(XdrCodec.uint32)),
+          highest: (yield* reader.read(XdrCodec.uint32)),
+          cache: (yield* reader.read(XdrCodec.boolean))
         }
       }
     case Operation.DESTROY_CLIENTID:
-      return { kind: "DestroyClient", code, value: reader.uint64() }
+      return { kind: "DestroyClient", code, value: (yield* reader.read(XdrCodec.uint64)) }
     case Operation.RECLAIM_COMPLETE:
-      return { kind: "ReclaimComplete", code, value: reader.boolean() }
+      return { kind: "ReclaimComplete", code, value: (yield* reader.read(XdrCodec.boolean)) }
     case Operation.COMMIT:
-      return { kind: "Commit", code, value: { offset: reader.uint64(), count: reader.uint32() } }
+      return {
+        kind: "Commit",
+        code,
+        value: { offset: (yield* reader.read(XdrCodec.uint64)), count: (yield* reader.read(XdrCodec.uint32)) }
+      }
     case Operation.LOCK: {
-      const lockType = readLockType(reader)
-      const reclaim = reader.boolean()
-      const offset = reader.uint64()
-      const length = reader.uint64()
+      const lockType = yield* readLockType(reader)
+      const reclaim = yield* reader.read(XdrCodec.boolean)
+      const offset = yield* reader.read(XdrCodec.uint64)
+      const length = yield* reader.read(XdrCodec.uint64)
       let locker: LockOwnerArgument
 
-      if (reader.boolean()) {
-        reader.uint32()
-        const stateid = reader.fixedOpaque(16)
-        reader.uint32()
-        locker = { kind: "new", stateid, owner: readStateOwner(reader, limits) }
+      if ((yield* reader.read(XdrCodec.boolean))) {
+        yield* reader.read(XdrCodec.uint32)
+        const stateid = yield* reader.read(XdrCodec.fixedOpaque(16))
+        yield* reader.read(XdrCodec.uint32)
+        locker = { kind: "new", stateid, owner: (yield* readStateOwner(reader, limits)) }
       } else {
-        const stateid = reader.fixedOpaque(16)
-        reader.uint32()
+        const stateid = yield* reader.read(XdrCodec.fixedOpaque(16))
+        yield* reader.read(XdrCodec.uint32)
         locker = { kind: "existing", stateid }
       }
 
@@ -1332,20 +1441,20 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
     }
 
     case Operation.LOCKT: {
-      const lockType = readLockType(reader)
-      const offset = reader.uint64()
-      const length = reader.uint64()
-      const owner = readStateOwner(reader, limits)
+      const lockType = yield* readLockType(reader)
+      const offset = yield* reader.read(XdrCodec.uint64)
+      const length = yield* reader.read(XdrCodec.uint64)
+      const owner = yield* readStateOwner(reader, limits)
 
       return { kind: "Lockt", code, value: { lockType, offset, length, owner } }
     }
 
     case Operation.LOCKU: {
-      readLockType(reader)
-      reader.uint32()
-      const stateid = reader.fixedOpaque(16)
-      const offset = reader.uint64()
-      const length = reader.uint64()
+      yield* readLockType(reader)
+      yield* reader.read(XdrCodec.uint32)
+      const stateid = yield* reader.read(XdrCodec.fixedOpaque(16))
+      const offset = yield* reader.read(XdrCodec.uint64)
+      const length = yield* reader.read(XdrCodec.uint64)
 
       return { kind: "Locku", code, value: { stateid, offset, length } }
     }
@@ -1355,38 +1464,46 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
       return {
         kind: "Verify",
         code,
-        value: { bitmap: bitmap(reader, limits.maxBitmapWords), values: reader.opaque(limits.maxOpaqueBytes) }
+        value: {
+          bitmap: (yield* bitmap(reader, limits.maxBitmapWords)),
+          values: (yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes)))
+        }
       }
     case Operation.OPEN_DOWNGRADE:
       return {
         kind: "OpenDowngrade",
         code,
         value: {
-          stateid: reader.fixedOpaque(16),
-          sequence: reader.uint32(),
-          access: reader.uint32(),
-          deny: reader.uint32()
+          stateid: (yield* reader.read(XdrCodec.fixedOpaque(16))),
+          sequence: (yield* reader.read(XdrCodec.uint32)),
+          access: (yield* reader.read(XdrCodec.uint32)),
+          deny: (yield* reader.read(XdrCodec.uint32))
         }
       }
     case Operation.PUTPUBFH:
       return { kind: "Putpubfh", code, value: undefined }
     case Operation.SECINFO:
-      return { kind: "Secinfo", code, value: reader.opaque(limits.maxOpaqueBytes) }
+      return { kind: "Secinfo", code, value: (yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))) }
     case Operation.SECINFO_NO_NAME: {
-      const style = reader.uint32()
+      const style = yield* reader.read(XdrCodec.uint32)
 
       if (style !== SECINFO_STYLE4_CURRENT_FH && style !== SECINFO_STYLE4_PARENT) {
-        throw new XdrDecodeError("Invalid SECINFO_NO_NAME style")
+        return yield* new XdrDecodeError({
+          reason: "discriminant",
+          offset: yield* reader.position,
+          path: [],
+          detail: "Invalid SECINFO_NO_NAME style"
+        })
       }
 
       return { kind: "SecinfoNoName", code, value: style }
     }
 
     case Operation.FREE_STATEID:
-      return { kind: "FreeStateid", code, value: reader.fixedOpaque(16) }
+      return { kind: "FreeStateid", code, value: (yield* reader.read(XdrCodec.fixedOpaque(16))) }
     case Operation.BACKCHANNEL_CTL: {
-      const program = reader.uint32()
-      const flavors = reader.array((item) => readCallbackSecurity(item, limits), limits.maxArrayElements)
+      const program = yield* reader.read(XdrCodec.uint32)
+      const flavors = yield* readCallbackSecurityArray(reader, limits)
 
       return {
         kind: "BackchannelCtl",
@@ -1396,29 +1513,34 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
     }
 
     case Operation.BIND_CONN_TO_SESSION: {
-      const session = reader.fixedOpaque(16)
-      const direction = reader.uint32()
+      const session = yield* reader.read(XdrCodec.fixedOpaque(16))
+      const direction = yield* reader.read(XdrCodec.uint32)
 
       // channel_dir_from_client4: FORE (1), BACK (2), FORE_OR_BOTH (3), or BACK_OR_BOTH (7).
       if (direction < CDFC4_FORE || (direction > CDFC4_FORE_OR_BOTH && direction !== CDFC4_BACK_OR_BOTH)) {
-        throw new XdrDecodeError("Invalid channel direction")
+        return yield* new XdrDecodeError({
+          reason: "discriminant",
+          offset: yield* reader.position,
+          path: [],
+          detail: "Invalid channel direction"
+        })
       }
 
-      reader.boolean()
+      yield* reader.read(XdrCodec.boolean)
 
       return { kind: "BindConnToSession", code, value: { session, direction } }
     }
 
     case Operation.SET_SSV:
-      reader.opaque(limits.maxOpaqueBytes)
-      reader.opaque(limits.maxOpaqueBytes)
+      yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))
+      yield* reader.read(XdrCodec.opaque(limits.maxOpaqueBytes))
 
       return { kind: "SetSsv", code, value: undefined }
     case Operation.TEST_STATEID:
       return {
         kind: "TestStateid",
         code,
-        value: reader.array((item) => item.fixedOpaque(16), limits.maxArrayElements)
+        value: yield* reader.read(XdrCodec.array(XdrCodec.fixedOpaque(16), limits.maxArrayElements))
       }
     default:
       if (mustNotImplementOperations.has(code) || unsupportedOptionalOperations.has(code)) {
@@ -1427,25 +1549,44 @@ const decodeOperation = (code: number, reader: Reader, limits: Nfs4Limits): Pars
 
       return { kind: "Unknown", code, value: undefined }
   }
-}
+})
 
-const parseCompound = (bytes: Uint8Array, limits: Nfs4Limits) => {
-  if (byteLength(bytes.length) > limits.maxCompoundBytes) throw new XdrDecodeError("COMPOUND exceeds byte limit")
-  const reader = new Reader(bytes, limits)
-  const tag = reader.opaque(limits.maxStringBytes)
-  const minor = reader.uint32()
-  const count = reader.uint32()
+const parseCompound = Effect.fnUntraced(function*(bytes: Uint8Array, limits: Nfs4Limits) {
+  if (byteLength(bytes.length) > limits.maxCompoundBytes) {
+    return yield* new XdrDecodeError({
+      reason: "length-limit",
+      offset: 0,
+      path: [],
+      detail: "COMPOUND exceeds byte limit"
+    })
+  }
+
+  const reader = yield* xdr.openReader(bytes, limits)
+  const tag = yield* reader.read(XdrCodec.opaque(limits.maxStringBytes))
+  const minor = yield* reader.read(XdrCodec.uint32)
+  const count = yield* reader.read(XdrCodec.uint32)
 
   if (count > limits.maxOperations || count > limits.maxArrayElements) {
-    throw new XdrDecodeError("COMPOUND operation count exceeds its limit")
+    return yield* new XdrDecodeError({
+      reason: "length-limit",
+      offset: yield* reader.position,
+      path: [],
+      detail: "COMPOUND operation count exceeds its limit"
+    })
   }
 
   const operations: Array<ParsedOperation> = []
   let stopped = false
 
   for (let index = 0; index < count; index++) {
-    const code = reader.uint32()
-    const operation = decodeOperation_(code)
+    const code = yield* reader.read(XdrCodec.uint32)
+    const decoded = yield* Effect.result(decodeOperation(code, reader, limits))
+
+    // SAFETY: decodeOperation returns a ParsedOperation on every successful branch.
+    const operation: ParsedOperation = Result.isFailure(decoded)
+      ? { kind: "Malformed", code, value: undefined }
+      : decoded.success as ParsedOperation
+
     operations.push(operation)
 
     // The compound fails at an undecoded operation, so later bytes are never interpreted.
@@ -1455,41 +1596,32 @@ const parseCompound = (bytes: Uint8Array, limits: Nfs4Limits) => {
     }
   }
 
-  if (!stopped) reader.finish()
+  if (!stopped) yield* reader.finish
 
   return { tag, minor, count, operations }
-
-  /**
-   * Section 15.1.1.1 defines NFS4ERR_BADXDR per operation: the operations before a
-   * malformed one are still processed and reported.
-   */
-  function decodeOperation_(code: number): ParsedOperation {
-    try {
-      return decodeOperation(code, reader, limits)
-    } catch (error) {
-      if (!(error instanceof XdrDecodeError)) throw error
-
-      return { kind: "Malformed", code, value: undefined }
-    }
-  }
-}
+})
 
 const encodeCompound = (
+  limits: Nfs4Limits,
   tag: Uint8Array,
   parts: ReadonlyArray<ResultPart>,
   overallStatus = parts.find((part) => part.status !== Status.OK)?.status ?? Status.OK
-): Uint8Array => {
-  const status = overallStatus
-  const writer = new Writer().uint32(status).opaque(tag).uint32(parts.length)
+): Effect.Effect<Uint8Array, XdrEncodeError> =>
+  Effect.gen(function*() {
+    const writer = yield* xdr.openWriter(limits, ByteSize.toNumberUnsafe(limits.maxRecordBytes))
+    yield* writer.write(XdrCodec.uint32, overallStatus)
+    yield* writer.write(XdrCodec.opaque(limits.maxStringBytes), tag)
+    yield* writer.write(XdrCodec.uint32, parts.length)
 
-  for (const part of parts) {
-    writer.uint32(part.code).uint32(part.status)
+    for (const part of parts) {
+      yield* writer.write(XdrCodec.uint32, part.code)
+      yield* writer.write(XdrCodec.uint32, part.status)
 
-    if (part.body !== undefined) writer.fixedOpaque(part.body)
-  }
+      if (part.body !== undefined) yield* writer.appendEncoded(part.body)
+    }
 
-  return writer.bytes()
-}
+    return yield* writer.finish
+  })
 
 const fsStatuses: Readonly<Record<Vfs.FsCode, number>> = {
   NotFound: Status.NOENT,
@@ -1523,12 +1655,20 @@ const fsStatuses: Readonly<Record<Vfs.FsCode, number>> = {
 export const failureForFs = (error: Vfs.FsError): number =>
   Object.hasOwn(fsStatuses, error.code) ? fsStatuses[error.code] : Status.SERVERFAULT
 
-const encodeStatusBody = (build: (writer: Writer) => void): Uint8Array => {
-  const writer = new Writer()
-  build(writer)
+type WriteField = (writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>
 
-  return writer.bytes()
-}
+const field = <A>(codec: XdrCodec<A>, value: A): WriteField => (writer) => writer.write(codec, value)
+
+const encodeStatusBody = (
+  limits: Nfs4Limits,
+  fields: ReadonlyArray<WriteField>
+): Effect.Effect<Uint8Array, XdrEncodeError> =>
+  Effect.gen(function*() {
+    const writer = yield* xdr.openWriter(limits, ByteSize.toNumberUnsafe(limits.maxRecordBytes))
+    yield* Effect.forEach(fields, (write) => write(writer), { discard: true })
+
+    return yield* writer.finish
+  })
 
 const baseSupportedAttributes = [
   0,
@@ -1620,20 +1760,18 @@ const isValidName = (name: Uint8Array, maxNameBytes: ByteSize.ByteSize): boolean
   }
 }
 
-const encodeTime = (writer: Writer, nanoseconds: bigint): boolean => {
-  let seconds = nanoseconds / 1_000_000_000n
-  let nanos = nanoseconds % 1_000_000_000n
+const encodeTime = (writer: EncoderSession, nanoseconds: bigint): Effect.Effect<boolean, XdrEncodeError> =>
+  Effect.gen(function*() {
+    const remainder = nanoseconds % 1_000_000_000n
+    const seconds = nanoseconds / 1_000_000_000n - (remainder < 0n ? 1n : 0n)
+    const nanos = remainder < 0n ? remainder + 1_000_000_000n : remainder
 
-  if (nanos < 0) {
-    seconds -= 1n
-    nanos += 1_000_000_000n
-  }
+    if (seconds < -0x8000_0000_0000_0000n || seconds > 0x7fff_ffff_ffff_ffffn) return false
+    yield* writer.write(XdrCodec.uint64, BigInt.asUintN(64, seconds))
+    yield* writer.write(XdrCodec.uint32, Number(nanos))
 
-  if (seconds < -0x8000_0000_0000_0000n || seconds > 0x7fff_ffff_ffff_ffffn) return false
-  writer.uint64(BigInt.asUintN(64, seconds)).uint32(Number(nanos))
-
-  return true
-}
+    return true
+  })
 
 const encodeAttributeValues = (
   requested: ReadonlyArray<number>,
@@ -1643,122 +1781,125 @@ const encodeAttributeValues = (
   options: Nfs4Options,
   supportedAttributes: ReadonlyArray<number>,
   usage: Vfs.VolumeUsage | null
-): Uint8Array | undefined => {
-  if (requested.some((attribute) => !supportedAttributes.includes(attribute))) return undefined
-  const values = new Writer()
-  const metadata = observation.value
+): Effect.Effect<Uint8Array | undefined, XdrEncodeError> =>
+  Effect.gen(function*() {
+    if (requested.some((attribute) => !supportedAttributes.includes(attribute))) return undefined
+    const values = yield* xdr.openWriter(options.limits, ByteSize.toNumberUnsafe(options.limits.maxRecordBytes))
+    const metadata = observation.value
 
-  for (const attribute of requested) {
-    switch (attribute) {
-      case 0:
-        writeBitmap(values, wordsFor(supportedAttributes))
-        break
-      case 1:
-        values.uint32(metadata.kind === "file" ? 1 : metadata.kind === "directory" ? 2 : 5)
-        break
-      case 2:
-        values.uint32(0x3)
-        break
-      case 3:
-        values.uint64(BigInt.asUintN(64, observation.revision))
-        break
-      case 4:
-        values.uint64(metadata.size)
-        break
-      case 5:
-      case 6:
-      case 9:
-      case 17:
-      case 26:
-      case 34:
-        values.boolean(true)
-        break
-      case 7:
-      case 16:
-        values.boolean(false)
-        break
-      case 51:
-        values.uint64(0n).uint32(1)
-        break
-      case 76:
-        values.uint32(FSCHARSET_CAP4_ALLOWS_ONLY_UTF8)
-        break
-      case 8:
-        values.uint64(export_.fsid[0]).uint64(export_.fsid[1])
-        break
-      case 10:
-        values.uint32(options.leaseDurationSeconds)
-        break
-      case 11:
-        values.uint32(Status.OK)
-        break
-      case 19:
-        values.opaque(filehandle)
-        break
-      case 20:
-      case 55:
-        values.uint64(BigInt.asUintN(64, metadata.ino))
-        break
-      case 21:
-      case 22:
-      case 23: {
-        const total = BigInt(export_.capacity!.limits.maxEntries!)
-        values.uint64(attribute === 23 ? total : total - BigInt(usage!.entries))
-        break
+    for (const attribute of requested) {
+      switch (attribute) {
+        case 0:
+          yield* writeBitmap(values, wordsFor(supportedAttributes))
+          break
+        case 1:
+          yield* values.write(XdrCodec.uint32, metadata.kind === "file" ? 1 : metadata.kind === "directory" ? 2 : 5)
+          break
+        case 2:
+          yield* values.write(XdrCodec.uint32, 0x3)
+          break
+        case 3:
+          yield* values.write(XdrCodec.uint64, BigInt.asUintN(64, observation.revision))
+          break
+        case 4:
+          yield* values.write(XdrCodec.uint64, metadata.size)
+          break
+        case 5:
+        case 6:
+        case 9:
+        case 17:
+        case 26:
+        case 34:
+          yield* values.write(XdrCodec.boolean, true)
+          break
+        case 7:
+        case 16:
+          yield* values.write(XdrCodec.boolean, false)
+          break
+        case 51:
+          yield* values.write(XdrCodec.uint64, 0n)
+          yield* values.write(XdrCodec.uint32, 1)
+          break
+        case 76:
+          yield* values.write(XdrCodec.uint32, FSCHARSET_CAP4_ALLOWS_ONLY_UTF8)
+          break
+        case 8:
+          yield* values.write(XdrCodec.uint64, export_.fsid[0])
+          yield* values.write(XdrCodec.uint64, export_.fsid[1])
+          break
+        case 10:
+          yield* values.write(XdrCodec.uint32, options.leaseDurationSeconds)
+          break
+        case 11:
+          yield* values.write(XdrCodec.uint32, Status.OK)
+          break
+        case 19:
+          yield* values.write(XdrCodec.opaque(), filehandle)
+          break
+        case 20:
+        case 55:
+          yield* values.write(XdrCodec.uint64, BigInt.asUintN(64, metadata.ino))
+          break
+        case 21:
+        case 22:
+        case 23: {
+          const total = BigInt(export_.capacity!.limits.maxEntries!)
+          yield* values.write(XdrCodec.uint64, attribute === 23 ? total : total - BigInt(usage!.entries))
+          break
+        }
+
+        case 27:
+          yield* values.write(XdrCodec.uint64, ByteSize.toBigInt(export_.capacity!.limits.maxFileBytes))
+          break
+        case 29:
+          yield* values.write(XdrCodec.uint32, ByteSize.toNumberUnsafe(options.limits.maxNameBytes))
+          break
+        case 30:
+          yield* values.write(XdrCodec.uint64, options.limits.maxReadBytes)
+          break
+        case 31:
+          yield* values.write(XdrCodec.uint64, options.limits.maxWriteBytes)
+          break
+        case 33:
+          yield* values.write(XdrCodec.uint32, metadata.mode)
+          break
+        case 35:
+          yield* values.write(XdrCodec.uint32, metadata.nlink)
+          break
+        case 36:
+          yield* values.write(XdrCodec.string(), String(metadata.uid))
+          break
+        case 37:
+          yield* values.write(XdrCodec.string(), String(metadata.gid))
+          break
+        case 42:
+        case 43:
+        case 44: {
+          const total = ByteSize.toBigInt(export_.capacity!.limits.maxBytes!)
+          yield* values.write(XdrCodec.uint64, attribute === 44 ? total : total - usage!.usedBytes)
+          break
+        }
+
+        case 45:
+          yield* values.write(XdrCodec.uint64, metadata.size)
+          break
+        case 47:
+          if (!(yield* encodeTime(values, metadata.atimeNs))) return undefined
+          break
+        case 52:
+          if (!(yield* encodeTime(values, metadata.ctimeNs))) return undefined
+          break
+        case 53:
+          if (!(yield* encodeTime(values, metadata.mtimeNs))) return undefined
+          break
+        case 75:
+          yield* writeBitmap(values, options.writable ? wordsFor([4, 33, 36, 37]) : [])
+          break
       }
-
-      case 27:
-        values.uint64(ByteSize.toBigInt(export_.capacity!.limits.maxFileBytes))
-        break
-      case 29:
-        values.uint32(ByteSize.toNumberUnsafe(options.limits.maxNameBytes))
-        break
-      case 30:
-        values.uint64(options.limits.maxReadBytes)
-        break
-      case 31:
-        values.uint64(options.limits.maxWriteBytes)
-        break
-      case 33:
-        values.uint32(metadata.mode)
-        break
-      case 35:
-        values.uint32(metadata.nlink)
-        break
-      case 36:
-        values.string(String(metadata.uid))
-        break
-      case 37:
-        values.string(String(metadata.gid))
-        break
-      case 42:
-      case 43:
-      case 44: {
-        const total = ByteSize.toBigInt(export_.capacity!.limits.maxBytes!)
-        values.uint64(attribute === 44 ? total : total - usage!.usedBytes)
-        break
-      }
-
-      case 45:
-        values.uint64(metadata.size)
-        break
-      case 47:
-        if (!encodeTime(values, metadata.atimeNs)) return undefined
-        break
-      case 52:
-        if (!encodeTime(values, metadata.ctimeNs)) return undefined
-        break
-      case 53:
-        if (!encodeTime(values, metadata.mtimeNs)) return undefined
-        break
-      case 75:
-        writeBitmap(values, options.writable ? wordsFor([4, 33, 36, 37]) : [])
-        break
     }
-  }
 
-  return values.bytes()
-}
+    return yield* values.finish
+  })
 
 const encodeAttributes = (
   requested: ReadonlyArray<number>,
@@ -1768,22 +1909,35 @@ const encodeAttributes = (
   options: Nfs4Options,
   supportedAttributes: ReadonlyArray<number>,
   usage: Vfs.VolumeUsage | null
-): Uint8Array | undefined => {
-  const values = encodeAttributeValues(requested, observation, filehandle, export_, options, supportedAttributes, usage)
+): Effect.Effect<Uint8Array | undefined, XdrEncodeError> =>
+  Effect.gen(function*() {
+    const values = yield* encodeAttributeValues(
+      requested,
+      observation,
+      filehandle,
+      export_,
+      options,
+      supportedAttributes,
+      usage
+    )
 
-  if (values === undefined) return undefined
+    if (values === undefined) return undefined
 
-  return encodeStatusBody((writer) => {
-    writeBitmap(writer, wordsFor(requested))
-    writer.opaque(values)
+    return yield* encodeStatusBody(options.limits, [
+      (writer) => writeBitmap(writer, wordsFor(requested)),
+      field(XdrCodec.opaque(), values)
+    ])
   })
-}
 
 /** Encodes a READDIR entry's attributes as only `rdattr_error` (RFC 8881 Section 18.23.3). */
-const encodeReaddirError = (status: number): Uint8Array =>
-  encodeStatusBody((writer) => {
-    writeBitmap(writer, wordsFor([11]))
-    writer.opaque(new Writer().uint32(status).bytes())
+const encodeReaddirError = (status: number, limits: Nfs4Limits): Effect.Effect<Uint8Array, XdrEncodeError> =>
+  Effect.gen(function*() {
+    const error = yield* xdr.encode(status, XdrCodec.uint32, limits, ByteSize.toNumberUnsafe(limits.maxRecordBytes))
+
+    return yield* encodeStatusBody(limits, [
+      (writer) => writeBitmap(writer, wordsFor([11])),
+      field(XdrCodec.opaque(), error)
+    ])
   })
 
 const supportedAccessMask = (kind: Vfs.Metadata["kind"]): number => {
@@ -1853,21 +2007,25 @@ const encodeCallbackCall = (
   program: number,
   procedure: number,
   security: CallbackSecurity,
-  body: Uint8Array
-): Uint8Array => {
-  const header = new Writer()
-    .uint32(xid).uint32(0).uint32(2)
-    .uint32(program).uint32(CALLBACK_RPC_VERSION).uint32(procedure)
-    .uint32(security.flavor).opaque(security.credential ?? empty)
-    .uint32(0).opaque(empty)
-    .bytes()
+  body: Uint8Array,
+  limits: Nfs4Limits
+): Effect.Effect<Uint8Array, XdrEncodeError> =>
+  Effect.gen(function*() {
+    const writer = yield* xdr.openWriter(limits, ByteSize.toNumberUnsafe(limits.maxRecordBytes))
+    yield* writer.write(XdrCodec.uint32, xid)
+    yield* writer.write(XdrCodec.uint32, 0)
+    yield* writer.write(XdrCodec.uint32, 2)
+    yield* writer.write(XdrCodec.uint32, program)
+    yield* writer.write(XdrCodec.uint32, CALLBACK_RPC_VERSION)
+    yield* writer.write(XdrCodec.uint32, procedure)
+    yield* writer.write(XdrCodec.uint32, security.flavor)
+    yield* writer.write(XdrCodec.opaque(ByteSize.bytes(MAX_OPAQUE_AUTH_BYTES)), security.credential ?? empty)
+    yield* writer.write(XdrCodec.uint32, 0)
+    yield* writer.write(XdrCodec.opaque(ByteSize.bytes(MAX_OPAQUE_AUTH_BYTES)), empty)
+    yield* writer.appendEncoded(body)
 
-  const message = new Uint8Array(header.length + body.length)
-  message.set(header)
-  message.set(body, header.length)
-
-  return message
-}
+    return yield* writer.finish
+  })
 
 /**
  * A CB_COMPOUND carrying CB_SEQUENCE alone. Section 20.9.3 requires CB_SEQUENCE to appear once and
@@ -1879,14 +2037,22 @@ const encodeCallbackSequence = (
   session: Uint8Array,
   sequence: number,
   slot: number,
-  highestSlot: number
-): Uint8Array =>
-  new Writer()
-    .string("probe").uint32(1).uint32(0).uint32(1)
-    .uint32(OP_CB_SEQUENCE)
-    .fixedOpaque(session).uint32(sequence).uint32(slot).uint32(highestSlot).boolean(false)
-    .array([], () => undefined)
-    .bytes()
+  highestSlot: number,
+  limits: Nfs4Limits
+): Effect.Effect<Uint8Array, XdrEncodeError> =>
+  encodeStatusBody(limits, [
+    field(XdrCodec.string(), "probe"),
+    field(XdrCodec.uint32, 1),
+    field(XdrCodec.uint32, 0),
+    field(XdrCodec.uint32, 1),
+    field(XdrCodec.uint32, OP_CB_SEQUENCE),
+    field(XdrCodec.fixedOpaque(16), session),
+    field(XdrCodec.uint32, sequence),
+    field(XdrCodec.uint32, slot),
+    field(XdrCodec.uint32, highestSlot),
+    field(XdrCodec.boolean, false),
+    field(XdrCodec.array(XdrCodec.uint32), [])
+  ])
 
 /**
  * Decides whether a callback reply actually says the client handled the callback. An RPC REPLY is
@@ -1901,50 +2067,46 @@ const callbackAccepted = (
   session: Uint8Array,
   slot: number,
   sequence: number
-): boolean => {
-  try {
-    const reader = new Reader(reply, limits)
-    reader.uint32()
+): Effect.Effect<boolean> =>
+  Effect.gen(function*() {
+    const reader = yield* xdr.openReader(reply, limits)
+    yield* reader.read(XdrCodec.uint32)
 
     // RPC: REPLY, MSG_ACCEPTED, verifier, then SUCCESS.
-    if (reader.uint32() !== 1) return false
+    if ((yield* reader.read(XdrCodec.uint32)) !== 1) return false
 
-    if (reader.uint32() !== 0) return false
-    reader.uint32()
-    reader.opaque(ByteSize.bytes(MAX_OPAQUE_AUTH_BYTES))
+    if ((yield* reader.read(XdrCodec.uint32)) !== 0) return false
+    yield* reader.read(XdrCodec.uint32)
+    yield* reader.read(XdrCodec.opaque(ByteSize.bytes(MAX_OPAQUE_AUTH_BYTES)))
 
-    if (reader.uint32() !== 0) return false
+    if ((yield* reader.read(XdrCodec.uint32)) !== 0) return false
 
     // CB_COMPOUND: an all-OK status, then CB_SEQUENCE first (Section 20.9.3).
-    if (reader.uint32() !== Status.OK) return false
-    reader.string(limits.maxStringBytes)
+    if ((yield* reader.read(XdrCodec.uint32)) !== Status.OK) return false
+    yield* reader.read(XdrCodec.string(limits.maxStringBytes))
 
     // Exactly one result: this server sends a CB_SEQUENCE-only CB_COMPOUND, so anything else is
     // not an answer to what it asked.
-    if (reader.uint32() !== 1) return false
+    if ((yield* reader.read(XdrCodec.uint32)) !== 1) return false
 
-    if (reader.uint32() !== OP_CB_SEQUENCE) return false
+    if ((yield* reader.read(XdrCodec.uint32)) !== OP_CB_SEQUENCE) return false
 
-    if (reader.uint32() !== Status.OK) return false
+    if ((yield* reader.read(XdrCodec.uint32)) !== Status.OK) return false
 
     // The client echoes what it was given; anything else means it answered a different callback.
-    const echoed = bytesKey(reader.fixedOpaque(16)) === bytesKey(session) &&
-      reader.uint32() === sequence &&
-      reader.uint32() === slot
+    const echoed = bytesKey(yield* reader.read(XdrCodec.fixedOpaque(16))) === bytesKey(session) &&
+      (yield* reader.read(XdrCodec.uint32)) === sequence &&
+      (yield* reader.read(XdrCodec.uint32)) === slot
 
     // csr_highest_slotid and csr_target_highest_slotid are mandatory, and nothing may follow the
     // one result. Reading them out and finishing rejects a truncated or padded reply, which would
     // otherwise pass as a working callback path.
-    reader.uint32()
-    reader.uint32()
-    reader.finish()
+    yield* reader.read(XdrCodec.uint32)
+    yield* reader.read(XdrCodec.uint32)
+    yield* reader.finish
 
     return echoed
-  } catch (error) {
-    if (error instanceof XdrDecodeError) return false
-    throw error
-  }
-}
+  }).pipe(Effect.catchTag("XdrDecodeError", () => Effect.succeed(false)))
 
 const makeOpaqueId = (generation: Uint8Array, serial: bigint): Uint8Array => {
   const result = new Uint8Array(16)
@@ -2122,6 +2284,9 @@ export const makeNfs4Handler = (
   const storageGeneration = options.storageGeneration ?? options.generation
   const supportedAttributes = supportedAttributesFor(export_)
 
+  const encodeBody = <A>(value: A, codec: XdrCodec<A>): Effect.Effect<Uint8Array, XdrEncodeError> =>
+    xdr.encode(value, codec, options.limits, ByteSize.toNumberUnsafe(options.limits.maxRecordBytes))
+
   const sampleUsage = (requested: ReadonlyArray<number>): Effect.Effect<Vfs.VolumeUsage | null, Vfs.FsError> =>
     requested.some((attribute) => capacityAttributes.has(attribute))
       ? export_.capacity!.usage
@@ -2166,17 +2331,20 @@ export const makeNfs4Handler = (
       return undefined
     }
 
-    const deniedLock = (code: number, conflict: { state: LockState; entry: HeldRange }): ResultPart => ({
-      code,
-      status: Status.DENIED,
-      body: new Writer()
-        .uint64(conflict.entry.range.offset)
-        .uint64(conflict.entry.range.length)
-        .uint32(conflict.entry.type)
-        .uint64(conflict.state.client.id)
-        .opaque(conflict.state.owner)
-        .bytes()
-    })
+    const deniedLock = (
+      code: number,
+      conflict: { state: LockState; entry: HeldRange }
+    ): Effect.Effect<ResultPart, XdrEncodeError> =>
+      Effect.map(
+        encodeStatusBody(options.limits, [
+          field(XdrCodec.uint64, conflict.entry.range.offset),
+          field(XdrCodec.uint64, conflict.entry.range.length),
+          field(XdrCodec.uint32, conflict.entry.type),
+          field(XdrCodec.uint64, conflict.state.client.id),
+          field(XdrCodec.opaque(), conflict.state.owner)
+        ]),
+        (body): ResultPart => ({ code, status: Status.DENIED, body })
+      )
 
     let replayBytes = ByteSize.bytes(0)
     const maxRpcRequestBytes = ByteSize.min(options.limits.maxRecordBytes, options.limits.maxCompoundBytes)
@@ -2207,7 +2375,7 @@ export const makeNfs4Handler = (
       session: SessionState,
       procedure: number,
       body: Uint8Array,
-      accepted: (reply: Uint8Array) => boolean
+      accepted: (reply: Uint8Array) => Effect.Effect<boolean>
     ): Effect.Effect<boolean> =>
       Effect.gen(function*() {
         const back = session.back
@@ -2228,9 +2396,11 @@ export const makeNfs4Handler = (
         // ca_maxrequestsize bounds the whole RPC call the client will accept, not just its
         // CB_COMPOUND body, so the framed message is what gets measured. The xid does not change
         // the size, so any value serves for the measurement.
-        if (encodeCallbackCall(0, back.program, procedure, security, body).length > back.attrs.maxRequest) {
-          return false
-        }
+        const measured = yield* Effect.result(
+          encodeCallbackCall(0, back.program, procedure, security, body, options.limits)
+        )
+
+        if (Result.isFailure(measured) || measured.success.length > back.attrs.maxRequest) return false
 
         // A carrier that fails outright must not burn the whole deadline when it is the only one,
         // so the race also ends as soon as every carrier has definitively failed.
@@ -2254,7 +2424,17 @@ export const makeNfs4Handler = (
 
             return yield* Effect.ensuring(
               Effect.gen(function*() {
-                const sent = yield* carrier.send(encodeCallbackCall(xid, back.program, procedure, security, body))
+                const encoded = yield* Effect.result(
+                  encodeCallbackCall(xid, back.program, procedure, security, body, options.limits)
+                )
+
+                if (Result.isFailure(encoded)) {
+                  yield* noteFailure
+
+                  return yield* Effect.never
+                }
+
+                const sent = yield* carrier.send(encoded.success)
 
                 // A carrier that cannot be written to, or whose client rejects the callback, loses
                 // the race instead of ending it. The outer deadline bounds the wait when every
@@ -2267,7 +2447,7 @@ export const makeNfs4Handler = (
 
                 const answered = yield* Deferred.await(reply)
 
-                if (accepted(answered)) return true
+                if (yield* accepted(answered)) return true
                 yield* noteFailure
 
                 return yield* Effect.never
@@ -2362,23 +2542,19 @@ export const makeNfs4Handler = (
     /** Reads only the leading SEQUENCE of a compound to find its session, tolerating later decode errors. */
     const sequenceSessionOf = (
       bytes: Uint8Array
-    ): { readonly session: SessionState; readonly operationCount: number } | undefined => {
-      try {
-        const reader = new Reader(bytes, options.limits)
-        reader.opaque(options.limits.maxStringBytes)
-        const minor = reader.uint32()
-        const operationCount = reader.uint32()
+    ): Effect.Effect<{ readonly session: SessionState; readonly operationCount: number } | undefined> =>
+      Effect.gen(function*() {
+        const reader = yield* xdr.openReader(bytes, options.limits)
+        yield* reader.read(XdrCodec.opaque(options.limits.maxStringBytes))
+        const minor = yield* reader.read(XdrCodec.uint32)
+        const operationCount = yield* reader.read(XdrCodec.uint32)
 
-        if (minor !== 1 || reader.uint32() !== Operation.SEQUENCE) return undefined
+        if (minor !== 1 || (yield* reader.read(XdrCodec.uint32)) !== Operation.SEQUENCE) return undefined
 
-        const session = sessions.get(bytesKey(reader.fixedOpaque(16)))
+        const session = sessions.get(bytesKey(yield* reader.read(XdrCodec.fixedOpaque(16))))
 
         return session === undefined ? undefined : { session, operationCount }
-      } catch (error) {
-        if (error instanceof XdrDecodeError) return undefined
-        throw error
-      }
-    }
+      }).pipe(Effect.catchTag("XdrDecodeError", () => Effect.as(Effect.void, undefined)))
 
     /**
      * `restore` reopens the compound's own interrupt window. The caller runs the whole compound
@@ -2394,2502 +2570,2734 @@ export const makeNfs4Handler = (
       export_: NfsExport,
       activeCaller: Vfs.Caller | undefined,
       restore: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
-    ): Effect.Effect<Uint8Array, RpcPolicyDenied> =>
-      Effect.suspend(() => {
-        let parsed: ReturnType<typeof parseCompound>
-
-        try {
-          parsed = parseCompound(call.arguments, options.limits)
-        } catch (error) {
-          if (!(error instanceof XdrDecodeError)) throw error
-
-          const tag = (() => {
-            try {
-              return new Reader(call.arguments, options.limits).opaque(options.limits.maxStringBytes)
-            } catch (tagError) {
-              if (!(tagError instanceof XdrDecodeError)) throw tagError
-
-              return empty
-            }
-          })()
-
-          // Section 2.10.6.4: an oversized request is reported as such even when later
-          // operations fail to decode.
-          const oversized = sequenceSessionOf(call.arguments)
-
-          if (
-            oversized !== undefined &&
-            (call.requestBytes ?? call.arguments.length) > oversized.session.fore.maxRequest
-          ) {
-            return Effect.succeed(encodeCompound(tag, [{ code: Operation.SEQUENCE, status: Status.REQ_TOO_BIG }]))
-          }
-
-          if (oversized !== undefined && oversized.operationCount > oversized.session.fore.maxOperations) {
-            return Effect.succeed(encodeCompound(tag, [{ code: Operation.SEQUENCE, status: Status.TOO_MANY_OPS }]))
-          }
-
-          return Effect.succeed(encodeCompound(tag, [], Status.BADXDR))
-        }
-
-        if (parsed.minor !== 1) {
-          return Effect.succeed(encodeCompound(parsed.tag, [], Status.MINOR_VERS_MISMATCH))
-        }
-
-        const first = parsed.operations[0]
-        const firstCode = first?.code
-
-        // Section 18.46.3: the operations that may start a compound without SEQUENCE.
-        const isBootstrap = firstCode === Operation.EXCHANGE_ID || firstCode === Operation.CREATE_SESSION ||
-          firstCode === Operation.DESTROY_SESSION || firstCode === Operation.DESTROY_CLIENTID ||
-          firstCode === Operation.BIND_CONN_TO_SESSION
-
-        const isSoleBootstrap = parsed.operations.length === 1 && isBootstrap
-
-        if (first !== undefined && firstCode !== Operation.SEQUENCE && !isSoleBootstrap) {
-          // Sections 15.2 and 18.52: an illegal opcode answers as OP_ILLEGAL whether or not a
-          // session exists, and arguments are decoded before any session check.
-          if (first.kind === "Unknown") {
-            return Effect.succeed(
-              encodeCompound(parsed.tag, [{ code: Operation.ILLEGAL, status: Status.OP_ILLEGAL }])
-            )
-          }
-
-          if (first.kind === "Malformed") {
-            return Effect.succeed(encodeCompound(parsed.tag, [{ code: first.code, status: Status.BADXDR }]))
-          }
-
-          // Sections 18.34.3, 18.35.3, 18.36.3, 18.37.3, and 18.50.3: these MUST be the only operation.
-          if (isBootstrap) {
-            return Effect.succeed(
-              encodeCompound(parsed.tag, [{ code: firstCode, status: Status.NOT_ONLY_OP }])
-            )
-          }
-
-          // Section 15.2 allows only NFS4ERR_NOTSUPP for the NFSv4.0 operations.
-          if (mustNotImplementOperations.has(firstCode!)) {
-            return Effect.succeed(
-              encodeCompound(parsed.tag, [{ code: firstCode!, status: Status.NOTSUPP }])
-            )
-          }
-
-          return Effect.succeed(
-            encodeCompound(parsed.tag, [{ code: firstCode!, status: Status.OP_NOT_IN_SESSION }])
-          )
-        }
-
-        if (first?.kind === "Sequence") {
-          const value = first.value
-          const session = sessions.get(bytesKey(value.session))
-          const slot = session?.slots[value.slot]
-
-          if (
-            session !== undefined && slot !== undefined && value.sequence === slot.sequence &&
-            slot.response !== undefined
-          ) {
-            // Section 2.10.3.1 ties association to SEQUENCE being transmitted, not to the result,
-            // so it happens before the retry is judged: even a false retry was transmitted here.
-            associate(session, call.connection, CHANNEL_FORE)
-
-            if (!sameRequest(slot.request, call.arguments) || slot.credentials !== credentialsKey(call.credentials)) {
-              return Effect.succeed(
-                encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status: Status.SEQ_FALSE_RETRY }])
+    ): Effect.Effect<Uint8Array, RpcPolicyDenied | XdrEncodeError> =>
+      Effect.flatMap(
+        Effect.result(parseCompound(call.arguments, options.limits)),
+        (parsedResult): Effect.Effect<Uint8Array, RpcPolicyDenied | XdrEncodeError> => {
+          if (Result.isFailure(parsedResult)) {
+            return Effect.gen(function*() {
+              const tagResult = yield* Effect.result(
+                xdr.openReader(call.arguments, options.limits).pipe(
+                  Effect.flatMap((reader) => reader.read(XdrCodec.opaque(options.limits.maxStringBytes)))
+                )
               )
-            }
 
-            // A policy may remap the same wire credential between attempts. Never replay a
-            // response computed under a caller that no longer has this request's authority.
-            if (slot.caller !== activeCaller) return Effect.fail(new RpcPolicyDenied())
+              const tag = Result.isFailure(tagResult) ? empty : tagResult.success
 
-            return Effect.succeed(new Uint8Array(slot.response))
-          }
-        }
+              // Section 2.10.6.4: an oversized request is reported as such even when later
+              // operations fail to decode.
+              const oversized = yield* sequenceSessionOf(call.arguments)
 
-        let rollbackSequence: (() => void) | undefined
-        const mayChangeState = parsed.operations.some((operation) => stateChangingKinds.has(operation.kind))
-        let consumedSequence = false
+              if (
+                oversized !== undefined &&
+                (call.requestBytes ?? call.arguments.length) > oversized.session.fore.maxRequest
+              ) {
+                return yield* encodeCompound(options.limits, tag, [{
+                  code: Operation.SEQUENCE,
+                  status: Status.REQ_TOO_BIG
+                }])
+              }
 
-        return Effect.gen(function*() {
-          const parts: Array<ResultPart> = []
-          let current: CurrentObject | undefined
-          let saved: CurrentObject | undefined
-          // Section 16.2.3.1.2: the current and saved stateids travel with their filehandles.
-          // `undefined` is the all-zeros special stateid.
-          let currentStateid: Uint8Array | undefined
-          let savedStateid: Uint8Array | undefined
-          let activeSession: SessionState | undefined
-          let activeSlot: ReplaySlot | undefined
-          let shouldCache = false
+              if (oversized !== undefined && oversized.operationCount > oversized.session.fore.maxOperations) {
+                return yield* encodeCompound(options.limits, tag, [{
+                  code: Operation.SEQUENCE,
+                  status: Status.TOO_MANY_OPS
+                }])
+              }
 
-          const rejectAfterExecution = (status: number): Uint8Array => {
-            if (!mayChangeState) {
-              rollbackSequence?.()
-            }
-
-            rollbackSequence = undefined
-
-            return encodeCompound(parsed.tag, [{ code: Operation.SEQUENCE, status }])
+              return yield* encodeCompound(options.limits, tag, [], Status.BADXDR)
+            })
           }
 
-          for (let index = 0; index < parsed.operations.length; index++) {
-            const operation = parsed.operations[index]!
-            let result: ResultPart
+          const parsed = parsedResult.success
 
-            // Operations remain interruptible while waiting on the export. Their own commit
-            // boundaries protect state changes; the consumed slot prevents rerunning them.
-            result = yield* restore(execute(operation))
-            parts.push(result)
+          if (parsed.minor !== 1) {
+            return encodeCompound(options.limits, parsed.tag, [], Status.MINOR_VERS_MISMATCH)
+          }
 
-            if (index === 0 && mayChangeState && activeSlot !== undefined && result.status === Status.OK) {
-              // Publish a consumed-slot marker before any later operation can commit. An
-              // interrupted or failed operation can leave this marker instead of its full reply.
-              const second = parsed.operations[1]
-              activeSlot.response = second === undefined
-                ? encodeCompound(parsed.tag, [result])
-                : encodeCompound(parsed.tag, [
-                  result,
-                  { code: second.code, status: Status.RETRY_UNCACHED_REP }
-                ])
+          const first = parsed.operations[0]
+          const firstCode = first?.code
+
+          // Section 18.46.3: the operations that may start a compound without SEQUENCE.
+          const isBootstrap = firstCode === Operation.EXCHANGE_ID || firstCode === Operation.CREATE_SESSION ||
+            firstCode === Operation.DESTROY_SESSION || firstCode === Operation.DESTROY_CLIENTID ||
+            firstCode === Operation.BIND_CONN_TO_SESSION
+
+          const isSoleBootstrap = parsed.operations.length === 1 && isBootstrap
+
+          if (first !== undefined && firstCode !== Operation.SEQUENCE && !isSoleBootstrap) {
+            // Sections 15.2 and 18.52: an illegal opcode answers as OP_ILLEGAL whether or not a
+            // session exists, and arguments are decoded before any session check.
+            if (first.kind === "Unknown") {
+              return encodeCompound(options.limits, parsed.tag, [{
+                code: Operation.ILLEGAL,
+                status: Status.OP_ILLEGAL
+              }])
+            }
+
+            if (first.kind === "Malformed") {
+              return encodeCompound(options.limits, parsed.tag, [{ code: first.code, status: Status.BADXDR }])
+            }
+
+            // Sections 18.34.3, 18.35.3, 18.36.3, 18.37.3, and 18.50.3: these MUST be the only operation.
+            if (isBootstrap) {
+              return encodeCompound(options.limits, parsed.tag, [{ code: firstCode, status: Status.NOT_ONLY_OP }])
+            }
+
+            // Section 15.2 allows only NFS4ERR_NOTSUPP for the NFSv4.0 operations.
+            if (mustNotImplementOperations.has(firstCode!)) {
+              return encodeCompound(options.limits, parsed.tag, [{ code: firstCode!, status: Status.NOTSUPP }])
+            }
+
+            return encodeCompound(options.limits, parsed.tag, [{ code: firstCode!, status: Status.OP_NOT_IN_SESSION }])
+          }
+
+          if (first?.kind === "Sequence") {
+            const value = first.value
+            const session = sessions.get(bytesKey(value.session))
+            const slot = session?.slots[value.slot]
+
+            if (
+              session !== undefined && slot !== undefined && value.sequence === slot.sequence &&
+              slot.response !== undefined
+            ) {
+              // Section 2.10.3.1 ties association to SEQUENCE being transmitted, not to the result,
+              // so it happens before the retry is judged: even a false retry was transmitted here.
+              associate(session, call.connection, CHANNEL_FORE)
+
+              if (!sameRequest(slot.request, call.arguments) || slot.credentials !== credentialsKey(call.credentials)) {
+                return encodeCompound(options.limits, parsed.tag, [{
+                  code: Operation.SEQUENCE,
+                  status: Status.SEQ_FALSE_RETRY
+                }])
+              }
+
+              // A policy may remap the same wire credential between attempts. Never replay a
+              // response computed under a caller that no longer has this request's authority.
+              if (slot.caller !== activeCaller) return Effect.fail(new RpcPolicyDenied())
+
+              return Effect.succeed(new Uint8Array(slot.response))
+            }
+          }
+
+          let rollbackSequence: (() => void) | undefined
+          const mayChangeState = parsed.operations.some((operation) => stateChangingKinds.has(operation.kind))
+          let consumedSequence = false
+
+          return Effect.gen(function*() {
+            const parts: Array<ResultPart> = []
+            let current: CurrentObject | undefined
+            let saved: CurrentObject | undefined
+            // Section 16.2.3.1.2: the current and saved stateids travel with their filehandles.
+            // `undefined` is the all-zeros special stateid.
+            let currentStateid: Uint8Array | undefined
+            let savedStateid: Uint8Array | undefined
+            let activeSession: SessionState | undefined
+            let activeSlot: ReplaySlot | undefined
+            let shouldCache = false
+
+            const rejectAfterExecution = (status: number): Effect.Effect<Uint8Array, XdrEncodeError> => {
+              if (!mayChangeState) {
+                rollbackSequence?.()
+              }
+
+              rollbackSequence = undefined
+
+              return encodeCompound(options.limits, parsed.tag, [{ code: Operation.SEQUENCE, status }])
+            }
+
+            for (let index = 0; index < parsed.operations.length; index++) {
+              const operation = parsed.operations[index]!
+              let result: ResultPart
+
+              // Operations remain interruptible while waiting on the export. Their own commit
+              // boundaries protect state changes; the consumed slot prevents rerunning them.
+              result = yield* restore(execute(operation)).pipe(
+                Effect.catchTag("XdrEncodeError", (error) =>
+                  Effect.succeed({
+                    code: operation.code,
+                    status: error.reason === "output-limit" ? Status.REP_TOO_BIG : Status.SERVERFAULT
+                  }))
+              )
+              parts.push(result)
+
+              if (index === 0 && mayChangeState && activeSlot !== undefined && result.status === Status.OK) {
+                // Publish a consumed-slot marker before any later operation can commit. An
+                // interrupted or failed operation can leave this marker instead of its full reply.
+                const second = parsed.operations[1]
+                activeSlot.response = yield* (second === undefined
+                  ? encodeCompound(options.limits, parsed.tag, [result])
+                  : encodeCompound(options.limits, parsed.tag, [
+                    result,
+                    { code: second.code, status: Status.RETRY_UNCACHED_REP }
+                  ]))
+                activeSlot.request = new Uint8Array(call.arguments)
+                activeSlot.credentials = credentialsKey(call.credentials)
+
+                if (activeCaller === undefined) delete activeSlot.caller
+                else activeSlot.caller = activeCaller
+
+                consumedSequence = true
+              }
+
+              if (result.status !== Status.OK) break
+            }
+
+            const encodedResponse = yield* Effect.result(encodeCompound(options.limits, parsed.tag, parts))
+
+            if (Result.isFailure(encodedResponse)) {
+              if (encodedResponse.failure.reason === "output-limit") {
+                return yield* rejectAfterExecution(Status.REP_TOO_BIG)
+              }
+
+              return yield* encodedResponse.failure
+            }
+
+            const response = encodedResponse.success
+            const responseBytes = addBytes(byteLength(response.length), rpcReplyOverheadBytes)
+
+            if (responseBytes > byteLength(activeSession?.fore.maxResponse ?? Number.MAX_SAFE_INTEGER)) {
+              return yield* rejectAfterExecution(Status.REP_TOO_BIG)
+            }
+
+            if (
+              shouldCache &&
+              responseBytes > byteLength(activeSession?.fore.maxCachedResponse ?? Number.MAX_SAFE_INTEGER)
+            ) {
+              return yield* rejectAfterExecution(Status.REP_TOO_BIG_TO_CACHE)
+            }
+
+            if (activeSlot !== undefined && shouldCache) {
+              const retainedBytes = addBytes(byteLength(call.arguments.length), byteLength(response.length))
+
+              if (
+                retainedBytes > options.limits.maxReplayBytes ||
+                addBytes(
+                    subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0)),
+                    retainedBytes
+                  ) > options.limits.maxReplayBytes
+              ) {
+                return yield* rejectAfterExecution(Status.REP_TOO_BIG_TO_CACHE)
+              }
+
+              replayBytes = subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0))
+              activeSlot.response = new Uint8Array(response)
               activeSlot.request = new Uint8Array(call.arguments)
               activeSlot.credentials = credentialsKey(call.credentials)
 
               if (activeCaller === undefined) delete activeSlot.caller
               else activeSlot.caller = activeCaller
+              activeSlot.retainedBytes = retainedBytes
+              replayBytes = addBytes(replayBytes, retainedBytes)
+            } else if (activeSlot !== undefined) {
+              const sequencePart = parts[0]!
+              const second = parsed.operations[1]
 
-              consumedSequence = true
-            }
+              const replay = yield* (second === undefined
+                ? encodeCompound(options.limits, parsed.tag, [sequencePart])
+                : encodeCompound(options.limits, parsed.tag, [
+                  sequencePart,
+                  { code: second.code, status: Status.RETRY_UNCACHED_REP }
+                ]))
 
-            if (result.status !== Status.OK) break
-          }
+              const retainedBytes = addBytes(byteLength(call.arguments.length), byteLength(replay.length))
 
-          const response = encodeCompound(parsed.tag, parts)
-          const responseBytes = addBytes(byteLength(response.length), rpcReplyOverheadBytes)
-
-          if (responseBytes > byteLength(activeSession?.fore.maxResponse ?? Number.MAX_SAFE_INTEGER)) {
-            return rejectAfterExecution(Status.REP_TOO_BIG)
-          }
-
-          if (
-            shouldCache &&
-            responseBytes > byteLength(activeSession?.fore.maxCachedResponse ?? Number.MAX_SAFE_INTEGER)
-          ) {
-            return rejectAfterExecution(Status.REP_TOO_BIG_TO_CACHE)
-          }
-
-          if (activeSlot !== undefined && shouldCache) {
-            const retainedBytes = addBytes(byteLength(call.arguments.length), byteLength(response.length))
-
-            if (
-              retainedBytes > options.limits.maxReplayBytes ||
-              addBytes(
+              if (
+                addBytes(
                   subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0)),
                   retainedBytes
                 ) > options.limits.maxReplayBytes
-            ) {
-              return rejectAfterExecution(Status.REP_TOO_BIG_TO_CACHE)
+              ) {
+                return yield* rejectAfterExecution(Status.DELAY)
+              }
+
+              replayBytes = subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0))
+              activeSlot.response = replay
+              activeSlot.request = new Uint8Array(call.arguments)
+              activeSlot.credentials = credentialsKey(call.credentials)
+
+              if (activeCaller === undefined) delete activeSlot.caller
+              else activeSlot.caller = activeCaller
+              activeSlot.retainedBytes = retainedBytes
+              replayBytes = addBytes(replayBytes, retainedBytes)
             }
 
-            replayBytes = subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0))
-            activeSlot.response = new Uint8Array(response)
-            activeSlot.request = new Uint8Array(call.arguments)
-            activeSlot.credentials = credentialsKey(call.credentials)
+            rollbackSequence = undefined
 
-            if (activeCaller === undefined) delete activeSlot.caller
-            else activeSlot.caller = activeCaller
-            activeSlot.retainedBytes = retainedBytes
-            replayBytes = addBytes(replayBytes, retainedBytes)
-          } else if (activeSlot !== undefined) {
-            const sequencePart = parts[0]!
-            const second = parsed.operations[1]
+            return response
 
-            const replay = second === undefined
-              ? encodeCompound(parsed.tag, [sequencePart])
-              : encodeCompound(parsed.tag, [
-                sequencePart,
-                { code: second.code, status: Status.RETRY_UNCACHED_REP }
-              ])
+            function execute(operation: ParsedOperation): Effect.Effect<ResultPart, XdrEncodeError> {
+              const noCurrent = (): ResultPart => ({ code: operation.code, status: Status.NOFILEHANDLE })
 
-            const retainedBytes = addBytes(byteLength(call.arguments.length), byteLength(replay.length))
+              const mapFs = <A>(effect: Effect.Effect<A, Vfs.FsError>): Effect.Effect<A, number> =>
+                effect.pipe(Effect.mapError(failureForFs))
 
-            if (
-              addBytes(
-                subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0)),
-                retainedBytes
-              ) > options.limits.maxReplayBytes
-            ) {
-              return rejectAfterExecution(Status.DELAY)
-            }
+              const withCurrent = <A>(
+                f: (reference: Vfs.ObjectReference) => Effect.Effect<A, number>
+              ): Effect.Effect<A, number> => current === undefined ? Effect.fail(Status.NOFILEHANDLE) : f(current)
 
-            replayBytes = subtractBytes(replayBytes, activeSlot.retainedBytes ?? ByteSize.bytes(0))
-            activeSlot.response = replay
-            activeSlot.request = new Uint8Array(call.arguments)
-            activeSlot.credentials = credentialsKey(call.credentials)
-
-            if (activeCaller === undefined) delete activeSlot.caller
-            else activeSlot.caller = activeCaller
-            activeSlot.retainedBytes = retainedBytes
-            replayBytes = addBytes(replayBytes, retainedBytes)
-          }
-
-          rollbackSequence = undefined
-
-          return response
-
-          function execute(operation: ParsedOperation): Effect.Effect<ResultPart> {
-            const noCurrent = (): ResultPart => ({ code: operation.code, status: Status.NOFILEHANDLE })
-
-            const mapFs = <A>(effect: Effect.Effect<A, Vfs.FsError>): Effect.Effect<A, number> =>
-              effect.pipe(Effect.mapError(failureForFs))
-
-            const withCurrent = <A>(
-              f: (reference: Vfs.ObjectReference) => Effect.Effect<A, number>
-            ): Effect.Effect<A, number> => current === undefined ? Effect.fail(Status.NOFILEHANDLE) : f(current)
-
-            const statusResult = <A>(
-              effect: Effect.Effect<A, number>,
-              success: (value: A) => Uint8Array | undefined = () => undefined
-            ) =>
-              effect.pipe(
-                Effect.map((value): ResultPart => {
-                  const body = success(value)
-
-                  return body === undefined
-                    ? { code: operation.code, status: Status.OK }
-                    : { code: operation.code, status: Status.OK, body }
-                }),
-                Effect.catch((status): Effect.Effect<ResultPart> => Effect.succeed({ code: operation.code, status }))
-              )
-
-            const requireAttributes = (attributes: Uint8Array | undefined): Effect.Effect<Uint8Array, number> =>
-              attributes === undefined ? Effect.fail(Status.SERVERFAULT) : Effect.succeed(attributes)
-
-            /** Registers a filehandle only when the `filehandle` attribute (19) is requested. */
-            const filehandleFor = (
-              reference: Vfs.ObjectReference,
-              requested: ReadonlyArray<number>
-            ): Effect.Effect<Uint8Array, number> =>
-              requested.includes(19)
-                ? export_.handleFor(reference).pipe(Effect.mapError(() => Status.SERVERFAULT))
-                : Effect.succeed(empty)
-
-            /**
-             * Requires a directory. Only operations whose Section 15.2 error list includes
-             * NFS4ERR_SYMLINK may report a symbolic link as such; the others say NOTDIR.
-             */
-            const requireDirectory = (
-              reference: Vfs.ObjectReference,
-              symlinkStatus: number
-            ): Effect.Effect<void, number> =>
-              mapFs(export_.observeMetadata(reference)).pipe(
-                Effect.flatMap((observation) =>
-                  observation.value.kind === "directory"
-                    ? Effect.void
-                    : Effect.fail(observation.value.kind === "symlink" ? symlinkStatus : Status.NOTDIR)
-                )
-              )
-
-            const parentOfDirectory = (
-              reference: Vfs.ObjectReference,
-              symlinkStatus: number
-            ): Effect.Effect<Vfs.ObjectReference, number> =>
-              requireDirectory(reference, symlinkStatus).pipe(Effect.flatMap(() => parentOf(reference)))
-
-            /** Requires a regular file, naming the offending type as Sections 18.16.4 and 18.22.3 do. */
-            const requireRegularFile = (reference: Vfs.ObjectReference): Effect.Effect<void, number> =>
-              mapFs(export_.observeMetadata(reference)).pipe(
-                Effect.flatMap((observation) => {
-                  switch (observation.value.kind) {
-                    case "file":
-                      return Effect.void
-                    case "directory":
-                      return Effect.fail(Status.ISDIR)
-                    case "symlink":
-                      return Effect.fail(Status.SYMLINK)
-                    default:
-                      // The core has no other object kinds today; this keeps the switch exhaustive.
-                      return Effect.fail(Status.WRONG_TYPE)
+              const statusResult = <A>(
+                effect: Effect.Effect<A, number | XdrEncodeError>,
+                success: (value: A) => Uint8Array | undefined | Effect.Effect<Uint8Array | undefined, XdrEncodeError> =
+                  () => undefined
+              ): Effect.Effect<ResultPart, XdrEncodeError> =>
+                Effect.flatMap(Effect.result(effect), (outcome) => {
+                  if (Result.isFailure(outcome)) {
+                    return outcome.failure instanceof XdrEncodeError
+                      ? Effect.fail(outcome.failure)
+                      : Effect.succeed({ code: operation.code, status: outcome.failure })
                   }
+
+                  const body = success(outcome.success)
+
+                  return Effect.map(Effect.isEffect(body) ? body : Effect.succeed(body), (encoded): ResultPart =>
+                    encoded === undefined
+                      ? { code: operation.code, status: Status.OK }
+                      : { code: operation.code, status: Status.OK, body: encoded })
                 })
-              )
 
-            /**
-             * Validates a mutating operation's filehandles and names before the read-only
-             * rejection, so structural errors keep their RFC 8881 precedence over NFS4ERR_ROFS.
-             */
-            const rejectMutation = (
-              names: ReadonlyArray<Uint8Array>,
-              savedRequirement: "none" | "object" | "directory",
-              symlinkStatus: number
-            ): Effect.Effect<ResultPart> => {
-              if (current === undefined) return Effect.succeed(noCurrent())
+              const requireAttributes = (
+                attributes: Effect.Effect<Uint8Array | undefined, XdrEncodeError>
+              ): Effect.Effect<Uint8Array, number | XdrEncodeError> =>
+                Effect.filterOrFail(
+                  attributes,
+                  (value): value is Uint8Array => value !== undefined,
+                  () => Status.SERVERFAULT
+                )
 
-              if (savedRequirement !== "none" && saved === undefined) return Effect.succeed(noCurrent())
-              const savedDirectory = saved
+              /** Registers a filehandle only when the `filehandle` attribute (19) is requested. */
+              const filehandleFor = (
+                reference: Vfs.ObjectReference,
+                requested: ReadonlyArray<number>
+              ): Effect.Effect<Uint8Array, number> =>
+                requested.includes(19)
+                  ? export_.handleFor(reference).pipe(Effect.mapError(() => Status.SERVERFAULT))
+                  : Effect.succeed(empty)
 
-              const checks = requireDirectory(current, symlinkStatus).pipe(
-                Effect.flatMap(() =>
-                  savedRequirement === "directory" && savedDirectory !== undefined
-                    ? requireDirectory(savedDirectory, symlinkStatus)
-                    : Effect.void
-                ),
-                Effect.flatMap(() =>
-                  Effect.suspend(() => {
-                    for (const name of names) {
-                      try {
-                        validateName(name, options.limits.maxNameBytes)
-                      } catch (error) {
-                        if (error instanceof InvalidNameError) return Effect.fail(nameStatus(error))
-                        throw error
-                      }
+              /**
+               * Requires a directory. Only operations whose Section 15.2 error list includes
+               * NFS4ERR_SYMLINK may report a symbolic link as such; the others say NOTDIR.
+               */
+              const requireDirectory = (
+                reference: Vfs.ObjectReference,
+                symlinkStatus: number
+              ): Effect.Effect<void, number> =>
+                mapFs(export_.observeMetadata(reference)).pipe(
+                  Effect.filterOrFail(
+                    (observation) => observation.value.kind === "directory",
+                    (observation) => observation.value.kind === "symlink" ? symlinkStatus : Status.NOTDIR
+                  ),
+                  Effect.asVoid
+                )
+
+              const parentOfDirectory = (
+                reference: Vfs.ObjectReference,
+                symlinkStatus: number
+              ): Effect.Effect<Vfs.ObjectReference, number> =>
+                requireDirectory(reference, symlinkStatus).pipe(Effect.flatMap(() => parentOf(reference)))
+
+              /** Requires a regular file, naming the offending type as Sections 18.16.4 and 18.22.3 do. */
+              const requireRegularFile = (reference: Vfs.ObjectReference): Effect.Effect<void, number> =>
+                mapFs(export_.observeMetadata(reference)).pipe(
+                  Effect.flatMap((observation) => {
+                    switch (observation.value.kind) {
+                      case "file":
+                        return Effect.void
+                      case "directory":
+                        return Effect.fail(Status.ISDIR)
+                      case "symlink":
+                        return Effect.fail(Status.SYMLINK)
+                      default:
+                        // The core has no other object kinds today; this keeps the switch exhaustive.
+                        return Effect.fail(Status.WRONG_TYPE)
                     }
-
-                    return Effect.fail(Status.ROFS)
                   })
                 )
-              )
 
-              return statusResult(checks)
-            }
+              /**
+               * Validates a mutating operation's filehandles and names before the read-only
+               * rejection, so structural errors keep their RFC 8881 precedence over NFS4ERR_ROFS.
+               */
+              const rejectMutation = (
+                names: ReadonlyArray<Uint8Array>,
+                savedRequirement: "none" | "object" | "directory",
+                symlinkStatus: number
+              ): Effect.Effect<ResultPart, XdrEncodeError> => {
+                if (current === undefined) return Effect.succeed(noCurrent())
 
-            const validName = (name: Uint8Array): Effect.Effect<void, number> =>
-              Effect.try({
-                try: () => {
-                  validateName(name, options.limits.maxNameBytes)
-                },
-                catch: (error) => error instanceof InvalidNameError ? nameStatus(error) : Status.SERVERFAULT
-              })
+                if (savedRequirement !== "none" && saved === undefined) return Effect.succeed(noCurrent())
+                const savedDirectory = saved
 
-            const writeChangeInfo = (writer: Writer, change: Vfs.DirectoryChange): void => {
-              writer.boolean(true).uint64(BigInt.asUintN(64, change.before))
-                .uint64(BigInt.asUintN(64, change.after))
-            }
-
-            switch (operation.kind) {
-              case "ExchangeId": {
-                const value = operation.value
-
-                if ((value.flags & ~EXCHGID4_ALLOWED_ARGUMENT_FLAGS) !== 0) {
-                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
-                }
-
-                // Section 18.35.3: SP4_MACH_CRED requires an RPCSEC_GSS integrity-protected
-                // EXCHANGE_ID, which AUTH_SYS cannot provide, and no SSV algorithm is offered.
-                // These are the answers Linux nfsd gives in the same situation.
-                if (value.protection === SP4_MACH_CRED) {
-                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
-                }
-
-                if (value.protection === SP4_SSV) {
-                  return Effect.succeed({ code: operation.code, status: Status.ENCR_ALG_UNSUPP })
-                }
-
-                const owner = bytesKey(value.owner)
-                const verifier = bytesKey(value.verifier)
-                const principal = principalKey(call.credentials)
-                const updateConfirmed = (value.flags & 0x4000_0000) !== 0
-
-                const confirmedRecord = [...clients.values()].find((candidate) =>
-                  candidate.owner === owner && candidate.confirmed
-                )
-
-                let client: ClientState | undefined
-
-                if (updateConfirmed) {
-                  // Section 18.35.4 cases 6 to 9.
-                  if (confirmedRecord === undefined) {
-                    return Effect.succeed({ code: operation.code, status: Status.NOENT })
-                  }
-
-                  if (confirmedRecord.verifier !== verifier) {
-                    return Effect.succeed({ code: operation.code, status: Status.NOT_SAME })
-                  }
-
-                  // Case 9 prescribes NFS4ERR_PERM even though the Section 15.2 list for
-                  // EXCHANGE_ID omits it; the normative case description wins.
-                  if (confirmedRecord.principal !== principal) {
-                    return Effect.succeed({ code: operation.code, status: Status.PERM })
-                  }
-
-                  client = confirmedRecord
-                } else if (
-                  confirmedRecord !== undefined && confirmedRecord.verifier === verifier &&
-                  confirmedRecord.principal === principal
-                ) {
-                  // Case 2: a retry or trunking probe against the confirmed record.
-                  client = confirmedRecord
-                }
-
-                if (client === undefined) {
-                  return Effect.gen(function*() {
-                    const currentClient = clientsByOwner.get(owner)
-
-                    if (currentClient === undefined && clientsByOwner.size >= options.limits.maxClients) {
-                      return { code: operation.code, status: Status.DELAY } satisfies ResultPart
-                    }
-
-                    let previous: ClientState | undefined
-
-                    if (confirmedRecord !== undefined && confirmedRecord.principal !== principal) {
-                      // Case 3: owner collision with another principal. Live state protects the
-                      // confirmed record; otherwise it is replaced outright.
-                      const hasState = [...sessions.values()].some((session) => session.client === confirmedRecord) ||
-                        [...opens.values()].some((open) => open.client === confirmedRecord)
-
-                      if (hasState && options.now() <= confirmedRecord.leaseExpiresAt) {
-                        return { code: operation.code, status: Status.CLID_INUSE } satisfies ResultPart
+                const checks = requireDirectory(current, symlinkStatus).pipe(
+                  Effect.flatMap(() =>
+                    savedRequirement === "directory" && savedDirectory !== undefined
+                      ? requireDirectory(savedDirectory, symlinkStatus)
+                      : Effect.void
+                  ),
+                  Effect.flatMap(() =>
+                    Effect.suspend(() => {
+                      for (const name of names) {
+                        try {
+                          validateName(name, options.limits.maxNameBytes)
+                        } catch (error) {
+                          if (error instanceof InvalidNameError) return Effect.fail(nameStatus(error))
+                          throw error
+                        }
                       }
 
-                      yield* revokeClient(confirmedRecord)
-                      removeClientRecord(confirmedRecord)
-                    } else if (confirmedRecord !== undefined) {
-                      // Case 5: client restart. The confirmed record survives until CREATE_SESSION.
-                      if (
-                        [...clients.values()].filter((candidate) =>
-                            !candidate.confirmed && candidate.previous !== undefined
-                          )
-                            .length >= options.limits.maxPendingClientReplacements &&
-                        !(currentClient !== undefined && !currentClient.confirmed)
-                      ) {
+                      return Effect.fail(Status.ROFS)
+                    })
+                  )
+                )
+
+                return statusResult(checks)
+              }
+
+              const validName = (name: Uint8Array): Effect.Effect<void, number> =>
+                Effect.try({
+                  try: () => {
+                    validateName(name, options.limits.maxNameBytes)
+                  },
+                  catch: (error) => error instanceof InvalidNameError ? nameStatus(error) : Status.SERVERFAULT
+                })
+
+              const writeChangeInfo = (change: Vfs.DirectoryChange): WriteField => (writer) =>
+                Effect.gen(function*() {
+                  yield* writer.write(XdrCodec.boolean, true)
+                  yield* writer.write(XdrCodec.uint64, BigInt.asUintN(64, change.before))
+                  yield* writer.write(XdrCodec.uint64, BigInt.asUintN(64, change.after))
+                })
+
+              switch (operation.kind) {
+                case "ExchangeId": {
+                  const value = operation.value
+
+                  if ((value.flags & ~EXCHGID4_ALLOWED_ARGUMENT_FLAGS) !== 0) {
+                    return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                  }
+
+                  // Section 18.35.3: SP4_MACH_CRED requires an RPCSEC_GSS integrity-protected
+                  // EXCHANGE_ID, which AUTH_SYS cannot provide, and no SSV algorithm is offered.
+                  // These are the answers Linux nfsd gives in the same situation.
+                  if (value.protection === SP4_MACH_CRED) {
+                    return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                  }
+
+                  if (value.protection === SP4_SSV) {
+                    return Effect.succeed({ code: operation.code, status: Status.ENCR_ALG_UNSUPP })
+                  }
+
+                  const owner = bytesKey(value.owner)
+                  const verifier = bytesKey(value.verifier)
+                  const principal = principalKey(call.credentials)
+                  const updateConfirmed = (value.flags & 0x4000_0000) !== 0
+
+                  const confirmedRecord = [...clients.values()].find((candidate) =>
+                    candidate.owner === owner && candidate.confirmed
+                  )
+
+                  let client: ClientState | undefined
+
+                  if (updateConfirmed) {
+                    // Section 18.35.4 cases 6 to 9.
+                    if (confirmedRecord === undefined) {
+                      return Effect.succeed({ code: operation.code, status: Status.NOENT })
+                    }
+
+                    if (confirmedRecord.verifier !== verifier) {
+                      return Effect.succeed({ code: operation.code, status: Status.NOT_SAME })
+                    }
+
+                    // Case 9 prescribes NFS4ERR_PERM even though the Section 15.2 list for
+                    // EXCHANGE_ID omits it; the normative case description wins.
+                    if (confirmedRecord.principal !== principal) {
+                      return Effect.succeed({ code: operation.code, status: Status.PERM })
+                    }
+
+                    client = confirmedRecord
+                  } else if (
+                    confirmedRecord !== undefined && confirmedRecord.verifier === verifier &&
+                    confirmedRecord.principal === principal
+                  ) {
+                    // Case 2: a retry or trunking probe against the confirmed record.
+                    client = confirmedRecord
+                  }
+
+                  if (client === undefined) {
+                    return Effect.gen(function*() {
+                      const currentClient = clientsByOwner.get(owner)
+
+                      if (currentClient === undefined && clientsByOwner.size >= options.limits.maxClients) {
                         return { code: operation.code, status: Status.DELAY } satisfies ResultPart
                       }
 
-                      previous = confirmedRecord
-                    }
+                      let previous: ClientState | undefined
+                      let revokeConfirmed = false
 
-                    // Case 4: any unconfirmed record for this owner is replaced by a new client ID.
-                    const unconfirmed = clientsByOwner.get(owner)
+                      if (confirmedRecord !== undefined && confirmedRecord.principal !== principal) {
+                        // Case 3: owner collision with another principal. Live state protects the
+                        // confirmed record; otherwise it is replaced outright.
+                        const hasState = [...sessions.values()].some((session) => session.client === confirmedRecord) ||
+                          [...opens.values()].some((open) => open.client === confirmedRecord)
 
-                    if (unconfirmed !== undefined && !unconfirmed.confirmed) {
-                      releaseCreateSessionReplay(unconfirmed)
-                      clients.delete(unconfirmed.id)
-                    }
+                        if (hasState && options.now() <= confirmedRecord.leaseExpiresAt) {
+                          return { code: operation.code, status: Status.CLID_INUSE } satisfies ResultPart
+                        }
 
-                    const created: ClientState = {
-                      id: clientSerial++,
-                      owner,
-                      verifier,
-                      principal,
-                      previous,
-                      sequence: 1,
-                      leaseExpiresAt: options.now() + options.leaseDurationSeconds * 1000,
-                      reclaimed: false,
-                      confirmed: false,
-                      createSessionReplay: undefined
-                    }
+                        revokeConfirmed = true
+                      } else if (confirmedRecord !== undefined) {
+                        // Case 5: client restart. The confirmed record survives until CREATE_SESSION.
+                        if (
+                          [...clients.values()].filter((candidate) =>
+                              !candidate.confirmed && candidate.previous !== undefined
+                            )
+                              .length >= options.limits.maxPendingClientReplacements &&
+                          !(currentClient !== undefined && !currentClient.confirmed)
+                        ) {
+                          return { code: operation.code, status: Status.DELAY } satisfies ResultPart
+                        }
 
-                    clients.set(created.id, created)
-                    clientsByOwner.set(owner, created)
+                        previous = confirmedRecord
+                      }
 
-                    return exchangeIdResult(created)
-                  })
-                }
+                      // Case 4: any unconfirmed record for this owner is replaced by a new client ID.
+                      const unconfirmed = clientsByOwner.get(owner)
 
-                return Effect.succeed(exchangeIdResult(client))
+                      const created: ClientState = {
+                        id: clientSerial,
+                        owner,
+                        verifier,
+                        principal,
+                        previous,
+                        sequence: 1,
+                        leaseExpiresAt: options.now() + options.leaseDurationSeconds * 1000,
+                        reclaimed: false,
+                        confirmed: false,
+                        createSessionReplay: undefined
+                      }
 
-                function exchangeIdResult(client: ClientState): ResultPart {
-                  const body = encodeStatusBody((writer) => {
+                      // A failed response encode must not consume a client ID, replace an owner,
+                      // or revoke a confirmed record the caller cannot identify afterward.
+                      const response = yield* exchangeIdResult(created)
+
+                      if (revokeConfirmed && confirmedRecord !== undefined) {
+                        yield* revokeClient(confirmedRecord)
+                        removeClientRecord(confirmedRecord)
+                      }
+
+                      if (unconfirmed !== undefined && !unconfirmed.confirmed) {
+                        releaseCreateSessionReplay(unconfirmed)
+                        clients.delete(unconfirmed.id)
+                      }
+
+                      clientSerial++
+                      clients.set(created.id, created)
+                      clientsByOwner.set(owner, created)
+
+                      return response
+                    })
+                  }
+
+                  return exchangeIdResult(client)
+
+                  function exchangeIdResult(client: ClientState): Effect.Effect<ResultPart, XdrEncodeError> {
                     const flags = EXCHGID4_FLAG_USE_NON_PNFS |
                       (client.confirmed ? EXCHGID4_FLAG_CONFIRMED_R : 0)
 
-                    writer.uint64(client.id).uint32(client.sequence).uint32(flags >>> 0).uint32(0)
-                    writer.uint64(export_.fsid[0]).opaque(options.generation).opaque(options.generation)
-                    writer.array([], () => undefined)
-                  })
-
-                  return { code: operation.code, status: Status.OK, body }
-                }
-              }
-
-              case "CreateSession": {
-                const value = operation.value
-                const client = clients.get(value.client)
-
-                if (client === undefined) return Effect.succeed({ code: operation.code, status: Status.STALE_CLIENTID })
-                const replay = client.createSessionReplay
-
-                if (replay?.sequence === value.sequence) {
-                  // Section 18.36.4 phase 2: an equal csa_sequence identifies a retry, which may
-                  // arrive with or without a preceding SEQUENCE; the cached result is returned
-                  // before any argument validation.
-                  //
-                  // A retry usually arrives because the original reply was lost with the
-                  // connection. The client then holds a session it believes is bound to the
-                  // channels the cached reply names, so the replaying connection is associated
-                  // with exactly those directions.
-                  const replayed = replay.session === undefined ? undefined : sessions.get(bytesKey(replay.session))
-
-                  if (replayed !== undefined && replay.directions !== undefined) {
-                    associate(replayed, call.connection, replay.directions)
+                    return Effect.map(
+                      encodeStatusBody(options.limits, [
+                        field(XdrCodec.uint64, client.id),
+                        field(XdrCodec.uint32, client.sequence),
+                        field(XdrCodec.uint32, flags >>> 0),
+                        field(XdrCodec.uint32, 0),
+                        field(XdrCodec.uint64, export_.fsid[0]),
+                        field(XdrCodec.opaque(), options.generation),
+                        field(XdrCodec.opaque(), options.generation),
+                        field(XdrCodec.array(XdrCodec.uint32), [])
+                      ]),
+                      (body): ResultPart => ({ code: operation.code, status: Status.OK, body })
+                    )
                   }
-
-                  const result: ResultPart = replay.body === undefined
-                    ? { code: operation.code, status: replay.status }
-                    : { code: operation.code, status: replay.status, body: new Uint8Array(replay.body) }
-
-                  return Effect.succeed(result)
                 }
 
-                if (value.sequence !== client.sequence) {
-                  return Effect.succeed({ code: operation.code, status: Status.SEQ_MISORDERED })
-                }
+                case "CreateSession": {
+                  const value = operation.value
+                  const client = clients.get(value.client)
 
-                // Section 18.36.4 phase 2: a request with the expected csa_sequence consumes the
-                // slot and its result is cached, whether or not a session is created. Two outcomes
-                // leave the slot alone: NFS4ERR_DELAY asks for the same request again later, and
-                // NFS4ERR_CLID_INUSE comes from a principal that does not own the record.
-                const complete = (
-                  status: number,
-                  body?: Uint8Array,
-                  created?: { readonly session: Uint8Array; readonly directions: number }
-                ): ResultPart => {
-                  const previousRetainedBytes = client.createSessionReplay?.retainedBytes ?? ByteSize.bytes(0)
-                  const retainedBytes = byteLength(body?.length ?? 0)
-                  replayBytes = subtractBytes(replayBytes, previousRetainedBytes)
-                  replayBytes = addBytes(replayBytes, retainedBytes)
-                  client.sequence = nextSequenceId(client.sequence)
-
-                  let nextReplay: CreateSessionReplay = { sequence: value.sequence, status, retainedBytes }
-
-                  if (created !== undefined) {
-                    nextReplay = { ...nextReplay, session: created.session, directions: created.directions }
+                  if (client === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.STALE_CLIENTID })
                   }
 
-                  client.createSessionReplay = body === undefined
-                    ? nextReplay
-                    : { ...nextReplay, body: new Uint8Array(body) }
+                  const replay = client.createSessionReplay
 
-                  return body === undefined
-                    ? { code: operation.code, status }
-                    : { code: operation.code, status, body }
-                }
+                  if (replay?.sequence === value.sequence) {
+                    // Section 18.36.4 phase 2: an equal csa_sequence identifies a retry, which may
+                    // arrive with or without a preceding SEQUENCE; the cached result is returned
+                    // before any argument validation.
+                    //
+                    // A retry usually arrives because the original reply was lost with the
+                    // connection. The client then holds a session it believes is bound to the
+                    // channels the cached reply names, so the replaying connection is associated
+                    // with exactly those directions.
+                    const replayed = replay.session === undefined ? undefined : sessions.get(bytesKey(replay.session))
 
-                return Effect.gen(function*() {
-                  const previousRetainedBytes = client.createSessionReplay?.retainedBytes ?? ByteSize.bytes(0)
+                    if (replayed !== undefined && replay.directions !== undefined) {
+                      associate(replayed, call.connection, replay.directions)
+                    }
 
-                  // Section 18.36.4 phase 3: an unconfirmed record belongs to the principal that
-                  // created it. A confirmed client may create sessions from any principal.
-                  if (!client.confirmed && client.principal !== principalKey(call.credentials)) {
-                    return { code: operation.code, status: Status.CLID_INUSE }
+                    const result: ResultPart = replay.body === undefined
+                      ? { code: operation.code, status: replay.status }
+                      : { code: operation.code, status: replay.status, body: new Uint8Array(replay.body) }
+
+                    return Effect.succeed(result)
                   }
 
-                  if ((value.flags & ~CREATE_SESSION4_KNOWN_FLAGS) !== 0) return complete(Status.INVAL)
-
-                  // Section 18.36.3: a callback security entry naming an RPCSEC_GSS handle the
-                  // server did not issue is NFS4ERR_NOENT.
-                  if (value.gssCallback) return complete(Status.NOENT)
-
-                  const requestedSlots = Math.max(1, value.fore.maxRequests)
-                  const slotCount = Math.min(requestedSlots, options.limits.maxSlotsPerSession)
-
-                  const fore: ChannelAttrs = {
-                    headerPadding: 0,
-                    maxRequest: Math.min(value.fore.maxRequest, ByteSize.toNumberUnsafe(maxRpcRequestBytes)),
-                    maxResponse: Math.min(value.fore.maxResponse, ByteSize.toNumberUnsafe(maxRpcResponseBytes)),
-                    maxCachedResponse: Math.min(
-                      value.fore.maxCachedResponse,
-                      ByteSize.toNumberUnsafe(options.limits.maxReplayBytes)
-                    ),
-                    maxOperations: Math.min(value.fore.maxOperations, options.limits.maxOperations),
-                    maxRequests: slotCount,
-                    rdmaIrd: []
+                  if (value.sequence !== client.sequence) {
+                    return Effect.succeed({ code: operation.code, status: Status.SEQ_MISORDERED })
                   }
 
-                  const id = makeOpaqueId(options.generation, sessionSerial++)
+                  // Section 18.36.4 phase 2: a request with the expected csa_sequence consumes the
+                  // slot and its result is cached, whether or not a session is created. Two outcomes
+                  // leave the slot alone: NFS4ERR_DELAY asks for the same request again later, and
+                  // NFS4ERR_CLID_INUSE comes from a principal that does not own the record.
+                  const complete = (
+                    status: number,
+                    body?: Uint8Array,
+                    created?: { readonly session: Uint8Array; readonly directions: number }
+                  ): ResultPart => {
+                    const previousRetainedBytes = client.createSessionReplay?.retainedBytes ?? ByteSize.bytes(0)
+                    const retainedBytes = byteLength(body?.length ?? 0)
+                    replayBytes = subtractBytes(replayBytes, previousRetainedBytes)
+                    replayBytes = addBytes(replayBytes, retainedBytes)
+                    client.sequence = nextSequenceId(client.sequence)
 
-                  // Section 18.36.3: the backchannel exists only if the client asked for one. The
-                  // agreed flag must be echoed in csr_flags, because the client binds the
-                  // connection to the backchannel on the strength of that echo.
-                  const wantsBackChannel = (value.flags & CREATE_SESSION4_FLAG_CONN_BACK_CHAN) !== 0
+                    let nextReplay: CreateSessionReplay = { sequence: value.sequence, status, retainedBytes }
 
-                  // The server may use fewer slots than the client offered; it may not claim more.
-                  const backSlots = Math.max(1, Math.min(value.back.maxRequests, options.limits.maxSlotsPerSession))
+                    if (created !== undefined) {
+                      nextReplay = { ...nextReplay, session: created.session, directions: created.directions }
+                    }
 
-                  // Section 18.36.3: for the backchannel the server MUST NOT change
-                  // ca_maxoperations or ca_maxrequests, so the client's attributes are echoed
-                  // unchanged. The server's own slot table may still be smaller; that is an
-                  // internal limit on how many callbacks it issues, not a renegotiation.
-                  const back: ChannelAttrs = { ...value.back, headerPadding: 0, rdmaIrd: [] }
+                    client.createSessionReplay = body === undefined
+                      ? nextReplay
+                      : { ...nextReplay, body: new Uint8Array(body) }
 
-                  const agreedFlags = wantsBackChannel ? CREATE_SESSION4_FLAG_CONN_BACK_CHAN : 0
-
-                  const body = encodeStatusBody((writer) => {
-                    writer.fixedOpaque(id).uint32(value.sequence).uint32(agreedFlags)
-                    writeChannelAttrs(writer, fore)
-                    writeChannelAttrs(writer, back)
-                  })
-
-                  // Section 18.36.3: a channel that can never carry a SEQUENCE compound in either
-                  // direction, or fewer than two operations, is too small to be used.
-                  if (
-                    fore.maxRequest < MIN_FORE_REQUEST_BYTES || fore.maxResponse < MIN_FORE_RESPONSE_BYTES ||
-                    value.back.maxRequest < MIN_FORE_REQUEST_BYTES ||
-                    value.back.maxResponse < MIN_FORE_RESPONSE_BYTES ||
-                    fore.maxOperations < 2
-                  ) {
-                    return complete(Status.TOOSMALL)
+                    return body === undefined
+                      ? { code: operation.code, status }
+                      : { code: operation.code, status, body }
                   }
 
-                  // A backchannel the client asked for but sized so it can carry nothing is
-                  // rejected rather than quietly rounded up: the server must not send callbacks
-                  // on capacity the client never offered, and ca_maxrequests may not be changed
-                  // for the backchannel. One operation is enough, because the only callback this
-                  // server sends is a CB_SEQUENCE-only CB_COMPOUND.
-                  if (wantsBackChannel && (value.back.maxRequests < 1 || value.back.maxOperations < 1)) {
-                    return complete(Status.TOOSMALL)
-                  }
+                  return Effect.gen(function*() {
+                    const previousRetainedBytes = client.createSessionReplay?.retainedBytes ?? ByteSize.bytes(0)
 
-                  // The cached reply is charged against the replay budget; reserve it from the encoded body.
-                  if (
-                    byteLength(body.length) >
-                      subtractBytes(options.limits.maxReplayBytes, subtractBytes(replayBytes, previousRetainedBytes))
-                  ) {
-                    return { code: operation.code, status: Status.DELAY }
-                  }
+                    // Section 18.36.4 phase 3: an unconfirmed record belongs to the principal that
+                    // created it. A confirmed client may create sessions from any principal.
+                    if (!client.confirmed && client.principal !== principalKey(call.credentials)) {
+                      return { code: operation.code, status: Status.CLID_INUSE }
+                    }
 
-                  if (client.previous !== undefined) {
-                    const previousSessions = [...sessions.values()].filter((session) =>
-                      session.client === client.previous
-                    ).length
+                    if ((value.flags & ~CREATE_SESSION4_KNOWN_FLAGS) !== 0) {
+                      return complete(Status.INVAL)
+                    }
 
-                    if (sessions.size - previousSessions >= options.limits.maxSessions) {
+                    // Section 18.36.3: a callback security entry naming an RPCSEC_GSS handle the
+                    // server did not issue is NFS4ERR_NOENT.
+                    if (value.gssCallback) return complete(Status.NOENT)
+
+                    const requestedSlots = Math.max(1, value.fore.maxRequests)
+                    const slotCount = Math.min(requestedSlots, options.limits.maxSlotsPerSession)
+
+                    const fore: ChannelAttrs = {
+                      headerPadding: 0,
+                      maxRequest: Math.min(value.fore.maxRequest, ByteSize.toNumberUnsafe(maxRpcRequestBytes)),
+                      maxResponse: Math.min(value.fore.maxResponse, ByteSize.toNumberUnsafe(maxRpcResponseBytes)),
+                      maxCachedResponse: Math.min(
+                        value.fore.maxCachedResponse,
+                        ByteSize.toNumberUnsafe(options.limits.maxReplayBytes)
+                      ),
+                      maxOperations: Math.min(value.fore.maxOperations, options.limits.maxOperations),
+                      maxRequests: slotCount,
+                      rdmaIrd: []
+                    }
+
+                    const id = makeOpaqueId(options.generation, sessionSerial++)
+
+                    // Section 18.36.3: the backchannel exists only if the client asked for one. The
+                    // agreed flag must be echoed in csr_flags, because the client binds the
+                    // connection to the backchannel on the strength of that echo.
+                    const wantsBackChannel = (value.flags & CREATE_SESSION4_FLAG_CONN_BACK_CHAN) !== 0
+
+                    // The server may use fewer slots than the client offered; it may not claim more.
+                    const backSlots = Math.max(1, Math.min(value.back.maxRequests, options.limits.maxSlotsPerSession))
+
+                    // Section 18.36.3: for the backchannel the server MUST NOT change
+                    // ca_maxoperations or ca_maxrequests, so the client's attributes are echoed
+                    // unchanged. The server's own slot table may still be smaller; that is an
+                    // internal limit on how many callbacks it issues, not a renegotiation.
+                    const back: ChannelAttrs = { ...value.back, headerPadding: 0, rdmaIrd: [] }
+
+                    const agreedFlags = wantsBackChannel ? CREATE_SESSION4_FLAG_CONN_BACK_CHAN : 0
+
+                    const body = yield* encodeStatusBody(options.limits, [
+                      field(XdrCodec.fixedOpaque(16), id),
+                      field(XdrCodec.uint32, value.sequence),
+                      field(XdrCodec.uint32, agreedFlags),
+                      (writer) => writeChannelAttrs(writer, fore),
+                      (writer) => writeChannelAttrs(writer, back)
+                    ])
+
+                    // Section 18.36.3: a channel that can never carry a SEQUENCE compound in either
+                    // direction, or fewer than two operations, is too small to be used.
+                    if (
+                      fore.maxRequest < MIN_FORE_REQUEST_BYTES || fore.maxResponse < MIN_FORE_RESPONSE_BYTES ||
+                      value.back.maxRequest < MIN_FORE_REQUEST_BYTES ||
+                      value.back.maxResponse < MIN_FORE_RESPONSE_BYTES ||
+                      fore.maxOperations < 2
+                    ) {
+                      return complete(Status.TOOSMALL)
+                    }
+
+                    // A backchannel the client asked for but sized so it can carry nothing is
+                    // rejected rather than quietly rounded up: the server must not send callbacks
+                    // on capacity the client never offered, and ca_maxrequests may not be changed
+                    // for the backchannel. One operation is enough, because the only callback this
+                    // server sends is a CB_SEQUENCE-only CB_COMPOUND.
+                    if (wantsBackChannel && (value.back.maxRequests < 1 || value.back.maxOperations < 1)) {
+                      return complete(Status.TOOSMALL)
+                    }
+
+                    // The cached reply is charged against the replay budget; reserve it from the encoded body.
+                    if (
+                      byteLength(body.length) >
+                        subtractBytes(options.limits.maxReplayBytes, subtractBytes(replayBytes, previousRetainedBytes))
+                    ) {
                       return { code: operation.code, status: Status.DELAY }
                     }
 
-                    yield* revokeClient(client.previous)
-                    removeClientRecord(client.previous)
-                  } else if (sessions.size >= options.limits.maxSessions) {
-                    return { code: operation.code, status: Status.DELAY }
+                    if (client.previous !== undefined) {
+                      const previousSessions = [...sessions.values()].filter((session) =>
+                        session.client === client.previous
+                      ).length
+
+                      if (sessions.size - previousSessions >= options.limits.maxSessions) {
+                        return { code: operation.code, status: Status.DELAY }
+                      }
+
+                      yield* revokeClient(client.previous)
+                      removeClientRecord(client.previous)
+                    } else if (sessions.size >= options.limits.maxSessions) {
+                      return { code: operation.code, status: Status.DELAY }
+                    }
+
+                    // Section 18.36.3: the connection CREATE_SESSION arrived on is associated with
+                    // the session's fore channel without a further BIND_CONN_TO_SESSION.
+                    sessions.set(bytesKey(id), {
+                      id,
+                      client,
+                      fore,
+                      slots: Array.from({ length: slotCount }, () => ({ sequence: 0 })),
+                      // Section 2.10.3.1: the CREATE_SESSION connection is associated with the fore
+                      // channel, and with the backchannel too when one was agreed.
+                      connections: new Map([[
+                        call.connection,
+                        CHANNEL_FORE | (wantsBackChannel ? CHANNEL_BACK : 0)
+                      ]]),
+                      back: wantsBackChannel
+                        ? {
+                          program: value.callbackProgram,
+                          security: chooseCallbackSecurity(value.security),
+                          attrs: back,
+                          slots: Array.from({ length: backSlots }, () => ({ sequence: 0, busy: false })),
+                          // A client that authorized no encodable credential gets no callbacks, so
+                          // the path starts down rather than being probed with a flavor it never
+                          // offered.
+                          healthy: chooseCallbackSecurity(value.security) !== undefined,
+                          probed: false,
+                          arming: 0
+                        }
+                        : undefined
+                    })
+                    client.confirmed = true
+                    client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
+
+                    return complete(Status.OK, body, {
+                      session: id,
+                      directions: CHANNEL_FORE | (wantsBackChannel ? CHANNEL_BACK : 0)
+                    })
+                  })
+                }
+
+                case "Sequence": {
+                  if (parts.length !== 0) return Effect.succeed({ code: operation.code, status: Status.SEQUENCE_POS })
+                  const value = operation.value
+                  const session = sessions.get(bytesKey(value.session))
+
+                  if (session === undefined) return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+
+                  if (options.now() > session.client.leaseExpiresAt) {
+                    return revokeClient(session.client).pipe(
+                      Effect.as({ code: operation.code, status: Status.BADSESSION })
+                    )
                   }
 
-                  // Section 18.36.3: the connection CREATE_SESSION arrived on is associated with
-                  // the session's fore channel without a further BIND_CONN_TO_SESSION.
-                  sessions.set(bytesKey(id), {
-                    id,
-                    client,
-                    fore,
-                    slots: Array.from({ length: slotCount }, () => ({ sequence: 0 })),
-                    // Section 2.10.3.1: the CREATE_SESSION connection is associated with the fore
-                    // channel, and with the backchannel too when one was agreed.
-                    connections: new Map([[
-                      call.connection,
-                      CHANNEL_FORE | (wantsBackChannel ? CHANNEL_BACK : 0)
-                    ]]),
-                    back: wantsBackChannel
-                      ? {
-                        program: value.callbackProgram,
-                        security: chooseCallbackSecurity(value.security),
-                        attrs: back,
-                        slots: Array.from({ length: backSlots }, () => ({ sequence: 0, busy: false })),
-                        // A client that authorized no encodable credential gets no callbacks, so
-                        // the path starts down rather than being probed with a flavor it never
-                        // offered.
-                        healthy: chooseCallbackSecurity(value.security) !== undefined,
-                        probed: false,
-                        arming: 0
+                  // Section 2.10.3.1: under SP4_NONE the connection a SEQUENCE is transmitted on is
+                  // associated with the session's fore channel. Association follows transmission, so
+                  // it happens before the slot and size checks that may still reject this request.
+                  associate(session, call.connection, CHANNEL_FORE)
+
+                  if (value.slot >= session.slots.length) {
+                    return Effect.succeed({ code: operation.code, status: Status.BADSLOT })
+                  }
+
+                  if (value.highest >= session.slots.length) {
+                    return Effect.succeed({ code: operation.code, status: Status.BAD_HIGH_SLOT })
+                  }
+
+                  const slot = session.slots[value.slot]!
+
+                  if ((call.requestBytes ?? call.arguments.length) > session.fore.maxRequest) {
+                    return Effect.succeed({ code: operation.code, status: Status.REQ_TOO_BIG })
+                  }
+
+                  // The header count is checked, so a malformed later operation cannot hide an
+                  // oversized compound.
+                  if (parsed.count > session.fore.maxOperations) {
+                    return Effect.succeed({ code: operation.code, status: Status.TOO_MANY_OPS })
+                  }
+
+                  const replyBound = replayReplyBound(
+                    parsed.operations,
+                    parsed.tag.length,
+                    options.limits,
+                    options.securityFlavors?.length ?? 2
+                  )
+
+                  const rpcReplyBound = addBytes(byteLength(replyBound), rpcReplyOverheadBytes)
+
+                  if (rpcReplyBound > byteLength(session.fore.maxResponse)) {
+                    return Effect.succeed({ code: operation.code, status: Status.REP_TOO_BIG })
+                  }
+
+                  if (value.cache && rpcReplyBound > byteLength(session.fore.maxCachedResponse)) {
+                    return Effect.succeed({ code: operation.code, status: Status.REP_TOO_BIG_TO_CACHE })
+                  }
+
+                  if (value.sequence !== nextSequenceId(slot.sequence)) {
+                    return Effect.succeed({ code: operation.code, status: Status.SEQ_MISORDERED })
+                  }
+
+                  const uncachedReplayBound = 12 + parsed.tag.length + (4 - parsed.tag.length % 4) % 4 +
+                    44 + (parsed.operations.length > 1 ? 8 : 0)
+
+                  const retainedBound = addBytes(
+                    byteLength(call.arguments.length),
+                    byteLength(value.cache ? replyBound : uncachedReplayBound)
+                  )
+
+                  if (
+                    retainedBound > subtractBytes(
+                      options.limits.maxReplayBytes,
+                      subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
+                    )
+                  ) {
+                    // Replay memory is a server policy limit: a cached reply is "too big to cache",
+                    // and an uncached request can only be retried later.
+                    return Effect.succeed({
+                      code: operation.code,
+                      status: value.cache ? Status.REP_TOO_BIG_TO_CACHE : Status.DELAY
+                    })
+                  }
+
+                  const previousSlot = {
+                    sequence: slot.sequence,
+                    response: slot.response,
+                    request: slot.request,
+                    credentials: slot.credentials,
+                    caller: slot.caller,
+                    retainedBytes: slot.retainedBytes
+                  }
+
+                  rollbackSequence = () => {
+                    // Restore only this slot's accounting; other operations in the compound may have
+                    // changed the shared counter legitimately.
+                    replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
+                    replayBytes = addBytes(replayBytes, previousSlot.retainedBytes ?? ByteSize.bytes(0))
+                    slot.sequence = previousSlot.sequence
+
+                    if (previousSlot.response === undefined) delete slot.response
+                    else slot.response = previousSlot.response
+
+                    if (previousSlot.request === undefined) delete slot.request
+                    else slot.request = previousSlot.request
+
+                    if (previousSlot.credentials === undefined) delete slot.credentials
+                    else slot.credentials = previousSlot.credentials
+
+                    if (previousSlot.caller === undefined) delete slot.caller
+                    else slot.caller = previousSlot.caller
+
+                    if (previousSlot.retainedBytes === undefined) delete slot.retainedBytes
+                    else slot.retainedBytes = previousSlot.retainedBytes
+                  }
+
+                  replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
+                  replayBytes = addBytes(replayBytes, retainedBound)
+                  slot.sequence = value.sequence
+                  delete slot.response
+                  delete slot.request
+                  delete slot.credentials
+                  delete slot.caller
+                  slot.retainedBytes = retainedBound
+                  session.client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
+                  activeSession = session
+                  activeSlot = slot
+                  shouldCache = value.cache
+
+                  // Section 18.46.3: report a backchannel the server cannot use, so the client can
+                  // repair it with BIND_CONN_TO_SESSION or BACKCHANNEL_CTL.
+                  const statusFlags = session.back !== undefined && !session.back.healthy
+                    ? SEQ4_STATUS_CB_PATH_DOWN_SESSION
+                    : 0
+
+                  return Effect.flatMap(
+                    encodeStatusBody(options.limits, [
+                      field(XdrCodec.fixedOpaque(16), session.id),
+                      field(XdrCodec.uint32, value.sequence),
+                      field(XdrCodec.uint32, value.slot),
+                      field(XdrCodec.uint32, session.slots.length - 1),
+                      field(XdrCodec.uint32, session.slots.length - 1),
+                      field(XdrCodec.uint32, statusFlags)
+                    ]),
+                    (body) => {
+                      // Probe only after the SEQUENCE reply body has encoded successfully.
+                      const back = session.back
+
+                      if (back === undefined || back.probed) {
+                        return Effect.succeed({ code: operation.code, status: Status.OK, body })
                       }
-                      : undefined
-                  })
-                  client.confirmed = true
-                  client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
 
-                  return complete(Status.OK, body, {
-                    session: id,
-                    directions: CHANNEL_FORE | (wantsBackChannel ? CHANNEL_BACK : 0)
-                  })
-                })
-              }
+                      back.probed = true
 
-              case "Sequence": {
-                if (parts.length !== 0) return Effect.succeed({ code: operation.code, status: Status.SEQUENCE_POS })
-                const value = operation.value
-                const session = sessions.get(bytesKey(value.session))
-
-                if (session === undefined) return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
-
-                if (options.now() > session.client.leaseExpiresAt) {
-                  return revokeClient(session.client).pipe(
-                    Effect.as({ code: operation.code, status: Status.BADSESSION })
+                      return Effect.forkIn(probe(session), handlerScope).pipe(
+                        Effect.as({ code: operation.code, status: Status.OK, body })
+                      )
+                    }
                   )
                 }
 
-                // Section 2.10.3.1: under SP4_NONE the connection a SEQUENCE is transmitted on is
-                // associated with the session's fore channel. Association follows transmission, so
-                // it happens before the slot and size checks that may still reject this request.
-                associate(session, call.connection, CHANNEL_FORE)
+                case "ReclaimComplete": {
+                  if (activeSession === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+                  }
 
-                if (value.slot >= session.slots.length) {
-                  return Effect.succeed({ code: operation.code, status: Status.BADSLOT })
+                  if (operation.value) {
+                    // rca_one_fs applies to the current filehandle's file system only and does not
+                    // complete the global reclaim (RFC 8881 Section 18.51.3).
+                    return Effect.succeed(
+                      current === undefined ? noCurrent() : { code: operation.code, status: Status.OK }
+                    )
+                  }
+
+                  if (activeSession.client.reclaimed) {
+                    return Effect.succeed({ code: operation.code, status: Status.COMPLETE_ALREADY })
+                  }
+
+                  activeSession.client.reclaimed = true
+
+                  return Effect.succeed({ code: operation.code, status: Status.OK })
                 }
 
-                if (value.highest >= session.slots.length) {
-                  return Effect.succeed({ code: operation.code, status: Status.BAD_HIGH_SLOT })
-                }
+                case "BindConnToSession": {
+                  // Section 18.34.3: MUST be the only operation.
+                  if (parsed.operations.length !== 1) {
+                    return Effect.succeed({ code: operation.code, status: Status.NOT_ONLY_OP })
+                  }
 
-                const slot = session.slots[value.slot]!
+                  const session = sessions.get(bytesKey(operation.value.session))
 
-                if ((call.requestBytes ?? call.arguments.length) > session.fore.maxRequest) {
-                  return Effect.succeed({ code: operation.code, status: Status.REQ_TOO_BIG })
-                }
+                  if (session === undefined) return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
 
-                // The header count is checked, so a malformed later operation cannot hide an
-                // oversized compound.
-                if (parsed.count > session.fore.maxOperations) {
-                  return Effect.succeed({ code: operation.code, status: Status.TOO_MANY_OPS })
-                }
+                  const requested = operation.value.direction
 
-                const replyBound = replayReplyBound(
-                  parsed.operations,
-                  parsed.tag.length,
-                  options.limits,
-                  options.securityFlavors?.length ?? 2
-                )
+                  // Section 18.34.3 fixes what each request may be answered with: CDFC4_FORE MUST
+                  // get CDFS4_FORE, CDFC4_BACK MUST get CDFS4_BACK, CDFC4_FORE_OR_BOTH MUST get
+                  // FORE or BOTH, and CDFC4_BACK_OR_BOTH MUST get BACK or BOTH. A request that
+                  // cannot be answered that way demands a change the server cannot make, which is
+                  // NFS4ERR_INVAL. Only a session that negotiated a backchannel in CREATE_SESSION
+                  // has one to bind. The section does not name an error for that case; INVAL is
+                  // chosen because it is the error it uses for a channel change it cannot make, and
+                  // Section 15.2 lists it for this operation.
+                  const backAvailable = session.back !== undefined
 
-                const rpcReplyBound = addBytes(byteLength(replyBound), rpcReplyOverheadBytes)
+                  if (!backAvailable && (requested === CDFC4_BACK || requested === CDFC4_BACK_OR_BOTH)) {
+                    return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                  }
 
-                if (rpcReplyBound > byteLength(session.fore.maxResponse)) {
-                  return Effect.succeed({ code: operation.code, status: Status.REP_TOO_BIG })
-                }
+                  const bound = requested === CDFC4_BACK
+                    ? CHANNEL_BACK
+                    : requested === CDFC4_FORE
+                    ? CHANNEL_FORE
+                    : CHANNEL_FORE | (backAvailable ? CHANNEL_BACK : 0)
 
-                if (value.cache && rpcReplyBound > byteLength(session.fore.maxCachedResponse)) {
-                  return Effect.succeed({ code: operation.code, status: Status.REP_TOO_BIG_TO_CACHE })
-                }
+                  associate(session, call.connection, bound)
 
-                if (value.sequence !== nextSequenceId(slot.sequence)) {
-                  return Effect.succeed({ code: operation.code, status: Status.SEQ_MISORDERED })
-                }
+                  // Section 18.34.4: a client whose backchannel lost its connections binds a new
+                  // one. Clearing `probed` is what makes the next SEQUENCE actually retry the
+                  // path; without it a recovered client stays marked down forever.
+                  if ((bound & CHANNEL_BACK) !== 0 && session.back !== undefined) {
+                    session.back.probed = false
+                    session.back.arming++
+                  }
 
-                const uncachedReplayBound = 12 + parsed.tag.length + (4 - parsed.tag.length % 4) % 4 +
-                  44 + (parsed.operations.length > 1 ? 8 : 0)
+                  const answered = bound === CHANNEL_BACK
+                    ? CDFS4_BACK
+                    : bound === CHANNEL_FORE
+                    ? CDFS4_FORE
+                    : CDFS4_BOTH
 
-                const retainedBound = addBytes(
-                  byteLength(call.arguments.length),
-                  byteLength(value.cache ? replyBound : uncachedReplayBound)
-                )
-
-                if (
-                  retainedBound > subtractBytes(
-                    options.limits.maxReplayBytes,
-                    subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
-                  )
-                ) {
-                  // Replay memory is a server policy limit: a cached reply is "too big to cache",
-                  // and an uncached request can only be retried later.
-                  return Effect.succeed({
-                    code: operation.code,
-                    status: value.cache ? Status.REP_TOO_BIG_TO_CACHE : Status.DELAY
-                  })
-                }
-
-                const previousSlot = {
-                  sequence: slot.sequence,
-                  response: slot.response,
-                  request: slot.request,
-                  credentials: slot.credentials,
-                  caller: slot.caller,
-                  retainedBytes: slot.retainedBytes
-                }
-
-                rollbackSequence = () => {
-                  // Restore only this slot's accounting; other operations in the compound may have
-                  // changed the shared counter legitimately.
-                  replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
-                  replayBytes = addBytes(replayBytes, previousSlot.retainedBytes ?? ByteSize.bytes(0))
-                  slot.sequence = previousSlot.sequence
-
-                  if (previousSlot.response === undefined) delete slot.response
-                  else slot.response = previousSlot.response
-
-                  if (previousSlot.request === undefined) delete slot.request
-                  else slot.request = previousSlot.request
-
-                  if (previousSlot.credentials === undefined) delete slot.credentials
-                  else slot.credentials = previousSlot.credentials
-
-                  if (previousSlot.caller === undefined) delete slot.caller
-                  else slot.caller = previousSlot.caller
-
-                  if (previousSlot.retainedBytes === undefined) delete slot.retainedBytes
-                  else slot.retainedBytes = previousSlot.retainedBytes
-                }
-
-                replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
-                replayBytes = addBytes(replayBytes, retainedBound)
-                slot.sequence = value.sequence
-                delete slot.response
-                delete slot.request
-                delete slot.credentials
-                delete slot.caller
-                slot.retainedBytes = retainedBound
-                session.client.leaseExpiresAt = options.now() + options.leaseDurationSeconds * 1000
-                activeSession = session
-                activeSlot = slot
-                shouldCache = value.cache
-
-                // Section 18.46.3: report a backchannel the server cannot use, so the client can
-                // repair it with BIND_CONN_TO_SESSION or BACKCHANNEL_CTL.
-                const statusFlags = session.back !== undefined && !session.back.healthy
-                  ? SEQ4_STATUS_CB_PATH_DOWN_SESSION
-                  : 0
-
-                const body = encodeStatusBody((writer) => {
-                  writer.fixedOpaque(session.id).uint32(value.sequence).uint32(value.slot)
-                    .uint32(session.slots.length - 1).uint32(session.slots.length - 1).uint32(statusFlags)
-                })
-
-                // The callback path is probed once, on the first SEQUENCE rather than during
-                // CREATE_SESSION, because only then is the client known to hold the session id
-                // that CB_SEQUENCE carries. It is forked because the probe's own reply arrives on
-                // this connection, whose read loop is busy with this compound until it returns.
-                const back = session.back
-
-                if (back === undefined || back.probed) {
-                  return Effect.succeed({ code: operation.code, status: Status.OK, body })
-                }
-
-                back.probed = true
-
-                return Effect.forkIn(probe(session), handlerScope).pipe(
-                  Effect.as({ code: operation.code, status: Status.OK, body })
-                )
-              }
-
-              case "ReclaimComplete": {
-                if (activeSession === undefined) {
-                  return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
-                }
-
-                if (operation.value) {
-                  // rca_one_fs applies to the current filehandle's file system only and does not
-                  // complete the global reclaim (RFC 8881 Section 18.51.3).
-                  return Effect.succeed(
-                    current === undefined ? noCurrent() : { code: operation.code, status: Status.OK }
+                  return Effect.map(
+                    encodeStatusBody(options.limits, [
+                      field(XdrCodec.fixedOpaque(16), session.id),
+                      field(XdrCodec.uint32, answered),
+                      field(XdrCodec.boolean, false)
+                    ]),
+                    (body): ResultPart => ({ code: operation.code, status: Status.OK, body })
                   )
                 }
 
-                if (activeSession.client.reclaimed) {
-                  return Effect.succeed({ code: operation.code, status: Status.COMPLETE_ALREADY })
+                case "BackchannelCtl": {
+                  // Section 18.33.3: an RPCSEC_GSS handle the server never issued is NFS4ERR_NOENT.
+                  // AUTH_NONE and AUTH_SYS parameters are accepted as Linux nfsd does.
+                  if (operation.value.gssCallback) {
+                    return Effect.succeed({ code: operation.code, status: Status.NOENT })
+                  }
+
+                  if (activeSession === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+                  }
+
+                  // Section 18.33.3 replaces the backchannel's callback program, so it needs a
+                  // backchannel to act on. It names no error for a session without one; INVAL is
+                  // chosen because Section 15.2 lists it for this operation.
+                  if (activeSession.back === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                  }
+
+                  activeSession.back.program = operation.value.program
+
+                  // Section 18.33.3 adds credentials rather than replacing them, but a re-offer is
+                  // the client's current authorization, so a newly offered flavor is adopted.
+                  const reoffered = chooseCallbackSecurity(operation.value.security)
+
+                  if (reoffered !== undefined) activeSession.back.security = reoffered
+
+                  // A re-advertised program is the client repairing its callback service. Clearing
+                  // `probed` is what actually gives the new endpoint another chance: health alone
+                  // would be a claim no callback has tested. A path with no encodable credential
+                  // stays down, because nothing can be sent down it.
+                  activeSession.back.probed = false
+                  activeSession.back.arming++
+                  activeSession.back.healthy = activeSession.back.security !== undefined
+
+                  return Effect.succeed({ code: operation.code, status: Status.OK })
                 }
 
-                activeSession.client.reclaimed = true
+                case "DestroySession": {
+                  const key = bytesKey(operation.value)
+                  const session = sessions.get(key)
 
-                return Effect.succeed({ code: operation.code, status: Status.OK })
-              }
+                  if (session === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+                  }
 
-              case "BindConnToSession": {
-                // Section 18.34.3: MUST be the only operation.
-                if (parsed.operations.length !== 1) {
-                  return Effect.succeed({ code: operation.code, status: Status.NOT_ONLY_OP })
+                  // Section 18.37.3: only the active session's own DESTROY_SESSION must be final;
+                  // another session's may appear in any position after SEQUENCE.
+                  if (
+                    session === activeSession &&
+                    parsed.operations[parsed.operations.length - 1] !== operation
+                  ) {
+                    return Effect.succeed({ code: operation.code, status: Status.NOT_ONLY_OP })
+                  }
+
+                  // Section 18.37.3: "DESTROY_SESSION MUST be invoked on a connection that is
+                  // associated with the session being destroyed." Without this a second connection
+                  // could destroy a session it never carried, using only an observed session id.
+                  if (!session.connections.has(call.connection)) {
+                    return Effect.succeed({ code: operation.code, status: Status.CONN_NOT_BOUND_TO_SESSION })
+                  }
+
+                  for (const slot of session.slots) {
+                    replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
+                  }
+
+                  session.connections.clear()
+                  sessions.delete(key)
+
+                  if (session === activeSession) {
+                    activeSlot = undefined
+                    shouldCache = false
+                    rollbackSequence = undefined
+                  }
+
+                  return Effect.succeed({ code: operation.code, status: Status.OK })
                 }
 
-                const session = sessions.get(bytesKey(operation.value.session))
+                case "DestroyClient": {
+                  const client = clients.get(operation.value)
 
-                if (session === undefined) return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+                  if (client === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.STALE_CLIENTID })
+                  }
 
-                const requested = operation.value.direction
+                  const hasSession = [...sessions.values()].some((session) => session.client === client)
+                  const hasOpen = [...opens.values()].some((open) => open.client === client)
 
-                // Section 18.34.3 fixes what each request may be answered with: CDFC4_FORE MUST
-                // get CDFS4_FORE, CDFC4_BACK MUST get CDFS4_BACK, CDFC4_FORE_OR_BOTH MUST get
-                // FORE or BOTH, and CDFC4_BACK_OR_BOTH MUST get BACK or BOTH. A request that
-                // cannot be answered that way demands a change the server cannot make, which is
-                // NFS4ERR_INVAL. Only a session that negotiated a backchannel in CREATE_SESSION
-                // has one to bind. The section does not name an error for that case; INVAL is
-                // chosen because it is the error it uses for a channel change it cannot make, and
-                // Section 15.2 lists it for this operation.
-                const backAvailable = session.back !== undefined
+                  if (hasSession || hasOpen) {
+                    return Effect.succeed({ code: operation.code, status: Status.CLIENTID_BUSY })
+                  }
 
-                if (!backAvailable && (requested === CDFC4_BACK || requested === CDFC4_BACK_OR_BOTH)) {
-                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                  removeClientRecord(client)
+
+                  return Effect.succeed({ code: operation.code, status: Status.OK })
                 }
 
-                const bound = requested === CDFC4_BACK
-                  ? CHANNEL_BACK
-                  : requested === CDFC4_FORE
-                  ? CHANNEL_FORE
-                  : CHANNEL_FORE | (backAvailable ? CHANNEL_BACK : 0)
-
-                associate(session, call.connection, bound)
-
-                // Section 18.34.4: a client whose backchannel lost its connections binds a new
-                // one. Clearing `probed` is what makes the next SEQUENCE actually retry the
-                // path; without it a recovered client stays marked down forever.
-                if ((bound & CHANNEL_BACK) !== 0 && session.back !== undefined) {
-                  session.back.probed = false
-                  session.back.arming++
-                }
-
-                const answered = bound === CHANNEL_BACK
-                  ? CDFS4_BACK
-                  : bound === CHANNEL_FORE
-                  ? CDFS4_FORE
-                  : CDFS4_BOTH
-
-                return Effect.succeed({
-                  code: operation.code,
-                  status: Status.OK,
-                  body: new Writer().fixedOpaque(session.id).uint32(answered).boolean(false).bytes()
-                })
-              }
-
-              case "BackchannelCtl": {
-                // Section 18.33.3: an RPCSEC_GSS handle the server never issued is NFS4ERR_NOENT.
-                // AUTH_NONE and AUTH_SYS parameters are accepted as Linux nfsd does.
-                if (operation.value.gssCallback) {
-                  return Effect.succeed({ code: operation.code, status: Status.NOENT })
-                }
-
-                if (activeSession === undefined) {
-                  return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
-                }
-
-                // Section 18.33.3 replaces the backchannel's callback program, so it needs a
-                // backchannel to act on. It names no error for a session without one; INVAL is
-                // chosen because Section 15.2 lists it for this operation.
-                if (activeSession.back === undefined) {
-                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
-                }
-
-                activeSession.back.program = operation.value.program
-
-                // Section 18.33.3 adds credentials rather than replacing them, but a re-offer is
-                // the client's current authorization, so a newly offered flavor is adopted.
-                const reoffered = chooseCallbackSecurity(operation.value.security)
-
-                if (reoffered !== undefined) activeSession.back.security = reoffered
-
-                // A re-advertised program is the client repairing its callback service. Clearing
-                // `probed` is what actually gives the new endpoint another chance: health alone
-                // would be a claim no callback has tested. A path with no encodable credential
-                // stays down, because nothing can be sent down it.
-                activeSession.back.probed = false
-                activeSession.back.arming++
-                activeSession.back.healthy = activeSession.back.security !== undefined
-
-                return Effect.succeed({ code: operation.code, status: Status.OK })
-              }
-
-              case "DestroySession": {
-                const key = bytesKey(operation.value)
-                const session = sessions.get(key)
-
-                if (session === undefined) {
-                  return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
-                }
-
-                // Section 18.37.3: only the active session's own DESTROY_SESSION must be final;
-                // another session's may appear in any position after SEQUENCE.
-                if (
-                  session === activeSession &&
-                  parsed.operations[parsed.operations.length - 1] !== operation
-                ) {
-                  return Effect.succeed({ code: operation.code, status: Status.NOT_ONLY_OP })
-                }
-
-                // Section 18.37.3: "DESTROY_SESSION MUST be invoked on a connection that is
-                // associated with the session being destroyed." Without this a second connection
-                // could destroy a session it never carried, using only an observed session id.
-                if (!session.connections.has(call.connection)) {
-                  return Effect.succeed({ code: operation.code, status: Status.CONN_NOT_BOUND_TO_SESSION })
-                }
-
-                for (const slot of session.slots) {
-                  replayBytes = subtractBytes(replayBytes, slot.retainedBytes ?? ByteSize.bytes(0))
-                }
-
-                session.connections.clear()
-                sessions.delete(key)
-
-                if (session === activeSession) {
-                  activeSlot = undefined
-                  shouldCache = false
-                  rollbackSequence = undefined
-                }
-
-                return Effect.succeed({ code: operation.code, status: Status.OK })
-              }
-
-              case "DestroyClient": {
-                const client = clients.get(operation.value)
-
-                if (client === undefined) {
-                  return Effect.succeed({ code: operation.code, status: Status.STALE_CLIENTID })
-                }
-
-                const hasSession = [...sessions.values()].some((session) => session.client === client)
-                const hasOpen = [...opens.values()].some((open) => open.client === client)
-
-                if (hasSession || hasOpen) {
-                  return Effect.succeed({ code: operation.code, status: Status.CLIENTID_BUSY })
-                }
-
-                removeClientRecord(client)
-
-                return Effect.succeed({ code: operation.code, status: Status.OK })
-              }
-
-              case "Putrootfh":
-              case "Putpubfh":
-                // The public filehandle is the root filehandle (RFC 8881 Section 18.20.3).
-                return statusResult(mapFs(export_.root), (reference) => {
-                  setCurrent(reference)
-
-                  return undefined
-                })
-              case "Putfh":
-                return export_.resolve(operation.value).pipe(
-                  Effect.map((reference): ResultPart => {
+                case "Putrootfh":
+                case "Putpubfh":
+                  // The public filehandle is the root filehandle (RFC 8881 Section 18.20.3).
+                  return statusResult(mapFs(export_.root), (reference) => {
                     setCurrent(reference)
 
-                    return { code: operation.code, status: Status.OK }
-                  }),
-                  Effect.catch((error: InvalidFilehandleError) =>
-                    Effect.succeed({
-                      code: operation.code,
-                      status: error.reason === "WrongGeneration"
-                        ? Status.FHEXPIRED
-                        : error.reason === "Stale"
-                        ? Status.STALE
-                        : error.reason === "Unavailable"
-                        ? Status.SERVERFAULT
-                        : Status.BADHANDLE
+                    return undefined
+                  })
+                case "Putfh":
+                  return export_.resolve(operation.value).pipe(
+                    Effect.map((reference): ResultPart => {
+                      setCurrent(reference)
+
+                      return { code: operation.code, status: Status.OK }
+                    }),
+                    Effect.catch((error: InvalidFilehandleError) =>
+                      Effect.succeed({
+                        code: operation.code,
+                        status: error.reason === "WrongGeneration"
+                          ? Status.FHEXPIRED
+                          : error.reason === "Stale"
+                          ? Status.STALE
+                          : error.reason === "Unavailable"
+                          ? Status.SERVERFAULT
+                          : Status.BADHANDLE
+                      })
+                    )
+                  )
+                case "Getfh":
+                  if (current === undefined) return Effect.succeed(noCurrent())
+
+                  return export_.handleFor(current).pipe(
+                    Effect.mapError(() => Status.SERVERFAULT),
+                    Effect.flatMap((handle) =>
+                      Effect.map(
+                        encodeBody(handle, XdrCodec.opaque()),
+                        (body): ResultPart => ({ code: operation.code, status: Status.OK, body })
+                      )
+                    ),
+                    Effect.catchIf(
+                      (error): error is typeof Status.SERVERFAULT => Predicate.isNumber(error),
+                      (status) => Effect.succeed({ code: operation.code, status })
+                    )
+                  )
+                case "Savefh":
+                  if (current === undefined) return Effect.succeed(noCurrent())
+                  saved = current
+                  savedStateid = currentStateid
+
+                  return Effect.succeed({ code: operation.code, status: Status.OK })
+                case "Restorefh":
+                  if (saved === undefined) return Effect.succeed(noCurrent())
+                  current = saved
+                  currentStateid = savedStateid
+
+                  return Effect.succeed({ code: operation.code, status: Status.OK })
+                case "Lookup":
+                  // Section 15.1.2.8: a symbolic link as the current filehandle is NFS4ERR_SYMLINK.
+                  return statusResult(
+                    withCurrent((reference) =>
+                      requireDirectory(reference, Status.SYMLINK).pipe(
+                        Effect.andThen(export_.lookup(reference, operation.value).pipe(Effect.mapError(nameStatus)))
+                      )
+                    ),
+                    (reference) => {
+                      setCurrent(reference)
+
+                      return undefined
+                    }
+                  )
+                case "Secinfo":
+                  // SECINFO consumes the current filehandle (RFC 8881 Section 18.29.3).
+                  return statusResult(
+                    withCurrent((reference) =>
+                      export_.lookup(reference, operation.value).pipe(Effect.mapError(nameStatus))
+                    ),
+                    () => {
+                      setCurrent(undefined)
+
+                      return xdr.encode(
+                        options.securityFlavors ?? [AUTH_SYS, AUTH_NONE],
+                        XdrCodec.array(XdrCodec.uint32),
+                        options.limits,
+                        ByteSize.toNumberUnsafe(options.limits.maxRecordBytes)
+                      )
+                    }
+                  )
+                case "Lookupp":
+                  return statusResult(
+                    withCurrent((reference) => parentOfDirectory(reference, Status.SYMLINK)),
+                    (reference) => {
+                      setCurrent(reference)
+
+                      return undefined
+                    }
+                  )
+                case "SecinfoNoName":
+                  // Like SECINFO, this consumes the current filehandle (RFC 8881 Section 18.45.3).
+                  // Its error list has NOTDIR but not SYMLINK.
+                  return statusResult(
+                    withCurrent((reference) =>
+                      operation.value === SECINFO_STYLE4_PARENT
+                        ? parentOfDirectory(reference, Status.NOTDIR)
+                        : Effect.succeed(reference)
+                    ),
+                    () => {
+                      setCurrent(undefined)
+
+                      return xdr.encode(
+                        options.securityFlavors ?? [AUTH_SYS, AUTH_NONE],
+                        XdrCodec.array(XdrCodec.uint32),
+                        options.limits,
+                        ByteSize.toNumberUnsafe(options.limits.maxRecordBytes)
+                      )
+                    }
+                  )
+                case "Getattr": {
+                  if (current === undefined) {
+                    return Effect.succeed(noCurrent())
+                  }
+
+                  const reference = current
+                  const requested = requestedAttributes(operation.value)
+
+                  const supportedRequested = requested.filter((attribute) => supportedAttributes.includes(attribute))
+
+                  const attributes = filehandleFor(reference, supportedRequested).pipe(
+                    Effect.flatMap((filehandle) =>
+                      mapFs(export_.observeMetadata(reference)).pipe(
+                        Effect.flatMap((observation) =>
+                          mapFs(sampleUsage(supportedRequested)).pipe(
+                            Effect.flatMap((usage) =>
+                              requireAttributes(
+                                encodeAttributes(
+                                  supportedRequested,
+                                  observation,
+                                  filehandle,
+                                  export_,
+                                  options,
+                                  supportedAttributes,
+                                  usage
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+
+                  return statusResult(attributes, (value) => value)
+                }
+
+                case "Verify": {
+                  if (current === undefined) return Effect.succeed(noCurrent())
+                  const reference = current
+                  const requested = requestedAttributes(operation.value.bitmap)
+
+                  // Write-only attributes are INVAL before the supported-set check (Section 18.31.3).
+                  if (requested.some((attribute) => nonComparableAttributes.has(attribute))) {
+                    return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                  }
+
+                  if (requested.some((attribute) => !supportedAttributes.includes(attribute))) {
+                    return Effect.succeed({ code: operation.code, status: Status.ATTRNOTSUPP })
+                  }
+
+                  const comparison = filehandleFor(reference, requested).pipe(
+                    Effect.flatMap((filehandle) =>
+                      mapFs(export_.observeMetadata(reference)).pipe(
+                        Effect.flatMap((observation) =>
+                          mapFs(sampleUsage(requested)).pipe(
+                            Effect.flatMap((usage) =>
+                              requireAttributes(
+                                encodeAttributeValues(
+                                  requested,
+                                  observation,
+                                  filehandle,
+                                  export_,
+                                  options,
+                                  supportedAttributes,
+                                  usage
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    ),
+                    Effect.flatMap((actual) => {
+                      const same = sameRequest(actual, operation.value.values)
+
+                      if (operation.code === Operation.VERIFY) {
+                        return same ? Effect.void : Effect.fail(Status.NOT_SAME)
+                      }
+
+                      return same ? Effect.fail(Status.SAME) : Effect.void
                     })
                   )
-                )
-              case "Getfh":
-                if (current === undefined) return Effect.succeed(noCurrent())
 
-                return export_.handleFor(current).pipe(
-                  Effect.map((handle): ResultPart => ({
-                    code: operation.code,
-                    status: Status.OK,
-                    body: new Writer().opaque(handle).bytes()
-                  })),
-                  Effect.orElseSucceed(() => ({ code: operation.code, status: Status.SERVERFAULT }))
-                )
-              case "Savefh":
-                if (current === undefined) return Effect.succeed(noCurrent())
-                saved = current
-                savedStateid = currentStateid
-
-                return Effect.succeed({ code: operation.code, status: Status.OK })
-              case "Restorefh":
-                if (saved === undefined) return Effect.succeed(noCurrent())
-                current = saved
-                currentStateid = savedStateid
-
-                return Effect.succeed({ code: operation.code, status: Status.OK })
-              case "Lookup":
-                // Section 15.1.2.8: a symbolic link as the current filehandle is NFS4ERR_SYMLINK.
-                return statusResult(
-                  withCurrent((reference) =>
-                    requireDirectory(reference, Status.SYMLINK).pipe(
-                      Effect.andThen(export_.lookup(reference, operation.value).pipe(Effect.mapError(nameStatus)))
-                    )
-                  ),
-                  (reference) => {
-                    setCurrent(reference)
-
-                    return undefined
-                  }
-                )
-              case "Secinfo":
-                // SECINFO consumes the current filehandle (RFC 8881 Section 18.29.3).
-                return statusResult(
-                  withCurrent((reference) =>
-                    export_.lookup(reference, operation.value).pipe(Effect.mapError(nameStatus))
-                  ),
-                  () => {
-                    setCurrent(undefined)
-
-                    return new Writer().array(options.securityFlavors ?? [AUTH_SYS, AUTH_NONE], (writer, flavor) =>
-                      writer.uint32(flavor)).bytes()
-                  }
-                )
-              case "Lookupp":
-                return statusResult(
-                  withCurrent((reference) =>
-                    parentOfDirectory(reference, Status.SYMLINK)
-                  ),
-                  (reference) => {
-                    setCurrent(reference)
-
-                    return undefined
-                  }
-                )
-              case "SecinfoNoName":
-                // Like SECINFO, this consumes the current filehandle (RFC 8881 Section 18.45.3).
-                // Its error list has NOTDIR but not SYMLINK.
-                return statusResult(
-                  withCurrent((reference) =>
-                    operation.value === SECINFO_STYLE4_PARENT
-                      ? parentOfDirectory(reference, Status.NOTDIR)
-                      : Effect.succeed(reference)
-                  ),
-                  () => {
-                    setCurrent(undefined)
-
-                    return new Writer().array(options.securityFlavors ?? [AUTH_SYS, AUTH_NONE], (writer, flavor) =>
-                      writer.uint32(flavor)).bytes()
-                  }
-                )
-              case "Getattr": {
-                if (current === undefined) {
-                  return Effect.succeed(noCurrent())
+                  return statusResult(comparison)
                 }
 
-                const reference = current
-                const requested = requestedAttributes(operation.value)
+                case "Access": {
+                  if (current === undefined) return Effect.succeed(noCurrent())
+                  const requested = operation.value
+                  const reference = current
 
-                const supportedRequested = requested.filter((attribute) =>
-                  supportedAttributes.includes(attribute)
-                )
-
-                const attributes = filehandleFor(reference, supportedRequested).pipe(
-                  Effect.flatMap((filehandle) =>
-                    mapFs(export_.observeMetadata(reference)).pipe(
-                      Effect.flatMap((observation) =>
-                        mapFs(sampleUsage(supportedRequested)).pipe(
-                          Effect.flatMap((usage) =>
-                            requireAttributes(
-                              encodeAttributes(
-                                supportedRequested,
-                                observation,
-                                filehandle,
-                                export_,
-                                options,
-                                supportedAttributes,
-                                usage
-                              )
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-
-                return statusResult(attributes, (value) => value)
-              }
-
-              case "Verify": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-                const reference = current
-                const requested = requestedAttributes(operation.value.bitmap)
-
-                // Write-only attributes are INVAL before the supported-set check (Section 18.31.3).
-                if (requested.some((attribute) => nonComparableAttributes.has(attribute))) {
-                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
-                }
-
-                if (requested.some((attribute) => !supportedAttributes.includes(attribute))) {
-                  return Effect.succeed({ code: operation.code, status: Status.ATTRNOTSUPP })
-                }
-
-                const comparison = filehandleFor(reference, requested).pipe(
-                  Effect.flatMap((filehandle) =>
-                    mapFs(export_.observeMetadata(reference)).pipe(
-                      Effect.flatMap((observation) =>
-                        mapFs(sampleUsage(requested)).pipe(
-                          Effect.flatMap((usage) =>
-                            requireAttributes(
-                              encodeAttributeValues(
-                                requested,
-                                observation,
-                                filehandle,
-                                export_,
-                                options,
-                                supportedAttributes,
-                                usage
-                              )
-                            )
-                          )
-                        )
-                      )
-                    )
-                  ),
-                  Effect.flatMap((actual) => {
-                    const same = sameRequest(actual, operation.value.values)
-
-                    if (operation.code === Operation.VERIFY) {
-                      return same ? Effect.void : Effect.fail(Status.NOT_SAME)
-                    }
-
-                    return same ? Effect.fail(Status.SAME) : Effect.void
-                  })
-                )
-
-                return statusResult(comparison)
-              }
-
-              case "Access": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-                const requested = operation.value
-                const reference = current
-
-                return statusResult(
-                  Effect.gen(function*() {
-                    const observation = yield* mapFs(export_.observeMetadata(reference))
-                    const supported = requested & supportedAccessMask(observation.value.kind)
-
-                    let granted = activeCaller === undefined
-                      ? grantedAccess(supported, observation.value, call.credentials)
-                      : 0
-
-                    if (activeCaller !== undefined) {
-                      for (
-                        const [flag, bit] of [
-                          [ACCESS4_READ, 0o4],
-                          [observation.value.kind === "directory" ? ACCESS4_LOOKUP : ACCESS4_EXECUTE, 0o1]
-                        ] as const
-                      ) {
-                        if ((supported & flag) === 0) continue
-
-                        const allowed = yield* activeCaller.accessReference(reference, bit).pipe(
-                          Effect.as(true),
-                          Effect.catchTag("FsError", (error) =>
-                            error.code === "AccessDenied"
-                              ? Effect.succeed(false)
-                              : Effect.fail(failureForFs(error)))
-                        )
-
-                        if (allowed) granted |= flag
-                      }
-                    }
-
-                    return { supported, granted }
-                  }),
-                  ({ supported, granted }) => new Writer().uint32(supported).uint32(granted).bytes()
-                )
-              }
-
-              case "Commit": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-
-                // Every writable mutation is committed before publication. There is no unstable
-                // range to flush, but a failed provider must not produce a success reply.
-                return statusResult(
-                  requireRegularFile(current),
-                  () => new Writer().fixedOpaque(writeVerifier).bytes()
-                )
-              }
-
-              case "Readlink":
-                // Section 18.24.4: an object that is not a symbolic link is NFS4ERR_WRONG_TYPE.
-                return statusResult(
-                  withCurrent((reference) =>
-                    mapFs(export_.observeMetadata(reference)).pipe(
-                      Effect.filterOrFail(
-                        (observation) => observation.value.kind === "symlink",
-                        () => Status.WRONG_TYPE
-                      ),
-                      Effect.andThen(mapFs(export_.readLink(reference))),
-                      Effect.filterOrFail(
-                        (target) => byteLength(target.length) <= options.limits.maxStringBytes,
-                        () => Status.SERVERFAULT
-                      )
-                    )
-                  ),
-                  (target) => new Writer().opaque(target).bytes()
-                )
-              case "Readdir": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-                const directory = current
-                const value = operation.value
-
-                return mapFs(export_.observeDirectory(directory)).pipe(
-                  Effect.flatMap((observation) =>
+                  return statusResult(
                     Effect.gen(function*() {
-                      const requested = requestedAttributes(value.attrs)
+                      const observation = yield* mapFs(export_.observeMetadata(reference))
+                      const supported = requested & supportedAccessMask(observation.value.kind)
 
-                      const supportedRequested = requested.filter((attribute) =>
-                        supportedAttributes.includes(attribute)
+                      let granted = activeCaller === undefined
+                        ? grantedAccess(supported, observation.value, call.credentials)
+                        : 0
+
+                      if (activeCaller !== undefined) {
+                        for (
+                          const [flag, bit] of [
+                            [ACCESS4_READ, 0o4],
+                            [observation.value.kind === "directory" ? ACCESS4_LOOKUP : ACCESS4_EXECUTE, 0o1]
+                          ] as const
+                        ) {
+                          if ((supported & flag) === 0) continue
+
+                          const allowed = yield* activeCaller.accessReference(reference, bit).pipe(
+                            Effect.as(true),
+                            Effect.catchTag("FsError", (error) =>
+                              error.code === "AccessDenied"
+                                ? Effect.succeed(false)
+                                : Effect.fail(failureForFs(error)))
+                          )
+
+                          if (allowed) granted |= flag
+                        }
+                      }
+
+                      return { supported, granted }
+                    }),
+                    ({ supported, granted }) =>
+                      encodeStatusBody(options.limits, [
+                        field(XdrCodec.uint32, supported),
+                        field(XdrCodec.uint32, granted)
+                      ])
+                  )
+                }
+
+                case "Commit": {
+                  if (current === undefined) return Effect.succeed(noCurrent())
+
+                  // Every writable mutation is committed before publication. There is no unstable
+                  // range to flush, but a failed provider must not produce a success reply.
+                  return statusResult(
+                    requireRegularFile(current),
+                    () =>
+                      xdr.encode(
+                        writeVerifier,
+                        XdrCodec.fixedOpaque(8),
+                        options.limits,
+                        ByteSize.toNumberUnsafe(options.limits.maxRecordBytes)
                       )
+                  )
+                }
 
-                      const usage = yield* mapFs(sampleUsage(supportedRequested))
-
-                      const verifier = makeCookieVerifier(storageGeneration, observation.revision)
-
-                      if (value.cookie !== 0n && bytesKey(value.verifier) !== bytesKey(verifier)) {
-                        return { code: operation.code, status: Status.NOT_SAME } satisfies ResultPart
-                      }
-
-                      if (value.cookie === 1n || value.cookie === 2n) {
-                        return { code: operation.code, status: Status.BAD_COOKIE } satisfies ResultPart
-                      }
-
-                      const start = value.cookie === 0n ? 0 : Number(value.cookie - 2n)
-
-                      if (!Number.isSafeInteger(start) || start < 0 || start > observation.value.length) {
-                        return { code: operation.code, status: Status.BAD_COOKIE } satisfies ResultPart
-                      }
-
-                      const writer = new Writer().fixedOpaque(verifier)
-                      let count = 0
-                      let directoryBytes = 0
-
-                      const responseLimit = Math.min(
-                        value.maxcount,
-                        ByteSize.toNumberUnsafe(options.limits.maxReaddirReplyBytes)
+                case "Readlink":
+                  // Section 18.24.4: an object that is not a symbolic link is NFS4ERR_WRONG_TYPE.
+                  return statusResult(
+                    withCurrent((reference) =>
+                      mapFs(export_.observeMetadata(reference)).pipe(
+                        Effect.filterOrFail(
+                          (observation) => observation.value.kind === "symlink",
+                          () => Status.WRONG_TYPE
+                        ),
+                        Effect.andThen(mapFs(export_.readLink(reference))),
+                        Effect.filterOrFail(
+                          (target) => byteLength(target.length) <= options.limits.maxStringBytes,
+                          () => Status.SERVERFAULT
+                        )
                       )
+                    ),
+                    (target) =>
+                      xdr.encode(
+                        target,
+                        XdrCodec.opaque(),
+                        options.limits,
+                        ByteSize.toNumberUnsafe(options.limits.maxRecordBytes)
+                      )
+                  )
+                case "Readdir": {
+                  if (current === undefined) return Effect.succeed(noCurrent())
+                  const directory = current
+                  const value = operation.value
 
-                      if (responseLimit < 16) {
-                        return { code: operation.code, status: Status.TOOSMALL } satisfies ResultPart
-                      }
+                  return mapFs(export_.observeDirectory(directory)).pipe(
+                    Effect.flatMap((observation) =>
+                      Effect.gen(function*() {
+                        const requested = requestedAttributes(value.attrs)
 
-                      for (
-                        let item = start;
-                        item < observation.value.length && count < options.limits.maxReaddirEntries;
-                        item++
-                      ) {
-                        const entry = observation.value[item]!
+                        const supportedRequested = requested.filter((attribute) =>
+                          supportedAttributes.includes(attribute)
+                        )
 
-                        if (!isValidName(entry.name, options.limits.maxNameBytes)) {
-                          return { code: operation.code, status: Status.INVAL } satisfies ResultPart
+                        const usage = yield* mapFs(sampleUsage(supportedRequested))
+
+                        const verifier = makeCookieVerifier(storageGeneration, observation.revision)
+
+                        if (value.cookie !== 0n && bytesKey(value.verifier) !== bytesKey(verifier)) {
+                          return { code: operation.code, status: Status.NOT_SAME } satisfies ResultPart
                         }
 
-                        const attrs = supportedRequested.length === 0
-                          ? new Writer().uint32(0).uint32(0).bytes()
-                          : yield* filehandleFor(entry.reference, supportedRequested).pipe(
-                            Effect.flatMap((handle) =>
-                              mapFs(export_.observeMetadata(entry.reference)).pipe(
-                                Effect.flatMap((metadata) =>
-                                  requireAttributes(
-                                    encodeAttributes(
-                                      supportedRequested,
-                                      metadata,
-                                      handle,
-                                      export_,
-                                      options,
-                                      supportedAttributes,
-                                      usage
+                        if (value.cookie === 1n || value.cookie === 2n) {
+                          return { code: operation.code, status: Status.BAD_COOKIE } satisfies ResultPart
+                        }
+
+                        const start = value.cookie === 0n ? 0 : Number(value.cookie - 2n)
+
+                        if (!Number.isSafeInteger(start) || start < 0 || start > observation.value.length) {
+                          return { code: operation.code, status: Status.BAD_COOKIE } satisfies ResultPart
+                        }
+
+                        const paddedTagBytes = parsed.tag.length + (4 - parsed.tag.length % 4) % 4
+
+                        const envelopeBytes = 44 + paddedTagBytes +
+                          parts.reduce((bytes, part) => bytes + 8 + (part.body?.length ?? 0), 0)
+
+                        const responseLimit = Math.min(
+                          value.maxcount,
+                          ByteSize.toNumberUnsafe(options.limits.maxReaddirReplyBytes),
+                          Math.max(0, ByteSize.toNumberUnsafe(maxRpcResponseBytes) - envelopeBytes),
+                          Math.max(0, (activeSession?.fore.maxResponse ?? Number.MAX_SAFE_INTEGER) - envelopeBytes),
+                          shouldCache
+                            ? Math.max(
+                              0,
+                              (activeSession?.fore.maxCachedResponse ?? Number.MAX_SAFE_INTEGER) - envelopeBytes
+                            )
+                            : Number.MAX_SAFE_INTEGER
+                        )
+
+                        if (responseLimit < 16) {
+                          return { code: operation.code, status: Status.TOOSMALL } satisfies ResultPart
+                        }
+
+                        const writer = yield* xdr.openWriter(
+                          options.limits,
+                          ByteSize.toNumberUnsafe(options.limits.maxRecordBytes)
+                        )
+
+                        yield* writer.write(XdrCodec.fixedOpaque(8), verifier)
+                        let count = 0
+                        let directoryBytes = 0
+
+                        for (
+                          let item = start;
+                          item < observation.value.length && count < options.limits.maxReaddirEntries;
+                          item++
+                        ) {
+                          const entry = observation.value[item]!
+
+                          if (!isValidName(entry.name, options.limits.maxNameBytes)) {
+                            return { code: operation.code, status: Status.INVAL } satisfies ResultPart
+                          }
+
+                          const attrs = supportedRequested.length === 0
+                            ? yield* encodeStatusBody(options.limits, [
+                              field(XdrCodec.uint32, 0),
+                              field(XdrCodec.uint32, 0)
+                            ])
+                            : yield* filehandleFor(entry.reference, supportedRequested).pipe(
+                              Effect.flatMap((handle) =>
+                                mapFs(export_.observeMetadata(entry.reference)).pipe(
+                                  Effect.flatMap((metadata) =>
+                                    requireAttributes(
+                                      encodeAttributes(
+                                        supportedRequested,
+                                        metadata,
+                                        handle,
+                                        export_,
+                                        options,
+                                        supportedAttributes,
+                                        usage
+                                      )
                                     )
                                   )
                                 )
-                              )
-                            ),
-                            // With rdattr_error requested, a failing entry reports its own error
-                            // instead of failing the whole READDIR (RFC 8881 Section 18.23.3).
-                            Effect.catch((status) =>
-                              supportedRequested.includes(11)
-                                ? Effect.succeed(encodeReaddirError(status))
-                                : Effect.fail(status)
+                              ),
+                              // With rdattr_error requested, a failing entry reports its own error.
+                              Effect.catch((error): Effect.Effect<Uint8Array, number | XdrEncodeError> => {
+                                if (error instanceof XdrEncodeError) return Effect.fail(error)
+
+                                if (supportedRequested.includes(11)) return encodeReaddirError(error, options.limits)
+
+                                return Effect.fail(error)
+                              })
                             )
-                          )
 
-                        const encoded = new Writer().boolean(true).uint64(BigInt(item + 3)).opaque(entry.name)
-                          .fixedOpaque(attrs).bytes()
+                          const encoded = yield* encodeStatusBody(options.limits, [
+                            field(XdrCodec.boolean, true),
+                            field(XdrCodec.uint64, BigInt(item + 3)),
+                            field(XdrCodec.opaque(), entry.name),
+                            (itemWriter) => itemWriter.appendEncoded(attrs)
+                          ])
 
-                        const entryDirectoryBytes = 12 + entry.name.length + (4 - entry.name.length % 4) % 4
-
-                        if (
-                          (value.dircount !== 0 && directoryBytes + entryDirectoryBytes > value.dircount) ||
-                          writer.length + encoded.length + 8 > responseLimit
-                        ) {
-                          if (count === 0) {
-                            return { code: operation.code, status: Status.TOOSMALL } satisfies ResultPart
-                          }
-
-                          break
-                        }
-
-                        writer.fixedOpaque(encoded)
-                        directoryBytes += entryDirectoryBytes
-                        count += 1
-                      }
-
-                      writer.boolean(false).boolean(start + count >= observation.value.length)
-
-                      return { code: operation.code, status: Status.OK, body: writer.bytes() } satisfies ResultPart
-                    })
-                  ),
-                  Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
-                )
-              }
-
-              case "Open": {
-                if (activeSession === undefined) {
-                  return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
-                }
-
-                if (current === undefined) return Effect.succeed(noCurrent())
-                const directory = current
-                const value = operation.value
-
-                // The owner's clientid MAY hold any value; the client ID comes from the session
-                // (RFC 8881 Section 18.16.3), so it is never checked.
-
-                // No state survives a restart and no delegation is ever granted, so a reclaim finds
-                // no grace period and a delegation stateid can never be valid (Section 15.1.9.3).
-                if (
-                  value.claim === CLAIM_PREVIOUS || value.claim === CLAIM_DELEGATE_PREV ||
-                  value.claim === CLAIM_DELEG_PREV_FH
-                ) {
-                  return Effect.succeed({ code: operation.code, status: Status.NO_GRACE })
-                }
-
-                if (value.claim === CLAIM_DELEGATE_CUR || value.claim === CLAIM_DELEG_CUR_FH) {
-                  return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                }
-
-                // share_access carries the access mode in its low bits and optional delegation
-                // "want" hints above them (RFC 8881 Section 18.16.3). Hints are honored with an
-                // extended no-delegation answer because this server grants no delegations.
-                const accessMode = value.access & OPEN4_SHARE_ACCESS_MASK
-                const delegationWant = value.access & OPEN4_SHARE_ACCESS_WANT_DELEG_MASK
-
-                const unknownBits = value.access &
-                  ~(OPEN4_SHARE_ACCESS_MASK | OPEN4_SHARE_ACCESS_WANT_DELEG_MASK | OPEN4_SHARE_ACCESS_WANT_HINT_MASK)
-
-                if (
-                  accessMode === 0 || unknownBits !== 0 || delegationWant > OPEN4_SHARE_ACCESS_WANT_CANCEL ||
-                  value.deny > OPEN4_SHARE_DENY_BOTH
-                ) {
-                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
-                }
-
-                const wantsWrite = (accessMode & OPEN4_SHARE_ACCESS_WRITE) !== 0
-
-                if (value.openHow !== 0) {
-                  // Section 18.16.3: OPEN4_CREATE needs CLAIM_NULL here (the delegation claims
-                  // were answered above). Structural errors keep their precedence over ROFS.
-                  if (value.claim !== 0) return Effect.succeed({ code: operation.code, status: Status.INVAL })
-
-                  if (!options.writable) return rejectMutation([value.name], "none", Status.SYMLINK)
-
-                  return Effect.uninterruptibleMask((restore) =>
-                    Effect.gen(function*() {
-                      yield* restore(requireDirectory(directory, Status.SYMLINK))
-                      const create = value.create!
-
-                      const found = yield* restore(
-                        export_.lookup(directory, value.name).pipe(
-                          Effect.catch((error) =>
-                            error instanceof InvalidNameError || error.code !== "NotFound"
-                              ? Effect.fail(nameStatus(error)) :
-                              Effect.void
-                          )
-                        )
-                      )
-
-                      const observed = found === undefined
-                        ? undefined
-                        : yield* restore(mapFs(export_.observeMetadata(found)))
-
-                      if (observed !== undefined && create.mode === 1) return yield* Effect.fail(Status.EXIST)
-
-                      // Existing-file creates ignore initial values; the attribute mask and
-                      // XDR structure still obey the selected create mode's restrictions.
-                      const attrs = yield* creationAttributes(create, options.limits, observed !== undefined)
-
-                      if (observed !== undefined) {
-                        if (create.mode >= 2) {
-                          const times = attrs.settings.times
+                          const entryDirectoryBytes = 12 + entry.name.length + (4 - entry.name.length % 4) % 4
 
                           if (
-                            observed.value.kind !== "file" || times.access.kind !== "value" ||
-                            times.modification.kind !== "value" ||
-                            observed.value.atimeNs !== times.access.nanoseconds ||
-                            observed.value.mtimeNs !== times.modification.nanoseconds
-                          ) return yield* Effect.fail(Status.EXIST)
-                        }
+                            (value.dircount !== 0 && directoryBytes + entryDirectoryBytes > value.dircount) ||
+                            (yield* writer.length) + encoded.length + 8 > responseLimit
+                          ) {
+                            if (count === 0) {
+                              return { code: operation.code, status: Status.TOOSMALL } satisfies ResultPart
+                            }
 
-                        if (observed.value.kind !== "file") {
-                          return yield* Effect.fail(observed.value.kind === "symlink" ? Status.SYMLINK : Status.ISDIR)
-                        }
-                      }
-
-                      const owner = bytesKey(value.owner)
-
-                      const existing = found === undefined ?
-                        undefined :
-                        [...opens.values()].find((open) =>
-                          open.client === activeSession!.client && open.owner === owner && open.reference === found
-                        )
-
-                      if (
-                        found !== undefined && [...opens.values()].some((open) =>
-                          open.reference === found &&
-                          ((open.deny & accessMode) !== 0 || (value.deny & open.access) !== 0)
-                        )
-                      ) {
-                        return yield* Effect.fail(Status.SHARE_DENIED)
-                      }
-
-                      if (existing === undefined && opens.size >= options.limits.maxOpens) {
-                        return yield* Effect.fail(Status.DELAY)
-                      }
-
-                      const truncate = create.mode === 0 && attrs.settings.initialSize === 0n && observed !== undefined
-
-                      if (truncate && !wantsWrite) return yield* Effect.fail(Status.INVAL)
-
-                      const opened = yield* restore(
-                        export_.openChild(directory, value.name, {
-                          ...attrs.settings,
-                          access: accessMode === 3 ? "readWrite" : wantsWrite ? "write" : "read",
-                          create: found === undefined ? "exclusive" : "ifMissing",
-                          followFinalSymlink: false,
-                          truncate,
-                          expectedChild: found === undefined ? null : {
-                            reference: found,
-                            revision: observed!.revision,
-                            atimeNs: observed!.value.atimeNs,
-                            mtimeNs: observed!.value.mtimeNs
+                            break
                           }
-                        }).pipe(Effect.mapError((error) => {
-                          if (error instanceof ExportCapacityError) return Status.DELAY
 
-                          if (error instanceof InvalidNameError) return nameStatus(error)
+                          yield* writer.appendEncoded(encoded)
+                          directoryBytes += entryDirectoryBytes
+                          count += 1
+                        }
 
-                          if (error.code === "StaleReference") return Status.DELAY
+                        yield* writer.write(XdrCodec.boolean, false)
+                        yield* writer.write(XdrCodec.boolean, start + count >= observation.value.length)
 
-                          return failureForFs(error)
-                        }))
-                      )
-
-                      let id: Uint8Array
-
-                      if (existing === undefined) {
-                        id = makeStateId(options.generation, openSerial++, 1)
-                        opens.set(stateIdKey(id), {
-                          id,
-                          sequence: 1,
-                          access: accessMode,
-                          deny: value.deny,
-                          owner,
-                          client: activeSession!.client,
-                          reference: opened.reference,
-                          readFile: accessMode & OPEN4_SHARE_ACCESS_READ ? opened.handle : undefined,
-                          writeFile: wantsWrite ? opened.handle : undefined,
-                          close: opened.close
-                        })
-                      } else {
-                        const needsRead = (accessMode & OPEN4_SHARE_ACCESS_READ) !== 0 &&
-                          existing.readFile === undefined
-
-                        const needsWrite = wantsWrite && existing.writeFile === undefined
-
-                        if (needsRead || needsWrite) {
-                          if (needsRead) existing.readFile = opened.handle
-
-                          if (needsWrite) existing.writeFile = opened.handle
-                          existing.close = opened.close.pipe(Effect.andThen(existing.close))
-                        } else yield* opened.close
-                        existing.access |= accessMode
-                        existing.deny |= value.deny
-                        advanceStateId(existing)
-                        id = existing.id
-                      }
-
-                      current = opened.reference
-                      const applied = opened.created ? attrs.attributes : truncate ? [4] : []
-
-                      return openResult(
-                        id,
-                        opened.directory.before,
-                        true,
-                        opened.directory.after,
-                        create.mode >= 2 ? [...applied, 47, 53] : applied
-                      )
-                    })
-                  ).pipe(Effect.catch((status) => Effect.succeed({ code: operation.code, status })))
+                        return {
+                          code: operation.code,
+                          status: Status.OK,
+                          body: yield* writer.finish
+                        } satisfies ResultPart
+                      })
+                    ),
+                    Effect.catchIf(Predicate.isNumber, (status) => Effect.succeed({ code: operation.code, status }))
+                  )
                 }
 
-                const target = value.claim === 4
-                  ? Effect.succeed({ revision: 0n, reference: directory })
-                  : requireDirectory(directory, Status.SYMLINK).pipe(
-                    Effect.andThen(mapFs(export_.observeMetadata(directory))),
-                    Effect.flatMap((directoryObservation) =>
-                      export_.lookup(directory, value.name).pipe(
-                        Effect.mapError(nameStatus),
-                        Effect.map((reference) => ({ revision: directoryObservation.revision, reference }))
-                      )
-                    )
-                  )
+                case "Open": {
+                  if (activeSession === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+                  }
 
-                return target.pipe(
-                  Effect.tap(({ reference }) => requireRegularFile(reference)),
-                  // Write access is refused only once the target is known to be a regular file.
-                  Effect.tap(() => wantsWrite && !options.writable ? Effect.fail(Status.ROFS) : Effect.void),
-                  Effect.flatMap(({ revision, reference }) =>
-                    Effect.uninterruptibleMask((restore) =>
-                      Effect.suspend(() => {
+                  if (current === undefined) return Effect.succeed(noCurrent())
+                  const directory = current
+                  const value = operation.value
+
+                  // The owner's clientid MAY hold any value; the client ID comes from the session
+                  // (RFC 8881 Section 18.16.3), so it is never checked.
+
+                  // No state survives a restart and no delegation is ever granted, so a reclaim finds
+                  // no grace period and a delegation stateid can never be valid (Section 15.1.9.3).
+                  if (
+                    value.claim === CLAIM_PREVIOUS || value.claim === CLAIM_DELEGATE_PREV ||
+                    value.claim === CLAIM_DELEG_PREV_FH
+                  ) {
+                    return Effect.succeed({ code: operation.code, status: Status.NO_GRACE })
+                  }
+
+                  if (value.claim === CLAIM_DELEGATE_CUR || value.claim === CLAIM_DELEG_CUR_FH) {
+                    return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                  }
+
+                  // share_access carries the access mode in its low bits and optional delegation
+                  // "want" hints above them (RFC 8881 Section 18.16.3). Hints are honored with an
+                  // extended no-delegation answer because this server grants no delegations.
+                  const accessMode = value.access & OPEN4_SHARE_ACCESS_MASK
+                  const delegationWant = value.access & OPEN4_SHARE_ACCESS_WANT_DELEG_MASK
+
+                  const unknownBits = value.access &
+                    ~(OPEN4_SHARE_ACCESS_MASK | OPEN4_SHARE_ACCESS_WANT_DELEG_MASK | OPEN4_SHARE_ACCESS_WANT_HINT_MASK)
+
+                  if (
+                    accessMode === 0 || unknownBits !== 0 || delegationWant > OPEN4_SHARE_ACCESS_WANT_CANCEL ||
+                    value.deny > OPEN4_SHARE_DENY_BOTH
+                  ) {
+                    return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                  }
+
+                  const wantsWrite = (accessMode & OPEN4_SHARE_ACCESS_WRITE) !== 0
+
+                  if (value.openHow !== 0) {
+                    // Section 18.16.3: OPEN4_CREATE needs CLAIM_NULL here (the delegation claims
+                    // were answered above). Structural errors keep their precedence over ROFS.
+                    if (value.claim !== 0) return Effect.succeed({ code: operation.code, status: Status.INVAL })
+
+                    if (!options.writable) return rejectMutation([value.name], "none", Status.SYMLINK)
+
+                    return Effect.uninterruptibleMask((restore) =>
+                      Effect.gen(function*() {
+                        yield* restore(requireDirectory(directory, Status.SYMLINK))
+                        const create = value.create!
+
+                        const found = yield* restore(
+                          export_.lookup(directory, value.name).pipe(
+                            Effect.catch((error) =>
+                              error instanceof InvalidNameError || error.code !== "NotFound"
+                                ? Effect.fail(nameStatus(error)) :
+                                Effect.void
+                            )
+                          )
+                        )
+
+                        const observed = found === undefined
+                          ? undefined
+                          : yield* restore(mapFs(export_.observeMetadata(found)))
+
+                        if (observed !== undefined && create.mode === 1) return yield* Effect.fail(Status.EXIST)
+
+                        // Existing-file creates ignore initial values; the attribute mask and
+                        // XDR structure still obey the selected create mode's restrictions.
+                        const attrs = yield* creationAttributes(create, options.limits, observed !== undefined).pipe(
+                          Effect.mapError((error) => error instanceof XdrDecodeError ? Status.BADXDR : error)
+                        )
+
+                        if (observed !== undefined) {
+                          if (create.mode >= 2) {
+                            const times = attrs.settings.times
+
+                            if (
+                              observed.value.kind !== "file" || times.access.kind !== "value" ||
+                              times.modification.kind !== "value" ||
+                              observed.value.atimeNs !== times.access.nanoseconds ||
+                              observed.value.mtimeNs !== times.modification.nanoseconds
+                            ) return yield* Effect.fail(Status.EXIST)
+                          }
+
+                          if (observed.value.kind !== "file") {
+                            return yield* Effect.fail(observed.value.kind === "symlink" ? Status.SYMLINK : Status.ISDIR)
+                          }
+                        }
+
                         const owner = bytesKey(value.owner)
 
-                        const existing = [...opens.values()].find((open) =>
-                          open.client === activeSession!.client && open.owner === owner && open.reference === reference
+                        const existing = found === undefined ?
+                          undefined :
+                          [...opens.values()].find((open) =>
+                            open.client === activeSession!.client && open.owner === owner && open.reference === found
+                          )
+
+                        if (
+                          found !== undefined && [...opens.values()].some((open) =>
+                            open.reference === found &&
+                            ((open.deny & accessMode) !== 0 || (value.deny & open.access) !== 0)
+                          )
+                        ) {
+                          return yield* Effect.fail(Status.SHARE_DENIED)
+                        }
+
+                        if (existing === undefined && opens.size >= options.limits.maxOpens) {
+                          return yield* Effect.fail(Status.DELAY)
+                        }
+
+                        const truncate = create.mode === 0 && attrs.settings.initialSize === 0n &&
+                          observed !== undefined
+
+                        if (truncate && !wantsWrite) return yield* Effect.fail(Status.INVAL)
+
+                        const opened = yield* restore(
+                          export_.openChild(directory, value.name, {
+                            ...attrs.settings,
+                            access: accessMode === 3 ? "readWrite" : wantsWrite ? "write" : "read",
+                            create: found === undefined ? "exclusive" : "ifMissing",
+                            followFinalSymlink: false,
+                            truncate,
+                            expectedChild: found === undefined ? null : {
+                              reference: found,
+                              revision: observed!.revision,
+                              atimeNs: observed!.value.atimeNs,
+                              mtimeNs: observed!.value.mtimeNs
+                            }
+                          }).pipe(Effect.mapError((error) => {
+                            if (error instanceof ExportCapacityError) return Status.DELAY
+
+                            if (error instanceof InvalidNameError) return nameStatus(error)
+
+                            if (error.code === "StaleReference") return Status.DELAY
+
+                            return failureForFs(error)
+                          }))
                         )
 
-                        // Section 9.7 checks every open, including this open-owner's own state.
-                        const denied = [...opens.values()].some((open) =>
-                          open.reference === reference &&
-                          ((open.deny & accessMode) !== 0 || (value.deny & open.access) !== 0)
-                        )
+                        let id: Uint8Array
 
-                        if (denied) {
-                          return Effect.succeed(
-                            { code: operation.code, status: Status.SHARE_DENIED } satisfies ResultPart
-                          )
-                        }
-
-                        if (existing !== undefined) {
-                          // The same open-owner upgrades its reservation (Section 9.7).
-                          // Its mapped caller may have lost access since the earlier OPEN.
-                          const nextAccess = existing.access | accessMode
-
-                          const permission = activeCaller === undefined ?
-                            Effect.void :
-                            mapFs(
-                              activeCaller.accessReference(
-                                reference,
-                                (accessMode & 1 ? 0o4 : 0) | (accessMode & 2 ? 0o2 : 0)
-                              )
-                            )
-
-                          const addedAccess = nextAccess & ~existing.access
-
-                          const heldHandle = addedAccess === OPEN4_SHARE_ACCESS_READ
-                            ? existing.readFile
-                            : existing.writeFile
-
-                          const replacement = addedAccess === 0 || heldHandle !== undefined ?
-                            Effect.succeed(null) :
-                            mapFs(export_.open(reference, addedAccess === OPEN4_SHARE_ACCESS_READ ? "read" : "write"))
-
-                          let transferred = false
-
-                          return restore(permission).pipe(
-                            Effect.andThen(Effect.acquireUseRelease(
-                              restore(replacement),
-                              (opened) =>
-                                opened === null ? Effect.void : Effect.sync(() => {
-                                  const previousClose = existing.close
-
-                                  if (addedAccess === OPEN4_SHARE_ACCESS_READ) existing.readFile = opened.handle
-
-                                  if (addedAccess === OPEN4_SHARE_ACCESS_WRITE) existing.writeFile = opened.handle
-
-                                  existing.close = opened.close.pipe(Effect.andThen(previousClose))
-                                  transferred = true
-                                }),
-                              (opened) => opened === null || transferred ? Effect.void : opened.close
-                            )),
-                            Effect.map(() => {
-                              existing.access = nextAccess
-                              existing.deny |= value.deny
-                              advanceStateId(existing)
-                              current = reference
-
-                              return openResult(existing.id, revision, value.claim === 4)
-                            })
-                          )
-                        }
-
-                        if (opens.size >= options.limits.maxOpens) {
-                          return Effect.succeed({ code: operation.code, status: Status.DELAY } satisfies ResultPart)
-                        }
-
-                        const serial = openSerial++
-
-                        return restore(
-                          mapFs(export_.open(reference, accessMode === 3 ? "readWrite" : wantsWrite ? "write" : "read"))
-                        ).pipe(
-                          Effect.map((opened): ResultPart => {
-                            const id = makeStateId(options.generation, serial, 1)
-                            opens.set(stateIdKey(id), {
-                              id,
-                              sequence: 1,
-                              access: accessMode,
-                              deny: value.deny,
-                              owner,
-                              client: activeSession!.client,
-                              reference,
-                              readFile: (accessMode & OPEN4_SHARE_ACCESS_READ) !== 0 ? opened.handle : undefined,
-                              writeFile: wantsWrite ? opened.handle : undefined,
-                              close: opened.close
-                            })
-                            current = reference
-
-                            return openResult(id, revision, value.claim === 4)
+                        if (existing === undefined) {
+                          id = makeStateId(options.generation, openSerial++, 1)
+                          opens.set(stateIdKey(id), {
+                            id,
+                            sequence: 1,
+                            access: accessMode,
+                            deny: value.deny,
+                            owner,
+                            client: activeSession!.client,
+                            reference: opened.reference,
+                            readFile: accessMode & OPEN4_SHARE_ACCESS_READ ? opened.handle : undefined,
+                            writeFile: wantsWrite ? opened.handle : undefined,
+                            close: opened.close
                           })
+                        } else {
+                          const needsRead = (accessMode & OPEN4_SHARE_ACCESS_READ) !== 0 &&
+                            existing.readFile === undefined
+
+                          const needsWrite = wantsWrite && existing.writeFile === undefined
+
+                          if (needsRead || needsWrite) {
+                            if (needsRead) existing.readFile = opened.handle
+
+                            if (needsWrite) existing.writeFile = opened.handle
+                            existing.close = opened.close.pipe(Effect.andThen(existing.close))
+                          } else yield* opened.close
+                          existing.access |= accessMode
+                          existing.deny |= value.deny
+                          advanceStateId(existing)
+                          id = existing.id
+                        }
+
+                        current = opened.reference
+                        const applied = opened.created ? attrs.attributes : truncate ? [4] : []
+
+                        return yield* openResult(
+                          id,
+                          opened.directory.before,
+                          true,
+                          opened.directory.after,
+                          create.mode >= 2 ? [...applied, 47, 53] : applied
                         )
                       })
+                    ).pipe(
+                      Effect.catchIf(Predicate.isNumber, (status) => Effect.succeed({ code: operation.code, status }))
                     )
-                  ),
-                  Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
-                )
+                  }
 
-                function openResult(
-                  id: Uint8Array,
-                  revision: bigint,
-                  atomic: boolean,
-                  after = revision,
-                  attributes: ReadonlyArray<number> = []
-                ): ResultPart {
-                  currentStateid = id
-
-                  const body = encodeStatusBody((writer) => {
-                    writer.fixedOpaque(id).boolean(atomic)
-                      .uint64(BigInt.asUintN(64, revision))
-                      .uint64(BigInt.asUintN(64, after)).uint32(0)
-                    writeBitmap(writer, wordsFor(attributes))
-
-                    if (delegationWant === 0) {
-                      writer.uint32(OPEN_DELEGATE_NONE)
-                    } else {
-                      // Section 18.16.3: a want that is not satisfied MUST be answered with
-                      // OPEN_DELEGATE_NONE_EXT and a reason. NOT_WANTED and CANCELLED carry no body,
-                      // and NOT_SUPP_FTYPE is the honest reason for a server without delegations.
-                      const why = delegationWant === OPEN4_SHARE_ACCESS_WANT_NO_DELEG
-                        ? WND4_NOT_WANTED
-                        : delegationWant === OPEN4_SHARE_ACCESS_WANT_CANCEL
-                        ? WND4_CANCELLED
-                        : WND4_NOT_SUPP_FTYPE
-
-                      writer.uint32(OPEN_DELEGATE_NONE_EXT).uint32(why)
-                    }
-                  })
-
-                  return { code: operation.code, status: Status.OK, body }
-                }
-              }
-
-              case "Read": {
-                // RFC 8881 Section 18.22.3 lets the server return fewer bytes than requested.
-                const value = {
-                  ...operation.value,
-                  count: Math.min(operation.value.count, ByteSize.toNumberUnsafe(options.limits.maxReadBytes))
-                }
-
-                if (current === undefined) return Effect.succeed(noCurrent())
-
-                const readPermission = activeCaller === undefined
-                  ? Effect.void
-                  : activeCaller.accessReference(current, 0o4).pipe(Effect.mapError(failureForFs))
-
-                if (isAllZero(value.stateid) || isAllOnes(value.stateid)) {
-                  const reference = current
-
-                  // Section 9.1.2: the anonymous stateid must still respect a deny-read share
-                  // reservation; the READ-bypass stateid (all ones) may ignore it.
-                  const denied = isAllZero(value.stateid) &&
-                    [...opens.values()].some((open) =>
-                      open.reference === reference && (open.deny & OPEN4_SHARE_DENY_READ) !== 0
+                  const target = value.claim === 4
+                    ? Effect.succeed({ revision: 0n, reference: directory })
+                    : requireDirectory(directory, Status.SYMLINK).pipe(
+                      Effect.andThen(mapFs(export_.observeMetadata(directory))),
+                      Effect.flatMap((directoryObservation) =>
+                        export_.lookup(directory, value.name).pipe(
+                          Effect.mapError(nameStatus),
+                          Effect.map((reference) => ({ revision: directoryObservation.revision, reference }))
+                        )
+                      )
                     )
 
-                  return requireRegularFile(reference).pipe(
-                    Effect.andThen(denied ? Effect.fail(Status.LOCKED) : Effect.void),
-                    Effect.andThen(readPermission),
-                    Effect.andThen(
-                      Effect.acquireUseRelease(
-                        mapFs(export_.open(reference)),
-                        (opened) => readFrom(opened.handle),
-                        (opened) => opened.close
+                  return target.pipe(
+                    Effect.tap(({ reference }) => requireRegularFile(reference)),
+                    // Write access is refused only once the target is known to be a regular file.
+                    Effect.tap(() => wantsWrite && !options.writable ? Effect.fail(Status.ROFS) : Effect.void),
+                    Effect.flatMap(({ revision, reference }) =>
+                      Effect.uninterruptibleMask((restore) =>
+                        Effect.suspend(() => {
+                          const owner = bytesKey(value.owner)
+
+                          const existing = [...opens.values()].find((open) =>
+                            open.client === activeSession!.client && open.owner === owner &&
+                            open.reference === reference
+                          )
+
+                          // Section 9.7 checks every open, including this open-owner's own state.
+                          const denied = [...opens.values()].some((open) =>
+                            open.reference === reference &&
+                            ((open.deny & accessMode) !== 0 || (value.deny & open.access) !== 0)
+                          )
+
+                          if (denied) {
+                            return Effect.succeed(
+                              { code: operation.code, status: Status.SHARE_DENIED } satisfies ResultPart
+                            )
+                          }
+
+                          if (existing !== undefined) {
+                            // The same open-owner upgrades its reservation (Section 9.7).
+                            // Its mapped caller may have lost access since the earlier OPEN.
+                            const nextAccess = existing.access | accessMode
+
+                            const permission = activeCaller === undefined ?
+                              Effect.void :
+                              mapFs(
+                                activeCaller.accessReference(
+                                  reference,
+                                  (accessMode & 1 ? 0o4 : 0) | (accessMode & 2 ? 0o2 : 0)
+                                )
+                              )
+
+                            const addedAccess = nextAccess & ~existing.access
+
+                            const heldHandle = addedAccess === OPEN4_SHARE_ACCESS_READ
+                              ? existing.readFile
+                              : existing.writeFile
+
+                            const replacement = addedAccess === 0 || heldHandle !== undefined ?
+                              Effect.succeed(null) :
+                              mapFs(export_.open(reference, addedAccess === OPEN4_SHARE_ACCESS_READ ? "read" : "write"))
+
+                            let transferred = false
+
+                            return restore(permission).pipe(
+                              Effect.andThen(Effect.acquireUseRelease(
+                                restore(replacement),
+                                (opened) =>
+                                  opened === null ? Effect.void : Effect.sync(() => {
+                                    const previousClose = existing.close
+
+                                    if (addedAccess === OPEN4_SHARE_ACCESS_READ) existing.readFile = opened.handle
+
+                                    if (addedAccess === OPEN4_SHARE_ACCESS_WRITE) existing.writeFile = opened.handle
+
+                                    existing.close = opened.close.pipe(Effect.andThen(previousClose))
+                                    transferred = true
+                                  }),
+                                (opened) => opened === null || transferred ? Effect.void : opened.close
+                              )),
+                              Effect.flatMap(() => {
+                                existing.access = nextAccess
+                                existing.deny |= value.deny
+                                advanceStateId(existing)
+                                current = reference
+
+                                return openResult(existing.id, revision, value.claim === 4)
+                              })
+                            )
+                          }
+
+                          if (opens.size >= options.limits.maxOpens) {
+                            return Effect.succeed({ code: operation.code, status: Status.DELAY } satisfies ResultPart)
+                          }
+
+                          const serial = openSerial++
+
+                          return restore(
+                            mapFs(
+                              export_.open(reference, accessMode === 3 ? "readWrite" : wantsWrite ? "write" : "read")
+                            )
+                          ).pipe(
+                            Effect.flatMap((opened) => {
+                              const id = makeStateId(options.generation, serial, 1)
+                              opens.set(stateIdKey(id), {
+                                id,
+                                sequence: 1,
+                                access: accessMode,
+                                deny: value.deny,
+                                owner,
+                                client: activeSession!.client,
+                                reference,
+                                readFile: (accessMode & OPEN4_SHARE_ACCESS_READ) !== 0 ? opened.handle : undefined,
+                                writeFile: wantsWrite ? opened.handle : undefined,
+                                close: opened.close
+                              })
+                              current = reference
+
+                              return openResult(id, revision, value.claim === 4)
+                            })
+                          )
+                        })
                       )
                     ),
-                    Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
+                    Effect.catchIf(Predicate.isNumber, (status) => Effect.succeed({ code: operation.code, status }))
                   )
-                }
 
-                const effectiveStateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+                  function openResult(
+                    id: Uint8Array,
+                    revision: bigint,
+                    atomic: boolean,
+                    after = revision,
+                    attributes: ReadonlyArray<number> = []
+                  ): Effect.Effect<ResultPart, XdrEncodeError> {
+                    const delegationFields: ReadonlyArray<WriteField> = delegationWant === 0
+                      ? [field(XdrCodec.uint32, OPEN_DELEGATE_NONE)]
+                      : [
+                        field(XdrCodec.uint32, OPEN_DELEGATE_NONE_EXT),
+                        field(
+                          XdrCodec.uint32,
+                          delegationWant === OPEN4_SHARE_ACCESS_WANT_NO_DELEG
+                            ? WND4_NOT_WANTED
+                            : delegationWant === OPEN4_SHARE_ACCESS_WANT_CANCEL
+                            ? WND4_CANCELLED
+                            : WND4_NOT_SUPP_FTYPE
+                        )
+                      ]
 
-                if (effectiveStateid === undefined) {
-                  return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                }
+                    return Effect.map(
+                      encodeStatusBody(options.limits, [
+                        field(XdrCodec.fixedOpaque(16), id),
+                        field(XdrCodec.boolean, atomic),
+                        field(XdrCodec.uint64, BigInt.asUintN(64, revision)),
+                        field(XdrCodec.uint64, BigInt.asUintN(64, after)),
+                        field(XdrCodec.uint32, 0),
+                        (writer) => writeBitmap(writer, wordsFor(attributes)),
+                        ...delegationFields
+                      ]),
+                      (body): ResultPart => {
+                        currentStateid = id
 
-                const stateKey = stateIdKey(effectiveStateid)
-                const lock = lockStates.get(stateKey)
-                const open = opens.get(stateKey) ?? lock?.open
-
-                if (open === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                const suppliedSequence = stateIdSequence(effectiveStateid)
-                const stateSequence = lock?.sequence ?? open.sequence
-
-                if (suppliedSequence !== 0 && suppliedSequence < stateSequence) {
-                  return Effect.succeed({ code: operation.code, status: Status.OLD_STATEID })
-                }
-
-                if (suppliedSequence > stateSequence) {
-                  return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                }
-
-                if (
-                  activeSession === undefined || current === undefined || open.client !== activeSession.client ||
-                  open.reference !== current
-                ) {
-                  return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                }
-
-                if ((open.access & OPEN4_SHARE_ACCESS_READ) === 0) {
-                  return Effect.succeed({ code: operation.code, status: Status.OPENMODE })
-                }
-
-                if (open.readFile === undefined) {
-                  return Effect.succeed({ code: operation.code, status: Status.SERVERFAULT })
-                }
-
-                return readPermission.pipe(
-                  Effect.andThen(readFrom(open.readFile)),
-                  Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
-                )
-
-                function readFrom(file: Vfs.FileHandle): Effect.Effect<ResultPart> {
-                  return file.pread(value.count, value.offset).pipe(
-                    Effect.flatMap((data) => file.stat.pipe(Effect.map((metadata) => ({ data, metadata })))),
-                    Effect.map(({ data, metadata }): ResultPart => ({
-                      code: operation.code,
-                      status: Status.OK,
-                      body: new Writer().boolean(value.offset + BigInt(data.length) >= metadata.size).opaque(data)
-                        .bytes()
-                    })),
-                    Effect.catch((error) => Effect.succeed({ code: operation.code, status: failureForFs(error) }))
-                  )
-                }
-              }
-
-              case "OpenDowngrade": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-                const value = operation.value
-                // Section 16.2.3: the special current stateid refers to a preceding OPEN.
-                const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
-
-                if (stateid === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                const open = opens.get(stateIdKey(stateid))
-
-                if (open === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                const stateidStatus = checkOpenStateId(stateid, open)
-
-                if (stateidStatus !== Status.OK) return Effect.succeed({ code: operation.code, status: stateidStatus })
-
-                // Section 18.18.3: delegation want bits are masked off, and the new modes must be
-                // non-empty subsets of what is held.
-                const access = value.access & ~OPEN4_SHARE_ACCESS_WANT_DELEG_MASK
-
-                if (access === 0 || (access & ~open.access) !== 0 || (value.deny & ~open.deny) !== 0) {
-                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
-                }
-
-                open.access = access
-                open.deny = value.deny
-                advanceStateId(open)
-                currentStateid = open.id
-
-                return Effect.succeed({
-                  code: operation.code,
-                  status: Status.OK,
-                  body: new Writer().fixedOpaque(open.id).bytes()
-                })
-              }
-
-              case "FreeStateid": {
-                if (activeSession === undefined) {
-                  return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
-                }
-
-                const open = isSpecialStateId(operation.value) ? undefined : opens.get(stateIdKey(operation.value))
-
-                if (open === undefined && !isSpecialStateId(operation.value)) {
-                  const key = stateIdKey(operation.value)
-                  const lock = lockStates.get(key)
-
-                  if (lock !== undefined && lock.client === activeSession.client) {
-                    const status = checkStateIdSequence(operation.value, lock)
-
-                    if (status !== Status.OK) return Effect.succeed({ code: operation.code, status })
-
-                    if (lock.ranges.length !== 0) {
-                      return Effect.succeed({ code: operation.code, status: Status.LOCKS_HELD })
-                    }
-
-                    lockStates.delete(key)
-
-                    return Effect.succeed({ code: operation.code, status: Status.OK })
+                        return { code: operation.code, status: Status.OK, body }
+                      }
+                    )
                   }
                 }
 
-                // An open stateid still backs a live open, so it cannot be freed (Section 18.38.3).
-                return Effect.succeed({
-                  code: operation.code,
-                  status: open === undefined || open.client !== activeSession.client
-                    ? Status.BAD_STATEID
-                    : Status.LOCKS_HELD
-                })
-              }
+                case "Read": {
+                  // RFC 8881 Section 18.22.3 lets the server return fewer bytes than requested.
+                  const value = {
+                    ...operation.value,
+                    count: Math.min(operation.value.count, ByteSize.toNumberUnsafe(options.limits.maxReadBytes))
+                  }
 
-              case "TestStateid": {
-                if (activeSession === undefined) {
-                  return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+                  if (current === undefined) return Effect.succeed(noCurrent())
+
+                  const readPermission = activeCaller === undefined
+                    ? Effect.void
+                    : activeCaller.accessReference(current, 0o4).pipe(Effect.mapError(failureForFs))
+
+                  if (isAllZero(value.stateid) || isAllOnes(value.stateid)) {
+                    const reference = current
+
+                    // Section 9.1.2: the anonymous stateid must still respect a deny-read share
+                    // reservation; the READ-bypass stateid (all ones) may ignore it.
+                    const denied = isAllZero(value.stateid) &&
+                      [...opens.values()].some((open) =>
+                        open.reference === reference && (open.deny & OPEN4_SHARE_DENY_READ) !== 0
+                      )
+
+                    return requireRegularFile(reference).pipe(
+                      Effect.andThen(denied ? Effect.fail(Status.LOCKED) : Effect.void),
+                      Effect.andThen(readPermission),
+                      Effect.andThen(
+                        Effect.acquireUseRelease(
+                          mapFs(export_.open(reference)),
+                          (opened) => readFrom(opened.handle),
+                          (opened) => opened.close
+                        )
+                      ),
+                      Effect.catchIf(Predicate.isNumber, (status) => Effect.succeed({ code: operation.code, status }))
+                    )
+                  }
+
+                  const effectiveStateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+
+                  if (effectiveStateid === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                  }
+
+                  const stateKey = stateIdKey(effectiveStateid)
+                  const lock = lockStates.get(stateKey)
+                  const open = opens.get(stateKey) ?? lock?.open
+
+                  if (open === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                  const suppliedSequence = stateIdSequence(effectiveStateid)
+                  const stateSequence = lock?.sequence ?? open.sequence
+
+                  if (suppliedSequence !== 0 && suppliedSequence < stateSequence) {
+                    return Effect.succeed({ code: operation.code, status: Status.OLD_STATEID })
+                  }
+
+                  if (suppliedSequence > stateSequence) {
+                    return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                  }
+
+                  if (
+                    activeSession === undefined || current === undefined || open.client !== activeSession.client ||
+                    open.reference !== current
+                  ) {
+                    return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                  }
+
+                  if ((open.access & OPEN4_SHARE_ACCESS_READ) === 0) {
+                    return Effect.succeed({ code: operation.code, status: Status.OPENMODE })
+                  }
+
+                  if (open.readFile === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.SERVERFAULT })
+                  }
+
+                  return readPermission.pipe(
+                    Effect.andThen(readFrom(open.readFile)),
+                    Effect.catchIf(Predicate.isNumber, (status) => Effect.succeed({ code: operation.code, status }))
+                  )
+
+                  function readFrom(file: Vfs.FileHandle): Effect.Effect<ResultPart, XdrEncodeError> {
+                    return file.pread(value.count, value.offset).pipe(
+                      Effect.flatMap((data) => file.stat.pipe(Effect.map((metadata) => ({ data, metadata })))),
+                      Effect.flatMap(({ data, metadata }) =>
+                        Effect.map(
+                          encodeStatusBody(options.limits, [
+                            field(XdrCodec.boolean, value.offset + BigInt(data.length) >= metadata.size),
+                            field(XdrCodec.opaque(), data)
+                          ]),
+                          (body): ResultPart => ({ code: operation.code, status: Status.OK, body })
+                        )
+                      ),
+                      Effect.catchTag("FsError", (error) =>
+                        Effect.succeed({ code: operation.code, status: failureForFs(error) }))
+                    )
+                  }
                 }
 
-                const session = activeSession
+                case "OpenDowngrade": {
+                  if (current === undefined) {
+                    return Effect.succeed(noCurrent())
+                  }
 
-                // TEST_STATEID checks stateids alone; it does not involve the current filehandle.
-                const results = operation.value.map((stateid) => {
-                  if (isSpecialStateId(stateid)) return Status.BAD_STATEID
+                  const value = operation.value
+                  // Section 16.2.3: the special current stateid refers to a preceding OPEN.
+                  const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+
+                  if (stateid === undefined) {
+                    // The special stateid has no earlier OPEN result to refer to.
+                    return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                  }
+
                   const open = opens.get(stateIdKey(stateid))
 
                   if (open === undefined) {
-                    const lock = lockStates.get(stateIdKey(stateid))
-
-                    return lock === undefined || lock.client !== session.client
-                      ? Status.BAD_STATEID
-                      : checkStateIdSequence(stateid, lock)
+                    return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
                   }
 
-                  if (open.client !== session.client) return Status.BAD_STATEID
-
-                  return checkStateIdSequence(stateid, open)
-                })
-
-                return Effect.succeed({
-                  code: operation.code,
-                  status: Status.OK,
-                  body: new Writer().array(results, (writer, status) => writer.uint32(status)).bytes()
-                })
-              }
-
-              case "SetSsv":
-                // State protection is always SP4_NONE (RFC 8881 Section 18.47.3).
-                return Effect.succeed({ code: operation.code, status: Status.INVAL })
-              case "Lock": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-                const value = operation.value
-                const range = lockRange(value.offset, value.length)
-
-                return requireRegularFile(current).pipe(
-                  Effect.andThen(Effect.sync((): ResultPart => {
-                    if (range === undefined) return { code: operation.code, status: Status.INVAL }
-
-                    if (value.reclaim) return { code: operation.code, status: Status.NO_GRACE }
-
-                    if (WRITE_LOCK_TYPES.has(value.lockType) && !options.writable) {
-                      return { code: operation.code, status: Status.ROFS }
-                    }
-
-                    if (activeSession === undefined) return { code: operation.code, status: Status.BADSESSION }
-
-                    const client = activeSession.client
-                    const locker = value.locker
-                    let lock: LockState | undefined
-                    let created = false
-
-                    if (locker.kind === "new") {
-                      const stateid = isCurrentStateId(locker.stateid) ? currentStateid : locker.stateid
-
-                      if (stateid === undefined) return { code: operation.code, status: Status.BAD_STATEID }
-
-                      const open = opens.get(stateIdKey(stateid))
-
-                      if (open === undefined) return { code: operation.code, status: Status.BAD_STATEID }
-
-                      const status = checkOpenStateId(stateid, open)
-
-                      if (status !== Status.OK) return { code: operation.code, status }
-
-                      if ((open.access & (WRITE_LOCK_TYPES.has(value.lockType) ? 2 : 1)) === 0) {
-                        return { code: operation.code, status: Status.OPENMODE }
-                      }
-
-                      const ownerKey = bytesKey(locker.owner)
-                      lock = [...lockStates.values()].find((entry) =>
-                        entry.client === client && entry.ownerKey === ownerKey && entry.open === open
-                      )
-
-                      if (lock === undefined) {
-                        if (lockStates.size >= options.limits.maxLockOwners) {
-                          return { code: operation.code, status: Status.DELAY }
-                        }
-
-                        const id = makeStateId(options.generation, openSerial++, 0)
-
-                        lock = {
-                          id,
-                          sequence: 0,
-                          client: activeSession.client,
-                          owner: locker.owner,
-                          ownerKey,
-                          open,
-                          ranges: []
-                        }
-                        created = true
-                      }
-                    } else {
-                      const stateid = isCurrentStateId(locker.stateid) ? currentStateid : locker.stateid
-
-                      if (stateid === undefined) return { code: operation.code, status: Status.BAD_STATEID }
-                      lock = lockStates.get(stateIdKey(stateid))
-
-                      if (lock === undefined) return { code: operation.code, status: Status.BAD_STATEID }
-                      const status = checkLockStateId(stateid, lock)
-
-                      if (status !== Status.OK) return { code: operation.code, status }
-
-                      if ((lock.open.access & (WRITE_LOCK_TYPES.has(value.lockType) ? 2 : 1)) === 0) {
-                        return { code: operation.code, status: Status.OPENMODE }
-                      }
-                    }
-
-                    const conflict = conflictingLock(
-                      lock.open.reference,
-                      lock.client,
-                      lock.ownerKey,
-                      range,
-                      value.lockType
-                    )
-
-                    if (conflict !== undefined) return deniedLock(operation.code, conflict)
-
-                    const ownerStates = [...lockStates.values()].filter((state) =>
-                      state.client === lock.client && state.ownerKey === lock.ownerKey &&
-                      state.open.reference === lock.open.reference
-                    )
-
-                    if (created) ownerStates.push(lock)
-
-                    const updates = ownerStates.map((state) => ({
-                      state,
-                      next: replaceLockRange(
-                        state.ranges,
-                        range,
-                        state === lock ? (WRITE_LOCK_TYPES.has(value.lockType) ? 2 : 1) : undefined
-                      )
-                    }))
-
-                    const nextCount = updates.reduce(
-                      (count, update) => count + update.next.length - update.state.ranges.length,
-                      lockCount
-                    )
-
-                    if (nextCount > options.limits.maxLocks) {
-                      return { code: operation.code, status: Status.DELAY }
-                    }
-
-                    if (created) lockStates.set(stateIdKey(lock.id), lock)
-
-                    const ownNext = updates.find((update) => update.state === lock)!.next
-
-                    const changed = lock.ranges.length !== ownNext.length ||
-                      lock.ranges.some((entry, index) =>
-                        entry.range.offset !== ownNext[index]!.range.offset ||
-                        entry.range.end !== ownNext[index]!.range.end ||
-                        entry.type !== ownNext[index]!.type
-                      )
-
-                    lockCount = nextCount
-
-                    for (const update of updates) {
-                      update.state.ranges.splice(0, update.state.ranges.length, ...update.next)
-                    }
-
-                    if (changed) advanceStateId(lock)
-                    currentStateid = lock.id
-
-                    return { code: operation.code, status: Status.OK, body: new Writer().fixedOpaque(lock.id).bytes() }
-                  })),
-                  Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
-                )
-              }
-
-              case "Lockt": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-                const reference = current
-                const value = operation.value
-                const range = lockRange(value.offset, value.length)
-
-                return requireRegularFile(reference).pipe(
-                  Effect.map((): ResultPart => {
-                    if (range === undefined) return { code: operation.code, status: Status.INVAL }
-
-                    if (WRITE_LOCK_TYPES.has(value.lockType) && !options.writable) {
-                      return { code: operation.code, status: Status.ROFS }
-                    }
-
-                    if (activeSession === undefined) return { code: operation.code, status: Status.BADSESSION }
-
-                    const conflict = conflictingLock(
-                      reference,
-                      activeSession.client,
-                      bytesKey(value.owner),
-                      range,
-                      value.lockType
-                    )
-
-                    return conflict === undefined
-                      ? { code: operation.code, status: Status.OK }
-                      : deniedLock(operation.code, conflict)
-                  }),
-                  Effect.catch((status) => Effect.succeed({ code: operation.code, status }))
-                )
-              }
-
-              case "Locku": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-                const value = operation.value
-                const range = lockRange(value.offset, value.length)
-
-                if (range === undefined) return Effect.succeed({ code: operation.code, status: Status.INVAL })
-                const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
-
-                if (stateid === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                const lock = lockStates.get(stateIdKey(stateid))
-
-                if (lock === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                const status = checkLockStateId(stateid, lock)
-
-                if (status !== Status.OK) return Effect.succeed({ code: operation.code, status })
-
-                const ownerStates = [...lockStates.values()].filter((state) =>
-                  state.client === lock.client && state.ownerKey === lock.ownerKey &&
-                  state.open.reference === lock.open.reference
-                )
-
-                if (!ownerStates.some((state) => state.ranges.some((entry) => overlaps(entry.range, range)))) {
-                  return Effect.succeed({ code: operation.code, status: Status.LOCK_RANGE })
-                }
-
-                const updates = ownerStates.map((state) => ({ state, next: replaceLockRange(state.ranges, range) }))
-
-                const nextCount = updates.reduce(
-                  (count, update) => count + update.next.length - update.state.ranges.length,
-                  lockCount
-                )
-
-                if (nextCount > options.limits.maxLocks) {
-                  return Effect.succeed({ code: operation.code, status: Status.DELAY })
-                }
-
-                lockCount = nextCount
-
-                for (const update of updates) {
-                  update.state.ranges.splice(0, update.state.ranges.length, ...update.next)
-                }
-
-                advanceStateId(lock)
-                currentStateid = lock.id
-
-                return Effect.succeed({
-                  code: operation.code,
-                  status: Status.OK,
-                  body: new Writer().fixedOpaque(lock.id).bytes()
-                })
-              }
-
-              case "Close": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-                const value = operation.value
-                // Section 16.2.3: the special current stateid refers to a preceding OPEN.
-                const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
-
-                if (stateid === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                const key = stateIdKey(stateid)
-                const open = opens.get(key)
-
-                if (open === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                const stateidStatus = checkOpenStateId(stateid, open)
-
-                if (stateidStatus !== Status.OK) return Effect.succeed({ code: operation.code, status: stateidStatus })
-
-                if ([...lockStates.values()].some((lock) => lock.open === open && lock.ranges.length > 0)) {
-                  return Effect.succeed({ code: operation.code, status: Status.LOCKS_HELD })
-                }
-
-                const closedStateid = new Uint8Array(open.id)
-                new DataView(closedStateid.buffer).setUint32(0, open.sequence + 1)
-
-                // Closing the handle and dropping it from `opens` are one region. An interrupt
-                // delivered between them would leave a closed handle in the map for the handler
-                // scope's finalizer to close a second time.
-                return Effect.uninterruptible(
-                  open.close.pipe(
-                    Effect.tap(() =>
-                      Effect.sync(() => {
-                        opens.delete(key)
-
-                        for (const [lockKey, lock] of lockStates) {
-                          if (lock.open === open) lockStates.delete(lockKey)
-                        }
-
-                        currentStateid = closedStateid
-                      })
-                    )
-                  )
-                ).pipe(
-                  Effect.as({
-                    code: operation.code,
-                    status: Status.OK,
-                    body: new Writer().fixedOpaque(closedStateid).bytes()
-                  })
-                )
-              }
-
-              case "Write": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-
-                if (!options.writable) return Effect.succeed({ code: operation.code, status: Status.ROFS })
-
-                const value = operation.value
-                const reference = current
-                const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
-
-                if (value.stable > 2) return Effect.succeed({ code: operation.code, status: Status.INVAL })
-
-                if (stateid === undefined || isAllZero(stateid) || isAllOnes(stateid)) {
-                  return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-                }
-
-                const key = stateIdKey(stateid)
-                const lock = lockStates.get(key)
-                const open = opens.get(key) ?? lock?.open
-
-                if (open === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
-
-                const stateStatus = lock === undefined
-                  ? checkOpenStateId(stateid, open)
-                  : checkLockStateId(stateid, lock)
-
-                if (stateStatus !== Status.OK) return Effect.succeed({ code: operation.code, status: stateStatus })
-
-                if ((open.access & OPEN4_SHARE_ACCESS_WRITE) === 0) {
-                  return Effect.succeed({ code: operation.code, status: Status.OPENMODE })
-                }
-
-                if (open.writeFile === undefined) {
-                  return Effect.succeed({ code: operation.code, status: Status.SERVERFAULT })
-                }
-
-                const writeFile = open.writeFile
-
-                return statusResult(
-                  requireRegularFile(reference).pipe(
-                    Effect.andThen(
-                      activeCaller === undefined
-                        ? Effect.void
-                        : activeCaller.accessReference(reference, 0o2).pipe(Effect.mapError(failureForFs))
+                  const stateidStatus = checkOpenStateId(stateid, open)
+
+                  if (stateidStatus !== Status.OK) {
+                    return Effect.succeed({ code: operation.code, status: stateidStatus })
+                  }
+
+                  // Section 18.18.3: delegation want bits are masked off, and the new modes must be
+                  // non-empty subsets of what is held.
+                  const access = value.access & ~OPEN4_SHARE_ACCESS_WANT_DELEG_MASK
+
+                  if (access === 0 || (access & ~open.access) !== 0 || (value.deny & ~open.deny) !== 0) {
+                    return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                  }
+
+                  open.access = access
+                  open.deny = value.deny
+                  advanceStateId(open)
+                  currentStateid = open.id
+
+                  return Effect.map(
+                    xdr.encode(
+                      open.id,
+                      XdrCodec.fixedOpaque(16),
+                      options.limits,
+                      ByteSize.toNumberUnsafe(options.limits.maxRecordBytes)
                     ),
-                    Effect.andThen(mapFs(writeFile.pwrite(value.data, value.offset)))
-                  ),
-                  (count) => new Writer().uint32(count).uint32(2).fixedOpaque(writeVerifier).bytes()
-                )
-              }
-
-              case "Setattr": {
-                const emptyAttrs = new Writer().uint32(0).bytes()
-
-                if (current === undefined) {
-                  return Effect.succeed({ ...noCurrent(), body: emptyAttrs })
+                    (body): ResultPart => ({ code: operation.code, status: Status.OK, body })
+                  )
                 }
 
-                if (!options.writable) {
-                  return Effect.succeed({ code: operation.code, status: Status.ROFS, body: emptyAttrs })
-                }
+                case "FreeStateid": {
+                  if (activeSession === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+                  }
 
-                const reference = current
-                const value = operation.value
+                  const open = isSpecialStateId(operation.value) ? undefined : opens.get(stateIdKey(operation.value))
 
-                return Effect.gen(function*() {
-                  const applied: Array<number> = []
+                  if (open === undefined && !isSpecialStateId(operation.value)) {
+                    const key = stateIdKey(operation.value)
+                    const lock = lockStates.get(key)
 
-                  const reply = (status: number): ResultPart => ({
+                    if (lock !== undefined && lock.client === activeSession.client) {
+                      const status = checkStateIdSequence(operation.value, lock)
+
+                      if (status !== Status.OK) {
+                        // A stale stateid cannot release the lock owner's state.
+                        return Effect.succeed({ code: operation.code, status })
+                      }
+
+                      if (lock.ranges.length !== 0) {
+                        return Effect.succeed({ code: operation.code, status: Status.LOCKS_HELD })
+                      }
+
+                      lockStates.delete(key)
+
+                      return Effect.succeed({ code: operation.code, status: Status.OK })
+                    }
+                  }
+
+                  // An open stateid still backs a live open, so it cannot be freed (Section 18.38.3).
+                  return Effect.succeed({
                     code: operation.code,
-                    status,
-                    body: encodeStatusBody((writer) => writeBitmap(writer, wordsFor(applied)))
+                    status: open === undefined || open.client !== activeSession.client
+                      ? Status.BAD_STATEID
+                      : Status.LOCKS_HELD
+                  })
+                }
+
+                case "TestStateid": {
+                  if (activeSession === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.BADSESSION })
+                  }
+
+                  const session = activeSession
+
+                  // TEST_STATEID checks stateids alone; it does not involve the current filehandle.
+                  const results = operation.value.map((stateid) => {
+                    if (isSpecialStateId(stateid)) {
+                      return Status.BAD_STATEID
+                    }
+
+                    const open = opens.get(stateIdKey(stateid))
+
+                    if (open === undefined) {
+                      const lock = lockStates.get(stateIdKey(stateid))
+
+                      return lock === undefined || lock.client !== session.client
+                        ? Status.BAD_STATEID
+                        : checkStateIdSequence(stateid, lock)
+                    }
+
+                    if (open.client !== session.client) {
+                      // TEST_STATEID cannot expose another client's open state.
+                      return Status.BAD_STATEID
+                    }
+
+                    return checkStateIdSequence(stateid, open)
                   })
 
-                  const decoded = yield* setattrAttributes(value.attrs, options.limits, supportedAttributes).pipe(
-                    Effect.map((changes) => ({ changes })),
-                    Effect.catch((status) => Effect.succeed({ status }))
+                  return Effect.map(
+                    xdr.encode(
+                      results,
+                      XdrCodec.array(XdrCodec.uint32),
+                      options.limits,
+                      ByteSize.toNumberUnsafe(options.limits.maxRecordBytes)
+                    ),
+                    (body): ResultPart => ({ code: operation.code, status: Status.OK, body })
                   )
-
-                  if ("status" in decoded) return reply(decoded.status)
-
-                  if (decoded.changes.some((change) => change.kind === "size")) {
-                    const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
-
-                    if (stateid === undefined || isAllZero(stateid) || isAllOnes(stateid)) {
-                      return reply(Status.BAD_STATEID)
-                    }
-
-                    const key = stateIdKey(stateid)
-                    const lock = lockStates.get(key)
-                    const open = opens.get(key) ?? lock?.open
-
-                    if (open === undefined || open.reference !== reference) return reply(Status.BAD_STATEID)
-
-                    const stateStatus = lock === undefined
-                      ? checkOpenStateId(stateid, open)
-                      : checkLockStateId(stateid, lock)
-
-                    if (stateStatus !== Status.OK) return reply(stateStatus)
-
-                    if ((open.access & OPEN4_SHARE_ACCESS_WRITE) === 0) return reply(Status.OPENMODE)
-
-                    if (
-                      [...opens.values()].some((state) =>
-                        state.reference === reference && (state.deny & OPEN4_SHARE_ACCESS_WRITE) !== 0
-                      )
-                    ) return reply(Status.SHARE_DENIED)
-                  }
-
-                  const accessTime = decoded.changes.find((change) => change.attribute === 48)
-                  const modificationTime = decoded.changes.find((change) => change.attribute === 54)
-
-                  for (const change of decoded.changes) {
-                    if (change.attribute === 54 && accessTime !== undefined) continue
-
-                    const mutation = change.kind === "size"
-                      ? export_.truncate(reference, change.value)
-                      : change.kind === "mode"
-                      ? export_.chmod(reference, change.value)
-                      : change.kind === "owner"
-                      ? export_.chown(
-                        reference,
-                        change.attribute === 36 ? { uid: change.value } : { gid: change.value }
-                      )
-                      : export_.utimes(reference, {
-                        access: change.attribute === 48 ? change.value : { kind: "omit" },
-                        modification: modificationTime?.kind === "time" ? modificationTime.value : { kind: "omit" }
-                      })
-
-                    const status = yield* mutation.pipe(
-                      Effect.as(Status.OK),
-                      Effect.catch((error) =>
-                        Effect.succeed(
-                          change.kind === "owner" && error.code === "AccessDenied" ? Status.PERM : failureForFs(error)
-                        )
-                      )
-                    )
-
-                    if (status !== Status.OK) return reply(status)
-
-                    applied.push(change.attribute)
-
-                    if (change.attribute === 48 && modificationTime !== undefined) applied.push(54)
-                  }
-
-                  return reply(Status.OK)
-                })
-              }
-
-              // Section 15.2 lists NFS4ERR_SYMLINK for LINK but not for CREATE, REMOVE, or RENAME.
-              case "Create": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-
-                if (!options.writable) return rejectMutation([operation.value.name], "none", Status.NOTDIR)
-
-                const value = operation.value
-                const parent = current
-
-                return statusResult(
-                  Effect.gen(function*() {
-                    yield* requireDirectory(parent, Status.NOTDIR)
-                    yield* validName(value.name)
-
-                    if (value.kind !== 2 && value.kind !== 5) return yield* Effect.fail(Status.BADTYPE)
-
-                    const attributes = attributesIn(value.attrs.bitmap)
-                    const supported = value.kind === 2 ? [33, 48, 54] : [48, 54]
-
-                    if (!attributes.every((attribute) => supported.includes(attribute))) {
-                      return yield* Effect.fail(Status.ATTRNOTSUPP)
-                    }
-
-                    const reader = new Reader(value.attrs.values, options.limits)
-                    let mode: number | undefined
-
-                    const times: Types.Mutable<Vfs.Times> = {
-                      access: { kind: "omit" },
-                      modification: { kind: "omit" }
-                    }
-
-                    for (const attribute of attributes) {
-                      if (attribute === 33) {
-                        mode = reader.uint32()
-
-                        if (mode > 0o7777) return yield* Effect.fail(Status.INVAL)
-                      } else {
-                        const how = reader.uint32()
-
-                        const time: Vfs.Times["access"] = how === 0 ? { kind: "now" } : {
-                          kind: "value",
-                          nanoseconds: BigInt.asIntN(64, reader.uint64()) * 1_000_000_000n + BigInt(reader.uint32())
-                        }
-
-                        if (attribute === 48) times.access = time
-                        else times.modification = time
-                      }
-                    }
-
-                    reader.finish()
-
-                    const result = yield* (value.kind === 2
-                      ? export_.mkdir(
-                        parent,
-                        value.name,
-                        mode === undefined ? { times } : { mode, times, exactMode: true }
-                      )
-                      : export_.symlink(value.target!, parent, value.name, { times })).pipe(
-                        Effect.mapError((error) =>
-                          error instanceof ExportCapacityError ?
-                            Status.DELAY :
-                            error instanceof InvalidNameError
-                            ? nameStatus(error)
-                            : failureForFs(error)
-                        )
-                      )
-
-                    setCurrent(result.reference)
-
-                    return { change: result.directory, attributes }
-                  }),
-                  ({ change, attributes }) =>
-                    encodeStatusBody((writer) => {
-                      writeChangeInfo(writer, change)
-                      writeBitmap(writer, wordsFor(attributes))
-                    })
-                )
-              }
-
-              case "Remove": {
-                if (current === undefined) return Effect.succeed(noCurrent())
-
-                if (!options.writable) return rejectMutation([operation.value], "none", Status.NOTDIR)
-                const directory = current
-
-                return statusResult(
-                  Effect.gen(function*() {
-                    yield* requireDirectory(directory, Status.NOTDIR)
-                    yield* validName(operation.value)
-
-                    return yield* mapFs(export_.remove(directory, operation.value))
-                  }),
-                  (change) => encodeStatusBody((writer) => writeChangeInfo(writer, change))
-                )
-              }
-
-              case "Rename": {
-                if (current === undefined || saved === undefined) return Effect.succeed(noCurrent())
-
-                if (!options.writable) {
-                  return rejectMutation([operation.value.oldName, operation.value.newName], "directory", Status.NOTDIR)
                 }
 
-                const destination = current
-                const source = saved
+                case "SetSsv":
+                  // State protection is always SP4_NONE (RFC 8881 Section 18.47.3).
+                  return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                case "Lock": {
+                  if (current === undefined) {
+                    return Effect.succeed(noCurrent())
+                  }
 
-                return statusResult(
-                  Effect.gen(function*() {
-                    yield* requireDirectory(destination, Status.NOTDIR)
-                    yield* requireDirectory(source, Status.NOTDIR)
-                    yield* validName(operation.value.oldName)
-                    yield* validName(operation.value.newName)
+                  const value = operation.value
+                  const range = lockRange(value.offset, value.length)
 
-                    return yield* export_.rename(source, operation.value.oldName, destination, operation.value.newName)
-                      .pipe(Effect.mapError((error) =>
-                        error.code === "IsDirectory" || error.code === "NotDirectory" || error.code === "NotEmpty"
-                          ? Status.EXIST
-                          : failureForFs(error)
-                      ))
-                  }),
-                  (change) =>
-                    encodeStatusBody((writer) => {
+                  return requireRegularFile(current).pipe(
+                    Effect.andThen(Effect.gen(function*() {
+                      if (range === undefined) {
+                        return { code: operation.code, status: Status.INVAL }
+                      }
+
+                      if (value.reclaim) {
+                        return { code: operation.code, status: Status.NO_GRACE }
+                      }
+
+                      if (WRITE_LOCK_TYPES.has(value.lockType) && !options.writable) {
+                        return { code: operation.code, status: Status.ROFS }
+                      }
+
+                      if (activeSession === undefined) {
+                        return { code: operation.code, status: Status.BADSESSION }
+                      }
+
+                      const client = activeSession.client
+                      const locker = value.locker
+                      let lock: LockState | undefined
+                      let created = false
+
+                      if (locker.kind === "new") {
+                        const stateid = isCurrentStateId(locker.stateid) ? currentStateid : locker.stateid
+
+                        if (stateid === undefined) {
+                          return { code: operation.code, status: Status.BAD_STATEID }
+                        }
+
+                        const open = opens.get(stateIdKey(stateid))
+
+                        if (open === undefined) {
+                          return { code: operation.code, status: Status.BAD_STATEID }
+                        }
+
+                        const status = checkOpenStateId(stateid, open)
+
+                        if (status !== Status.OK) {
+                          return { code: operation.code, status }
+                        }
+
+                        if ((open.access & (WRITE_LOCK_TYPES.has(value.lockType) ? 2 : 1)) === 0) {
+                          return { code: operation.code, status: Status.OPENMODE }
+                        }
+
+                        const ownerKey = bytesKey(locker.owner)
+                        lock = [...lockStates.values()].find((entry) =>
+                          entry.client === client && entry.ownerKey === ownerKey && entry.open === open
+                        )
+
+                        if (lock === undefined) {
+                          if (lockStates.size >= options.limits.maxLockOwners) {
+                            return { code: operation.code, status: Status.DELAY }
+                          }
+
+                          const id = makeStateId(options.generation, openSerial++, 0)
+
+                          lock = {
+                            id,
+                            sequence: 0,
+                            client: activeSession.client,
+                            owner: locker.owner,
+                            ownerKey,
+                            open,
+                            ranges: []
+                          }
+                          created = true
+                        }
+                      } else {
+                        const stateid = isCurrentStateId(locker.stateid) ? currentStateid : locker.stateid
+
+                        if (stateid === undefined) {
+                          return { code: operation.code, status: Status.BAD_STATEID }
+                        }
+
+                        lock = lockStates.get(stateIdKey(stateid))
+
+                        if (lock === undefined) {
+                          return { code: operation.code, status: Status.BAD_STATEID }
+                        }
+
+                        const status = checkLockStateId(stateid, lock)
+
+                        if (status !== Status.OK) {
+                          return { code: operation.code, status }
+                        }
+
+                        if ((lock.open.access & (WRITE_LOCK_TYPES.has(value.lockType) ? 2 : 1)) === 0) {
+                          return { code: operation.code, status: Status.OPENMODE }
+                        }
+                      }
+
+                      const conflict = conflictingLock(
+                        lock.open.reference,
+                        lock.client,
+                        lock.ownerKey,
+                        range,
+                        value.lockType
+                      )
+
+                      if (conflict !== undefined) {
+                        return yield* deniedLock(operation.code, conflict)
+                      }
+
+                      const ownerStates = [...lockStates.values()].filter((state) =>
+                        state.client === lock.client && state.ownerKey === lock.ownerKey &&
+                        state.open.reference === lock.open.reference
+                      )
+
+                      if (created) {
+                        ownerStates.push(lock)
+                      }
+
+                      const updates = ownerStates.map((state) => ({
+                        state,
+                        next: replaceLockRange(
+                          state.ranges,
+                          range,
+                          state === lock ? (WRITE_LOCK_TYPES.has(value.lockType) ? 2 : 1) : undefined
+                        )
+                      }))
+
+                      const nextCount = updates.reduce(
+                        (count, update) =>
+                          count + update.next.length - update.state.ranges.length,
+                        lockCount
+                      )
+
+                      if (nextCount > options.limits.maxLocks) {
+                        return { code: operation.code, status: Status.DELAY }
+                      }
+
+                      if (created) lockStates.set(stateIdKey(lock.id), lock)
+
+                      const ownNext = updates.find((update) => update.state === lock)!.next
+
+                      const changed = lock.ranges.length !== ownNext.length ||
+                        lock.ranges.some((entry, index) =>
+                          entry.range.offset !== ownNext[index]!.range.offset ||
+                          entry.range.end !== ownNext[index]!.range.end ||
+                          entry.type !== ownNext[index]!.type
+                        )
+
+                      lockCount = nextCount
+
+                      for (const update of updates) {
+                        update.state.ranges.splice(0, update.state.ranges.length, ...update.next)
+                      }
+
+                      if (changed) advanceStateId(lock)
+                      currentStateid = lock.id
+
+                      const body = yield* xdr.encode(
+                        lock.id,
+                        XdrCodec.fixedOpaque(16),
+                        options.limits,
+                        ByteSize.toNumberUnsafe(options.limits.maxRecordBytes)
+                      )
+
+                      return { code: operation.code, status: Status.OK, body }
+                    })),
+                    Effect.catchIf(Predicate.isNumber, (status) => Effect.succeed({ code: operation.code, status }))
+                  )
+                }
+
+                case "Lockt": {
+                  if (current === undefined) return Effect.succeed(noCurrent())
+                  const reference = current
+                  const value = operation.value
+                  const range = lockRange(value.offset, value.length)
+
+                  return requireRegularFile(reference).pipe(
+                    Effect.flatMap(() =>
+                      Effect.gen(function*() {
+                        if (range === undefined) return { code: operation.code, status: Status.INVAL }
+
+                        if (WRITE_LOCK_TYPES.has(value.lockType) && !options.writable) {
+                          return { code: operation.code, status: Status.ROFS }
+                        }
+
+                        if (activeSession === undefined) return { code: operation.code, status: Status.BADSESSION }
+
+                        const conflict = conflictingLock(
+                          reference,
+                          activeSession.client,
+                          bytesKey(value.owner),
+                          range,
+                          value.lockType
+                        )
+
+                        return conflict === undefined
+                          ? { code: operation.code, status: Status.OK }
+                          : yield* deniedLock(operation.code, conflict)
+                      })
+                    ),
+                    Effect.catchIf(Predicate.isNumber, (status) => Effect.succeed({ code: operation.code, status }))
+                  )
+                }
+
+                case "Locku": {
+                  if (current === undefined) return Effect.succeed(noCurrent())
+                  const value = operation.value
+                  const range = lockRange(value.offset, value.length)
+
+                  if (range === undefined) return Effect.succeed({ code: operation.code, status: Status.INVAL })
+                  const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+
+                  if (stateid === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                  const lock = lockStates.get(stateIdKey(stateid))
+
+                  if (lock === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                  const status = checkLockStateId(stateid, lock)
+
+                  if (status !== Status.OK) return Effect.succeed({ code: operation.code, status })
+
+                  const ownerStates = [...lockStates.values()].filter((state) =>
+                    state.client === lock.client && state.ownerKey === lock.ownerKey &&
+                    state.open.reference === lock.open.reference
+                  )
+
+                  if (!ownerStates.some((state) => state.ranges.some((entry) => overlaps(entry.range, range)))) {
+                    return Effect.succeed({ code: operation.code, status: Status.LOCK_RANGE })
+                  }
+
+                  const updates = ownerStates.map((state) => ({ state, next: replaceLockRange(state.ranges, range) }))
+
+                  const nextCount = updates.reduce(
+                    (count, update) => count + update.next.length - update.state.ranges.length,
+                    lockCount
+                  )
+
+                  if (nextCount > options.limits.maxLocks) {
+                    return Effect.succeed({ code: operation.code, status: Status.DELAY })
+                  }
+
+                  lockCount = nextCount
+
+                  for (const update of updates) {
+                    update.state.ranges.splice(0, update.state.ranges.length, ...update.next)
+                  }
+
+                  advanceStateId(lock)
+                  currentStateid = lock.id
+
+                  return Effect.map(
+                    xdr.encode(
+                      lock.id,
+                      XdrCodec.fixedOpaque(16),
+                      options.limits,
+                      ByteSize.toNumberUnsafe(options.limits.maxRecordBytes)
+                    ),
+                    (body): ResultPart => ({ code: operation.code, status: Status.OK, body })
+                  )
+                }
+
+                case "Close": {
+                  if (current === undefined) return Effect.succeed(noCurrent())
+                  const value = operation.value
+                  // Section 16.2.3: the special current stateid refers to a preceding OPEN.
+                  const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+
+                  if (stateid === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                  const key = stateIdKey(stateid)
+                  const open = opens.get(key)
+
+                  if (open === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                  const stateidStatus = checkOpenStateId(stateid, open)
+
+                  if (stateidStatus !== Status.OK) {
+                    return Effect.succeed({ code: operation.code, status: stateidStatus })
+                  }
+
+                  if (
+                    [...lockStates.values()].some((lock) => lock.open === open && lock.ranges.length > 0)
+                  ) {
+                    return Effect.succeed({ code: operation.code, status: Status.LOCKS_HELD })
+                  }
+
+                  const closedStateid = new Uint8Array(open.id)
+                  new DataView(closedStateid.buffer).setUint32(0, open.sequence + 1)
+
+                  // Closing the handle and dropping it from `opens` are one region. An interrupt
+                  // delivered between them would leave a closed handle in the map for the handler
+                  // scope's finalizer to close a second time.
+                  return xdr.encode(
+                    closedStateid,
+                    XdrCodec.fixedOpaque(16),
+                    options.limits,
+                    ByteSize.toNumberUnsafe(options.limits.maxRecordBytes)
+                  ).pipe(
+                    Effect.flatMap((body) =>
+                      Effect.uninterruptible(
+                        open.close.pipe(
+                          Effect.tap(() =>
+                            Effect.sync(() => {
+                              opens.delete(key)
+
+                              for (const [lockKey, lock] of lockStates) {
+                                if (lock.open === open) lockStates.delete(lockKey)
+                              }
+
+                              currentStateid = closedStateid
+                            })
+                          )
+                        )
+                      ).pipe(Effect.as({ code: operation.code, status: Status.OK, body }))
+                    )
+                  )
+                }
+
+                case "Write": {
+                  if (current === undefined) return Effect.succeed(noCurrent())
+
+                  if (!options.writable) return Effect.succeed({ code: operation.code, status: Status.ROFS })
+
+                  const value = operation.value
+                  const reference = current
+                  const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+
+                  if (value.stable > 2) return Effect.succeed({ code: operation.code, status: Status.INVAL })
+
+                  if (stateid === undefined || isAllZero(stateid) || isAllOnes(stateid)) {
+                    return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+                  }
+
+                  const key = stateIdKey(stateid)
+                  const lock = lockStates.get(key)
+                  const open = opens.get(key) ?? lock?.open
+
+                  if (open === undefined) return Effect.succeed({ code: operation.code, status: Status.BAD_STATEID })
+
+                  const stateStatus = lock === undefined
+                    ? checkOpenStateId(stateid, open)
+                    : checkLockStateId(stateid, lock)
+
+                  if (stateStatus !== Status.OK) return Effect.succeed({ code: operation.code, status: stateStatus })
+
+                  if ((open.access & OPEN4_SHARE_ACCESS_WRITE) === 0) {
+                    return Effect.succeed({ code: operation.code, status: Status.OPENMODE })
+                  }
+
+                  if (open.writeFile === undefined) {
+                    return Effect.succeed({ code: operation.code, status: Status.SERVERFAULT })
+                  }
+
+                  const writeFile = open.writeFile
+
+                  return statusResult(
+                    requireRegularFile(reference).pipe(
+                      Effect.andThen(
+                        activeCaller === undefined
+                          ? Effect.void
+                          : activeCaller.accessReference(reference, 0o2).pipe(Effect.mapError(failureForFs))
+                      ),
+                      Effect.andThen(mapFs(writeFile.pwrite(value.data, value.offset)))
+                    ),
+                    (count) =>
+                      encodeStatusBody(options.limits, [
+                        field(XdrCodec.uint32, count),
+                        field(XdrCodec.uint32, 2),
+                        field(XdrCodec.fixedOpaque(8), writeVerifier)
+                      ])
+                  )
+                }
+
+                case "Setattr": {
+                  if (current === undefined || !options.writable) {
+                    return Effect.map(
+                      xdr.encode(
+                        [],
+                        XdrCodec.array(XdrCodec.uint32),
+                        options.limits,
+                        ByteSize.toNumberUnsafe(options.limits.maxRecordBytes)
+                      ),
+                      (body): ResultPart => ({
+                        code: operation.code,
+                        status: current === undefined ? Status.NOFILEHANDLE : Status.ROFS,
+                        body
+                      })
+                    )
+                  }
+
+                  const reference = current
+                  const value = operation.value
+
+                  return Effect.gen(function*() {
+                    const applied: Array<number> = []
+
+                    const reply = (status: number): Effect.Effect<ResultPart, XdrEncodeError> =>
+                      Effect.map(
+                        encodeStatusBody(options.limits, [(writer) => writeBitmap(writer, wordsFor(applied))]),
+                        (body): ResultPart => ({ code: operation.code, status, body })
+                      )
+
+                    const decoded = yield* setattrAttributes(value.attrs, options.limits, supportedAttributes).pipe(
+                      Effect.mapError((error) => error instanceof XdrDecodeError ? Status.BADXDR : error),
+                      Effect.map((changes) => ({ changes })),
+                      Effect.catch((status) => Effect.succeed({ status }))
+                    )
+
+                    if ("status" in decoded) return yield* reply(decoded.status)
+
+                    if (decoded.changes.some((change) => change.kind === "size")) {
+                      const stateid = isCurrentStateId(value.stateid) ? currentStateid : value.stateid
+
+                      if (stateid === undefined || isAllZero(stateid) || isAllOnes(stateid)) {
+                        return yield* reply(Status.BAD_STATEID)
+                      }
+
+                      const key = stateIdKey(stateid)
+                      const lock = lockStates.get(key)
+                      const open = opens.get(key) ?? lock?.open
+
+                      if (open === undefined || open.reference !== reference) return yield* reply(Status.BAD_STATEID)
+
+                      const stateStatus = lock === undefined
+                        ? checkOpenStateId(stateid, open)
+                        : checkLockStateId(stateid, lock)
+
+                      if (stateStatus !== Status.OK) return yield* reply(stateStatus)
+
+                      if ((open.access & OPEN4_SHARE_ACCESS_WRITE) === 0) return yield* reply(Status.OPENMODE)
+
+                      if (
+                        [...opens.values()].some((state) =>
+                          state.reference === reference && (state.deny & OPEN4_SHARE_ACCESS_WRITE) !== 0
+                        )
+                      ) return yield* reply(Status.SHARE_DENIED)
+                    }
+
+                    const accessTime = decoded.changes.find((change) => change.attribute === 48)
+                    const modificationTime = decoded.changes.find((change) => change.attribute === 54)
+
+                    for (const change of decoded.changes) {
+                      if (change.attribute === 54 && accessTime !== undefined) continue
+
+                      const mutation = change.kind === "size"
+                        ? export_.truncate(reference, change.value)
+                        : change.kind === "mode"
+                        ? export_.chmod(reference, change.value)
+                        : change.kind === "owner"
+                        ? export_.chown(
+                          reference,
+                          change.attribute === 36 ? { uid: change.value } : { gid: change.value }
+                        )
+                        : export_.utimes(reference, {
+                          access: change.attribute === 48 ? change.value : { kind: "omit" },
+                          modification: modificationTime?.kind === "time" ? modificationTime.value : { kind: "omit" }
+                        })
+
+                      const status = yield* mutation.pipe(
+                        Effect.as(Status.OK),
+                        Effect.catch((error) =>
+                          Effect.succeed(
+                            change.kind === "owner" && error.code === "AccessDenied" ? Status.PERM : failureForFs(error)
+                          )
+                        )
+                      )
+
+                      if (status !== Status.OK) return yield* reply(status)
+
+                      applied.push(change.attribute)
+
+                      if (change.attribute === 48 && modificationTime !== undefined) applied.push(54)
+                    }
+
+                    return yield* reply(Status.OK)
+                  })
+                }
+
+                // Section 15.2 lists NFS4ERR_SYMLINK for LINK but not for CREATE, REMOVE, or RENAME.
+                case "Create": {
+                  if (current === undefined) return Effect.succeed(noCurrent())
+
+                  if (!options.writable) return rejectMutation([operation.value.name], "none", Status.NOTDIR)
+
+                  const value = operation.value
+                  const parent = current
+
+                  return statusResult(
+                    Effect.gen(function*() {
+                      yield* requireDirectory(parent, Status.NOTDIR)
+                      yield* validName(value.name)
+
+                      if (value.kind !== 2 && value.kind !== 5) return yield* Effect.fail(Status.BADTYPE)
+
+                      const attributes = attributesIn(value.attrs.bitmap)
+                      const supported = value.kind === 2 ? [33, 48, 54] : [48, 54]
+
+                      if (!attributes.every((attribute) => supported.includes(attribute))) {
+                        return yield* Effect.fail(Status.ATTRNOTSUPP)
+                      }
+
+                      const reader = yield* xdr.openReader(value.attrs.values, options.limits)
+                      let mode: number | undefined
+
+                      const times: Types.Mutable<Vfs.Times> = {
+                        access: { kind: "omit" },
+                        modification: { kind: "omit" }
+                      }
+
+                      for (const attribute of attributes) {
+                        if (attribute === 33) {
+                          mode = yield* reader.read(XdrCodec.uint32)
+
+                          if (mode > 0o7777) return yield* Effect.fail(Status.INVAL)
+                        } else {
+                          const how = yield* reader.read(XdrCodec.uint32)
+
+                          const time: Vfs.Times["access"] = how === 0 ? { kind: "now" } : {
+                            kind: "value",
+                            nanoseconds: BigInt.asIntN(64, yield* reader.read(XdrCodec.uint64)) * 1_000_000_000n +
+                              BigInt(yield* reader.read(XdrCodec.uint32))
+                          }
+
+                          if (attribute === 48) times.access = time
+                          else times.modification = time
+                        }
+                      }
+
+                      yield* reader.finish
+
+                      const result = yield* (value.kind === 2
+                        ? export_.mkdir(
+                          parent,
+                          value.name,
+                          mode === undefined ? { times } : { mode, times, exactMode: true }
+                        )
+                        : export_.symlink(value.target!, parent, value.name, { times })).pipe(
+                          Effect.mapError((error) =>
+                            error instanceof ExportCapacityError ?
+                              Status.DELAY :
+                              error instanceof InvalidNameError
+                              ? nameStatus(error)
+                              : failureForFs(error)
+                          )
+                        )
+
+                      setCurrent(result.reference)
+
+                      return { change: result.directory, attributes }
+                    }).pipe(Effect.mapError((error) => error instanceof XdrDecodeError ? Status.BADXDR : error)),
+                    ({ change, attributes }) =>
+                      encodeStatusBody(options.limits, [
+                        writeChangeInfo(change),
+                        (writer) => writeBitmap(writer, wordsFor(attributes))
+                      ])
+                  )
+                }
+
+                case "Remove": {
+                  if (current === undefined) return Effect.succeed(noCurrent())
+
+                  if (!options.writable) return rejectMutation([operation.value], "none", Status.NOTDIR)
+                  const directory = current
+
+                  return statusResult(
+                    Effect.gen(function*() {
+                      yield* requireDirectory(directory, Status.NOTDIR)
+                      yield* validName(operation.value)
+
+                      return yield* mapFs(export_.remove(directory, operation.value))
+                    }),
+                    (change) => encodeStatusBody(options.limits, [writeChangeInfo(change)])
+                  )
+                }
+
+                case "Rename": {
+                  if (current === undefined || saved === undefined) return Effect.succeed(noCurrent())
+
+                  if (!options.writable) {
+                    return rejectMutation(
+                      [operation.value.oldName, operation.value.newName],
+                      "directory",
+                      Status.NOTDIR
+                    )
+                  }
+
+                  const destination = current
+                  const source = saved
+
+                  return statusResult(
+                    Effect.gen(function*() {
+                      yield* requireDirectory(destination, Status.NOTDIR)
+                      yield* requireDirectory(source, Status.NOTDIR)
+                      yield* validName(operation.value.oldName)
+                      yield* validName(operation.value.newName)
+
+                      return yield* export_.rename(
+                        source,
+                        operation.value.oldName,
+                        destination,
+                        operation.value.newName
+                      )
+                        .pipe(
+                          Effect.mapError((error) =>
+                            error.code === "IsDirectory" || error.code === "NotDirectory" || error.code === "NotEmpty"
+                              ? Status.EXIST
+                              : failureForFs(error)
+                          )
+                        )
+                    }),
+                    (change) => {
                       const sourceChange = Predicate.isTagged(change, "SameDirectory")
                         ? change.directory
                         : change.sourceDirectory
@@ -4898,133 +5306,136 @@ export const makeNfs4Handler = (
                         ? change.directory
                         : change.destinationDirectory
 
-                      writeChangeInfo(writer, sourceChange)
-                      writeChangeInfo(writer, destinationChange)
-                    })
-                )
+                      return encodeStatusBody(options.limits, [
+                        writeChangeInfo(sourceChange),
+                        writeChangeInfo(destinationChange)
+                      ])
+                    }
+                  )
+                }
+
+                case "Link": {
+                  if (current === undefined || saved === undefined) return Effect.succeed(noCurrent())
+
+                  if (!options.writable) return rejectMutation([operation.value], "object", Status.SYMLINK)
+                  const destination = current
+                  const source = saved
+
+                  return statusResult(
+                    Effect.gen(function*() {
+                      yield* requireDirectory(destination, Status.SYMLINK)
+                      yield* validName(operation.value)
+
+                      return yield* mapFs(export_.link(source, destination, operation.value))
+                    }),
+                    (result) => encodeStatusBody(options.limits, [writeChangeInfo(result.directory)])
+                  )
+                }
+
+                case "NotSupported":
+                  return Effect.succeed({ code: operation.code, status: Status.NOTSUPP })
+                case "Unknown":
+                  return Effect.succeed({ code: Operation.ILLEGAL, status: Status.OP_ILLEGAL })
+                case "Malformed":
+                  return Effect.succeed({ code: operation.code, status: Status.BADXDR })
               }
-
-              case "Link": {
-                if (current === undefined || saved === undefined) return Effect.succeed(noCurrent())
-
-                if (!options.writable) return rejectMutation([operation.value], "object", Status.SYMLINK)
-                const destination = current
-                const source = saved
-
-                return statusResult(
-                  Effect.gen(function*() {
-                    yield* requireDirectory(destination, Status.SYMLINK)
-                    yield* validName(operation.value)
-
-                    return yield* mapFs(export_.link(source, destination, operation.value))
-                  }),
-                  (result) => encodeStatusBody((writer) => writeChangeInfo(writer, result.directory))
-                )
-              }
-
-              case "NotSupported":
-                return Effect.succeed({ code: operation.code, status: Status.NOTSUPP })
-              case "Unknown":
-                return Effect.succeed({ code: Operation.ILLEGAL, status: Status.OP_ILLEGAL })
-              case "Malformed":
-                return Effect.succeed({ code: operation.code, status: Status.BADXDR })
             }
-          }
 
-          /** Sets the current filehandle without a returned stateid (RFC 8881 Section 16.2.3.1.2). */
-          function setCurrent(reference: CurrentObject | undefined): void {
-            current = reference
-            currentStateid = undefined
-          }
+            /** Sets the current filehandle without a returned stateid (RFC 8881 Section 16.2.3.1.2). */
+            function setCurrent(reference: CurrentObject | undefined): void {
+              current = reference
+              currentStateid = undefined
+            }
 
-          function parentOf(reference: Vfs.ObjectReference): Effect.Effect<Vfs.ObjectReference, number> {
-            // The root has no parent in this export (RFC 8881 Section 18.14.3).
-            return export_.parent(reference).pipe(
-              Effect.mapError(failureForFs),
-              Effect.filterOrFail((parent) => parent !== reference, () => Status.NOENT)
+            function parentOf(reference: Vfs.ObjectReference): Effect.Effect<Vfs.ObjectReference, number> {
+              // The root has no parent in this export (RFC 8881 Section 18.14.3).
+              return export_.parent(reference).pipe(
+                Effect.mapError(failureForFs),
+                Effect.filterOrFail((parent) => parent !== reference, () => Status.NOENT)
+              )
+            }
+
+            function nameStatus(error: Vfs.FsError | InvalidNameError): number {
+              if (error instanceof InvalidNameError) {
+                // RFC 8881 Section 14.5: reserved components are BADNAME, over-long names NAMETOOLONG,
+                // valid UTF-8 the file system cannot store (a slash or NUL) BADCHAR, and other
+                // invalid names INVAL.
+                switch (error.reason) {
+                  case "Reserved":
+                    return Status.BADNAME
+                  case "TooLong":
+                    return Status.NAMETOOLONG
+                  case "ForbiddenByte":
+                    return Status.BADCHAR
+                  default:
+                    return Status.INVAL
+                }
+              }
+
+              return failureForFs(error)
+            }
+
+            function isSpecialStateId(stateid: Uint8Array): boolean {
+              return isAllZero(stateid) || isAllOnes(stateid) || isCurrentStateId(stateid)
+            }
+
+            function checkStateIdSequence(stateid: Uint8Array, open: OpenState | LockState): number {
+              const suppliedSequence = stateIdSequence(stateid)
+
+              if (suppliedSequence !== 0 && suppliedSequence < open.sequence) return Status.OLD_STATEID
+
+              if (suppliedSequence > open.sequence) return Status.BAD_STATEID
+
+              return Status.OK
+            }
+
+            function checkOpenStateId(stateid: Uint8Array, open: OpenState): number {
+              const sequenceStatus = checkStateIdSequence(stateid, open)
+
+              if (sequenceStatus !== Status.OK) return sequenceStatus
+
+              if (
+                activeSession === undefined || current === undefined || open.client !== activeSession.client ||
+                open.reference !== current
+              ) {
+                return Status.BAD_STATEID
+              }
+
+              return Status.OK
+            }
+
+            function checkLockStateId(stateid: Uint8Array, lock: LockState): number {
+              const sequenceStatus = checkStateIdSequence(stateid, lock)
+
+              if (sequenceStatus !== Status.OK) return sequenceStatus
+
+              if (
+                activeSession === undefined || current === undefined || lock.client !== activeSession.client ||
+                lock.open.reference !== current
+              ) {
+                return Status.BAD_STATEID
+              }
+
+              return Status.OK
+            }
+
+            function advanceStateId(open: OpenState | LockState): void {
+              open.sequence += 1
+              open.id = makeStateId(
+                options.generation,
+                new DataView(open.id.buffer, open.id.byteOffset + 8, 8).getBigUint64(0),
+                open.sequence
+              )
+            }
+          }).pipe(
+            Effect.onInterrupt(() =>
+              Effect.sync(() => {
+                if (!consumedSequence) rollbackSequence?.()
+              })
             )
-          }
-
-          function nameStatus(error: Vfs.FsError | InvalidNameError): number {
-            if (error instanceof InvalidNameError) {
-              // RFC 8881 Section 14.5: reserved components are BADNAME, over-long names NAMETOOLONG,
-              // valid UTF-8 the file system cannot store (a slash or NUL) BADCHAR, and other
-              // invalid names INVAL.
-              switch (error.reason) {
-                case "Reserved":
-                  return Status.BADNAME
-                case "TooLong":
-                  return Status.NAMETOOLONG
-                case "ForbiddenByte":
-                  return Status.BADCHAR
-                default:
-                  return Status.INVAL
-              }
-            }
-
-            return failureForFs(error)
-          }
-
-          function isSpecialStateId(stateid: Uint8Array): boolean {
-            return isAllZero(stateid) || isAllOnes(stateid) || isCurrentStateId(stateid)
-          }
-
-          function checkStateIdSequence(stateid: Uint8Array, open: OpenState | LockState): number {
-            const suppliedSequence = stateIdSequence(stateid)
-
-            if (suppliedSequence !== 0 && suppliedSequence < open.sequence) return Status.OLD_STATEID
-
-            if (suppliedSequence > open.sequence) return Status.BAD_STATEID
-
-            return Status.OK
-          }
-
-          function checkOpenStateId(stateid: Uint8Array, open: OpenState): number {
-            const sequenceStatus = checkStateIdSequence(stateid, open)
-
-            if (sequenceStatus !== Status.OK) return sequenceStatus
-
-            if (
-              activeSession === undefined || current === undefined || open.client !== activeSession.client ||
-              open.reference !== current
-            ) {
-              return Status.BAD_STATEID
-            }
-
-            return Status.OK
-          }
-
-          function checkLockStateId(stateid: Uint8Array, lock: LockState): number {
-            const sequenceStatus = checkStateIdSequence(stateid, lock)
-
-            if (sequenceStatus !== Status.OK) return sequenceStatus
-
-            if (
-              activeSession === undefined || current === undefined || lock.client !== activeSession.client ||
-              lock.open.reference !== current
-            ) {
-              return Status.BAD_STATEID
-            }
-
-            return Status.OK
-          }
-
-          function advanceStateId(open: OpenState | LockState): void {
-            open.sequence += 1
-            open.id = makeStateId(
-              options.generation,
-              new DataView(open.id.buffer, open.id.byteOffset + 8, 8).getBigUint64(0),
-              open.sequence
-            )
-          }
-        }).pipe(
-          Effect.onInterrupt(() =>
-            Effect.sync(() => {
-              if (!consumedSequence) rollbackSequence?.()
-            })
           )
-        )
-      }).pipe(Effect.orDie)
+        }
+      )
 
     /**
      * Takes the next free backchannel slot. Section 2.10.6.1 requires slot state even for
@@ -5064,18 +5475,23 @@ export const makeNfs4Handler = (
         const sequence = nextSequenceId(back.slots[slot]!.sequence)
 
         // Section 20.9.3: csa_highest_slotid is the highest slot the server will use.
-        const body = encodeCallbackSequence(session.id, sequence, slot, back.slots.length - 1)
-
-        // Section 18.46.3 has SEQUENCE report an unusable callback path. A reply counts only if
-        // the client actually handled the callback: PROG_UNAVAIL, AUTH_ERROR and a rejected
-        // CB_SEQUENCE are all well-formed replies from a client with no working path.
+        // Section 18.46.3 has SEQUENCE report an unusable callback path. The slot is released
+        // even if encoding the callback body fails before any bytes are sent.
         const accepted = yield* Effect.ensuring(
-          callback(
-            session,
-            CB_COMPOUND_PROCEDURE,
-            body,
-            (reply) => callbackAccepted(reply, options.limits, session.id, slot, sequence)
-          ),
+          Effect.gen(function*() {
+            const encodedBody = yield* Effect.result(
+              encodeCallbackSequence(session.id, sequence, slot, back.slots.length - 1, options.limits)
+            )
+
+            if (Result.isFailure(encodedBody)) return false
+
+            return yield* callback(
+              session,
+              CB_COMPOUND_PROCEDURE,
+              encodedBody.success,
+              (reply) => callbackAccepted(reply, options.limits, session.id, slot, sequence)
+            )
+          }),
           Effect.sync(() => {
             back.slots[slot]!.busy = false
           })
