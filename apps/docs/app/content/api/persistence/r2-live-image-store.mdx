@@ -1,0 +1,168 @@
+# R2LiveImageStore overview
+
+Experimental whole-image R2 storage for one externally owned live volume.
+Each mutation replaces one object with an ETag condition. R2's concurrent
+same-key write limit and the absence of a reader lease make this unsuitable for a
+public writable NFS export without further qualification.
+
+Added in v0.5.0
+
+---
+
+## utils
+
+### ObjectRecord (interface)
+
+A complete R2 image plus the metadata needed to validate and fence it.
+
+**Signature**
+
+```ts
+export interface ObjectRecord {
+  readonly bytes: Uint8Array
+  readonly etag: string
+  readonly generation: string | undefined
+  readonly digest: string | undefined
+}
+```
+
+**Example**
+
+```ts
+import type { ObjectRecord } from "@effect-vfs/persistence/R2LiveImageStore"
+
+const record: ObjectRecord = {
+  bytes: new Uint8Array(),
+  etag: '"version-1"',
+  generation: "0",
+  digest: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
+```
+
+Added in v0.5.0
+
+### Options (interface)
+
+Configuration for one experimental R2-backed image.
+
+**Signature**
+
+```ts
+export interface Options {
+  readonly client: R2Client
+  readonly key: string
+  readonly maxImageBytes: ByteSize.ByteSize
+}
+```
+
+**Example**
+
+```ts
+import type { Options } from "@effect-vfs/persistence/R2LiveImageStore"
+import { Effect, ByteSize } from "effect"
+
+const client = {
+  read: (_key: string) => Effect.succeed(null),
+  write: () => Effect.succeed(null)
+}
+const options: Options = {
+  client,
+  key: "effect-vfs-nfs-test/live-image",
+  maxImageBytes: ByteSize.mebibytes(16)
+}
+```
+
+Added in v0.5.0
+
+### R2Client (interface)
+
+Transport operations required by the live-image adapter.
+
+**Signature**
+
+```ts
+export interface R2Client {
+  readonly read: (key: string) => Effect.Effect<ObjectRecord | null, LiveVolume.LiveVolumeError>
+  readonly write: (
+    key: string,
+    bytes: Uint8Array,
+    generation: string,
+    digest: string,
+    condition: { readonly ifMatch: string } | { readonly ifNoneMatch: "*" }
+  ) => Effect.Effect<{ readonly etag: string } | null, LiveVolume.LiveVolumeError>
+}
+```
+
+**Example**
+
+```ts
+import { S3Client } from "@aws-sdk/client-s3"
+import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
+
+const s3 = new S3Client({
+  region: "auto",
+  endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
+  credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
+})
+const client: R2LiveImageStore.R2Client = R2LiveImageStore.fromS3(s3, "test-bucket")
+```
+
+Added in v0.5.0
+
+### fromS3
+
+Use R2's S3-compatible API from a Bun or Node NFS server.
+
+**Signature**
+
+```ts
+export declare const fromS3: (client: S3Client, bucket: string) => R2Client
+```
+
+**Example**
+
+```ts
+import { S3Client } from "@aws-sdk/client-s3"
+import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
+
+const s3 = new S3Client({
+  region: "auto",
+  endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
+  credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
+})
+const client = R2LiveImageStore.fromS3(s3, "test-bucket")
+```
+
+Added in v0.5.0
+
+### layer
+
+A single-key experimental store. The application must ensure one live owner;
+ETag conditions detect stale writes but cannot prevent stale reads.
+
+**Signature**
+
+```ts
+export declare const layer: (
+  options: Options
+) => Layer.Layer<LiveVolume.LiveImageStore, LiveVolume.LiveVolumeError, Crypto.Crypto>
+```
+
+**Example**
+
+```ts
+import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
+import { ByteSize, Effect } from "effect"
+
+const client: R2LiveImageStore.R2Client = {
+  read: () => Effect.succeed(null),
+  write: () => Effect.succeed(null)
+}
+const store = R2LiveImageStore.layer({
+  client,
+  key: "effect-vfs-nfs-test/live-image",
+  maxImageBytes: ByteSize.mebibytes(16)
+})
+```
+
+Added in v0.5.0

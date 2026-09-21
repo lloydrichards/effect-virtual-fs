@@ -2,6 +2,10 @@
 
 ## 2026-09-21
 
+- **R2 writable NFS test app**: Added a private loopback app that composes the R2 live image store with the staged internal writable NFS handler, plus scoped local `AUTH_SYS` policy, an ignored `.env` template, and a mounted-client write, sync, rename, and restart checklist. A native macOS NFSv4.1 mount against R2 passed write, `fsync`, rename, readback, and recovery after a clean server restart. Its first run found a missing mapped-caller write grant in the NFS `ACCESS` reply; this was fixed with a regression test. Root `..` listing still needs an interoperability check.
+
+- **Experimental R2 live image adapter**: Added a single-owner R2 image store with conditional S3 writes, generation and digest checks, and local failure tests. Real-bucket runs passed create, conditional conflicts, an injected lost HTTP response, competing owners, eight sequential same-key commits, and a public live-volume write and reopen across three fresh processes; all test objects were removed. Corrected the published limit to concurrent same-key writes. Recorded why Alchemy's current HTTP R2 client cannot carry the required condition, plus the remaining NFS and durability checks.
+
 - **Remote agent filesystem access**: Distinguished direct TypeScript filesystem calls over HTTP or WebSocket from native NFS mounts, which require a TCP process outside Workers. Compared local NFS gateway and direct R2 or D1 access as follow-up paths.
 
 - **Cloudflare remote volume storage options**: Compared DO SQLite, D1, and R2 for a remotely accessible live volume. Recorded the separate needs for a coherent volume owner, a persistence provider, and an NFS TCP gateway; no backend or public API has been selected.
