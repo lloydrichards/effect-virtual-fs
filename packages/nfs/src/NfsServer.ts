@@ -1,10 +1,10 @@
 /**
- * Models and constructors for the experimental read-only NFSv4.1 server.
+ * Models and constructors for the experimental NFSv4.1 server.
  *
  * The server exports one live `@effect-vfs/core` volume over NFSv4.1 so that
  * ordinary NFS clients can mount a virtual filesystem. It implements the
- * supported read-only operations, returns `NFS4ERR_ROFS` for filesystem
- * mutations, and rejects other unsupported operations.
+ * supported read-only operations. Writable operation dispatch requires an
+ * explicit option and a volume that reports power-loss durability.
  *
  * @since 0.1.0
  */
@@ -395,6 +395,7 @@ export type NfsServerAddress = typeof NfsServerAddress.Type
 export type NfsServerLocalOptions = NfsServerConfigOverrides & {
   readonly volume: Vfs.Volume
   readonly caller: Vfs.Caller
+  readonly writable?: never
   readonly policy?: never
   readonly peer?: never
   readonly allowNonLoopback?: never
@@ -438,6 +439,8 @@ export type NfsIdentityPolicy = (request: {
 /** @since 0.1.0 */
 export type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
   readonly volume: Vfs.Volume
+  /** Enable mutations only for a volume qualified to survive power loss. */
+  readonly writable?: true
   readonly policy: NfsIdentityPolicy
   /** Evaluated in each accepted socket's context; null closes a connection without a trustworthy peer. */
   readonly peer: Effect.Effect<NfsPeer | null>
@@ -518,6 +521,7 @@ const decodeConfig = (
       peer: _peer,
       allowNonLoopback: _allowNonLoopback,
       acceptedFlavors: _acceptedFlavors,
+      writable: _writable,
       ...supplied
     } = options
 
@@ -563,6 +567,20 @@ const make = (
     const limits = config.limits
     const policy = options.policy
     const networked = policy !== undefined
+
+    const writable: unknown = options.writable
+
+    if (writable !== undefined && writable !== true) {
+      return yield* configurationError("writable", "expected true or omission")
+    }
+
+    if (options.writable && !Vfs.isVolumeDurabilityAtLeast(options.volume.durability, "survives-power-loss")) {
+      return yield* configurationError("volume.durability", "writable NFS requires survives-power-loss")
+    }
+
+    if (options.writable && !networked) {
+      return yield* configurationError("policy", "writable NFS requires an explicit identity policy")
+    }
 
     if (networked && !Predicate.isFunction(policy)) {
       return yield* configurationError("policy", "policy must be a function")
@@ -652,6 +670,7 @@ const make = (
     const storageGeneration = Result.getOrThrow(Encoding.decodeHex(options.volume.incarnation))
     const export_ = makeExport(options.caller ?? volumeCaller, storageGeneration, limits, identity, options.volume)
     const callers = new Map<string, Vfs.Caller>()
+    let writableIdentityKey: string | undefined
 
     const callerFor = policy === undefined ?
       undefined :
@@ -691,6 +710,8 @@ const make = (
             [...mapped.groups].sort((a, b) => a - b)
           ].flat().join(":")
 
+          if (options.writable && writableIdentityKey !== undefined && key !== writableIdentityKey) return null
+
           const existing = callers.get(key)
 
           if (existing !== undefined) return existing
@@ -698,7 +719,11 @@ const make = (
           if (callers.size >= limits.maxIdentities) return null
           const created = yield* options.volume.caller({ identity: mapped }).pipe(Effect.orElseSucceed(() => null))
 
-          if (created !== null) callers.set(key, created)
+          if (created !== null) {
+            callers.set(key, created)
+
+            if (options.writable) writableIdentityKey = key
+          }
 
           return created
         })
@@ -710,7 +735,8 @@ const make = (
       callbackTimeout: Duration.seconds(config.callbackTimeoutSeconds),
       limits,
       securityFlavors: acceptedFlavors.map((flavor) => flavor === "sys" ? 1 : 0),
-      now: Date.now
+      now: Date.now,
+      writable: options.writable ?? false
     }
 
     const handler = yield* makeNfs4Handler(

@@ -1,7 +1,7 @@
 {
   "name": "@effect-vfs/nfs",
   "version": "0.4.0",
-  "description": "Read-only NFSv4.1 server for one live Effect VFS volume.",
+  "description": "NFSv4.1 server for one live Effect VFS volume, with guarded experimental writes.",
   "homepage": "https://github.com/lloydrichards/effect-virtual-fs#readme",
   "license": "MIT",
   "repository": {

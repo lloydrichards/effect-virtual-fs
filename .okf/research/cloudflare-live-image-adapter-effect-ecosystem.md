@@ -6,13 +6,13 @@ status: draft
 tags: [effect, cloudflare, r2, durable-objects, d1, persistence]
 sources:
   - id: live-contract
-    resource: ../../packages/core/src/LiveVolume.ts
+    resource: https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts
     title: LiveImageStore contract
   - id: writable-test-app
-    resource: ../../apps/nfs-r2-writable-test/README.md
+    resource: https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/nfs-r2-writable-test/README.md
     title: Local R2-backed writable NFS test app
   - id: effect-manifest
-    resource: ../../packages/core/package.json
+    resource: https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/package.json
     title: Repository Effect version
   - id: effect-packages
     resource: https://github.com/Effect-TS/effect/blob/main/README.md
@@ -44,6 +44,9 @@ sources:
   - id: r2-limits
     resource: https://developers.cloudflare.com/r2/platform/limits/
     title: R2 limits
+  - id: r2-durability
+    resource: https://developers.cloudflare.com/r2/reference/durability/
+    title: R2 synchronous write durability
   - id: do-storage
     resource: https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/
     title: Durable Object SQLite storage API
@@ -67,7 +70,7 @@ generated: { by: codex/okf, at: 2026-09-21T14:29:00Z }
 
 # Effect integration choices for a Cloudflare live image store
 
-The repository uses Effect `4.0.0-rc.114`. `LiveImageStore` is only two operations: `loadOrCreate(initial)` and `commit(image)`. Its provider must exclusively own the image, replace it atomically, and distinguish confirmed success, confirmed rejection, and an outcome that cannot be determined. This small seam makes a new provider feasible, but no storage client implements those semantics for this repository automatically. [Contract](../../packages/core/src/LiveVolume.ts), [manifest](../../packages/core/package.json).
+The repository uses Effect `4.0.0-rc.114`. `LiveImageStore` is only two operations: `loadOrCreate(initial)` and `commit(image)`. Its provider must exclusively own the image, replace it atomically, and distinguish confirmed success, confirmed rejection, and an outcome that cannot be determined. This small seam makes a new provider feasible, but no storage client implements those semantics for this repository automatically. [Contract](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts), [manifest](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/package.json).
 
 ## Existing packages
 
@@ -88,7 +91,7 @@ Alchemy now covers more than resource deployment. Its current R2 API provisions 
 
 ## Practical first experiment
 
-The first prototype uses the S3-compatible API. It records a generation and digest with the complete image, fences replacements with an ETag condition, and freezes the store after an uncertain commit. Fake-client tests cover reopening, a stale writer, corruption, and a lost response. On 2026-09-21, `bun run --filter @effect-vfs/persistence test:r2` passed against a real R2 bucket: create, create-only conflict rejection, conditional replacement, reopen of the committed image, stale ETag rejection, and test-object deletion all succeeded. The follow-up `test:r2:fault` run passed a simulated lost reply after R2 accepted the write, an HTTP-handler fault that discarded a successful response, a sequential stale-owner check, a concurrent two-writer race, and eight sequential commits to one key. The race acknowledged exactly one writer and reopened its image. The eight sequential commits each took roughly 200–300 ms and all succeeded. `test:r2:volume` passed through the public `LiveVolume` API across three fresh Bun processes: write a file, reopen and update it, then reopen and read the update. All test objects were deleted. These runs do not establish behavior under actual connection loss, physical power loss, larger images, or sustained NFS load. A durable coordinator such as one Durable Object per volume may be necessary. This is an experiment, not a release qualification. [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/), [R2 S3 compatibility](https://developers.cloudflare.com/r2/api/s3/api/), [live-image contract](../../packages/core/src/LiveVolume.ts).
+The first prototype uses the S3-compatible API. It records a generation and digest with the complete image, fences replacements with an ETag condition, and freezes the store after an uncertain commit. Fake-client tests cover reopening, a stale writer, corruption, and a lost response. On 2026-09-21, `bun run --filter @effect-vfs/persistence test:r2` passed against a real R2 bucket: create, create-only conflict rejection, conditional replacement, reopen of the committed image, stale ETag rejection, and test-object deletion all succeeded. The follow-up `test:r2:fault` run passed a simulated lost reply after R2 accepted the write, an HTTP-handler fault that discarded a successful response, a sequential stale-owner check, a concurrent two-writer race, and eight sequential commits to one key. The race acknowledged exactly one writer and reopened its image. The eight sequential commits each took roughly 200–300 ms and all succeeded. `test:r2:volume` passed through the public `LiveVolume` API across three fresh Bun processes: write a file, reopen and update it, then reopen and read the update. All test objects were deleted. Those adapter runs alone do not establish behavior under actual connection loss, larger images, or sustained NFS load. A durable coordinator such as one Durable Object per volume may be necessary for multi-gateway use. The mounted-client and public-profile evidence is recorded below. [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/), [R2 S3 compatibility](https://developers.cloudflare.com/r2/api/s3/api/), [live-image contract](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts).
 
 Cloudflare documents a one-per-second limit for **concurrent** writes to the same object key and says higher-rate concurrent writes can return HTTP 429. The real-bucket probe accepted eight sequential small-image commits in roughly two seconds, so that published limit should not be read as a hard one-write-per-second ceiling for serialized commits. Larger images and realistic NFS mutation streams still need measurement. Generation-specific keys could spread contention but require an atomic, durable pointer or owner elsewhere; key rotation alone does not solve coordination. [R2 limits](https://developers.cloudflare.com/r2/platform/limits/).
 
@@ -96,4 +99,4 @@ Cloudflare documents a one-per-second limit for **concurrent** writes to the sam
 
 The basic adapter is small because the core supplies image serialization and staged mutation. The larger work is proving exclusive ownership, stale-writer fencing, recovery from ambiguous writes, size and throughput under whole-image replacement, and the stable-write guarantee through the NFS response path. A Durable Object can supply a serialized owner, but using it as the authoritative volume rather than a remote store changes the gateway design. [Existing Cloudflare feasibility note](cloudflare-durable-object-live-image.md "builds on").
 
-A private local [writable NFS test app](../../apps/nfs-r2-writable-test/README.md) now composes the R2 provider with the staged internal NFS handler on loopback. It narrows `AUTH_SYS` claims to root or one configured local UID and a loopback peer. It requires an operator to run only one gateway for the image; this is not a distributed lease. On 2026-09-21 a native macOS NFSv4.1 mount passed write, `fsync`, rename, readback, and recovery after a clean unmount and fresh server process against a real R2 bucket. The first mount revealed that the internal NFS `ACCESS` reply omitted mapped-caller write grants; this was fixed and covered by a focused regression test. `ls -la` at the export root still reports a permission error for `..`, while a plain listing and the mutation test pass. These results do not qualify physical power-loss durability or unattended client recovery. The app does not change the public read-only NFS constructor or `Volume.durability`.
+The [writable NFS test app](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/nfs-r2-writable-test/README.md) now uses public `NfsServer.make({ writable: true })` with a verified R2 S3 endpoint, an explicit one-identity policy, and a bounded image. The public constructor rejects `memory-only` volumes; the app explicitly asserts `survives-power-loss` from Cloudflare's documented rule that a successful R2 API write has been persisted to disk. The application must run one gateway for the image; there is no distributed lease. On 2026-09-21 independent macOS and Debian NFSv4.1 clients passed alternating writes and visibility; Debian passed acknowledged `fsync` plus gateway `SIGKILL` recovery. Through the public profile, Debian passed write, `fsync`, rename, readback, and fresh-process reopen. A real HTTP fault discarded R2's successful response during a file-content `WRITE`: Debian received `EIO`, and a fresh gateway recovered the complete new bytes. Another fault during `mkdir` returned `EIO`, refused the next mutation, and recovered only the first directory. The first mount earlier revealed a missing mapped-caller write grant in NFS `ACCESS`; that has a regression test. This evidence supports the narrow single-gateway R2 profile, but it does not test Cloudflare's physical infrastructure or provide unattended client state recovery. [R2 durability](https://developers.cloudflare.com/r2/reference/durability/).

@@ -57,7 +57,7 @@ RFC 8881 defines no read-only server profile; its read-only allowance in Section
 
 ## Publication
 
-`read-only-local` is a publishable target. The package manifest now permits public publication, and NFS joins the fixed Changesets group with core, memory, and persistence. The first registry release still depends on applying the release changeset and checking the packed artifact.[^nfs-package][^changesets] Maturity graduates in place without renaming the package or its exports. Public NFS mutations remain disabled.
+`read-only-local` is a publishable target. The package manifest permits public publication, and NFS joins the fixed Changesets group with core, memory, and persistence.[^nfs-package][^changesets] Maturity graduates in place without renaming the package or its exports. The public `writable: true` option is experimental and requires a `survives-power-loss` volume, an explicit identity policy, and one authorized identity. The default remains read-only.
 
 ## Evidence ladder
 

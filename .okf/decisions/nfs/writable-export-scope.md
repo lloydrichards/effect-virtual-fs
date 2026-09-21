@@ -28,7 +28,7 @@ generated: { by: codex/okf, at: 2026-09-19T11:27:24Z }
 
 # Writable NFS export scope
 
-The user accepted this scope on 2026-09-19 for issues #47, #48, and #49. It describes the target, not current support. The [profile ladder](nfs-profile-ladder.md "refined by") still separates capability from maturity.
+The user accepted this scope on 2026-09-19 for issues #47, #48, and #49. The public API now exposes an experimental guarded writable option for a qualified live volume; this scope still defines its requirements. The [profile ladder](nfs-profile-ladder.md "refined by") separates capability from maturity.
 
 - A writable export is explicit, local, and restricted to one authorized user. It reuses the application-supplied peer and credential policy and its mapped VFS caller. The read-only local caller shortcut does not authorize writes. This narrows the [authentication and export policy](nfs-authentication-and-export-policy.md "constrained by").
 - NFS share reservations are mandatory for NFS reads and writes. Byte-range locks are advisory between NFS clients. Full relevant open, share, lock, stateid, lease, limit, and cleanup behavior from #47 precedes the trustworthy writable milestone. Direct VFS callers remain outside NFS locks, as fixed by [reference-based mutations](../core/reference-mutations.md "constrained by").
@@ -38,9 +38,9 @@ The user accepted this scope on 2026-09-19 for issues #47, #48, and #49. It desc
 
 ## Storage design constraint
 
-The current core mutates live in-memory state inside a coordination gate and advertises `memory-only`. `CheckpointStore` saves application-supplied snapshots separately. Saving a snapshot after a mutation would leave the live volume changed if that save fails; it is not a commit barrier. A provider design must establish a failure-safe mutation and persistence boundary before it can claim the stronger durability tier.[^core][^checkpoint]
+Ordinary core volumes mutate in-memory state inside a coordination gate and advertise `memory-only`. `LiveVolume` stages each candidate image and publishes it only after its provider confirms the commit. A live provider can report a stronger qualified tier; the R2 test app uses Cloudflare's synchronous successful-write contract. `CheckpointStore` saves application-supplied snapshots separately and is not a commit barrier.[^core][^checkpoint]
 
-The provider implementation, its precise stable-storage failure boundary, and crash-recovery format still require focused design. This decision does not assign those mechanics to core or persistence prematurely. RFC 8881 requires `FILE_SYNC4` replies to follow stable storage of data and metadata and permits advisory byte-range locks.[^rfc8881]
+The R2 provider uses conditional whole-image replacement for the first experimental writable configuration. It requires one externally controlled gateway; it does not implement a distributed ownership lease or unattended NFS state recovery. Other providers still require their own qualification. RFC 8881 requires `FILE_SYNC4` replies to follow stable storage of data and metadata and permits advisory byte-range locks.[^rfc8881]
 
 [^core]: `coordinated` guards in-memory mutations; built-in volumes report `memory-only`.
 

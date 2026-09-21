@@ -80,6 +80,10 @@ Unmount before stopping the server. Use `sudo umount /Volumes/effect-vfs` on mac
 
 ## Extend the example
 
-Application code can change the same volume through its VFS caller while NFS clients read it. The server rejects mutating NFS operations with `NFS4ERR_ROFS`. It tracks advisory read locks between NFS clients, but direct VFS callers do not participate in those locks.
+Application code can change the same volume through its VFS caller while NFS clients read it. This example rejects mutating NFS operations with `NFS4ERR_ROFS`. It tracks advisory read locks between NFS clients, but direct VFS callers do not participate in those locks.
 
 For a fixture that updates a file every two seconds, see the [NFS preview app](https://github.com/lloydrichards/effect-virtual-fs/tree/main/apps/nfs-preview). The [`NfsServer` API reference](/api/nfs/nfs-server) lists options and limits. The networked profile needs an application identity policy, peer resolver, and explicit non-loopback opt-in; it remains `experimental`. Neither profile provides RPCSEC_GSS or full NFSv4.1 conformance.
+
+## Experimental writable profile
+
+`NfsServer.make({ writable: true, ... })` enables writes only when the volume reports `survives-power-loss` and the application supplies a peer and identity policy. A local caller shortcut cannot authorize writes. The application must keep one gateway as the sole owner of its storage image and remount clients after gateway restart. The [R2 writable test app](https://github.com/lloydrichards/effect-virtual-fs/tree/main/apps/nfs-r2-writable-test) is a runnable example with bounded storage, native-client checks, and lost-response recovery evidence. Its R2 durability assertion depends on Cloudflare's successful-write contract; do not copy it to an unqualified provider.
