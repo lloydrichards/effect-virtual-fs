@@ -54,6 +54,39 @@ const layer = (client: R2LiveImageStore.R2Client) =>
   )
 
 describe("R2 live image store", () => {
+  it.effect("reports power-loss durability only when the application qualifies the R2 transport", () =>
+    Effect.gen(function*() {
+      const remote = makeClient()
+
+      const options = {
+        maxImageBytes: ByteSize.kilobytes(64),
+        volume: {
+          maxEntries: 100,
+          maxBytes: ByteSize.kilobytes(32),
+          maxFileBytes: ByteSize.kilobytes(16),
+          maxPathBytes: ByteSize.bytes(1024)
+        }
+      }
+
+      const unqualifiedServices = Layer.merge(layer(remote.client), NodeCrypto.layer)
+
+      const unqualified = yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(unqualifiedServices)))
+
+      assert.strictEqual(unqualified.durability, "memory-only")
+
+      const qualifiedStore = R2LiveImageStore.layer({
+        client: remote.client,
+        key: "volume/live",
+        maxImageBytes: options.maxImageBytes,
+        durability: "survives-power-loss"
+      }).pipe(Layer.provide(NodeCrypto.layer))
+
+      const qualifiedServices = Layer.merge(qualifiedStore, NodeCrypto.layer)
+      const qualified = yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(qualifiedServices)))
+
+      assert.strictEqual(qualified.durability, "survives-power-loss")
+    }))
+
   it.effect("reopens the last acknowledged complete image", () =>
     Effect.gen(function*() {
       const remote = makeClient()

@@ -3,7 +3,8 @@
  *
  * An adapter must preserve the supplied bytes atomically and classify each
  * commit as confirmed, definitely rejected, or uncertain. The opened volume
- * stays at `memory-only` until the adapter's durability is qualified.
+ * stays at `memory-only` unless the adapter explicitly supplies a qualified
+ * durability tier.
  *
  * @since 0.4.0
  */
@@ -13,7 +14,7 @@ import type * as Crypto from "effect/Crypto"
 import type * as PlatformError from "effect/PlatformError"
 import type * as Scope from "effect/Scope"
 import * as Model from "./internal/virtualFileSystem.js"
-import type { ConfigurationError, ImageError, Volume, VolumeOptions } from "./VirtualFileSystem.js"
+import type { ConfigurationError, ImageError, Volume, VolumeDurability, VolumeOptions } from "./VirtualFileSystem.js"
 
 /**
  * A storage commit's observed outcome.
@@ -41,6 +42,8 @@ export class LiveVolumeError extends Data.TaggedError("LiveVolumeError")<{
  * @since 0.4.0
  */
 export class LiveImageStore extends Context.Service<LiveImageStore, {
+  /** Storage guarantee for successful commits; omission means memory-only. */
+  readonly durability?: VolumeDurability
   readonly loadOrCreate: (initial: Uint8Array) => Effect.Effect<Uint8Array, LiveVolumeError>
   readonly commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>
 }>()("@effect-vfs/core/LiveImageStore") {}
@@ -79,7 +82,7 @@ export const open: (options: Options) => Effect.Effect<
 
   const image = yield* store.loadOrCreate(initial)
 
-  const session = yield* openImage(image, options.maxImageBytes, store.commit).pipe(
+  const session = yield* openImage(image, options.maxImageBytes, store.commit, store.durability ?? "memory-only").pipe(
     Effect.mapError((cause) => new LiveVolumeError({ code: "CorruptStore", cause }))
   )
 
@@ -143,7 +146,8 @@ export const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<
 export const openImage: (
   image: Uint8Array,
   maxImageBytes: ByteSize.ByteSize,
-  commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>
+  commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>,
+  durability?: VolumeDurability
 ) => Effect.Effect<
   ImageSession,
   ConfigurationError | ImageError | PlatformError.PlatformError,
