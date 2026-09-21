@@ -1,11 +1,11 @@
 # NfsServer overview
 
-Models and constructors for the experimental read-only NFSv4.1 server.
+Models and constructors for the experimental NFSv4.1 server.
 
 The server exports one live `@effect-vfs/core` volume over NFSv4.1 so that
 ordinary NFS clients can mount a virtual filesystem. It implements the
-supported read-only operations, returns `NFS4ERR_ROFS` for filesystem
-mutations, and rejects other unsupported operations.
+supported read-only operations. Writable operation dispatch requires an
+explicit option and a volume that reports power-loss durability.
 
 Added in v0.1.0
 
@@ -252,6 +252,7 @@ Validated configuration paired with the live volume and caller capabilities.
 export type NfsServerLocalOptions = NfsServerConfigOverrides & {
   readonly volume: Vfs.Volume
   readonly caller: Vfs.Caller
+  readonly writable?: never
   readonly policy?: never
   readonly peer?: never
   readonly allowNonLoopback?: never
@@ -807,6 +808,8 @@ Added in v0.1.0
 ```ts
 export type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
   readonly volume: Vfs.Volume
+  /** Enable mutations only for a volume qualified to survive power loss. */
+  readonly writable?: true
   readonly policy: NfsIdentityPolicy
   /** Evaluated in each accepted socket's context; null closes a connection without a trustworthy peer. */
   readonly peer: Effect.Effect<NfsPeer | null>

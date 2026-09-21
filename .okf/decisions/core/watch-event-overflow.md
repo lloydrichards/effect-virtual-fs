@@ -36,7 +36,7 @@ generated: { by: codex/okf, at: 2026-09-20T00:00:00Z }
 
 ## Admission
 
-`maxPendingOperations` defaults to 64. The volume admits at most 65 callers at once, including the operation using the permit. Excess mutations, observations, and watch registrations fail with retryable `FsError` code `VolumeBusy` before mutation or durable commit. All three permit waits are interruptible; watch registration still installs its finalizer atomically after acquisition. Cleanup finalizers and provider shutdown can still enter the volume. NFS maps `VolumeBusy` to `NFS4ERR_DELAY`, while the public NFS export remains read-only.[^engine]
+`maxPendingOperations` defaults to 64. The volume admits at most 65 callers at once, including the operation using the permit. Excess mutations, observations, and watch registrations fail with retryable `FsError` code `VolumeBusy` before mutation or durable commit. All three permit waits are interruptible; watch registration still installs its finalizer atomically after acquisition. Cleanup finalizers and provider shutdown can still enter the volume. NFS maps `VolumeBusy` to `NFS4ERR_DELAY` in both the default read-only and guarded writable profiles.[^engine]
 
 ## Watch retention and recovery
 

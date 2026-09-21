@@ -449,6 +449,38 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       )
   )
 
+  it.effect("refuses writable export when the volume cannot promise power-loss durability", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+
+      const error = yield* Effect.flip(NfsServer.make({
+        volume,
+        writable: true,
+        peer: Effect.succeed({ transport: "tcp" as const, address: "127.0.0.1", port: 2049 }),
+        policy: () => ({ uid: 0, gid: 0, groups: [], privileged: true })
+      }))
+
+      assert.instanceOf(error, ConfigurationError)
+      assert.strictEqual(error.option, "volume.durability")
+    }).pipe(Effect.provideService(SocketServer.SocketServer, testSocketServer)))
+
+  it.effect("requires an explicit identity policy for writable export", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+
+      // SAFETY: This test deliberately passes the forbidden local writable option to exercise runtime validation.
+      // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- Runtime validation requires an invalid typed input.
+      const error = yield* Effect.flip(NfsServer.make({
+        volume: { ...volume, durability: "survives-power-loss" },
+        caller,
+        writable: true
+      } as unknown as NfsServerOptions))
+
+      assert.instanceOf(error, ConfigurationError)
+      assert.strictEqual(error.option, "policy")
+    }).pipe(Effect.provideService(SocketServer.SocketServer, testSocketServer)))
+
   it.effect("accepts a socket server bound to a UNIX-domain socket path as a local address", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
