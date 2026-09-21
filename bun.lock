@@ -20,7 +20,23 @@
         "vitest": "^5.0.1",
       },
     },
-    "apps/alchemy-vfs-demo": {
+    "apps/dem-overlay": {
+      "name": "@repo/overlay-demo",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect-vfs/core": "workspace:*",
+        "@effect/ai-openai": "4.0.0-rc.115",
+        "@effect/platform-bun": "4.0.0-rc.115",
+        "effect": "4.0.0-rc.115",
+        "effect-boxes": "^0.17.2",
+      },
+      "devDependencies": {
+        "@effect/vitest": "4.0.0-rc.115",
+        "@repo/config-typescript": "workspace:*",
+        "@types/bun": "^1.2.17",
+      },
+    },
+    "apps/demo-alchemy": {
       "name": "@repo/alchemy-vfs-demo",
       "version": "0.0.0",
       "dependencies": {
@@ -33,6 +49,23 @@
       },
       "devDependencies": {
         "@effect/vitest": "4.0.0-rc.115",
+        "@repo/config-typescript": "workspace:*",
+        "@types/bun": "^1.2.17",
+      },
+    },
+    "apps/demo-r2": {
+      "name": "@repo/nfs-r2-writable-test",
+      "version": "0.0.1",
+      "dependencies": {
+        "@aws-sdk/client-s3": "3.883.0",
+        "@effect-vfs/core": "workspace:*",
+        "@effect-vfs/nfs": "workspace:*",
+        "@effect-vfs/persistence": "workspace:*",
+        "@effect/platform-bun": "4.0.0-rc.115",
+        "@effect/platform-node-shared": "4.0.0-rc.115",
+        "effect": "4.0.0-rc.115",
+      },
+      "devDependencies": {
         "@repo/config-typescript": "workspace:*",
         "@types/bun": "^1.2.17",
       },
@@ -93,39 +126,6 @@
         "effect": "4.0.0-rc.115",
       },
       "devDependencies": {
-        "@repo/config-typescript": "workspace:*",
-        "@types/bun": "^1.2.17",
-      },
-    },
-    "apps/nfs-r2-writable-test": {
-      "name": "@repo/nfs-r2-writable-test",
-      "version": "0.0.1",
-      "dependencies": {
-        "@aws-sdk/client-s3": "3.883.0",
-        "@effect-vfs/core": "workspace:*",
-        "@effect-vfs/nfs": "workspace:*",
-        "@effect-vfs/persistence": "workspace:*",
-        "@effect/platform-bun": "4.0.0-rc.115",
-        "@effect/platform-node-shared": "4.0.0-rc.115",
-        "effect": "4.0.0-rc.115",
-      },
-      "devDependencies": {
-        "@repo/config-typescript": "workspace:*",
-        "@types/bun": "^1.2.17",
-      },
-    },
-    "apps/overlay-demo": {
-      "name": "@repo/overlay-demo",
-      "version": "0.0.0",
-      "dependencies": {
-        "@effect-vfs/core": "workspace:*",
-        "@effect/ai-openai": "4.0.0-rc.115",
-        "@effect/platform-bun": "4.0.0-rc.115",
-        "effect": "4.0.0-rc.115",
-        "effect-boxes": "^0.17.2",
-      },
-      "devDependencies": {
-        "@effect/vitest": "4.0.0-rc.115",
         "@repo/config-typescript": "workspace:*",
         "@types/bun": "^1.2.17",
       },
@@ -862,15 +862,15 @@
 
     "@remix-run/route-pattern": ["@remix-run/route-pattern@0.22.1", "", {}, "sha512-czdGJWh09Lapvcqt7Vb09KlrU2PhRJ8xQaI+AItTuD9aDJ5MAgxnS38lnys6Ll+6RJEqPiaUqTwIQhVLwFvv+w=="],
 
-    "@repo/alchemy-vfs-demo": ["@repo/alchemy-vfs-demo@workspace:apps/alchemy-vfs-demo"],
+    "@repo/alchemy-vfs-demo": ["@repo/alchemy-vfs-demo@workspace:apps/demo-alchemy"],
 
     "@repo/config-typescript": ["@repo/config-typescript@workspace:packages/config-typescript"],
 
     "@repo/nfs-preview": ["@repo/nfs-preview@workspace:apps/nfs-preview"],
 
-    "@repo/nfs-r2-writable-test": ["@repo/nfs-r2-writable-test@workspace:apps/nfs-r2-writable-test"],
+    "@repo/nfs-r2-writable-test": ["@repo/nfs-r2-writable-test@workspace:apps/demo-r2"],
 
-    "@repo/overlay-demo": ["@repo/overlay-demo@workspace:apps/overlay-demo"],
+    "@repo/overlay-demo": ["@repo/overlay-demo@workspace:apps/dem-overlay"],
 
     "@repo/scratchpad": ["@repo/scratchpad@workspace:apps/scratchpad"],
 

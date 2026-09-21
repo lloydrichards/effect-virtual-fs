@@ -1,4 +1,4 @@
-import { LiveVolume } from "@effect-vfs/core"
+import { LiveVolume, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
@@ -25,7 +25,13 @@ export interface Notebook {
   readonly durability: string
 }
 
-const open = (client: R2LiveImageStore.R2Client, id: string, mode: "create" | "read") => {
+const withNotebook = <A, E, R>(
+  client: R2LiveImageStore.R2Client,
+  id: string,
+  use: (files: Vfs.Caller, durability: string) => Effect.Effect<A, E, R>
+) => {
+  // Each request owns its volume scope. A later GET must load the image from R2
+  // rather than reuse handles or in-memory state left by POST.
   const store = R2LiveImageStore.layer({
     client,
     key: keyFor(id),
@@ -37,33 +43,38 @@ const open = (client: R2LiveImageStore.R2Client, id: string, mode: "create" | "r
     const volume = yield* LiveVolume.open(options)
     const files = yield* volume.caller()
 
-    if (mode === "create") {
+    return yield* use(files, volume.durability)
+  })).pipe(Effect.provide(Layer.merge(store, WorkerCrypto.layer)))
+}
+
+const describeNotebook = Effect.fn("Notebook.describe")(function*(files: Vfs.Caller, id: string, durability: string) {
+  const names = yield* files.readDirectory("/published")
+  const content = new TextDecoder().decode(yield* files.readFile("/published/hello.txt"))
+
+  return {
+    id,
+    files: names.map((name) => `/published/${name}`),
+    content,
+    durability
+  } satisfies Notebook
+})
+
+export const createNotebook = (client: R2LiveImageStore.R2Client, id: string) =>
+  withNotebook(client, id, (files, durability) =>
+    Effect.gen(function*() {
+      // These are filesystem operations on the virtual tree. The R2 adapter
+      // persists the resulting image; callers never manage individual R2 objects.
       yield* files.mkdir("/notes")
       yield* files.mkdir("/published")
       yield* files.writeFile(
         "/notes/hello.txt",
         new TextEncoder().encode("A virtual file, committed as one R2 image."),
-        {
-          access: "write",
-          create: "exclusive"
-        }
+        { access: "write", create: "exclusive" }
       )
       yield* files.rename("/notes/hello.txt", "/published/hello.txt")
-    }
 
-    const names = yield* files.readDirectory("/published")
-    const content = new TextDecoder().decode(yield* files.readFile("/published/hello.txt"))
-
-    return {
-      id,
-      files: names.map((name) => `/published/${name}`),
-      content,
-      durability: volume.durability
-    } satisfies Notebook
-  })).pipe(Effect.provide(Layer.merge(store, WorkerCrypto.layer)))
-}
-
-export const createNotebook = (client: R2LiveImageStore.R2Client, id: string) => open(client, id, "create")
+      return yield* describeNotebook(files, id, durability)
+    }))
 
 export const readNotebook = (client: R2LiveImageStore.R2Client, id: string) =>
   Effect.gen(function*() {
@@ -78,7 +89,7 @@ export const readNotebook = (client: R2LiveImageStore.R2Client, id: string) =>
       write: client.write
     }
 
-    return yield* open(snapshotClient, id, "read").pipe(
+    return yield* withNotebook(snapshotClient, id, (files, durability) => describeNotebook(files, id, durability)).pipe(
       Effect.catch((error) =>
         client.read(keyFor(id)).pipe(
           Effect.flatMap((current) => current === null ? Effect.succeed(null) : Effect.fail(error))
@@ -93,6 +104,8 @@ export const createWithCleanup = <E, R>(
   remove: Effect.Effect<void, E, R>
 ) =>
   Effect.gen(function*() {
+    // A failed create can leave an image containing only the earlier writes.
+    // Report the ID if removal fails so the caller can retry DELETE.
     const created = yield* Effect.exit(createNotebook(client, id))
 
     if (Exit.isSuccess(created)) return { _tag: "Created" as const, notebook: created.value }

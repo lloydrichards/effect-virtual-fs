@@ -46,6 +46,8 @@ export const fromNativeBinding = (bucket: ReadWriteBucketClient): Effect.Effect<
           })
         ),
       write: (key, bytes, generation, digest, condition) =>
+        // The live store uses conditional writes to reject competing writers.
+        // R2 reports a failed condition as null, distinct from a storage error.
         bucket.put(key, bytes, {
           customMetadata: { generation, digest },
           onlyIf: "ifMatch" in condition

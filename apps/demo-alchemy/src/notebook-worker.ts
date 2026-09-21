@@ -31,6 +31,7 @@ export default Cloudflare.Worker(
       fetch: Effect.gen(function*() {
         const request = yield* HttpServerRequest.HttpServerRequest
 
+        // Authenticate before opening a volume or touching the bucket.
         if (request.headers["authorization"] !== `Bearer ${Redacted.value(token)}`) {
           return json({ error: "unauthorized" }, 401)
         }

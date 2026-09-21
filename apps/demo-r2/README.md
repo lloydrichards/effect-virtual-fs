@@ -1,9 +1,10 @@
 # R2 writable NFS test app
 
-This local test app connects one `LiveVolume` to one R2 object and the public `NfsServer` with `writable: true`.
-It qualifies the volume's durability from Cloudflare R2's documented successful-write contract and uses one
-gateway per image. The writable profile is experimental and requires an application-controlled trusted client
-boundary; `AUTH_SYS` does not authenticate users.
+This app turns one virtual filesystem into a writable NFSv4.1 export. A native macOS or Linux client can create,
+write, sync, rename, and read files in that tree. `LiveVolume` commits the same tree as one R2 image, so a fresh
+gateway can reopen it after a restart. The app qualifies the volume's durability from Cloudflare R2's documented
+successful-write contract and uses one gateway per image. The writable profile is experimental and requires an
+application-controlled trusted client boundary; `AUTH_SYS` does not authenticate users.
 
 ## Requirements
 
@@ -50,6 +51,14 @@ the UID running the app; set it if the mounted client's file operations use a di
 
 The volume is bounded to a 16 MiB encoded image, 8 MiB of file contents, 4 MiB per file, and 1,000 entries. Every
 mutation replaces the complete image in R2, so keep the test workload small.
+
+## How the app starts
+
+Start with `src/main.ts`: it obtains an R2 client, opens the virtual volume from the stored image, then exports that
+tree through `NfsServer.make`. `src/config.ts` checks the R2 endpoint, image key, listener, and client settings before
+startup. The endpoint check limits the app's `survives-power-loss` assertion to Cloudflare R2; the app does not test
+the provider's physical storage. `src/r2-client.ts` owns the scoped AWS SDK client and optional lost-reply faults.
+Stopping the process closes the client and NFS listener.
 
 ## Start and mount
 

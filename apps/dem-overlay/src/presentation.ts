@@ -151,7 +151,7 @@ export const showRestoredFiles = (files: ReadonlyArray<RestoredFile>) =>
 
 export const showTakeaway = render(
   Box.para(
-    "The model only received project tools. Private overlays are disposable; callers on one overlay collaborate; capture freezes their finished workspace.",
+    "VFS keeps the base project intact. Private overlays isolate work, callers on one overlay share files, and capture preserves a finished workspace.",
     Box.left,
     72
   ).pipe(
