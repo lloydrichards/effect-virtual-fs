@@ -17,6 +17,8 @@ tsconfig.tsbuildinfo
 .env
 .env.local
 .env.*.local
+.wrangler/
+.dev.vars
 
 # editors and operating systems
 .idea
