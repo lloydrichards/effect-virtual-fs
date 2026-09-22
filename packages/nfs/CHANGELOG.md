@@ -1,5 +1,19 @@
 # @effect-vfs/nfs
 
+## 0.5.0
+
+### Minor Changes
+
+- [#155](https://github.com/lloydrichards/effect-virtual-fs/pull/155) [`5750a62`](https://github.com/lloydrichards/effect-virtual-fs/commit/5750a621a08cfa2785b1c8818f2a1576187ba5e1) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Qualified live image stores can report their durability tier. The experimental writable NFS profile accepts only a volume that reports `survives-power-loss` and has an explicit identity policy.
+
+  For example, an application can qualify its single-gateway R2 store with `durability: "survives-power-loss"` and call `NfsServer.make({ volume, writable: true, peer, policy })`.
+
+### Patch Changes
+
+- [`7a0a8f6`](https://github.com/lloydrichards/effect-virtual-fs/commit/7a0a8f6b42fed2713be309fbdcd4972dd8f5f384) Thanks [@lloydrichards](https://github.com/lloydrichards)! - NFS ACCESS now reports write permission for mapped callers when the volume permits it.
+- Updated dependencies [[`5750a62`](https://github.com/lloydrichards/effect-virtual-fs/commit/5750a621a08cfa2785b1c8818f2a1576187ba5e1)]:
+  - @effect-vfs/core@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes

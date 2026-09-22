@@ -1,6 +1,6 @@
 {
   "name": "@effect-vfs/persistence",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "SQLite checkpoints and live-image storage for Effect virtual filesystems.",
   "homepage": "https://github.com/lloydrichards/effect-virtual-fs#readme",
   "type": "module",
@@ -47,7 +47,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.883.0",
-    "@effect-vfs/core": "^0.4.0"
+    "@effect-vfs/core": "^0.5.0"
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.115"
