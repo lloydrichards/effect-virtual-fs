@@ -1,5 +1,16 @@
 # @effect-vfs/persistence
 
+## 0.5.0
+
+### Minor Changes
+
+- [`1be5c58`](https://github.com/lloydrichards/effect-virtual-fs/commit/1be5c589a430ea99646544e1af03be64b513e3c0) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Add an experimental R2 live image store for single-owner volumes, with conditional whole-image commits and restart validation.
+
+### Patch Changes
+
+- Updated dependencies [[`5750a62`](https://github.com/lloydrichards/effect-virtual-fs/commit/5750a621a08cfa2785b1c8818f2a1576187ba5e1)]:
+  - @effect-vfs/core@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes

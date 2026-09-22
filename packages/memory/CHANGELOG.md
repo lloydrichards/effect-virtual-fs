@@ -1,5 +1,13 @@
 # @effect-vfs/memory
 
+## 0.5.0
+
+### Patch Changes
+
+- [#152](https://github.com/lloydrichards/effect-virtual-fs/pull/152) [`b15828a`](https://github.com/lloydrichards/effect-virtual-fs/commit/b15828afe9eedd633c8ab3fccecb7844455955e3) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Prevent directory copies from writing through destination symlinks or copying root into a descendant. Report volume pressure as `Busy` and capacity rejection as `Unknown` with the core error retained as the cause.
+- Updated dependencies [[`5750a62`](https://github.com/lloydrichards/effect-virtual-fs/commit/5750a621a08cfa2785b1c8818f2a1576187ba5e1)]:
+  - @effect-vfs/core@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes
