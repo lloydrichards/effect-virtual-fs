@@ -86,7 +86,7 @@ Cloudflare R2's documented synchronous durable-write contract, verifies its actu
 gateway per image may explicitly pass `durability: "survives-power-loss"`. This assertion allows the public NFS
 server's guarded `writable: true` option. It must not be used with an arbitrary `R2Client` or S3-compatible store.
 Real-bucket tests cover conditional writes, reopening, lost HTTP responses, competing owners, and a concurrent
-write race. The [mounted NFS test app](../../apps/demo-r2/README.md) records independent clients,
+write race. The [mounted NFS test app](../../apps/demo-r2-nfs/README.md) records independent clients,
 restart recovery, and a file `WRITE` whose successful R2 HTTP response was lost. These tests do not establish
 sustained NFS throughput or a distributed lease.
 
