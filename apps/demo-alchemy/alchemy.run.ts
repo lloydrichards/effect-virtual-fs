@@ -2,8 +2,7 @@ import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 
-import { imageBucket } from "./src/bucket.js"
-import NotebookWorker from "./src/notebook-worker.js"
+import NotebookWorker, { imageBucket } from "./src/notebook-worker.js"
 
 export default Alchemy.Stack(
   "EffectVfsNotebook",

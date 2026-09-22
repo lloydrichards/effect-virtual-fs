@@ -12,7 +12,7 @@ snapshot can therefore support isolated work, shared work, and a stable handoff.
 
 ## Run the live demo
 
-Create `apps/dem-overlay/.env`:
+Create `apps/demo-overlay/.env`:
 
 ```dotenv
 OPENAI_API_KEY=your-key
@@ -23,7 +23,7 @@ OPENAI_MODEL=gpt-5-mini
 Then run:
 
 ```sh
-cd apps/dem-overlay
+cd apps/demo-overlay
 bun demo
 ```
 

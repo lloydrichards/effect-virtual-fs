@@ -5,7 +5,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { makeReadWrite, R2Error } from "alchemy/Cloudflare/R2"
 import { RuntimeContext } from "alchemy/RuntimeContext"
 import { ByteSize, Effect, Layer } from "effect"
-import { fromNativeBinding } from "../src/from-alchemy.js"
+import { fromAlchemy } from "../src/from-alchemy.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
 
@@ -57,6 +57,10 @@ const fixture = () => {
       record = { bytes: new Uint8Array(image), etag: String(++revision), customMetadata: options.customMetadata }
 
       return { ...record }
+    },
+    // oxlint-disable-next-line effecttsgo/async-function -- Mimics the native R2 binding Promise API.
+    delete: async () => {
+      record = null
     }
   }
 
@@ -95,7 +99,7 @@ const fixture = () => {
 
 // SAFETY: makeReadWrite does not read RuntimeContext in this in-memory test.
 const clientFrom = (bucket: ReturnType<typeof fixture>["bucket"]) =>
-  fromNativeBinding(bucket).pipe(Effect.provideService(RuntimeContext, RuntimeContext.of({} as never)))
+  fromAlchemy(bucket).pipe(Effect.provideService(RuntimeContext, RuntimeContext.of({} as never)))
 
 const storeLayer = (client: R2LiveImageStore.R2Client) =>
   R2LiveImageStore.layer({ client, key: "volume/live", maxImageBytes: ByteSize.kilobytes(64) }).pipe(
@@ -136,6 +140,9 @@ describe("Alchemy native R2 live image adapter", () => {
           assert.strictEqual(text(yield* store.loadOrCreate(bytes("ignored"))), "second")
         }).pipe(Effect.provide(storeLayer(client)))
       )
+
+      yield* client.remove("volume/live")
+      assert.strictEqual(yield* client.read("volume/live"), null)
     }))
 
   it.effect("distinguishes a rejected condition from a storage failure", () =>

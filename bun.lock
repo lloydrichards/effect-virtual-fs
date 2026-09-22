@@ -20,7 +20,25 @@
         "vitest": "^5.0.1",
       },
     },
-    "apps/dem-overlay": {
+    "apps/demo-alchemy": {
+      "name": "@repo/alchemy-vfs-demo",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect-vfs/core": "workspace:*",
+        "@effect-vfs/persistence": "workspace:*",
+        "@effect/platform-browser": "4.0.0-rc.115",
+        "@effect/platform-node": "4.0.0-rc.115",
+        "alchemy": "2.0.0-beta.79",
+        "effect": "4.0.0-rc.115",
+        "mime": "^4.1.0",
+      },
+      "devDependencies": {
+        "@effect/vitest": "4.0.0-rc.115",
+        "@repo/config-typescript": "workspace:*",
+        "@types/bun": "^1.2.17",
+      },
+    },
+    "apps/demo-overlay": {
       "name": "@repo/overlay-demo",
       "version": "0.0.0",
       "dependencies": {
@@ -29,23 +47,6 @@
         "@effect/platform-bun": "4.0.0-rc.115",
         "effect": "4.0.0-rc.115",
         "effect-boxes": "^0.17.2",
-      },
-      "devDependencies": {
-        "@effect/vitest": "4.0.0-rc.115",
-        "@repo/config-typescript": "workspace:*",
-        "@types/bun": "^1.2.17",
-      },
-    },
-    "apps/demo-alchemy": {
-      "name": "@repo/alchemy-vfs-demo",
-      "version": "0.0.0",
-      "dependencies": {
-        "@effect-vfs/core": "workspace:*",
-        "@effect-vfs/persistence": "workspace:*",
-        "@effect/platform-node": "4.0.0-rc.115",
-        "alchemy": "2.0.0-beta.79",
-        "effect": "4.0.0-rc.115",
-        "mime": "^4.1.0",
       },
       "devDependencies": {
         "@effect/vitest": "4.0.0-rc.115",
@@ -520,6 +521,8 @@
 
     "@effect/markdown-toc": ["@effect/markdown-toc@0.1.0", "", { "dependencies": { "concat-stream": "^1.5.2", "diacritics-map": "^0.1.0", "gray-matter": "^3.1.1", "lazy-cache": "^2.0.2", "list-item": "^1.1.1", "markdown-link": "^0.1.1", "minimist": "^1.2.0", "mixin-deep": "^1.1.3", "object.pick": "^1.2.0", "remarkable": "^1.7.1", "repeat-string": "^1.6.1", "strip-color": "^0.1.0" }, "bin": { "markdown-toc": "cli.js" } }, "sha512-IRfvvwqQLabVTIw9hhIj4scOGIYPfa13QuEFv+dBWE6p47R+RR0J8jQvfDINFf0Vn80XXVjNRtZxkZpkKXLx2A=="],
 
+    "@effect/platform-browser": ["@effect/platform-browser@4.0.0-rc.115", "", { "peerDependencies": { "effect": "^4.0.0-rc.115" } }, "sha512-RwpnxRYSBHBL1HYYlRwIrwz0+1hwmn5RvgqkKI0Tb+ChOIR9UCMpXsAhnwQcGP+mBidrC7dlloL42poGHZW4yw=="],
+
     "@effect/platform-bun": ["@effect/platform-bun@4.0.0-rc.115", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.115" }, "peerDependencies": { "effect": "^4.0.0-rc.115" } }, "sha512-ilTFcs66ghInP8WHCJYa4bx/yzohYM9dRR//qjmVBBpSKu1hrCTiRWpEcc1N6zrnOEPk2kyVaKg5ykSMgiBMqQ=="],
 
     "@effect/platform-node": ["@effect/platform-node@4.0.0-rc.115", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.115", "undici": "^8.10.2" }, "peerDependencies": { "effect": "^4.0.0-rc.115", "redis": ">=5.0.0 <7.0.0" } }, "sha512-mW03Wjq2FiTL5oi9yOkaKpCyUNBaduKgTk7qMHNELvC21Jq2qOAfdsfH+p+s2zmpB9w2RSa+ApODv4WjO9wQfw=="],
@@ -870,7 +873,7 @@
 
     "@repo/nfs-r2-writable-test": ["@repo/nfs-r2-writable-test@workspace:apps/demo-r2"],
 
-    "@repo/overlay-demo": ["@repo/overlay-demo@workspace:apps/dem-overlay"],
+    "@repo/overlay-demo": ["@repo/overlay-demo@workspace:apps/demo-overlay"],
 
     "@repo/scratchpad": ["@repo/scratchpad@workspace:apps/scratchpad"],
 

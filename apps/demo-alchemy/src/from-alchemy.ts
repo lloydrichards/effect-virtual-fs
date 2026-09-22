@@ -1,8 +1,8 @@
 import { LiveVolume } from "@effect-vfs/core"
-import type { R2Client } from "@effect-vfs/persistence/R2LiveImageStore"
 import type { ReadWriteBucketClient } from "alchemy/Cloudflare/R2"
 import type { RuntimeContext } from "alchemy/RuntimeContext"
 import * as Effect from "effect/Effect"
+import type { NotebookR2Client } from "./notebook.js"
 
 const storageError = (cause: unknown) => new LiveVolume.LiveVolumeError({ code: "Storage", cause })
 
@@ -11,14 +11,16 @@ const quote = (etag: string) => `"${etag.replace(/^"|"$/g, "")}"`
 const unquote = (etag: string) => etag.replace(/^"|"$/g, "")
 
 /**
- * Adapt an Alchemy native Worker R2 binding to the live image store.
+ * Adapt an Alchemy native Worker R2 binding to notebook image operations.
  *
  * Call this inside the Worker's Effect runtime, after obtaining a client from
  * `Cloudflare.R2.ReadWriteBucket` with `ReadWriteBucketBinding` provided.
  * Alchemy's HTTP and local R2 clients do not forward conditional writes and
  * custom metadata, so they cannot be used for a live image.
  */
-export const fromNativeBinding = (bucket: ReadWriteBucketClient): Effect.Effect<R2Client, never, RuntimeContext> =>
+export const fromAlchemy = (
+  bucket: ReadWriteBucketClient
+): Effect.Effect<NotebookR2Client, never, RuntimeContext> =>
   Effect.gen(function*() {
     const context = yield* Effect.context<RuntimeContext>()
 
@@ -30,9 +32,13 @@ export const fromNativeBinding = (bucket: ReadWriteBucketClient): Effect.Effect<
           Effect.flatMap((object) => {
             if (object === null) return Effect.succeed(null)
 
-            if (!("bytes" in object)) return Effect.fail(storageError(new Error("R2 object has no body")))
+            if (!("bytes" in object)) {
+              return new LiveVolume.LiveVolumeError({ code: "Storage", cause: "R2 object has no body" })
+            }
 
-            if (!object.etag) return Effect.fail(storageError(new Error("R2 object has no ETag")))
+            if (!object.etag) {
+              return new LiveVolume.LiveVolumeError({ code: "Storage", cause: "R2 object has no ETag" })
+            }
 
             return object.bytes().pipe(
               Effect.mapError(storageError),
@@ -59,10 +65,13 @@ export const fromNativeBinding = (bucket: ReadWriteBucketClient): Effect.Effect<
           Effect.flatMap((object) => {
             if (object === null) return Effect.succeed(null)
 
-            if (!object.etag) return Effect.fail(storageError(new Error("R2 response has no ETag")))
+            if (!object.etag) {
+              return new LiveVolume.LiveVolumeError({ code: "Storage", cause: "R2 response has no ETag" })
+            }
 
             return Effect.succeed({ etag: quote(object.etag) })
           })
-        )
-    } satisfies R2Client
+        ),
+      remove: (key) => bucket.delete(key).pipe(Effect.provide(context), Effect.mapError(storageError))
+    } satisfies NotebookR2Client
   })
