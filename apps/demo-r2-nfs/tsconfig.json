@@ -1,5 +1,5 @@
 {
   "extends": "@repo/config-typescript/base.json",
-  "compilerOptions": { "lib": ["ES2023", "DOM"], "types": ["bun"] },
+  "compilerOptions": { "lib": ["ES2023", "DOM"], "types": ["bun", "@cloudflare/workers-types"] },
   "include": ["src/**/*.ts"]
 }

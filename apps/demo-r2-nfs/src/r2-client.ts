@@ -2,15 +2,19 @@ import { S3Client } from "@aws-sdk/client-s3"
 import { LiveVolume } from "@effect-vfs/core"
 import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
 import * as Effect from "effect/Effect"
-import { config } from "./config.js"
+import * as Redacted from "effect/Redacted"
+import type { R2DemoConfig } from "./config.js"
 
-export const makeR2Client = Effect.fn("R2Demo.makeClient")(function*() {
+export const makeR2Client = Effect.fn("R2Demo.makeClient")(function*(config: R2DemoConfig) {
   const s3 = yield* Effect.acquireRelease(
     Effect.sync(() =>
       new S3Client({
         region: "auto",
         endpoint: config.endpoint,
-        credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+        credentials: {
+          accessKeyId: Redacted.value(config.accessKeyId),
+          secretAccessKey: Redacted.value(config.secretAccessKey)
+        },
         forcePathStyle: true,
         // An SDK retry could make a lost write reply look like a confirmed result.
         maxAttempts: 1
@@ -29,7 +33,10 @@ export const makeR2Client = Effect.fn("R2Demo.makeClient")(function*() {
         new S3Client({
           region: "auto",
           endpoint: config.endpoint,
-          credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+          credentials: {
+            accessKeyId: Redacted.value(config.accessKeyId),
+            secretAccessKey: Redacted.value(config.secretAccessKey)
+          },
           forcePathStyle: true,
           maxAttempts: 1,
           requestHandler: {

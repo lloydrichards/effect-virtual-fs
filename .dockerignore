@@ -1,0 +1,10 @@
+.git
+**/node_modules
+**/dist
+**/.cache
+.turbo
+**/.wrangler
+**/.env
+**/.env.*
+!**/.env.example
+**/.dev.vars

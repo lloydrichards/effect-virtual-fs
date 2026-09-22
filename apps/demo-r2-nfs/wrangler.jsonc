@@ -1,0 +1,15 @@
+{
+  "name": "effect-vfs-r2-nfs-container",
+  "main": "./src/container-worker.ts",
+  "compatibility_date": "2026-09-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [{
+    "class_name": "R2NfsContainer",
+    "image": "../../Dockerfile.r2-nfs-container",
+    "max_instances": 1
+  }],
+  "durable_objects": {
+    "bindings": [{ "name": "R2_NFS_CONTAINER", "class_name": "R2NfsContainer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["R2NfsContainer"] }]
+}
