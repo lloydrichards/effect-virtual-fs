@@ -54,7 +54,7 @@
         "@types/bun": "^1.2.17",
       },
     },
-    "apps/demo-r2": {
+    "apps/demo-r2-nfs": {
       "name": "@repo/nfs-r2-writable-test",
       "version": "0.0.1",
       "dependencies": {
@@ -871,7 +871,7 @@
 
     "@repo/nfs-preview": ["@repo/nfs-preview@workspace:apps/nfs-preview"],
 
-    "@repo/nfs-r2-writable-test": ["@repo/nfs-r2-writable-test@workspace:apps/demo-r2"],
+    "@repo/nfs-r2-writable-test": ["@repo/nfs-r2-writable-test@workspace:apps/demo-r2-nfs"],
 
     "@repo/overlay-demo": ["@repo/overlay-demo@workspace:apps/demo-overlay"],
 
