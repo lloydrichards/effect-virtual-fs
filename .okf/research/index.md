@@ -9,6 +9,7 @@
 - [Cloudflare remote volume storage options](cloudflare-remote-volume-storage-options.md) compares DO SQLite, D1, and R2 for a remotely accessible volume with replaceable storage.
 - [Cloudflare live image adapter integration](cloudflare-live-image-adapter-effect-ecosystem.md) records Effect and Alchemy compatibility, the experimental R2 adapter, and the remaining release work.
 - [Remote agent filesystem access through Cloudflare](cloudflare-remote-agent-filesystem.md) separates a TypeScript remote client from a native NFS mount and compares feasible connection paths.
+- [Agent filesystem landscape](agent-filesystem-landscape.md) surveys agent-oriented filesystems (Alchemy Sandbox and FUSE, AgentFS, Mesa, Archil, ArtifactFS, just-bash, Mirage) and maps their ideas to gaps and directions here.
 
 ## NFS export
 
