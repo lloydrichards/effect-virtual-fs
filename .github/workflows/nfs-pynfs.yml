@@ -2,8 +2,13 @@ name: NFS pynfs gate
 
 # Pinned external-suite run for issue #51. pynfs speaks raw RPC to the conformance fixture on
 # loopback, so this needs no mount or sudo and runs on every pull request that can change the
-# NFS server's wire behavior. The verdict is the comparison with the classified
+# NFS server's wire behavior, including dependency and build-configuration changes. The
+# verdict is the comparison with the classified
 # apps/nfs-preview/conformance/known-failures.json, not the suite's own pass count.
+#
+# No branches filter, like the other NFS gates, so stacked pull requests get the check too.
+# The paths filter means this cannot be a required check as written; move the path test into
+# a job-level condition before requiring it.
 
 on:
   workflow_dispatch:
@@ -11,8 +16,15 @@ on:
     paths:
       - packages/core/**
       - packages/nfs/**
+      - packages/config-typescript/**
       - apps/nfs-preview/**
+      - bun.lock
+      - package.json
+      - turbo.json
       - .github/workflows/nfs-pynfs.yml
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -28,12 +40,23 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.2.21
-      # pynfs needs xdrlib3; the recorded baseline ran on Python 3.14.
+      # Matches suite.interpreter in the known-failures file; the gate warns when they differ.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: "3.14.7"
       - run: bun install --frozen-lockfile
-      # The fixture imports the workspace packages by their published entry points.
-      - run: bunx turbo run build --filter=@effect-vfs/nfs
+      # Builds exactly the workspace packages the fixture imports.
+      - run: bunx turbo run build --filter=@repo/nfs-preview^...
+      - name: Read the pinned pynfs commit
+        id: pin
+        run: echo "commit=$(jq -r .suite.commit apps/nfs-preview/conformance/known-failures.json)" >> "$GITHUB_OUTPUT"
+      # The gate verifies a cached checkout against the pin and rebuilds its generated modules,
+      # so the cache only removes the upstream clone from the critical path.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/pynfs
+          key: pynfs-${{ steps.pin.outputs.commit }}
       - name: Run the pynfs gate
+        env:
+          PYNFS_DIR: ${{ runner.temp }}/pynfs
         run: bun run --filter @repo/nfs-preview pynfs-gate

@@ -2,6 +2,7 @@
   "suite": {
     "repository": "https://github.com/kofemann/pynfs",
     "commit": "cd4701827a8261fedbfb4c6e39029fb9671321a6",
+    "interpreter": "3.14.7",
     "python": {
       "ply": "3.11",
       "setuptools": "84.0.0",
@@ -19,29 +20,211 @@
       "noreboot",
       "nocourteous"
     ],
-    "selected": 179
+    "catalog": 266,
+    "selected": [
+      "COMP1",
+      "COMP2",
+      "COMP4a",
+      "COMP4b",
+      "COMP5",
+      "CSESS1",
+      "CSESS10",
+      "CSESS15",
+      "CSESS16",
+      "CSESS16a",
+      "CSESS17",
+      "CSESS18",
+      "CSESS19",
+      "CSESS2",
+      "CSESS200",
+      "CSESS22",
+      "CSESS23",
+      "CSESS24",
+      "CSESS25",
+      "CSESS26",
+      "CSESS27",
+      "CSESS28",
+      "CSESS29",
+      "CSESS2b",
+      "CSESS3",
+      "CSESS4",
+      "CSESS5",
+      "CSESS5a",
+      "CSESS5b",
+      "CSESS6",
+      "CSESS7",
+      "CSESS8",
+      "CSESS9",
+      "CSID1",
+      "CSID10",
+      "CSID2",
+      "CSID3",
+      "CSID4",
+      "CSID5",
+      "CSID6",
+      "CSID8",
+      "CSID9",
+      "DELEG1",
+      "DELEG2",
+      "DELEG23",
+      "DELEG24",
+      "DELEG25",
+      "DELEG26",
+      "DELEG3",
+      "DELEG4",
+      "DELEG5",
+      "DELEG6",
+      "DELEG7",
+      "DELEG8",
+      "DELEG9",
+      "DESCID1",
+      "DESCID2",
+      "DESCID3",
+      "DESCID4",
+      "DESCID5",
+      "DESCID6",
+      "DESCID7",
+      "DESCID8",
+      "DSESS1",
+      "EID1",
+      "EID1b",
+      "EID2",
+      "EID3",
+      "EID4",
+      "EID5a",
+      "EID5b",
+      "EID5c",
+      "EID5d",
+      "EID5e",
+      "EID5f",
+      "EID5fb",
+      "EID5g",
+      "EID5h",
+      "EID6",
+      "EID6a",
+      "EID6b",
+      "EID6c",
+      "EID6d",
+      "EID6e",
+      "EID6f",
+      "EID6g",
+      "EID6h",
+      "EID7",
+      "EID8",
+      "EID9",
+      "LKPP1a",
+      "LKPP1b",
+      "LKPP1c",
+      "LKPP1d",
+      "LKPP1f",
+      "LKPP1r",
+      "LKPP1s",
+      "LKPP2",
+      "LKPP3",
+      "OPEN1",
+      "OPEN2",
+      "OPEN30",
+      "OPEN31",
+      "OPEN6",
+      "OPEN7",
+      "OPEN8",
+      "PUTFH1a",
+      "PUTFH1b",
+      "PUTFH1c",
+      "PUTFH1d",
+      "PUTFH1f",
+      "PUTFH1r",
+      "PUTFH1s",
+      "PUTFH2",
+      "RECC1",
+      "RECC2",
+      "RECC3",
+      "RECC4",
+      "RNM10",
+      "RNM11",
+      "RNM12",
+      "RNM13",
+      "RNM14",
+      "RNM15",
+      "RNM16",
+      "RNM17",
+      "RNM18",
+      "RNM19",
+      "RNM1a",
+      "RNM1b",
+      "RNM1c",
+      "RNM1d",
+      "RNM1f",
+      "RNM1r",
+      "RNM1s",
+      "RNM20",
+      "RNM21",
+      "RNM2a",
+      "RNM2b",
+      "RNM2c",
+      "RNM2f",
+      "RNM2r",
+      "RNM2s",
+      "RNM3a",
+      "RNM3b",
+      "RNM3c",
+      "RNM3f",
+      "RNM3r",
+      "RNM3s",
+      "RNM4",
+      "RNM5",
+      "RNM6",
+      "RNM7",
+      "SEC1",
+      "SEC2",
+      "SECNN1",
+      "SECNN2",
+      "SECNN3",
+      "SECNN4",
+      "SEQ1",
+      "SEQ10b",
+      "SEQ11",
+      "SEQ12",
+      "SEQ13",
+      "SEQ2",
+      "SEQ4",
+      "SEQ5",
+      "SEQ6",
+      "SEQ7",
+      "SEQ8",
+      "SEQ9a",
+      "SEQ9b",
+      "SEQ9c",
+      "SEQ9d",
+      "SEQ9e",
+      "SEQ9f",
+      "TRUNK1",
+      "TRUNK2",
+      "VF1r"
+    ]
   },
   "classes": {
-    "read-only-export": "Deliberate exclusion: the fixture is a read-only export, so mutating setup returns NFS4ERR_ROFS.",
+    "read-only-export": "Deliberate exclusion: the fixture is a read-only export, so a mutating operation returns NFS4ERR_ROFS.",
     "object-kind": "Deliberate exclusion: the core has no block, char, fifo, or socket objects.",
-    "suite-limitation": "Suite assertion that no NFSv4.1 read-only server satisfies.",
-    "disputed": "Suite assertion that contradicts RFC 8881 or a verified erratum. Every entry cites the rule in `reference`."
+    "deferred-capability": "Deliberate exclusion: the assertion needs behavior that a later profile owns; the reason names the owning issue.",
+    "suite-limitation": "Suite assertion that no NFSv4.1 server can satisfy.",
+    "disputed": "Suite assertion that another server may pass but that conflicts with RFC 8881 or a verified erratum; `reference` cites the rule."
   },
   "failures": {
     "CSESS16": {
       "class": "disputed",
-      "reason": "Offers an RPCSEC_GSS callback handle the server never issued and expects NFS4_OK. The server returns NFS4ERR_NOENT as the RFC requires.",
-      "reference": "RFC 8881 Sections 18.33.3 and 18.36.3"
+      "reason": "Offers AUTH_NONE, AUTH_SYS, and an RPCSEC_GSS callback handle the server never issued, and expects NFS4_OK. The server answers NFS4ERR_NOENT, which RFC 8881 states CREATE_SESSION will return and BACKCHANNEL_CTL MUST return for an unknown handle. A server may instead read csa_sec_parms as a list to choose from and ignore the unusable entry; see #167.",
+      "reference": "RFC 8881 Sections 18.33.3 (MUST, BACKCHANNEL_CTL) and 18.36.3 (will return, CREATE_SESSION)"
     },
     "CSESS16a": {
       "class": "disputed",
-      "reason": "Offers an RPCSEC_GSS callback handle the server never issued and expects NFS4_OK. The server returns NFS4ERR_NOENT as the RFC requires.",
-      "reference": "RFC 8881 Sections 18.33.3 and 18.36.3"
+      "reason": "Offers AUTH_NONE, AUTH_SYS, and an RPCSEC_GSS callback handle the server never issued, and expects NFS4_OK. The server answers NFS4ERR_NOENT, which RFC 8881 states CREATE_SESSION will return and BACKCHANNEL_CTL MUST return for an unknown handle. A server may instead read csa_sec_parms as a list to choose from and ignore the unusable entry; see #167.",
+      "reference": "RFC 8881 Sections 18.33.3 (MUST, BACKCHANNEL_CTL) and 18.36.3 (will return, CREATE_SESSION)"
     },
     "CSESS29": {
       "class": "disputed",
-      "reason": "After 10,000 CREATE_SESSION requests that fail with NFS4ERR_TOOSMALL, reuses the same csa_sequenceid and expects NFS4_OK. Phase 2 sets the slot to the expected csa_sequenceid before session creation fails, so the reuse is a replay and returns the cached NFS4ERR_TOOSMALL.",
-      "reference": "RFC 8881 Section 18.36.4, phase 2"
+      "reason": "After 10,000 CREATE_SESSION requests that fail with NFS4ERR_TOOSMALL, sends new channel attributes with the same csa_sequenceid and expects NFS4_OK. Phase 2 moves the slot to the expected csa_sequenceid before session creation fails, so the reuse is a replay of the cached NFS4ERR_TOOSMALL. Reusing a sequence ID for a new request is also the client's error, since a retry MUST use the same csa_sequence. Section 18.36.4 presents these phases as a possible implementation.",
+      "reference": "RFC 8881 Section 18.36.4, phase 2 and the csa_sequence retry MUST"
     },
     "CSID1": {
       "class": "read-only-export",
@@ -65,7 +248,7 @@
     },
     "CSID5": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "The create OPEN returns NFS4ERR_ROFS before the current-stateid assertion runs, so that assertion is not exercised by this run."
     },
     "CSID6": {
       "class": "read-only-export",
@@ -77,59 +260,59 @@
     },
     "CSID9": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "The create OPEN returns NFS4ERR_ROFS before the current-stateid assertion runs, so that assertion is not exercised by this run."
     },
     "DELEG1": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS. A writable export would still fail, because the server never grants delegations."
     },
     "DELEG2": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS. A writable export would still fail, because the server never grants delegations."
     },
     "DELEG23": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS. A writable export would still fail, because the server never grants delegations."
     },
     "DELEG24": {
       "class": "suite-limitation",
-      "reason": "Requests the NFSv4.2 fattr4_open_arguments attribute, which no NFSv4.1 server provides."
+      "reason": "Requests the NFSv4.2 fattr4_open_arguments attribute, which is outside NFSv4.1."
     },
     "DELEG25": {
       "class": "suite-limitation",
-      "reason": "Requests the NFSv4.2 fattr4_open_arguments attribute, which no NFSv4.1 server provides."
+      "reason": "Requests the NFSv4.2 fattr4_open_arguments attribute, which is outside NFSv4.1."
     },
     "DELEG26": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS. A writable export would still fail, because the server never grants delegations."
     },
     "DELEG3": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS. A writable export would still fail, because the server never grants delegations."
     },
     "DELEG4": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS. A writable export would still fail, because the server never grants delegations."
     },
     "DELEG5": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS. A writable export would still fail, because the server never grants delegations."
     },
     "DELEG6": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS. A writable export would still fail, because the server never grants delegations."
     },
     "DELEG7": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS. A writable export would still fail, because the server never grants delegations."
     },
     "DELEG8": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS. A writable export would still fail, because the server never grants delegations."
     },
     "DELEG9": {
       "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS. A writable export would still fail, because the server never grants delegations."
     },
     "DSESS1": {
       "class": "read-only-export",
@@ -200,8 +383,8 @@
       "reason": "Setup creates a regular file; the create returns NFS4ERR_ROFS."
     },
     "RECC3": {
-      "class": "read-only-export",
-      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+      "class": "deferred-capability",
+      "reason": "Opens with create before RECLAIM_COMPLETE and expects NFS4ERR_GRACE (RFC 8881 Section 18.51.3). The server has no grace period until the stateful profile (#50), so this fails on a writable export too; the read-only fixture answers NFS4ERR_ROFS."
     },
     "RNM10": {
       "class": "read-only-export",

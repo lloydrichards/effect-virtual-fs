@@ -11,55 +11,69 @@ explains it.
 | --------- | ---------------------------------------------------------------------------------------------------- |
 | Suite     | [pynfs](https://github.com/kofemann/pynfs), `nfs4.1/testserver.py`                                   |
 | Commit    | `cd4701827a8261fedbfb4c6e39029fb9671321a6` (2026-03-27)                                              |
-| Python    | 3.14 in a virtual environment with `ply` 3.11, `setuptools` 84.0.0, and `xdrlib3` 0.1.1              |
+| Python    | 3.14.7 in a virtual environment with `ply` 3.11, `setuptools` 84.0.0, and `xdrlib3` 0.1.1            |
 | Server    | `bun run --filter @repo/nfs-preview conformance` (this app, built `@effect-vfs/nfs`)                 |
 | Selection | `all noreboot nocourteous` (179 of 266 tests; reboot and courtesy-lease groups wait on lease expiry) |
-| Result    | 100 passed, 79 failed, 0 skipped (2026-09-24, macOS 26 arm64)                                        |
+| Result    | 100 passed, 79 failed, 0 skipped (2026-09-24, macOS 26 arm64 on 3.14.0 and `ubuntu-24.04` on 3.14.7) |
 
 ## Running it
 
-The `nfs-pynfs` workflow runs this on every pull request that changes `packages/core`, `packages/nfs`, or this app. To
-run it locally, build the NFS package and start the gate:
+The `nfs-pynfs` workflow runs this on every pull request that changes `packages/core`, `packages/nfs`, this app, the
+lockfile, or the root build configuration. To run it locally, build the fixture's packages and start the gate:
 
 ```sh
-bunx turbo run build --filter=@effect-vfs/nfs
+bunx turbo run build --filter=@repo/nfs-preview^...
 bun run --filter @repo/nfs-preview pynfs-gate
 ```
 
-The gate reads the suite commit, Python pins, and command line from `conformance/known-failures.json`, checks out
-pynfs, starts the fixture on `127.0.0.1:2049`, and runs:
+The gate reads the suite commit, interpreter, Python pins, and command line from `conformance/known-failures.json`. It
+checks out pynfs, builds its XDR modules from scratch, starts the fixture on `127.0.0.1:2049`, and runs:
 
 ```sh
-python3 testserver.py 127.0.0.1:2049/ --minorversion 1 --security sys --noinit --nocleanup --force --jsonout results.json all noreboot nocourteous
+python3 testserver.py 127.0.0.1:2049/ --minorversion 1 --security sys --noinit --nocleanup --force all noreboot nocourteous
 ```
 
-Set `PYNFS_DIR` to reuse an existing checkout. `--minorversion 1` matters: pynfs defaults to minor version 2.
+Set `PYNFS_DIR` to an absolute path to reuse a checkout. It must have no tracked changes, and the gate detaches it at
+the pinned commit and rebuilds its generated modules. `--minorversion 1` matters: pynfs defaults to minor version 2.
 `--noinit --nocleanup` skip the write-based tree setup, which a read-only export must refuse. The fixture already
 contains the `tree/dir`, `tree/file`, `tree/link`, and `tmp` objects that read-side tests expect.
 
-The comparison is strict in both directions. The gate fails on a failure the file does not list, on a listed test
-that now passes, and on a change in the number of selected tests. A new failure is a defect until it is classified.
+The verdict comes from the per-test outcome lines in the pynfs log, because `--jsonout` records a `WARNING`,
+`UNSUPPORTED`, or dependency-omitted test the same way as a pass. The comparison is strict in both directions. The
+gate fails when the selected test codes differ from `suite.selected`, when a selected test ends in anything but
+`PASS` or `FAILURE`, when a failure is not listed, and when a listed test passes. A new failure is a defect until it
+is classified. The gate also fails when pynfs exits non-zero or runs longer than five minutes.
 
 ## Failure classification
 
-Every failure falls into one of four classes. None is an unclassified defect.
+Every failure falls into one of five classes. None is an unclassified defect.
 
-| Class                                                     | Count | Tests                                                                                                                | Reason                                                                                                                                                                 |
-| --------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Deliberate exclusion: read-only export                    | 62    | Setup that opens with create (`CSID`, `DELEG`, `OPEN`, `SEQ`, `SEC`, `RECC`, `DSESS`) or creates with CREATE (`RNM`) | Mutating operations return `NFS4ERR_ROFS` by design. Structural errors such as `NOFILEHANDLE`, `NOTDIR`, and `INVAL` take precedence and are covered by passing tests. |
-| Deliberate exclusion: object kinds the core does not have | 12    | LOOKUP, LOOKUPP, PUTFH, and RENAME setup on `socket`, `fifo`, `block`, `char`                                        | The fixture cannot contain special files; they are listed under deferred capabilities. LOOKUPP on `file` and `link` passes with `NOTDIR` and `NFS4ERR_SYMLINK`.        |
-| Suite assertion no NFSv4.1 read-only server satisfies     | 2     | DELEG24, DELEG25                                                                                                     | Both request the NFSv4.2 `fattr4_open_arguments` attribute.                                                                                                            |
-| Disputed: suite assertion contradicts RFC 8881            | 3     | CSESS16, CSESS16a, CSESS29                                                                                           | See below. Each entry cites the rule it conflicts with.                                                                                                                |
-| Not selected                                              | 87    | `reboot` and `courteous` flags                                                                                       | Depend on lease expiry and server restart; they belong to the `stateful` profile evidence.                                                                             |
+| Class                                                     | Count | Tests                                                                                                                 | Reason                                                                                                                                                                 |
+| --------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deliberate exclusion: read-only export                    | 61    | Setup that opens with create (`CSID`, `DELEG`, `OPEN`, `SEQ`, `SEC`, `RECC2`, `DSESS`) or creates with CREATE (`RNM`) | Mutating operations return `NFS4ERR_ROFS` by design. Structural errors such as `NOFILEHANDLE`, `NOTDIR`, and `INVAL` take precedence and are covered by passing tests. |
+| Deliberate exclusion: object kinds the core does not have | 12    | LOOKUP, LOOKUPP, PUTFH, and RENAME setup on `socket`, `fifo`, `block`, `char`                                         | The fixture cannot contain special files; they are listed under deferred capabilities. LOOKUPP on `file` and `link` passes with `NOTDIR` and `NFS4ERR_SYMLINK`.        |
+| Deliberate exclusion: capability a later profile owns     | 1     | RECC3                                                                                                                 | Expects `NFS4ERR_GRACE` for an OPEN before RECLAIM_COMPLETE. The server has no grace period until the `stateful` profile (#50).                                        |
+| Suite assertion no NFSv4.1 server satisfies               | 2     | DELEG24, DELEG25                                                                                                      | Both request the NFSv4.2 `fattr4_open_arguments` attribute.                                                                                                            |
+| Disputed: suite assertion conflicts with RFC 8881         | 3     | CSESS16, CSESS16a, CSESS29                                                                                            | See below. Each entry cites the rule it conflicts with.                                                                                                                |
+| Not selected                                              | 87    | `reboot` and `courteous` flags                                                                                        | Depend on lease expiry and server restart; they belong to the `stateful` profile evidence.                                                                             |
 
-A disputed test is one another server may pass, but only by breaking a rule this server follows. It stays listed until
-the suite changes or an erratum changes the rule:
+Some read-only entries would still fail on a writable export for a second reason, and the file says so. The DELEG
+tests also need delegations, which the server never grants. CSID5 and CSID9 never reach their current-stateid
+assertions, so this run does not exercise those checks.
 
-- **CSESS16 and CSESS16a** offer an RPCSEC_GSS callback handle the server never issued, and expect `NFS4_OK`. Sections
-  18.33.3 and 18.36.3 require `NFS4ERR_NOENT` when the handle named by `gcbp_handle_from_server` does not exist.
-- **CSESS29** sends 10,000 CREATE_SESSION requests that fail with `NFS4ERR_TOOSMALL`, then reuses the same
-  `csa_sequenceid` and expects `NFS4_OK`. Section 18.36.4 phase 2 sets the slot to the expected `csa_sequenceid`
-  before session creation, so the failure is cached and the reuse is a replay that returns it.
+A disputed test is one another server may pass by reading RFC 8881 differently from this server. It stays listed until
+the suite changes, an erratum settles the rule, or the server changes its reading:
+
+- **CSESS16 and CSESS16a** offer `AUTH_NONE`, `AUTH_SYS`, and an RPCSEC_GSS callback handle the server never issued,
+  and expect `NFS4_OK`. The server answers `NFS4ERR_NOENT`. Section 18.36.3 says CREATE_SESSION will return that code
+  for an unknown handle, and Section 18.33.3 says BACKCHANNEL_CTL MUST. The same section also describes
+  `csa_sec_parms` as credentials the server can choose from, which supports ignoring the unusable entry instead.
+  #167 owns that choice.
+- **CSESS29** sends 10,000 CREATE_SESSION requests that fail with `NFS4ERR_TOOSMALL`, then sends new channel
+  attributes with the same `csa_sequenceid` and expects `NFS4_OK`. Section 18.36.4 phase 2 moves the slot to the
+  expected `csa_sequenceid` before session creation, so the failure is cached and the reuse is a replay. A retry
+  MUST use the same `csa_sequence`, so reusing it for a new request is also the client's error. Section 18.36.4
+  presents these phases as a possible implementation.
 
 ## Native client run
 
@@ -100,5 +114,6 @@ between clients are enforced. Write locks still return `NFS4ERR_ROFS`.
 
 The first repeatable run on 2026-09-24 differed from the 2026-09-15 baseline, which had not been rerun after later
 session, backchannel, and Section 15.2 audit changes. COMP5 now passes. CSESS16, CSESS16a, and CSESS29 now fail. All
-three are RFC-required answers, so they are classified as disputed rather than reverted. SEQ9b moved to the
-read-only class, since its AttributeError follows a refused file creation.
+three follow the RFC text as this server reads it, so they are classified as disputed rather than reverted. SEQ9b moved to the
+read-only class, since its AttributeError follows a refused file creation. RECC3 moved to the later-profile class,
+since it fails for the missing grace period, not only for the refused create.
