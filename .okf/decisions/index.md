@@ -42,7 +42,7 @@ Accepted architectural and behavioral decisions, grouped by domain. Deprecated d
 - [NFS authentication and export policy](nfs/nfs-authentication-and-export-policy.md) excludes Kerberos, and maps trusted `AUTH_SYS` identity to VFS callers behind an application-supplied policy.
 - [NFS filesystem error mapping](nfs/error-mapping.md) defines the core-error map and writable operation overrides.
 - [Writable NFS export scope](nfs/writable-export-scope.md) records the accepted authority, operation, lock, durability, and restart milestones.
-- [NFS interoperability and fault evidence](nfs/nfs-interoperability-evidence.md) fixes the pinned clients and suites, the CI and release gates, the four suite-failure classes, and the fault cases each stage needs.
+- [NFS interoperability and fault evidence](nfs/nfs-interoperability-evidence.md) fixes the pinned clients and suites, the CI and release gates, the five suite-failure classes, and the fault cases each stage needs.
 
 ## Packages, adapter, persistence, and build consumer
 

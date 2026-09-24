@@ -61,7 +61,7 @@ RFC 8881 defines no read-only server profile; its read-only allowance in Section
 
 ## Evidence ladder
 
-- `experimental`: the protocol test suite passes; every ledger row carries a status; a pinned pynfs 4.1 read-side run exists with a triaged known-failures file that classifies each failure as a deliberate exclusion, a suite assertion no server satisfies, or a disputed assertion that contradicts RFC 8881; defects are fixed rather than listed.[^pynfs]
+- `experimental`: the protocol test suite passes; every ledger row carries a status; a pinned pynfs 4.1 read-side run exists with a triaged known-failures file that classifies each failure as a deliberate exclusion, a suite assertion no NFSv4.1 server can satisfy, or a disputed assertion that conflicts with RFC 8881 or a verified erratum; defects are fixed rather than listed.[^pynfs]
 - `preview`: `experimental` plus the repeatable Linux kernel-client mount running in CI and a documented manual macOS 26 mount with the exact `vers=4.1` command.[^linux-gate]
 - `stable`: `preview` plus a third independent client, fault coverage for restart, lease expiry, multiple connections, and resource pressure, and one recorded Bake-a-thon participation.
 

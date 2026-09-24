@@ -47,22 +47,25 @@ A kernel client cannot be frozen by an image digest or package pin, because the 
 
 ## CI and release gates
 
-- **Every pull request** runs the protocol test suites. When it changes `packages/core`, `packages/nfs`, or the preview app, it also runs the pinned pynfs gate. pynfs needs no mount or privilege, and the suite itself runs in under a minute.[^pynfs-workflow]
+- **Every pull request** runs the protocol test suites. When it changes `packages/core`, `packages/nfs`, the preview app, the lockfile, or the root build configuration, it also runs the pinned pynfs gate. pynfs needs no mount or privilege, and the suite itself runs in under a minute.[^pynfs-workflow]
 - **On demand or with the `nfs-gate` label**, the Linux mount gate runs. It needs `sudo` to mount, so it stays out of the default sequence.[^linux-workflow]
 - **Release gates**, run by hand and recorded before a maturity claim: the macOS mount, the writable gateway's client and fault runs, the third client, and Bake-a-thon participation.[^writable-app]
 
 ## Classifying suite failures
 
-External suites are evidence, not authority. RFC 8881 and its verified errata decide correctness.[^rfc8881] Each expected failure is listed in a machine-readable file with one of four classes:
+External suites are evidence, not authority. RFC 8881 and its verified errata decide correctness.[^rfc8881] Each expected failure is listed in a machine-readable file with one of five classes:
 
-| Class              | Meaning                                                                                                                   |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `read-only-export` | Deliberate exclusion: mutating setup returns `NFS4ERR_ROFS`                                                               |
-| `object-kind`      | Deliberate exclusion: the core has no block, char, fifo, or socket objects                                                |
-| `suite-limitation` | An assertion no NFSv4.1 server in this profile can satisfy, such as an NFSv4.2 attribute                                  |
-| `disputed`         | An assertion another server may pass, but which contradicts RFC 8881 or a verified erratum; each entry must cite the rule |
+| Class                 | Meaning                                                                                                               |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `read-only-export`    | Deliberate exclusion: a mutating operation returns `NFS4ERR_ROFS`                                                     |
+| `object-kind`         | Deliberate exclusion: the core has no block, char, fifo, or socket objects                                            |
+| `deferred-capability` | Deliberate exclusion: the assertion needs behavior a later profile owns, and the entry names the owning issue         |
+| `suite-limitation`    | An assertion no NFSv4.1 server can satisfy, such as an NFSv4.2 attribute                                              |
+| `disputed`            | An assertion another server may pass but that conflicts with RFC 8881 or a verified erratum; the entry cites the rule |
 
-Defects are never listed; they are fixed. The comparison is strict in both directions. An unlisted failure fails the gate as a defect until classified, and a listed test that now passes fails it as a stale entry. The first repeatable run showed why the gate is needed: three session answers corrected after the recorded baseline had turned into unrecorded pynfs failures.
+Defects are never listed; they are fixed. An entry whose test would also fail for a second reason says so, so that fixing the first cause does not surprise anyone. A disputed entry cites the RFC text it relies on without claiming more force than that text has. Where the RFC allows another reading, an issue owns the choice.
+
+The verdict comes from pynfs's per-test outcome lines, not its JSON output, because the JSON records a warning, an unsupported result, or a dependency-omitted test the same way as a pass. The comparison is strict in both directions. The gate fails when the selected test codes differ from the pin, when a selected test ends in anything but a pass or a classified failure, and when a listed test passes. The first repeatable run showed why the gate is needed: session answers changed after the recorded baseline had turned into unrecorded pynfs failures.
 
 ## Fault cases by stage
 
@@ -83,10 +86,10 @@ A release that states an NFS maturity lists the clients, suites, and versions be
 
 [^known-failures]: The gate reads its pin from this file, so the recorded baseline and the CI run cannot name different suite revisions.
 
-[^pynfs-workflow]: The workflow runs on `ubuntu-24.04` with Python 3.14.
+[^pynfs-workflow]: The workflow runs on `ubuntu-24.04` with the Python version pinned in the known-failures file, and caches the pynfs checkout by commit.
 
 [^linux-workflow]: Issue #39 owns the Linux gate.
 
 [^writable-app]: The writable runs so far use macOS and Debian 12 against the R2 gateway.
 
-[^rfc8881]: CSESS16 and CSESS16a conflict with Sections 18.33.3 and 18.36.3, and CSESS29 with Section 18.36.4 phase 2.
+[^rfc8881]: CSESS16 and CSESS16a rest on Sections 18.33.3 and 18.36.3, and #167 owns their alternative reading. CSESS29 rests on Section 18.36.4 phase 2 and its retry rule.

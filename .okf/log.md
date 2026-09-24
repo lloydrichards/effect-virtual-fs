@@ -2,7 +2,9 @@
 
 ## 2026-09-24
 
-- **NFS interoperability and fault evidence**: Resolved #51. The pinned pynfs run is now repeatable: a known-failures file pins the suite and classifies every failure, and a pull-request workflow fails on an unlisted failure or a listed test that passes. The first repeated run found 79 failures instead of the recorded 77. CSESS16, CSESS16a, and CSESS29 reject RFC-required CREATE_SESSION answers made after the baseline, so a fourth `disputed` class records them with their RFC citations. The decision also fixes which clients run in CI or as release gates, and which fault cases each profile stage requires.
+- **NFS interoperability and fault evidence**: Resolved #51. The pinned pynfs run is now repeatable: a known-failures file pins the suite and classifies every failure, and a pull-request workflow fails on an unlisted failure or a listed test that passes. The first repeated run found 79 failures instead of the recorded 77. CSESS16, CSESS16a, and CSESS29 reject RFC-required CREATE_SESSION answers made after the baseline, so a `disputed` class records them with their RFC citations. The decision also fixes which clients run in CI or as release gates, and which fault cases each profile stage requires.
+
+- **pynfs gate review fixes**: An adversarial review of the gate found three ways it could report a pass it should not. It compared only the number of selected tests, it read a JSON output that records warnings and unsupported results as passes, and it ignored pynfs build failures. The gate now pins the selected test codes and reads pynfs's per-test outcome lines. It rebuilds generated modules from scratch, refuses a modified checkout, and times out a hung run. The workflow now also triggers on lockfile and build-configuration changes. RECC3 moved to a new `deferred-capability` class, since it needs the grace period of the `stateful` profile. The CSESS16 citations now state their actual force, and #167 owns the alternative reading.
 
 ## 2026-09-21
 
