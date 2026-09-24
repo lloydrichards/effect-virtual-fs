@@ -2,6 +2,8 @@
 
 ## 2026-09-24
 
+- **Agent filesystem landscape**: Added draft research surveying agent-oriented filesystems raised in the Alchemy Discord (Alchemy Sandbox and FUSE, AgentFS, Mesa, Archil, ArtifactFS, just-bash, Mirage, Airstore). It maps each idea onto existing overlays, deltas, tree transfer, and revisions, and tracks the resulting directions: #173 search and glob, #174 path-level delta merge, #175 an Effect AI toolkit and MCP example, and context on #28, #29, #30, #31, #153, and #154. The library stays Effect-first and treats other frameworks as prior art, not compatibility targets.
+
 - **Tree transfer consumer (#29, third milestone)**: `apps/virtual-build` `measure` now streams its host package trees through `TreeTransfer.fromFileSystem` with `Stream.filter` and builds the volume with `toVolume`, replacing its hand-written walk. The selected workload is unchanged (2,532 files, 2,661 entries, 51,962,629 source bytes on the current install); fixtures now carry host modes and times, which raises the encoded size slightly.
 
 - **Tree transfer host adapter (#29, second milestone)**: Added `TreeTransfer.fromFileSystem` and `toFileSystem` over any Effect `FileSystem`, plus `SinkCapabilities`, `SkippedEntry`, and report fields for skipped entries and degraded hard links. A representative tree round-trips through a real Node temporary directory within the declared losses: names, contents, link targets and topology, modes, and millisecond access and modification times survive; owners, change and birth times, and link metadata do not. Escape checks resolve through in-tree links before any link is created. Host-directory import and export moved off the deferred list; mirroring, deletion propagation, and owner preservation remain deferred.

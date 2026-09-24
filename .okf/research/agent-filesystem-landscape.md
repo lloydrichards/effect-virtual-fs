@@ -141,7 +141,7 @@ Ranked by fit with the current code and by effort (low effort first within simil
 7. **External-service mount adapters** (medium fit, high effort). Mirage and Airstore mount Slack, Notion, Drive and GitHub as directory trees ([Mirage](https://github.com/strukto-ai/mirage), [Airstore](https://github.com/beam-cloud/airstore)). Here this is best framed as snapshot or fixture materialization plus a read-only overlay base, not live two-way sync.
 8. **A FUSE export beside NFS** (lower fit, high effort). FUSE is currently deferred. The NFS export already gives native tools a mount, and AgentFS itself uses NFS on macOS and FUSE on Linux ([AgentFS README](https://github.com/tursodatabase/agentfs)).
 
-Multi-user CRDT editing of one file is a poor fit for the byte-level POSIX core. It is discussed under [concurrency](#8-crdt-versus-single-writer), where the recommendation is single-writer plus overlay-per-agent plus merge.
+Multi-user CRDT editing of one file is a poor fit for the byte-level POSIX core. It is discussed under concurrency (point 8 of the mapping), where the recommendation is single-writer plus overlay-per-agent plus merge.
 
 ## Per-source findings
 
@@ -235,14 +235,14 @@ Automerge resolves concurrent writes to the same property by deterministic last-
 
 ### 2. Overlay as branch/fork, copy-on-write branching, merge
 
-- **Exists.** `makeOverlay(snapshot)` creates copy-on-write workspaces that share unchanged payloads. `changes()` produces deterministic final differences with rename lineage. `capture()` produces a complete snapshot plus summary. `diffSnapshots`, `inspectSnapshotDelta` and `applySnapshotDelta` provide portable deltas (`.okf/contracts/overlay-workspaces.md`, `.okf/contracts/snapshot-deltas.md`). `CheckpointStore` names checkpoints. These match AgentFS overlay `diff` and ArtifactFS `overlay_dirty` in function.
-- **Gap.** There are no named branches or a fork graph, no "fork from a live volume at revision N" helper beyond `volume.snapshot` → `makeOverlay`, and no merge or rebase. The profile lists "snapshot-delta merge or rebase" as deferred (`.okf/profiles/deferred-capabilities.md`). Copy-up is whole-file (`.okf/contracts/overlay-workspaces.md`), which matches overlayfs.
+- **Exists.** `makeOverlay(snapshot)` creates copy-on-write workspaces that share unchanged payloads. `changes()` produces deterministic final differences with rename lineage. `capture()` produces a complete snapshot plus summary. `diffSnapshots`, `inspectSnapshotDelta` and `applySnapshotDelta` provide portable deltas ([overlay workspaces](../contracts/overlay-workspaces.md "builds on"), [snapshot deltas](../contracts/snapshot-deltas.md "builds on")). `CheckpointStore` names checkpoints. These match AgentFS overlay `diff` and ArtifactFS `overlay_dirty` in function.
+- **Gap.** There are no named branches or a fork graph, no "fork from a live volume at revision N" helper beyond `volume.snapshot` → `makeOverlay`, and no merge or rebase. The profile lists "snapshot-delta merge or rebase" as deferred, and the [snapshot delta research](overlay-changes.md "extends") leaves its conflict rules open. Copy-up is whole-file, which matches overlayfs.
 - **Direction.** A three-way merge of two `SnapshotDelta`s against their common base. Report conflicts as data, not failures, following Mesa's non-blocking conflicts ([Mesa](https://docs.mesa.dev/content/concepts/versioning)). Path-level conflicts (both sides changed the same path) are enough at first. Text-level merge and conflict markers are out of scope, and branch or bookmark names stay with the application, as with `CheckpointStore` names. A thin `fork(volume)` helper over `volume.snapshot` → `makeOverlay` is possible but not tracked.
 - **Open questions.** `SnapshotChange` has no rename variant, while overlay `changes()` retains rename lineage. Which one should merge compare? Does merge belong in core or in a separate module?
 
 ### 3. Git/patch export so a trusted host pushes on the sandbox's behalf
 
-- **Exists.** `changes()` gives the changed paths and kinds. `capture()` gives stable bytes. `TreeTransfer` Stream sources can walk a snapshot (`packages/memory/src/TreeTransfer.ts`, `.okf/contracts/tree-transfer.md`, from issue #29).
+- **Exists.** `changes()` gives the changed paths and kinds. `capture()` gives stable bytes. `TreeTransfer` Stream sources can walk a snapshot (`packages/memory/src/TreeTransfer.ts`; [tree transfer decision](../decisions/tree-transfer.md "builds on"), from issue #29).
 - **Gap.** Nothing turns changes into git objects or a unified diff.
 - **Direction.** Add an exporter from `(base snapshot, overlay changes)` to either (a) a unified diff or patch series, or (b) git tree/blob objects plus a commit on a given parent. Git tree entries only carry modes 100644, 100755, 120000 and 040000, so the exporter must map or reject other modes. The sandbox, or the agent's tools, only ever produce changes. A trusted host process holding the credentials (in Alchemy's terms, `Git.Credentials` or a `PublishToken`) builds the commit and pushes it through GitHub's REST API or git smart HTTP. This reverses today's `pushBranch` data flow ([PushBranch.ts](https://github.com/alchemy-run/alchemy/blob/sam/harness/services/root/src/coding/PushBranch.ts)). Alchemy's git engine or Cloudflare Artifacts could serve as a staging remote with short-lived tokens ([Git DESIGN.md](https://github.com/alchemy-run/alchemy/blob/sam/harness/packages/alchemy/src/Git/DESIGN.md), [Artifacts blog](https://blog.cloudflare.com/artifacts-git-for-agents-beta/)).
 - **Open questions.** Should this depend on an existing TS git library or hand-write the loose-object and tree encoding? The latter is small, but pack/push is not. How should the export handle symlinks, special bits and hard links, which git cannot represent? Is a base snapshot tied to a git commit id enough provenance?
@@ -263,7 +263,7 @@ Automerge resolves concurrent writes to the same property by deterministic last-
 
 ### 6. Digest-guarded / compare-and-set writes
 
-- **Exists.** Mutation revisions and object observations (`.okf/contracts/mutation-revisions.md`, `observeMetadata` returning `ObjectObservation`). `LiveImageStore.commit` already does whole-image compare-and-set with R2 `ifMatch` (`packages/persistence/src/R2LiveImageStore.ts`).
+- **Exists.** Mutation revisions and object observations ([mutation revisions](../contracts/mutation-revisions.md "extends"), `observeMetadata` returning `ObjectObservation`). `LiveImageStore.commit` already does whole-image compare-and-set with R2 `ifMatch` (`packages/persistence/src/R2LiveImageStore.ts`).
 - **Gap.** There is no single write that fails if a file changed since a given observation, which is what `editFile`'s `expectedDigest` tries to do across two calls.
 - **Direction.** Add an optional `expectedRevision` on `writeFile` that fails with a distinct error when the check fails. The check and the write would happen under the volume's coordination gate. A content-digest guard can follow if restore or export needs one, because revisions do not survive restore.
 - **Open questions.** Which `FsCode` should a failed guard use? How does a tool get the revision that matches the bytes it read, given that `readFile` returns only bytes?
@@ -277,7 +277,7 @@ Automerge resolves concurrent writes to the same property by deterministic last-
 
 ### 8. CRDT versus single-writer
 
-- **Exists.** Each volume serializes its mutations. The R2 live image uses `ifMatch` compare-and-set, and the writable NFS profile explicitly assumes one gateway per image with no distributed lease (`.okf/research/cloudflare-live-image-adapter-effect-ecosystem.md`).
+- **Exists.** Each volume serializes its mutations. The R2 live image uses `ifMatch` compare-and-set, and the writable NFS profile explicitly assumes one gateway per image with no distributed lease ([Cloudflare live image adapter](cloudflare-live-image-adapter-effect-ecosystem.md "constrained by")). Remote multi-host access is explored separately in [remote agent filesystem access](cloudflare-remote-agent-filesystem.md "complements").
 - **Assessment.** CRDTs merge text or structured documents ([Automerge](https://automerge.org/docs/reference/documents/conflicts/), [Yjs](https://docs.yjs.dev/)). POSIX bytes with `write(offset)`, `truncate` and rename do not map onto them without inventing new semantics. The systems surveyed use one of three approaches:
   - single writer per path through delegations ([Archil](https://docs.archil.com/concepts/sharing-disks));
   - "no concurrent multi-host writes to one file" ([GeeseFS](https://github.com/yandex-cloud/geesefs));
@@ -287,13 +287,13 @@ Automerge resolves concurrent writes to the same property by deterministic last-
 
 ### 9. FUSE export alongside NFS
 
-- **Exists.** The NFSv4.1 export (`packages/nfs`), read-only preview plus an experimental writable R2 profile (`.okf/decisions/nfs/nfs-profile-ladder.md`). FUSE is deferred (`.okf/profiles/deferred-capabilities.md`).
+- **Exists.** The NFSv4.1 export (`packages/nfs`), with read-only and guarded writable stages ([NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "constrained by")). FUSE is deferred ([deferred capabilities](../profiles/deferred-capabilities.md "constrained by")).
 - **Assessment.** Linux containers can mount NFS or FUSE. AgentFS uses both, depending on the host OS ([AgentFS](https://github.com/tursodatabase/agentfs)). A FUSE daemon would have to run _inside_ the container, next to the agent, which conflicts with a volume held in a Worker or Durable Object. The NFS gateway in `apps/demo-r2-nfs` already covers the "native tools over the volume" case.
 - **Direction.** No new work until a consumer needs FUSE-specific behavior. For native tools in a container, an NFS mount of the volume is the documented path.
 
 ### 10. Things the repo already does better than, or equal to, the surveyed systems
 
-- Byte-exact names, caller uid/gid/umask permissions, hard links, unlinked-open files and watches. These are areas where GeeseFS/tigrisfs fall short, and where just-bash's `IFileSystem` is thinner (`.okf/profiles/implemented-filesystem.md`).
+- Byte-exact names, caller uid/gid/umask permissions, hard links, unlinked-open files and watches. These are areas where GeeseFS/tigrisfs fall short, and where just-bash's `IFileSystem` is thinner ([implemented filesystem profile](../profiles/implemented-filesystem.md "contrasts with")).
 - Copy-on-write overlay with a deterministic change summary, like AgentFS overlay and ArtifactFS.
 - A durability vocabulary and compare-and-set live-image commits (`LiveVolume`, `R2LiveImageStore`). Archil and the FUSE adapters publish weaker or less explicit guarantees.
 - An Effect-native service and layer style (`Context.Service`, `Layer`), the same idioms Alchemy's Effect code uses.
@@ -302,17 +302,17 @@ Automerge resolves concurrent writes to the same property by deterministic last-
 
 Reviewed with the maintainer on 2026-09-24. The library stays Effect-first and does not privilege any consumer, agent framework or hosting choice. Every direction below is tracked, not accepted.
 
-| Direction | Tracking | Position |
-|---|---|---|
-| 1. Agent tool surface | #175 | `apps/` example on `effect/unstable/ai`; structured tool failures; MCP from the same toolkit |
-| 2. Fork and merge | #174 | Three-way, path-level, conflicts as data; no text merge; names stay with the application; no fork helper tracked |
-| 3. Git or patch export | Comment on #29 | A Stream sink; a trusted host builds and pushes; no issue until there is evidence |
-| 4. Search and glob | #173 | Decide between a Stream recipe over snapshots and a dedicated API, from measurement |
-| 5. just-bash | Comment on #30 | Candidate runtime in the existing comparison |
-| 6. Conditional writes | Comment on #31 | Revision guard under the coordination gate; digest guard later if restore or export needs it |
-| 7. External services | Comment on #29 | Fixture-entry Streams into a read-only overlay base; lazy hydration is a separate core question |
-| 8. CRDT | Comment on #153 | Single writer per volume, overlay per agent, path-level merge; CRDT documents stay outside the VFS |
-| 9. FUSE and overlayfs over R2 | Comment on #154 | FUSE stays deferred; NFS covers native tools |
-| Confinement | Comment on #28 | The agent example's hand-rolled confinement and per-user pruning elsewhere motivate a confined caller |
+| Direction                     | Tracking        | Position                                                                                                         |
+| ----------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1. Agent tool surface         | #175            | `apps/` example on `effect/unstable/ai`; structured tool failures; MCP from the same toolkit                     |
+| 2. Fork and merge             | #174            | Three-way, path-level, conflicts as data; no text merge; names stay with the application; no fork helper tracked |
+| 3. Git or patch export        | Comment on #29  | A Stream sink; a trusted host builds and pushes; no issue until there is evidence                                |
+| 4. Search and glob            | #173            | Decide between a Stream recipe over snapshots and a dedicated API, from measurement                              |
+| 5. just-bash                  | Comment on #30  | Candidate runtime in the existing comparison                                                                     |
+| 6. Conditional writes         | Comment on #31  | Revision guard under the coordination gate; digest guard later if restore or export needs it                     |
+| 7. External services          | Comment on #29  | Fixture-entry Streams into a read-only overlay base; lazy hydration is a separate core question                  |
+| 8. CRDT                       | Comment on #153 | Single writer per volume, overlay per agent, path-level merge; CRDT documents stay outside the VFS               |
+| 9. FUSE and overlayfs over R2 | Comment on #154 | FUSE stays deferred; NFS covers native tools                                                                     |
+| Confinement                   | Comment on #28  | The agent example's hand-rolled confinement and per-user pruning elsewhere motivate a confined caller            |
 
 No outreach to Alchemy is planned from this research. It is ideation for this library only.
