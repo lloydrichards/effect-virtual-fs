@@ -22,6 +22,10 @@
       "types": "./dist/MemoryFileSystem.d.ts",
       "import": "./dist/MemoryFileSystem.js"
     },
+    "./TreeTransfer": {
+      "types": "./dist/TreeTransfer.d.ts",
+      "import": "./dist/TreeTransfer.js"
+    },
     "./internal/*": null,
     "./index": null,
     "./*/index": null,

@@ -15,6 +15,8 @@ sources:
     title: Scoped traversal and recursive directory operations
   - resource: ../../packages/memory/src/internal/copyOperations.ts
     title: Adapter copy operations
+  - resource: ../../packages/memory/src/internal/treeTransfer.ts
+    title: Tree transfer engine used by copy
   - resource: ../../packages/memory/src/internal/platformError.ts
     title: Core-to-Effect error translation
   - resource: ../../packages/memory/test/AdapterCompatibility.test.ts
@@ -44,7 +46,7 @@ The adapter follows Effect's byte and cursor types at its public boundary. File 
 Seeks before the start fail with `BadArgument` without changing the cursor, and
 `readAlloc` rejects missing, coerced, negative, and non-integer runtime sizes.
 
-Directory copy rejects a destination child that is a symbolic link instead of following it as a directory. It also rejects copying `/` into one of its descendants before creating the destination. Recursive copy remains a sequence of core operations, so failures after earlier entries are copied can leave those entries in place.
+Directory copy rejects a destination child that is a symbolic link instead of following it as a directory. It also rejects copying `/` into one of its descendants before creating the destination. `copy` runs on the [tree transfer](tree-transfer.md "uses") engine with the volume's own limits and no depth bound; `overwrite` maps to `existing: "overwrite"`, `preserveTimestamps` to both timestamps, and source modes are copied with their special bits. A copy without `overwrite` claims its destination and removes it if the copy fails. An overwriting copy remains a sequence of core operations, so failures after earlier entries are copied can leave those entries in place.
 
 The shared adapter suite in `packages/memory/test/FileSystemTest.ts` states this contract as executable assertions, and it runs against the memory adapter alone. Its requirements are unconditional: a handle used after its scope closes reports `BadResource` against the descriptor it held; `copy` with `overwrite: false` onto an existing destination fails `AlreadyExists` without changing either path; `utimes` reports its failing method as `utimes`; `copy` with `preserveTimestamps` carries both the access and the modification time; `chmod` and `chown` apply the requested mode and ownership without host privileges; derived stream and sink handles finalize on success, failure, and interruption; and a watcher stops receiving events once it is released.
 

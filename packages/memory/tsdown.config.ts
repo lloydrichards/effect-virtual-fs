@@ -2,7 +2,7 @@ import { defineConfig } from "tsdown"
 
 export default defineConfig({
   dts: false,
-  entry: ["src/index.ts", "src/MemoryFileSystem.ts"],
+  entry: ["src/index.ts", "src/MemoryFileSystem.ts", "src/TreeTransfer.ts"],
   deps: {
     neverBundle: ["effect"]
   },
