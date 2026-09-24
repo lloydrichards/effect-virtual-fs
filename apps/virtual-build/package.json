@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@effect-vfs/core": "workspace:*",
+    "@effect-vfs/memory": "workspace:*",
     "@effect/platform-bun": "4.0.0-rc.115",
     "effect": "4.0.0-rc.115",
     "vite": "8.3.0"
