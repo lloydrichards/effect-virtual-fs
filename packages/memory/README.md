@@ -185,7 +185,8 @@ console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer
 
 `toCaller` rejects an existing destination by default and removes the tree it
 created if the transfer fails. `toVolume` builds a new volume only when every
-entry is accepted. Sources enforce `TreeTransferLimits.default` unless you pass
+entry is accepted, and keeps source owners and special mode bits only with
+`owner: true` and `specialBits: true`. Sources enforce `TreeTransferLimits.default` unless you pass
 other limits. `fromCaller` reads through a live caller and updates source access
 times; `fromSnapshot` reads a snapshot and never changes the source.
 

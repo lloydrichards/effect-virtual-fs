@@ -141,6 +141,7 @@ export const fromFileSystem = (
         ? onSkip({ path, reason }).pipe(Effect.as(undefined))
         : Effect.fail(new TransferError({ code: reason, path }))
 
+    // Returns the link target, `undefined` for a real entry, or `null` when the name can be neither resolved nor read.
     const readLinkTarget = Effect.fnUntraced(function*(next: Pending) {
       if (next.canonical === undefined) {
         const target = yield* Effect.result(fs.readLink(next.host))
@@ -152,10 +153,12 @@ export const fromFileSystem = (
 
       if (Result.isSuccess(resolved) && resolved.success === next.canonical) return undefined
 
-      if (Result.isFailure(resolved) && !isReason("NotFound")(resolved.failure)) return yield* resolved.failure
+      // A different resolved path, a missing one, or a loop means this name is probably a link.
+      const target = yield* Effect.result(fs.readLink(next.host))
 
-      // A different resolved path, or a missing one, means this name is a link.
-      return yield* fs.readLink(next.host)
+      if (Result.isSuccess(target)) return target.success
+
+      return Result.isFailure(resolved) ? null : yield* target.failure
     })
 
     const visit = Effect.fnUntraced(function*(next: Pending) {
@@ -170,6 +173,8 @@ export const fromFileSystem = (
       // Effect's FileSystem decodes host names as UTF-8, so a replacement character marks a name it could not carry.
       if (next.name.includes(REPLACEMENT_CHARACTER)) return yield* refuse(next.path, "UnrepresentableName")
       const target = yield* readLinkTarget(next)
+
+      if (target === null) return yield* refuse(next.path, "UnsupportedEntryType")
 
       if (target !== undefined) {
         bytes += BigInt(encoder.encode(target).length)
@@ -198,6 +203,9 @@ export const fromFileSystem = (
             depth: next.depth + 1
           })
         }
+
+        // A listing is held in memory until visited, so a single huge directory must fit the entry budget up front.
+        if (entries + pending.length > limits.maxEntries) return yield* limitExceeded("maxEntries", next.path)
 
         return { kind: "directory", path: next.path, metadata: hostMetadata(info) } satisfies Entry
       }
@@ -240,6 +248,10 @@ export const fromFileSystem = (
     return Stream.paginate(undefined, () => step)
   }))
 
+// Hosts may fold case and Unicode form, so link lookups during escape checks use a folded key. Folding can only
+// find more links than exist, which makes the check stricter, never looser.
+const foldName = (path: string) => path.normalize("NFC").toLowerCase()
+
 // Resolves a link target against the links in the transferred set. A target escapes when it is absolute or when
 // resolving `..` or another in-tree link would leave the transfer root.
 const escapes = (linkPath: string, target: string, links: ReadonlyMap<string, string>) => {
@@ -260,7 +272,7 @@ const escapes = (linkPath: string, target: string, links: ReadonlyMap<string, st
     }
 
     stack.push(component)
-    const next = links.get(`/${stack.join("/")}`)
+    const next = links.get(foldName(`/${stack.join("/")}`))
 
     if (next === undefined) continue
     hops++
@@ -273,21 +285,48 @@ const escapes = (linkPath: string, target: string, links: ReadonlyMap<string, st
   return false
 }
 
-// The destination may not exist yet, so its canonical path is its parent's resolved path plus its own name.
-const canonicalDestination = Effect.fnUntraced(function*(fs: FileSystem.FileSystem, destination: string) {
-  const trimmed = destination.replace(/\/+$/, "") || "/"
+const parentOf = (path: string) => path.split("/").filter((part) => part.length > 0).slice(0, -1)
 
-  if (trimmed === "/") return trimmed
-  const slash = trimmed.lastIndexOf("/")
-  const parent = yield* fs.realPath(slash < 0 ? "." : slash === 0 ? "/" : trimmed.slice(0, slash))
+// Rewrites a relative link target so a copy of the link placed at `aliasPath` resolves where the original did.
+// A target that climbs above the transfer root is kept as written; the escape check then rejects it.
+const retarget = (linkPath: string, aliasPath: string, target: string) => {
+  if (target.startsWith("/")) return target
+  const resolved = parentOf(linkPath)
 
-  return childPath(parent, trimmed.slice(slash + 1))
-})
+  for (const component of target.split("/")) {
+    if (component === "" || component === ".") continue
+
+    if (component === "..") {
+      if (resolved.length === 0) return target
+      resolved.pop()
+    } else {
+      resolved.push(component)
+    }
+  }
+
+  const from = parentOf(aliasPath)
+  let shared = 0
+
+  while (shared < from.length && shared < resolved.length && from[shared] === resolved[shared]) shared++
+
+  return [...from.slice(shared).map(() => ".."), ...resolved.slice(shared)].join("/") || "."
+}
+
+const isInside = (root: string, path: string) => root === "/" || path === root || path.startsWith(`${root}/`)
+
+// A hard link may fall back to a copy only when the host cannot link; name and lookup failures stay failures.
+const cannotLink = (error: PlatformError | TransferError): error is PlatformError =>
+  !(error instanceof TransferError) && !isReason("AlreadyExists")(error) && !isReason("NotFound")(error)
 
 interface DeferredLink {
   readonly path: string
   readonly host: string
   readonly target: string
+}
+
+interface WrittenFile {
+  readonly host: string
+  readonly metadata: EntryMetadata | undefined
 }
 
 interface CreatedDirectory {
@@ -309,26 +348,59 @@ export const toFileSystem = (
     const escaping = options?.escaping ?? "reject"
     const unsupported = options?.unsupported ?? "fail"
     const modeMask = options?.specialBits ? MODE_BITS : PERMISSION_BITS
-    const written = new Map<string, string>()
+    const written = new Map<string, WrittenFile>()
     const directories = new Set<string>()
     const skippedDirectories = new Map<string, SkipReason>()
     const links = new Map<string, string>()
     const deferredLinks: Array<DeferredLink> = []
     const createdDirectories: Array<CreatedDirectory> = []
     const skipped: Array<SkippedEntry> = []
-    const canonicalRoot = yield* canonicalDestination(fs, destination)
+    let canonicalRoot = destination
+    let claimed: { readonly dev: number; readonly ino: number | undefined } | undefined
     let started = false
-    let claimed = false
     let completed = false
     let entries = 0
     let files = 0
     let bytes = 0n
     let hardLinksDegraded = 0
 
-    // Only a root this sink claimed exclusively is removed; overwrite never deletes existing data.
-    yield* Effect.addFinalizer(() =>
-      completed || !claimed ? Effect.void : fs.remove(destination, { recursive: true }).pipe(Effect.orDie)
+    // A failed overwrite keeps what it wrote, but its new directories get their final modes back.
+    const restoreModes = Effect.forEach(
+      createdDirectories,
+      (directory) =>
+        directory.mode === undefined ? Effect.void : fs.chmod(directory.host, directory.mode).pipe(Effect.ignore),
+      {
+        discard: true
+      }
     )
+
+    // Only a root this sink claimed exclusively is removed, and only while it is still the same object. Owner
+    // access is restored first, because finished directories may carry restrictive modes.
+    const removeClaimed = Effect.gen(function*() {
+      if (Result.isSuccess(yield* Effect.result(fs.readLink(destination)))) return
+      const current = yield* Effect.result(fs.stat(destination))
+
+      if (Result.isFailure(current) || current.success.dev !== claimed?.dev) return
+
+      if (claimed.ino !== undefined && Option.getOrUndefined(current.success.ino) !== claimed.ino) return
+
+      yield* Effect.forEach(
+        createdDirectories,
+        (directory) => fs.chmod(directory.host, OWNER_ACCESS).pipe(Effect.ignore),
+        { discard: true }
+      )
+      yield* fs.remove(destination, { recursive: true })
+    })
+
+    yield* Effect.addFinalizer(() =>
+      completed ? Effect.void : (claimed === undefined ? restoreModes : removeClaimed).pipe(Effect.orDie)
+    )
+
+    const claim = Effect.gen(function*() {
+      if (existing !== "reject") return
+      const info = yield* fs.stat(destination)
+      claimed = { dev: info.dev, ino: Option.getOrUndefined(info.ino) }
+    })
 
     const refuse = (path: Vfs.PathInput, reason: SkipReason) => {
       if (unsupported === "fail") return Effect.fail(new TransferError({ code: reason, path }))
@@ -347,16 +419,18 @@ export const toFileSystem = (
 
     // Classifies an existing destination name without following it: absent, a link, or a real entry.
     const probe = Effect.fnUntraced(function*(path: string, host: string) {
+      if (Result.isSuccess(yield* Effect.result(fs.readLink(host)))) return "link" as const
+
+      if (path === "/") return (yield* fs.exists(host)) ? "entry" as const : "absent" as const
       const resolved = yield* Effect.result(fs.realPath(host))
 
       if (Result.isFailure(resolved)) {
-        if (!isReason("NotFound")(resolved.failure)) return yield* resolved.failure
-        const link = yield* Effect.result(fs.readLink(host))
+        if (isReason("NotFound")(resolved.failure)) return "absent" as const
 
-        return Result.isSuccess(link) ? "link" : "absent"
+        return yield* resolved.failure
       }
 
-      return resolved.success === hostPath(canonicalRoot, path) ? "entry" : "link"
+      return resolved.success === hostPath(canonicalRoot, path) ? "entry" as const : "link" as const
     })
 
     const clearForReplacement = Effect.fnUntraced(function*(path: string, host: string) {
@@ -389,6 +463,28 @@ export const toFileSystem = (
 
     const modeOf = (metadata: EntryMetadata | undefined, fallback: number) => (metadata?.mode ?? fallback) & modeMask
 
+    // Writes a new file with an exclusive create, which never follows a link placed at the name. The mode and
+    // times that follow still resolve the name, so a link swapped in after creation remains a documented gap.
+    const createFile = Effect.fnUntraced(
+      function*(path: string, host: string, contents: Uint8Array, metadata: EntryMetadata | undefined) {
+        const mode = modeOf(metadata, DEFAULT_FILE_MODE)
+
+        const wrote = yield* fs.writeFile(host, contents, { flag: "wx", mode }).pipe(
+          Effect.as(true),
+          Effect.catchIf(isReason("AlreadyExists"), collision(path))
+        )
+
+        if (!wrote) return false
+
+        // The create mode passes through the host umask.
+        yield* fs.chmod(host, mode)
+        yield* applyTimes(path, host, metadata)
+        written.set(path, { host, metadata })
+
+        return true
+      }
+    )
+
     const makeDirectory = Effect.fnUntraced(function*(path: string, host: string, mode: number) {
       const made = yield* Effect.result(fs.makeDirectory(host, { mode: mode | OWNER_ACCESS }))
 
@@ -419,7 +515,10 @@ export const toFileSystem = (
             return
           }
 
-          if (path === "/" && outcome === "created") claimed = existing === "reject"
+          if (path === "/") {
+            if (outcome === "created") yield* claim
+            canonicalRoot = yield* fs.realPath(host)
+          }
 
           directories.add(path)
           createdDirectories.push({
@@ -433,24 +532,13 @@ export const toFileSystem = (
         }
 
         case "file": {
-          const mode = modeOf(entry.metadata, DEFAULT_FILE_MODE)
-
           yield* clearForReplacement(path, host)
 
-          const wrote = yield* fs.writeFile(host, entry.bytes, { flag: existing === "reject" ? "wx" : "w", mode }).pipe(
-            Effect.as(true),
-            Effect.catchIf(isReason("AlreadyExists"), collision(path))
-          )
+          if (!(yield* createFile(path, host, entry.bytes, entry.metadata))) return
 
-          if (!wrote) return
-
-          if (path === "/") claimed = existing === "reject"
-          // The create mode passes through the host umask and does not apply to an existing file.
-          yield* fs.chmod(host, mode)
-          yield* applyTimes(path, host, entry.metadata)
+          if (path === "/") yield* claim
           files++
           bytes += BigInt(entry.bytes.length)
-          written.set(path, host)
 
           return
         }
@@ -461,7 +549,7 @@ export const toFileSystem = (
           if (target === undefined) return yield* refuse(entry.path, "UnrepresentableName")
 
           // Links are created after every entry is known, so escape checks can resolve through links that come later.
-          links.set(path, target)
+          links.set(foldName(path), target)
           deferredLinks.push({ path, host, target })
 
           return
@@ -471,37 +559,38 @@ export const toFileSystem = (
           const source = Predicate.isString(entry.target) ? entry.target : undefined
 
           if (source === undefined) return yield* refuse(entry.path, "UnrepresentableName")
-          const linkTarget = links.get(source)
+          const original = deferredLinks.find((link) => link.path === source)
 
-          if (linkTarget !== undefined) {
+          if (original !== undefined) {
             // Effect's FileSystem cannot hard-link a symbolic link portably, so this alias becomes another link.
+            const target = retarget(source, path, original.target)
             hardLinksDegraded++
-            links.set(path, linkTarget)
-            deferredLinks.push({ path, host, target: linkTarget })
+            links.set(foldName(path), target)
+            deferredLinks.push({ path, host, target })
 
             return
           }
 
-          const sourceHost = written.get(source)
+          const sourceFile = written.get(source)
 
-          if (sourceHost === undefined) {
+          if (sourceFile === undefined) {
             return yield* new TransferError({ code: "InvalidEntry", field: "target", path: entry.path })
           }
 
           yield* clearForReplacement(path, host)
 
-          const linked = yield* fs.link(sourceHost, host).pipe(
-            Effect.as(true),
-            Effect.catchIf(isReason("AlreadyExists"), collision(path)),
-            Effect.catch(() =>
-              fs.copyFile(sourceHost, host).pipe(
-                Effect.tap(() => Effect.sync(() => hardLinksDegraded++)),
-                Effect.as(true)
-              )
-            )
+          const copyInstead = fs.readFile(sourceFile.host).pipe(
+            Effect.flatMap((contents) => createFile(path, host, contents, sourceFile.metadata)),
+            Effect.tap((copied) => Effect.sync(() => copied && hardLinksDegraded++))
           )
 
-          if (linked) written.set(path, host)
+          const linked = yield* fs.link(sourceFile.host, host).pipe(
+            Effect.as(true),
+            Effect.catchIf(isReason("AlreadyExists"), collision(path)),
+            Effect.catchIf(cannotLink, () => copyInstead)
+          )
+
+          if (linked) written.set(path, sourceFile)
 
           return
         }
@@ -538,7 +627,33 @@ export const toFileSystem = (
       return yield* writeEntry(entry, path, hostPath(destination, path))
     })
 
-    const finish = Effect.gen(function*() {
+    // Checks a created link against the host itself, which catches folded names and links that were already in
+    // the destination. A dangling link is checked through its deepest existing ancestor.
+    const staysInside = Effect.fnUntraced(function*(link: DeferredLink) {
+      const resolved = yield* Effect.result(fs.realPath(link.host))
+
+      if (Result.isSuccess(resolved)) return isInside(canonicalRoot, resolved.success)
+
+      if (!isReason("NotFound")(resolved.failure)) return false
+      const base = yield* fs.realPath(link.host.slice(0, link.host.lastIndexOf("/")) || "/")
+      const components = link.target.split("/")
+
+      for (let length = components.length; length >= 0; length--) {
+        const prefix = [base, ...components.slice(0, length)].join("/")
+        const ancestor = yield* Effect.result(fs.realPath(prefix))
+
+        if (Result.isSuccess(ancestor)) {
+          return isInside(canonicalRoot, ancestor.success) && !components.slice(length).includes("..")
+        }
+      }
+
+      return false
+    })
+
+    // Uninterruptible, so a transfer is never abandoned halfway through creating links or applying final modes.
+    const finish = Effect.uninterruptible(Effect.gen(function*() {
+      if (!started) return yield* new TransferError({ code: "InvalidEntry", field: "root" })
+
       if (escaping === "reject") {
         for (const link of deferredLinks) {
           if (escapes(link.path, link.target, links)) {
@@ -555,11 +670,17 @@ export const toFileSystem = (
           Effect.catchIf(isReason("AlreadyExists"), collision(link.path))
         )
 
-        if (made && link.path === "/") claimed = existing === "reject"
+        if (made && link.path === "/") yield* claim
+
+        if (made && escaping === "reject" && !(yield* staysInside(link))) {
+          yield* fs.remove(link.host)
+
+          return yield* new TransferError({ code: "EscapingSymlink", path: link.path })
+        }
       }
 
       // Reverse creation order visits children before parents, so later writes cannot disturb applied times or modes.
-      for (const directory of createdDirectories.reverse()) {
+      for (const directory of [...createdDirectories].reverse()) {
         if (directory.mode !== undefined) yield* fs.chmod(directory.host, directory.mode)
         yield* applyTimes(directory.path, directory.host, directory.metadata)
       }
@@ -567,7 +688,7 @@ export const toFileSystem = (
       completed = true
 
       return { entries, files, bytes: ByteSize.bytes(bytes), skipped, hardLinksDegraded } satisfies TransferReport
-    })
+    }))
 
     return Sink.forEach(write).pipe(Sink.mapEffect(() => finish))
   }))

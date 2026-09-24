@@ -26,6 +26,7 @@ import {
   TransferError,
   type TransferReport,
   type TreeTransferLimits,
+  type VolumeTransferOptions,
   type WriteOptions
 } from "../TreeTransfer.js"
 import { defaultLimits, makeLimits, TreeTransferLimitsSchema } from "./treeTransferModel.js"
@@ -188,6 +189,9 @@ export const fromCaller = (
           })
         }
 
+        // A listing is held in memory until visited, so a single huge directory must fit the entry budget up front.
+        if (entries + pending.length > limits.maxEntries) return yield* limitExceeded("maxEntries", path)
+
         entry = { kind: "directory", path, metadata: entryMetadata(metadata) }
       } else {
         const alias = metadata.nlink > 1 ? firstAliases.get(metadata.ino) : undefined
@@ -282,6 +286,8 @@ const locate = Effect.fnUntraced(function*(path: Vfs.PathInput) {
   } satisfies Location
 })
 
+const relativeOf = (written: Written) => written.base === undefined ? {} : { relativeTo: written.base }
+
 const pathKey = (path: Vfs.PathInput) =>
   Predicate.isString(path) ? Effect.succeed(path) : Vfs.pathToBytes(path).pipe(Effect.map(byteKey))
 
@@ -295,10 +301,13 @@ interface CreatedDirectory extends Written {
   readonly metadata: EntryMetadata | undefined
 }
 
+// Removes a tree this sink created. Directories may already carry restrictive final modes, so owner access is
+// restored before each one is listed.
 const removeTree = Effect.fnUntraced(function*(caller: Vfs.Caller, path: Vfs.PathInput) {
   if ((yield* caller.lstat(path)).kind !== "directory") return yield* caller.unlink(path)
 
   return yield* Effect.scoped(Effect.gen(function*() {
+    yield* caller.chmod(path, OWNER_ACCESS)
     const root = yield* caller.openDirectory(path)
     const visited: Array<{ base: Vfs.DirectoryHandle; name: Vfs.PathInput; directory: boolean }> = []
     const pending = [root]
@@ -313,7 +322,10 @@ const removeTree = Effect.fnUntraced(function*(caller: Vfs.Caller, path: Vfs.Pat
         const directory = (yield* caller.lstat(name, { relativeTo: base })).kind === "directory"
         visited.push({ base, name, directory })
 
-        if (directory) pending.push(yield* caller.openDirectory(name, { relativeTo: base }))
+        if (directory) {
+          yield* caller.chmod(name, OWNER_ACCESS, { relativeTo: base })
+          pending.push(yield* caller.openDirectory(name, { relativeTo: base }))
+        }
       }
     }
 
@@ -335,7 +347,8 @@ export const toCaller = (
   options?: WriteOptions
 ): Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.FsError> =>
   Sink.unwrap(Effect.gen(function*() {
-    const scope = yield* Effect.scope
+    // Handles live in their own scope so the cleanup finalizer below can still use them.
+    const handles = yield* Scope.make()
     const existing = options?.existing ?? "reject"
     const times = options?.times ?? "mtime"
     const modeMask = options?.specialBits ? MODE_BITS : PERMISSION_BITS
@@ -344,16 +357,34 @@ export const toCaller = (
     const written = new Map<string, Written>()
     const directories: Array<CreatedDirectory> = []
     let started = false
-    let claimed = false
+    let claimedIno: bigint | undefined
     let completed = false
     let entries = 0
     let files = 0
     let bytes = 0n
 
-    // Only a root this sink claimed exclusively is removed; overwrite never deletes existing data.
-    yield* Effect.addFinalizer(() =>
-      completed || !claimed ? Effect.void : removeTree(caller, destination).pipe(Effect.orDie)
+    // A failed overwrite keeps what it wrote, but its new directories get their final modes back.
+    const restoreModes = Effect.forEach(directories, (directory) =>
+      directory.mode === undefined
+        ? Effect.void
+        : caller.chmod(directory.name, directory.mode, relativeOf(directory)).pipe(Effect.ignore), { discard: true })
+
+    // Only a root this sink claimed exclusively is removed, and only while it is still the same object.
+    const removeClaimed = Effect.gen(function*() {
+      const current = yield* Effect.result(caller.lstat(destination))
+
+      if (Result.isSuccess(current) && current.success.ino === claimedIno) yield* removeTree(caller, destination)
+    })
+
+    yield* Effect.addFinalizer((exit) =>
+      Effect.gen(function*() {
+        if (!completed) yield* claimedIno === undefined ? restoreModes : removeClaimed
+      }).pipe(Effect.orDie, Effect.ensuring(Scope.close(handles, exit)))
     )
+
+    const claim = Effect.gen(function*() {
+      if (existing === "reject") claimedIno = (yield* caller.lstat(destination)).ino
+    })
 
     const modeOf = (entry: Entry, fallback: number) =>
       ("metadata" in entry && entry.metadata?.mode !== undefined ? entry.metadata.mode : fallback) & modeMask
@@ -423,8 +454,8 @@ export const toCaller = (
           const mode = modeOf(entry, DEFAULT_DIRECTORY_MODE)
           const created = yield* makeDirectory(name, relative, mode)
 
-          if (base === undefined && created && existing === "reject") claimed = true
-          bases.set(location.key, yield* Scope.provide(caller.openDirectory(name, relative), scope))
+          if (base === undefined && created) yield* claim
+          bases.set(location.key, yield* Scope.provide(caller.openDirectory(name, relative), handles))
           directories.push({ base, name, mode: created ? mode : undefined, metadata: entry.metadata })
 
           return
@@ -471,17 +502,24 @@ export const toCaller = (
         }
       }
 
-      if (base === undefined && existing === "reject") claimed = true
+      if (base === undefined) yield* claim
       written.set(location.key, { base, name })
       yield* applyTimes(name, { ...relative, followFinalSymlink: false }, entry.metadata)
     })
 
-    const finish = Effect.gen(function*() {
-      // Reverse creation order visits children before parents, so later writes cannot disturb applied times or modes.
-      for (const directory of directories.reverse()) {
-        const relative = directory.base === undefined ? {} : { relativeTo: directory.base }
+    // Uninterruptible, so a transfer is never abandoned halfway through applying final directory modes.
+    const finish = Effect.uninterruptible(Effect.gen(function*() {
+      if (!started) return yield* new TransferError({ code: "InvalidEntry", field: "root" })
 
-        if (directory.mode !== undefined) yield* caller.chmod(directory.name, directory.mode, relative)
+      // Reverse creation order visits children before parents, so later writes cannot disturb applied times or modes.
+      for (const directory of [...directories].reverse()) {
+        const relative = relativeOf(directory)
+
+        // Skipping a mode that is already exact avoids a redundant change event.
+        if (directory.mode !== undefined && (yield* caller.lstat(directory.name, relative)).mode !== directory.mode) {
+          yield* caller.chmod(directory.name, directory.mode, relative)
+        }
+
         yield* applyTimes(directory.name, relative, directory.metadata)
       }
 
@@ -494,7 +532,7 @@ export const toCaller = (
         skipped: [],
         hardLinksDegraded: 0
       } satisfies TransferReport
-    })
+    }))
 
     return Sink.forEach(write).pipe(Sink.mapEffect(() => finish))
   }))
@@ -505,10 +543,32 @@ export const isRootPath = (path: Vfs.PathInput) =>
     ? Effect.succeed(path === "/")
     : Vfs.pathToBytes(path).pipe(Effect.map((bytes) => bytes.length === 1 && bytes[0] === SLASH))
 
+const volumeMetadata = (metadata: EntryMetadata | undefined, options: VolumeTransferOptions | undefined) => {
+  if (metadata === undefined) return undefined
+  const { uid, gid, mode, ...rest } = metadata
+  const output: { -readonly [Key in keyof EntryMetadata]: EntryMetadata[Key] } = rest
+
+  if (options?.owner === true && uid !== undefined) output.uid = uid
+
+  if (options?.owner === true && gid !== undefined) output.gid = gid
+
+  if (mode !== undefined) output.mode = mode & (options?.specialBits === true ? MODE_BITS : PERMISSION_BITS)
+
+  return output
+}
+
+const withVolumeMetadata = (entry: Entry, options: VolumeTransferOptions | undefined): Entry => {
+  if (entry.kind === "hardLink") return entry
+  const { metadata, ...rest } = entry
+  const applied = volumeMetadata(metadata, options)
+
+  return applied === undefined ? rest : { ...rest, metadata: applied }
+}
+
 /** @internal */
 export const toVolume = Effect.fnUntraced(function*<E, R>(
   entries: Stream.Stream<Entry, E, R>,
-  options?: Vfs.VolumeOptions
+  options?: VolumeTransferOptions
 ) {
   const [root, ...rest] = yield* Stream.runCollect(entries)
 
@@ -516,8 +576,38 @@ export const toVolume = Effect.fnUntraced(function*<E, R>(
     return yield* new TransferError({ code: "InvalidEntry", field: "root" })
   }
 
+  // Applies the same placement rules as the live sinks, so every sink accepts the same streams.
+  const directoryKeys = new Set(["/"])
+  const otherKeys = new Set<string>()
+
+  for (const entry of rest) {
+    const location = yield* locate(entry.path)
+
+    if (location.parent === undefined) {
+      return yield* new TransferError({ code: "InvalidEntry", field: "root", path: entry.path })
+    }
+
+    if (!directoryKeys.has(location.parent)) {
+      return yield* new TransferError({ code: "InvalidEntry", field: "parent", path: entry.path })
+    }
+
+    if (directoryKeys.has(location.key) || otherKeys.has(location.key)) {
+      return yield* new TransferError({ code: "InvalidEntry", field: "path", path: entry.path })
+    }
+
+    if (entry.kind === "hardLink" && !otherKeys.has(yield* pathKey(entry.target))) {
+      return yield* new TransferError({ code: "InvalidEntry", field: "target", path: entry.path })
+    }
+
+    if (entry.kind === "directory") directoryKeys.add(location.key)
+    else otherKeys.add(location.key)
+  }
+
+  const rootMetadata = volumeMetadata(root.metadata, options)
+  const fixtureEntries = rest.map((entry) => withVolumeMetadata(entry, options))
+
   return yield* Vfs.fromFixture(
-    root.metadata === undefined ? { entries: rest } : { rootMetadata: root.metadata, entries: rest },
-    options
+    rootMetadata === undefined ? { entries: fixtureEntries } : { rootMetadata, entries: fixtureEntries },
+    options?.volume
   )
 })

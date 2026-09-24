@@ -279,4 +279,242 @@ it.layer(Layer.mergeAll(NodeFileSystem.layer, layerDeterministicCrypto))("TreeTr
         assert.deepStrictEqual(failure(error), ["LimitExceeded", "/"])
       })
     ))
+
+  it.effect("should reject a link that escapes through a folded name", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        const entries: ReadonlyArray<TreeTransfer.Entry> = [
+          { kind: "directory", path: "/" },
+          { kind: "directory", path: "/d" },
+          { kind: "symlink", path: "/d/L", target: ".." },
+          { kind: "symlink", path: "/m", target: "d/l/../SECRET" }
+        ]
+
+        const error = yield* Effect.flip(
+          Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
+        )
+
+        assert.deepStrictEqual(failure(error), ["EscapingSymlink", "/m"])
+        assert.isFalse(yield* fs.exists(`${directory}/export`))
+      })
+    ))
+
+  it.effect("should reject a link that escapes through a link already in the destination", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        yield* fs.makeDirectory(`${directory}/export`)
+        yield* fs.symlink("..", `${directory}/export/up`)
+
+        const entries: ReadonlyArray<TreeTransfer.Entry> = [
+          { kind: "directory", path: "/" },
+          { kind: "symlink", path: "/m", target: "up/SECRET" }
+        ]
+
+        const error = yield* Effect.flip(
+          Stream.run(
+            Stream.fromIterable(entries),
+            TreeTransfer.toFileSystem(fs, `${directory}/export`, { existing: "overwrite" })
+          )
+        )
+
+        assert.deepStrictEqual(failure(error), ["EscapingSymlink", "/m"])
+        assert.isFalse(yield* fs.exists(`${directory}/export/m`))
+      })
+    ))
+
+  it.effect("should not write through a link swapped in after an overwritten entry is removed", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        yield* fs.writeFileString(`${directory}/outside`, "untouched")
+        yield* fs.chmod(`${directory}/outside`, 0o600)
+        yield* fs.makeDirectory(`${directory}/export`)
+        yield* fs.writeFileString(`${directory}/export/file`, "old")
+
+        // Models another process replacing the name with a link between the removal and the write.
+        const racing: FileSystem.FileSystem = {
+          ...fs,
+          remove: (path, options) =>
+            fs.remove(path, options).pipe(
+              Effect.andThen(path.endsWith("/export/file") ? fs.symlink(`${directory}/outside`, path) : Effect.void)
+            )
+        }
+
+        const entries: ReadonlyArray<TreeTransfer.Entry> = [
+          { kind: "directory", path: "/" },
+          { kind: "file", path: "/file", bytes: text.encode("copied"), metadata: { mode: 0o777 } }
+        ]
+
+        yield* Effect.exit(
+          Stream.run(
+            Stream.fromIterable(entries),
+            TreeTransfer.toFileSystem(racing, `${directory}/export`, { existing: "overwrite" })
+          )
+        )
+
+        assert.strictEqual(yield* fs.readFileString(`${directory}/outside`), "untouched")
+        assert.strictEqual((yield* fs.stat(`${directory}/outside`)).mode & 0o777, 0o600)
+      })
+    ))
+
+  it.effect("should report a hard link that collides instead of overwriting the existing name", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        const entries: ReadonlyArray<TreeTransfer.Entry> = [
+          { kind: "directory", path: "/" },
+          { kind: "file", path: "/a", bytes: text.encode("A") },
+          { kind: "file", path: "/b", bytes: text.encode("B") },
+          { kind: "hardLink", path: "/b", target: "/a" }
+        ]
+
+        const report = yield* Stream.run(
+          Stream.fromIterable(entries),
+          TreeTransfer.toFileSystem(fs, `${directory}/export`, { unsupported: "skip" })
+        )
+
+        assert.deepStrictEqual(report.skipped, [{ path: "/b", reason: "NameCollision" }])
+        assert.strictEqual(report.hardLinksDegraded, 0)
+        assert.strictEqual(yield* fs.readFileString(`${directory}/export/b`), "B")
+      })
+    ))
+
+  it.effect("should fail a colliding hard link instead of copying over the existing name", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        const entries: ReadonlyArray<TreeTransfer.Entry> = [
+          { kind: "directory", path: "/" },
+          { kind: "file", path: "/a", bytes: text.encode("A") },
+          { kind: "file", path: "/b", bytes: text.encode("B") },
+          { kind: "hardLink", path: "/b", target: "/a" }
+        ]
+
+        const error = yield* Effect.flip(
+          Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
+        )
+
+        assert.deepStrictEqual(failure(error), ["NameCollision", "/b"])
+      })
+    ))
+
+  it.effect("should rewrite a hard link to a symbolic link as a link that resolves to the same place", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        const entries: ReadonlyArray<TreeTransfer.Entry> = [
+          { kind: "directory", path: "/" },
+          { kind: "directory", path: "/a" },
+          { kind: "symlink", path: "/a/l", target: "../x" },
+          { kind: "directory", path: "/b" },
+          { kind: "directory", path: "/b/c" },
+          { kind: "hardLink", path: "/b/c/l2", target: "/a/l" },
+          { kind: "file", path: "/x", bytes: text.encode("target") }
+        ]
+
+        const report = yield* Stream.run(
+          Stream.fromIterable(entries),
+          TreeTransfer.toFileSystem(fs, `${directory}/export`)
+        )
+
+        assert.strictEqual(report.hardLinksDegraded, 1)
+        assert.strictEqual(yield* fs.readLink(`${directory}/export/b/c/l2`), "../../x")
+        assert.strictEqual(yield* fs.readFileString(`${directory}/export/b/c/l2`), "target")
+      })
+    ))
+
+  it.effect("should apply exact modes regardless of the host umask", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        const entries: ReadonlyArray<TreeTransfer.Entry> = [
+          { kind: "directory", path: "/", metadata: { mode: 0o775 } },
+          { kind: "file", path: "/open", bytes: text.encode("x"), metadata: { mode: 0o777 } }
+        ]
+
+        yield* Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
+
+        assert.strictEqual((yield* fs.stat(`${directory}/export`)).mode & 0o777, 0o775)
+        assert.strictEqual((yield* fs.stat(`${directory}/export/open`)).mode & 0o777, 0o777)
+      })
+    ))
+
+  it.effect("should truncate sub-millisecond times through the host", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        const entries: ReadonlyArray<TreeTransfer.Entry> = [
+          { kind: "directory", path: "/" },
+          { kind: "file", path: "/file", bytes: text.encode("x"), metadata: { mtimeNs: millis(5_000) + 123_456n } }
+        ]
+
+        yield* Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
+        const [, file] = yield* Stream.runCollect(TreeTransfer.fromFileSystem(fs, `${directory}/export`))
+
+        assert.strictEqual(file?.kind === "file" && file.metadata?.mtimeNs, millis(5_000))
+      })
+    ))
+
+  it.effect("should skip a colliding directory and everything below it", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        const entries: ReadonlyArray<TreeTransfer.Entry> = [
+          { kind: "directory", path: "/" },
+          { kind: "directory", path: "/d" },
+          { kind: "file", path: "/d/x", bytes: text.encode("x") },
+          { kind: "directory", path: "/d" },
+          { kind: "file", path: "/d/y", bytes: text.encode("y") }
+        ]
+
+        const report = yield* Stream.run(
+          Stream.fromIterable(entries),
+          TreeTransfer.toFileSystem(fs, `${directory}/export`, { unsupported: "skip" })
+        )
+
+        assert.deepStrictEqual(report.skipped, [
+          { path: "/d", reason: "NameCollision" },
+          { path: "/d/y", reason: "NameCollision" }
+        ])
+        assert.deepStrictEqual(yield* fs.readDirectory(`${directory}/export/d`), ["x"])
+      })
+    ))
+
+  it.effect("should fail or skip a host name that was not valid UTF-8", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        yield* fs.makeDirectory(`${directory}/tree`)
+        yield* fs.writeFileString(`${directory}/tree/file`, "x")
+
+        // Effect's FileSystem decodes names as UTF-8, so an undecodable host name arrives with U+FFFD.
+        const lossy: FileSystem.FileSystem = {
+          ...fs,
+          readDirectory: (path, options) =>
+            fs.readDirectory(path, options).pipe(Effect.map((names) => [...names, "bad\uFFFD"]))
+        }
+
+        const error = yield* Effect.flip(Stream.runDrain(TreeTransfer.fromFileSystem(lossy, `${directory}/tree`)))
+
+        const entries = yield* Stream.runCollect(
+          TreeTransfer.fromFileSystem(lossy, `${directory}/tree`, { unsupported: "skip", onSkip: () => Effect.void })
+        )
+
+        assert.deepStrictEqual(failure(error), ["UnrepresentableName", "/bad\uFFFD"])
+        assert.deepStrictEqual(entries.map((entry) => entry.path), ["/", "/file"])
+      })
+    ))
+
+  it.effect("should emit a link that loops as a symbolic link", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        yield* fs.makeDirectory(`${directory}/tree`)
+        yield* fs.symlink("self", `${directory}/tree/self`)
+
+        const entries = yield* Stream.runCollect(TreeTransfer.fromFileSystem(fs, `${directory}/tree`))
+
+        assert.deepStrictEqual(entries[1], { kind: "symlink", path: "/self", target: "self" })
+      })
+    ))
+
+  it.effect("should reject an empty stream written to the host", () =>
+    withTemp((fs, directory) =>
+      Effect.gen(function*() {
+        const error = yield* Effect.flip(Stream.run(Stream.empty, TreeTransfer.toFileSystem(fs, `${directory}/export`)))
+
+        assert.deepStrictEqual(failure(error), ["InvalidEntry", undefined])
+      })
+    ))
 })

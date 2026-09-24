@@ -188,4 +188,41 @@ it.layer(layerDeterministicCrypto)("memory adapter compatibility", (it) => {
       yield* fs.makeDirectory("/sentinel")
       assert.deepStrictEqual(yield* Fiber.join(watched), [{ _tag: "Create", path: "/sentinel" }])
     }))
+
+  it.effect("should keep special mode bits when copying a directory tree", () =>
+    Effect.gen(function*() {
+      const fs = yield* Memory.make
+      yield* fs.makeDirectory("/source")
+      yield* fs.writeFileString("/source/tool", "run")
+      yield* fs.chmod("/source/tool", 0o4755)
+
+      yield* fs.copy("/source", "/copy")
+
+      assert.strictEqual((yield* fs.stat("/copy/tool")).mode & 0o7777, 0o4755)
+    }))
+
+  it.effect("should report a copy larger than the volume as out of space", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(16) })
+      const fs = yield* Memory.bind(volume)
+      yield* fs.makeDirectory("/source")
+      yield* fs.writeFileString("/source/a", "0123456789")
+
+      const error = yield* Effect.flip(fs.copy("/source", "/copy"))
+
+      assert.deepStrictEqual([error.reason._tag, error.reason.description], ["Unknown", "NoSpace"])
+      assert.isFalse(yield* fs.exists("/copy"))
+    }))
+
+  it.effect("should reject copying a file onto one of its own hard links", () =>
+    Effect.gen(function*() {
+      const fs = yield* Memory.make
+      yield* fs.writeFileString("/source", "keep")
+      yield* fs.link("/source", "/alias")
+
+      const error = yield* Effect.flip(fs.copy("/source", "/alias", { overwrite: true }))
+
+      assert.strictEqual(error.reason._tag, "BadArgument")
+      assert.strictEqual(yield* fs.readFileString("/alias"), "keep")
+    }))
 })

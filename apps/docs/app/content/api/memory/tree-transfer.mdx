@@ -324,6 +324,48 @@ console.log(limits.maxDepth)
 
 Added in v0.6.0
 
+### VolumeTransferOptions (interface)
+
+Options for building a new volume from streamed entries.
+
+**Details**
+
+Owners and setuid, setgid, and sticky bits come from the source, so they are
+dropped unless requested: without `owner: true` every entry is owned by uid and
+gid 0, and without `specialBits: true` modes keep only permission bits. All four
+timestamps are kept.
+
+**Signature**
+
+```ts
+export interface VolumeTransferOptions {
+  /** Options for the new volume. */
+  readonly volume?: Vfs.VolumeOptions | undefined
+  /** Keeps source owners. Defaults to `false`. */
+  readonly owner?: boolean | undefined
+  /** Keeps setuid, setgid, and sticky bits. Defaults to `false`. */
+  readonly specialBits?: boolean | undefined
+}
+```
+
+**Example**
+
+```ts
+import { TreeTransfer } from "@effect-vfs/memory"
+import { ByteSize } from "effect"
+
+const exact: TreeTransfer.VolumeTransferOptions = {
+  volume: { maxBytes: ByteSize.mebibytes(64) },
+  owner: true,
+  specialBits: true
+}
+
+console.log(exact.owner)
+// true
+```
+
+Added in v0.6.0
+
 ### WriteOptions (interface)
 
 Options for a sink that writes into an existing volume.
@@ -653,16 +695,17 @@ Builds a new volume from streamed entries in one step.
 **Details**
 
 Nothing is visible unless every entry is accepted. The first entry must be the
-`/` directory. Entry metadata is kept exactly, including change and birth times,
-because the result is a fresh isolated volume. Every entry is held in memory
-until the volume is built.
+`/` directory, and entries must satisfy the same placement rules as the live
+sinks. Timestamps are kept exactly, including change and birth times; owners and
+special mode bits follow `VolumeTransferOptions`. Every entry is held in
+memory until the volume is built.
 
 **Signature**
 
 ```ts
 export declare const toVolume: <E, R>(
   entries: Stream.Stream<Entry, E, R>,
-  options?: Vfs.VolumeOptions
+  options?: VolumeTransferOptions
 ) => Effect.Effect<
   Vfs.Volume,
   E | TransferError | Vfs.FsError | Vfs.ConfigurationError | Vfs.ImageError | PlatformError.PlatformError,

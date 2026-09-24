@@ -71,12 +71,15 @@ it.layer(layerDeterministicCrypto)("TreeTransfer", (it) => {
       assert.strictEqual((yield* copied.lstat("/copy/alias.bin")).nlink, 2)
     }))
 
-  it.effect("should keep every metadata field when building a new volume", () =>
+  it.effect("should keep every metadata field when building a new volume with owners and special bits requested", () =>
     Effect.gen(function*() {
       const source = yield* representativeTree
       const expected = yield* snapshotEntries(source, "/src")
 
-      const volume = yield* TreeTransfer.toVolume(TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"))
+      const volume = yield* TreeTransfer.toVolume(TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"), {
+        owner: true,
+        specialBits: true
+      })
 
       assert.deepStrictEqual(yield* snapshotEntries(volume, "/"), expected)
     }))
@@ -289,5 +292,170 @@ it.layer(layerDeterministicCrypto)("TreeTransfer", (it) => {
       )
 
       assert.deepStrictEqual(failure(error), ["InvalidEntry", "root"])
+    }))
+
+  it.effect("should leave an existing destination file untouched when a file root is rejected", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.fromFixture({
+        entries: [
+          { kind: "file", path: "/source", bytes: text.encode("new") },
+          { kind: "file", path: "/existing", bytes: text.encode("old") }
+        ]
+      })
+
+      const caller = yield* volume.caller()
+
+      const error = yield* Effect.flip(
+        Stream.run(TreeTransfer.fromCaller(caller, "/source"), TreeTransfer.toCaller(caller, "/existing"))
+      )
+
+      assert.strictEqual(error instanceof Vfs.FsError && error.code, "AlreadyExists")
+      assert.strictEqual(new TextDecoder().decode(yield* caller.readFile("/existing")), "old")
+    }))
+
+  for (
+    const [name, entry] of [
+      ["a parent reference", { kind: "directory", path: "/.." }],
+      ["a current-directory reference", { kind: "file", path: "/.", bytes: new Uint8Array() }],
+      ["an empty component", { kind: "directory", path: "/a/" }]
+    ] satisfies ReadonlyArray<readonly [string, TreeTransfer.Entry]>
+  ) {
+    it.effect(`should reject ${name} when overwriting`, () =>
+      Effect.gen(function*() {
+        const destination = yield* (yield* Vfs.make()).caller()
+        yield* destination.mkdir("/copy")
+
+        const error = yield* Effect.flip(
+          Stream.run(
+            Stream.make<ReadonlyArray<TreeTransfer.Entry>>({ kind: "directory", path: "/" }, entry),
+            TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })
+          )
+        )
+
+        assert.deepStrictEqual(failure(error), ["InvalidEntry", "path"])
+        assert.deepStrictEqual(yield* destination.readDirectory("/"), ["copy"])
+      }))
+  }
+
+  it.effect("should reject an empty stream instead of reporting an empty copy", () =>
+    Effect.gen(function*() {
+      const destination = yield* (yield* Vfs.make()).caller()
+
+      const error = yield* Effect.flip(Stream.run(Stream.empty, TreeTransfer.toCaller(destination, "/copy")))
+
+      assert.deepStrictEqual(failure(error), ["InvalidEntry", "root"])
+    }))
+
+  for (
+    const [name, entries, field] of [
+      ["a child precedes its parent", [{ kind: "directory", path: "/a/b" }], "parent"],
+      ["a path repeats", [{ kind: "directory", path: "/a" }, { kind: "directory", path: "/a" }], "path"],
+      ["a hard link precedes its target", [{ kind: "hardLink", path: "/a", target: "/b" }], "target"]
+    ] satisfies ReadonlyArray<readonly [string, ReadonlyArray<TreeTransfer.Entry>, string]>
+  ) {
+    it.effect(`should reject a new volume when ${name}`, () =>
+      Effect.gen(function*() {
+        const error = yield* Effect.flip(
+          TreeTransfer.toVolume(Stream.fromIterable<TreeTransfer.Entry>([{ kind: "directory", path: "/" }, ...entries]))
+        )
+
+        assert.deepStrictEqual(failure(error), ["InvalidEntry", field])
+      }))
+  }
+
+  it.effect("should drop owners and special bits when building a new volume by default", () =>
+    Effect.gen(function*() {
+      const volume = yield* TreeTransfer.toVolume(Stream.fromIterable<TreeTransfer.Entry>([
+        { kind: "directory", path: "/", metadata: { uid: 501, gid: 20 } },
+        { kind: "file", path: "/tool", bytes: new Uint8Array(), metadata: { uid: 501, gid: 20, mode: 0o4755 } }
+      ]))
+
+      const tool = yield* (yield* volume.caller()).lstat("/tool")
+
+      assert.deepStrictEqual({ uid: tool.uid, gid: tool.gid, mode: tool.mode }, { uid: 0, gid: 0, mode: 0o755 })
+    }))
+
+  it.effect("should pass exactly at each limit and fail one below it", () =>
+    Effect.gen(function*() {
+      const source = yield* representativeTree
+      const snapshot = yield* source.snapshot
+
+      const drain = (limits: Partial<TreeTransfer.TreeTransferLimits>) =>
+        Effect.exit(Stream.runDrain(
+          TreeTransfer.fromSnapshot(snapshot, "/src", {
+            limits: { ...TreeTransfer.TreeTransferLimits.default, ...limits }
+          })
+        ))
+
+      assert.isTrue(Exit.isSuccess(yield* drain({ maxEntries: 9 })))
+      assert.isTrue(Exit.isFailure(yield* drain({ maxEntries: 8 })))
+      assert.isTrue(Exit.isSuccess(yield* drain({ maxPathBytes: ByteSize.bytes(16) })))
+      assert.isTrue(Exit.isFailure(yield* drain({ maxPathBytes: ByteSize.bytes(15) })))
+    }))
+
+  it.effect("should count symbolic-link targets toward the byte limit", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.fromFixture({ entries: [{ kind: "symlink", path: "/link", target: "0123456789" }] })
+      const limits = { ...TreeTransfer.TreeTransferLimits.default, maxBytes: ByteSize.bytes(9) }
+
+      const error = yield* Effect.flip(
+        Stream.runDrain(TreeTransfer.fromCaller(yield* volume.caller(), "/link", { limits }))
+      )
+
+      assert.deepStrictEqual(failure(error), ["LimitExceeded", "maxBytes"])
+    }))
+
+  it.effect("should fail a directory listing larger than the entry budget before visiting it", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.fromFixture({
+        entries: ["a", "b", "c", "d"].map((name) => ({ kind: "file", path: `/${name}`, bytes: new Uint8Array() }))
+      })
+
+      const limits = { ...TreeTransfer.TreeTransferLimits.default, maxEntries: 3 }
+      const entries: Array<TreeTransfer.Entry> = []
+
+      const error = yield* Effect.flip(
+        Stream.runForEach(
+          TreeTransfer.fromCaller(yield* volume.caller(), "/", { limits }),
+          (entry) => Effect.sync(() => entries.push(entry))
+        )
+      )
+
+      assert.deepStrictEqual(failure(error), ["LimitExceeded", "maxEntries"])
+      assert.deepStrictEqual(entries, [])
+    }))
+
+  it.effect("should not remove a destination that was replaced during a failed transfer", () =>
+    Effect.gen(function*() {
+      const destination = yield* (yield* Vfs.make()).caller()
+
+      const replace = Effect.gen(function*() {
+        yield* destination.rename("/copy", "/moved")
+        yield* destination.mkdir("/copy")
+        yield* destination.writeFile("/copy/theirs", text.encode("keep"), { access: "write", create: "exclusive" })
+      })
+
+      const failing = Stream.fromIterable<TreeTransfer.Entry>([{ kind: "directory", path: "/" }]).pipe(
+        Stream.concat(Stream.fromEffect(replace).pipe(Stream.drain)),
+        Stream.concat(Stream.fail("source failed"))
+      )
+
+      yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy")))
+
+      assert.deepStrictEqual(yield* destination.readDirectory("/copy"), ["theirs"])
+    }))
+
+  it.effect("should restore final directory modes when an overwriting transfer fails", () =>
+    Effect.gen(function*() {
+      const destination = yield* (yield* Vfs.make()).caller()
+
+      const failing = Stream.fromIterable<TreeTransfer.Entry>([
+        { kind: "directory", path: "/" },
+        { kind: "directory", path: "/locked", metadata: { mode: 0o555 } }
+      ]).pipe(Stream.concat(Stream.fail("source failed")))
+
+      yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })))
+
+      assert.strictEqual((yield* destination.lstat("/copy/locked")).mode, 0o555)
     }))
 })
