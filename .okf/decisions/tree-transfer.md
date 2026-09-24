@@ -17,6 +17,9 @@ sources:
   - id: behavior-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Tree transfer behavior tests
+  - id: host-tests
+    resource: ../../packages/memory/test/TreeTransferFileSystem.test.ts
+    title: Host filesystem round-trip tests
 generated: { by: claude/okf, at: "2026-09-24T09:10:00Z" }
 ---
 
@@ -34,9 +37,13 @@ Sources always enforce limits. A supplied policy must be complete, and omission 
 
 ## Sinks
 
-The default rejects an existing destination, following Go and Deno rather than Node's overwriting default. The only alternative is `overwrite`, which merges and replaces. A no-overwrite merge had no consumer. A live sink claims its root with an exclusive create and removes it on failure instead of staging into a sibling directory and renaming. A rename can silently replace an empty directory, staging needs temporary-name rules, and staged writes still reach watchers. All-or-nothing visibility belongs to `toVolume`, which inherits fixture validation.
+The default rejects an existing destination, following Go and Deno rather than Node's overwriting default. The only alternative is `overwrite`, which merges and replaces. A no-overwrite merge had no consumer. A live sink claims its root with an exclusive create and removes it on failure instead of staging into a sibling directory and renaming. A rename can silently replace an empty directory, staging needs temporary-name rules, and staged writes still reach watchers. All-or-nothing visibility belongs to `toVolume`, which inherits fixture validation and checks entry placement the same way as the live sinks. Cleanup removes a claimed root only while it is still the object the sink created, and final directory modes are applied without interruption, so cleanup never meets a half-finished set of restrictive modes.
 
-Mode and modification time are applied by default. Setuid, setgid, and sticky bits and the access time are opt-in, and owner preservation is deferred. Symbolic links are always reproduced verbatim, and hard links are always preserved. Following links, escape checks, skip policies, and the host adapter are deferred to the host adapter milestone.
+Mode and modification time are applied by default. Setuid, setgid, and sticky bits and the access time are opt-in, and owner preservation is deferred for live sinks. `toVolume` keeps every timestamp but applies the same owner and special-bit defaults, so source owner identifiers never become volume owners unless requested. Symbolic links are always reproduced verbatim, and hard links are preserved where the destination can create them, degrading to counted copies otherwise.
+
+## Effect FileSystem adapter
+
+The host adapter is the Effect `FileSystem` interface itself, so any platform layer works and core gains no host dependency. Escape checks run only for `toFileSystem` by default, because a link target inside a volume is data but a host link can reach the host. Links are created last, so a check can resolve through links that appear later in the stream, and they are checked by resolving within the transferred set rather than lexically. Entries an adapter cannot carry fail by default; `unsupported: "skip"` omits them and reports every omission, keeping the [strict string filename boundary](core/strict-string-filename-boundary.md "respects"). Collisions are detected from an unexpected existing name inside a claimed root, since hosts do not report their name folding. Because name folding can also hide a link from the escape check, link names are matched folded and every created link is resolved on the host before the transfer succeeds. Host files are always created exclusively so a replacement cannot write through a link swapped in after the removal; host replacement is therefore not atomic per file, an accepted exception to per-file atomicity. A hard link falls back to a copy only when the host cannot link. Following links, skipping escaping links, and a per-host folding model are deferred.
 
 ## Consequences
 

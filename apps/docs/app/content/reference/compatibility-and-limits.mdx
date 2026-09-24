@@ -54,7 +54,8 @@ The behavior follows documented POSIX.1-2024 rules for this subset, with these i
 - the memory adapter may follow Effect `FileSystem` behavior where it differs from the lower-level core contract.
 
 These packages do not claim full POSIX conformance. They do not provide a C filesystem API, simulated process,
-host-directory import or export, device files, FIFOs, filesystem sockets, or descriptor duplication. The NFS server
+device files, FIFOs, filesystem sockets, or descriptor duplication. Directory trees move between a host and a volume
+only as explicit copies through `TreeTransfer`, within the losses its Effect `FileSystem` adapter declares. The NFS server
 tracks read locks between NFS clients, but direct VFS callers do not participate in those locks. Named checkpoints
 are explicit copies. The separate SQLite live-image store does not currently qualify for host `fsync` durability.
 

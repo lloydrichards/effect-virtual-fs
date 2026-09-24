@@ -9,15 +9,17 @@
  *
  * @since 0.6.0
  */
-import type * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
 import type * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import type * as Effect from "effect/Effect"
+import type * as FileSystem from "effect/FileSystem"
 import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import type * as Sink from "effect/Sink"
 import type * as Stream from "effect/Stream"
 import * as internal from "./internal/treeTransfer.js"
+import * as host from "./internal/treeTransferFileSystem.js"
 import * as model from "./internal/treeTransferModel.js"
 
 /**
@@ -53,6 +55,11 @@ export type Entry = Vfs.Fixture["entries"][number]
  * `InvalidEntry` reports an entry a sink cannot place, such as a missing root,
  * a child before its parent, or a hard link to an unwritten target.
  * `InvalidArgument` reports an incomplete or malformed limits policy.
+ * `UnrepresentableName`, `UnsupportedEntryType`, and `NameCollision` report
+ * entries a filesystem adapter cannot carry; the `unsupported: "skip"` option
+ * turns them into reported skips instead. `EscapingSymlink` reports a symbolic
+ * link whose target leaves the transferred tree. `DestinationConflict` reports an
+ * existing destination entry that an overwrite cannot safely replace.
  *
  * @example
  * ```ts
@@ -68,7 +75,15 @@ export type Entry = Vfs.Fixture["entries"][number]
  * @since 0.6.0
  */
 export class TransferError extends Data.TaggedError("TransferError")<{
-  readonly code: "LimitExceeded" | "InvalidEntry" | "InvalidArgument"
+  readonly code:
+    | "LimitExceeded"
+    | "InvalidEntry"
+    | "InvalidArgument"
+    | "UnrepresentableName"
+    | "UnsupportedEntryType"
+    | "NameCollision"
+    | "EscapingSymlink"
+    | "DestinationConflict"
   readonly field?: string
   readonly path?: Vfs.PathInput
 }> {}
@@ -190,14 +205,205 @@ export interface WriteOptions {
 }
 
 /**
- * Counts of what a sink wrote.
+ * Options for a source that reads an Effect `FileSystem`.
+ *
+ * **Details**
+ *
+ * `unsupported: "fail"` (the default) fails on FIFOs, sockets, devices, and host
+ * names that Effect's `FileSystem` could not decode as UTF-8. `"skip"` omits them
+ * and passes each one to `onSkip`, which logs a warning by default.
+ *
+ * @example
+ * ```ts
+ * import { TreeTransfer } from "@effect-vfs/memory"
+ * import { Effect } from "effect"
+ *
+ * const options: TreeTransfer.FileSystemReadOptions = {
+ *   unsupported: "skip",
+ *   onSkip: (skipped) => Effect.log(`skipped ${String(skipped.path)}`)
+ * }
+ *
+ * console.log(options.unsupported)
+ * // skip
+ * ```
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export interface FileSystemReadOptions extends ReadOptions {
+  /** How entries the source cannot carry are treated. Defaults to `"fail"`. */
+  readonly unsupported?: "fail" | "skip" | undefined
+  /** Receives each skipped entry. Defaults to logging a warning. */
+  readonly onSkip?: ((skipped: SkippedEntry) => Effect.Effect<void>) | undefined
+}
+
+/**
+ * Options for a sink that writes through an Effect `FileSystem`.
+ *
+ * **Details**
+ *
+ * `escaping: "reject"` (the default) fails before any symbolic link is created
+ * when a link target is absolute or resolves outside the transferred tree,
+ * following `..` and links within the tree. `unsupported: "skip"` records
+ * non-UTF-8 names and name collisions in the report instead of failing.
+ *
+ * @example
+ * ```ts
+ * import { TreeTransfer } from "@effect-vfs/memory"
+ *
+ * const options: TreeTransfer.FileSystemWriteOptions = { escaping: "allow", unsupported: "skip" }
+ *
+ * console.log(options.escaping)
+ * // allow
+ * ```
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export interface FileSystemWriteOptions extends WriteOptions {
+  /** How symbolic links that leave the tree are treated. Defaults to `"reject"`. */
+  readonly escaping?: "reject" | "allow" | undefined
+  /** How entries the destination cannot carry are treated. Defaults to `"fail"`. */
+  readonly unsupported?: "fail" | "skip" | undefined
+}
+
+/**
+ * Schema for what a destination can preserve.
+ *
+ * @example
+ * ```ts
+ * import { TreeTransfer } from "@effect-vfs/memory"
+ *
+ * console.log(TreeTransfer.SinkCapabilities.fileSystem.timestampPrecision)
+ * // millisecond
+ * ```
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const SinkCapabilities = Object.assign(
+  Schema.Struct({
+    byteNames: Schema.Boolean,
+    timestampPrecision: Schema.Literals(["nanosecond", "millisecond"]),
+    changeAndBirthTimes: Schema.Boolean,
+    owner: Schema.Boolean,
+    symlinkMetadata: Schema.Boolean,
+    hardLinks: Schema.Literals(["exact", "bestEffort"])
+  }),
+  {
+    caller: Object.freeze(
+      {
+        byteNames: true,
+        timestampPrecision: "nanosecond",
+        changeAndBirthTimes: false,
+        owner: false,
+        symlinkMetadata: true,
+        hardLinks: "exact"
+      } as const
+    ),
+    volume: Object.freeze(
+      {
+        byteNames: true,
+        timestampPrecision: "nanosecond",
+        changeAndBirthTimes: true,
+        owner: true,
+        symlinkMetadata: true,
+        hardLinks: "exact"
+      } as const
+    ),
+    fileSystem: Object.freeze(
+      {
+        byteNames: false,
+        timestampPrecision: "millisecond",
+        changeAndBirthTimes: false,
+        owner: false,
+        symlinkMetadata: false,
+        hardLinks: "bestEffort"
+      } as const
+    )
+  }
+)
+
+/**
+ * What a destination can preserve: `caller` for `toCaller`, `volume` for
+ * `toVolume`, and `fileSystem` for `toFileSystem`.
+ *
+ * @example
+ * ```ts
+ * import { TreeTransfer } from "@effect-vfs/memory"
+ *
+ * const lossless = (capabilities: TreeTransfer.SinkCapabilities) => capabilities.byteNames && capabilities.owner
+ *
+ * console.log(lossless(TreeTransfer.SinkCapabilities.volume))
+ * // true
+ * ```
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type SinkCapabilities = typeof SinkCapabilities.Type
+
+/**
+ * Schema for an entry that was left out of a transfer.
+ *
+ * @example
+ * ```ts
+ * import { TreeTransfer } from "@effect-vfs/memory"
+ * import { Schema } from "effect"
+ *
+ * const skipped = Schema.decodeUnknownSync(TreeTransfer.SkippedEntry)({ path: "/run.sock", reason: "UnsupportedEntryType" })
+ *
+ * console.log(skipped.reason)
+ * // UnsupportedEntryType
+ * ```
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const SkippedEntry = Schema.Struct({
+  path: Schema.Union([Schema.String, Vfs.BytePath]),
+  reason: Schema.Literals(["UnrepresentableName", "UnsupportedEntryType", "NameCollision"])
+})
+
+/**
+ * An entry that was left out of a transfer, with the reason.
+ *
+ * @example
+ * ```ts
+ * import type { TreeTransfer } from "@effect-vfs/memory"
+ *
+ * const skipped: TreeTransfer.SkippedEntry = { path: "/fifo", reason: "UnsupportedEntryType" }
+ *
+ * console.log(skipped.path)
+ * // /fifo
+ * ```
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type SkippedEntry = typeof SkippedEntry.Type
+
+/**
+ * Counts of what a sink wrote, and what it left out.
+ *
+ * **Details**
+ *
+ * `skipped` lists entries the sink omitted under `unsupported: "skip"`, and
+ * descendants of omitted directories. `hardLinksDegraded` counts hard links the
+ * destination could not create, written instead as independent copies.
  *
  * @example
  * ```ts
  * import type { TreeTransfer } from "@effect-vfs/memory"
  * import { ByteSize } from "effect"
  *
- * const report: TreeTransfer.TransferReport = { entries: 2, files: 1, bytes: ByteSize.bytes(5) }
+ * const report: TreeTransfer.TransferReport = {
+ *   entries: 2,
+ *   files: 1,
+ *   bytes: ByteSize.bytes(5),
+ *   skipped: [],
+ *   hardLinksDegraded: 0
+ * }
  *
  * console.log(report.entries)
  * // 2
@@ -219,7 +425,9 @@ export type TransferReport = typeof TransferReport.Type
  * const report = Schema.decodeUnknownSync(TreeTransfer.TransferReport)({
  *   entries: 3,
  *   files: 2,
- *   bytes: ByteSize.bytes(10)
+ *   bytes: ByteSize.bytes(10),
+ *   skipped: [],
+ *   hardLinksDegraded: 0
  * })
  *
  * console.log(report.files)
@@ -232,7 +440,9 @@ export type TransferReport = typeof TransferReport.Type
 export const TransferReport = Schema.Struct({
   entries: Schema.Natural,
   files: Schema.Natural,
-  bytes: Schema.ByteSize
+  bytes: Schema.ByteSize,
+  skipped: Schema.Array(SkippedEntry),
+  hardLinksDegraded: Schema.Natural
 })
 
 /**
@@ -447,3 +657,96 @@ export const toVolume: <E, R>(
   E | TransferError | Vfs.FsError | Vfs.ConfigurationError | Vfs.ImageError | PlatformError.PlatformError,
   R | Crypto.Crypto
 > = (entries, options) => internal.toVolume(entries, options)
+
+/**
+ * Streams the tree at `root` through an application-provided Effect `FileSystem`.
+ *
+ * **Details**
+ *
+ * Effect's `FileSystem` decodes names as UTF-8 strings, reports times in
+ * milliseconds, has no change time, and follows symbolic links in `stat`. A name
+ * is treated as a link when its resolved path differs from its expected path,
+ * and link entries carry no metadata. Hard links are detected when the host
+ * reports inode numbers and link counts. Files are read in bounded chunks, so an
+ * oversized file fails `maxFileBytes` without being read whole. A FIFO swapped in
+ * after its type is checked can block the read.
+ *
+ * @example
+ * ```ts
+ * import { MemoryFileSystem, TreeTransfer } from "@effect-vfs/memory"
+ * import { Effect, Stream } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const fs = yield* MemoryFileSystem.makeCrypto
+ *   yield* fs.makeDirectory("/project")
+ *   yield* fs.writeFileString("/project/a.txt", "a")
+ *
+ *   const entries = yield* Stream.runCollect(TreeTransfer.fromFileSystem(fs, "/project"))
+ *
+ *   return entries.map((entry) => entry.path)
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ '/', '/a.txt' ]
+ * ```
+ *
+ * @category sources
+ * @since 0.6.0
+ */
+export const fromFileSystem: (
+  fs: FileSystem.FileSystem,
+  root: string,
+  options?: FileSystemReadOptions
+) => Stream.Stream<Entry, TransferError | PlatformError.PlatformError> = (fs, root, options) =>
+  host.fromFileSystem(fs, root, options)
+
+/**
+ * Writes streamed entries under `destination` through an application-provided
+ * Effect `FileSystem`.
+ *
+ * **Details**
+ *
+ * Applies the {@link WriteOptions} policy with the same claim-and-remove cleanup
+ * as `toCaller`. Symbolic links are created after every other entry, once
+ * escape checks pass. Owners, change and birth times, and symbolic-link metadata
+ * are not written; times are truncated to milliseconds. A hard link the host
+ * refuses, or a hard link to a symbolic link, is written as a copy and counted in
+ * `hardLinksDegraded`. Paths use `/` separators.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { MemoryFileSystem, TreeTransfer } from "@effect-vfs/memory"
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+ * import { Effect, Stream } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const fs = yield* MemoryFileSystem.makeCrypto
+ *   const source = yield* Vfs.fromFixture({
+ *     entries: [
+ *       { kind: "directory", path: "/dist" },
+ *       { kind: "file", path: "/dist/app.js", bytes: new TextEncoder().encode("run()") }
+ *     ]
+ *   })
+ *
+ *   yield* Stream.run(TreeTransfer.fromCaller(yield* source.caller(), "/dist"), TreeTransfer.toFileSystem(fs, "/out"))
+ *
+ *   return yield* fs.readFileString("/out/app.js")
+ * })
+ *
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * // run()
+ * ```
+ *
+ * @category sinks
+ * @since 0.6.0
+ */
+export const toFileSystem: (
+  fs: FileSystem.FileSystem,
+  destination: string,
+  options?: FileSystemWriteOptions
+) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.FsError | PlatformError.PlatformError> = (
+  fs,
+  destination,
+  options
+) => host.toFileSystem(fs, destination, options)

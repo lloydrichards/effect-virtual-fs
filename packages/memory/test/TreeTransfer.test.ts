@@ -60,7 +60,13 @@ it.layer(layerDeterministicCrypto)("TreeTransfer", (it) => {
         withoutChangeTimes(yield* snapshotEntries(destination, "/copy")),
         withoutChangeTimes(expected)
       )
-      assert.deepStrictEqual(report, { entries: 9, files: 2, bytes: ByteSize.bytes(7) })
+      assert.deepStrictEqual(report, {
+        entries: 9,
+        files: 2,
+        bytes: ByteSize.bytes(7),
+        skipped: [],
+        hardLinksDegraded: 0
+      })
       const copied = yield* destination.caller()
       assert.strictEqual((yield* copied.lstat("/copy/alias.bin")).nlink, 2)
     }))
