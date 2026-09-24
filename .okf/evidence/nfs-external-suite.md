@@ -30,13 +30,13 @@ generated: { by: claude/okf, at: 2026-09-24T09:00:00+02:00 }
 
 The pynfs NFSv4.1 server tests at commit `cd470182` run against the conformance fixture with
 `--minorversion 1 --security sys --noinit --nocleanup --force all noreboot nocourteous`. On 2026-09-24, 100 of 179
-selected tests passed and 79 failed. Every failure is classified in a machine-readable known-failures file: 62 are
-mutations refused on a read-only export, 12 look up special-file kinds the core does not have, 2 request an NFSv4.2
-attribute, and 3 are disputed because they contradict RFC 8881.[^baseline] The `nfs-pynfs` workflow repeats the run on
+selected tests passed and 79 failed. Every failure is classified in a machine-readable known-failures file: 61 are
+mutations refused on a read-only export, 12 look up special-file kinds the core does not have, 1 needs the grace
+period of the `stateful` profile, 2 request an NFSv4.2 attribute, and 3 are disputed readings of RFC 8881.[^baseline] The `nfs-pynfs` workflow repeats the run on
 every pull request that can change wire behavior and fails on any difference from that file.
 
 The first repeated run also showed why the gate is needed. The 2026-09-15 baseline recorded 77 failures and had not
-been rerun after later session corrections. By then CREATE_SESSION already returned the RFC-required answers that
+been rerun after later session corrections. By then CREATE_SESSION already gave the answers, following the RFC text as this server reads it, that
 pynfs tests CSESS16, CSESS16a, and CSESS29 reject. Neither the focused tests nor anyone reading the old baseline had
 noticed the drift.
 
@@ -75,7 +75,7 @@ drift shows up as a changed recorded version rather than as a silent change in w
 
 This baseline satisfies the pynfs requirement of the `experimental` maturity in the [NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "supports") and is cited by the [read-only-local profile](../profiles/nfs/nfs-read-only-local.md "supports"). With the Linux gate above, the native-client requirements of `preview` are met. Its sources and gates are fixed by the [interoperability and fault evidence decision](../decisions/nfs/nfs-interoperability-evidence.md "governed by"). Claims stay bounded by the [evidence and validation workflow](../workflows/evidence-and-validation.md "governed by").
 
-[^baseline]: The known-failures file pins the suite commit, Python dependencies, and command line; the baseline document explains the four failure classes.
+[^baseline]: The known-failures file pins the suite commit, Python dependencies, and command line; the baseline document explains the five failure classes.
 
 [^profile-tests]: The read-only profile tests cover each rule the external run surfaced.
 
