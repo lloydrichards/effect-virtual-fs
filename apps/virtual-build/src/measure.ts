@@ -1,6 +1,7 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { TreeTransfer } from "@effect-vfs/memory"
 import { BunRuntime, BunServices } from "@effect/platform-bun"
-import { ByteSize, Clock, Console, Effect, FileSystem, Path, Schema } from "effect"
+import { ByteSize, Clock, Console, Effect, FileSystem, Path, Predicate, Schema, Stream } from "effect"
 
 const PackageManifest = Schema.fromJsonString(Schema.Struct({ version: Schema.String }))
 
@@ -20,51 +21,56 @@ const program = Effect.gen(function*() {
   const preparationStarted = yield* Clock.monotonicTimeNanos
   const beforePreparationRssBytes = yield* Effect.sync(() => process.memoryUsage().rss)
   const packages: Array<{ name: string; version: string }> = []
-  const entries: Array<Vfs.Fixture["entries"][number]> = [{ kind: "directory", path: "/node_modules" }]
   let sourceBytes = 0
   let files = 0
 
-  for (const name of packageNames) {
+  const packageEntries = Effect.fnUntraced(function*(name: typeof packageNames[number]) {
     const manifestPath = yield* path.fromFileUrl(new URL(import.meta.resolve(`${name}/package.json`)))
-    const root = path.dirname(manifestPath)
 
     const manifest = yield* fileSystem.readFileString(manifestPath).pipe(
       Effect.flatMap(Schema.decodeEffect(PackageManifest))
     )
 
     packages.push({ name, version: manifest.version })
+    const prefix = `/node_modules/${name}`
 
-    const pending = [{ host: root, virtual: `/node_modules/${name}` }]
+    // Effect FileSystem sources always emit string paths; a byte path could not come from the host.
+    const rooted = (entryPath: Vfs.PathInput) =>
+      Predicate.isString(entryPath) ? entryPath === "/" ? prefix : `${prefix}${entryPath}` : entryPath
 
-    while (pending.length > 0) {
-      const directory = pending.pop()
-
-      if (directory === undefined) break
-      entries.push({ kind: "directory", path: directory.virtual })
-      const children = yield* fileSystem.readDirectory(directory.host)
-      children.sort()
-
-      for (const child of children) {
-        if (child === "node_modules") continue
-        const host = path.join(directory.host, child)
-        const canonicalHost = yield* fileSystem.realPath(host)
-
-        if (path.normalize(canonicalHost) !== path.normalize(host)) continue
-
-        const virtualPath = `${directory.virtual}/${child}`
-        const metadata = yield* fileSystem.stat(host)
-
-        if (metadata.type === "Directory") {
-          pending.push({ host, virtual: virtualPath })
-        } else if (metadata.type === "File") {
-          const bytes = yield* fileSystem.readFile(host)
-          sourceBytes += bytes.length
+    return TreeTransfer.fromFileSystem(fileSystem, path.dirname(manifestPath), {
+      unsupported: "skip",
+      onSkip: () => Effect.void
+    }).pipe(
+      // The workload excludes nested dependency trees and links; the source still walks them, then they are dropped.
+      Stream.filter((entry) =>
+        entry.kind !== "symlink" && (!Predicate.isString(entry.path) || !entry.path.split("/").includes("node_modules"))
+      ),
+      Stream.map((entry) =>
+        entry.kind === "hardLink"
+          ? { ...entry, path: rooted(entry.path), target: rooted(entry.target) }
+          : { ...entry, path: rooted(entry.path) }
+      ),
+      Stream.tap((entry) =>
+        Effect.sync(() => {
+          if (entry.kind !== "file") return
           files++
-          entries.push({ kind: "file", path: virtualPath, bytes })
-        }
-      }
-    }
-  }
+          sourceBytes += entry.bytes.length
+        })
+      )
+    )
+  })
+
+  const entries = yield* Stream.runCollect(
+    Stream.fromIterable<TreeTransfer.Entry>([
+      { kind: "directory", path: "/" },
+      { kind: "directory", path: "/node_modules" }
+    ]).pipe(
+      Stream.concat(
+        Stream.fromIterable(packageNames).pipe(Stream.flatMap((name) => Stream.unwrap(packageEntries(name))))
+      )
+    )
+  )
 
   const timings: Timings = {
     preparationMs: Number((Number((yield* Clock.monotonicTimeNanos) - preparationStarted) / 1_000_000).toFixed(2))
@@ -78,7 +84,7 @@ const program = Effect.gen(function*() {
     return value
   })
 
-  const volume = yield* measure("fixtureMs", Vfs.fromFixture({ entries }))
+  const volume = yield* measure("fixtureMs", TreeTransfer.toVolume(Stream.fromIterable(entries)))
   const snapshot = yield* measure("captureMs", volume.snapshot)
   const encoded = yield* measure("encodeMs", Vfs.encodeSnapshot(snapshot))
 
@@ -108,9 +114,10 @@ const program = Effect.gen(function*() {
 
   const report = {
     packages,
-    workload: "Selected installed package trees; nested node_modules and nonregular entries excluded",
+    workload: "Selected installed package trees; nested node_modules, symbolic links, and nonregular entries excluded",
     files,
-    entries: entries.length,
+    // Excludes the root entry, matching fixtures, which declare only entries below `/`.
+    entries: entries.length - 1,
     sourceBytes,
     encodedBytes: encoded.length,
     encodedToSourceRatio: Number((encoded.length / sourceBytes).toFixed(3)),
