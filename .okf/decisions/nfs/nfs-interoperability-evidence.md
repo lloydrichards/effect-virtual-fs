@@ -8,6 +8,9 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/51
     title: Interoperability and fault coverage issue
+  - id: conformance
+    resource: ../../../apps/nfs-preview/CONFORMANCE.md
+    title: Read-only NFS conformance baseline
   - id: known-failures
     resource: ../../../apps/nfs-preview/conformance/known-failures.json
     title: Classified pynfs known failures
@@ -80,9 +83,11 @@ Fault coverage grows with the state it exercises. A stage is not reached until i
 
 ## Recording evidence for a release
 
-A release that states an NFS maturity lists the clients, suites, and versions behind it. The [conformance baseline](../../../apps/nfs-preview/CONFORMANCE.md) records the pynfs pin and every native-client run for the read-only profile. The writable gateway guide records the writable client and fault runs. The [evidence and validation workflow](../../workflows/evidence-and-validation.md "governs") and [release readiness workflow](../../workflows/release-readiness.md "governs") apply these rules.
+A release that states an NFS maturity lists the clients, suites, and versions behind it. The conformance baseline[^conformance] records the pynfs pin and every native-client run for the read-only profile. The writable gateway guide records the writable client and fault runs. The [evidence and validation workflow](../../workflows/evidence-and-validation.md "governs") and [release readiness workflow](../../workflows/release-readiness.md "governs") apply these rules.
 
 [^issue]: Issue #51 holds the original questions.
+
+[^conformance]: The baseline lives beside the preview app it measures.
 
 [^known-failures]: The gate reads its pin from this file, so the recorded baseline and the CI run cannot name different suite revisions.
 
