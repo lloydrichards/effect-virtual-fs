@@ -14,9 +14,15 @@ sources:
   - id: engine
     resource: ../../packages/memory/src/internal/treeTransfer.ts
     title: Tree transfer sources and sinks
+  - id: host-adapter
+    resource: ../../packages/memory/src/internal/treeTransferFileSystem.ts
+    title: Effect FileSystem source and sink
   - id: behavior-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Tree transfer behavior tests
+  - id: host-tests
+    resource: ../../packages/memory/test/TreeTransferFileSystem.test.ts
+    title: Host filesystem round-trip tests
 generated: { by: claude/okf, at: "2026-09-24T09:10:00Z" }
 ---
 
@@ -46,11 +52,23 @@ Every source enforces a complete `TreeTransferLimits` policy: `maxEntries`, `max
 
 `times` selects which timestamps are applied: `"none"`, `"mtime"` (the default), or `"all"`. Permission bits are always applied. setuid, setgid, and sticky bits are applied only with `specialBits: true`. Directories are created with owner access and receive their exact mode and times after all their children are written, so read-only source directories can be copied by unprivileged callers. Owner fields are not applied.
 
-The sink returns a `TransferReport` with the number of entries, files, and file bytes written.
+The sink returns a `TransferReport` with the number of entries, files, and file bytes written, the skipped entries, and the number of degraded hard links. `toCaller` never skips or degrades.
 
 ## New volumes
 
 `toVolume` collects the stream and builds a new volume through `fromFixture`. Nothing is visible unless every entry is accepted. The first entry must be the `/` directory. Metadata is kept exactly, including change and birth times, because the result is a fresh isolated volume. The collected entries and the intermediate image are held in memory until the volume is built.
+
+## Effect FileSystem adapter
+
+`fromFileSystem` and `toFileSystem` adapt an application-provided Effect `FileSystem`, such as the host filesystem. That interface decodes names as UTF-8 strings, reports times in milliseconds, has no change time, and follows symbolic links in `stat`. Host paths use `/` separators.
+
+The source treats a name as a symbolic link when its resolved path differs from the path its canonical parent predicts, or when it cannot be resolved; link entries carry no metadata. A name containing the Unicode replacement character, and a FIFO, socket, device, or unknown entry, fails `UnrepresentableName` or `UnsupportedEntryType`. With `unsupported: "skip"` the source omits it and passes a `SkippedEntry` to `onSkip`, which logs a warning by default. Hard links are detected by device and inode when the host reports an inode number and a link count above one, and an identity is forgotten once every alias has been seen. Files are read in bounded chunks, so an oversized or growing file fails `maxFileBytes` without being read whole. A FIFO swapped in after its type is checked can still block the read.
+
+The sink claims and cleans up its root as `toCaller` does. It resolves the destination through its parent's canonical path, and in overwrite mode classifies an existing name as absent, a link, or a real entry before replacing it, so it never writes through a destination link and fails `DestinationConflict` rather than merge through a linked directory. Files are created with the host umask and then receive their exact mode. Times are truncated to milliseconds, and owners, change and birth times, and link metadata are not written.
+
+Symbolic links are created after every other entry. With `escaping: "reject"`, the default, the sink first fails `EscapingSymlink` if any target is absolute or resolves outside the tree, following `..` and links within the tree up to 40 hops; a symbolic-link root always escapes. `escaping: "allow"` skips the check. A non-UTF-8 path or target fails `UnrepresentableName`. Inside a claimed root an existing name can only come from host name folding, so it fails `NameCollision`. With `unsupported: "skip"` these entries, and descendants of skipped directories, are recorded in the report's `skipped` list instead. A hard link the host refuses, or a hard link to a symbolic link, is written as a copy and counted in `hardLinksDegraded`.
+
+`SinkCapabilities` declares what each destination preserves: `caller`, `volume`, and `fileSystem`.
 
 ## Composition
 
@@ -58,4 +76,4 @@ Exclusion, merging several sources, and progress use ordinary `Stream` operators
 
 ## Exclusions
 
-This contract does not yet cover host filesystem sources and sinks, owner preservation, following symbolic links, rejecting symbolic links that escape the tree, skipping unrepresentable entries, mirror or delete semantics, or a progress API.
+This contract does not cover owner preservation, following symbolic links, escape checks for `toCaller`, mirror or delete semantics, a progress API, or platform path separators other than `/`.

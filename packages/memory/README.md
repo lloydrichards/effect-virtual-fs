@@ -189,6 +189,14 @@ entry is accepted. Sources enforce `TreeTransferLimits.default` unless you pass
 other limits. `fromCaller` reads through a live caller and updates source access
 times; `fromSnapshot` reads a snapshot and never changes the source.
 
+`fromFileSystem` and `toFileSystem` connect a tree to any Effect `FileSystem`,
+such as the host filesystem from `@effect/platform-node`. That interface carries
+UTF-8 names and millisecond times only, so non-UTF-8 names, owners, change and
+birth times, and symbolic-link metadata do not cross it. `toFileSystem` rejects
+symbolic links that leave the copied tree unless `escaping: "allow"` is set, and
+both fail on entries they cannot carry unless `unsupported: "skip"` is set.
+`TreeTransfer.SinkCapabilities` lists what each destination preserves.
+
 ## Resource lifetimes
 
 `FileSystem.open`, temporary resources, and watch subscriptions are scoped.
@@ -219,7 +227,7 @@ It can run in a browser when the rest of the application supports Effect and
 ESM.
 
 The core implements a bounded POSIX profile, not a mounted or persistent
-filesystem. It does not provide FUSE mounts, host-tree import or export, special
+filesystem. It does not provide FUSE mounts, host-tree synchronization, special
 files, advisory locks, descriptor duplication, crash durability, or
 copy-on-write snapshot optimization. Recursive adapter operations run as a
 sequence of core operations rather than one transaction. See the

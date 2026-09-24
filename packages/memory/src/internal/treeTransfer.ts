@@ -74,7 +74,8 @@ const toPathInput = (bytes: Uint8Array): Effect.Effect<Vfs.PathInput, Vfs.FsErro
   return text === undefined ? Vfs.pathFromBytes(bytes) : Effect.succeed(text)
 }
 
-const compareBytes = (left: Uint8Array, right: Uint8Array) => {
+/** @internal */
+export const compareBytes = (left: Uint8Array, right: Uint8Array) => {
   const length = Math.min(left.length, right.length)
 
   for (let index = 0; index < length; index++) {
@@ -86,13 +87,16 @@ const compareBytes = (left: Uint8Array, right: Uint8Array) => {
   return left.length - right.length
 }
 
-const exceeds = (value: number | bigint, limit: ByteSize.ByteSize) =>
+/** @internal */
+export const exceeds = (value: number | bigint, limit: ByteSize.ByteSize) =>
   ByteSize.isGreaterThan(ByteSize.bytes(value), limit)
 
-const limitExceeded = (field: keyof TreeTransferLimits, path?: Vfs.PathInput) =>
+/** @internal */
+export const limitExceeded = (field: keyof TreeTransferLimits, path?: Vfs.PathInput) =>
   new TransferError(path === undefined ? { code: "LimitExceeded", field } : { code: "LimitExceeded", field, path })
 
-const resolveLimits = (limits: TreeTransferLimits | undefined) =>
+/** @internal */
+export const resolveLimits = (limits: TreeTransferLimits | undefined) =>
   limits === undefined
     ? Effect.succeed(defaultLimits)
     : Schema.decodeEffect(TreeTransferLimitsSchema)(limits).pipe(
@@ -483,13 +487,20 @@ export const toCaller = (
 
       completed = true
 
-      return { entries, files, bytes: ByteSize.bytes(bytes) } satisfies TransferReport
+      return {
+        entries,
+        files,
+        bytes: ByteSize.bytes(bytes),
+        skipped: [],
+        hardLinksDegraded: 0
+      } satisfies TransferReport
     })
 
     return Sink.forEach(write).pipe(Sink.mapEffect(() => finish))
   }))
 
-const isRootPath = (path: Vfs.PathInput) =>
+/** @internal */
+export const isRootPath = (path: Vfs.PathInput) =>
   Predicate.isString(path)
     ? Effect.succeed(path === "/")
     : Vfs.pathToBytes(path).pipe(Effect.map((bytes) => bytes.length === 1 && bytes[0] === SLASH))
