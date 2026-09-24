@@ -86,7 +86,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
   const open = makeOpen(caller)
 
   const { walk, remove, readDirectory } = makeTreeOperations(caller)
-  const { copy, copyFile } = makeCopyOperations(caller, walk)
+  const { copy, copyFile } = makeCopyOperations(caller, volume.limits)
 
   const temp = Effect.fnUntraced(
     function*(

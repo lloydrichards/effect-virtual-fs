@@ -74,6 +74,14 @@ export const apiPages = [
     contentPath: "content/api/memory/memory-file-system.mdx"
   },
   {
+    packageDir: "packages/memory",
+    moduleName: "TreeTransfer",
+    label: "Memory · TreeTransfer",
+    href: "/api/memory/tree-transfer",
+    routePath: "memory/tree-transfer",
+    contentPath: "content/api/memory/tree-transfer.mdx"
+  },
+  {
     packageDir: "packages/persistence",
     moduleName: "CheckpointStore",
     label: "Persistence · CheckpointStore",
