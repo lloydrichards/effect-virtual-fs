@@ -1,0 +1,351 @@
+{
+  "suite": {
+    "repository": "https://github.com/kofemann/pynfs",
+    "commit": "cd4701827a8261fedbfb4c6e39029fb9671321a6",
+    "python": {
+      "ply": "3.11",
+      "setuptools": "84.0.0",
+      "xdrlib3": "0.1.1"
+    },
+    "arguments": [
+      "--minorversion",
+      "1",
+      "--security",
+      "sys",
+      "--noinit",
+      "--nocleanup",
+      "--force",
+      "all",
+      "noreboot",
+      "nocourteous"
+    ],
+    "selected": 179
+  },
+  "classes": {
+    "read-only-export": "Deliberate exclusion: the fixture is a read-only export, so mutating setup returns NFS4ERR_ROFS.",
+    "object-kind": "Deliberate exclusion: the core has no block, char, fifo, or socket objects.",
+    "suite-limitation": "Suite assertion that no NFSv4.1 read-only server satisfies.",
+    "disputed": "Suite assertion that contradicts RFC 8881 or a verified erratum. Every entry cites the rule in `reference`."
+  },
+  "failures": {
+    "CSESS16": {
+      "class": "disputed",
+      "reason": "Offers an RPCSEC_GSS callback handle the server never issued and expects NFS4_OK. The server returns NFS4ERR_NOENT as the RFC requires.",
+      "reference": "RFC 8881 Sections 18.33.3 and 18.36.3"
+    },
+    "CSESS16a": {
+      "class": "disputed",
+      "reason": "Offers an RPCSEC_GSS callback handle the server never issued and expects NFS4_OK. The server returns NFS4ERR_NOENT as the RFC requires.",
+      "reference": "RFC 8881 Sections 18.33.3 and 18.36.3"
+    },
+    "CSESS29": {
+      "class": "disputed",
+      "reason": "After 10,000 CREATE_SESSION requests that fail with NFS4ERR_TOOSMALL, reuses the same csa_sequenceid and expects NFS4_OK. Phase 2 sets the slot to the expected csa_sequenceid before session creation fails, so the reuse is a replay and returns the cached NFS4ERR_TOOSMALL.",
+      "reference": "RFC 8881 Section 18.36.4, phase 2"
+    },
+    "CSID1": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "CSID10": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "CSID2": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "CSID3": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "CSID4": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "CSID5": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "CSID6": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "CSID8": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "CSID9": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DELEG1": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DELEG2": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DELEG23": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DELEG24": {
+      "class": "suite-limitation",
+      "reason": "Requests the NFSv4.2 fattr4_open_arguments attribute, which no NFSv4.1 server provides."
+    },
+    "DELEG25": {
+      "class": "suite-limitation",
+      "reason": "Requests the NFSv4.2 fattr4_open_arguments attribute, which no NFSv4.1 server provides."
+    },
+    "DELEG26": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DELEG3": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DELEG4": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DELEG5": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DELEG6": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DELEG7": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DELEG8": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DELEG9": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "DSESS1": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "LKPP1b": {
+      "class": "object-kind",
+      "reason": "Runs LOOKUPP on a block, char, fifo, or socket object the fixture cannot contain; the lookup returns NFS4ERR_NOENT."
+    },
+    "LKPP1c": {
+      "class": "object-kind",
+      "reason": "Runs LOOKUPP on a block, char, fifo, or socket object the fixture cannot contain; the lookup returns NFS4ERR_NOENT."
+    },
+    "LKPP1f": {
+      "class": "object-kind",
+      "reason": "Runs LOOKUPP on a block, char, fifo, or socket object the fixture cannot contain; the lookup returns NFS4ERR_NOENT."
+    },
+    "LKPP1s": {
+      "class": "object-kind",
+      "reason": "Runs LOOKUPP on a block, char, fifo, or socket object the fixture cannot contain; the lookup returns NFS4ERR_NOENT."
+    },
+    "OPEN1": {
+      "class": "read-only-export",
+      "reason": "Opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "OPEN2": {
+      "class": "read-only-export",
+      "reason": "Opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "OPEN30": {
+      "class": "read-only-export",
+      "reason": "Opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "OPEN31": {
+      "class": "read-only-export",
+      "reason": "Opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "OPEN6": {
+      "class": "read-only-export",
+      "reason": "Opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "OPEN7": {
+      "class": "read-only-export",
+      "reason": "Opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "OPEN8": {
+      "class": "read-only-export",
+      "reason": "Opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "PUTFH1b": {
+      "class": "object-kind",
+      "reason": "Looks up a block, char, fifo, or socket object the fixture cannot contain; LOOKUP returns NFS4ERR_NOENT."
+    },
+    "PUTFH1c": {
+      "class": "object-kind",
+      "reason": "Looks up a block, char, fifo, or socket object the fixture cannot contain; LOOKUP returns NFS4ERR_NOENT."
+    },
+    "PUTFH1f": {
+      "class": "object-kind",
+      "reason": "Looks up a block, char, fifo, or socket object the fixture cannot contain; LOOKUP returns NFS4ERR_NOENT."
+    },
+    "PUTFH1s": {
+      "class": "object-kind",
+      "reason": "Looks up a block, char, fifo, or socket object the fixture cannot contain; LOOKUP returns NFS4ERR_NOENT."
+    },
+    "RECC2": {
+      "class": "read-only-export",
+      "reason": "Setup creates a regular file; the create returns NFS4ERR_ROFS."
+    },
+    "RECC3": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM10": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM11": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM12": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM13": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM14": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM15": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM16": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM17": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM18": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM19": {
+      "class": "read-only-export",
+      "reason": "Setup creates a regular file; the create returns NFS4ERR_ROFS."
+    },
+    "RNM1a": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM1b": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM1c": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM1d": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM1f": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM1r": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM1s": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM20": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM21": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM2b": {
+      "class": "object-kind",
+      "reason": "Looks up a block, char, fifo, or socket object the fixture cannot contain; LOOKUP returns NFS4ERR_NOENT."
+    },
+    "RNM2c": {
+      "class": "object-kind",
+      "reason": "Looks up a block, char, fifo, or socket object the fixture cannot contain; LOOKUP returns NFS4ERR_NOENT."
+    },
+    "RNM2f": {
+      "class": "object-kind",
+      "reason": "Looks up a block, char, fifo, or socket object the fixture cannot contain; LOOKUP returns NFS4ERR_NOENT."
+    },
+    "RNM2s": {
+      "class": "object-kind",
+      "reason": "Looks up a block, char, fifo, or socket object the fixture cannot contain; LOOKUP returns NFS4ERR_NOENT."
+    },
+    "RNM3a": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM3b": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM3c": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM3f": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM3r": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM3s": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM5": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM6": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "RNM7": {
+      "class": "read-only-export",
+      "reason": "Setup creates objects with CREATE; CREATE returns NFS4ERR_ROFS."
+    },
+    "SEC1": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "SEC2": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "SEQ10b": {
+      "class": "read-only-export",
+      "reason": "Setup opens a file with create; OPEN4_CREATE returns NFS4ERR_ROFS."
+    },
+    "SEQ9b": {
+      "class": "read-only-export",
+      "reason": "Setup creates a file with OPEN4_CREATE, which returns NFS4ERR_ROFS; pynfs reads the missing result before checking the status and fails with an AttributeError."
+    }
+  }
+}
