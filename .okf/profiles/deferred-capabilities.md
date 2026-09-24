@@ -14,7 +14,7 @@ The current profile does not include:
 - FUSE or other host mounts, Vim integration, or access by arbitrary native tools other than the read-only NFS export;
 - distributed or unattended writable NFS recovery, Kerberos-authenticated NFS (excluded by decision), and WebDAV or other network filesystem protocols;
 - general-purpose live backing volumes, snapshot-delta merge or rebase, block-level copying, or changed-data budgets;
-- host-directory import or export;
+- host-directory synchronization beyond explicit [tree transfer](../contracts/tree-transfer.md "narrowed by") copies, such as mirroring, deletion propagation, or owner preservation;
 - FIFOs, device files, filesystem sockets, or other special files;
 - advisory locks or descriptor duplication;
 - caller-specific restricted roots or subtree confinement;
