@@ -49,5 +49,6 @@ Accepted architectural and behavioral decisions, grouped by domain. Deprecated d
 - [Package boundaries](package-boundaries.md)
 - [Adapter timestamp overflow](adapter-timestamp-overflow.md)
 - [Named checkpoint persistence](named-checkpoint-persistence.md)
+- [Tree transfer](tree-transfer.md) moves directory trees as streams of fixture entries with bounded sources, rejecting sinks, and atomic new volumes.
 - [Virtual package resolution acceptance](virtual-package-resolution-acceptance.md)
 - [Explicit build rebuilds](explicit-build-rebuilds.md)

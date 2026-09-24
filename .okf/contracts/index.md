@@ -10,6 +10,7 @@
 - [Snapshots and fixtures](snapshots-and-fixtures.md) - Construction, capture, encoding, decoding, and restoration.
 - [Portable snapshot deltas](snapshot-deltas.md) - Exact base-dependent reconstruction, deterministic inspection, Schema encoding, and work limits.
 - [Memory adapter compatibility](memory-adapter-compatibility.md) - Effect `FileSystem` behavior over core volumes.
+- [Tree transfer](tree-transfer.md) - Streamed directory trees between callers, snapshots, and new volumes.
 - [Virtual build consumer](virtual-build-consumer.md) - Build and package-import acceptance boundary.
 - [Checkpoint persistence](checkpoint-persistence.md) - Explicit SQLite-backed named checkpoints.
 - [Overlay workspaces](overlay-workspaces.md) - Snapshot-based writable branches, shared contents, summaries, and capture.

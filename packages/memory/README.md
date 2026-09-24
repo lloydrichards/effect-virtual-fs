@@ -147,6 +147,48 @@ A snapshot contains the reachable namespace, file contents, and metadata. It
 does not contain bindings, callers, open handles, file cursors, watches, or
 unlinked content. `/tmp` is restored only when it existed in the snapshot.
 
+## Copy directory trees
+
+`TreeTransfer` streams a directory tree between volumes. Sources emit entries
+with paths rooted at the copied directory, so ordinary `Stream` operators can
+filter or merge them before a sink writes them.
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { TreeTransfer } from "@effect-vfs/memory"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import { Effect, Predicate, Stream } from "effect"
+
+const program = Effect.gen(function*() {
+  const project = yield* Vfs.fromFixture({
+    entries: [
+      { kind: "directory", path: "/project" },
+      { kind: "directory", path: "/project/node_modules" },
+      { kind: "file", path: "/project/index.ts", bytes: new TextEncoder().encode("run()") }
+    ]
+  })
+  const workspace = yield* (yield* Vfs.make()).caller()
+
+  yield* Stream.run(
+    TreeTransfer.fromCaller(yield* project.caller(), "/project").pipe(
+      Stream.filter((entry) => !Predicate.isString(entry.path) || !entry.path.startsWith("/node_modules"))
+    ),
+    TreeTransfer.toCaller(workspace, "/workspace")
+  )
+
+  return yield* workspace.readDirectory("/workspace")
+})
+
+console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))))
+// [ "index.ts" ]
+```
+
+`toCaller` rejects an existing destination by default and removes the tree it
+created if the transfer fails. `toVolume` builds a new volume only when every
+entry is accepted. Sources enforce `TreeTransferLimits.default` unless you pass
+other limits. `fromCaller` reads through a live caller and updates source access
+times; `fromSnapshot` reads a snapshot and never changes the source.
+
 ## Resource lifetimes
 
 `FileSystem.open`, temporary resources, and watch subscriptions are scoped.
