@@ -61,11 +61,11 @@ RFC 8881 defines no read-only server profile; its read-only allowance in Section
 
 ## Evidence ladder
 
-- `experimental`: the protocol test suite passes; every ledger row carries a status; a pinned pynfs 4.1 read-side run exists with a triaged known-failures file that classifies each failure as a defect, a deliberate exclusion, or a suite assertion no server satisfies.[^pynfs]
+- `experimental`: the protocol test suite passes; every ledger row carries a status; a pinned pynfs 4.1 read-side run exists with a triaged known-failures file that classifies each failure as a deliberate exclusion, a suite assertion no server satisfies, or a disputed assertion that contradicts RFC 8881; defects are fixed rather than listed.[^pynfs]
 - `preview`: `experimental` plus the repeatable Linux kernel-client mount running in CI and a documented manual macOS 26 mount with the exact `vers=4.1` command.[^linux-gate]
 - `stable`: `preview` plus a third independent client, fault coverage for restart, lease expiry, multiple connections, and resource pressure, and one recorded Bake-a-thon participation.
 
-Claims stay no broader than their evidence, following the [evidence and validation workflow](../../workflows/evidence-and-validation.md "governed by"). The first profile is specified by the [read-only-local profile](../../profiles/nfs/nfs-read-only-local.md "refined by"), and per-requirement status lives in the [operations](../../research/nfs/nfs-operations-ledger.md "evidenced by"), [attributes](../../research/nfs/nfs-attributes-ledger.md "evidenced by"), and [protocol rules](../../research/nfs/nfs-protocol-rules-ledger.md "evidenced by") ledgers. This decision supersedes the scoping paragraphs of the [NFS server research](../../research/nfs/nfs-server.md "supersedes").
+Where each kind of evidence comes from, which checks run in CI, and which fault cases each stage needs are fixed by the [interoperability and fault evidence decision](nfs-interoperability-evidence.md "refined by"). Claims stay no broader than their evidence, following the [evidence and validation workflow](../../workflows/evidence-and-validation.md "governed by"). The first profile is specified by the [read-only-local profile](../../profiles/nfs/nfs-read-only-local.md "refined by"), and per-requirement status lives in the [operations](../../research/nfs/nfs-operations-ledger.md "evidenced by"), [attributes](../../research/nfs/nfs-attributes-ledger.md "evidenced by"), and [protocol rules](../../research/nfs/nfs-protocol-rules-ledger.md "evidenced by") ledgers. This decision supersedes the scoping paragraphs of the [NFS server research](../../research/nfs/nfs-server.md "supersedes").
 
 [^issue]: Issue #42 holds the original questions and the decision summary.
 
