@@ -28,9 +28,10 @@ Vite library entries are normally normalized into host paths. The plugin uses ex
 to retain the virtual entry, then `resolveId` and `load` for virtual module identity and bytes. References:
 [Vite plugin API](https://vite.dev/guide/api-plugin), [JavaScript API](https://vite.dev/guide/api-javascript).
 
-`measure` is an external benchmark, not a core import/export operation or build source fallback. It walks the
-installed Effect, Vite, and Rolldown package directories, excluding nested node_modules and nonregular entries,
-prepares a fixture, then measures capture, encoding, bounded decoding, and restoration. It records installed package
+`measure` is an external benchmark, not a build source fallback. It streams the installed Effect, Vite, and
+Rolldown package directories through `TreeTransfer.fromFileSystem`, drops nested node_modules, symbolic links, and
+nonregular entries, and keeps host modes and times. It then builds the volume with `TreeTransfer.toVolume` and
+measures capture, encoding, bounded decoding, and restoration. It records installed package
 versions, file/entry counts, payload and encoded sizes, and milliseconds for preparation and each phase. Sorted names
 make traversal reproducible for the same installed package contents. Run a frozen install and build first; package
 versions and file counts identify the selected workload, which is not a complete transitive project graph.
