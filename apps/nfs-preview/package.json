@@ -9,6 +9,7 @@
     "start": "bun run src/main.ts",
     "conformance": "bun run src/conformance.ts",
     "linux-mount-gate": "bash scripts/linux-mount-gate.sh",
+    "pynfs-gate": "bash scripts/pynfs-gate.sh",
     "verify-mount": "bash scripts/verify-mount.sh",
     "type-check": "tsc --noEmit"
   },
