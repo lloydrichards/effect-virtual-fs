@@ -1,13 +1,16 @@
 ---
 type: Evidence
 title: NFS external suite baseline
-description: Records the pinned pynfs NFSv4.1 run, the macOS 26 native-client run, and the Linux kernel-client gate that together support the read-only-local profile's preview maturity.
+description: Records the pinned, CI-repeated pynfs NFSv4.1 run, the macOS 26 native-client run, and the Linux kernel-client gate that together support the read-only-local profile's preview maturity.
 status: stable
 tags: [nfs, evidence, pynfs, conformance]
 sources:
   - id: baseline
     resource: ../../apps/nfs-preview/CONFORMANCE.md
     title: Pinned run, procedure, and failure classification
+  - id: known-failures
+    resource: ../../apps/nfs-preview/conformance/known-failures.json
+    title: Classified pynfs known failures
   - id: fixture
     resource: ../../apps/nfs-preview/src/conformance.ts
     title: Conformance fixture server
@@ -20,15 +23,22 @@ sources:
   - id: linux-gate
     resource: ../../apps/nfs-preview/scripts/linux-mount-gate.sh
     title: Opt-in privileged Linux mount gate
-generated: { by: claude/okf, at: 2026-09-15T23:00:00+02:00 }
+generated: { by: claude/okf, at: 2026-09-24T09:00:00+02:00 }
 ---
 
 # NFS external suite baseline
 
-On 2026-09-15 the pynfs NFSv4.1 server tests at commit `cd470182` ran against the conformance fixture with
-`--minorversion 1 --security sys --noinit --nocleanup --force all noreboot nocourteous`. Of 179 selected tests, 102
-passed and 77 failed. Every failure is classified in the baseline document: 61 are mutations refused on a read-only
-export, 12 look up special-file kinds the core does not have, and 4 are suite-side limitations.[^baseline]
+The pynfs NFSv4.1 server tests at commit `cd470182` run against the conformance fixture with
+`--minorversion 1 --security sys --noinit --nocleanup --force all noreboot nocourteous`. On 2026-09-24, 100 of 179
+selected tests passed and 79 failed. Every failure is classified in a machine-readable known-failures file: 62 are
+mutations refused on a read-only export, 12 look up special-file kinds the core does not have, 2 request an NFSv4.2
+attribute, and 3 are disputed because they contradict RFC 8881.[^baseline] The `nfs-pynfs` workflow repeats the run on
+every pull request that can change wire behavior and fails on any difference from that file.
+
+The first repeated run also showed why the gate is needed. The 2026-09-15 baseline recorded 77 failures and had not
+been rerun after later session corrections. By then CREATE_SESSION already returned the RFC-required answers that
+pynfs tests CSESS16, CSESS16a, and CSESS29 reject. Neither the focused tests nor anyone reading the old baseline had
+noticed the drift.
 
 The durable conclusion is that the focused protocol suite alone missed several RFC 8881 rules that a raw-RPC client
 exercised immediately: client-record replacement cases, CREATE_SESSION principal and channel-size checks, replay of
@@ -63,9 +73,9 @@ code that speaks the protocol — only the `nfs-utils` userland. The gate prints
 `nfs-utils` versions on every run and the runner is pinned to `ubuntu-24.04` rather than `ubuntu-latest`, so client
 drift shows up as a changed recorded version rather than as a silent change in what was tested.
 
-This baseline satisfies the pynfs requirement of the `experimental` maturity in the [NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "supports") and is cited by the [read-only-local profile](../profiles/nfs/nfs-read-only-local.md "supports"). With the Linux gate above, the native-client requirements of `preview` are met. Claims stay bounded by the [evidence and validation workflow](../workflows/evidence-and-validation.md "governed by").
+This baseline satisfies the pynfs requirement of the `experimental` maturity in the [NFS profile ladder](../decisions/nfs/nfs-profile-ladder.md "supports") and is cited by the [read-only-local profile](../profiles/nfs/nfs-read-only-local.md "supports"). With the Linux gate above, the native-client requirements of `preview` are met. Its sources and gates are fixed by the [interoperability and fault evidence decision](../decisions/nfs/nfs-interoperability-evidence.md "governed by"). Claims stay bounded by the [evidence and validation workflow](../workflows/evidence-and-validation.md "governed by").
 
-[^baseline]: The baseline document pins the suite commit, Python dependencies, command line, and the three failure classes.
+[^baseline]: The known-failures file pins the suite commit, Python dependencies, and command line; the baseline document explains the four failure classes.
 
 [^profile-tests]: The read-only profile tests cover each rule the external run surfaced.
 

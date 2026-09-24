@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-09-24
+
+- **NFS interoperability and fault evidence**: Resolved #51. The pinned pynfs run is now repeatable: a known-failures file pins the suite and classifies every failure, and a pull-request workflow fails on an unlisted failure or a listed test that passes. The first repeated run found 79 failures instead of the recorded 77. CSESS16, CSESS16a, and CSESS29 reject RFC-required CREATE_SESSION answers made after the baseline, so a fourth `disputed` class records them with their RFC citations. The decision also fixes which clients run in CI or as release gates, and which fault cases each profile stage requires.
+
 ## 2026-09-21
 
 - **Guarded public writable NFS over R2**: Public `NfsServer` now accepts `writable: true` only with a power-loss-durable volume and explicit single-identity policy. `LiveVolume` carries a qualified provider tier; the R2 app opts in for a verified Cloudflare endpoint and one gateway. Independent macOS and Debian clients passed cross-client visibility, Debian passed restart and process-crash recovery, and the public profile passed a real lost R2 HTTP response during file `WRITE`: the client received `EIO` and a fresh gateway recovered complete bytes. Cloudflare's documented successful-write persistence supplies the remote power-loss contract; distributed ownership and unattended NFS state recovery remain outside this profile.
