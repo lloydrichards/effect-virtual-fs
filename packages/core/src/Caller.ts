@@ -207,6 +207,33 @@ export const SymlinkOptions = Schema.Struct({
  */
 export type SymlinkOptions = typeof SymlinkOptions.Type
 
+/**
+ * Schema for the attributes `setattr` changes together: a regular file's
+ * size, the permission mode, the owner, and the access and modification
+ * times. An omitted attribute keeps its current value. `expected` pins the
+ * target's revision the caller last observed, checked inside the same change,
+ * and fails as `StaleReference` naming `expected` when the target has moved
+ * on, so a change decided from that observation never applies to a newer one.
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const SetattrOptions = Schema.Struct({
+  size: Schema.optionalKey(Schema.BigInt.check(Schema.isGreaterThanOrEqualToBigInt(0n))),
+  mode: Schema.optionalKey(Mode),
+  owner: Schema.optionalKey(OwnerUpdate),
+  times: Schema.optionalKey(Times),
+  expected: Schema.optionalKey(Schema.Struct({ revision: Schema.BigInt }))
+})
+
+/**
+ * Attributes of `setattr`.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type SetattrOptions = typeof SetattrOptions.Type
+
 const ObjectReferenceSchema = Schema.declare<ObjectReference>((input): input is ObjectReference =>
   Predicate.hasProperty(ObjectReferenceId)(input) && input[ObjectReferenceId] === true
 )
