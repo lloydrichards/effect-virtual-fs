@@ -3,6 +3,7 @@ import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as SchemaIssue from "effect/SchemaIssue"
+import type { PathInput } from "../VirtualFileSystem.js"
 import { ConfigurationError, FsError } from "../VirtualFileSystemError.js"
 
 /** @internal */
@@ -56,3 +57,22 @@ export const decodeConfiguration = <A>(schema: Schema.Codec<A>, value: typeof Sc
   Schema.decodeUnknownResult(schema, { onExcessProperty: "error" })(value).pipe(
     Result.mapError((error) => new ConfigurationError({ field: configurationField(error.issue) }))
   )
+
+/** @internal */
+export interface OpContext {
+  readonly operation: string
+  readonly fail: (
+    code: FsCode,
+    details?: { readonly path?: PathInput; readonly cause?: NonNullable<FsError["cause"]> }
+  ) => FsError
+}
+
+/** @internal */
+export const OpContext = {
+  make: (operation: string): OpContext => ({
+    operation,
+    // Spreading keeps exactly the keys the call site names, as direct construction did, including one an
+    // untyped caller left undefined. Sites whose path is optional pass no details instead.
+    fail: (code, details) => new FsError({ code, operation, ...details })
+  })
+}

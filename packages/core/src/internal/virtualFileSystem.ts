@@ -28,7 +28,7 @@ import type {
   VolumeUsage
 } from "../VirtualFileSystem.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
-import { ConfigurationError, decodeConfiguration, FsCode as FsCodeSchema, FsError } from "./errors.js"
+import { ConfigurationError, decodeConfiguration, FsCode as FsCodeSchema, FsError, OpContext } from "./errors.js"
 import * as Image from "./image.js"
 import * as LiveImage from "./liveImage.js"
 import * as MetadataDomain from "./metadata.js"
@@ -726,13 +726,13 @@ export const makeVolume = Effect.fnUntraced(
       return yield* new ConfigurationError({ field: "clock.currentTimeNanos" })
     }
 
-    const timestamp = (operation: string) =>
+    const timestamp = (op: OpContext) =>
       Effect.suspend(() => {
         const now = clock.currentTimeNanosUnsafe()
 
         return isTimestamp(now)
           ? Effect.succeed(now)
-          : Effect.fail(new FsError({ code: "InvalidArgument", operation: operation }))
+          : Effect.fail(op.fail("InvalidArgument"))
       })
 
     const volumeIdentity = Symbol()
@@ -890,10 +890,10 @@ export const makeVolume = Effect.fnUntraced(
     const maxPendingOperations = settings.maxPendingOperations ?? 64
     const admission = yield* Semaphore.make(maxPendingOperations + 1)
 
-    const admit = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FsError, R> =>
+    const admit = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FsError, R> =>
       admission.withPermitsIfAvailable(1)(effect).pipe(
         Effect.flatMap(Option.match({
-          onNone: () => new FsError({ code: "VolumeBusy", operation }),
+          onNone: () => op.fail("VolumeBusy"),
           onSome: Effect.succeed
         }))
       )
@@ -1209,12 +1209,12 @@ export const makeVolume = Effect.fnUntraced(
     if (staged !== undefined) commitProvider?.onReady?.(staged.shutdown)
 
     // Permit waits stay interruptible. Changes and their publication run under one permit.
-    const coordinated = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>, onStorageFailure?: () => void) =>
+    const coordinated = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>, onStorageFailure?: () => void) =>
       admit(
-        operation,
+        op,
         staged === undefined
           ? gate.withPermit(Effect.uninterruptible(effect))
-          : staged.mutate(operation, (candidate, emit) =>
+          : staged.mutate(op.operation, (candidate, emit) =>
             Effect.gen(function*() {
               const previous = state
               const context = contexts.get(candidate)
@@ -1244,8 +1244,8 @@ export const makeVolume = Effect.fnUntraced(
       )
 
     // Pure observations share the permit without making a candidate or calling the provider.
-    const coordinatedRead = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>) =>
-      admit(operation, staged === undefined ? gate.withPermit(effect) : staged.read(operation, () => effect))
+    const coordinatedRead = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>) =>
+      admit(op, staged === undefined ? gate.withPermit(effect) : staged.read(op.operation, () => effect))
 
     const coordinatedCleanup = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       staged === undefined
@@ -1454,7 +1454,7 @@ export const makeVolume = Effect.fnUntraced(
         reference.closed = true
       }))
 
-    const authorize = (node: Node, identity: Identity, bits: number, operation: string, path?: PathInput) => {
+    const authorize = (node: Node, identity: Identity, bits: number, op: OpContext, path?: PathInput) => {
       if (identity.privileged) return Effect.void
       const metadata = node.metadata
 
@@ -1467,9 +1467,7 @@ export const makeVolume = Effect.fnUntraced(
       return ((metadata.mode >> shift) & bits) === bits
         ? Effect.void
         : Effect.fail(
-          path === undefined
-            ? new FsError({ code: "AccessDenied", operation })
-            : new FsError({ code: "AccessDenied", operation, path })
+          op.fail("AccessDenied", path === undefined ? undefined : { path })
         )
     }
 
@@ -1537,7 +1535,7 @@ export const makeVolume = Effect.fnUntraced(
           ? Effect.sync(() => {
             ref.closed = true
           })
-          : coordinated("close", Effect.sync(() => releaseFile(ref)), () => releaseFile(ref)).pipe(
+          : coordinated(OpContext.make("close"), Effect.sync(() => releaseFile(ref)), () => releaseFile(ref)).pipe(
             Effect.catch(() =>
               coordinatedCleanup(Effect.sync(() => {
                 if (!ref.closed) releaseFile(ref)
@@ -1562,51 +1560,55 @@ export const makeVolume = Effect.fnUntraced(
       if (publish) publishNode(file)
     }
 
-    const resize = Effect.fnUntraced(function*(file: RegularFile, length: bigint, operation: string, publish = true) {
+    const resize = Effect.fnUntraced(function*(file: RegularFile, length: bigint, op: OpContext, publish = true) {
       if (!Predicate.isBigInt(length) || length < 0n) {
-        return yield* new FsError({ code: "InvalidArgument", operation: operation })
+        return yield* op.fail("InvalidArgument")
       }
 
-      if (length > BigInt(maxFileBytes)) return yield* new FsError({ code: "FileTooLarge", operation: operation })
+      if (length > BigInt(maxFileBytes)) return yield* op.fail("FileTooLarge")
       const size = Number(length)
 
       if (
         settings.maxBytes !== undefined &&
         BigInt(size - file.data.bytes.length) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes
       ) {
-        return yield* new FsError({ code: "NoSpace", operation: operation })
+        return yield* op.fail("NoSpace")
       }
 
       const data = new Uint8Array(size)
       data.set(file.data.bytes.subarray(0, size))
-      replaceContent(file, data, yield* timestamp(operation), publish)
+      replaceContent(file, data, yield* timestamp(op), publish)
     })
 
     const fileHandle = (ref: FileReference): FileHandle => {
-      const get = (operation: string, access?: "read" | "write") =>
+      const get = (op: OpContext, access?: "read" | "write") =>
         ref.file === undefined || (access === "read" && ref.access === "write") ||
           (access === "write" && ref.access === "read")
-          ? Effect.fail(new FsError({ code: "InvalidHandle", operation: operation }))
+          ? Effect.fail(op.fail("InvalidHandle"))
           : Effect.succeed(ref.file)
 
-      const read = (maximum: number, position?: bigint) =>
-        coordinated(
-          position === undefined ? "read" : "pread",
-          Effect.gen(function*() {
-            const file = yield* get(position === undefined ? "read" : "pread", "read")
+      const read = (maximum: number, position?: bigint) => {
+        const op = OpContext.make(position === undefined ? "read" : "pread")
+        // Failures past admission report "read" for both entry points.
+        const readOp = OpContext.make("read")
 
-            if (!isNatural(maximum)) return yield* new FsError({ code: "InvalidArgument", operation: "read" })
+        return coordinated(
+          op,
+          Effect.gen(function*() {
+            const file = yield* get(op, "read")
+
+            if (!isNatural(maximum)) return yield* readOp.fail("InvalidArgument")
             const offset = position ?? ref.offset
 
             if (!Predicate.isBigInt(offset) || offset < 0n || offset > MAX_FILE_OFFSET) {
-              return yield* new FsError({ code: "InvalidArgument", operation: "read" })
+              return yield* readOp.fail("InvalidArgument")
             }
 
             const start = Number(offset > file.metadata.size ? file.metadata.size : offset)
             const data = file.data.bytes.slice(start, start + Math.min(maximum, file.data.bytes.length - start))
 
             if (maximum > 0) {
-              file.metadata = { ...file.metadata, atimeNs: (yield* timestamp("read")) }
+              file.metadata = { ...file.metadata, atimeNs: (yield* timestamp(readOp)) }
             }
 
             if (position === undefined) ref.offset += BigInt(data.length)
@@ -1614,27 +1616,32 @@ export const makeVolume = Effect.fnUntraced(
             return data
           })
         )
+      }
 
       const write = Effect.fnUntraced(function*(input: Uint8Array, position?: bigint) {
-        if (!isAttachedBytes(input)) return yield* new FsError({ code: "InvalidArgument", operation: "write" })
+        const op = OpContext.make(position === undefined ? "write" : "pwrite")
+        // Failures outside admission and the permitted handle report "write" for both entry points.
+        const writeOp = OpContext.make("write")
+
+        if (!isAttachedBytes(input)) return yield* writeOp.fail("InvalidArgument")
 
         const bytes = new Uint8Array(input)
 
         return yield* coordinated(
-          position === undefined ? "write" : "pwrite",
+          op,
           Effect.gen(function*() {
-            const file = yield* get(position === undefined ? "write" : "pwrite", "write")
+            const file = yield* get(op, "write")
             const offset = position ?? (ref.append ? file.metadata.size : ref.offset)
 
             if (!Predicate.isBigInt(offset) || offset < 0n || offset > MAX_FILE_OFFSET) {
-              return yield* new FsError({ code: "InvalidArgument", operation: "write" })
+              return yield* writeOp.fail("InvalidArgument")
             }
 
             if (bytes.length === 0) {
               return 0
             }
 
-            if (offset >= BigInt(maxFileBytes)) return yield* new FsError({ code: "FileTooLarge", operation: "write" })
+            if (offset >= BigInt(maxFileBytes)) return yield* writeOp.fail("FileTooLarge")
             const start = Number(offset)
 
             const free = settings.maxBytes === undefined
@@ -1645,13 +1652,13 @@ export const makeVolume = Effect.fnUntraced(
             const end = Number(BigInt(maxFileBytes) < maximumEnd ? BigInt(maxFileBytes) : maximumEnd)
             const count = Math.min(bytes.length, Math.max(0, end - start))
 
-            if (count === 0) return yield* new FsError({ code: "NoSpace", operation: "write" })
+            if (count === 0) return yield* writeOp.fail("NoSpace")
             const size = Math.max(file.data.bytes.length, start + count)
             // Always detach before mutation. A same-sized write is the critical
             // case: the current payload may belong to the base or a prior capture.
             const data = new Uint8Array(size)
             data.set(file.data.bytes)
-            const now = yield* timestamp("write")
+            const now = yield* timestamp(writeOp)
             data.set(bytes.subarray(0, count), start)
             replaceContent(file, data, now)
 
@@ -1661,6 +1668,11 @@ export const makeVolume = Effect.fnUntraced(
           })
         )
       })
+
+      // Eager members share one context each between admission and their own failures.
+      const statOp = OpContext.make("stat")
+      const syncOp = OpContext.make("sync")
+      const closeOp = OpContext.make("close")
 
       const handle: FileHandle = Object.freeze({
         [FileHandleId]: true as const,
@@ -1677,13 +1689,15 @@ export const makeVolume = Effect.fnUntraced(
           return yield* write(bytes, offset)
         }),
         seek: Effect.fn("FileHandle.seek")(function*(offset: bigint, mode: SeekMode) {
+          const op = OpContext.make("seek")
+
           return yield* coordinatedRead(
-            "seek",
+            op,
             Effect.uninterruptible(Effect.gen(function*() {
-              const file = yield* get("seek")
+              const file = yield* get(op)
 
               if (!Predicate.isBigInt(offset) || !isSeekMode(mode)) {
-                return yield* new FsError({ code: "InvalidArgument", operation: "seek" })
+                return yield* op.fail("InvalidArgument")
               }
 
               let next = mode === "current"
@@ -1693,11 +1707,11 @@ export const makeVolume = Effect.fnUntraced(
                 : offset
 
               if (next < 0n || next > MAX_FILE_OFFSET) {
-                return yield* new FsError({ code: "InvalidArgument", operation: "seek" })
+                return yield* op.fail("InvalidArgument")
               }
 
               if (mode === "data" || mode === "hole") {
-                if (offset >= file.metadata.size) return yield* new FsError({ code: "NoData", operation: "seek" })
+                if (offset >= file.metadata.size) return yield* op.fail("NoData")
 
                 if (mode === "hole") next = file.metadata.size
               }
@@ -1709,26 +1723,28 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         truncate: Effect.fn("FileHandle.truncate")(function*(length: bigint) {
+          const op = OpContext.make("truncate")
+
           return yield* coordinated(
-            "truncate",
+            op,
             Effect.gen(function*() {
-              yield* resize(yield* get("truncate", "write"), length, "truncate")
+              yield* resize(yield* get(op, "write"), length, op)
             })
           )
         }),
         stat: coordinatedRead(
-          "stat",
+          statOp,
           Effect.gen(function*() {
-            return { ...(yield* get("stat")).metadata }
+            return { ...(yield* get(statOp)).metadata }
           })
         ).pipe(Effect.withSpan("FileHandle.stat")),
-        sync: coordinatedRead("sync", Effect.suspend(() => Effect.asVoid(get("sync")))).pipe(
+        sync: coordinatedRead(syncOp, Effect.suspend(() => Effect.asVoid(get(syncOp)))).pipe(
           Effect.withSpan("FileHandle.sync")
         ),
         close: coordinated(
-          "close",
+          closeOp,
           Effect.gen(function*() {
-            yield* get("close")
+            yield* get(closeOp)
             releaseFile(ref)
           }),
           () => releaseFile(ref)
@@ -1748,45 +1764,45 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const createCaller = (reference: DirectoryReference, identity: Identity, umask: number): Caller => {
-      const referencedNode = Effect.fnUntraced(function*(target: ObjectReference, operation: string) {
-        if (reference.directory === undefined) return yield* new FsError({ code: "ClosedCaller", operation: operation })
+      const referencedNode = Effect.fnUntraced(function*(target: ObjectReference, op: OpContext) {
+        if (reference.directory === undefined) return yield* op.fail("ClosedCaller")
 
-        if (!Predicate.isObject(target)) return yield* new FsError({ code: "InvalidReference", operation: operation })
+        if (!Predicate.isObject(target)) return yield* op.fail("InvalidReference")
         const state = objectReferences.get(target)
 
-        if (state === undefined) return yield* new FsError({ code: "InvalidReference", operation: operation })
+        if (state === undefined) return yield* op.fail("InvalidReference")
 
         if (state.volume !== volumeIdentity) {
-          return yield* new FsError({ code: "ForeignReference", operation: operation })
+          return yield* op.fail("ForeignReference")
         }
 
         if (!state.active || activeStage?.invalidated.has(state)) {
-          return yield* new FsError({ code: "StaleReference", operation: operation })
+          return yield* op.fail("StaleReference")
         }
 
         const node = state.cell?.node
 
-        if (node === undefined) return yield* new FsError({ code: "StaleReference", operation })
+        if (node === undefined) return yield* op.fail("StaleReference")
 
         return node
       })
 
-      const referencedName = Effect.fnUntraced(function*(input: Uint8Array, operation: string) {
+      const referencedName = Effect.fnUntraced(function*(input: Uint8Array, op: OpContext) {
         if (
           !isAttachedBytes(input) || input.length === 0 || input.length > MAX_NAME_BYTES || input.includes(0) ||
           input.includes(SLASH_BYTE)
-        ) return yield* new FsError({ code: "InvalidArgument", operation })
+        ) return yield* op.fail("InvalidArgument")
         const name = Encoding.encodeHex(new Uint8Array(input))
 
-        if (isDotComponent(name)) return yield* new FsError({ code: "InvalidArgument", operation })
+        if (isDotComponent(name)) return yield* op.fail("InvalidArgument")
 
         return name
       })
 
-      const referencedDirectory = Effect.fnUntraced(function*(target: ObjectReference, operation: string) {
-        const node = yield* referencedNode(target, operation)
+      const referencedDirectory = Effect.fnUntraced(function*(target: ObjectReference, op: OpContext) {
+        const node = yield* referencedNode(target, op)
 
-        if (node.kind !== "directory") return yield* new FsError({ code: "NotDirectory", operation })
+        if (node.kind !== "directory") return yield* op.fail("NotDirectory")
 
         return node
       })
@@ -1799,42 +1815,42 @@ export const makeVolume = Effect.fnUntraced(
       const lookup = Effect.fnUntraced(function*(
         path: PreparedPath,
         base: DirectoryHandle | undefined,
-        operation: string,
+        op: OpContext,
         options: LookupOptions = {},
         referencedBase?: Directory
       ) {
         const { followFinalSymlink = true, allowMissing = false, parentOnly = false } = options
 
         if (reference.directory === undefined) {
-          return yield* new FsError({ code: "ClosedCaller", operation: operation, path: path.input })
+          return yield* op.fail("ClosedCaller", { path: path.input })
         }
 
         let current: Node = path.absolute ? state.root : reference.directory
 
         if (!path.absolute && referencedBase !== undefined) {
           current = referencedBase
-          yield* authorize(current, identity, EXECUTE, operation)
+          yield* authorize(current, identity, EXECUTE, op)
         } else if (!path.absolute && base !== undefined) {
           const target = handles.get(base)
 
           if (target === undefined) {
-            return yield* new FsError({ code: "InvalidHandle", operation: operation, path: path.input })
+            return yield* op.fail("InvalidHandle", { path: path.input })
           }
 
           if (target.volume !== volumeIdentity) {
-            return yield* new FsError({ code: "ForeignHandle", operation: operation, path: path.input })
+            return yield* op.fail("ForeignHandle", { path: path.input })
           }
 
           if (target.directory === undefined) {
-            return yield* new FsError({ code: "InvalidHandle", operation: operation, path: path.input })
+            return yield* op.fail("InvalidHandle", { path: path.input })
           }
 
           current = target.directory
-          yield* authorize(current, identity, EXECUTE, operation, path.input)
+          yield* authorize(current, identity, EXECUTE, op, path.input)
         }
 
         if (current.metadata.nlink === 0) {
-          return yield* new FsError({ code: "NotFound", operation: operation, path: path.input })
+          return yield* op.fail("NotFound", { path: path.input })
         }
 
         let work = path
@@ -1844,10 +1860,10 @@ export const makeVolume = Effect.fnUntraced(
 
         for (let index = 0; index < work.components.length - (parentOnly ? 1 : 0); index++) {
           if (current.kind !== "directory") {
-            return yield* new FsError({ code: "NotDirectory", operation: operation, path: path.input })
+            return yield* op.fail("NotDirectory", { path: path.input })
           }
 
-          yield* authorize(current, identity, EXECUTE, operation, path.input)
+          yield* authorize(current, identity, EXECUTE, op, path.input)
           const component = work.components[index]
 
           if (component === undefined) break
@@ -1870,18 +1886,18 @@ export const makeVolume = Effect.fnUntraced(
               return { node: undefined, parent, name }
             }
 
-            return yield* new FsError({ code: "NotFound", operation: operation, path: path.input })
+            return yield* op.fail("NotFound", { path: path.input })
           }
 
           if (
             child.kind === "symlink" && (followFinalSymlink || index < work.components.length - 1 || work.trailingSlash)
           ) {
             if (child.target.length === 0) {
-              return yield* new FsError({ code: "NotFound", operation: operation, path: path.input })
+              return yield* op.fail("NotFound", { path: path.input })
             }
 
             if (++traversals > 40) {
-              return yield* new FsError({ code: "SymlinkLoop", operation: operation, path: path.input })
+              return yield* op.fail("SymlinkLoop", { path: path.input })
             }
 
             const suffix = work.suffixes[index] ?? new Uint8Array(0)
@@ -1890,19 +1906,19 @@ export const makeVolume = Effect.fnUntraced(
               settings.maxPathBytes !== undefined &&
               ByteSize.isGreaterThan(ByteSize.bytes(child.target.length + suffix.length), settings.maxPathBytes)
             ) {
-              return yield* new FsError({ code: "PathTooLong", operation: operation, path: path.input })
+              return yield* op.fail("PathTooLong", { path: path.input })
             }
 
             const expansion = new Uint8Array(child.target.length + suffix.length)
             expansion.set(child.target)
             expansion.set(suffix, child.target.length)
-            const expanded = preparePath(ownedPath(expansion), operation, settings.maxPathBytes)
+            const expanded = preparePath(ownedPath(expansion), op.operation, settings.maxPathBytes)
 
             // The expansion is synthetic: its per-component limits are the caller's to hear about,
             // but the path in the error has to be the one the caller passed in, so the
             // expansion's own failure is not kept as the cause.
             if (Result.isFailure(expanded)) {
-              return yield* new FsError({ code: expanded.failure.code, operation: operation, path: path.input })
+              return yield* op.fail(expanded.failure.code, { path: path.input })
             }
 
             work = expanded.success
@@ -1913,7 +1929,7 @@ export const makeVolume = Effect.fnUntraced(
         }
 
         if (!parentOnly && work.trailingSlash && current.kind !== "directory") {
-          return yield* new FsError({ code: "NotDirectory", operation: operation, path: path.input })
+          return yield* op.fail("NotDirectory", { path: path.input })
         }
 
         return { node: current, parent, name }
@@ -1923,13 +1939,13 @@ export const makeVolume = Effect.fnUntraced(
         function*(
           path: PreparedPath,
           base: DirectoryHandle | undefined,
-          operation: string,
+          op: OpContext,
           options?: Pick<LookupOptions, "followFinalSymlink">
         ) {
-          const result = yield* lookup(path, base, operation, options)
+          const result = yield* lookup(path, base, op, options)
 
           if (result.node === undefined) {
-            return yield* new FsError({ code: "NotFound", operation: operation, path: path.input })
+            return yield* op.fail("NotFound", { path: path.input })
           }
 
           return result.node
@@ -1940,18 +1956,18 @@ export const makeVolume = Effect.fnUntraced(
         function*(
           path: PreparedPath,
           base: DirectoryHandle | undefined,
-          operation: string,
+          op: OpContext,
           options?: Pick<LookupOptions, "parentOnly">
         ) {
-          const result = yield* lookup(path, base, operation, options)
+          const result = yield* lookup(path, base, op, options)
           const node = result.node
 
           if (node === undefined) {
-            return yield* new FsError({ code: "NotFound", operation: operation, path: path.input })
+            return yield* op.fail("NotFound", { path: path.input })
           }
 
           if (node.kind !== "directory") {
-            return yield* new FsError({ code: "NotDirectory", operation: operation, path: path.input })
+            return yield* op.fail("NotDirectory", { path: path.input })
           }
 
           return node
@@ -1959,8 +1975,8 @@ export const makeVolume = Effect.fnUntraced(
       )
 
       const acquireDirectory = Effect.fnUntraced(
-        function*(input: PathInput, options: RelativeOptions | undefined, operation: string) {
-          const prepared = preparePath(input, operation, settings.maxPathBytes)
+        function*(input: PathInput, options: RelativeOptions | undefined, op: OpContext) {
+          const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
           const acquired = makeDirectoryReference()
           // Register before retaining a directory. Closed scopes can run this immediately,
@@ -1968,12 +1984,12 @@ export const makeVolume = Effect.fnUntraced(
           yield* Effect.addFinalizer(() => release(acquired))
 
           return yield* coordinatedRead(
-            operation,
+            op,
             Effect.uninterruptible(Effect.gen(function*() {
               if (acquired.closed) return yield* Effect.interrupt
               const path = yield* Effect.fromResult(prepared)
-              const directory = yield* locate(path, base, operation)
-              yield* authorize(directory, identity, EXECUTE, operation, input)
+              const directory = yield* locate(path, base, op)
+              yield* authorize(directory, identity, EXECUTE, op, input)
               acquired.directory = directory
 
               return acquired
@@ -1983,16 +1999,17 @@ export const makeVolume = Effect.fnUntraced(
       )
 
       const list = Effect.fnUntraced(function*(input: PathInput, options?: RelativeOptions) {
-        const prepared = preparePath(input, "readDirectory", settings.maxPathBytes)
+        const op = OpContext.make("readDirectory")
+        const prepared = preparePath(input, op.operation, settings.maxPathBytes)
         const base = options?.relativeTo
 
         return yield* coordinated(
-          "readDirectory",
+          op,
           Effect.gen(function*() {
-            const directory = yield* locate(yield* Effect.fromResult(prepared), base, "readDirectory")
-            yield* authorize(directory, identity, READ, "readDirectory", input)
+            const directory = yield* locate(yield* Effect.fromResult(prepared), base, op)
+            yield* authorize(directory, identity, READ, op, input)
             const result = [...directory.entries.keys()].map(nameBytes)
-            directory.metadata = { ...directory.metadata, atimeNs: (yield* timestamp("readDirectory")) }
+            directory.metadata = { ...directory.metadata, atimeNs: (yield* timestamp(op)) }
 
             return result
           })
@@ -2000,18 +2017,19 @@ export const makeVolume = Effect.fnUntraced(
       })
 
       const readTarget = Effect.fnUntraced(function*(input: PathInput, options?: RelativeOptions) {
-        const prepared = preparePath(input, "readLink", settings.maxPathBytes)
+        const op = OpContext.make("readLink")
+        const prepared = preparePath(input, op.operation, settings.maxPathBytes)
         const base = options?.relativeTo
 
         return yield* coordinatedRead(
-          "readLink",
+          op,
           Effect.gen(function*() {
-            const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "readLink", {
+            const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, op, {
               followFinalSymlink: false
             })
 
             if (node.kind !== "symlink") {
-              return yield* new FsError({ code: "InvalidArgument", operation: "readLink", path: input })
+              return yield* op.fail("InvalidArgument", { path: input })
             }
 
             return new Uint8Array(node.target)
@@ -2020,13 +2038,14 @@ export const makeVolume = Effect.fnUntraced(
       })
 
       const canonical = Effect.fnUntraced(function*(input: PathInput, options?: RelativeOptions) {
-        const prepared = preparePath(input, "realPath", settings.maxPathBytes)
+        const op = OpContext.make("realPath")
+        const prepared = preparePath(input, op.operation, settings.maxPathBytes)
         const base = options?.relativeTo
 
         return yield* coordinatedRead(
-          "realPath",
+          op,
           Effect.gen(function*() {
-            const result = yield* lookup(yield* Effect.fromResult(prepared), base, "realPath")
+            const result = yield* lookup(yield* Effect.fromResult(prepared), base, op)
             const components: Array<string> = []
 
             if (result.node?.kind !== "directory" && result.name !== undefined) components.push(result.name)
@@ -2037,7 +2056,7 @@ export const makeVolume = Effect.fnUntraced(
               const entry = [...parent.entries].find(([, child]) => child === directory)
 
               if (entry === undefined) {
-                return yield* new FsError({ code: "NotFound", operation: "realPath", path: input })
+                return yield* op.fail("NotFound", { path: input })
               }
 
               components.push(entry[0])
@@ -2053,31 +2072,31 @@ export const makeVolume = Effect.fnUntraced(
         function*(
           target: PathInput | FileHandle | DirectoryHandle,
           options: MetadataOptions | undefined,
-          operation: string
+          op: OpContext
         ) {
           if (reference.directory === undefined) {
-            return yield* new FsError({ code: "ClosedCaller", operation: operation })
+            return yield* op.fail("ClosedCaller")
           }
 
           if (isFileHandle(target) || isDirectoryHandle(target)) {
             const ref = isFileHandle(target) ? files.get(target) : handles.get(target)
 
-            if (ref === undefined) return yield* new FsError({ code: "InvalidHandle", operation: operation })
+            if (ref === undefined) return yield* op.fail("InvalidHandle")
 
             if (ref.volume !== volumeIdentity) {
-              return yield* new FsError({ code: "ForeignHandle", operation: operation })
+              return yield* op.fail("ForeignHandle")
             }
 
             const node = "file" in ref ? ref.file : ref.directory
 
-            if (node === undefined) return yield* new FsError({ code: "InvalidHandle", operation: operation })
+            if (node === undefined) return yield* op.fail("InvalidHandle")
 
             return node
           }
 
-          const path = yield* Effect.fromResult(preparePath(target, operation, settings.maxPathBytes))
+          const path = yield* Effect.fromResult(preparePath(target, op.operation, settings.maxPathBytes))
 
-          return yield* resolveNode(path, options?.relativeTo, operation, {
+          return yield* resolveNode(path, options?.relativeTo, op, {
             followFinalSymlink: options?.followFinalSymlink !== false
           })
         }
@@ -2086,14 +2105,12 @@ export const makeVolume = Effect.fnUntraced(
       const permittedMode = (
         metadata: Pick<Metadata, "kind" | "uid" | "gid">,
         mode: number,
-        operation: string,
+        op: OpContext,
         path?: PathInput
       ) => {
         if (!identity.privileged && identity.uid !== metadata.uid) {
           return Effect.fail(
-            path === undefined
-              ? new FsError({ code: "AccessDenied", operation })
-              : new FsError({ code: "AccessDenied", operation, path })
+            op.fail("AccessDenied", path === undefined ? undefined : { path })
           )
         }
 
@@ -2104,18 +2121,20 @@ export const makeVolume = Effect.fnUntraced(
 
       const changeMode = Effect.fnUntraced(
         function*(target: PathInput | FileHandle | DirectoryHandle, mode: number, options?: MetadataOptions) {
-          if (!isMode(mode)) return yield* new FsError({ code: "InvalidArgument", operation: "chmod" })
+          const op = OpContext.make("chmod")
+
+          if (!isMode(mode)) return yield* op.fail("InvalidArgument")
           const chosen = options === undefined ? undefined : { ...options }
 
           return yield* coordinated(
-            "chmod",
+            op,
             Effect.gen(function*() {
-              const node = yield* metadataNode(target, chosen, "chmod")
-              const permitted = yield* permittedMode(node.metadata, mode, "chmod")
+              const node = yield* metadataNode(target, chosen, op)
+              const permitted = yield* permittedMode(node.metadata, mode, op)
               node.metadata = {
                 ...node.metadata,
                 mode: permitted,
-                ctimeNs: (yield* timestamp("chmod"))
+                ctimeNs: (yield* timestamp(op))
               }
               advanceRevision(node)
               publishNode(node)
@@ -2126,24 +2145,26 @@ export const makeVolume = Effect.fnUntraced(
 
       const changeOwner = Effect.fnUntraced(
         function*(target: PathInput | FileHandle | DirectoryHandle, owner: OwnerUpdate, options?: MetadataOptions) {
+          const op = OpContext.make("chown")
+
           const decoded = yield* decodeOwnerUpdate(owner).pipe(
-            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "chown", cause }))
+            Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
           )
 
           const update = { ...decoded }
           const chosen = options === undefined ? undefined : { ...options }
 
           return yield* coordinated(
-            "chown",
+            op,
             Effect.gen(function*() {
-              const node = yield* metadataNode(target, chosen, "chown")
+              const node = yield* metadataNode(target, chosen, op)
 
               if (
                 !identity.privileged && (identity.uid !== node.metadata.uid ||
                   (update.uid !== undefined && update.uid !== node.metadata.uid) ||
                   (update.gid !== undefined && update.gid !== identity.gid && !identity.groups.includes(update.gid)))
               ) {
-                return yield* new FsError({ code: "AccessDenied", operation: "chown" })
+                return yield* op.fail("AccessDenied")
               }
 
               if (update.uid === undefined && update.gid === undefined) return
@@ -2152,7 +2173,7 @@ export const makeVolume = Effect.fnUntraced(
                 uid: update.uid ?? node.metadata.uid,
                 gid: update.gid ?? node.metadata.gid,
                 mode: node.kind === "file" ? node.metadata.mode & ~SET_ID_BITS : node.metadata.mode,
-                ctimeNs: (yield* timestamp("chown"))
+                ctimeNs: (yield* timestamp(op))
               }
               advanceRevision(node)
               publishNode(node)
@@ -2163,8 +2184,10 @@ export const makeVolume = Effect.fnUntraced(
 
       const changeTimes = Effect.fnUntraced(
         function*(target: PathInput | FileHandle | DirectoryHandle, times: Times, options?: MetadataOptions) {
+          const op = OpContext.make("utimes")
+
           const decoded = yield* decodeTimes(times).pipe(
-            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "utimes", cause }))
+            Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
           )
 
           const access = { ...decoded.access }
@@ -2172,9 +2195,9 @@ export const makeVolume = Effect.fnUntraced(
           const chosen = options === undefined ? undefined : { ...options }
 
           return yield* coordinated(
-            "utimes",
+            op,
             Effect.gen(function*() {
-              const node = yield* metadataNode(target, chosen, "utimes")
+              const node = yield* metadataNode(target, chosen, op)
 
               if (access.kind === "omit" && modification.kind === "omit") return
 
@@ -2184,15 +2207,13 @@ export const makeVolume = Effect.fnUntraced(
                 if (access.kind !== "now" || modification.kind !== "now") {
                   const path = pathOf(target)
 
-                  return yield* path === undefined
-                    ? new FsError({ code: "AccessDenied", operation: "utimes" })
-                    : new FsError({ code: "AccessDenied", operation: "utimes", path })
+                  return yield* op.fail("AccessDenied", path === undefined ? undefined : { path })
                 }
 
-                yield* authorize(node, identity, WRITE, "utimes", pathOf(target))
+                yield* authorize(node, identity, WRITE, op, pathOf(target))
               }
 
-              const now = yield* timestamp("utimes")
+              const now = yield* timestamp(op)
               node.metadata = {
                 ...node.metadata,
                 atimeNs: access.kind === "omit"
@@ -2214,110 +2235,122 @@ export const makeVolume = Effect.fnUntraced(
         }
       )
 
-      const authorizeRemoval = (parent: Directory, child: Node, operation: string, input?: PathInput) =>
+      const authorizeRemoval = (parent: Directory, child: Node, op: OpContext, input?: PathInput) =>
         (parent.metadata.mode & STICKY_BIT) !== 0 && !identity.privileged &&
           identity.uid !== parent.metadata.uid && identity.uid !== child.metadata.uid
           ? Effect.fail(
-            input === undefined
-              ? new FsError({ code: "AccessDenied", operation })
-              : new FsError({ code: "AccessDenied", operation, path: input })
+            op.fail("AccessDenied", input === undefined ? undefined : { path: input })
           )
           : Effect.void
+
+      const rootReferenceOp = OpContext.make("rootReference")
 
       return Object.freeze({
         [CallerId]: true as const,
         rootReference: coordinatedRead(
-          "rootReference",
+          rootReferenceOp,
           Effect.gen(function*() {
             if (reference.directory === undefined) {
-              return yield* new FsError({ code: "ClosedCaller", operation: "rootReference" })
+              return yield* rootReferenceOp.fail("ClosedCaller")
             }
 
             return referenceFor(state.root)
           })
         ).pipe(Effect.withSpan("Caller.rootReference")),
         lookupReference: Effect.fn("Caller.lookupReference")(function*(directoryReference, name) {
+          const op = OpContext.make("lookupReference")
+
           if (
             !isAttachedBytes(name) || name.length === 0 || name.length > MAX_NAME_BYTES || name.includes(0) ||
             name.includes(SLASH_BYTE)
-          ) return yield* new FsError({ code: "InvalidArgument", operation: "lookupReference" })
+          ) return yield* op.fail("InvalidArgument")
           const key = Encoding.encodeHex(new Uint8Array(name))
 
-          if (isDotComponent(key)) return yield* new FsError({ code: "InvalidArgument", operation: "lookupReference" })
+          if (isDotComponent(key)) return yield* op.fail("InvalidArgument")
 
           return yield* coordinatedRead(
-            "lookupReference",
+            op,
             Effect.gen(function*() {
-              const directory = yield* referencedNode(directoryReference, "lookupReference")
+              const directory = yield* referencedNode(directoryReference, op)
 
               if (directory.kind !== "directory") {
-                return yield* new FsError({ code: "NotDirectory", operation: "lookupReference" })
+                return yield* op.fail("NotDirectory")
               }
 
-              yield* authorize(directory, identity, EXECUTE, "lookupReference", "/")
+              // TODO(#179): a reference has no caller path, so this and parentReference and observeDirectory pass "/"
+              // to authorize; settle what path a reference error carries when the operation families merge.
+              yield* authorize(directory, identity, EXECUTE, op, "/")
               const child = directory.entries.get(key)
 
-              if (child === undefined) return yield* new FsError({ code: "NotFound", operation: "lookupReference" })
+              if (child === undefined) return yield* op.fail("NotFound")
 
               return referenceFor(child)
             })
           )
         }),
         parentReference: Effect.fn("Caller.parentReference")(function*(directoryReference) {
+          const op = OpContext.make("parentReference")
+
           return yield* coordinatedRead(
-            "parentReference",
+            op,
             Effect.gen(function*() {
-              const directory = yield* referencedNode(directoryReference, "parentReference")
+              const directory = yield* referencedNode(directoryReference, op)
 
               if (directory.kind !== "directory") {
-                return yield* new FsError({ code: "NotDirectory", operation: "parentReference" })
+                return yield* op.fail("NotDirectory")
               }
 
-              yield* authorize(directory, identity, EXECUTE, "parentReference", "/")
+              yield* authorize(directory, identity, EXECUTE, op, "/")
 
               return referenceFor(directory.parent ?? directory)
             })
           )
         }),
         observeMetadata: Effect.fn("Caller.observeMetadata")(function*(objectReference) {
+          const op = OpContext.make("observeMetadata")
+
           return yield* coordinatedRead(
-            "observeMetadata",
+            op,
             Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, "observeMetadata")
+              const node = yield* referencedNode(objectReference, op)
 
               return Object.freeze({ value: Object.freeze({ ...node.metadata }), revision: node.revision })
             })
           )
         }),
         accessReference: Effect.fn("Caller.accessReference")(function*(objectReference, bits = 0) {
+          const op = OpContext.make("accessReference")
+
           if (!Number.isInteger(bits) || bits < 0 || bits > (READ | WRITE | EXECUTE)) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "accessReference" })
+            return yield* op.fail("InvalidArgument")
           }
 
           return yield* coordinatedRead(
-            "accessReference",
+            op,
             Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, "accessReference")
+              const node = yield* referencedNode(objectReference, op)
 
               if (node.kind === "file" && (bits & EXECUTE) !== 0 && (node.metadata.mode & ANY_EXECUTE) === 0) {
-                return yield* new FsError({ code: "AccessDenied", operation: "accessReference" })
+                return yield* op.fail("AccessDenied")
               }
 
-              yield* authorize(node, identity, bits, "accessReference")
+              yield* authorize(node, identity, bits, op)
             })
           )
         }),
         observeDirectory: Effect.fn("Caller.observeDirectory")(function*(directoryReference) {
+          const op = OpContext.make("observeDirectory")
+
           return yield* coordinatedRead(
-            "observeDirectory",
+            op,
             Effect.gen(function*() {
-              const directory = yield* referencedNode(directoryReference, "observeDirectory")
+              const directory = yield* referencedNode(directoryReference, op)
 
               if (directory.kind !== "directory") {
-                return yield* new FsError({ code: "NotDirectory", operation: "observeDirectory" })
+                return yield* op.fail("NotDirectory")
               }
 
-              yield* authorize(directory, identity, READ, "observeDirectory", "/")
+              yield* authorize(directory, identity, READ, op, "/")
 
               const value = Object.freeze(
                 [...directory.entries].map(([name, node]) =>
@@ -2330,13 +2363,15 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         readLinkReference: Effect.fn("Caller.readLinkReference")(function*(objectReference) {
+          const op = OpContext.make("readLinkReference")
+
           return yield* coordinatedRead(
-            "readLinkReference",
+            op,
             Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, "readLinkReference")
+              const node = yield* referencedNode(objectReference, op)
 
               if (node.kind !== "symlink") {
-                return yield* new FsError({ code: "InvalidArgument", operation: "readLinkReference" })
+                return yield* op.fail("InvalidArgument")
               }
 
               return new Uint8Array(node.target)
@@ -2344,40 +2379,41 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         mkdirReference: Effect.fn("Caller.mkdirReference")(function*(directoryReference, input, raw = {}) {
-          const name = yield* referencedName(input, "mkdirReference")
+          const op = OpContext.make("mkdirReference")
+          const name = yield* referencedName(input, op)
 
           const decoded = yield* decodeMkdirReferenceSettings(raw).pipe(
-            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "mkdirReference", cause }))
+            Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
           )
 
           const chosen = { ...decoded }
 
           if (chosen.exactMode && chosen.mode === undefined) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "mkdirReference" })
+            return yield* op.fail("InvalidArgument")
           }
 
           const mode = chosen.mode ?? 0o777
 
           return yield* coordinated(
-            "mkdirReference",
+            op,
             Effect.gen(function*() {
-              const parent = yield* referencedDirectory(directoryReference, "mkdirReference")
-              yield* authorize(parent, identity, WRITE | EXECUTE, "mkdirReference")
+              const parent = yield* referencedDirectory(directoryReference, op)
+              yield* authorize(parent, identity, WRITE | EXECUTE, op)
 
               if (parent.entries.has(name)) {
-                return yield* new FsError({ code: "AlreadyExists", operation: "mkdirReference" })
+                return yield* op.fail("AlreadyExists")
               }
 
-              if (atEntryLimit()) return yield* new FsError({ code: "NoSpace", operation: "mkdirReference" })
+              if (atEntryLimit()) return yield* op.fail("NoSpace")
               const before = parent.revision
-              const now = yield* timestamp("mkdirReference")
+              const now = yield* timestamp(op)
               const initial = creationTimes(chosen.times, now)
 
               const creationMode = chosen.exactMode
                 ? yield* permittedMode(
                   { kind: "directory", uid: identity.uid, gid: parent.metadata.gid },
                   mode,
-                  "mkdirReference"
+                  op
                 )
                 : (mode & 0o777 & ~umask) | (mode & STICKY_BIT)
 
@@ -2411,42 +2447,43 @@ export const makeVolume = Effect.fnUntraced(
         }),
         symlinkReference: Effect.fn("Caller.symlinkReference")(
           function*(target, directoryReference, input, raw = {}) {
-            const name = yield* referencedName(input, "symlinkReference")
+            const op = OpContext.make("symlinkReference")
+            const name = yield* referencedName(input, op)
 
             const decoded = yield* decodeSymlinkReferenceSettings(raw).pipe(
-              Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "symlinkReference", cause }))
+              Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
             )
 
             const rawTarget = inputBytes(target)
 
             if (Result.isFailure(rawTarget)) {
-              return yield* new FsError({ code: rawTarget.failure, operation: "symlinkReference" })
+              return yield* op.fail(rawTarget.failure)
             }
 
             if (rawTarget.success.includes(0)) {
-              return yield* new FsError({ code: "InvalidArgument", operation: "symlinkReference" })
+              return yield* op.fail("InvalidArgument")
             }
 
             const targetBytes = new Uint8Array(rawTarget.success)
             const chosen = { ...decoded }
 
             return yield* coordinated(
-              "symlinkReference",
+              op,
               Effect.gen(function*() {
-                const parent = yield* referencedDirectory(directoryReference, "symlinkReference")
-                yield* authorize(parent, identity, WRITE | EXECUTE, "symlinkReference")
+                const parent = yield* referencedDirectory(directoryReference, op)
+                yield* authorize(parent, identity, WRITE | EXECUTE, op)
 
                 if (parent.entries.has(name)) {
-                  return yield* new FsError({ code: "AlreadyExists", operation: "symlinkReference" })
+                  return yield* op.fail("AlreadyExists")
                 }
 
                 if (
                   atEntryLimit() ||
                   (settings.maxBytes !== undefined &&
                     BigInt(targetBytes.length) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes)
-                ) return yield* new FsError({ code: "NoSpace", operation: "symlinkReference" })
+                ) return yield* op.fail("NoSpace")
                 const before = parent.revision
-                const now = yield* timestamp("symlinkReference")
+                const now = yield* timestamp(op)
                 const initial = creationTimes(chosen.times, now)
 
                 const node: SymbolicLink = {
@@ -2477,31 +2514,32 @@ export const makeVolume = Effect.fnUntraced(
         ),
         linkReference: Effect.fn("Caller.linkReference")(
           function*(sourceReference, directoryReference, input) {
-            const name = yield* referencedName(input, "linkReference")
+            const op = OpContext.make("linkReference")
+            const name = yield* referencedName(input, op)
 
             return yield* coordinated(
-              "linkReference",
+              op,
               Effect.gen(function*() {
-                const node = yield* referencedNode(sourceReference, "linkReference")
+                const node = yield* referencedNode(sourceReference, op)
 
                 if (node.kind === "directory") {
-                  return yield* new FsError({ code: "IsDirectory", operation: "linkReference" })
+                  return yield* op.fail("IsDirectory")
                 }
 
                 if (node.metadata.nlink === 0) {
-                  return yield* new FsError({ code: "StaleReference", operation: "linkReference" })
+                  return yield* op.fail("StaleReference")
                 }
 
-                const parent = yield* referencedDirectory(directoryReference, "linkReference")
-                yield* authorize(parent, identity, WRITE | EXECUTE, "linkReference")
+                const parent = yield* referencedDirectory(directoryReference, op)
+                yield* authorize(parent, identity, WRITE | EXECUTE, op)
 
                 if (parent.entries.has(name)) {
-                  return yield* new FsError({ code: "AlreadyExists", operation: "linkReference" })
+                  return yield* op.fail("AlreadyExists")
                 }
 
-                if (atEntryLimit()) return yield* new FsError({ code: "NoSpace", operation: "linkReference" })
+                if (atEntryLimit()) return yield* op.fail("NoSpace")
                 const before = parent.revision
-                const now = yield* timestamp("linkReference")
+                const now = yield* timestamp(op)
                 attach(parent, name, node, now)
                 node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
                 advanceRevision(node)
@@ -2514,24 +2552,25 @@ export const makeVolume = Effect.fnUntraced(
           }
         ),
         unlinkReference: Effect.fn("Caller.unlinkReference")(function*(directoryReference, input) {
-          const name = yield* referencedName(input, "unlinkReference")
+          const op = OpContext.make("unlinkReference")
+          const name = yield* referencedName(input, op)
 
           return yield* coordinated(
-            "unlinkReference",
+            op,
             Effect.gen(function*() {
-              const parent = yield* referencedDirectory(directoryReference, "unlinkReference")
-              yield* authorize(parent, identity, WRITE | EXECUTE, "unlinkReference")
+              const parent = yield* referencedDirectory(directoryReference, op)
+              yield* authorize(parent, identity, WRITE | EXECUTE, op)
               const child = parent.entries.get(name)
 
-              if (child === undefined) return yield* new FsError({ code: "NotFound", operation: "unlinkReference" })
+              if (child === undefined) return yield* op.fail("NotFound")
 
               if (child.kind === "directory") {
-                return yield* new FsError({ code: "IsDirectory", operation: "unlinkReference" })
+                return yield* op.fail("IsDirectory")
               }
 
-              yield* authorizeRemoval(parent, child, "unlinkReference")
+              yield* authorizeRemoval(parent, child, op)
               const before = parent.revision
-              const now = yield* timestamp("unlinkReference")
+              const now = yield* timestamp(op)
               parent.entries.delete(name)
               parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
               advanceRevision(parent)
@@ -2544,28 +2583,29 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         rmdirReference: Effect.fn("Caller.rmdirReference")(function*(directoryReference, input) {
-          const name = yield* referencedName(input, "rmdirReference")
+          const op = OpContext.make("rmdirReference")
+          const name = yield* referencedName(input, op)
 
           return yield* coordinated(
-            "rmdirReference",
+            op,
             Effect.gen(function*() {
-              const parent = yield* referencedDirectory(directoryReference, "rmdirReference")
-              yield* authorize(parent, identity, WRITE | EXECUTE, "rmdirReference")
+              const parent = yield* referencedDirectory(directoryReference, op)
+              yield* authorize(parent, identity, WRITE | EXECUTE, op)
               const child = parent.entries.get(name)
 
-              if (child === undefined) return yield* new FsError({ code: "NotFound", operation: "rmdirReference" })
-              yield* authorizeRemoval(parent, child, "rmdirReference")
+              if (child === undefined) return yield* op.fail("NotFound")
+              yield* authorizeRemoval(parent, child, op)
 
               if (child.kind !== "directory") {
-                return yield* new FsError({ code: "NotDirectory", operation: "rmdirReference" })
+                return yield* op.fail("NotDirectory")
               }
 
               if (child.entries.size > 0) {
-                return yield* new FsError({ code: "NotEmpty", operation: "rmdirReference" })
+                return yield* op.fail("NotEmpty")
               }
 
               const before = parent.revision
-              const now = yield* timestamp("rmdirReference")
+              const now = yield* timestamp(op)
               parent.entries.delete(name)
               parent.metadata = { ...parent.metadata, nlink: parent.metadata.nlink - 1, mtimeNs: now, ctimeNs: now }
               child.parent = undefined
@@ -2581,24 +2621,25 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         removeReference: Effect.fn("Caller.removeReference")(function*(directoryReference, input) {
-          const name = yield* referencedName(input, "removeReference")
+          const op = OpContext.make("removeReference")
+          const name = yield* referencedName(input, op)
 
           return yield* coordinated(
-            "removeReference",
+            op,
             Effect.gen(function*() {
-              const parent = yield* referencedDirectory(directoryReference, "removeReference")
-              yield* authorize(parent, identity, WRITE | EXECUTE, "removeReference")
+              const parent = yield* referencedDirectory(directoryReference, op)
+              yield* authorize(parent, identity, WRITE | EXECUTE, op)
               const child = parent.entries.get(name)
 
-              if (child === undefined) return yield* new FsError({ code: "NotFound", operation: "removeReference" })
-              yield* authorizeRemoval(parent, child, "removeReference")
+              if (child === undefined) return yield* op.fail("NotFound")
+              yield* authorizeRemoval(parent, child, op)
 
               if (child.kind === "directory" && child.entries.size > 0) {
-                return yield* new FsError({ code: "NotEmpty", operation: "removeReference" })
+                return yield* op.fail("NotEmpty")
               }
 
               const before = parent.revision
-              const now = yield* timestamp("removeReference")
+              const now = yield* timestamp(op)
               parent.entries.delete(name)
               parent.metadata = {
                 ...parent.metadata,
@@ -2627,27 +2668,28 @@ export const makeVolume = Effect.fnUntraced(
         }),
         renameReference: Effect.fn("Caller.renameReference")(
           function*(sourceDirectoryReference, sourceInput, destinationDirectoryReference, destinationInput) {
-            const sourceName = yield* referencedName(sourceInput, "renameReference")
-            const destinationName = yield* referencedName(destinationInput, "renameReference")
+            const op = OpContext.make("renameReference")
+            const sourceName = yield* referencedName(sourceInput, op)
+            const destinationName = yield* referencedName(destinationInput, op)
 
             return yield* coordinated(
-              "renameReference",
+              op,
               Effect.gen(function*() {
-                const sourceDirectory = yield* referencedDirectory(sourceDirectoryReference, "renameReference")
+                const sourceDirectory = yield* referencedDirectory(sourceDirectoryReference, op)
 
                 const destinationDirectory = yield* referencedDirectory(
                   destinationDirectoryReference,
-                  "renameReference"
+                  op
                 )
 
-                yield* authorize(sourceDirectory, identity, WRITE | EXECUTE, "renameReference")
-                yield* authorize(destinationDirectory, identity, WRITE | EXECUTE, "renameReference")
+                yield* authorize(sourceDirectory, identity, WRITE | EXECUTE, op)
+                yield* authorize(destinationDirectory, identity, WRITE | EXECUTE, op)
                 const sourceBefore = sourceDirectory.revision
                 const destinationBefore = destinationDirectory.revision
                 const child = sourceDirectory.entries.get(sourceName)
 
                 if (child === undefined) {
-                  return yield* new FsError({ code: "NotFound", operation: "renameReference" })
+                  return yield* op.fail("NotFound")
                 }
 
                 const replaced = destinationDirectory.entries.get(destinationName)
@@ -2662,21 +2704,21 @@ export const makeVolume = Effect.fnUntraced(
                     }
                 }
 
-                yield* authorizeRemoval(sourceDirectory, child, "renameReference")
+                yield* authorizeRemoval(sourceDirectory, child, op)
 
                 if (replaced !== undefined) {
-                  yield* authorizeRemoval(destinationDirectory, replaced, "renameReference")
+                  yield* authorizeRemoval(destinationDirectory, replaced, op)
 
                   if (child.kind === "directory" && replaced.kind !== "directory") {
-                    return yield* new FsError({ code: "NotDirectory", operation: "renameReference" })
+                    return yield* op.fail("NotDirectory")
                   }
 
                   if (child.kind !== "directory" && replaced.kind === "directory") {
-                    return yield* new FsError({ code: "IsDirectory", operation: "renameReference" })
+                    return yield* op.fail("IsDirectory")
                   }
 
                   if (replaced.kind === "directory" && replaced.entries.size > 0) {
-                    return yield* new FsError({ code: "NotEmpty", operation: "renameReference" })
+                    return yield* op.fail("NotEmpty")
                   }
                 }
 
@@ -2686,11 +2728,11 @@ export const makeVolume = Effect.fnUntraced(
                   ancestor = ancestor.parent
                 ) {
                   if (ancestor === child) {
-                    return yield* new FsError({ code: "InvalidArgument", operation: "renameReference" })
+                    return yield* op.fail("InvalidArgument")
                   }
                 }
 
-                const now = yield* timestamp("renameReference")
+                const now = yield* timestamp(op)
 
                 const oldEvent = () =>
                   ownedPath(
@@ -2745,36 +2787,40 @@ export const makeVolume = Effect.fnUntraced(
           }
         ),
         chmodReference: Effect.fn("Caller.chmodReference")(function*(objectReference, mode) {
-          if (!isMode(mode)) return yield* new FsError({ code: "InvalidArgument", operation: "chmodReference" })
+          const op = OpContext.make("chmodReference")
+
+          if (!isMode(mode)) return yield* op.fail("InvalidArgument")
 
           return yield* coordinated(
-            "chmodReference",
+            op,
             Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, "chmodReference")
-              const permitted = yield* permittedMode(node.metadata, mode, "chmodReference")
-              node.metadata = { ...node.metadata, mode: permitted, ctimeNs: (yield* timestamp("chmodReference")) }
+              const node = yield* referencedNode(objectReference, op)
+              const permitted = yield* permittedMode(node.metadata, mode, op)
+              node.metadata = { ...node.metadata, mode: permitted, ctimeNs: (yield* timestamp(op)) }
               advanceRevision(node)
               publishNode(node)
             })
           )
         }),
         chownReference: Effect.fn("Caller.chownReference")(function*(objectReference, owner) {
+          const op = OpContext.make("chownReference")
+
           const decoded = yield* decodeOwnerUpdate(owner).pipe(
-            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "chownReference", cause }))
+            Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
           )
 
           const update = { ...decoded }
 
           return yield* coordinated(
-            "chownReference",
+            op,
             Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, "chownReference")
+              const node = yield* referencedNode(objectReference, op)
 
               if (
                 !identity.privileged && (identity.uid !== node.metadata.uid ||
                   (update.uid !== undefined && update.uid !== node.metadata.uid) ||
                   (update.gid !== undefined && update.gid !== identity.gid && !identity.groups.includes(update.gid)))
-              ) return yield* new FsError({ code: "AccessDenied", operation: "chownReference" })
+              ) return yield* op.fail("AccessDenied")
 
               if (update.uid === undefined && update.gid === undefined) return
               node.metadata = {
@@ -2782,7 +2828,7 @@ export const makeVolume = Effect.fnUntraced(
                 uid: update.uid ?? node.metadata.uid,
                 gid: update.gid ?? node.metadata.gid,
                 mode: node.kind === "file" ? node.metadata.mode & ~SET_ID_BITS : node.metadata.mode,
-                ctimeNs: (yield* timestamp("chownReference"))
+                ctimeNs: (yield* timestamp(op))
               }
               advanceRevision(node)
               publishNode(node)
@@ -2790,29 +2836,31 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         utimesReference: Effect.fn("Caller.utimesReference")(function*(objectReference, times) {
+          const op = OpContext.make("utimesReference")
+
           const decoded = yield* decodeTimes(times).pipe(
-            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "utimesReference", cause }))
+            Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
           )
 
           const access = { ...decoded.access }
           const modification = { ...decoded.modification }
 
           return yield* coordinated(
-            "utimesReference",
+            op,
             Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, "utimesReference")
+              const node = yield* referencedNode(objectReference, op)
 
               if (access.kind === "omit" && modification.kind === "omit") return
 
               if (!identity.privileged && identity.uid !== node.metadata.uid) {
                 if (access.kind !== "now" || modification.kind !== "now") {
-                  return yield* new FsError({ code: "AccessDenied", operation: "utimesReference" })
+                  return yield* op.fail("AccessDenied")
                 }
 
-                yield* authorize(node, identity, WRITE, "utimesReference")
+                yield* authorize(node, identity, WRITE, op)
               }
 
-              const now = yield* timestamp("utimesReference")
+              const now = yield* timestamp(op)
               node.metadata = {
                 ...node.metadata,
                 atimeNs: access.kind === "omit"
@@ -2833,29 +2881,33 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         truncateReference: Effect.fn("Caller.truncateReference")(function*(objectReference, length) {
+          const op = OpContext.make("truncateReference")
+
           return yield* coordinated(
-            "truncateReference",
+            op,
             Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, "truncateReference")
+              const node = yield* referencedNode(objectReference, op)
 
               if (node.kind !== "file") {
-                return yield* new FsError({ code: "IsDirectory", operation: "truncateReference" })
+                return yield* op.fail("IsDirectory")
               }
 
-              yield* authorize(node, identity, WRITE, "truncateReference")
-              yield* resize(node, length, "truncateReference")
+              yield* authorize(node, identity, WRITE, op)
+              yield* resize(node, length, op)
             })
           )
         }),
         openReference: Effect.fn("Caller.openReference")(function*(objectReference, raw = { access: "read" }) {
+          const op = OpContext.make("openReference")
+
           const decoded = yield* decodeOpenReferenceSettings(raw).pipe(
-            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "openReference", cause }))
+            Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
           )
 
           const chosen = { ...decoded }
 
           if (chosen.access === "read" && (chosen.append || chosen.truncate)) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "openReference" })
+            return yield* op.fail("InvalidArgument")
           }
 
           const acquired = makeFileReference(chosen.access, chosen.append ?? false)
@@ -2863,25 +2915,25 @@ export const makeVolume = Effect.fnUntraced(
           yield* Effect.addFinalizer(() => finalizeFile(acquired))
 
           return yield* coordinated(
-            "openReference",
+            op,
             Effect.gen(function*() {
               if (acquired.closed) return yield* Effect.interrupt
-              const node = yield* referencedNode(objectReference, "openReference")
+              const node = yield* referencedNode(objectReference, op)
 
-              if (node.kind !== "file") return yield* new FsError({ code: "IsDirectory", operation: "openReference" })
+              if (node.kind !== "file") return yield* op.fail("IsDirectory")
 
               if (node.metadata.nlink === 0) {
-                return yield* new FsError({ code: "StaleReference", operation: "openReference" })
+                return yield* op.fail("StaleReference")
               }
 
               yield* authorize(
                 node,
                 identity,
                 chosen.access === "read" ? READ : chosen.access === "write" ? WRITE : READ | WRITE,
-                "openReference"
+                op
               )
 
-              if (chosen.truncate) yield* resize(node, 0n, "openReference")
+              if (chosen.truncate) yield* resize(node, 0n, op)
               node.openCount += 1
               acquired.file = node
 
@@ -2891,18 +2943,17 @@ export const makeVolume = Effect.fnUntraced(
         }),
         openChildReference: Effect.fn("Caller.openChildReference")(
           function*(directoryReference, input, raw, expected) {
-            const name = yield* referencedName(input, "openChildReference")
+            const op = OpContext.make("openChildReference")
+            const name = yield* referencedName(input, op)
 
             const decoded = yield* decodeOpenChildReferenceSettings(raw).pipe(
-              Effect.mapError((cause) =>
-                new FsError({ code: "InvalidArgument", operation: "openChildReference", cause })
-              )
+              Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
             )
 
             const chosen = { ...decoded }
 
             if (chosen.access === "read" && (chosen.append || chosen.truncate)) {
-              return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
+              return yield* op.fail("InvalidArgument")
             }
 
             if (
@@ -2910,67 +2961,63 @@ export const makeVolume = Effect.fnUntraced(
                 chosen.exactMode !== undefined || chosen.owner !== undefined) &&
               (chosen.create === undefined || chosen.create === "never")
             ) {
-              return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
+              return yield* op.fail("InvalidArgument")
             }
 
             if (chosen.exactMode && chosen.mode === undefined) {
-              return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
+              return yield* op.fail("InvalidArgument")
             }
 
-            const relativePath = preparePath(ownedPath(nameBytes(name)), "openChildReference", undefined)
+            const relativePath = preparePath(ownedPath(nameBytes(name)), op.operation, undefined)
 
             const acquired = makeFileReference(chosen.access, chosen.append ?? false)
 
             yield* Effect.addFinalizer(() => finalizeFile(acquired))
 
             return yield* coordinated(
-              "openChildReference",
+              op,
               Effect.gen(function*() {
                 if (acquired.closed) return yield* Effect.interrupt
-                const parent = yield* referencedDirectory(directoryReference, "openChildReference")
-                yield* authorize(parent, identity, EXECUTE, "openChildReference")
+                const parent = yield* referencedDirectory(directoryReference, op)
+                yield* authorize(parent, identity, EXECUTE, op)
                 const direct = parent.entries.get(name)
 
                 if (expected !== undefined) {
                   let expectedNode: Node | undefined
 
                   if (expected !== null) {
-                    const observed = yield* Effect.result(referencedNode(expected, "openChildReference"))
+                    const observed = yield* Effect.result(referencedNode(expected, op))
 
                     if (Result.isFailure(observed)) {
-                      return yield* new FsError({
-                        code: "VolumeBusy",
-                        operation: "openChildReference",
-                        cause: observed.failure
-                      })
+                      return yield* op.fail("VolumeBusy", { cause: observed.failure })
                     }
 
                     expectedNode = observed.success
                   }
 
                   if (direct !== expectedNode) {
-                    return yield* new FsError({ code: "VolumeBusy", operation: "openChildReference" })
+                    return yield* op.fail("VolumeBusy")
                   }
                 }
 
                 if (chosen.expectedChild === null) {
                   if (direct !== undefined) {
-                    return yield* new FsError({ code: "StaleReference", operation: "openChildReference" })
+                    return yield* op.fail("StaleReference")
                   }
                 } else if (chosen.expectedChild !== undefined) {
                   const expected = chosen.expectedChild
-                  const observed = yield* referencedNode(expected.reference, "openChildReference")
+                  const observed = yield* referencedNode(expected.reference, op)
 
                   if (
                     direct !== observed || observed.revision !== expected.revision ||
                     observed.metadata.atimeNs !== expected.atimeNs || observed.metadata.mtimeNs !== expected.mtimeNs
                   ) {
-                    return yield* new FsError({ code: "StaleReference", operation: "openChildReference" })
+                    return yield* op.fail("StaleReference")
                   }
                 }
 
                 if (direct !== undefined && chosen.create === "exclusive") {
-                  return yield* new FsError({ code: "AlreadyExists", operation: "openChildReference" })
+                  return yield* op.fail("AlreadyExists")
                 }
 
                 let file: Node | undefined = direct
@@ -2981,7 +3028,7 @@ export const makeVolume = Effect.fnUntraced(
                   const resolved = yield* lookup(
                     yield* Effect.fromResult(relativePath),
                     undefined,
-                    "openChildReference",
+                    op,
                     {
                       followFinalSymlink: true,
                       allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
@@ -2993,7 +3040,7 @@ export const makeVolume = Effect.fnUntraced(
 
                   if (file === undefined) {
                     if (resolved.parent === undefined || resolved.name === undefined) {
-                      return yield* new FsError({ code: "IsDirectory", operation: "openChildReference" })
+                      return yield* op.fail("IsDirectory")
                     }
 
                     mutationParent = resolved.parent
@@ -3006,29 +3053,29 @@ export const makeVolume = Effect.fnUntraced(
 
                 if (file === undefined) {
                   if (chosen.create === undefined || chosen.create === "never") {
-                    return yield* new FsError({ code: "NotFound", operation: "openChildReference" })
+                    return yield* op.fail("NotFound")
                   }
 
-                  yield* authorize(mutationParent, identity, WRITE | EXECUTE, "openChildReference")
+                  yield* authorize(mutationParent, identity, WRITE | EXECUTE, op)
 
                   if (atEntryLimit()) {
-                    return yield* new FsError({ code: "NoSpace", operation: "openChildReference" })
+                    return yield* op.fail("NoSpace")
                   }
 
                   const size = chosen.initialSize ?? 0n
 
                   if (size < 0n) {
-                    return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
+                    return yield* op.fail("InvalidArgument")
                   }
 
                   if (size > BigInt(maxFileBytes)) {
-                    return yield* new FsError({ code: "FileTooLarge", operation: "openChildReference" })
+                    return yield* op.fail("FileTooLarge")
                   }
 
                   if (
                     settings.maxBytes !== undefined && size > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes
                   ) {
-                    return yield* new FsError({ code: "NoSpace", operation: "openChildReference" })
+                    return yield* op.fail("NoSpace")
                   }
 
                   if (
@@ -3037,10 +3084,10 @@ export const makeVolume = Effect.fnUntraced(
                       (chosen.owner?.gid !== undefined && chosen.owner.gid !== identity.gid &&
                         !identity.groups.includes(chosen.owner.gid)))
                   ) {
-                    return yield* new FsError({ code: "AccessDenied", operation: "openChildReference" })
+                    return yield* op.fail("AccessDenied")
                   }
 
-                  const now = yield* timestamp("openChildReference")
+                  const now = yield* timestamp(op)
                   const initial = creationTimes(chosen.times, now)
 
                   const creationMode = chosen.exactMode
@@ -3051,7 +3098,7 @@ export const makeVolume = Effect.fnUntraced(
                         gid: chosen.owner?.gid ?? mutationParent.metadata.gid
                       },
                       chosen.mode!,
-                      "openChildReference"
+                      op
                     )
                     : (chosen.mode ?? 0o666) & 0o777 & ~umask
 
@@ -3086,21 +3133,21 @@ export const makeVolume = Effect.fnUntraced(
                   publishEntry("Create", mutationParent, mutationName)
                 } else {
                   if (file.kind === "symlink") {
-                    return yield* new FsError({ code: "SymlinkLoop", operation: "openChildReference" })
+                    return yield* op.fail("SymlinkLoop")
                   }
 
                   if (file.kind !== "file") {
-                    return yield* new FsError({ code: "IsDirectory", operation: "openChildReference" })
+                    return yield* op.fail("IsDirectory")
                   }
 
                   yield* authorize(
                     file,
                     identity,
                     chosen.access === "read" ? READ : chosen.access === "write" ? WRITE : READ | WRITE,
-                    "openChildReference"
+                    op
                   )
 
-                  if (chosen.truncate) yield* resize(file, 0n, "openChildReference")
+                  if (chosen.truncate) yield* resize(file, 0n, op)
                 }
 
                 file.openCount += 1
@@ -3117,21 +3164,22 @@ export const makeVolume = Effect.fnUntraced(
           }
         ),
         readFile: Effect.fn("Caller.readFile")(function*(input: PathInput, options?: RelativeOptions) {
-          const prepared = preparePath(input, "readFile", settings.maxPathBytes)
+          const op = OpContext.make("readFile")
+          const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
 
           return yield* coordinated(
-            "readFile",
+            op,
             Effect.gen(function*() {
-              const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "readFile")
+              const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, op)
 
               if (node.kind !== "file") {
-                return yield* new FsError({ code: "IsDirectory", operation: "readFile", path: input })
+                return yield* op.fail("IsDirectory", { path: input })
               }
 
-              yield* authorize(node, identity, READ, "readFile", input)
+              yield* authorize(node, identity, READ, op, input)
               const data = new Uint8Array(node.data.bytes)
-              node.metadata = { ...node.metadata, atimeNs: (yield* timestamp("readFile")) }
+              node.metadata = { ...node.metadata, atimeNs: (yield* timestamp(op)) }
 
               return data
             })
@@ -3139,31 +3187,30 @@ export const makeVolume = Effect.fnUntraced(
         }),
         writeFile: Effect.fn("Caller.writeFile")(
           function*(input: PathInput, bytes: Uint8Array, options: WriteFileOptions) {
-            const prepared = preparePath(input, "writeFile", settings.maxPathBytes)
+            const op = OpContext.make("writeFile")
+            const prepared = preparePath(input, op.operation, settings.maxPathBytes)
 
             if (!isAttachedBytes(bytes)) {
-              return yield* new FsError({ code: "InvalidArgument", operation: "writeFile", path: input })
+              return yield* op.fail("InvalidArgument", { path: input })
             }
 
             const captured = new Uint8Array(bytes)
             const { relativeTo: base, ...raw } = options
 
             const chosen = yield* decodeWriteFileSettings(raw).pipe(
-              Effect.mapError((cause) =>
-                new FsError({ code: "InvalidArgument", operation: "writeFile", path: input, cause })
-              )
+              Effect.mapError((cause) => op.fail("InvalidArgument", { path: input, cause }))
             )
 
             return yield* coordinated(
-              "writeFile",
+              op,
               Effect.gen(function*() {
                 const path = yield* Effect.fromResult(prepared)
 
                 if (chosen.create === "exclusive") {
-                  const exists = yield* Effect.result(lookup(path, base, "writeFile", { followFinalSymlink: false }))
+                  const exists = yield* Effect.result(lookup(path, base, op, { followFinalSymlink: false }))
 
                   if (Result.isSuccess(exists)) {
-                    return yield* new FsError({ code: "AlreadyExists", operation: "writeFile", path: input })
+                    return yield* op.fail("AlreadyExists", { path: input })
                   }
 
                   if (exists.failure.code !== "NotFound") return yield* exists.failure
@@ -3172,7 +3219,7 @@ export const makeVolume = Effect.fnUntraced(
                 const resolved = yield* lookup(
                   path,
                   base,
-                  "writeFile",
+                  op,
                   {
                     followFinalSymlink: chosen.replaceFinalSymlink !== true && chosen.followFinalSymlink !== false,
                     allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
@@ -3182,35 +3229,35 @@ export const makeVolume = Effect.fnUntraced(
                 const { name, parent } = resolved
 
                 if (parent === undefined || name === undefined || resolved.node?.kind === "directory") {
-                  return yield* new FsError({ code: "IsDirectory", operation: "writeFile", path: input })
+                  return yield* op.fail("IsDirectory", { path: input })
                 }
 
                 const replaced = resolved.node?.kind === "symlink" ? resolved.node : undefined
 
                 if (replaced !== undefined && !chosen.replaceFinalSymlink) {
-                  return yield* new FsError({ code: "SymlinkLoop", operation: "writeFile", path: input })
+                  return yield* op.fail("SymlinkLoop", { path: input })
                 }
 
                 if (chosen.access === "read") {
-                  return yield* new FsError({ code: "InvalidHandle", operation: "writeFile", path: input })
+                  return yield* op.fail("InvalidHandle", { path: input })
                 }
 
                 const file = resolved.node?.kind === "file" ? resolved.node : undefined
 
                 if (file === undefined) {
-                  yield* authorize(parent, identity, WRITE | EXECUTE, "writeFile", input)
+                  yield* authorize(parent, identity, WRITE | EXECUTE, op, input)
 
-                  if (replaced !== undefined) yield* authorizeRemoval(parent, replaced, "writeFile", input)
+                  if (replaced !== undefined) yield* authorizeRemoval(parent, replaced, op, input)
 
                   if (replaced === undefined && atEntryLimit()) {
-                    return yield* new FsError({ code: "NoSpace", operation: "writeFile", path: input })
+                    return yield* op.fail("NoSpace", { path: input })
                   }
                 } else {
                   yield* authorize(
                     file,
                     identity,
                     chosen.access === "readWrite" ? READ | WRITE : WRITE,
-                    "writeFile",
+                    op,
                     input
                   )
                 }
@@ -3218,7 +3265,7 @@ export const makeVolume = Effect.fnUntraced(
                 const finalMode = chosen.finalMode === undefined ? undefined : yield* permittedMode(
                   file?.metadata ?? { kind: "file", uid: identity.uid, gid: parent.metadata.gid },
                   chosen.finalMode,
-                  "writeFile",
+                  op,
                   input
                 )
 
@@ -3228,7 +3275,7 @@ export const makeVolume = Effect.fnUntraced(
                 const size = Math.max(initial, position + captured.length)
 
                 if (size > maxFileBytes) {
-                  return yield* new FsError({ code: "FileTooLarge", operation: "writeFile", path: input })
+                  return yield* op.fail("FileTooLarge", { path: input })
                 }
 
                 const reclaimed = replaced !== undefined && replaced.metadata.nlink === 1 ? replaced.target.length : 0
@@ -3237,7 +3284,7 @@ export const makeVolume = Effect.fnUntraced(
                   settings.maxBytes !== undefined &&
                   BigInt(size - previous) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes + BigInt(reclaimed)
                 ) {
-                  return yield* new FsError({ code: "NoSpace", operation: "writeFile", path: input })
+                  return yield* op.fail("NoSpace", { path: input })
                 }
 
                 if (file !== undefined && !chosen.truncate && captured.length === 0 && chosen.finalMode === undefined) {
@@ -3253,7 +3300,7 @@ export const makeVolume = Effect.fnUntraced(
                   data.set(captured, position)
                 }
 
-                const now = yield* timestamp("writeFile")
+                const now = yield* timestamp(op)
 
                 const node: RegularFile = file ??
                   {
@@ -3320,52 +3367,55 @@ export const makeVolume = Effect.fnUntraced(
           yield* changeTimes(handle, times)
         }),
         access: Effect.fn("Caller.access")(function*(input: PathInput, bits = 0, options?: RelativeOptions) {
-          const prepared = preparePath(input, "access", settings.maxPathBytes)
+          const op = OpContext.make("access")
+          const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
 
           if (!Number.isInteger(bits) || bits < 0 || bits > (READ | WRITE | EXECUTE)) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "access", path: input })
+            return yield* op.fail("InvalidArgument", { path: input })
           }
 
           return yield* coordinatedRead(
-            "access",
+            op,
             Effect.gen(function*() {
-              const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "access")
+              const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, op)
 
               if (node.kind === "file" && (bits & EXECUTE) !== 0 && (node.metadata.mode & ANY_EXECUTE) === 0) {
-                return yield* new FsError({ code: "AccessDenied", operation: "access", path: input })
+                return yield* op.fail("AccessDenied", { path: input })
               }
 
-              yield* authorize(node, identity, bits, "access", input)
+              yield* authorize(node, identity, bits, op, input)
             })
           )
         }),
         truncate: Effect.fn("Caller.truncate")(function*(input: PathInput, length: bigint, options?: RelativeOptions) {
-          const prepared = preparePath(input, "truncate", settings.maxPathBytes)
+          const op = OpContext.make("truncate")
+          const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
 
           return yield* coordinated(
-            "truncate",
+            op,
             Effect.gen(function*() {
-              const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "truncate")
+              const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, op)
 
               if (node.kind !== "file") {
-                return yield* new FsError({ code: "IsDirectory", operation: "truncate", path: input })
+                return yield* op.fail("IsDirectory", { path: input })
               }
 
-              yield* authorize(node, identity, WRITE, "truncate", input)
-              yield* resize(node, length, "truncate")
+              yield* authorize(node, identity, WRITE, op, input)
+              yield* resize(node, length, op)
             })
           )
         }),
         lstat: Effect.fn("Caller.lstat")(function*(input: PathInput, options?: RelativeOptions) {
-          const prepared = preparePath(input, "lstat", settings.maxPathBytes)
+          const op = OpContext.make("lstat")
+          const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
 
           return yield* coordinatedRead(
-            "lstat",
+            op,
             Effect.gen(function*() {
-              const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, "lstat", {
+              const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, op, {
                 followFinalSymlink: false
               })
 
@@ -3383,41 +3433,42 @@ export const makeVolume = Effect.fnUntraced(
               readonly followSourceSymlink?: boolean
             }
           ) {
-            const a = preparePath(source, "link", settings.maxPathBytes)
-            const b = preparePath(destination, "link", settings.maxPathBytes)
+            const op = OpContext.make("link")
+            const a = preparePath(source, op.operation, settings.maxPathBytes)
+            const b = preparePath(destination, op.operation, settings.maxPathBytes)
             const sourceBase = options?.sourceRelativeTo
             const destinationBase = options?.destinationRelativeTo
             const follow = options?.followSourceSymlink ?? false
 
             return yield* coordinated(
-              "link",
+              op,
               Effect.gen(function*() {
-                const node = yield* resolveNode(yield* Effect.fromResult(a), sourceBase, "link", {
+                const node = yield* resolveNode(yield* Effect.fromResult(a), sourceBase, op, {
                   followFinalSymlink: follow
                 })
 
                 if (node.kind === "directory") {
-                  return yield* new FsError({ code: "IsDirectory", operation: "link", path: source })
+                  return yield* op.fail("IsDirectory", { path: source })
                 }
 
                 const path = yield* Effect.fromResult(b)
-                const parent = yield* locate(path, destinationBase, "link", { parentOnly: true })
-                yield* authorize(parent, identity, WRITE | EXECUTE, "link", destination)
+                const parent = yield* locate(path, destinationBase, op, { parentOnly: true })
+                yield* authorize(parent, identity, WRITE | EXECUTE, op, destination)
                 const name = path.components.at(-1)
 
                 if (isDotComponent(name) || parent.entries.has(name)) {
-                  return yield* new FsError({ code: "AlreadyExists", operation: "link", path: destination })
+                  return yield* op.fail("AlreadyExists", { path: destination })
                 }
 
                 if (path.trailingSlash) {
-                  return yield* new FsError({ code: "NotDirectory", operation: "link", path: destination })
+                  return yield* op.fail("NotDirectory", { path: destination })
                 }
 
                 if (atEntryLimit()) {
-                  return yield* new FsError({ code: "NoSpace", operation: "link", path: destination })
+                  return yield* op.fail("NoSpace", { path: destination })
                 }
 
-                const now = yield* timestamp("link")
+                const now = yield* timestamp(op)
                 attach(parent, name, node, now)
                 node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
                 advanceRevision(node)
@@ -3428,44 +3479,45 @@ export const makeVolume = Effect.fnUntraced(
           }
         ),
         symlink: Effect.fn("Caller.symlink")(function*(target: PathInput, input: PathInput, options?: RelativeOptions) {
-          const prepared = preparePath(input, "symlink", settings.maxPathBytes)
+          const op = OpContext.make("symlink")
+          const prepared = preparePath(input, op.operation, settings.maxPathBytes)
 
           const rawTarget = inputBytes(target)
 
           if (Result.isFailure(rawTarget)) {
-            return yield* new FsError({ code: rawTarget.failure, operation: "symlink", path: target })
+            return yield* op.fail(rawTarget.failure, { path: target })
           }
 
           if (rawTarget.success.includes(0)) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "symlink", path: target })
+            return yield* op.fail("InvalidArgument", { path: target })
           }
 
           const targetBytes = new Uint8Array(rawTarget.success)
           const base = options?.relativeTo
 
           return yield* coordinated(
-            "symlink",
+            op,
             Effect.gen(function*() {
               const path = yield* Effect.fromResult(prepared)
               const bytes = targetBytes
-              const parent = yield* locate(path, base, "symlink", { parentOnly: true })
-              yield* authorize(parent, identity, WRITE | EXECUTE, "symlink", input)
+              const parent = yield* locate(path, base, op, { parentOnly: true })
+              yield* authorize(parent, identity, WRITE | EXECUTE, op, input)
               const name = path.components.at(-1)
 
               if (isDotComponent(name) || parent.entries.has(name)) {
-                return yield* new FsError({ code: "AlreadyExists", operation: "symlink", path: input })
+                return yield* op.fail("AlreadyExists", { path: input })
               }
 
               if (path.trailingSlash) {
-                return yield* new FsError({ code: "NotDirectory", operation: "symlink", path: input })
+                return yield* op.fail("NotDirectory", { path: input })
               }
 
               if (
                 atEntryLimit() ||
                 (settings.maxBytes !== undefined &&
                   BigInt(bytes.length) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes)
-              ) return yield* new FsError({ code: "NoSpace", operation: "symlink", path: input })
-              const now = yield* timestamp("symlink")
+              ) return yield* op.fail("NoSpace", { path: input })
+              const now = yield* timestamp(op)
 
               const node: SymbolicLink = {
                 kind: "symlink",
@@ -3510,21 +3562,22 @@ export const makeVolume = Effect.fnUntraced(
           return yield* strictString(yield* canonical(input, options), "realPath")
         }),
         open: Effect.fn("Caller.open")(function*(input: PathInput, options: OpenOptions) {
-          const prepared = preparePath(input, "open", settings.maxPathBytes)
+          const op = OpContext.make("open")
+          const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const { relativeTo: base, ...raw } = options
 
           const decoded = yield* decodeOpenSettings(raw).pipe(
-            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "open", path: input, cause }))
+            Effect.mapError((cause) => op.fail("InvalidArgument", { path: input, cause }))
           )
 
           const chosen = { ...decoded }
 
           if (chosen.access === "read" && (chosen.append || chosen.truncate)) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "open", path: input })
+            return yield* op.fail("InvalidArgument", { path: input })
           }
 
           if (chosen.mode !== undefined && (chosen.create === undefined || chosen.create === "never")) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "open", path: input })
+            return yield* op.fail("InvalidArgument", { path: input })
           }
 
           const acquired = makeFileReference(chosen.access, chosen.append ?? false)
@@ -3532,16 +3585,16 @@ export const makeVolume = Effect.fnUntraced(
           yield* Effect.addFinalizer(() => finalizeFile(acquired))
 
           return yield* coordinated(
-            "open",
+            op,
             Effect.gen(function*() {
               if (acquired.closed) return yield* Effect.interrupt
               const path = yield* Effect.fromResult(prepared)
 
               if (chosen.create === "exclusive") {
-                const existing = yield* Effect.result(lookup(path, base, "open", { followFinalSymlink: false }))
+                const existing = yield* Effect.result(lookup(path, base, op, { followFinalSymlink: false }))
 
                 if (Result.isSuccess(existing)) {
-                  return yield* new FsError({ code: "AlreadyExists", operation: "open", path: input })
+                  return yield* op.fail("AlreadyExists", { path: input })
                 }
 
                 if (existing.failure.code !== "NotFound") return yield* existing.failure
@@ -3550,7 +3603,7 @@ export const makeVolume = Effect.fnUntraced(
               const resolved = yield* lookup(
                 path,
                 base,
-                "open",
+                op,
                 {
                   followFinalSymlink: chosen.followFinalSymlink !== false,
                   allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
@@ -3560,34 +3613,34 @@ export const makeVolume = Effect.fnUntraced(
               const parent = resolved.parent
 
               if (parent === undefined) {
-                return yield* new FsError({ code: "IsDirectory", operation: "open", path: input })
+                return yield* op.fail("IsDirectory", { path: input })
               }
 
               const name = resolved.name
 
               if (isDotComponent(name)) {
-                return yield* new FsError({ code: "IsDirectory", operation: "open", path: input })
+                return yield* op.fail("IsDirectory", { path: input })
               }
 
-              yield* authorize(parent, identity, EXECUTE, "open", input)
+              yield* authorize(parent, identity, EXECUTE, op, input)
               let file = resolved.node
 
               if (file !== undefined && chosen.create === "exclusive") {
-                return yield* new FsError({ code: "AlreadyExists", operation: "open", path: input })
+                return yield* op.fail("AlreadyExists", { path: input })
               }
 
               if (file === undefined) {
                 if (chosen.create === undefined || chosen.create === "never" || path.trailingSlash) {
-                  return yield* new FsError({ code: "NotFound", operation: "open", path: input })
+                  return yield* op.fail("NotFound", { path: input })
                 }
 
-                yield* authorize(parent, identity, WRITE | EXECUTE, "open", input)
+                yield* authorize(parent, identity, WRITE | EXECUTE, op, input)
 
                 if (atEntryLimit()) {
-                  return yield* new FsError({ code: "NoSpace", operation: "open", path: input })
+                  return yield* op.fail("NoSpace", { path: input })
                 }
 
-                const now = yield* timestamp("open")
+                const now = yield* timestamp(op)
                 file = {
                   kind: "file",
                   lineage: undefined,
@@ -3613,26 +3666,26 @@ export const makeVolume = Effect.fnUntraced(
                 publishEntry("Create", parent, name)
               } else {
                 if (file.kind === "symlink") {
-                  return yield* new FsError({ code: "SymlinkLoop", operation: "open", path: input })
+                  return yield* op.fail("SymlinkLoop", { path: input })
                 }
 
                 if (file.kind !== "file") {
-                  return yield* new FsError({ code: "IsDirectory", operation: "open", path: input })
+                  return yield* op.fail("IsDirectory", { path: input })
                 }
 
                 if (path.trailingSlash) {
-                  return yield* new FsError({ code: "NotDirectory", operation: "open", path: input })
+                  return yield* op.fail("NotDirectory", { path: input })
                 }
 
                 yield* authorize(
                   file,
                   identity,
                   chosen.access === "read" ? READ : chosen.access === "write" ? WRITE : READ | WRITE,
-                  "open",
+                  op,
                   input
                 )
 
-                if (chosen.truncate) yield* resize(file, 0n, "open")
+                if (chosen.truncate) yield* resize(file, 0n, op)
               }
 
               file.openCount += 1
@@ -3643,35 +3696,36 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         unlink: Effect.fn("Caller.unlink")(function*(input: PathInput, options?: RelativeOptions) {
-          const prepared = preparePath(input, "unlink", settings.maxPathBytes)
+          const op = OpContext.make("unlink")
+          const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
 
           return yield* coordinated(
-            "unlink",
+            op,
             Effect.gen(function*() {
               const path = yield* Effect.fromResult(prepared)
-              const parent = yield* locate(path, base, "unlink", { parentOnly: true })
-              yield* authorize(parent, identity, WRITE | EXECUTE, "unlink", input)
+              const parent = yield* locate(path, base, op, { parentOnly: true })
+              yield* authorize(parent, identity, WRITE | EXECUTE, op, input)
               const name = path.components.at(-1)
 
               if (isDotComponent(name)) {
-                return yield* new FsError({ code: "IsDirectory", operation: "unlink", path: input })
+                return yield* op.fail("IsDirectory", { path: input })
               }
 
               const child = parent.entries.get(name)
 
-              if (child === undefined) return yield* new FsError({ code: "NotFound", operation: "unlink", path: input })
+              if (child === undefined) return yield* op.fail("NotFound", { path: input })
 
               if (child.kind === "directory") {
-                return yield* new FsError({ code: "IsDirectory", operation: "unlink", path: input })
+                return yield* op.fail("IsDirectory", { path: input })
               }
 
               if (path.trailingSlash) {
-                return yield* new FsError({ code: "NotDirectory", operation: "unlink", path: input })
+                return yield* op.fail("NotDirectory", { path: input })
               }
 
-              yield* authorizeRemoval(parent, child, "unlink", input)
-              const now = yield* timestamp("unlink")
+              yield* authorizeRemoval(parent, child, op, input)
+              const now = yield* timestamp(op)
               parent.entries.delete(name)
               parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
               advanceRevision(parent)
@@ -3686,65 +3740,66 @@ export const makeVolume = Effect.fnUntraced(
           destination: PathInput,
           options?: { readonly sourceRelativeTo?: DirectoryHandle; readonly destinationRelativeTo?: DirectoryHandle }
         ) {
-          const oldPrepared = preparePath(source, "rename", settings.maxPathBytes)
-          const newPrepared = preparePath(destination, "rename", settings.maxPathBytes)
+          const op = OpContext.make("rename")
+          const oldPrepared = preparePath(source, op.operation, settings.maxPathBytes)
+          const newPrepared = preparePath(destination, op.operation, settings.maxPathBytes)
           const oldBase = options?.sourceRelativeTo
           const newBase = options?.destinationRelativeTo
 
           return yield* coordinated(
-            "rename",
+            op,
             Effect.gen(function*() {
               const oldPath = yield* Effect.fromResult(oldPrepared)
               const newPath = yield* Effect.fromResult(newPrepared)
-              const oldParent = yield* locate(oldPath, oldBase, "rename", { parentOnly: true })
-              const newParent = yield* locate(newPath, newBase, "rename", { parentOnly: true })
-              yield* authorize(oldParent, identity, WRITE | EXECUTE, "rename", source)
-              yield* authorize(newParent, identity, WRITE | EXECUTE, "rename", destination)
+              const oldParent = yield* locate(oldPath, oldBase, op, { parentOnly: true })
+              const newParent = yield* locate(newPath, newBase, op, { parentOnly: true })
+              yield* authorize(oldParent, identity, WRITE | EXECUTE, op, source)
+              yield* authorize(newParent, identity, WRITE | EXECUTE, op, destination)
               const oldName = oldPath.components.at(-1)
               const newName = newPath.components.at(-1)
 
               if (
                 isDotComponent(oldName) || isDotComponent(newName)
               ) {
-                return yield* new FsError({ code: "InvalidArgument", operation: "rename", path: source })
+                return yield* op.fail("InvalidArgument", { path: source })
               }
 
               const child = oldParent.entries.get(oldName)
 
               if (child === undefined) {
-                return yield* new FsError({ code: "NotFound", operation: "rename", path: source })
+                return yield* op.fail("NotFound", { path: source })
               }
 
               const replaced = newParent.entries.get(newName)
 
               if (newPath.trailingSlash && replaced === undefined) {
-                return yield* new FsError({ code: "NotFound", operation: "rename", path: destination })
+                return yield* op.fail("NotFound", { path: destination })
               }
 
               if (oldPath.trailingSlash && child.kind !== "directory") {
-                return yield* new FsError({ code: "NotDirectory", operation: "rename", path: source })
+                return yield* op.fail("NotDirectory", { path: source })
               }
 
               if (newPath.trailingSlash && replaced?.kind !== "directory") {
-                return yield* new FsError({ code: "NotDirectory", operation: "rename", path: destination })
+                return yield* op.fail("NotDirectory", { path: destination })
               }
 
               if (child === replaced) return
-              yield* authorizeRemoval(oldParent, child, "rename", source)
+              yield* authorizeRemoval(oldParent, child, op, source)
 
               if (replaced !== undefined) {
-                yield* authorizeRemoval(newParent, replaced, "rename", destination)
+                yield* authorizeRemoval(newParent, replaced, op, destination)
 
                 if (child.kind === "directory" && replaced.kind !== "directory") {
-                  return yield* new FsError({ code: "NotDirectory", operation: "rename", path: destination })
+                  return yield* op.fail("NotDirectory", { path: destination })
                 }
 
                 if (child.kind !== "directory" && replaced.kind === "directory") {
-                  return yield* new FsError({ code: "IsDirectory", operation: "rename", path: destination })
+                  return yield* op.fail("IsDirectory", { path: destination })
                 }
 
                 if (replaced.kind === "directory" && replaced.entries.size > 0) {
-                  return yield* new FsError({ code: "NotEmpty", operation: "rename", path: destination })
+                  return yield* op.fail("NotEmpty", { path: destination })
                 }
               }
 
@@ -3754,11 +3809,11 @@ export const makeVolume = Effect.fnUntraced(
                 ancestor = ancestor.parent
               ) {
                 if (ancestor === child) {
-                  return yield* new FsError({ code: "InvalidArgument", operation: "rename", path: destination })
+                  return yield* op.fail("InvalidArgument", { path: destination })
                 }
               }
 
-              const now = yield* timestamp("rename")
+              const now = yield* timestamp(op)
 
               // All rejection checks precede namespace, ancestry, quota, and metadata publication.
               const oldEvent = () =>
@@ -3797,35 +3852,36 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         rmdir: Effect.fn("Caller.rmdir")(function*(input: PathInput, options?: RelativeOptions) {
-          const prepared = preparePath(input, "rmdir", settings.maxPathBytes)
+          const op = OpContext.make("rmdir")
+          const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
 
           return yield* coordinated(
-            "rmdir",
+            op,
             Effect.gen(function*() {
               const path = yield* Effect.fromResult(prepared)
-              const parent = yield* locate(path, base, "rmdir", { parentOnly: true })
-              yield* authorize(parent, identity, WRITE | EXECUTE, "rmdir", input)
+              const parent = yield* locate(path, base, op, { parentOnly: true })
+              yield* authorize(parent, identity, WRITE | EXECUTE, op, input)
               const name = path.components.at(-1)
 
               if (isDotComponent(name)) {
-                return yield* new FsError({ code: "InvalidArgument", operation: "rmdir", path: input })
+                return yield* op.fail("InvalidArgument", { path: input })
               }
 
               const child = parent.entries.get(name)
 
-              if (child === undefined) return yield* new FsError({ code: "NotFound", operation: "rmdir", path: input })
-              yield* authorizeRemoval(parent, child, "rmdir", input)
+              if (child === undefined) return yield* op.fail("NotFound", { path: input })
+              yield* authorizeRemoval(parent, child, op, input)
 
               if (child.kind !== "directory") {
-                return yield* new FsError({ code: "NotDirectory", operation: "rmdir", path: input })
+                return yield* op.fail("NotDirectory", { path: input })
               }
 
               if (child.entries.size > 0) {
-                return yield* new FsError({ code: "NotEmpty", operation: "rmdir", path: input })
+                return yield* op.fail("NotEmpty", { path: input })
               }
 
-              const now = yield* timestamp("rmdir")
+              const now = yield* timestamp(op)
               parent.entries.delete(name)
               parent.metadata = { ...parent.metadata, nlink: parent.metadata.nlink - 1, mtimeNs: now, ctimeNs: now }
               child.parent = undefined
@@ -3839,14 +3895,15 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         stat: Effect.fn("Caller.stat")(function*(input: PathInput, options?: RelativeOptions) {
-          const prepared = preparePath(input, "stat", settings.maxPathBytes)
+          const op = OpContext.make("stat")
+          const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
 
           return yield* coordinatedRead(
-            "stat",
+            op,
             Effect.gen(function*() {
               const path = yield* Effect.fromResult(prepared)
-              const directory = yield* resolveNode(path, base, "stat")
+              const directory = yield* resolveNode(path, base, op)
 
               return { ...directory.metadata }
             })
@@ -3854,29 +3911,30 @@ export const makeVolume = Effect.fnUntraced(
         }),
         mkdir: Effect.fn("Caller.mkdir")(
           function*(input: PathInput, options?: RelativeOptions & { readonly mode?: number }) {
-            const prepared = preparePath(input, "mkdir", settings.maxPathBytes)
+            const op = OpContext.make("mkdir")
+            const prepared = preparePath(input, op.operation, settings.maxPathBytes)
             const base = options?.relativeTo
             const mode = options?.mode === undefined ? 0o777 : options.mode
 
-            if (!isMode(mode)) return yield* new FsError({ code: "InvalidArgument", operation: "mkdir", path: input })
+            if (!isMode(mode)) return yield* op.fail("InvalidArgument", { path: input })
 
             return yield* coordinated(
-              "mkdir",
+              op,
               Effect.gen(function*() {
                 const path = yield* Effect.fromResult(prepared)
-                const parent = yield* locate(path, base, "mkdir", { parentOnly: true })
-                yield* authorize(parent, identity, WRITE | EXECUTE, "mkdir", input)
+                const parent = yield* locate(path, base, op, { parentOnly: true })
+                yield* authorize(parent, identity, WRITE | EXECUTE, op, input)
                 const name = path.components.at(-1)
 
                 if (isDotComponent(name) || parent.entries.has(name)) {
-                  return yield* new FsError({ code: "AlreadyExists", operation: "mkdir", path: input })
+                  return yield* op.fail("AlreadyExists", { path: input })
                 }
 
                 if (atEntryLimit()) {
-                  return yield* new FsError({ code: "NoSpace", operation: "mkdir", path: input })
+                  return yield* op.fail("NoSpace", { path: input })
                 }
 
-                const now = yield* timestamp("mkdir")
+                const now = yield* timestamp(op)
 
                 const child: Directory = {
                   kind: "directory",
@@ -3904,26 +3962,28 @@ export const makeVolume = Effect.fnUntraced(
           }
         ),
         withDirectory: Effect.fn("Caller.withDirectory")(function*(input: PathInput, options?: RelativeOptions) {
-          const acquired = yield* acquireDirectory(input, options, "withDirectory")
+          const acquired = yield* acquireDirectory(input, options, OpContext.make("withDirectory"))
 
           return createCaller(acquired, identity, umask)
         }),
         openDirectory: Effect.fn("Caller.openDirectory")(function*(input: PathInput, options?: RelativeOptions) {
-          const acquired = yield* acquireDirectory(input, options, "openDirectory")
+          const acquired = yield* acquireDirectory(input, options, OpContext.make("openDirectory"))
+
+          const statOp = OpContext.make("stat")
 
           const handle: DirectoryHandle = Object.freeze({
             [DirectoryHandleId]: true as const,
             stat: coordinatedRead(
-              "stat",
+              statOp,
               Effect.suspend(() =>
                 acquired.directory === undefined
-                  ? Effect.fail(new FsError({ code: "InvalidHandle", operation: "stat" }))
+                  ? Effect.fail(statOp.fail("InvalidHandle"))
                   : Effect.succeed({ ...acquired.directory.metadata })
               )
             ).pipe(Effect.withSpan("DirectoryHandle.stat")),
             close: coordinatedCleanup(Effect.suspend(() => {
               if (acquired.directory === undefined) {
-                return Effect.fail(new FsError({ code: "InvalidHandle", operation: "close" }))
+                return Effect.fail(OpContext.make("close").fail("InvalidHandle"))
               }
 
               acquired.directory = undefined
@@ -3965,7 +4025,7 @@ export const makeVolume = Effect.fnUntraced(
       incarnation,
       limits,
       usage: coordinatedRead(
-        "usage",
+        OpContext.make("usage"),
         Effect.sync((): VolumeUsage => ({ usedBytes: state.usedBytes, entries: state.entries }))
       )
         .pipe(
@@ -3974,9 +4034,9 @@ export const makeVolume = Effect.fnUntraced(
       watch: Effect.gen(function*() {
         const hook = TestHooks.getRegistrationHook(surface)
 
-        return yield* admit("watch", watchHub.subscribe(hook?.afterSubscribe))
+        return yield* admit(OpContext.make("watch"), watchHub.subscribe(hook?.afterSubscribe))
       }).pipe(Effect.withSpan("Volume.watch")),
-      snapshot: coordinatedRead("snapshot", captureSnapshot()).pipe(Effect.withSpan("Volume.snapshot")),
+      snapshot: coordinatedRead(OpContext.make("snapshot"), captureSnapshot()).pipe(Effect.withSpan("Volume.snapshot")),
 
       caller: Effect.fn("Volume.caller")(function*(options?: RootCallerOptions) {
         const decoded = yield* Effect.fromResult(
@@ -3987,7 +4047,7 @@ export const makeVolume = Effect.fnUntraced(
         const identity = Object.freeze({ ...chosen, groups: Object.freeze([...chosen.groups]) })
 
         return yield* coordinatedRead(
-          "caller",
+          OpContext.make("caller"),
           Effect.sync(() =>
             createCaller(
               makeDirectoryReference(state.root),
@@ -4012,13 +4072,13 @@ export const makeVolume = Effect.fnUntraced(
       ...volume,
       changes: Effect.fn("OverlayVolume.changes")(function*(options?: OverlayChangesOptions) {
         const selected = yield* changeOptions(options)
-        const current = yield* coordinatedRead("changes", observeChanges())
+        const current = yield* coordinatedRead(OpContext.make("changes"), observeChanges())
 
         return publicChanges(compareOverlay(baseObservation, current, selected.includeTimestamps ?? false))
       }),
       capture: Effect.fn("OverlayVolume.capture")(function*(options?: OverlayChangesOptions) {
         const selected = yield* changeOptions(options)
-        const current = yield* coordinatedRead("capture", captureState(hook))
+        const current = yield* coordinatedRead(OpContext.make("capture"), captureState(hook))
 
         return Object.freeze({
           snapshot: current.snapshot,
@@ -4075,6 +4135,7 @@ export const openImageVolume = Effect.fnUntraced(function*(
   const prepared = new WeakMap<EngineState, Uint8Array>()
   const identity = VolumeIdentity.make(document.identity)
   let shutdown: Effect.Effect<void> | undefined
+  const commitOp = OpContext.make("commit")
 
   const limits: VolumeLimits = {
     maxEntries: document.limits.maxEntries,
@@ -4096,10 +4157,10 @@ export const openImageVolume = Effect.fnUntraced(function*(
       },
       prepare: (candidate) =>
         captureLiveImage(candidate, identity, limits).pipe(
-          Effect.mapError((cause) => new FsError({ code: "StorageRejected", operation: "commit", cause })),
+          Effect.mapError((cause) => commitOp.fail("StorageRejected", { cause })),
           Effect.flatMap((bytes) =>
             ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxImageBytes)
-              ? new FsError({ code: "StorageRejected", operation: "commit" })
+              ? commitOp.fail("StorageRejected")
               : Effect.sync(() => {
                 prepared.set(candidate, bytes)
               })

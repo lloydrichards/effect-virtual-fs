@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema"
 import { ImageError } from "../Snapshot.js"
 import type { Fixture, PathInput, VolumeOptions } from "../VirtualFileSystem.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
-import { decodeConfiguration, FsError } from "./errors.js"
+import { decodeConfiguration, OpContext } from "./errors.js"
 import * as Image from "./image.js"
 import { inputBytes, isAttachedBytes, isDotComponent, nameBytes, preparePath } from "./path.js"
 import {
@@ -69,12 +69,14 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
 
     declarations.set("", root)
 
+    const op = OpContext.make("fixture")
+
     const fixturePath = (input: PathInput) =>
-      preparePath(input, "fixture", config.maxPathBytes).pipe(
+      preparePath(input, op.operation, config.maxPathBytes).pipe(
         Result.flatMap((path) =>
           !path.absolute || path.components.length === 0 ||
             path.components.some(isDotComponent)
-            ? Result.fail(new FsError({ code: "InvalidArgument", operation: "fixture", path: input })) :
+            ? Result.fail(op.fail("InvalidArgument", { path: input })) :
             Result.succeed(path.components)
         )
       )
