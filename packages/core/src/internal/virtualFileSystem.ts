@@ -1522,6 +1522,8 @@ export const makeVolume = Effect.fnUntraced(
       ref.closed = true
     }
 
+    // A scope finalizer cannot fail, so a failed close falls back to cleanup and drops its error.
+    // TODO(#180): acquireRelease makes explicit close and scope cleanup one finalizer, removing this fallback.
     const finalizeFile = (ref: FileReference) =>
       Effect.suspend(() =>
         ref.closed
@@ -1892,7 +1894,8 @@ export const makeVolume = Effect.fnUntraced(
             const expanded = preparePath(ownedPath(expansion), operation, settings.maxPathBytes)
 
             // The expansion is synthetic: its per-component limits are the caller's to hear about,
-            // but the path in the error has to be the one the caller passed in.
+            // but the path in the error has to be the one the caller passed in, so the
+            // expansion's own failure is not kept as the cause.
             if (Result.isFailure(expanded)) {
               return yield* new FsError({ code: expanded.failure.code, operation: operation, path: path.input })
             }
@@ -2935,7 +2938,11 @@ export const makeVolume = Effect.fnUntraced(
                     const observed = yield* Effect.result(referencedNode(expected, "openChildReference"))
 
                     if (Result.isFailure(observed)) {
-                      return yield* new FsError({ code: "VolumeBusy", operation: "openChildReference" })
+                      return yield* new FsError({
+                        code: "VolumeBusy",
+                        operation: "openChildReference",
+                        cause: observed.failure
+                      })
                     }
 
                     expectedNode = observed.success
@@ -4092,14 +4099,14 @@ export const openImageVolume = Effect.fnUntraced(function*(
       },
       prepare: (candidate) =>
         captureLiveImage(candidate, identity, limits).pipe(
+          Effect.mapError((cause) => new FsError({ code: "StorageRejected", operation: "commit", cause })),
           Effect.flatMap((bytes) =>
             ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxImageBytes)
               ? new FsError({ code: "StorageRejected", operation: "commit" })
               : Effect.sync(() => {
                 prepared.set(candidate, bytes)
               })
-          ),
-          Effect.mapError(() => new FsError({ code: "StorageRejected", operation: "commit" }))
+          )
         ),
       commit: (candidate) =>
         Effect.suspend(() => {

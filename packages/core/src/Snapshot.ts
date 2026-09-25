@@ -9,6 +9,7 @@
  */
 import * as Data from "effect/Data"
 import * as Schema from "effect/Schema"
+import type { FsError } from "./VirtualFileSystemError.js"
 
 /**
  * Type identifier for opaque filesystem snapshots.
@@ -77,6 +78,8 @@ export class ImageError extends Data.TaggedError("ImageError")<{
   readonly code: "InvalidEncoding" | "UnsupportedVersion" | "InvalidStructure" | "LimitExceeded"
   /** Input area or configured limit associated with the failure, when available. */
   readonly field?: string
+  /** Underlying decoding or path failure that this error classifies, when one exists. */
+  readonly cause?: Schema.SchemaError | FsError | TypeError
 }> {}
 
 /**

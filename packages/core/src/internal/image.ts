@@ -227,7 +227,7 @@ export const capture = Effect.fnUntraced(function*(
 /** @internal */
 export const encodeSnapshot = Effect.fn("VirtualFileSystem.encodeSnapshot")(function*(snapshot: Snapshot) {
   const text = yield* Schema.encodeEffect(Schema.fromJsonString(Document))(yield* inspect(snapshot)).pipe(
-    Effect.mapError(() => new ImageError({ code: "InvalidStructure", field: "text" }))
+    Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "text", cause }))
   )
 
   return new TextEncoder().encode(text)
@@ -250,11 +250,12 @@ export const decodeSnapshot = Effect.fn("VirtualFileSystem.decodeSnapshot")(
 
     const text = yield* Effect.try({
       try: () => new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(input)),
-      catch: () => new ImageError({ code: "InvalidEncoding", field: "text" })
+      // SAFETY: a fatal TextDecoder throws only TypeError.
+      catch: (cause) => new ImageError({ code: "InvalidEncoding", field: "text", cause: cause as TypeError })
     })
 
     const value = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
-      Effect.mapError(() => new ImageError({ code: "InvalidEncoding", field: "text" }))
+      Effect.mapError((cause) => new ImageError({ code: "InvalidEncoding", field: "text", cause }))
     )
 
     const version = Schema.decodeUnknownResult(VersionProbe)(value)

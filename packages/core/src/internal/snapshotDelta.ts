@@ -859,7 +859,7 @@ export const encodeSnapshotDelta = Effect.fnUntraced(function*(delta: SnapshotDe
   yield* validate(document, limits)
 
   const text = yield* Schema.encodeEffect(JsonDocument)(document).pipe(
-    Effect.mapError(() => new ImageError({ code: "InvalidStructure" }))
+    Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", cause }))
   )
 
   const bytes = encoder.encode(text)
@@ -883,11 +883,12 @@ export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array
 
   const text = yield* Effect.try({
     try: () => new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(input)),
-    catch: () => new ImageError({ code: "InvalidEncoding" })
+    // SAFETY: a fatal TextDecoder throws only TypeError.
+    catch: (cause) => new ImageError({ code: "InvalidEncoding", cause: cause as TypeError })
   })
 
   const value = yield* Schema.decodeEffect(Json)(text).pipe(
-    Effect.mapError(() => new ImageError({ code: "InvalidEncoding" }))
+    Effect.mapError((cause) => new ImageError({ code: "InvalidEncoding", cause }))
   )
 
   const version = Schema.decodeUnknownResult(VersionProbe)(value)
