@@ -1,6 +1,6 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, it } from "@effect/vitest"
-import { failureForFs, Status } from "../src/internal/nfs4.js"
+import { failureForFs, Operation, Status } from "../src/internal/nfs4.js"
 
 const expected = {
   NotFound: Status.NOENT,
@@ -8,6 +8,7 @@ const expected = {
   NotEmpty: Status.NOTEMPTY,
   NotDirectory: Status.NOTDIR,
   AccessDenied: Status.ACCESS,
+  NotPermitted: Status.PERM,
   InvalidHandle: Status.SERVERFAULT,
   ForeignHandle: Status.SERVERFAULT,
   InvalidReference: Status.SERVERFAULT,
@@ -43,7 +44,11 @@ it("translates every core filesystem failure to an NFSv4.1 status", () => {
     // SAFETY: expected has exactly the FsCode keys by its Record type.
     const fsCode = code as Vfs.VfsCode
 
-    assert.strictEqual(failureForFs(new Vfs.VfsError({ code: fsCode, operation: "test" })), status, code)
+    assert.strictEqual(
+      failureForFs(new Vfs.VfsError({ code: fsCode, operation: "test" }), Operation.SETATTR),
+      status,
+      code
+    )
   }
 })
 
@@ -52,6 +57,27 @@ it("returns SERVERFAULT for an unexpected runtime error code", () => {
     // The constructor validates its code, so an unknown runtime code is forced onto a valid error afterwards.
     const error = Object.assign(new Vfs.VfsError({ code: "NotFound", operation: "test" }), { code })
 
-    assert.strictEqual(failureForFs(error), Status.SERVERFAULT, code)
+    assert.strictEqual(failureForFs(error, Operation.SETATTR), Status.SERVERFAULT, code)
   }
+})
+
+it("answers NotPermitted as PERM only for the operations whose RFC 8881 Section 15.2 list has it", () => {
+  const error = new Vfs.VfsError({ code: "NotPermitted", operation: "test" })
+
+  const statuses = Object.fromEntries(
+    (["CREATE", "OPEN", "SETATTR", "REMOVE", "RENAME", "LINK", "WRITE"] as const).map((name) => [
+      name,
+      failureForFs(error, Operation[name])
+    ])
+  )
+
+  assert.deepStrictEqual(statuses, {
+    CREATE: Status.PERM,
+    OPEN: Status.PERM,
+    SETATTR: Status.PERM,
+    REMOVE: Status.ACCESS,
+    RENAME: Status.ACCESS,
+    LINK: Status.ACCESS,
+    WRITE: Status.ACCESS
+  })
 })

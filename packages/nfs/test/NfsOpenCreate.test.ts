@@ -30,6 +30,9 @@ const create = (
     for (const [attribute, value] of [...attrs].sort(([left], [right]) => left - right)) {
       if (attribute === 4) {
         yield* values.write(XdrCodec.uint64, BigInt(value))
+      } else if (attribute === 36 || attribute === 37) {
+        // owner and owner_group are utf8str_mixed; this server reads them as decimal ids.
+        yield* values.write(XdrCodec.string(), String(value))
       } else {
         yield* values.write(XdrCodec.uint32, Number(value))
       }
@@ -844,6 +847,70 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       assert.strictEqual(yield* statusOf(reply), Status.ACCESS)
       assert.strictEqual(Result.isFailure(yield* Effect.result(admin.stat("/forbidden"))), true)
+    }))
+  it.effect("refuses a create that names another owner for an unprivileged caller as not permitted", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const admin = yield* volume.caller()
+      yield* admin.chmod(yield* admin.root, 0o777)
+
+      const guest = yield* volume.caller({
+        identity: {
+          uid: 1000,
+          gid: 1000,
+          groups: [],
+          privileged: false
+        }
+      })
+
+      const handler = yield* makeNfs4Handler(
+        makeExport(
+          admin,
+          generation,
+          {
+            maxFilehandles: 16,
+            maxNameBytes: ByteSize.bytes(255)
+          },
+          generation,
+          volume
+        ),
+        {
+          leaseDurationSeconds: 30,
+          callbackTimeout: "1 second",
+          generation,
+          now: () => 0,
+          limits,
+          writable: true,
+          callerFor: () => Effect.succeed(guest)
+        }
+      )
+
+      const {
+        client,
+        session
+      } = yield* startSession(handler, "guest-owner")
+
+      const foreign = yield* handler.compound(
+        yield* call([
+          sequence(session, 1),
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+          create(client, "foreign", 0, 3, "creator", [[36, 0]])
+        ])
+      )
+
+      assert.strictEqual(yield* statusOf(foreign), Status.PERM)
+      assert.strictEqual(Result.isFailure(yield* Effect.result(admin.stat("/foreign"))), true)
+
+      const own = yield* handler.compound(
+        yield* call([
+          sequence(session, 2),
+          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
+          create(client, "own", 0, 3, "creator", [[36, 1000]])
+        ])
+      )
+
+      assert.strictEqual(yield* statusOf(own), Status.OK)
+      assert.strictEqual((yield* admin.stat("/own")).uid, 1000)
     }))
   it.effect("keeps rejected store commits unpublished and reopens a confirmed create", () => {
     let saved: Uint8Array | undefined

@@ -11,6 +11,7 @@ const systemTags = {
   NotEmpty: "Unknown",
   NotDirectory: "BadResource",
   AccessDenied: "PermissionDenied",
+  NotPermitted: "PermissionDenied",
   InvalidHandle: "BadResource",
   ForeignHandle: "BadResource",
   InvalidReference: "BadResource",
@@ -40,6 +41,9 @@ const systemTags = {
   CorruptStore: "Unknown"
 } satisfies Record<Exclude<Vfs.VfsCode, "InvalidArgument">, SystemErrorTag>
 
+// Effect's system error tags have no EPERM, so NotPermitted shares PermissionDenied with EACCES and says which it is.
+const NOT_PERMITTED_DESCRIPTION = "NotPermitted (EPERM)"
+
 /** @internal */
 export const argumentError = (method: string, description: string) =>
   badArgument({ module: "FileSystem", method, description })
@@ -65,7 +69,7 @@ export const toPlatformError = (
     method,
     pathOrDescriptor,
     _tag: systemTags[error.code] ?? "Unknown",
-    description: error.code,
+    description: error.code === "NotPermitted" ? NOT_PERMITTED_DESCRIPTION : error.code,
     cause: error
   })
 }

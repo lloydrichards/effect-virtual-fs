@@ -82,7 +82,7 @@ describe("whole-file symlink replacement", () => {
           ...options,
           replaceFinalSymlink: true
         }))).code,
-        "AccessDenied"
+        "NotPermitted"
       )
       assert.strictEqual(
         (yield* Effect.flip(root.writeFile("/sticky/link", new Uint8Array([1]), {
@@ -107,7 +107,7 @@ describe("whole-file symlink replacement", () => {
           truncate: true,
           finalMode: 0o600
         }))).code,
-        "AccessDenied"
+        "NotPermitted"
       )
       assert.deepStrictEqual(yield* root.stat("/file"), before)
       assert.deepStrictEqual(yield* root.readFile("/file"), new Uint8Array([42]))

@@ -168,7 +168,7 @@ describe("conditional child creation", () => {
           owner
         }))
 
-        assert.strictEqual(error.code, "AccessDenied")
+        assert.strictEqual(error.code, "NotPermitted")
         assert.strictEqual((yield* Effect.flip(caller.lookup(Vfs.Entry(root, name("file"))))).code, "NotFound")
       }
 

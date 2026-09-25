@@ -2047,7 +2047,7 @@ export const makeVolume = Effect.fnUntraced(
 
       const permittedMode = (metadata: Pick<Metadata, "kind" | "uid" | "gid">, mode: number, op: OpContext) => {
         if (!identity.privileged && identity.uid !== metadata.uid) {
-          return Effect.fail(op.fail("AccessDenied"))
+          return Effect.fail(op.fail("NotPermitted"))
         }
 
         const group = inGroup(identity, metadata.gid)
@@ -2063,8 +2063,9 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const node = nodeNow((yield* resolving).ino)
-              const permitted = yield* permittedMode(node.metadata, mode, op)
+              const resolved = yield* resolving
+              const node = nodeNow(resolved.ino)
+              const permitted = yield* permittedMode(node.metadata, mode, resolved.op)
               current().put({
                 ...node,
                 metadata: {
@@ -2091,14 +2092,15 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const node = nodeNow((yield* resolving).ino)
+              const resolved = yield* resolving
+              const node = nodeNow(resolved.ino)
 
               if (
                 !identity.privileged && (identity.uid !== node.metadata.uid ||
                   (update.uid !== undefined && update.uid !== node.metadata.uid) ||
                   (update.gid !== undefined && !inGroup(identity, update.gid)))
               ) {
-                return yield* op.fail("AccessDenied")
+                return yield* resolved.op.fail("NotPermitted")
               }
 
               if (update.uid === undefined && update.gid === undefined) return
@@ -2140,7 +2142,7 @@ export const makeVolume = Effect.fnUntraced(
               // returned above. Every other combination, mixed ones included, needs ownership.
               if (!identity.privileged && identity.uid !== node.metadata.uid) {
                 if (access.kind !== "now" || modification.kind !== "now") {
-                  return yield* resolved.op.fail("AccessDenied")
+                  return yield* resolved.op.fail("NotPermitted")
                 }
 
                 yield* authorize(node, identity, WRITE, resolved.op)
@@ -2193,7 +2195,7 @@ export const makeVolume = Effect.fnUntraced(
       const authorizeRemoval = (parent: Directory, child: Node, op: OpContext) =>
         (parent.metadata.mode & STICKY_BIT) !== 0 && !identity.privileged &&
           identity.uid !== parent.metadata.uid && identity.uid !== child.metadata.uid
-          ? Effect.fail(op.fail("AccessDenied"))
+          ? Effect.fail(op.fail("NotPermitted"))
           : Effect.void
 
       // Authorizes creating the entry and returns its name. Only a path can name a dot entry, and one always
@@ -2579,7 +2581,7 @@ export const makeVolume = Effect.fnUntraced(
             ((owner?.uid !== undefined && owner.uid !== identity.uid) ||
               (owner?.gid !== undefined && !inGroup(identity, owner.gid)))
           ) {
-            return yield* entry.op.fail("AccessDenied")
+            return yield* entry.op.fail("NotPermitted")
           }
 
           const now = yield* timestamp(op)
