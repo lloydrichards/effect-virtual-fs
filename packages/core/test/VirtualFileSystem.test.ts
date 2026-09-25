@@ -179,21 +179,31 @@ describe("directory volumes", () => {
       assert.strictEqual((yield* Effect.flip(caller.stat("/child"))).code, "NotFound")
     }))
 
-  it.effect("provides the same caller through the optional Effect service", () =>
+  it.effect("provides a volume and a root caller through the services and their layers", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
-      yield* caller.mkdir("work")
-
       const read = Effect.gen(function*() {
-        return yield* (yield* Vfs.CurrentFileSystem).stat("work")
+        const fs = yield* Vfs.Caller
+        yield* fs.mkdir("work")
+
+        return (yield* fs.stat("work")).kind
       })
 
-      // Both provision styles are public API, so the Layer path is exercised rather than collapsed
-      // into provideService.
-      const layer = Layer.succeed(Vfs.CurrentFileSystem, caller)
-      const direct = yield* read.pipe(Effect.provideService(Vfs.CurrentFileSystem, caller))
-      const layered = yield* read.pipe(Effect.provide(layer))
-      assert.deepStrictEqual(direct, layered)
+      // Each layer call is a fresh volume, so both reads create their own "work".
+      const first = yield* read.pipe(Effect.provide(Vfs.Caller.layer().pipe(Layer.provide(Vfs.Volume.layer()))))
+      const second = yield* read.pipe(Effect.provide(Vfs.Caller.layer().pipe(Layer.provide(Vfs.Volume.layer()))))
+
+      assert.deepStrictEqual([first, second], ["directory", "directory"])
+
+      // A caller supplied by value keeps its own volume.
+      const caller = yield* (yield* Vfs.make()).caller()
+      yield* caller.mkdir("/own")
+
+      const direct = yield* Effect.map(Vfs.Caller, (fs) => fs.stat("/own")).pipe(
+        Effect.flatten,
+        Effect.provideService(Vfs.Caller, caller)
+      )
+
+      assert.strictEqual(direct.kind, "directory")
     }))
 })
 
