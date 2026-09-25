@@ -87,10 +87,10 @@ export type OpenEntryOptions = {
       | { readonly kind: "omit" }
       | { readonly kind: "value"; readonly nanoseconds: bigint }
   }
-  readonly followFinalSymlink?: boolean
-  readonly initialSize?: bigint
   readonly owner?: { readonly uid?: number; readonly gid?: number }
   readonly expected?: ObjectReference | null
+  readonly followFinalSymlink?: boolean
+  readonly initialSize?: bigint
   readonly expectedChild?: {
     readonly reference: ObjectReference
     readonly revision: bigint
@@ -156,6 +156,33 @@ export type RootCallerOptions = {
     readonly privileged: boolean
   }
   readonly umask?: number
+}
+```
+
+Added in v0.6.0
+
+### SetattrOptions (type alias)
+
+Attributes of `setattr`.
+
+**Signature**
+
+```ts
+export type SetattrOptions = {
+  readonly size?: bigint
+  readonly mode?: number
+  readonly times?: {
+    readonly access:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+    readonly modification:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+  }
+  readonly owner?: { readonly uid?: number; readonly gid?: number }
+  readonly expected?: { readonly revision: bigint }
 }
 ```
 
@@ -391,6 +418,51 @@ export declare const RootCallerOptions: Schema.Struct<{
     }>
   >
   readonly umask: Schema.optionalKey<Schema.Natural>
+}>
+```
+
+Added in v0.6.0
+
+### SetattrOptions
+
+Schema for the attributes `setattr` changes together: a regular file's
+size, the permission mode, the owner, and the access and modification
+times. An omitted attribute keeps its current value. `expected` pins the
+target's revision the caller last observed, checked inside the same change,
+and fails as `StaleReference` naming `expected` when the target has moved
+on, so a change decided from that observation never applies to a newer one.
+
+**Signature**
+
+```ts
+export declare const SetattrOptions: Schema.Struct<{
+  readonly size: Schema.optionalKey<Schema.BigInt>
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly owner: Schema.optionalKey<
+    Schema.Struct<{
+      readonly uid: Schema.optionalKey<Schema.Natural>
+      readonly gid: Schema.optionalKey<Schema.Natural>
+    }>
+  >
+  readonly times: Schema.optionalKey<
+    Schema.Struct<{
+      readonly access: Schema.Union<
+        readonly [
+          Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
+        ]
+      >
+      readonly modification: Schema.Union<
+        readonly [
+          Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
+        ]
+      >
+    }>
+  >
+  readonly expected: Schema.optionalKey<Schema.Struct<{ readonly revision: Schema.BigInt }>>
 }>
 ```
 
