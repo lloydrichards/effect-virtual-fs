@@ -142,7 +142,7 @@ import { Effect } from "effect"
 it.effect("should report the directory a guest cannot read when it is private", () =>
   Effect.gen(function* () {
     const volume = yield* Vfs.Volume
-    const changes = yield* Testing.collectChanges(yield* volume.watch, 1)
+    const changes = yield* Testing.collectChanges(yield* volume.watch(), 1)
 
     yield* (yield* Vfs.Caller).mkdir("/private", { mode: 0o700 })
 
