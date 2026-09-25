@@ -90,7 +90,7 @@ starts with an empty `/tmp` directory and uses `/` as its working directory.
 **Signature**
 
 ```ts
-export declare const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto>
+export declare const make: Effect.Effect<FileSystem.FileSystem, never, never>
 ```
 
 **Example**
@@ -113,48 +113,6 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 ```
 
 Added in v0.1.0
-
-### makeCrypto
-
-Creates a `FileSystem.FileSystem` service with a built-in `Crypto`.
-
-**When to use**
-
-Use when you want an in-memory filesystem without wiring a platform crypto
-layer, such as in a test or a browser build.
-
-**Gotchas**
-
-The built-in implementation produces reproducible values, not
-cryptographically secure ones. It exists so a volume can mint its identity
-and incarnation in isolation. Use `make` with `NodeCrypto`,
-`BunCrypto`, or your own service when those values must be unpredictable.
-
-**Signature**
-
-```ts
-export declare const makeCrypto: Effect.Effect<FileSystem.FileSystem, never, never>
-```
-
-**Example**
-
-```ts
-import { MemoryFileSystem } from "@effect-vfs/memory"
-import { Effect } from "effect"
-
-const program = Effect.gen(function* () {
-  const fs = yield* MemoryFileSystem.makeCrypto
-
-  yield* fs.writeFileString("/tmp/greeting.txt", "hello")
-
-  return yield* fs.readFileString("/tmp/greeting.txt")
-})
-
-Effect.runPromise(program).then(console.log)
-// hello
-```
-
-Added in v0.4.0
 
 ## guards
 
@@ -207,7 +165,7 @@ state. Separate graphs, such as one per test, already get separate volumes.
 **Signature**
 
 ```ts
-export declare const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
+export declare const layer: Layer.Layer<FileSystem.FileSystem, never, never>
 ```
 
 **Example**
@@ -269,45 +227,3 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 ```
 
 Added in v0.1.0
-
-### layerCrypto
-
-Provides a `FileSystem.FileSystem` with a built-in `Crypto`.
-
-**When to use**
-
-Use when you want an in-memory filesystem without wiring a platform crypto
-layer, such as in a test or a browser build.
-
-**Gotchas**
-
-The built-in implementation produces reproducible values, not
-cryptographically secure ones. Use `layer` with `NodeCrypto`,
-`BunCrypto`, or your own service when the volume's identity and incarnation
-must be unpredictable.
-
-**Signature**
-
-```ts
-export declare const layerCrypto: Layer.Layer<FileSystem.FileSystem, never, never>
-```
-
-**Example**
-
-```ts
-import { MemoryFileSystem } from "@effect-vfs/memory"
-import { Effect, FileSystem } from "effect"
-
-const program = Effect.gen(function* () {
-  const fs = yield* FileSystem.FileSystem
-
-  yield* fs.writeFileString("/tmp/greeting.txt", "hello")
-
-  return yield* fs.readFileString("/tmp/greeting.txt")
-})
-
-Effect.runPromise(program.pipe(Effect.provide(MemoryFileSystem.layerCrypto))).then(console.log)
-// hello
-```
-
-Added in v0.4.0

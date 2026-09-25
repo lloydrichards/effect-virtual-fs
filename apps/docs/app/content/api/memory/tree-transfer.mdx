@@ -669,7 +669,7 @@ import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, Stream } from "effect"
 
 const program = Effect.gen(function* () {
-  const fs = yield* MemoryFileSystem.makeCrypto
+  const fs = yield* MemoryFileSystem.make
   const source = yield* Vfs.fromFixture({
     entries: [
       { kind: "directory", path: "/dist" },
@@ -706,7 +706,7 @@ memory until the volume is built.
 export declare const toVolume: <E, R>(
   entries: Stream.Stream<Entry, E, R>,
   options?: VolumeTransferOptions
-) => Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError | PlatformError.PlatformError, R | Crypto.Crypto>
+) => Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R>
 ```
 
 **Example**
@@ -816,7 +816,7 @@ import { MemoryFileSystem, TreeTransfer } from "@effect-vfs/memory"
 import { Effect, Stream } from "effect"
 
 const program = Effect.gen(function* () {
-  const fs = yield* MemoryFileSystem.makeCrypto
+  const fs = yield* MemoryFileSystem.make
   yield* fs.makeDirectory("/project")
   yield* fs.writeFileString("/project/a.txt", "a")
 
@@ -847,7 +847,7 @@ export declare const fromSnapshot: (
   snapshot: Vfs.Snapshot,
   root: Vfs.PathInput,
   options?: ReadOptions
-) => Stream.Stream<Entry, TransferError | Vfs.VfsError | PlatformError.PlatformError, Crypto.Crypto>
+) => Stream.Stream<Entry, TransferError | Vfs.VfsError>
 ```
 
 **Example**

@@ -15,7 +15,7 @@ The packages are ESM-only, so your project must support ES modules.
 
 ## Run a filesystem program
 
-Write against Effect's `FileSystem.FileSystem` service, then provide `MemoryFileSystem.layerCrypto` when you run the program. The layer includes the `Crypto.Crypto` service required to create a volume:
+Write against Effect's `FileSystem.FileSystem` service, then provide `MemoryFileSystem.layer` when you run the program. The layer builds its own volume and needs no platform service:
 
 ```ts
 import { MemoryFileSystem } from "@effect-vfs/memory"
@@ -31,7 +31,7 @@ const loadSettings = Effect.gen(function* () {
 })
 
 const settings = await Effect.runPromise(
-  loadSettings.pipe(Effect.provide(MemoryFileSystem.layerCrypto))
+  loadSettings.pipe(Effect.provide(MemoryFileSystem.layer))
 )
 
 console.log(settings)
@@ -43,7 +43,7 @@ The program prints:
 {"mode":"preview"}
 ```
 
-No host file is created. `MemoryFileSystem.layerCrypto` supplies a fresh virtual volume with `/` as its working directory
+No host file is created. `MemoryFileSystem.layer` supplies a fresh virtual volume with `/` as its working directory
 and an empty `/tmp` directory.
 
 The program can use another `FileSystem.FileSystem` implementation without changing `loadSettings`.
