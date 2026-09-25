@@ -1,15 +1,14 @@
-import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it } from "@effect/vitest"
 import { Deferred, Effect, Fiber, Layer } from "effect"
 import * as ByteSize from "effect/ByteSize"
-import { makeExport } from "../src/internal/export.js"
-import { makeNfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
+import { Operation, Status } from "../src/internal/nfs4.js"
 import { type DecoderSession, type EncoderSession, make, XdrCodec } from "../src/internal/xdr.js"
 import {
   call,
-  generation,
   limits,
+  makeHandler,
   openByName,
   parseOpen,
   sequence,
@@ -152,43 +151,19 @@ const server = (caller: Vfs.Caller, volume: Vfs.Volume, options: {
   readonly writable?: boolean
   readonly mapped?: Vfs.Caller
 } = {}) =>
-  makeNfs4Handler(
-    makeExport(
-      caller,
-      generation,
-      {
-        maxFilehandles: options.maxFilehandles ?? 16,
-        maxNameBytes: ByteSize.bytes(255)
-      },
-      generation,
-      volume
-    ),
-    {
-      leaseDurationSeconds: 30,
-      callbackTimeout: "1 second",
-      generation,
-      now: () => 0,
-      limits: {
-        ...limits,
-        maxOpens: options.maxOpens ?? limits.maxOpens
-      },
-      writable: options.writable ?? true,
-      callerFor: () => Effect.succeed(options.mapped ?? caller)
-    }
-  )
-
-const setup = Effect.fnUntraced(function*(options: Parameters<typeof server>[2] & {
-  readonly maxEntries?: number
-} = {}) {
-  const volume = yield* Vfs.make(
-    options.maxEntries === undefined ? {} : {
-      maxEntries: options.maxEntries
-    }
-  )
-
-  const caller = yield* volume.caller({
-    umask: 0
+  makeHandler(caller, {
+    limits: {
+      ...limits,
+      maxOpens: options.maxOpens ?? limits.maxOpens
+    },
+    writable: options.writable ?? true,
+    callerFor: () => Effect.succeed(options.mapped ?? caller),
+    export: { limits: { maxFilehandles: options.maxFilehandles ?? 16 }, capacity: volume }
   })
+
+const setup = Effect.fnUntraced(function*(options: Parameters<typeof server>[2] = {}) {
+  const volume = yield* Vfs.Volume
+  const caller = yield* Vfs.Caller
 
   const handler = yield* server(caller, volume, options)
   const session = yield* startSession(handler, "create-client")
@@ -313,7 +288,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
         ),
         Status.BAD_STATEID
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("guarded creation rejects an existing name without changing its contents or metadata", () =>
     Effect.gen(function*() {
       const {
@@ -345,7 +320,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
       )
       assert.deepStrictEqual(yield* caller.stat("/file"), before)
       assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array([4, 5]))
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("unchecked opens ignore existing-file attributes except size zero truncation", () =>
     Effect.gen(function*() {
       const {
@@ -390,7 +365,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
       assert.deepStrictEqual(truncated.filehandle, first.filehandle)
       assert.strictEqual((yield* caller.stat("/file")).mode, 0o600)
       assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array())
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("both exclusive modes recognize the verifier and reject another creation attempt", () =>
     Effect.gen(function*() {
       const {
@@ -441,7 +416,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
           Status.EXIST
         )
       }
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("ignores unused initial attribute values when the named file already exists", () =>
     Effect.gen(function*() {
       const {
@@ -479,7 +454,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
 
       assert.deepStrictEqual(retry.attrs, [47, 53])
       assert.deepStrictEqual(yield* caller.stat("/exclusive"), exclusiveInitial)
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("EXCLUSIVE4_1 rejects timestamp setters before creating a file", () =>
     Effect.gen(function*() {
       const {
@@ -505,7 +480,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
         )
         assert.strictEqual((yield* Effect.flip(caller.stat("/file"))).code, "NotFound")
       }
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("advertises the EXCLUSIVE4_1 initial attributes without timestamp setters", () =>
     Effect.gen(function*() {
       const {
@@ -531,7 +506,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
       assert.deepStrictEqual(yield* readBitmap(attributes), [4, 33, 36, 37])
       yield* attributes.finish
       yield* reader.finish
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("rejects unsupported initial attributes without leaving a directory entry", () =>
     Effect.gen(function*() {
       const {
@@ -551,7 +526,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
       )
       assert.strictEqual((yield* Effect.flip(caller.stat("/file"))).code, "NotFound")
       yield* readCreate(yield* handler.compound(yield* createCall(client, session, 2, "file")))
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("checks share reservations before an unchecked open can truncate", () =>
     Effect.gen(function*() {
       const {
@@ -584,14 +559,12 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
         Status.SHARE_DENIED
       )
       assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array([4, 5]))
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("uses the mapped caller's authority before creating or truncating", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
 
-      const caller = yield* volume.caller({
-        umask: 0
-      })
+      const caller = yield* Vfs.Caller
 
       yield* caller.writeFile("/file", new Uint8Array([4, 5]), {
         access: "write",
@@ -599,13 +572,11 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
         mode: 0o600
       })
 
-      const guest = yield* volume.caller({
-        identity: {
-          uid: 1000,
-          gid: 1000,
-          groups: [],
-          privileged: false
-        }
+      const guest = yield* Testing.callerAs({
+        uid: 1000,
+        gid: 1000,
+        groups: [],
+        privileged: false
       })
 
       const handler = yield* server(caller, volume, {
@@ -631,7 +602,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
         Status.ACCESS
       )
       assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array([4, 5]))
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("exhausted open-state capacity cannot create or truncate", () =>
     Effect.gen(function*() {
       const {
@@ -662,7 +633,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
       )
       assert.strictEqual((yield* Effect.flip(caller.stat("/new"))).code, "NotFound")
       assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array([4]))
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("exhausted filehandle capacity cannot create or truncate", () =>
     Effect.gen(function*() {
       const {
@@ -703,7 +674,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
       )
       assert.strictEqual((yield* Effect.flip(caller.stat("/new"))).code, "NotFound")
       assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array([4]))
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("exhausted entry capacity leaves no file or retained open reservation", () =>
     Effect.gen(function*() {
       const {
@@ -712,7 +683,6 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
         client,
         session
       } = yield* setup({
-        maxEntries: 1,
         maxOpens: 1
       })
 
@@ -727,7 +697,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
       assert.strictEqual((yield* Effect.flip(caller.stat("/new"))).code, "NotFound")
       yield* caller.unlink("/occupied")
       yield* readCreate(yield* handler.compound(yield* createCall(client, session, 2, "new")))
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxEntries: 1 }, caller: { umask: 0 } }))))
   it.effect("read-only handlers reject every creation mode and preserve existing data", () =>
     Effect.gen(function*() {
       const {
@@ -761,7 +731,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
       )
       assert.strictEqual((yield* Effect.flip(caller.stat("/new"))).code, "NotFound")
       assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array([4]))
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("replays a cached reply and never reexecutes an uncached creation request", () =>
     Effect.gen(function*() {
       const {
@@ -782,7 +752,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
       yield* caller.unlink("/uncached")
       assert.strictEqual(yield* responseStatus(yield* handler.compound(uncached)), Status.RETRY_UNCACHED_REP)
       assert.strictEqual((yield* Effect.flip(caller.stat("/uncached"))).code, "NotFound")
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("a rejected commit publishes neither the file nor an open reservation", () => {
     let reject = true
 

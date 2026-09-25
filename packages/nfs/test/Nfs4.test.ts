@@ -1,4 +1,4 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it, live as liveTest } from "@effect/vitest"
 import { type Crypto, Deferred, Effect, Exit, Fiber, Option, Scope } from "effect"
@@ -6,8 +6,7 @@ import * as ByteSize from "effect/ByteSize"
 import type * as Duration from "effect/Duration"
 import * as Predicate from "effect/Predicate"
 import * as TestClock from "effect/testing/TestClock"
-import { makeExport } from "../src/internal/export.js"
-import { makeNfs4Handler, nextSequenceId, Operation, Status } from "../src/internal/nfs4.js"
+import { nextSequenceId, Operation, Status } from "../src/internal/nfs4.js"
 import type { Credentials } from "../src/internal/rpc.js"
 import { type EncoderSession, make, XdrCodec, type XdrEncodeError } from "../src/internal/xdr.js"
 
@@ -21,10 +20,14 @@ import {
   channel,
   connection,
   exchangeId,
+  exportFor,
   generation,
+  handlerFor,
   limits,
+  makeHandler,
   openByName,
   openReadOnly,
+  openSession,
   parseOpen,
   sequence,
   startSession,
@@ -36,23 +39,12 @@ import {
 it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
   it.effect("reports writable directory access for an authorized mapped caller", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true,
-          callerFor: () => Effect.succeed(caller)
-        }
-      )
-
-      const { session } = yield* startSession(handler, "writable-access")
+      const { handler, session } = yield* openSession(caller, "writable-access", {
+        writable: true,
+        callerFor: () => Effect.succeed(caller)
+      })
 
       const reply = yield* handler.compound(
         yield* call([
@@ -82,15 +74,11 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(yield* reader.read(XdrCodec.uint32), 0x1f)
       assert.strictEqual(yield* reader.read(XdrCodec.uint32), 0x1f)
       yield* reader.finish
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("uses the mapped caller for ACCESS and OPEN", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-
-      const admin = yield* volume.caller({
-        umask: 0
-      })
+      const admin = yield* Vfs.Caller
 
       yield* admin.writeFile("/secret", new Uint8Array([1]), {
         access: "write",
@@ -103,22 +91,18 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       })
       yield* admin.chmod("/", 0o111)
 
-      const owner = yield* volume.caller({
-        identity: {
-          uid: 1000,
-          gid: 1000,
-          groups: [],
-          privileged: false
-        }
+      const owner = yield* Testing.callerAs({
+        uid: 1000,
+        gid: 1000,
+        groups: [],
+        privileged: false
       })
 
-      const guest = yield* volume.caller({
-        identity: {
-          uid: 2000,
-          gid: 2000,
-          groups: [],
-          privileged: false
-        }
+      const guest = yield* Testing.callerAs({
+        uid: 2000,
+        gid: 2000,
+        groups: [],
+        privileged: false
       })
 
       const ownerConnection = connection(101)
@@ -134,26 +118,15 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         supplementaryGroups: []
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(admin, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          securityFlavors: [1],
-          callerFor: (request) =>
-            Effect.succeed(
-              Predicate.isTagged(request.credentials, "Sys") && request.credentials.uid === 1000 && !downgradeOwner
-                ? owner
-                : guest
-            )
-        }
-      )
+      const handler = yield* makeHandler(admin, {
+        securityFlavors: [1],
+        callerFor: (request) =>
+          Effect.succeed(
+            Predicate.isTagged(request.credentials, "Sys") && request.credentials.uid === 1000 && !downgradeOwner
+              ? owner
+              : guest
+          )
+      })
 
       const first = yield* startSession(
         handler,
@@ -337,10 +310,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
 
       assert.strictEqual((yield* statuses(refused)).status, Status.ACCESS)
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("uses both storage incarnation and server generation for COMMIT", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -351,24 +324,11 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         const serverGeneration = generation.map(() => serverByte)
         const storageGeneration = generation.map(() => storageByte)
 
-        const handler = yield* makeNfs4Handler(
-          makeExport(caller, storageGeneration, {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          }),
-          {
-            leaseDurationSeconds: 30,
-            callbackTimeout: "1 second",
-            generation: serverGeneration,
-            storageGeneration,
-            now: () => 0,
-            limits
-          }
-        )
-
-        const {
-          session
-        } = yield* startSession(handler, "commit-storage-generation")
+        const { handler, session } = yield* openSession(caller, "commit-storage-generation", {
+          generation: serverGeneration,
+          storageGeneration,
+          export: { generation: storageGeneration }
+        })
 
         const response = yield* make.openReader(
           yield* handler.compound(
@@ -413,7 +373,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.isFalse(verifiers[0]!.every((byte, index) => byte === verifiers[1]![index]))
       assert.isFalse(verifiers[0]!.every((byte, index) => byte === verifiers[2]![index]))
       assert.isFalse(verifiers[1]!.every((byte, index) => byte === verifiers[2]![index]))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it("wraps client sequence IDs at the uint32 boundary", () => {
     assert.strictEqual(nextSequenceId(1), 2)
     assert.strictEqual(nextSequenceId(0xffff_ffff), 0)
@@ -425,20 +385,11 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
   })
   it.effect("echoes the tag, executes in order, and stops at a missing LOOKUP", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const export_ = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const export_ = exportFor(caller)
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
-      })
+      const handler = yield* handlerFor(export_)
 
       const {
         session
@@ -462,36 +413,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           Status.NOENT
         ]]
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("saves and restores the current filehandle within a compound", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.fromFixture({
-        entries: [{
-          kind: "file",
-          path: "/child",
-          bytes: new Uint8Array([1])
-        }]
-      })
+      const caller = yield* Vfs.Caller
 
-      const caller = yield* volume.caller()
-
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "saved-filehandle")
+      const { handler, session } = yield* openSession(caller, "saved-filehandle")
 
       const response = yield* handler.compound(
         yield* call([sequence(session, 1), (writer) =>
@@ -509,24 +436,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
 
       assert.strictEqual((yield* statuses(response)).status, Status.OK)
-    }))
+    }).pipe(
+      Effect.provide(
+        Testing.layer({ fixture: { entries: [{ kind: "file", path: "/child", bytes: new Uint8Array([1]) }] } })
+      )
+    ))
   it.effect("advertises the client ID as a non-pNFS implementation", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const response = yield* make.openReader(
         yield* handler.compound(yield* call([exchangeId("macos-client")])),
@@ -541,24 +460,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       yield* response.read(XdrCodec.uint64)
       yield* response.read(XdrCodec.uint32)
       assert.strictEqual(yield* response.read(XdrCodec.uint32), 0x0001_0000)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("marks a repeated EXCHANGE_ID after CREATE_SESSION as confirmed", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const started = yield* startSession(handler, "confirmed-client")
 
@@ -575,24 +482,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(yield* response.read(XdrCodec.uint64), started.client)
       yield* response.read(XdrCodec.uint32)
       assert.strictEqual(yield* response.read(XdrCodec.uint32), 0x8001_0000)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("applies confirmed-record EXCHANGE_ID update rules", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const update = (owner: string, verifier: Uint8Array) =>
         call([(writer) =>
@@ -640,29 +535,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       yield* matching.read(XdrCodec.uint32)
       yield* matching.read(XdrCodec.uint32)
       assert.strictEqual(yield* matching.read(XdrCodec.uint64), started.client)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects EXCHANGE_ID argument flags that are not valid for clients", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
         maxClients: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       const invalid = yield* call([(writer) =>
         Effect.gen(function*() {
@@ -693,24 +576,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* (yield* make.openReader(yield* handler.compound(requestedNonPnfs), constrained)).read(XdrCodec.uint32),
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("accepts the AUTH_SYS callback credential sent by macOS", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const exchange = yield* make.openReader(
         yield* handler.compound(yield* call([exchangeId("macos-session")])),
@@ -776,29 +647,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
       assert.deepStrictEqual(yield* result.read(XdrCodec.array(XdrCodec.uint32)), [])
       yield* result.finish
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("negotiates and enforces full RPC record bounds", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
         maxRecordBytes: ByteSize.bytes(2_048)
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       const exchange = yield* make.openReader(yield* handler.compound(yield* call([exchangeId("rpc-bounds")])), limits)
       yield* exchange.read(XdrCodec.uint32)
@@ -850,24 +709,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* (yield* make.openReader(yield* handler.compound(oversized), limits)).read(XdrCodec.uint32),
         Status.REQ_TOO_BIG
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("returns BADXDR before a malformed read-only mutation can report ROFS", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const malformed = yield* Effect.gen(function*() {
         const xdrWriter = yield* make.openWriter(limits, 4294967295)
@@ -909,24 +756,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         })])
 
       assert.strictEqual((yield* statuses(yield* handler.compound(write))).status, Status.ROFS)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects trailing compound bytes and unsupported minor versions", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const valid = (yield* call([])).arguments
       const trailing = new Uint8Array(valid.length + 4)
@@ -968,24 +803,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(yield* response.read(XdrCodec.uint32), Status.MINOR_VERS_MISMATCH)
       assert.strictEqual(yield* response.read(XdrCodec.string()), "minor")
       assert.strictEqual(yield* response.read(XdrCodec.uint32), 0)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("creates bounded sessions and returns byte-identical cached slot replays", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const exchange = yield* make.openReader(yield* handler.compound(yield* call([exchangeId("client")])), limits)
       assert.strictEqual(yield* exchange.read(XdrCodec.uint32), Status.OK)
@@ -1051,29 +874,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* (yield* make.openReader(yield* handler.compound(highSlot), limits)).read(XdrCodec.uint32),
         Status.BAD_HIGH_SLOT
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("replays an identical CREATE_SESSION without allocating another session", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
         maxSessions: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       const exchange = yield* make.openReader(
         yield* handler.compound(yield* call([exchangeId("create-replay")])),
@@ -1123,28 +934,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       // RFC 8881 Section 18.36.4 phase 2: an equal csa_sequence is a replay regardless of principal.
       assert.deepStrictEqual(yield* handler.compound(changedCredentials), first)
       assert.deepStrictEqual(yield* handler.compound(request), first)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("returns SEQUENCE OK before RETRY_UNCACHED_REP for an uncached replay", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "uncached-replay")
+      const { handler, session } = yield* openSession(caller, "uncached-replay")
 
       const request = yield* call([
         sequence(session, 1),
@@ -1156,19 +951,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         Operation.SEQUENCE,
         Status.OK
       ], [Operation.PUTROOTFH, Status.RETRY_UNCACHED_REP]])
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("never repeats an OPEN when its reply is lost", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const base = exportFor(caller)
 
       let opens = 0
 
@@ -1181,13 +973,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         }
       }
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
-      })
+      const handler = yield* handlerFor(export_)
 
       const {
         session,
@@ -1210,35 +996,26 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(yield* (yield* make.openReader(first, limits)).read(XdrCodec.uint32), Status.NOTDIR)
       assert.deepStrictEqual(yield* handler.compound(request), first)
       assert.strictEqual(opens, 1)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects an OPEN before execution when its cached result cannot fit", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const base = exportFor(caller)
 
       let opens = 0
 
-      const handler = yield* makeNfs4Handler({
+      const handler = yield* handlerFor({
         ...base,
         open: (reference: Vfs.ObjectReference) => {
           opens++
 
           return base.open(reference)
         }
-      }, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
       })
 
       const {
@@ -1255,37 +1032,27 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(opens, 0)
       assert.strictEqual((yield* statuses(yield* handler.compound(request))).status, Status.REP_TOO_BIG_TO_CACHE)
       assert.strictEqual(opens, 0)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("includes every configured SECINFO flavor in pre-mutation reply admission", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const base = exportFor(caller)
 
       let opens = 0
 
-      const handler = yield* makeNfs4Handler({
+      const handler = yield* handlerFor({
         ...base,
         open: (reference: Vfs.ObjectReference) => {
           opens++
 
           return base.open(reference)
         }
-      }, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits,
-        securityFlavors: [1, 0, 1, 0, 1, 0]
-      })
+      }, { securityFlavors: [1, 0, 1, 0, 1, 0] })
 
       const {
         session,
@@ -1311,23 +1078,20 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         Status.REP_TOO_BIG_TO_CACHE
       )
       assert.strictEqual(opens, 0)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("does not reopen a consumed slot after an operation fails", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const base = exportFor(caller)
 
       let opens = 0
 
-      const handler = yield* makeNfs4Handler({
+      const handler = yield* handlerFor({
         ...base,
         open: (reference: Vfs.ObjectReference) =>
           base.open(reference).pipe(
@@ -1338,12 +1102,6 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
             ),
             Effect.tap(() => Effect.die(new Error("storage outcome unknown")))
           )
-      }, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
       })
 
       const {
@@ -1360,29 +1118,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         Status.OK
       ], [Operation.PUTROOTFH, Status.RETRY_UNCACHED_REP]])
       assert.strictEqual(opens, 1)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("leaves a slot unchanged when SEQUENCE rejects an oversized cached reply", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
         maxReplayBytes: ByteSize.bytes(512)
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       const {
         session
@@ -1407,28 +1153,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* (yield* make.openReader(yield* handler.compound(retry), limits)).read(XdrCodec.uint32),
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("accepts small actual replies within a negotiated response channel", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const {
         session
@@ -1470,33 +1204,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).read(XdrCodec.uint32),
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("counts retained requests against the replay-memory budget", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
         maxReplayBytes: ByteSize.bytes(560)
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "request-budget")
+      const { handler, session } = yield* openSession(caller, "request-budget", { limits: constrained })
 
       const first = yield* call([sequence(session, 1, false, 0), (writer) =>
         writer.write(XdrCodec.uint32, Operation.PUTROOTFH)], "x".repeat(80))
@@ -1513,33 +1231,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* (yield* make.openReader(yield* handler.compound(second), limits)).read(XdrCodec.uint32),
         Status.DELAY
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reuses the reserved replay budget for successive uncached requests", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
         maxReplayBytes: ByteSize.bytes(640)
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "reused-request-budget")
+      const { handler, session } = yield* openSession(caller, "reused-request-budget", { limits: constrained })
 
       for (let sequenceId = 1; sequenceId <= 4; sequenceId++) {
         const request = yield* call([sequence(session, sequenceId), (writer) =>
@@ -1550,28 +1252,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           Status.OK
         )
       }
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects a different request that reuses a cached slot sequence", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "false-retry")
+      const { handler, session } = yield* openSession(caller, "false-retry")
 
       yield* handler.compound(
         yield* call([sequence(session, 1, true), (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)])
@@ -1604,33 +1290,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* (yield* make.openReader(yield* handler.compound(changedCredentials), limits)).read(XdrCodec.uint32),
         Status.SEQ_FALSE_RETRY
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("replaces a slot's cached reply without double-counting its old bytes", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
         maxReplayBytes: ByteSize.bytes(1_024)
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "replace-replay")
+      const { handler, session } = yield* openSession(caller, "replace-replay", { limits: constrained })
 
       for (
         const sequenceId of Array.from({
@@ -1644,10 +1314,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         assert.strictEqual(yield* (yield* make.openReader(response, constrained)).read(XdrCodec.uint32), Status.OK)
         assert.deepStrictEqual(yield* handler.compound(request), response)
       }
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("revokes the prior client incarnation when its replacement creates a session", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
@@ -1655,19 +1325,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxSessions: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       const first = yield* startSession(handler, "restarted-client")
 
@@ -1708,29 +1366,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           .read(XdrCodec.uint32),
         Status.BADSESSION
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("restores a confirmed predecessor after destroying an unconfirmed replacement", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
         maxClients: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       const original = yield* startSession(handler, "abandoned-restart")
 
@@ -1772,10 +1418,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).read(XdrCodec.uint32),
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("bounds pending client replacements separately from logical clients", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
@@ -1783,19 +1429,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxPendingClientReplacements: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       yield* startSession(handler, "pending-a")
       yield* startSession(handler, "pending-b")
@@ -1838,28 +1472,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).read(XdrCodec.uint32),
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("requires DESTROY_SESSION for the active session to be the final operation", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "destroy-order")
+      const { handler, session } = yield* openSession(caller, "destroy-order")
 
       const rejected = yield* statuses(
         yield* handler.compound(
@@ -1879,28 +1497,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         ),
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects an unsequenced non-final DESTROY_SESSION without removing the session", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "unsequenced-destroy-order")
+      const { handler, session } = yield* openSession(caller, "unsequenced-destroy-order")
 
       assert.strictEqual(
         yield* (yield* make.openReader(
@@ -1921,10 +1523,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         ),
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("releases cached replay capacity when DESTROY_SESSION removes its session", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
@@ -1933,19 +1535,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxReplayBytes: ByteSize.bytes(1_024)
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       for (let index = 0; index < 4; index++) {
         const {
@@ -1989,19 +1579,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).read(XdrCodec.uint32),
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("serializes concurrent slot duplicates so OPEN runs exactly once", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const base = exportFor(caller)
 
       let opens = 0
 
@@ -2011,13 +1598,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           Effect.sync(() => opens++).pipe(Effect.andThen(Effect.yieldNow), Effect.andThen(base.open(reference)))
       }
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
-      })
+      const handler = yield* handlerFor(export_)
 
       const {
         client,
@@ -2037,10 +1618,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       assert.deepStrictEqual(duplicate, first)
       assert.strictEqual(opens, 1)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reports read-only access and non-atomic name resolution for OPEN", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -2050,19 +1631,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const client = yield* startSession(handler, "open-contract")
 
@@ -2106,28 +1675,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
 
       assert.isFalse(opened.atomic)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("requires a first SEQUENCE and keeps another client from using an open stateid", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1, 2]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       assert.strictEqual(
         (yield* statuses(
@@ -2178,28 +1735,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* (yield* make.openReader(yield* handler.compound(stolenRead), limits)).read(XdrCodec.uint32),
         Status.BAD_STATEID
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reports EOF on an exact-boundary read and lets the owning session close", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1, 2]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const client = yield* startSession(handler, "reader")
 
@@ -2277,31 +1822,22 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       const closedStateid = yield* close.read(XdrCodec.fixedOpaque(16))
       assert.strictEqual(new DataView(closedStateid.buffer, closedStateid.byteOffset, 4).getUint32(0), 2)
       assert.deepStrictEqual(closedStateid.subarray(4), opened.stateid.subarray(4))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("opens the current filehandle with the macOS CLAIM_FH sequence", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const export_ = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const export_ = exportFor(caller)
 
       const root = yield* caller.root
       const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
       const filehandle = yield* export_.handleFor(reference)
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
-      })
+      const handler = yield* handlerFor(export_)
 
       const client = yield* startSession(handler, "claim-fh")
 
@@ -2330,29 +1866,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
 
       assert.strictEqual(yield* (yield* make.openReader(response, limits)).read(XdrCodec.uint32), Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("serves metadata, access, directory entries, and symbolic-link targets", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
       yield* caller.symlink("file", "/link")
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const client = yield* startSession(handler, "browser")
       const root = yield* caller.root
@@ -2489,10 +2013,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(yield* link.read(XdrCodec.uint32), Operation.READLINK)
       assert.strictEqual(yield* link.read(XdrCodec.uint32), Status.OK)
       assert.strictEqual(yield* link.read(XdrCodec.string()), "file")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects stale filehandles during PUTFH", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -2500,20 +2024,11 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       const root = yield* caller.root
       const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
 
-      const export_ = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const export_ = exportFor(caller)
 
       const filehandle = yield* export_.handleFor(reference)
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
-      })
+      const handler = yield* handlerFor(export_)
 
       const {
         session
@@ -2530,10 +2045,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
 
       assert.strictEqual(yield* (yield* make.openReader(response, limits)).read(XdrCodec.uint32), Status.STALE)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("bounds READLINK results before advancing beyond the negotiated reply budget", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.symlink("12345678901234567", "/link")
 
       const constrained = {
@@ -2541,23 +2056,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxStringBytes: ByteSize.bytes(16)
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "link-bound")
+      const { handler, session } = yield* openSession(caller, "link-bound", { limits: constrained })
 
       const response = yield* handler.compound(
         yield* call([
@@ -2583,10 +2082,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).read(XdrCodec.uint32),
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("lists entries without allocating filehandles when no attributes are requested", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/a", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -2596,23 +2095,9 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 1,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "attribute-free-readdir")
+      const { handler, session } = yield* openSession(caller, "attribute-free-readdir", {
+        export: { limits: { maxFilehandles: 1 } }
+      })
 
       const response = yield* handler.compound(
         yield* call([
@@ -2631,41 +2116,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
 
       assert.strictEqual(yield* (yield* make.openReader(response, limits)).read(XdrCodec.uint32), Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("continues READDIR from its cookie and rejects a stale verifier", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.fromFixture({
-        entries: ["a", "b", "c"].map((path, index) => ({
-          kind: "file" as const,
-          path: `/${path}`,
-          bytes: new Uint8Array([index])
-        }))
-      })
-
-      const caller = yield* volume.caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
         maxReaddirEntries: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "pagination")
+      const { handler, session } = yield* openSession(caller, "pagination", { limits: constrained })
 
       const readPage = (sequenceId: number, cookie: bigint, verifier: Uint8Array) =>
         Effect.gen(function*() {
@@ -2754,20 +2215,18 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       })
       const stale = yield* readPage(5, third.nextCookie, third.pageVerifier)
       assert.strictEqual(yield* (yield* make.openReader(stale, constrained)).read(XdrCodec.uint32), Status.NOT_SAME)
-    }))
-  it.effect("pages READDIR within the record ceiling", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.fromFixture({
-        entries: Array.from({
-          length: 100
-        }, (_, index) => ({
+    }).pipe(Effect.provide(Testing.layer({
+      fixture: {
+        entries: ["a", "b", "c"].map((path, index) => ({
           kind: "file" as const,
-          path: `/entry-${String(index).padStart(4, "0")}`,
+          path: `/${path}`,
           bytes: new Uint8Array([index])
         }))
-      })
-
-      const caller = yield* volume.caller()
+      }
+    }))))
+  it.effect("pages READDIR within the record ceiling", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
@@ -2775,23 +2234,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxReaddirEntries: 100
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 128,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "record-page")
+      const { handler, session } = yield* openSession(caller, "record-page", {
+        limits: constrained,
+        export: { limits: { maxFilehandles: 128 } }
+      })
 
       const readPage = (sequenceId: number, cookie: bigint, verifier: Uint8Array) =>
         Effect.gen(function*() {
@@ -2857,10 +2303,20 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       const second = yield* parsePage(yield* readPage(2, first.cookie, first.verifier))
       assert.isAbove(second.names.length, 0)
       assert.strictEqual(second.names[0], `entry-${String(first.names.length).padStart(4, "0")}`)
-    }))
+    }).pipe(Effect.provide(Testing.layer({
+      fixture: {
+        entries: Array.from({
+          length: 100
+        }, (_, index) => ({
+          kind: "file" as const,
+          path: `/entry-${String(index).padStart(4, "0")}`,
+          bytes: new Uint8Array([index])
+        }))
+      }
+    }))))
   it.effect("does not consume client capacity when EXCHANGE_ID reply encoding fails", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
@@ -2868,50 +2324,22 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxRecordBytes: ByteSize.bytes(64)
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       const first = yield* handler.compound(yield* call([exchangeId("first-owner")]))
       const second = yield* handler.compound(yield* call([exchangeId("second-owner")]))
       assert.strictEqual(yield* (yield* make.openReader(first, constrained)).read(XdrCodec.uint32), Status.REP_TOO_BIG)
       assert.strictEqual(yield* (yield* make.openReader(second, constrained)).read(XdrCodec.uint32), Status.REP_TOO_BIG)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("uses maxcount alone when READDIR dircount is zero", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "zero-dircount")
+      const { handler, session } = yield* openSession(caller, "zero-dircount")
 
       const response = yield* handler.compound(
         yield* call([sequence(session, 1), (writer) =>
@@ -2928,10 +2356,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
 
       assert.strictEqual(yield* (yield* make.openReader(response, limits)).read(XdrCodec.uint32), Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects OPEN without read access without consuming open capacity", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -2942,24 +2370,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxOpens: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "invalid-open-access")
+      const { handler, client, session } = yield* openSession(caller, "invalid-open-access", { limits: constrained })
 
       const invalid = yield* handler.compound(
         yield* call([sequence(session, 1), (writer) =>
@@ -2990,10 +2401,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           ])
         )
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("coalesces repeated OPEN state and validates stateid sequences", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -3004,24 +2415,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxOpens: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "repeated-open")
+      const { handler, client, session } = yield* openSession(caller, "repeated-open", { limits: constrained })
 
       const first = yield* parseOpen(
         yield* handler.compound(
@@ -3074,33 +2468,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(yield* readStatus(3, stateidWithSequence(second.stateid, 0)), Status.OK)
       assert.strictEqual(yield* readStatus(4, first.stateid), Status.OLD_STATEID)
       assert.strictEqual(yield* readStatus(5, stateidWithSequence(second.stateid, 3)), Status.BAD_STATEID)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("checks an open-owner's own deny mode on a repeated OPEN", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "self-deny")
+      const { handler, client, session } = yield* openSession(caller, "self-deny")
 
       const first = yield* parseOpen(
         yield* handler.compound(
@@ -3156,29 +2533,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).status,
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("coordinates write opens across clients and releases a denial on downgrade", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
+      const handler = yield* makeHandler(caller, { writable: true })
 
       const a = yield* startSession(handler, "write-share-a")
       const b = yield* startSession(handler, "write-share-b")
@@ -3242,29 +2606,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         Status.SHARE_DENIED
       )
       assert.strictEqual(yield* bWrite(3), Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects reads through a write-only stateid", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
+      const handler = yield* makeHandler(caller, { writable: true })
 
       const client = yield* startSession(handler, "write-only")
 
@@ -3294,10 +2645,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
 
       assert.strictEqual((yield* statuses(reply)).status, Status.OPENMODE)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("upgrades one open-owner from read to read-write and keeps one open record", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -3308,20 +2659,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxOpens: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained,
-          writable: true
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained, writable: true })
 
       const client = yield* startSession(handler, "upgrade")
 
@@ -3367,14 +2705,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).status,
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("keeps earlier read access when upgrading after read permission is removed", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-
-      const admin = yield* volume.caller({
-        umask: 0
-      })
+      const admin = yield* Vfs.Caller
 
       yield* admin.writeFile("/file", new Uint8Array([1]), {
         access: "write",
@@ -3387,30 +2721,14 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       })
       yield* admin.chmod("/", 0o111)
 
-      const owner = yield* volume.caller({
-        identity: {
-          uid: 1000,
-          gid: 1000,
-          groups: [],
-          privileged: false
-        }
+      const owner = yield* Testing.callerAs({
+        uid: 1000,
+        gid: 1000,
+        groups: [],
+        privileged: false
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(admin, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true,
-          callerFor: () => Effect.succeed(owner)
-        }
-      )
+      const handler = yield* makeHandler(admin, { writable: true, callerFor: () => Effect.succeed(owner) })
 
       const client = yield* startSession(handler, "permission-upgrade")
 
@@ -3458,19 +2776,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).status,
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   live("interrupts a stalled write-open upgrade without closing the original handle", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const base = exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
@@ -3486,14 +2801,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
             : base.open(reference, access)
       }
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits,
-        writable: true
-      })
+      const handler = yield* handlerFor(export_, { writable: true })
 
       const client = yield* startSession(handler, "interrupted-upgrade")
 
@@ -3540,33 +2848,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).status,
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("supports anonymous and current-stateid READ forms", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "special-stateids")
+      const { handler, client, session } = yield* openSession(caller, "special-stateids")
 
       const anonymous = new Uint8Array(16)
       const current = stateidWithSequence(anonymous, 1)
@@ -3689,29 +2980,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).read(XdrCodec.uint32),
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("enforces negotiated channel operation and cached-reply limits before advancing a slot", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
       const constrained = {
         ...limits,
         maxReplayBytes: ByteSize.bytes(580)
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       const operationsSession = yield* startSession(handler, "channel-operations", {
         maxOperations: 2
@@ -3745,10 +3024,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* (yield* make.openReader(yield* handler.compound(oversized), constrained)).read(XdrCodec.uint32),
         Status.REP_TOO_BIG_TO_CACHE
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("encodes every advertised GETATTR value from one file observation", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), {
         access: "write",
         create: "exclusive"
@@ -3760,23 +3039,14 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         gid: 20
       })
 
-      const export_ = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const export_ = exportFor(caller)
 
       const root = yield* caller.root
       const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
       const observation = yield* caller.stat(reference)
       const expectedHandle = yield* export_.handleFor(reference)
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
-      })
+      const handler = yield* handlerFor(export_)
 
       const {
         session
@@ -3885,39 +3155,21 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(yield* values.read(XdrCodec.uint32), 0x2, "fs_charset_cap: FSCHARSET_CAP4_ALLOWS_ONLY_UTF8")
       yield* values.finish
       yield* response.finish
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reports bounded volume capacity and omits unbounded totals", () =>
     Effect.gen(function*() {
-      const bounded = yield* Vfs.make({
-        maxBytes: ByteSize.bytes(10),
-        maxEntries: 3
-      })
+      const bounded = yield* Vfs.Volume
 
-      const caller = yield* bounded.caller()
+      const caller = yield* Vfs.Caller
       yield* caller.mkdir("/dir")
       yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), {
         access: "write",
         create: "exclusive"
       })
 
-      const export_ = makeExport(
-        caller,
-        generation,
-        {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        },
-        generation,
-        bounded
-      )
+      const export_ = exportFor(caller, { capacity: bounded })
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
-      })
+      const handler = yield* handlerFor(export_)
 
       const {
         session
@@ -3977,26 +3229,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       const unlimited = yield* Vfs.make()
       const unlimitedCaller = yield* unlimited.caller()
 
-      const unlimitedHandler = yield* makeNfs4Handler(
-        makeExport(
-          unlimitedCaller,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          unlimited
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () =>
-            0,
-          limits
-        }
-      )
+      const unlimitedHandler = yield* makeHandler(unlimitedCaller, { export: { capacity: unlimited } })
 
       const unlimitedSession = yield* startSession(unlimitedHandler, "unbounded-capacity")
 
@@ -4031,7 +3264,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       yield* unboundedResponse.read(XdrCodec.uint32)
       yield* unboundedResponse.read(XdrCodec.fixedOpaque(16))
 
-      for (let field = 0; field < 5; field++) yield* unboundedResponse.read(XdrCodec.uint32)
+      for (let field = 0; field < 5; field++) {
+        yield* unboundedResponse.read(XdrCodec.uint32)
+      }
+
       yield* unboundedResponse.read(XdrCodec.uint32)
       yield* unboundedResponse.read(XdrCodec.uint32)
       assert.strictEqual(yield* unboundedResponse.read(XdrCodec.uint32), Operation.GETATTR)
@@ -4068,10 +3304,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* (yield* make.openReader(unsupportedVerify, limits)).read(XdrCodec.uint32),
         Status.ATTRNOTSUPP
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(10), maxEntries: 3 } }))))
   it.effect("normalizes negative timestamps and rejects seconds outside the NFS int64 range", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -4086,23 +3322,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         }
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-
-      const {
-        session
-      } = yield* startSession(handler, "timestamp-bounds")
+      const { handler, session } = yield* openSession(caller, "timestamp-bounds")
 
       const getattr = (sequenceId: number) =>
         Effect.gen(function*() {
@@ -4168,10 +3388,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* (yield* make.openReader(yield* getattr(2), limits)).read(XdrCodec.uint32),
         Status.SERVERFAULT
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reads successive offsets and reports EOF only at the file boundary", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const bytes = new Uint8Array([0, 1, 2, 3, 4, 5, 6])
       yield* caller.writeFile("/file", bytes, {
         access: "write",
@@ -4183,19 +3403,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxReadBytes: ByteSize.bytes(3)
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       const client = yield* startSession(handler, "offset-reader")
 
@@ -4283,29 +3491,17 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         eof: false,
         bytes: new Uint8Array([0, 1, 2])
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects every decoded mutation as read-only without changing the volume", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const original = new Uint8Array([1, 2, 3])
       yield* caller.writeFile("/file", original, {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const client = yield* startSession(handler, "mutations")
 
@@ -4392,11 +3588,11 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       for (const path of ["/created", "/renamed", "/linked"]) {
         assert.strictEqual((yield* Effect.flip(caller.stat(path))).code, "NotFound")
       }
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("sweeps expired clients before applying capacity limits and closes their opens", () =>
     Effect.gen(function*() {
       let now = 0
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -4411,19 +3607,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxOpens: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 1,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => now,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { leaseDurationSeconds: 1, now: () => now, limits: constrained })
 
       const first = yield* startSession(handler, "expires")
       yield* parseOpen(
@@ -4441,11 +3625,11 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       now = 1_001
       yield* startSession(handler, "replacement")
       assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reclaims an expired lease without waiting for another client's traffic", () =>
     Effect.gen(function*() {
       let now = 0
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -4453,19 +3637,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       const root = yield* caller.root
       const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 1,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => now,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller, { leaseDurationSeconds: 1, now: () => now })
 
       // One connection object for both calls: `session.connections` is keyed by identity, so a
       // fresh `connection()` would disconnect nothing and the drop below would prove nothing.
@@ -4497,10 +3669,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       // Observed through the VFS rather than a compound: any compound would itself sweep, which
       // is exactly the traffic this test must do without.
       assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("closes remaining opens when the handler scope closes", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -4509,19 +3681,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
       const scope = yield* Scope.make()
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      ).pipe(Effect.provideService(Scope.Scope, scope))
+      const handler = yield* makeHandler(caller).pipe(Effect.provideService(Scope.Scope, scope))
 
       const client = yield* startSession(handler, "handler-finalizer")
       yield* parseOpen(
@@ -4538,19 +3698,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual((yield* caller.stat(reference)).nlink, 0)
       yield* Scope.close(scope, Exit.void)
       assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("does not let a connection finalizer wait out an in-flight compound", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const base = exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
@@ -4567,13 +3724,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           )
       }
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
-      })
+      const handler = yield* handlerFor(export_)
 
       const stalling = connection(1)
       const departing = connection(2)
@@ -4619,21 +3770,18 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       yield* Deferred.succeed(release, undefined)
       yield* Fiber.join(inFlight)
       assert.isTrue(Option.isSome(finished), "a connection finalizer stalled behind an in-flight compound")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   // A real bound needs the live clock: it.effect runs on the test clock, which never advances.
   live("interrupts a stalled compound without reopening its consumed slot", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const base = exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
@@ -4655,13 +3803,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           )
       }
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
-      })
+      const handler = yield* handlerFor(export_)
 
       const carrier = connection(1)
       const held = yield* startSession(handler, "stalling", {}, new Uint8Array(8), carrier)
@@ -4702,19 +3844,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         Status.RETRY_UNCACHED_REP
       ]])
       assert.strictEqual(opens, 1)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("interrupts an observation before a later OPEN without dispatching it", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const base = exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
@@ -4734,13 +3873,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         }
       }
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
-      })
+      const handler = yield* handlerFor(export_)
 
       const {
         session,
@@ -4765,21 +3898,18 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         Operation.SEQUENCE,
         Status.OK
       ], [Operation.PUTROOTFH, Status.RETRY_UNCACHED_REP]])
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   // A real bound needs the live clock: it.effect runs on the test clock, which never advances.
   live("closes an open exactly once when CLOSE is interrupted", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const base = exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
@@ -4810,13 +3940,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       const currentStateid = new Uint8Array(16)
       new DataView(currentStateid.buffer).setUint32(0, 1)
       yield* Effect.scoped(Effect.gen(function*() {
-        const handler = yield* makeNfs4Handler(export_, {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        })
+        const handler = yield* handlerFor(export_)
 
         const carrier = connection(1)
         const held = yield* startSession(handler, "closing", {}, new Uint8Array(8), carrier)
@@ -4854,21 +3978,18 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       // The scope has closed, so its finalizer has swept whatever `opens` still held.
       assert.strictEqual(closes, 1, "the interrupted CLOSE left a closed handle for the finalizer")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   // A real bound needs the live clock: it.effect runs on the test clock, which never advances.
   live("closes a revoked client's open exactly once when revocation is interrupted", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      })
+      const base = exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
@@ -4897,13 +4018,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       }
 
       yield* Effect.scoped(Effect.gen(function*() {
-        const handler = yield* makeNfs4Handler(export_, {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        })
+        const handler = yield* handlerFor(export_)
 
         const carrier = connection(1)
         const held = yield* startSession(handler, "restarting", {}, new Uint8Array(8), carrier)
@@ -4937,10 +4052,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* Fiber.join(interrupting).pipe(Effect.timeoutOption("2 seconds"))
       }))
       assert.strictEqual(closes, 1, "interrupted revocation left a closed handle for the finalizer")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reuses session and open capacity after explicit teardown", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -4952,19 +4067,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxOpens: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       const first = yield* startSession(handler, "first-capacity")
 
@@ -5085,10 +4188,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).read(XdrCodec.uint32),
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("keeps a client busy until its open and session are destroyed", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -5096,19 +4199,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       const root = yield* caller.root
       const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const client = yield* startSession(handler, "destroy-client")
 
@@ -5224,24 +4315,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           .read(XdrCodec.uint32),
         Status.BADSESSION
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("preserves prior results before an unknown operation and structurally validates mutation attrs", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const client = yield* startSession(handler, "decode")
 
@@ -5277,25 +4356,9 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         yield* (yield* make.openReader(yield* handler.compound(malformed), limits)).read(XdrCodec.uint32),
         Status.BADXDR
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
-  const connectionHandler = Effect.gen(function*() {
-    const caller = yield* (yield* Vfs.make()).caller()
-
-    return yield* makeNfs4Handler(
-      makeExport(caller, generation, {
-        maxFilehandles: 16,
-        maxNameBytes: ByteSize.bytes(255)
-      }),
-      {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits
-      }
-    )
-  })
+  const connectionHandler = Effect.flatMap(Vfs.Caller, (caller) => makeHandler(caller))
 
   const destroySession = (id: Uint8Array) => (writer: EncoderSession) =>
     Effect.gen(function*() {
@@ -5332,7 +4395,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       // The session is untouched and the connection that created it may still destroy it.
       const accepted = yield* handler.compound(yield* call([destroySession(session)], "probe", owner))
       assert.deepStrictEqual((yield* statuses(accepted)).operations, [[Operation.DESTROY_SESSION, Status.OK]])
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("associates a connection that only ever carried a SEQUENCE", () =>
     Effect.gen(function*() {
       const handler = yield* connectionHandler
@@ -5360,7 +4423,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           .operations,
         [[Operation.DESTROY_SESSION, Status.OK]]
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("lets a connection associated only by BIND_CONN_TO_SESSION destroy the session", () =>
     Effect.gen(function*() {
       const handler = yield* connectionHandler
@@ -5386,7 +4449,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         (yield* statuses(yield* handler.compound(yield* call([destroySession(session)], "probe", byBind)))).operations,
         [[Operation.DESTROY_SESSION, Status.OK]]
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("associates a reconnecting client that retransmits a cached SEQUENCE", () =>
     Effect.gen(function*() {
       const handler = yield* connectionHandler
@@ -5419,7 +4482,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           .operations,
         [[Operation.DESTROY_SESSION, Status.OK]]
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("drops a connection's association when it disconnects, without ending the session", () =>
     Effect.gen(function*() {
       const handler = yield* connectionHandler
@@ -5445,26 +4508,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         (yield* statuses(yield* handler.compound(yield* call([destroySession(session)], "probe", second)))).operations,
         [[Operation.DESTROY_SESSION, Status.CONN_NOT_BOUND_TO_SESSION]]
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   const backChannelHandler = (callbackTimeout: Duration.Input) =>
-    Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
-
-      return yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout,
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-    })
+    Effect.flatMap(Vfs.Caller, (caller) => makeHandler(caller, { callbackTimeout }))
 
   /**
    * An RPC accepted-reply carrying an all-OK CB_SEQUENCE result, echoing the session, sequence and
@@ -5593,7 +4640,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       for (let field = 0; field < 4; field++) yield* reply.read(XdrCodec.uint32)
       assert.strictEqual(yield* reply.read(XdrCodec.uint32), 0, "sr_status_flags is clear while the path is up")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   // A real timeout needs the live clock: it.effect runs on the test clock, which never advances.
   live("reports the callback path down when the client never answers", () =>
@@ -5606,7 +4653,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       } = yield* startSession(handler, "silent", {}, new Uint8Array(8), client, 2)
 
       assert.isFalse(yield* handler.probeBackChannel(session))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reports the callback path down when the connection cannot be written to", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -5617,7 +4664,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       } = yield* startSession(handler, "broken", {}, new Uint8Array(8), client, 2)
 
       assert.isFalse(yield* handler.probeBackChannel(session))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("has no backchannel to probe when the client never asked for one", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -5631,7 +4678,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       } = yield* startSession(handler, "none", {}, new Uint8Array(8), client)
 
       assert.isFalse(yield* handler.probeBackChannel(session))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("gives one client id to several connections and serves a session on each", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -5746,7 +4793,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           Status.OK
         )
       }
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("carries the AUTH_SYS credential the client authorized for callbacks", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -5785,7 +4832,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         "Lloyds-Mech.local",
         "machine name from cbsp_sys_cred"
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("sends no callback when the client authorized no credential it can encode", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -5801,7 +4848,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         writer.write(XdrCodec.uint32, 0))
 
       assert.isFalse(yield* handler.probeBackChannel(session))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   // Live clock: the probe must actually time out after the impostor reply is discarded.
   live("ignores a callback reply that arrives on another connection", () =>
@@ -5829,7 +4876,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       // it — otherwise any peer could make another session's backchannel look healthy.
       yield* handler.callbackReply(impostor, yield* callbackReplyFor(sent, session))
       assert.isFalse(yield* Fiber.join(probe), "the impostor reply was ignored and the probe timed out")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("reports a down callback path in sr_status_flags", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("10 millis")
@@ -5856,7 +4903,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       for (let field = 0; field < 4; field++) yield* reply.read(XdrCodec.uint32)
       assert.strictEqual(yield* reply.read(XdrCodec.uint32), 0x0000_0200, "SEQ4_STATUS_CB_PATH_DOWN_SESSION")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("probes the callback path again after BACKCHANNEL_CTL re-advertises a program", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("10 millis")
@@ -5909,7 +4956,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       yield* handler.compound(yield* call([sequence(session, 4)], "probe", client))
       yield* Effect.sleep("30 millis")
       assert.strictEqual(attempts, 2, "the repaired endpoint is probed again")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("treats an RPC-level rejection as a callback path that is down", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("50 millis")
@@ -5933,7 +4980,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       // PROG_UNAVAIL. That is not a working callback path.
       yield* handler.callbackReply(client, yield* programUnavailableFor(sent))
       assert.isFalse(yield* Fiber.join(probe), "PROG_UNAVAIL is not success")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("does not advance the backchannel slot sequence when a callback goes unanswered", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("30 millis")
@@ -5976,7 +5023,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       answer = true
       yield* handler.probeBackChannel(session)
       assert.deepStrictEqual(seen, [1, 1, 1], "still the same sequence until one is accepted")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   /** An AUTH_SYS callback credential too large for RFC 5531's 400-byte opaque_auth body. */
   const oversizedAuthSys = (writer: EncoderSession) =>
@@ -6023,7 +5070,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       yield* Effect.yieldNow
       assert.isDefined(sent)
       assert.strictEqual(yield* credentialFlavorOf(sent), 0, "AUTH_NONE preferred")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("refuses an AUTH_SYS callback credential that cannot fit an RPC opaque_auth body", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -6049,7 +5096,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
 
       assert.isFalse(yield* handler.probeBackChannel(session))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("probes again when a new connection binds the backchannel", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("20 millis")
@@ -6093,7 +5140,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       yield* handler.compound(yield* call([sequence(session, 2)], "probe", second))
       yield* Effect.sleep("60 millis")
       assert.isAbove(attempts, 1, "the rebound path is probed again")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("marks the path down when its last backchannel connection goes away", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -6133,7 +5180,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       for (let field = 0; field < 4; field++) yield* reply.read(XdrCodec.uint32)
       assert.strictEqual(yield* reply.read(XdrCodec.uint32), 0x0000_0200, "SEQ4_STATUS_CB_PATH_DOWN_SESSION")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("lets a healthy carrier answer while another stays silent", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -6171,7 +5218,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       // The silent carrier must not hold the verdict hostage.
       assert.isTrue(yield* Fiber.join(probe), "the answering carrier wins")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("does not let a rejecting carrier end the attempt", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -6218,7 +5265,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.isDefined(goodSent)
       yield* handler.callbackReply(answers, yield* callbackReplyFor(goodSent, session))
       assert.isTrue(yield* Fiber.join(probe), "the second carrier still wins")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects a requested backchannel that offers no slots", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -6268,7 +5315,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
 
       assert.deepStrictEqual((yield* statuses(created)).operations, [[Operation.CREATE_SESSION, Status.TOOSMALL]])
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("rejects a callback reply whose RPC verifier exceeds an opaque_auth body", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("50 millis")
@@ -6314,7 +5361,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       yield* handler.callbackReply(client, oversized)
       assert.isFalse(yield* Fiber.join(probe), "an invalid RPC reply is not a working path")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("does not send a callback whose full RPC call exceeds the client's ca_maxrequestsize", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -6376,7 +5423,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       for (let field = 0; field < 3; field++) yield* reader.read(XdrCodec.uint32)
       const session = yield* reader.read(XdrCodec.fixedOpaque(16))
       assert.isFalse(yield* handler.probeBackChannel(session))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("does not let a stale probe overwrite the verdict of a re-armed path", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("80 millis")
@@ -6447,7 +5494,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       for (let field = 0; field < 4; field++) yield* reply.read(XdrCodec.uint32)
       assert.strictEqual(yield* reply.read(XdrCodec.uint32), 0, "the re-armed path is still reported up")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("re-arms the probe when every backchannel slot is already in flight", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("80 millis")
@@ -6476,7 +5523,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       yield* handler.compound(yield* call([sequence(session, 2)], "probe", client))
       yield* Effect.sleep("120 millis")
       assert.isAbove(attempts, 1, "a later SEQUENCE probes once a slot is free")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("bounds a compound carrying BACKCHANNEL_CTL by its worst case before it mutates", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("2 seconds")
@@ -6576,7 +5623,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       yield* Effect.forkChild(handler.probeBackChannel(session))
       yield* Effect.yieldNow
       assert.strictEqual(program, callbackProgram, "the unapplied BACKCHANNEL_CTL did not change it")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   live("rejects a callback reply that is not exactly one complete CB_SEQUENCE result", () =>
     Effect.gen(function*() {
       const handler = yield* backChannelHandler("50 millis")
@@ -6654,5 +5701,5 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       // The same reply, correctly shaped, is accepted — so the rejections above are about shape.
       assert.isTrue(yield* probeWith((request) => malformed(request, 1, "complete")), "a complete result")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 })
