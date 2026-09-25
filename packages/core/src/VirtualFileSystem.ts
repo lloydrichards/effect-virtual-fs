@@ -1945,7 +1945,7 @@ export type Fixture = typeof Fixture.Type
  */
 export const make: (
   options?: VolumeOptions
-) => Effect.Effect<Volume, VfsError | PlatformError.PlatformError, Crypto.Crypto> = VfsModel.make
+) => Effect.Effect<Volume, VfsError> = VfsModel.make
 
 /**
  * Restores a fresh volume from an opaque snapshot under the supplied destination limits.
@@ -1993,8 +1993,7 @@ export const fromSnapshot: (
   options?: VolumeOptions
 ) => Effect.Effect<
   Volume,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
+  VfsError
 > = VfsModel.fromSnapshot
 
 /**
@@ -2052,8 +2051,7 @@ export const makeOverlay: (
   options?: VolumeOptions
 ) => Effect.Effect<
   OverlayVolume,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
+  VfsError
 > = VfsModel.makeOverlay
 
 /**
@@ -2097,6 +2095,5 @@ export const fromFixture: (
   options?: VolumeOptions
 ) => Effect.Effect<
   Volume,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
+  VfsError
 > = FixtureInternal.fromFixture

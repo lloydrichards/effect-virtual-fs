@@ -10,8 +10,6 @@
  */
 import { Context, Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
-import type * as Crypto from "effect/Crypto"
-import type * as PlatformError from "effect/PlatformError"
 import type * as Scope from "effect/Scope"
 import { argumentFailure, retargetFailure } from "./internal/errors.js"
 import * as Model from "./internal/virtualFileSystem.js"
@@ -62,7 +60,7 @@ export interface Options {
 export const open: (options: Options) => Effect.Effect<
   Volume,
   VfsError,
-  LiveImageStore | Crypto.Crypto | Scope.Scope
+  LiveImageStore | Scope.Scope
 > = Effect.fn("LiveVolume.open")(function*(options: Options) {
   const store = yield* LiveImageStore
 
@@ -131,8 +129,7 @@ export interface ImageSession {
  */
 export const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<
   Uint8Array,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
+  VfsError
 > = (options) =>
   Effect.mapError(
     Model.prepareEmptyLiveImage(options),
@@ -155,6 +152,5 @@ export const openImage: (
   durability?: VolumeDurability
 ) => Effect.Effect<
   ImageSession,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
+  VfsError
 > = Model.openImageVolume
