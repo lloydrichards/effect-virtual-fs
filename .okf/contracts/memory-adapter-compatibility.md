@@ -12,7 +12,7 @@ sources:
   - resource: ../../packages/memory/src/internal/fileHandle.ts
     title: Effect file handle and cursor implementation
   - resource: ../../packages/memory/src/internal/treeOperations.ts
-    title: Scoped traversal and recursive directory operations
+    title: Recursive listing, glob, and removal over the core walk and remove
   - resource: ../../packages/memory/src/internal/copyOperations.ts
     title: Adapter copy operations
   - resource: ../../packages/memory/src/internal/treeTransfer.ts
@@ -31,7 +31,7 @@ sources:
   - id: overlay-binding
     resource: ../../packages/memory/test/OverlayBinding.test.ts
     title: Overlay volume binding tests
-generated: { by: claude-code, at: "2026-09-26T12:00:00+02:00" }
+generated: { by: claude-code, at: "2026-09-26T13:25:00+02:00" }
 ---
 
 # Memory adapter compatibility
@@ -45,6 +45,8 @@ It translates `FsError` only when an operation crosses into Effect's `FileSystem
 The adapter follows Effect's byte and cursor types at its public boundary. File metadata exposes exact `ByteSize.ByteSize` values, reads and writes return byte counts as numbers, and seeks accept and return bigint positions.
 Seeks before the start fail with `BadArgument` without changing the cursor, and
 `readAlloc` rejects missing, coerced, negative, and non-integer runtime sizes.
+
+Recursive `makeDirectory`, `readDirectory`, `glob`, and `remove` are the core's [recursive tree operations](../decisions/core/recursive-tree-operations.md "uses"). A recursive `makeDirectory` gives every directory it creates the mode, as Node does, and creates none when it fails partway, where Node leaves the ones it made. A recursive listing and `glob` hold no directory handle and, as Node's recursive `readdir` does, fail `PermissionDenied` below a directory the caller may read but not search. One difference is deliberate: they refresh no directory's access time, where Node's recursive `readdir` refreshes each under relatime, because the core walk writes nothing. `remove` with `force` succeeds only when the path itself is missing; an entry that goes missing below it fails the call.
 
 Directory copy rejects a destination child that is a symbolic link instead of following it as a directory. It also rejects copying `/` into one of its descendants before creating the destination. `copy` runs on the [tree transfer](tree-transfer.md "uses") engine with the volume's own limits and no depth bound; `overwrite` maps to `existing: "overwrite"`, `preserveTimestamps` to both timestamps, and source modes are copied with their special bits. A copy without `overwrite` claims its destination and removes it if the copy fails. An overwriting copy remains a sequence of core operations, so failures after earlier entries are copied can leave those entries in place.
 
