@@ -48,9 +48,15 @@ it.layer(NodeCrypto.layer)("overlay checkpoints", (it) => {
       assert.deepStrictEqual(yield* restoredFs.readFile(raw), new Uint8Array([9, 8, 7]))
       assert.strictEqual((yield* restoredFs.stat(raw)).ino, (yield* restoredFs.stat("/alias")).ino)
       assert.strictEqual((yield* restoredFs.stat(raw)).mode, 0o640)
-      assert.deepStrictEqual(yield* restoredFs.readLinkBytes("/link"), new Uint8Array([47, 255]))
-      assert.strictEqual((yield* restoredFs.lstat("/link")).ino, (yield* restoredFs.lstat("/link-alias")).ino)
-      assert.strictEqual((yield* restoredFs.lstat("/link")).nlink, 2)
+      assert.deepStrictEqual(yield* restoredFs.readLink("/link"), new Uint8Array([47, 255]))
+      assert.strictEqual(
+        (yield* restoredFs.stat(Vfs.Target.Path({ path: "/link", followFinalSymlink: false }))).ino,
+        (yield* restoredFs.stat(Vfs.Target.Path({ path: "/link-alias", followFinalSymlink: false }))).ino
+      )
+      assert.strictEqual(
+        (yield* restoredFs.stat(Vfs.Target.Path({ path: "/link", followFinalSymlink: false }))).nlink,
+        2
+      )
       assert.strictEqual((yield* restoredFs.stat("/")).mode, 0o751)
       assert.strictEqual((yield* restoredFs.stat("/")).uid, 7)
       assert.strictEqual((yield* restoredFs.stat("/")).gid, 11)
@@ -58,6 +64,6 @@ it.layer(NodeCrypto.layer)("overlay checkpoints", (it) => {
       const next = yield* Vfs.makeOverlay(loaded)
       assert.deepStrictEqual(yield* next.changes(), [])
       assert.deepStrictEqual(yield* (yield* next.caller()).readFile("/alias"), new Uint8Array([9, 8, 7]))
-      assert.deepStrictEqual(yield* (yield* next.caller()).readLinkBytes("/link-alias"), new Uint8Array([47, 255]))
+      assert.deepStrictEqual(yield* (yield* next.caller()).readLink("/link-alias"), new Uint8Array([47, 255]))
     })))
 })

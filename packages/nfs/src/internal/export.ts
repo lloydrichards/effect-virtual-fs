@@ -1,4 +1,4 @@
-import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
@@ -46,31 +46,45 @@ export interface NfsExport {
   readonly mkdir: (
     directory: Vfs.ObjectReference,
     name: Uint8Array,
-    settings?: Vfs.MkdirReferenceSettings
+    settings?: Vfs.MkdirOptions
   ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.VfsError | InvalidNameError | ExportCapacityError>
   readonly symlink: (
     target: Vfs.PathInput,
     directory: Vfs.ObjectReference,
     name: Uint8Array,
-    settings?: Vfs.SymlinkReferenceSettings
+    settings?: Vfs.SymlinkOptions
   ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.VfsError | InvalidNameError | ExportCapacityError>
-  readonly link: Vfs.Caller["linkReference"]
-  readonly remove: Vfs.Caller["removeReference"]
-  readonly rename: Vfs.Caller["renameReference"]
-  readonly chmod: Vfs.Caller["chmodReference"]
-  readonly chown: Vfs.Caller["chownReference"]
-  readonly utimes: Vfs.Caller["utimesReference"]
-  readonly truncate: Vfs.Caller["truncateReference"]
+  readonly link: (
+    source: Vfs.ObjectReference,
+    directory: Vfs.ObjectReference,
+    name: Uint8Array
+  ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.VfsError>
+  readonly remove: (
+    directory: Vfs.ObjectReference,
+    name: Uint8Array
+  ) => Effect.Effect<Vfs.DirectoryChange, Vfs.VfsError>
+  readonly rename: (
+    sourceDirectory: Vfs.ObjectReference,
+    sourceName: Uint8Array,
+    destinationDirectory: Vfs.ObjectReference,
+    destinationName: Uint8Array
+  ) => Effect.Effect<Vfs.RenameReferenceResult, Vfs.VfsError>
+  readonly chmod: (reference: Vfs.ObjectReference, mode: number) => Effect.Effect<void, Vfs.VfsError>
+  readonly chown: (reference: Vfs.ObjectReference, owner: Vfs.OwnerUpdate) => Effect.Effect<void, Vfs.VfsError>
+  readonly utimes: (reference: Vfs.ObjectReference, times: Vfs.Times) => Effect.Effect<void, Vfs.VfsError>
+  readonly truncate: (reference: Vfs.ObjectReference, length: bigint) => Effect.Effect<void, Vfs.VfsError>
+  /** The bits of `bits` the caller may exercise on the object. */
+  readonly access: (reference: Vfs.ObjectReference, bits: number) => Effect.Effect<number, Vfs.VfsError>
   readonly open: (
     reference: Vfs.ObjectReference,
-    access?: Vfs.OpenReferenceSettings["access"]
+    access?: Vfs.OpenOptions["access"]
   ) => Effect.Effect<OpenedFile, Vfs.VfsError>
   readonly openChild: (
     directory: Vfs.ObjectReference,
     name: Uint8Array,
-    settings: Vfs.OpenChildReferenceSettings
+    settings: Vfs.OpenEntryOptions
   ) => Effect.Effect<
-    Vfs.OpenChildReferenceResult & { readonly close: Effect.Effect<void> },
+    Vfs.OpenEntryResult & { readonly close: Effect.Effect<void> },
     Vfs.VfsError | InvalidNameError | ExportCapacityError
   >
   readonly fsid: readonly [bigint, bigint]
@@ -180,7 +194,7 @@ export const makeExport = (
   const admitHandle = Effect.gen(function*() {
     if (referencesById.size >= limits.maxFilehandles) {
       for (const [candidateId, candidate] of referencesById) {
-        const result = yield* Effect.result(caller.observeMetadata(candidate))
+        const result = yield* Effect.result(caller.stat(candidate))
 
         if (Result.isFailure(result) && result.failure.code === "StaleReference") {
           referencesById.delete(candidateId)
@@ -235,7 +249,7 @@ export const makeExport = (
 
       if (reference === undefined) return Effect.fail(new InvalidFilehandleError("Unknown"))
 
-      return caller.observeMetadata(reference).pipe(
+      return caller.stat(reference).pipe(
         Effect.as(reference),
         Effect.mapError((error) =>
           new InvalidFilehandleError(
@@ -248,14 +262,14 @@ export const makeExport = (
   const open = (
     activeCaller: Vfs.Caller,
     reference: Vfs.ObjectReference,
-    access: Vfs.OpenReferenceSettings["access"] = "read"
+    access: Vfs.OpenOptions["access"] = "read"
   ): Effect.Effect<OpenedFile, Vfs.VfsError> =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function*() {
         const scope = yield* Scope.make()
 
         const opened = yield* Effect.exit(restore(
-          activeCaller.openReference(reference, { access }).pipe(Effect.provideService(Scope.Scope, scope))
+          activeCaller.open(reference, { access }).pipe(Effect.provideService(Scope.Scope, scope))
         ))
 
         if (Exit.isFailure(opened)) {
@@ -274,24 +288,25 @@ export const makeExport = (
   const withCaller = (activeCaller: Vfs.Caller): NfsExport => ({
     capacity,
     withCaller,
-    root: activeCaller.rootReference,
+    root: activeCaller.root,
     handleFor,
     resolve,
-    observeMetadata: activeCaller.observeMetadata,
-    observeDirectory: activeCaller.observeDirectory,
+    observeMetadata: (reference) =>
+      Effect.map(activeCaller.stat(reference), (metadata) => ({ value: metadata, revision: metadata.revision })),
+    observeDirectory: (reference) => activeCaller.readDirectory(reference),
     lookup: (directory, name) =>
       Effect.suspend<Vfs.ObjectReference, Vfs.VfsError | InvalidNameError, never>(() => {
         try {
           validateName(name, limits.maxNameBytes)
 
-          return activeCaller.lookupReference(directory, name)
+          return activeCaller.lookup(Vfs.Entry(directory, name))
         } catch (error) {
           if (error instanceof InvalidNameError) return Effect.fail(error)
           throw error
         }
       }),
-    parent: activeCaller.parentReference,
-    readLink: activeCaller.readLinkReference,
+    parent: (directory) => activeCaller.parent(directory),
+    readLink: (reference) => activeCaller.readLink(reference),
     mkdir: (directory, name, settings) =>
       registryGate.withPermit(Effect.gen(function*() {
         yield* Effect.try({
@@ -302,7 +317,7 @@ export const makeExport = (
           }
         })
         yield* admitHandle
-        const result = yield* activeCaller.mkdirReference(directory, name, settings)
+        const result = yield* activeCaller.mkdir(Vfs.Entry(directory, name), settings)
         registerHandle(result.reference)
 
         return result
@@ -317,18 +332,20 @@ export const makeExport = (
           }
         })
         yield* admitHandle
-        const result = yield* activeCaller.symlinkReference(target, directory, name, settings)
+        const result = yield* activeCaller.symlink(target, Vfs.Entry(directory, name), settings)
         registerHandle(result.reference)
 
         return result
       })),
-    link: activeCaller.linkReference,
-    remove: activeCaller.removeReference,
-    rename: activeCaller.renameReference,
-    chmod: activeCaller.chmodReference,
-    chown: activeCaller.chownReference,
-    utimes: activeCaller.utimesReference,
-    truncate: activeCaller.truncateReference,
+    link: (source, directory, name) => activeCaller.link(source, Vfs.Entry(directory, name)),
+    remove: (directory, name) => activeCaller.remove(Vfs.Entry(directory, name)),
+    rename: (sourceDirectory, sourceName, destinationDirectory, destinationName) =>
+      activeCaller.rename(Vfs.Entry(sourceDirectory, sourceName), Vfs.Entry(destinationDirectory, destinationName)),
+    chmod: (reference, mode) => activeCaller.chmod(reference, mode),
+    chown: (reference, owner) => activeCaller.chown(reference, owner),
+    utimes: (reference, times) => activeCaller.utimes(reference, times),
+    truncate: (reference, length) => activeCaller.truncate(reference, length),
+    access: (reference, bits) => activeCaller.access(reference, bits),
     open: (reference, access) => open(activeCaller, reference, access),
     openChild: (directory, name, settings) =>
       registryGate.withPermit(
@@ -347,7 +364,7 @@ export const makeExport = (
             const scope = yield* Scope.make()
 
             const opened = yield* Effect.exit(restore(
-              activeCaller.openChildReference(directory, name, settings).pipe(Effect.provideService(Scope.Scope, scope))
+              activeCaller.open(Vfs.Entry(directory, name), settings).pipe(Effect.provideService(Scope.Scope, scope))
             ))
 
             if (Exit.isFailure(opened)) {

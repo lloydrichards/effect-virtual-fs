@@ -76,7 +76,11 @@ it.layer(NodeFileSystem.layer)("TreeTransfer host FileSystem", (it) => {
 
         assert.deepStrictEqual(declared(yield* snapshotEntries(imported, "/")), declared(expected))
         assert.deepStrictEqual(exported.hardLinksDegraded, 0)
-        assert.strictEqual((yield* (yield* imported.caller()).lstat("/alias.bin")).nlink, 2)
+        assert.strictEqual(
+          (yield* (yield* imported.caller()).stat(Vfs.Target.Path({ path: "/alias.bin", followFinalSymlink: false })))
+            .nlink,
+          2
+        )
       })
     ))
 

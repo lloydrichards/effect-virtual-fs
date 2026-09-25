@@ -103,7 +103,10 @@ const make = Effect.gen(function*() {
 
         const reader = yield* volume.caller({ identity: readerIdentity, umask: 0o022 })
 
-        const names = yield* reader.readDirectory("/published")
+        const names = (yield* reader.readDirectory("/published")).value.map((entry) =>
+          new TextDecoder().decode(entry.name)
+        )
+
         const content = decoder.decode(yield* reader.readFile("/published/hello.txt"))
 
         return {
@@ -132,7 +135,10 @@ const make = Effect.gen(function*() {
         Effect.gen(function*() {
           const reader = yield* volume.caller({ identity: readerIdentity, umask: 0o022 })
 
-          const names = yield* reader.readDirectory("/published")
+          const names = (yield* reader.readDirectory("/published")).value.map((entry) =>
+            new TextDecoder().decode(entry.name)
+          )
+
           const content = decoder.decode(yield* reader.readFile("/published/hello.txt"))
 
           return {

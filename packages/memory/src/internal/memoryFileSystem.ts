@@ -15,7 +15,7 @@ import { type PlatformError, systemError } from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Stream from "effect/Stream"
-import { info, openOptions, sizeInput, validateMode } from "./adapterSupport.js"
+import { at, info, openOptions, sizeInput, textOf, textPath, validateMode } from "./adapterSupport.js"
 import { makeCopyOperations } from "./copyOperations.js"
 import { makeOpen } from "./fileHandle.js"
 import { compileGlobPatterns, matchesGlob } from "./glob.js"
@@ -30,15 +30,6 @@ export const isWatchOverflow = (error: PlatformError): boolean =>
   error.reason.description === "WatchOverflow"
 
 const childPath = (parent: string, name: string) => parent === "/" ? `/${name}` : `${parent}/${name}`
-
-const textPath = Effect.fnUntraced(function*(path: Vfs.BytePath, method: string) {
-  const bytes = yield* Vfs.pathToBytes(path)
-
-  return yield* Effect.try({
-    try: () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
-    catch: () => new Vfs.VfsError({ code: "UnrepresentableName", operation: method })
-  })
-})
 
 /** @internal */
 export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Volume, options?: Vfs.RootCallerOptions) {
@@ -62,18 +53,21 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
         const components = path.split("/").filter((part) => part.length > 0)
 
         for (const [index, name] of components.entries()) {
-          const result = yield* Effect.result(caller.mkdir(name, { relativeTo: base, mode }))
+          const result = yield* Effect.result(caller.mkdir(at(name, base), { mode }))
 
           if (Result.isFailure(result) && result.failure.code !== "AlreadyExists") return yield* result.failure
 
-          const next = yield* caller.openDirectory(name, { relativeTo: base }).pipe(
-            Effect.mapError((error) =>
-              error.code === "NotDirectory" && index === components.length - 1
-                ? new Vfs.VfsError({ code: "AlreadyExists", operation: "makeDirectory" })
-                : error
-            )
-          )
+          // The new leaf is never opened, so a mode without owner search does not fail the call, as in Node; an
+          // existing leaf must be a directory.
+          if (index === components.length - 1) {
+            if (Result.isFailure(result) && (yield* caller.stat(at(name, base))).kind !== "directory") {
+              return yield* new Vfs.VfsError({ code: "AlreadyExists", operation: "makeDirectory" })
+            }
 
+            break
+          }
+
+          const next = yield* caller.openDirectory(at(name, base))
           yield* base.close
           base = next
         }
@@ -99,6 +93,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       }
 
       const parent = yield* caller.realPath(options?.directory ?? "/tmp").pipe(
+        Effect.flatMap((path) => textPath(path, method)),
         Effect.mapError((error) => toPlatformError(error, method, options?.directory ?? "/tmp"))
       )
 
@@ -179,12 +174,18 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       )
     }),
     readLink: (path) =>
-      caller.readLink(path).pipe(Effect.mapError((error) => toPlatformError(error, "readLink", path))),
+      caller.readLink(path).pipe(
+        Effect.flatMap((bytes) => textOf(bytes, "readLink")),
+        Effect.mapError((error) => toPlatformError(error, "readLink", path))
+      ),
     realPath: (path) =>
-      caller.realPath(path).pipe(Effect.mapError((error) => toPlatformError(error, "realPath", path))),
+      caller.realPath(path).pipe(
+        Effect.flatMap((resolved) => textPath(resolved, "realPath")),
+        Effect.mapError((error) => toPlatformError(error, "realPath", path))
+      ),
     rename: Effect.fnUntraced(
       function*(source, destination) {
-        const sourceInfo = yield* caller.lstat(source)
+        const sourceInfo = yield* caller.stat(at(source, undefined, false))
 
         const target = sourceInfo.kind === "directory" && destination.endsWith("/")
           ? destination.replace(/\/+$/, "") || "/"
@@ -223,7 +224,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       Stream.unwrap(
         Effect.gen(function*() {
           const stream = yield* volume.watch
-          const resolved = yield* caller.realPath(path)
+          const resolved = yield* textPath(yield* caller.realPath(path), "watch")
           const prefix = new TextEncoder().encode(resolved)
 
           return stream.pipe(

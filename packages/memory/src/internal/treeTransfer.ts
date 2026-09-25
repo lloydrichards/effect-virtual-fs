@@ -18,6 +18,7 @@ import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Sink from "effect/Sink"
 import * as Stream from "effect/Stream"
+import { at } from "./adapterSupport.js"
 // The public module defines TransferError and calls into this module only when its functions run, so the import cycle
 // never reads an uninitialized binding while either module loads.
 import {
@@ -166,14 +167,14 @@ export const fromCaller = (
       if (next.depth > limits.maxDepth) return yield* limitExceeded("maxDepth", path)
 
       if (exceeds(next.pathBytes, limits.maxPathBytes)) return yield* limitExceeded("maxPathBytes", path)
-      const relative = next.parent === undefined ? {} : { relativeTo: next.parent }
+      const base = next.parent
       // Metadata is read before contents so entries carry the source's pre-read access time.
-      const metadata = yield* caller.lstat(next.name, relative)
+      const metadata = yield* caller.stat(at(next.name, base, false))
       let entry: Entry
 
       if (metadata.kind === "directory") {
-        const handle = yield* Scope.provide(caller.openDirectory(next.name, relative), scope)
-        const names = [...(yield* caller.readDirectoryBytes(".", { relativeTo: handle }))].sort(compareBytes)
+        const handle = yield* Scope.provide(caller.openDirectory(at(next.name, base)), scope)
+        const names = (yield* caller.readDirectory(handle)).value.map((entry) => entry.name).sort(compareBytes)
 
         for (let index = names.length - 1; index >= 0; index--) {
           const name = names[index]
@@ -203,7 +204,7 @@ export const fromCaller = (
 
           if (metadata.kind === "file") {
             if (exceeds(metadata.size, limits.maxFileBytes)) return yield* limitExceeded("maxFileBytes", path)
-            const contents = yield* caller.readFile(next.name, relative)
+            const contents = yield* caller.readFile(at(next.name, base))
 
             if (exceeds(contents.length, limits.maxFileBytes)) return yield* limitExceeded("maxFileBytes", path)
             bytes += BigInt(contents.length)
@@ -211,7 +212,7 @@ export const fromCaller = (
             if (exceeds(bytes, limits.maxBytes)) return yield* limitExceeded("maxBytes", path)
             entry = { kind: "file", path, bytes: contents, metadata: entryMetadata(metadata) }
           } else {
-            const target = yield* caller.readLinkBytes(next.name, relative)
+            const target = yield* caller.readLink(at(next.name, base))
             // Symlink targets count toward stored bytes, as they do for volume capacity.
             bytes += BigInt(target.length)
 
@@ -286,7 +287,7 @@ const locate = Effect.fnUntraced(function*(path: Vfs.PathInput) {
   } satisfies Location
 })
 
-const relativeOf = (written: Written) => written.base === undefined ? {} : { relativeTo: written.base }
+const targetOf = (written: Written, followFinalSymlink?: boolean) => at(written.name, written.base, followFinalSymlink)
 
 const pathKey = (path: Vfs.PathInput) =>
   Predicate.isString(path) ? Effect.succeed(path) : Vfs.pathToBytes(path).pipe(Effect.map(byteKey))
@@ -304,7 +305,7 @@ interface CreatedDirectory extends Written {
 // Removes a tree this sink created. Directories may already carry restrictive final modes, so owner access is
 // restored before each one is listed.
 const removeTree = Effect.fnUntraced(function*(caller: Vfs.Caller, path: Vfs.PathInput) {
-  if ((yield* caller.lstat(path)).kind !== "directory") return yield* caller.unlink(path)
+  if ((yield* caller.stat(at(path, undefined, false))).kind !== "directory") return yield* caller.unlink(path)
 
   return yield* Effect.scoped(Effect.gen(function*() {
     yield* caller.chmod(path, OWNER_ACCESS)
@@ -317,14 +318,14 @@ const removeTree = Effect.fnUntraced(function*(caller: Vfs.Caller, path: Vfs.Pat
 
       if (base === undefined) break
 
-      for (const bytes of yield* caller.readDirectoryBytes(".", { relativeTo: base })) {
+      for (const bytes of (yield* caller.readDirectory(base)).value.map((entry) => entry.name)) {
         const name = yield* toPathInput(bytes)
-        const directory = (yield* caller.lstat(name, { relativeTo: base })).kind === "directory"
+        const directory = (yield* caller.stat(at(name, base, false))).kind === "directory"
         visited.push({ base, name, directory })
 
         if (directory) {
-          yield* caller.chmod(name, OWNER_ACCESS, { relativeTo: base })
-          pending.push(yield* caller.openDirectory(name, { relativeTo: base }))
+          yield* caller.chmod(at(name, base), OWNER_ACCESS)
+          pending.push(yield* caller.openDirectory(at(name, base)))
         }
       }
     }
@@ -332,8 +333,8 @@ const removeTree = Effect.fnUntraced(function*(caller: Vfs.Caller, path: Vfs.Pat
     // Children follow their parents in `visited`, so removing in reverse empties each directory first.
     for (const entry of visited.reverse()) {
       yield* entry.directory
-        ? caller.rmdir(entry.name, { relativeTo: entry.base })
-        : caller.unlink(entry.name, { relativeTo: entry.base })
+        ? caller.rmdir(at(entry.name, entry.base))
+        : caller.unlink(at(entry.name, entry.base))
     }
 
     yield* caller.rmdir(path)
@@ -367,11 +368,11 @@ export const toCaller = (
     const restoreModes = Effect.forEach(directories, (directory) =>
       directory.mode === undefined
         ? Effect.void
-        : caller.chmod(directory.name, directory.mode, relativeOf(directory)).pipe(Effect.ignore), { discard: true })
+        : caller.chmod(targetOf(directory), directory.mode).pipe(Effect.ignore), { discard: true })
 
     // Only a root this sink claimed exclusively is removed, and only while it is still the same object.
     const removeClaimed = Effect.gen(function*() {
-      const current = yield* Effect.result(caller.lstat(destination))
+      const current = yield* Effect.result(caller.stat(at(destination, undefined, false)))
 
       if (Result.isSuccess(current) && current.success.ino === claimedIno) yield* removeTree(caller, destination)
     })
@@ -383,25 +384,25 @@ export const toCaller = (
     )
 
     const claim = Effect.gen(function*() {
-      if (existing === "reject") claimedIno = (yield* caller.lstat(destination)).ino
+      if (existing === "reject") claimedIno = (yield* caller.stat(at(destination, undefined, false))).ino
     })
 
     const modeOf = (entry: Entry, fallback: number) =>
       ("metadata" in entry && entry.metadata?.mode !== undefined ? entry.metadata.mode : fallback) & modeMask
 
-    const applyTimes = (name: Vfs.PathInput, options: Vfs.MetadataOptions, metadata: EntryMetadata | undefined) => {
+    const applyTimes = (target: Vfs.PathTarget, metadata: EntryMetadata | undefined) => {
       if (times === "none" || metadata?.mtimeNs === undefined) return Effect.void
 
-      return caller.utimes(name, {
+      return caller.utimes(target, {
         access: times === "all" && metadata.atimeNs !== undefined
           ? { kind: "value", nanoseconds: metadata.atimeNs }
           : { kind: "omit" },
         modification: { kind: "value", nanoseconds: metadata.mtimeNs }
-      }, options)
+      })
     }
 
-    const clearExisting = Effect.fnUntraced(function*(name: Vfs.PathInput, relative: Vfs.RelativeOptions) {
-      const current = yield* Effect.result(caller.lstat(name, relative))
+    const clearExisting = Effect.fnUntraced(function*(name: Vfs.PathInput, base: Vfs.DirectoryHandle | undefined) {
+      const current = yield* Effect.result(caller.stat(at(name, base, false)))
 
       if (Result.isFailure(current)) {
         return current.failure.code === "NotFound" ? undefined : yield* current.failure
@@ -411,19 +412,19 @@ export const toCaller = (
         return yield* new Vfs.VfsError({ code: "IsDirectory", operation: "treeTransfer" })
       }
 
-      return yield* caller.unlink(name, relative)
+      return yield* caller.unlink(at(name, base))
     })
 
     const makeDirectory = Effect.fnUntraced(
-      function*(name: Vfs.PathInput, relative: Vfs.RelativeOptions, mode: number) {
+      function*(name: Vfs.PathInput, base: Vfs.DirectoryHandle | undefined, mode: number) {
         // Owner access stays open until every child is written; the exact mode is applied afterwards.
-        const made = yield* Effect.result(caller.mkdir(name, { ...relative, mode: mode | OWNER_ACCESS }))
+        const made = yield* Effect.result(caller.mkdir(at(name, base), { mode: mode | OWNER_ACCESS }))
 
         if (Result.isSuccess(made)) return true
 
         if (existing === "reject" || made.failure.code !== "AlreadyExists") return yield* made.failure
 
-        if ((yield* caller.lstat(name, relative)).kind !== "directory") {
+        if ((yield* caller.stat(at(name, base, false))).kind !== "directory") {
           return yield* new Vfs.VfsError({ code: "NotDirectory", operation: "treeTransfer" })
         }
 
@@ -447,15 +448,14 @@ export const toCaller = (
       }
 
       const name = base === undefined ? destination : location.name
-      const relative = base === undefined ? {} : { relativeTo: base }
 
       switch (entry.kind) {
         case "directory": {
           const mode = modeOf(entry, DEFAULT_DIRECTORY_MODE)
-          const created = yield* makeDirectory(name, relative, mode)
+          const created = yield* makeDirectory(name, base, mode)
 
           if (base === undefined && created) yield* claim
-          bases.set(location.key, yield* Scope.provide(caller.openDirectory(name, relative), handles))
+          bases.set(location.key, yield* Scope.provide(caller.openDirectory(at(name, base)), handles))
           directories.push({ base, name, mode: created ? mode : undefined, metadata: entry.metadata })
 
           return
@@ -464,8 +464,7 @@ export const toCaller = (
         case "file": {
           const mode = modeOf(entry, DEFAULT_FILE_MODE)
 
-          yield* caller.writeFile(name, entry.bytes, {
-            ...relative,
+          yield* caller.writeFile(at(name, base), entry.bytes, {
             access: "write",
             create,
             truncate: true,
@@ -479,9 +478,9 @@ export const toCaller = (
         }
 
         case "symlink": {
-          if (existing === "overwrite") yield* clearExisting(name, relative)
+          if (existing === "overwrite") yield* clearExisting(name, base)
 
-          yield* caller.symlink(entry.target, name, relative)
+          yield* caller.symlink(entry.target, at(name, base))
           break
         }
 
@@ -493,9 +492,9 @@ export const toCaller = (
             return yield* new TransferError({ code: "InvalidEntry", field: "target", path: entry.path })
           }
 
-          if (existing === "overwrite") yield* clearExisting(name, relative)
+          if (existing === "overwrite") yield* clearExisting(name, base)
 
-          yield* caller.link(source.name, name, { sourceRelativeTo: source.base, destinationRelativeTo: base })
+          yield* caller.link(at(source.name, source.base), at(name, base))
           written.set(location.key, { base, name })
 
           return
@@ -504,7 +503,7 @@ export const toCaller = (
 
       if (base === undefined) yield* claim
       written.set(location.key, { base, name })
-      yield* applyTimes(name, { ...relative, followFinalSymlink: false }, entry.metadata)
+      yield* applyTimes(at(name, base, false), entry.metadata)
     })
 
     const finish = Effect.gen(function*() {
@@ -512,14 +511,12 @@ export const toCaller = (
 
       // Reverse creation order visits children before parents, so later writes cannot disturb applied times or modes.
       for (const directory of [...directories].reverse()) {
-        const relative = relativeOf(directory)
-
         // Skipping a mode that is already exact avoids a redundant change event.
-        if (directory.mode !== undefined && (yield* caller.lstat(directory.name, relative)).mode !== directory.mode) {
-          yield* caller.chmod(directory.name, directory.mode, relative)
+        if (directory.mode !== undefined && (yield* caller.stat(targetOf(directory, false))).mode !== directory.mode) {
+          yield* caller.chmod(targetOf(directory), directory.mode)
         }
 
-        yield* applyTimes(directory.name, relative, directory.metadata)
+        yield* applyTimes(targetOf(directory), directory.metadata)
       }
 
       completed = true

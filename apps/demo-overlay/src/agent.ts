@@ -106,7 +106,7 @@ export const makeWorkspaceToolkit = Effect.fn("Agent.makeWorkspaceToolkit")(func
       const entries = yield* caller.readDirectory(relativePath).pipe(Effect.mapError(fsFailure))
       yield* observed("list", relativePath)
 
-      return [...entries]
+      return entries.value.map((entry) => new TextDecoder().decode(entry.name))
     })
   }))))
 })

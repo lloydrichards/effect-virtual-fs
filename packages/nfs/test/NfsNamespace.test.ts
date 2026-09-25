@@ -180,7 +180,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         ),
         Status.OK
       )
-      assert.strictEqual(yield* caller.readLink("/shortcut"), "docs/guide")
+      assert.strictEqual(new TextDecoder().decode(yield* caller.readLink("/shortcut")), "docs/guide")
       assert.strictEqual(
         yield* status(
           yield* handler.compound(
@@ -277,16 +277,16 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         create: "exclusive"
       })
       const original = yield* caller.stat("/from/file")
-      const rootReference = yield* caller.rootReference
-      const fromReference = yield* caller.lookupReference(rootReference, new TextEncoder().encode("from"))
-      const toReference = yield* caller.lookupReference(rootReference, new TextEncoder().encode("to"))
+      const rootReference = yield* caller.root
+      const fromReference = yield* caller.lookup(Vfs.Entry(rootReference, new TextEncoder().encode("from")))
+      const toReference = yield* caller.lookup(Vfs.Entry(rootReference, new TextEncoder().encode("to")))
       const handler = yield* makeHandler(caller)
 
       const {
         session
       } = yield* startSession(handler, "namespace-change")
 
-      const beforeLink = (yield* caller.observeMetadata(toReference)).revision
+      const beforeLink = (yield* caller.stat(toReference)).revision
 
       const linked = yield* namespaceChange(
         yield* handler.compound(
@@ -314,7 +314,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
 
       assert.deepStrictEqual(linked.first, {
         before: beforeLink,
-        after: (yield* caller.observeMetadata(toReference)).revision
+        after: (yield* caller.stat(toReference)).revision
       })
       assert.strictEqual((yield* caller.stat("/to/alias")).ino, original.ino)
       yield* namespaceChange(
@@ -323,8 +323,8 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         [Operation.PUTROOTFH, Operation.LOOKUP]
       )
       assert.strictEqual((yield* Effect.flip(caller.stat("/to/empty"))).code, "NotFound")
-      const beforeFrom = (yield* caller.observeMetadata(fromReference)).revision
-      const beforeTo = (yield* caller.observeMetadata(toReference)).revision
+      const beforeFrom = (yield* caller.stat(fromReference)).revision
+      const beforeTo = (yield* caller.stat(toReference)).revision
 
       const renamed = yield* namespaceChange(
         yield* handler.compound(
@@ -344,11 +344,11 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
 
       assert.deepStrictEqual(renamed.first, {
         before: beforeFrom,
-        after: (yield* caller.observeMetadata(fromReference)).revision
+        after: (yield* caller.stat(fromReference)).revision
       })
       assert.deepStrictEqual(renamed.second, {
         before: beforeTo,
-        after: (yield* caller.observeMetadata(toReference)).revision
+        after: (yield* caller.stat(toReference)).revision
       })
       assert.strictEqual((yield* caller.stat("/to/replaced")).ino, original.ino)
       assert.deepStrictEqual(yield* caller.readFile("/to/replaced"), new Uint8Array([1]))
@@ -530,7 +530,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         const volume = yield* LiveVolume.open(options)
         const caller = yield* volume.caller()
         assert.strictEqual((yield* caller.stat("/docs")).mode, 0o750)
-        assert.strictEqual(yield* caller.readLink("/docs/guide"), "../target")
+        assert.strictEqual(new TextDecoder().decode(yield* caller.readLink("/docs/guide")), "../target")
       }))
     }).pipe(Effect.provide(store))
   })

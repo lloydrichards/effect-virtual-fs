@@ -956,7 +956,7 @@ const creationAttributes = Effect.fnUntraced(function*(
   }
 
   const settings:
-    & Types.Mutable<Pick<Vfs.OpenChildReferenceSettings, "mode" | "initialSize" | "owner" | "exactMode">>
+    & Types.Mutable<Pick<Vfs.OpenEntryOptions, "mode" | "initialSize" | "owner" | "exactMode">>
     & {
       readonly times: Vfs.Times
     } = { times }
@@ -2844,6 +2844,12 @@ export const makeNfs4Handler = (
               const mapFs = <A>(effect: Effect.Effect<A, Vfs.VfsError>): Effect.Effect<A, number> =>
                 effect.pipe(Effect.mapError(failureForFs))
 
+              // Fails as ACCESS unless every requested bit is granted.
+              const requireAccess = (reference: Vfs.ObjectReference, bits: number): Effect.Effect<void, number> =>
+                mapFs(export_.access(reference, bits)).pipe(
+                  Effect.flatMap((granted) => granted === bits ? Effect.void : Effect.fail(Status.ACCESS))
+                )
+
               const withCurrent = <A>(
                 f: (reference: Vfs.ObjectReference) => Effect.Effect<A, number>
               ): Effect.Effect<A, number> => current === undefined ? Effect.fail(Status.NOFILEHANDLE) : f(current)
@@ -3905,12 +3911,9 @@ export const makeNfs4Handler = (
                         ) {
                           if ((supported & flag) === 0) continue
 
-                          const allowed = yield* activeCaller.accessReference(reference, bit).pipe(
-                            Effect.as(true),
-                            Effect.catchTag("VfsError", (error) =>
-                              error.code === "AccessDenied"
-                                ? Effect.succeed(false)
-                                : Effect.fail(failureForFs(error)))
+                          const allowed = yield* export_.access(reference, bit).pipe(
+                            Effect.map((granted) => granted === bit),
+                            Effect.mapError(failureForFs)
                           )
 
                           if (allowed) granted |= flag
@@ -4353,12 +4356,7 @@ export const makeNfs4Handler = (
 
                             const permission = activeCaller === undefined ?
                               Effect.void :
-                              mapFs(
-                                activeCaller.accessReference(
-                                  reference,
-                                  (accessMode & 1 ? 0o4 : 0) | (accessMode & 2 ? 0o2 : 0)
-                                )
-                              )
+                              requireAccess(reference, (accessMode & 1 ? 0o4 : 0) | (accessMode & 2 ? 0o2 : 0))
 
                             const addedAccess = nextAccess & ~existing.access
 
@@ -4486,7 +4484,7 @@ export const makeNfs4Handler = (
 
                   const readPermission = activeCaller === undefined
                     ? Effect.void
-                    : activeCaller.accessReference(current, 0o4).pipe(Effect.mapError(failureForFs))
+                    : requireAccess(current, 0o4)
 
                   if (isAllZero(value.stateid) || isAllOnes(value.stateid)) {
                     const reference = current
@@ -4556,11 +4554,10 @@ export const makeNfs4Handler = (
 
                   function readFrom(file: Vfs.FileHandle): Effect.Effect<ResultPart, XdrEncodeError> {
                     return file.pread(value.count, value.offset).pipe(
-                      Effect.flatMap((data) => file.stat.pipe(Effect.map((metadata) => ({ data, metadata })))),
-                      Effect.flatMap(({ data, metadata }) =>
+                      Effect.flatMap(({ bytes: data, eof }) =>
                         Effect.map(
                           encodeStatusBody(options.limits, [
-                            field(XdrCodec.boolean, value.offset + BigInt(data.length) >= metadata.size),
+                            field(XdrCodec.boolean, eof),
                             field(XdrCodec.opaque(), data)
                           ]),
                           (body): ResultPart => ({ code: operation.code, status: Status.OK, body })
@@ -5066,7 +5063,7 @@ export const makeNfs4Handler = (
                       Effect.andThen(
                         activeCaller === undefined
                           ? Effect.void
-                          : activeCaller.accessReference(reference, 0o2).pipe(Effect.mapError(failureForFs))
+                          : requireAccess(reference, 0o2)
                       ),
                       Effect.andThen(mapFs(writeFile.pwrite(value.data, value.offset)))
                     ),

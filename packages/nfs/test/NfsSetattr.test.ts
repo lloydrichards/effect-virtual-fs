@@ -74,8 +74,8 @@ const setup = Effect.fnUntraced(function*(mapped = false, writable = true, mappe
     undefined
 
   if (guest !== undefined) {
-    const reference = yield* caller.lookupReference(yield* caller.rootReference, new TextEncoder().encode("file"))
-    yield* caller.chownReference(reference, {
+    const reference = yield* caller.lookup(Vfs.Entry(yield* caller.root, new TextEncoder().encode("file")))
+    yield* caller.chown(reference, {
       uid: 1000,
       gid: 1000
     })
@@ -428,12 +428,12 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         session
       } = yield* setup(true)
 
-      const reference = yield* caller.lookupReference(yield* caller.rootReference, new TextEncoder().encode("file"))
-      yield* caller.chownReference(reference, {
+      const reference = yield* caller.lookup(Vfs.Entry(yield* caller.root, new TextEncoder().encode("file")))
+      yield* caller.chown(reference, {
         uid: 2000,
         gid: 2000
       })
-      yield* caller.chmodReference(reference, 0o666)
+      yield* caller.chmod(reference, 0o666)
       assert.deepStrictEqual(
         yield* result(
           yield* run(handler, session, 1, [[48, (writer) => writer.write(XdrCodec.uint32, 0)], [54, (writer) =>
