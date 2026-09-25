@@ -28,7 +28,8 @@ import {
 } from "../Caller.js"
 import { DirectoryHandleId, FileHandleId, SeekMode } from "../FileHandle.js"
 import { type Metadata, Mode, OwnerUpdate, Times } from "../Metadata.js"
-import { ImageError, type Snapshot } from "../Snapshot.js"
+import type { Snapshot } from "../Snapshot.js"
+import type { FsFailure, ImageFailure } from "../VfsError.js"
 import type {
   Caller,
   Change,
@@ -53,7 +54,15 @@ import {
   VolumeOptions
 } from "../Volume.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
-import { ConfigurationError, decodeConfiguration, FsCode as FsCodeSchema, FsError, OpContext } from "./errors.js"
+import {
+  argumentFailure,
+  decodeConfiguration,
+  fsFailure,
+  imageFailure,
+  OpContext,
+  retargetFailure,
+  VfsError
+} from "./errors.js"
 import * as Image from "./image.js"
 import * as InodeTable from "./inodeTable.js"
 import { MAX_FILE_BYTES } from "./limits.js"
@@ -80,9 +89,6 @@ import { type CommitProvider, offerCommit } from "./stagedState.js"
 import { VolumeTestSeams } from "./testSeams.js"
 import { makeTurnstile } from "./turnstile.js"
 import * as WatchHub from "./watchHub.js"
-
-/** @internal */
-export { ConfigurationError, FsCodeSchema as FsCode, FsError }
 
 // POSIX permission bits, masked against mode once it is shifted to the caller's class.
 const EXECUTE = 0o1
@@ -296,7 +302,7 @@ export const captureLiveImage = Effect.fnUntraced(function*(
     visited.add(ino)
     const node = getNode(state, ino)
 
-    if (node === undefined) return yield* new ImageError({ code: "InvalidStructure" })
+    if (node === undefined) return yield* imageFailure("snapshot", "InvalidStructure")
 
     const common: LiveImageCommon = {
       ino: BigInt(node.ino),
@@ -550,7 +556,7 @@ type VolumeSource =
   | {
     readonly _tag: "Restored"
     readonly image: Image.Document
-    readonly restore: (initialTime: bigint) => Effect.Effect<VolumeState, ImageError>
+    readonly restore: (initialTime: bigint) => Effect.Effect<VolumeState, ImageFailure>
   }
 
 /** @internal */
@@ -652,12 +658,12 @@ const restoreImage = Effect.fnUntraced(function*(image: Image.Document, initialT
     if (!Image.Record.guards.directory(record)) continue
     const parent = incoming.get(record.id)
 
-    if (parent?.node.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
+    if (parent?.node.kind !== "directory") return yield* imageFailure("snapshot", "InvalidStructure")
 
     for (const entry of record.entries) {
       const child = incoming.get(entry.target)
 
-      if (child === undefined) return yield* new ImageError({ code: "InvalidStructure" })
+      if (child === undefined) return yield* imageFailure("snapshot", "InvalidStructure")
       const name = Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name))
       parent.entries.set(name, child.node.ino)
 
@@ -720,7 +726,7 @@ const captureSnapshot = Effect.fnUntraced(function*(captured: VolumeState) {
     const node = getNode(captured, ino)
     const id = ids.get(ino)
 
-    if (id === undefined || node === undefined) return yield* new ImageError({ code: "InvalidStructure" })
+    if (id === undefined || node === undefined) return yield* imageFailure("snapshot", "InvalidStructure")
     const metadata = storedMetadata(node.metadata)
 
     if (node.kind === "directory") {
@@ -800,7 +806,7 @@ export const makeVolume = Effect.fnUntraced(
       state: VolumeState,
       identity: VolumeIdentity,
       limits: VolumeLimits
-    ) => Effect.Effect<Uint8Array, ImageError>,
+    ) => Effect.Effect<Uint8Array, ImageFailure>,
     durability: VolumeDurability = "memory-only"
   ) {
     const image = "image" in source ? source.image : undefined
@@ -821,7 +827,7 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const decoded = yield* Effect.fromResult(
-      decodeConfiguration(VolumeOptions, restoredOptions === undefined ? {} : restoredOptions)
+      decodeConfiguration(VolumeOptions, restoredOptions === undefined ? {} : restoredOptions, "make")
     )
 
     const settings = { ...decoded }
@@ -836,7 +842,7 @@ export const makeVolume = Effect.fnUntraced(
     const initialTime = clock.currentTimeNanosUnsafe()
 
     if (!isTimestamp(initialTime)) {
-      return yield* new ConfigurationError({ field: "clock.currentTimeNanos" })
+      return yield* argumentFailure("make", "clock.currentTimeNanos")
     }
 
     const timestamp = (op: OpContext) =>
@@ -892,7 +898,7 @@ export const makeVolume = Effect.fnUntraced(
 
     const admission = yield* Semaphore.make(permits)
 
-    const admit = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FsError, R> =>
+    const admit = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FsFailure, R> =>
       admission.withPermitsIfAvailable(1)(effect).pipe(
         Effect.flatMap(Option.match({
           onNone: () => op.fail("VolumeBusy"),
@@ -935,7 +941,7 @@ export const makeVolume = Effect.fnUntraced(
           )
 
           if (Image.Record.guards.file(record) && length > maxFileBytes) {
-            return yield* new ImageError({ code: "LimitExceeded", field: "maxFileBytes" })
+            return yield* imageFailure("snapshot", "LimitExceeded", { field: "maxFileBytes" })
           }
 
           content += BigInt(length)
@@ -946,7 +952,7 @@ export const makeVolume = Effect.fnUntraced(
         (settings.maxEntries !== undefined && count > settings.maxEntries) ||
         (settings.maxBytes !== undefined && content > ByteSize.toBigInt(settings.maxBytes))
       ) {
-        return yield* new ImageError({ code: "LimitExceeded", field: "volume" })
+        return yield* imageFailure("snapshot", "LimitExceeded", { field: "volume" })
       }
 
       state = { ...state, ...(yield* source.restore(initialTime)), entries: count, usedBytes: content }
@@ -1012,12 +1018,12 @@ export const makeVolume = Effect.fnUntraced(
         if (!LiveImage.Record.guards.directory(record)) continue
         const parent = incoming.get(record.ino)
 
-        if (parent?.node.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
+        if (parent?.node.kind !== "directory") return yield* imageFailure("snapshot", "InvalidStructure")
 
         for (const entry of record.entries) {
           const child = incoming.get(entry.target)
 
-          if (child === undefined) return yield* new ImageError({ code: "InvalidStructure" })
+          if (child === undefined) return yield* imageFailure("snapshot", "InvalidStructure")
           const name = Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name))
           parent.entries.set(name, child.node.ino)
 
@@ -1029,7 +1035,7 @@ export const makeVolume = Effect.fnUntraced(
       const restoredRoot = incoming.get(live.root)
 
       if (restoredRoot?.node.kind !== "directory" || restoredRoot.node.ino !== ROOT_INO) {
-        return yield* new ImageError({ code: "InvalidStructure" })
+        return yield* imageFailure("snapshot", "InvalidStructure")
       }
 
       let usedBytes = live.usedBytes
@@ -1039,7 +1045,7 @@ export const makeVolume = Effect.fnUntraced(
       for (const ino of live.retainedFiles) {
         const orphan = incoming.get(ino)
 
-        if (orphan?.node.kind !== "file") return yield* new ImageError({ code: "InvalidStructure" })
+        if (orphan?.node.kind !== "file") return yield* imageFailure("snapshot", "InvalidStructure")
         usedBytes -= BigInt(orphan.node.data.bytes.length)
         incoming.delete(ino)
       }
@@ -1070,11 +1076,11 @@ export const makeVolume = Effect.fnUntraced(
     let available = true
 
     const checkAvailable = (operation: string) =>
-      Effect.suspend(() => available ? Effect.void : Effect.fail(new FsError({ code: "VolumeUnavailable", operation })))
+      Effect.suspend(() => available ? Effect.void : Effect.fail(fsFailure("VolumeUnavailable", operation)))
 
     const watchCoordinate: WatchHub.Coordinator = (effect) => changing(effect)
 
-    const watchHub = yield* WatchHub.make<Change, FsError>(
+    const watchHub = yield* WatchHub.make<Change, FsFailure>(
       watchCoordinate,
       settings.maxWatchEvents ?? 256,
       () => RescanChange.make({ path: ownedPath(new Uint8Array([47])) }),
@@ -1145,7 +1151,7 @@ export const makeVolume = Effect.fnUntraced(
     })
 
     // Records what failed on the span the caller has open.
-    const annotateFailure = (error: FsError) =>
+    const annotateFailure = (error: VfsError) =>
       Effect.annotateCurrentSpan({ operation: error.operation, code: error.code })
 
     // Permit waits stay interruptible. A change and its publication run under every permit; with a store, the
@@ -1169,12 +1175,12 @@ export const makeVolume = Effect.fnUntraced(
               )
             )
         )
-      ).pipe(Effect.tapError((error) => error instanceof FsError ? annotateFailure(error) : Effect.void))
+      ).pipe(Effect.tapError((error) => Schema.is(VfsError)(error) ? annotateFailure(error) : Effect.void))
 
     // Pure observations take one permit each, so they run beside each other and never beside a change.
     const coordinatedRead = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>) =>
       admit(op, observing(Effect.andThen(checkAvailable(op.operation), effect))).pipe(
-        Effect.tapError((error) => error instanceof FsError ? annotateFailure(error) : Effect.void)
+        Effect.tapError((error) => Schema.is(VfsError)(error) ? annotateFailure(error) : Effect.void)
       )
 
     const coordinatedCleanup = <A, E, R>(effect: Effect.Effect<A, E, R>) => changing(Effect.uninterruptible(effect))
@@ -1421,7 +1427,7 @@ export const makeVolume = Effect.fnUntraced(
     // Explicit close and scope cleanup share one release. A release whose commit fails still completes as
     // cleanup, so the handle never stays open; only an explicit close reports the failure. A close refused
     // admission never entered the volume, so it leaves the handle open for a retry.
-    const closeFile = (ref: FileReference, op: OpContext, check: Effect.Effect<unknown, FsError>) =>
+    const closeFile = (ref: FileReference, op: OpContext, check: Effect.Effect<unknown, FsFailure>) =>
       coordinated(
         op,
         Effect.andThen(
@@ -1467,7 +1473,7 @@ export const makeVolume = Effect.fnUntraced(
     // which closing an already closed scope would not run again.
     const acquireHandle = Effect.fnUntraced(function*<A, E, R>(
       reference: HandleScope,
-      coordinate: (acquire: Effect.Effect<A, E, R>) => Effect.Effect<A, E | FsError, R>,
+      coordinate: (acquire: Effect.Effect<A, E, R>) => Effect.Effect<A, E | FsFailure, R>,
       acquire: Effect.Effect<A, E, R>,
       releaseAcquired: () => void,
       finalize: Effect.Effect<void>
@@ -2181,7 +2187,7 @@ export const makeVolume = Effect.fnUntraced(
         }),
         // Unlike fromTarget, a closed caller surfaces from the lookup and names the path.
         fromPath: Effect.fnUntraced(function*(
-          prepared: Result.Result<PreparedPath, FsError>,
+          prepared: Result.Result<PreparedPath, FsFailure>,
           base: DirectoryHandle | undefined,
           op: OpContext
         ) {
@@ -2205,7 +2211,7 @@ export const makeVolume = Effect.fnUntraced(
       }
 
       const changeMode = Effect.fnUntraced(
-        function*(resolve: () => Effect.Effect<ResolvedNode, FsError>, mode: number, op: OpContext) {
+        function*(resolve: () => Effect.Effect<ResolvedNode, FsFailure>, mode: number, op: OpContext) {
           if (!isMode(mode)) return yield* op.fail("InvalidArgument")
           const resolving = resolve()
 
@@ -2229,7 +2235,7 @@ export const makeVolume = Effect.fnUntraced(
       )
 
       const changeOwner = Effect.fnUntraced(
-        function*(resolve: () => Effect.Effect<ResolvedNode, FsError>, owner: OwnerUpdate, op: OpContext) {
+        function*(resolve: () => Effect.Effect<ResolvedNode, FsFailure>, owner: OwnerUpdate, op: OpContext) {
           const decoded = yield* decodeOwnerUpdate(owner).pipe(
             Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
           )
@@ -2268,7 +2274,7 @@ export const makeVolume = Effect.fnUntraced(
       )
 
       const changeTimes = Effect.fnUntraced(
-        function*(resolve: () => Effect.Effect<ResolvedNode, FsError>, times: Times, op: OpContext) {
+        function*(resolve: () => Effect.Effect<ResolvedNode, FsFailure>, times: Times, op: OpContext) {
           const decoded = yield* decodeTimes(times).pipe(
             Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
           )
@@ -2320,7 +2326,7 @@ export const makeVolume = Effect.fnUntraced(
       )
 
       // Takes bits the caller already validated, since that failure names the path on paths only.
-      const accessNode = (resolve: () => Effect.Effect<ResolvedNode, FsError>, bits: number, op: OpContext) => {
+      const accessNode = (resolve: () => Effect.Effect<ResolvedNode, FsFailure>, bits: number, op: OpContext) => {
         const resolving = resolve()
 
         return coordinatedRead(
@@ -2338,7 +2344,7 @@ export const makeVolume = Effect.fnUntraced(
         )
       }
 
-      const truncateNode = (resolve: () => Effect.Effect<ResolvedNode, FsError>, length: bigint, op: OpContext) => {
+      const truncateNode = (resolve: () => Effect.Effect<ResolvedNode, FsFailure>, length: bigint, op: OpContext) => {
         const resolving = resolve()
 
         return coordinated(
@@ -3776,7 +3782,7 @@ export const makeVolume = Effect.fnUntraced(
 
       caller: Effect.fn("Volume.caller")(function*(options?: RootCallerOptions) {
         const decoded = yield* Effect.fromResult(
-          decodeConfiguration(RootCallerOptions, options === undefined ? {} : options)
+          decodeConfiguration(RootCallerOptions, options === undefined ? {} : options, "caller")
         )
 
         const chosen = decoded.identity ?? { uid: 0, gid: 0, groups: [], privileged: true }
@@ -3808,14 +3814,19 @@ export const makeVolume = Effect.fnUntraced(
 
 /** @internal */
 export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: VolumeOptions) {
-  return (yield* makeVolume(VolumeSource.Empty(), options).pipe(Effect.catchTag("ImageError", Effect.die))).volume
+  return (yield* makeVolume(VolumeSource.Empty(), options).pipe(
+    Effect.catchIf((error) => Schema.is(VfsError)(error) && error.code !== "InvalidArgument", Effect.die)
+  )).volume
 })
 
 /** @internal */
 export const prepareEmptyLiveImage = Effect.fnUntraced(function*(options?: VolumeOptions) {
-  const { initialImage } = yield* makeVolume(VolumeSource.Empty(), options, undefined, captureLiveImage)
+  const { initialImage } = yield* Effect.mapError(
+    makeVolume(VolumeSource.Empty(), options, undefined, captureLiveImage),
+    (error) => retargetFailure("prepareEmptyImage", error)
+  )
 
-  if (initialImage === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "liveImage" })
+  if (initialImage === undefined) return yield* imageFailure("openImage", "InvalidStructure", { field: "liveImage" })
 
   return initialImage
 })
@@ -3872,7 +3883,7 @@ export const openImageVolume = Effect.fnUntraced(function*(
     durability
   )
 
-  if (shutdown === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "liveImage" })
+  if (shutdown === undefined) return yield* imageFailure("openImage", "InvalidStructure", { field: "liveImage" })
 
   return Object.freeze({ volume, shutdown })
 })
@@ -3887,7 +3898,7 @@ const publicChanges = (changes: ReadonlyArray<RawOverlayChange>): ReadonlyArray<
   Object.freeze(changes.map(publicChange))
 
 const changeOptions = (options?: OverlayChangesOptions) => {
-  return Effect.fromResult(decodeConfiguration(OverlayChangesOptions, options === undefined ? {} : options))
+  return Effect.fromResult(decodeConfiguration(OverlayChangesOptions, options === undefined ? {} : options, "changes"))
 }
 
 /** @internal */
@@ -3910,7 +3921,8 @@ export const restoredSource = (image: Image.Document): VolumeSource =>
 export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
   function*(snapshot: Snapshot, options?: VolumeOptions) {
     return (yield* makeVolume(restoredSource(yield* Image.inspect(snapshot)), options)).volume
-  }
+  },
+  Effect.mapError((error) => retargetFailure("fromSnapshot", error))
 )
 
 // An overlay is a volume started from its base's restored value, plus a fold of that value against the current one.
@@ -3929,9 +3941,9 @@ export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
           }))
     })
 
-    const made = yield* makeVolume(source, options)
+    const made = yield* Effect.mapError(makeVolume(source, options), (error) => retargetFailure("makeOverlay", error))
 
-    if (baseState === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "snapshot" })
+    if (baseState === undefined) return yield* imageFailure("makeOverlay", "InvalidStructure", { field: "snapshot" })
     const baseObservation = yield* observeChanges(baseState)
 
     const overlay: OverlayVolume = Object.freeze({

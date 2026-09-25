@@ -39,6 +39,10 @@ const BytePathProto: BytePath = {
 /** @internal */
 export const isBytePath = (value: unknown): value is BytePath => Predicate.isObject(value) && bytePaths.has(value)
 
+// What every byte path holds: at least one byte and no NUL.
+/** @internal */
+export const isPathBytes = (bytes: Uint8Array): boolean => bytes.length > 0 && !bytes.includes(0)
+
 /** @internal */
 export const make = (bytes: Uint8Array): BytePath => {
   // SAFETY: BytePathProto implements every member of the opaque BytePath contract.

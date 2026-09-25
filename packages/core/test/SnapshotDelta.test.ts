@@ -351,8 +351,8 @@ describe("snapshot deltas", () => {
       const changed = structuredClone(document)
       changed.records.find((record: { _tag: string }) => Predicate.isTagged("file")(record)).data = "CQ=="
       const error = yield* Effect.flip(Vfs.applySnapshotDelta(yield* snapshotFromDocument(changed), delta))
-      assert.instanceOf(error, Vfs.SnapshotDeltaError)
-      assert.strictEqual(error.code, "BaseMismatch")
+      assert.instanceOf(error, Vfs.VfsError)
+      assert.deepStrictEqual([error.code, error.operation], ["BaseMismatch", "applySnapshotDelta"])
     }).pipe(Effect.provide(BunCrypto.layer)))
 
   it.effect("includes every retained semantic component in base identity", () =>
@@ -445,7 +445,7 @@ describe("snapshot deltas", () => {
 
       for (const [label, changed] of cases) {
         const error = yield* Effect.flip(Vfs.applySnapshotDelta(yield* snapshotFromDocument(changed), delta))
-        assert.instanceOf(error, Vfs.SnapshotDeltaError, label)
+        assert.instanceOf(error, Vfs.VfsError, label)
         assert.strictEqual(error.code, "BaseMismatch", label)
       }
     }).pipe(Effect.provide(BunCrypto.layer)))
@@ -489,15 +489,15 @@ describe("snapshot deltas", () => {
         Vfs.diffSnapshots(payload, empty, yield* deltaLimitsWith("maxIdentityBytes", 127))
       )
 
-      assert.instanceOf(basePayloadError, Vfs.ImageError)
-      assert.strictEqual(basePayloadError.code, "LimitExceeded")
+      assert.instanceOf(basePayloadError, Vfs.VfsError)
+      assert.deepStrictEqual([basePayloadError.code, basePayloadError.operation], ["LimitExceeded", "diffSnapshots"])
       assert.strictEqual(basePayloadError.field, "identityBytes")
 
       const targetPathError = yield* Effect.flip(
         Vfs.diffSnapshots(empty, nested, yield* deltaLimitsWith("maxDecodedDeltaBytes", 2))
       )
 
-      assert.instanceOf(targetPathError, Vfs.ImageError)
+      assert.instanceOf(targetPathError, Vfs.VfsError)
       assert.strictEqual(targetPathError.code, "LimitExceeded")
       assert.strictEqual(targetPathError.field, "decodedDeltaBytes")
 
@@ -505,7 +505,7 @@ describe("snapshot deltas", () => {
         Vfs.diffSnapshots(empty, payload, yield* deltaLimitsWith("maxOutputBytes", 127))
       )
 
-      assert.instanceOf(targetPayloadError, Vfs.ImageError)
+      assert.instanceOf(targetPayloadError, Vfs.VfsError)
       assert.strictEqual(targetPayloadError.code, "LimitExceeded")
       assert.strictEqual(targetPayloadError.field, "outputBytes")
     }).pipe(Effect.provide(BunCrypto.layer)))

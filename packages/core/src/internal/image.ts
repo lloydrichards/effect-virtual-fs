@@ -4,8 +4,11 @@ import * as Effect from "effect/Effect"
 import * as Match from "effect/Match"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "../Snapshot.js"
+import { DecodeLimits, type Snapshot, SnapshotTypeId } from "../Snapshot.js"
+import type { ImageFailure } from "../VfsError.js"
+import { decodeUtf8 } from "./bytes.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
+import { decodeConfiguration, imageFailure } from "./errors.js"
 import { StoredMetadata, WireStoredMetadata } from "./metadata.js"
 
 class SnapshotImpl implements Snapshot {
@@ -67,12 +70,12 @@ export type Document = typeof Document.Type
 const snapshots = new WeakMap<Snapshot, Document>()
 
 /** @internal */
-export const inspect = (snapshot: Snapshot): Effect.Effect<Document, ImageError> =>
+export const inspect = (snapshot: Snapshot): Effect.Effect<Document, ImageFailure> =>
   Effect.suspend(() => {
     const document = snapshots.get(snapshot)
 
     return document === undefined
-      ? new ImageError({ code: "InvalidStructure", field: "snapshot" })
+      ? imageFailure("decodeSnapshot", "InvalidStructure", { field: "snapshot" })
       : Effect.succeed(document)
   })
 
@@ -84,7 +87,7 @@ export const capture = Effect.fnUntraced(function*(
 ) {
   if (!trusted) {
     yield* Schema.decodeUnknownEffect(WireDocument, { onExcessProperty: "error" })(input).pipe(
-      Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "document", cause }))
+      Effect.mapError((cause) => imageFailure("decodeSnapshot", "InvalidStructure", { field: "document", cause }))
     )
   }
 
@@ -93,7 +96,7 @@ export const capture = Effect.fnUntraced(function*(
     Document,
     { onExcessProperty: "error" }
   )(input).pipe(
-    Effect.mapError((cause) => new ImageError({ code: "InvalidEncoding", field: "document", cause }))
+    Effect.mapError((cause) => imageFailure("decodeSnapshot", "InvalidEncoding", { field: "document", cause }))
   )
 
   const records = new Map<string, Record>()
@@ -101,11 +104,11 @@ export const capture = Effect.fnUntraced(function*(
   let payload = ByteSize.zero
 
   if (limits !== undefined && document.records.length > limits.maxRecords) {
-    return yield* new ImageError({ code: "LimitExceeded", field: "records" })
+    return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "records" })
   }
 
   for (const record of document.records) {
-    if (records.has(record.id)) return yield* new ImageError({ code: "InvalidStructure", field: "id" })
+    if (records.has(record.id)) return yield* imageFailure("decodeSnapshot", "InvalidStructure", { field: "id" })
     records.set(record.id, record)
 
     Match.value(record).pipe(
@@ -117,7 +120,7 @@ export const capture = Effect.fnUntraced(function*(
   }
 
   if (limits !== undefined && entries > limits.maxEntries) {
-    return yield* new ImageError({ code: "LimitExceeded", field: "entries" })
+    return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "entries" })
   }
 
   // Count every payload before allocating any decoded payload buffer. Trusted records carry
@@ -133,13 +136,13 @@ export const capture = Effect.fnUntraced(function*(
 
       for (const value of values) {
         if (!CanonicalBase64.is(value)) {
-          return yield* new ImageError({ code: "InvalidEncoding", field: record.id })
+          return yield* imageFailure("decodeSnapshot", "InvalidEncoding", { field: record.id })
         }
 
         payload = ByteSize.sum(payload, ByteSize.bytes(CanonicalBase64.decodedLength(value)))
 
         if (limits !== undefined && ByteSize.isGreaterThan(payload, limits.maxDecodedBytes)) {
-          return yield* new ImageError({ code: "LimitExceeded", field: "bytes" })
+          return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "bytes" })
         }
       }
     }
@@ -148,7 +151,7 @@ export const capture = Effect.fnUntraced(function*(
   const root = records.get(document.root)
 
   if (root === undefined || !Record.guards.directory(root)) {
-    return yield* new ImageError({ code: "InvalidStructure", field: "root" })
+    return yield* imageFailure("decodeSnapshot", "InvalidStructure", { field: "root" })
   }
 
   const parents = new Map<string, number>()
@@ -161,7 +164,7 @@ export const capture = Effect.fnUntraced(function*(
         if (
           names.has(entry.name) || CanonicalBase64.decodedLength(entry.name) < 1 ||
           CanonicalBase64.decodedLength(entry.name) > 255
-        ) return yield* new ImageError({ code: "InvalidStructure", field: "name" })
+        ) return yield* imageFailure("decodeSnapshot", "InvalidStructure", { field: "name" })
 
         names.add(entry.name)
         const name = yield* CanonicalBase64.decode(entry.name)
@@ -169,18 +172,18 @@ export const capture = Effect.fnUntraced(function*(
         if (
           name.includes(0) || name.includes(47) || (name.length === 1 && name[0] === 46) ||
           (name.length === 2 && name[0] === 46 && name[1] === 46)
-        ) return yield* new ImageError({ code: "InvalidStructure", field: "name" })
+        ) return yield* imageFailure("decodeSnapshot", "InvalidStructure", { field: "name" })
         const target = records.get(entry.target)
 
-        if (target === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "target" })
+        if (target === undefined) return yield* imageFailure("decodeSnapshot", "InvalidStructure", { field: "target" })
         parents.set(target.id, (parents.get(target.id) ?? 0) + 1)
       }
     } else if (Record.guards.symlink(record) && (yield* CanonicalBase64.decode(record.target)).includes(0)) {
-      return yield* new ImageError({ code: "InvalidStructure", field: "symlink" })
+      return yield* imageFailure("decodeSnapshot", "InvalidStructure", { field: "symlink" })
     }
   }
 
-  if (parents.has(root.id)) return yield* new ImageError({ code: "InvalidStructure", field: "root" })
+  if (parents.has(root.id)) return yield* imageFailure("decodeSnapshot", "InvalidStructure", { field: "root" })
 
   for (const record of document.records) {
     const invalidParent = Match.value(record).pipe(
@@ -191,7 +194,7 @@ export const capture = Effect.fnUntraced(function*(
     )
 
     if (record !== root && invalidParent) {
-      return yield* new ImageError({ code: "InvalidStructure", field: "parent" })
+      return yield* imageFailure("decodeSnapshot", "InvalidStructure", { field: "parent" })
     }
   }
 
@@ -217,7 +220,10 @@ export const capture = Effect.fnUntraced(function*(
     }
   }
 
-  if (visited.size !== records.size) return yield* new ImageError({ code: "InvalidStructure", field: "reachability" })
+  if (visited.size !== records.size) {
+    return yield* imageFailure("decodeSnapshot", "InvalidStructure", { field: "reachability" })
+  }
+
   const snapshot: Snapshot = Object.freeze(new SnapshotImpl())
   snapshots.set(snapshot, document)
 
@@ -227,7 +233,7 @@ export const capture = Effect.fnUntraced(function*(
 /** @internal */
 export const encodeSnapshot = Effect.fn("VirtualFileSystem.encodeSnapshot")(function*(snapshot: Snapshot) {
   const text = yield* Schema.encodeEffect(Schema.fromJsonString(Document))(yield* inspect(snapshot)).pipe(
-    Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "text", cause }))
+    Effect.mapError((cause) => imageFailure("decodeSnapshot", "InvalidStructure", { field: "text", cause }))
   )
 
   return new TextEncoder().encode(text)
@@ -236,32 +242,29 @@ export const encodeSnapshot = Effect.fn("VirtualFileSystem.encodeSnapshot")(func
 /** @internal */
 export const decodeSnapshot = Effect.fn("VirtualFileSystem.decodeSnapshot")(
   function*(input: Uint8Array, limits: DecodeLimits) {
-    const checked = yield* Schema.decodeEffect(DecodeLimits, { onExcessProperty: "error" })(limits).pipe(
-      Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "limits", cause }))
-    )
+    const checked = yield* Effect.fromResult(decodeConfiguration(DecodeLimits, limits, "decodeSnapshot"))
 
     if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) {
-      return yield* new ImageError({ code: "InvalidEncoding", field: "input" })
+      return yield* imageFailure("decodeSnapshot", "InvalidEncoding", { field: "input" })
     }
 
     if (ByteSize.isGreaterThan(ByteSize.bytes(input.byteLength), checked.maxEncodedBytes)) {
-      return yield* new ImageError({ code: "LimitExceeded", field: "encodedBytes" })
+      return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "encodedBytes" })
     }
 
-    const text = yield* Effect.try({
-      try: () => new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(input)),
-      // SAFETY: a fatal TextDecoder throws only TypeError.
-      catch: (cause) => new ImageError({ code: "InvalidEncoding", field: "text", cause: cause as TypeError })
-    })
+    const text = yield* decodeUtf8(
+      input,
+      (cause) => imageFailure("decodeSnapshot", "InvalidEncoding", { field: "text", cause })
+    )
 
     const value = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
-      Effect.mapError((cause) => new ImageError({ code: "InvalidEncoding", field: "text", cause }))
+      Effect.mapError((cause) => imageFailure("decodeSnapshot", "InvalidEncoding", { field: "text", cause }))
     )
 
     const version = Schema.decodeUnknownResult(VersionProbe)(value)
 
     if (Result.isSuccess(version) && version.success.version !== 1) {
-      return yield* new ImageError({ code: "UnsupportedVersion", field: "version" })
+      return yield* imageFailure("decodeSnapshot", "UnsupportedVersion", { field: "version" })
     }
 
     return yield* capture(value, checked)

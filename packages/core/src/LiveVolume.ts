@@ -8,13 +8,15 @@
  *
  * @since 0.4.0
  */
-import { Context, Data, Effect } from "effect"
+import { Context, Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import type * as Crypto from "effect/Crypto"
 import type * as PlatformError from "effect/PlatformError"
 import type * as Scope from "effect/Scope"
+import { argumentFailure, retargetFailure } from "./internal/errors.js"
 import * as Model from "./internal/virtualFileSystem.js"
-import type { ConfigurationError, ImageError, Volume, VolumeDurability, VolumeOptions } from "./VirtualFileSystem.js"
+import { type ArgumentFailure, type StoreFailure, VfsError } from "./VfsError.js"
+import type { Volume, VolumeDurability, VolumeOptions } from "./VirtualFileSystem.js"
 
 /**
  * A storage commit's observed outcome.
@@ -23,17 +25,6 @@ import type { ConfigurationError, ImageError, Volume, VolumeDurability, VolumeOp
  * @since 0.4.0
  */
 export type CommitOutcome = "committed" | "rejected" | "unknown"
-
-/**
- * A failed live-store startup or recovery.
- *
- * @category errors
- * @since 0.4.0
- */
-export class LiveVolumeError extends Data.TaggedError("LiveVolumeError")<{
-  readonly code: "InvalidConfiguration" | "Storage" | "Ownership" | "IncompatibleStore" | "CorruptStore"
-  readonly cause?: unknown
-}> {}
 
 /**
  * One exclusively owned store. Its Layer holds the storage resource until the
@@ -46,7 +37,7 @@ export class LiveVolumeError extends Data.TaggedError("LiveVolumeError")<{
 export class LiveImageStore extends Context.Service<LiveImageStore, {
   /** Storage guarantee for successful commits; omission means memory-only. */
   readonly durability?: VolumeDurability
-  readonly loadOrCreate: (initial: Uint8Array) => Effect.Effect<Uint8Array, LiveVolumeError>
+  readonly loadOrCreate: (initial: Uint8Array) => Effect.Effect<Uint8Array, StoreFailure | ArgumentFailure>
   readonly commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>
 }>()("@effect-vfs/core/LiveImageStore") {}
 
@@ -70,23 +61,28 @@ export interface Options {
  */
 export const open: (options: Options) => Effect.Effect<
   Volume,
-  LiveVolumeError,
+  VfsError,
   LiveImageStore | Crypto.Crypto | Scope.Scope
 > = Effect.fn("LiveVolume.open")(function*(options: Options) {
   const store = yield* LiveImageStore
 
   const initial = yield* prepareEmptyImage(options.volume).pipe(
-    Effect.mapError((cause) => new LiveVolumeError({ code: "InvalidConfiguration", cause }))
+    // Names the nested option that failed, such as `volume.maxEntries`.
+    Effect.mapError((cause) => {
+      const field = "field" in cause ? cause.field : undefined
+
+      return argumentFailure("LiveVolume.open", field === undefined ? "volume" : `volume.${field}`, cause)
+    })
   )
 
   if (BigInt(initial.length) > ByteSize.toBigInt(options.maxImageBytes)) {
-    return yield* new LiveVolumeError({ code: "InvalidConfiguration" })
+    return yield* argumentFailure("LiveVolume.open", "maxImageBytes")
   }
 
   const image = yield* store.loadOrCreate(initial)
 
   const session = yield* openImage(image, options.maxImageBytes, store.commit, store.durability ?? "memory-only").pipe(
-    Effect.mapError((cause) => new LiveVolumeError({ code: "CorruptStore", cause }))
+    Effect.mapError((cause) => new VfsError({ code: "CorruptStore", operation: "LiveVolume.open", cause }))
   )
 
   yield* Effect.addFinalizer(() => session.shutdown)
@@ -101,7 +97,7 @@ export const open: (options: Options) => Effect.Effect<
     ByteSize.toBigInt(volume.limits.maxPathBytes) !== ByteSize.toBigInt(options.volume.maxPathBytes) ||
     (options.volume.identity !== undefined && options.volume.identity !== volume.identity)
   ) {
-    return yield* new LiveVolumeError({ code: "IncompatibleStore" })
+    return yield* new VfsError({ code: "IncompatibleStore", operation: "LiveVolume.open" })
   }
 
   return volume
@@ -135,9 +131,13 @@ export interface ImageSession {
  */
 export const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<
   Uint8Array,
-  ConfigurationError | ImageError | PlatformError.PlatformError,
+  VfsError | PlatformError.PlatformError,
   Crypto.Crypto
-> = Model.prepareEmptyLiveImage
+> = (options) =>
+  Effect.mapError(
+    Model.prepareEmptyLiveImage(options),
+    (error) => retargetFailure("LiveVolume.prepareEmptyImage", error)
+  )
 
 /**
  * Open a validated image and stage every mutation before calling `commit`.
@@ -155,6 +155,6 @@ export const openImage: (
   durability?: VolumeDurability
 ) => Effect.Effect<
   ImageSession,
-  ConfigurationError | ImageError | PlatformError.PlatformError,
+  VfsError | PlatformError.PlatformError,
   Crypto.Crypto
 > = Model.openImageVolume

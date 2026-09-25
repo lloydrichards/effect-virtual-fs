@@ -3,11 +3,10 @@ import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { Fixture as FixtureSchema, FixtureEntry, type FixtureMetadata } from "../Fixture.js"
-import { ImageError } from "../Snapshot.js"
 import type { Fixture, PathInput, VolumeOptions } from "../VirtualFileSystem.js"
 import { VolumeIdentity, VolumeOptions as VolumeOptionsSchema } from "../Volume.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
-import { decodeConfiguration, OpContext } from "./errors.js"
+import { decodeConfiguration, imageFailure, OpContext, VfsError } from "./errors.js"
 import * as Image from "./image.js"
 import { inputBytes, isAttachedBytes, isDotComponent, nameBytes, preparePath } from "./path.js"
 import { makeVolume, restoredSource } from "./virtualFileSystem.js"
@@ -19,10 +18,10 @@ const EPOCH_NS = 0n
 /** @internal */
 export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
   function*(fixture: Fixture, options?: VolumeOptions) {
-    const config = yield* Effect.fromResult(decodeConfiguration(VolumeOptionsSchema, options ?? {}))
+    const config = yield* Effect.fromResult(decodeConfiguration(VolumeOptionsSchema, options ?? {}, "fromFixture"))
 
     const source = yield* Schema.decodeEffect(FixtureSchema, { onExcessProperty: "error" })(fixture).pipe(
-      Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "fixture", cause }))
+      Effect.mapError((cause) => imageFailure("fromFixture", "InvalidStructure", { field: "fixture", cause }))
     )
 
     if (
@@ -35,7 +34,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
         })
       )
     ) {
-      return yield* new ImageError({ code: "InvalidEncoding", field: "bytes" })
+      return yield* imageFailure("fromFixture", "InvalidEncoding", { field: "bytes" })
     }
 
     const metadata = (
@@ -79,12 +78,12 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
     // cannot mutate them first.
     for (const entry of source.entries) {
       const components = yield* Effect.fromResult(fixturePath(entry.path)).pipe(
-        Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "path", cause }))
+        Effect.mapError((cause) => imageFailure("fromFixture", "InvalidStructure", { field: "path", cause }))
       )
 
       const key = components.join("/")
 
-      if (paths.has(key)) return yield* new ImageError({ code: "InvalidStructure", field: "duplicate" })
+      if (paths.has(key)) return yield* imageFailure("fromFixture", "InvalidStructure", { field: "duplicate" })
       paths.set(key, components)
 
       const error = FixtureEntry.match(entry, {
@@ -92,7 +91,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
           const parsedTarget = fixturePath(target)
 
           if (Result.isFailure(parsedTarget)) {
-            return new ImageError({ code: "InvalidStructure", field: "target", cause: parsedTarget.failure })
+            return imageFailure("fromFixture", "InvalidStructure", { field: "target", cause: parsedTarget.failure })
           }
 
           aliases.set(key, parsedTarget.success.join("/"))
@@ -121,13 +120,14 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
           const target = inputBytes(input)
 
           if (Result.isFailure(target)) {
-            return new ImageError({
-              code: target.failure === "InvalidPathEncoding" ? "InvalidEncoding" : "InvalidStructure",
-              field: "target"
-            })
+            return imageFailure(
+              "fromFixture",
+              target.failure === "InvalidPathEncoding" ? "InvalidEncoding" : "InvalidStructure",
+              { field: "target" }
+            )
           }
 
-          if (target.success.includes(0)) return new ImageError({ code: "InvalidStructure", field: "target" })
+          if (target.success.includes(0)) return imageFailure("fromFixture", "InvalidStructure", { field: "target" })
 
           declarations.set(
             key,
@@ -140,7 +140,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
         }
       })
 
-      if (error instanceof ImageError) return yield* error
+      if (Schema.is(VfsError)(error)) return yield* error
     }
 
     for (const [key] of aliases) {
@@ -148,18 +148,18 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
       const seen = new Set<string>()
 
       while (!declarations.has(target)) {
-        if (seen.has(target)) return yield* new ImageError({ code: "InvalidStructure", field: "hardLink" })
+        if (seen.has(target)) return yield* imageFailure("fromFixture", "InvalidStructure", { field: "hardLink" })
         seen.add(target)
         const next = aliases.get(target)
 
-        if (next === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "hardLink" })
+        if (next === undefined) return yield* imageFailure("fromFixture", "InvalidStructure", { field: "hardLink" })
         target = next
       }
 
       const node = declarations.get(target)
 
       if (node === undefined || Image.Record.guards.directory(node)) {
-        return yield* new ImageError({ code: "InvalidStructure", field: "hardLink" })
+        return yield* imageFailure("fromFixture", "InvalidStructure", { field: "hardLink" })
       }
 
       for (const alias of seen) declarations.set(alias, node)
@@ -173,7 +173,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
       const name = components.at(-1)
 
       if (parent?._tag !== "directory" || child === undefined || name === undefined) {
-        return yield* new ImageError({ code: "InvalidStructure", field: "parent" })
+        return yield* imageFailure("fromFixture", "InvalidStructure", { field: "parent" })
       }
 
       const entries = children.get(parent.id) ?? []

@@ -4,8 +4,9 @@ import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as SchemaTransformation from "effect/SchemaTransformation"
-import { ImageError } from "../Snapshot.js"
+import { decodeUtf8 } from "./bytes.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
+import { imageFailure } from "./errors.js"
 import { StoredMetadata } from "./metadata.js"
 
 const NaturalBigInt = Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,127})$/)).pipe(
@@ -59,7 +60,7 @@ export const Document = Schema.Struct({
 /** @internal */
 export type Document = typeof Document.Type
 
-const invalid = () => new ImageError({ code: "InvalidStructure", field: "liveImage" })
+const invalid = () => imageFailure("openImage", "InvalidStructure", { field: "liveImage" })
 
 // The engine keys its inode table by a JavaScript number, so every inode an image allocates must be exactly
 // representable. Every record's inode lies below the allocator, so bounding the allocator bounds them all.
@@ -193,7 +194,7 @@ const validate = Effect.fnUntraced(function*(document: Document) {
 /** @internal */
 export const encode = Effect.fnUntraced(function*(document: Document) {
   const text = yield* Schema.encodeEffect(Schema.fromJsonString(Document))(yield* validate(document)).pipe(
-    Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "liveImage", cause }))
+    Effect.mapError((cause) => imageFailure("openImage", "InvalidStructure", { field: "liveImage", cause }))
   )
 
   return new TextEncoder().encode(text)
@@ -202,25 +203,24 @@ export const encode = Effect.fnUntraced(function*(document: Document) {
 /** @internal */
 export const decode = Effect.fnUntraced(function*(bytes: Uint8Array, maxEncodedBytes: ByteSize.ByteSize) {
   if (!(bytes instanceof Uint8Array) || !(bytes.buffer instanceof ArrayBuffer)) {
-    return yield* new ImageError({ code: "InvalidEncoding", field: "liveImage" })
+    return yield* imageFailure("openImage", "InvalidEncoding", { field: "liveImage" })
   }
 
   if (ByteSize.isGreaterThan(ByteSize.bytes(bytes.byteLength), maxEncodedBytes)) {
-    return yield* new ImageError({ code: "LimitExceeded", field: "encodedBytes" })
+    return yield* imageFailure("openImage", "LimitExceeded", { field: "encodedBytes" })
   }
 
-  const text = yield* Effect.try({
-    try: () => new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(bytes)),
-    // SAFETY: a fatal TextDecoder throws only TypeError.
-    catch: (cause) => new ImageError({ code: "InvalidEncoding", field: "liveImage", cause: cause as TypeError })
-  })
+  const text = yield* decodeUtf8(
+    bytes,
+    (cause) => imageFailure("openImage", "InvalidEncoding", { field: "liveImage", cause })
+  )
 
   const parsed = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
-    Effect.mapError((cause) => new ImageError({ code: "InvalidEncoding", field: "liveImage", cause }))
+    Effect.mapError((cause) => imageFailure("openImage", "InvalidEncoding", { field: "liveImage", cause }))
   )
 
   const document = yield* Schema.decodeUnknownEffect(Document, { onExcessProperty: "error" })(parsed).pipe(
-    Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "liveImage", cause }))
+    Effect.mapError((cause) => imageFailure("openImage", "InvalidStructure", { field: "liveImage", cause }))
   )
 
   return yield* validate(document)

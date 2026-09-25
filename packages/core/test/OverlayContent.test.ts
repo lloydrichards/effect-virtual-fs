@@ -19,9 +19,9 @@ describe("overlay base sharing", () => {
         const image = yield* Image.inspect(base)
         assert.isFalse(hasBaseState(base))
         // @ts-expect-error exercises runtime rejection of a value outside the public ByteSize contract
-        assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: -1 })), Vfs.ConfigurationError)
+        assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: -1 })), Vfs.VfsError)
         assert.isFalse(hasBaseState(base))
-        assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: ByteSize.bytes(2) })), Vfs.ImageError)
+        assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: ByteSize.bytes(2) })), Vfs.VfsError)
         assert.isFalse(hasBaseState(base))
 
         const workspaceA = yield* Vfs.makeOverlay(base)

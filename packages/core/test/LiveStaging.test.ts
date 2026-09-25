@@ -86,9 +86,9 @@ describe("live volume staging", () => {
       assert.strictEqual((yield* Effect.flip(volume.usage)).code, "VolumeUnavailable")
       assert.strictEqual((yield* Effect.flip(volume.snapshot)).code, "VolumeUnavailable")
       const callerFailure = yield* Effect.flip(volume.caller())
-      assert.strictEqual(callerFailure._tag, "FsError")
+      assert.strictEqual(callerFailure._tag, "VfsError")
 
-      if (Predicate.isTagged("FsError")(callerFailure)) {
+      if (Predicate.isTagged("VfsError")(callerFailure)) {
         assert.strictEqual(callerFailure.code, "VolumeUnavailable")
       }
 

@@ -7,10 +7,10 @@ import * as Layer from "effect/Layer"
 import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
-import { VirtualFileSystem as Vfs, VirtualFileSystemError as VfsError } from "../src/index.js"
+import { VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../src/index.js"
 
-export const publicErrorIdentity: typeof Vfs.FsError = VfsError.FsError
-export const publicConfigurationErrorIdentity: typeof Vfs.ConfigurationError = VfsError.ConfigurationError
+export const publicErrorIdentity: typeof Vfs.VfsError = VfsErrorModule.VfsError
+export const publicCodeIdentity: typeof Vfs.VfsCode = VfsErrorModule.VfsCode
 
 export const conditionalChildOpen = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
   Effect.gen(function*() {
@@ -29,7 +29,7 @@ export const conditionalChildOpen = (caller: Vfs.Caller, reference: Vfs.ObjectRe
     }
     yield* caller.openChildReference(reference, new Uint8Array([102]), settings)
     return yield* caller.openChildReference(reference, new Uint8Array([103]), { ...settings, expectedChild: null })
-  }) satisfies Effect.Effect<Vfs.OpenChildReferenceResult, Vfs.FsError, Scope.Scope>
+  }) satisfies Effect.Effect<Vfs.OpenChildReferenceResult, Vfs.FsFailure, Scope.Scope>
 
 export const references = (caller: Vfs.Caller) =>
   Effect.gen(function*() {
@@ -37,7 +37,7 @@ export const references = (caller: Vfs.Caller) =>
     const child: Vfs.ObjectReference = yield* caller.lookupReference(root, new Uint8Array([102]))
     const parent: Vfs.ObjectReference = yield* caller.parentReference(root)
     const metadata: Vfs.ObjectObservation<Vfs.Metadata> = yield* caller.observeMetadata(child)
-    const access = caller.accessReference(child, 0o4) satisfies Effect.Effect<void, Vfs.FsError>
+    const access = caller.accessReference(child, 0o4) satisfies Effect.Effect<void, Vfs.FsFailure>
     yield* access
     const directory: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>> = yield* caller.observeDirectory(parent)
     const target: Uint8Array = yield* caller.readLinkReference(child)
@@ -48,10 +48,10 @@ export const references = (caller: Vfs.Caller) =>
     readonly metadata: Vfs.ObjectObservation<Vfs.Metadata>
     readonly directory: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>>
     readonly target: Uint8Array
-  }, Vfs.FsError>
+  }, Vfs.FsFailure>
 
 export const referencedFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
-  caller.openReference(reference) satisfies Effect.Effect<Vfs.FileHandle, Vfs.FsError, Scope.Scope>
+  caller.openReference(reference) satisfies Effect.Effect<Vfs.FileHandle, Vfs.FsFailure, Scope.Scope>
 
 export const referenceMutations = (
   caller: Vfs.Caller,
@@ -78,19 +78,19 @@ export const referenceMutations = (
     yield* caller.chmodReference(linked.reference, 0o600)
     yield* caller.truncateReference(linked.reference, 0n)
     return renamed
-  }) satisfies Effect.Effect<Vfs.RenameReferenceResult, Vfs.FsError>
+  }) satisfies Effect.Effect<Vfs.RenameReferenceResult, Vfs.FsFailure>
 
 export const referencedWritableFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
   caller.openReference(reference, {
     access: "readWrite",
     append: true
-  }) satisfies Effect.Effect<Vfs.FileHandle, Vfs.FsError, Scope.Scope>
+  }) satisfies Effect.Effect<Vfs.FileHandle, Vfs.FsFailure, Scope.Scope>
 
 export const referencedChildFile = (caller: Vfs.Caller, directory: Vfs.ObjectReference) =>
   caller.openChildReference(directory, new TextEncoder().encode("file"), {
     access: "readWrite",
     create: "ifMissing"
-  }) satisfies Effect.Effect<Vfs.OpenChildReferenceResult, Vfs.FsError, Scope.Scope>
+  }) satisfies Effect.Effect<Vfs.OpenChildReferenceResult, Vfs.FsFailure, Scope.Scope>
 
 export const rootCaller = Effect.gen(function*() {
   const volume = yield* Vfs.make({ maxEntries: 10, maxPathBytes: ByteSize.kibibytes(1) })
@@ -108,7 +108,7 @@ export const rootCaller = Effect.gen(function*() {
   return yield* volume.caller()
 }) satisfies Effect.Effect<
   Vfs.Caller,
-  Vfs.ConfigurationError | Vfs.FsError | PlatformError.PlatformError,
+  Vfs.VfsError | PlatformError.PlatformError,
   Crypto.Crypto
 >
 
@@ -118,23 +118,24 @@ export const scopedDirectory = (caller: Vfs.Caller) =>
     const handle = yield* child.openDirectory(".")
     yield* handle.close
     return yield* child.stat(".")
-  })) satisfies Effect.Effect<Vfs.Metadata, Vfs.FsError>
+  })) satisfies Effect.Effect<Vfs.Metadata, Vfs.FsFailure>
 
 export const service = Layer.effect(Vfs.CurrentFileSystem, rootCaller)
 export const moveDirectory = (caller: Vfs.Caller, source: Vfs.DirectoryHandle, destination: Vfs.DirectoryHandle) =>
   caller.rename("old", "new", { sourceRelativeTo: source, destinationRelativeTo: destination }) satisfies Effect.Effect<
     void,
-    Vfs.FsError
+    Vfs.FsFailure
   >
 
-export const removeDirectory = (caller: Vfs.Caller) => caller.rmdir("empty") satisfies Effect.Effect<void, Vfs.FsError>
+export const removeDirectory = (caller: Vfs.Caller) =>
+  caller.rmdir("empty") satisfies Effect.Effect<void, Vfs.FsFailure>
 
 export const acquired = (caller: Vfs.Caller) =>
-  caller.openDirectory(".") satisfies Effect.Effect<Vfs.DirectoryHandle, Vfs.FsError, Scope.Scope>
+  caller.openDirectory(".") satisfies Effect.Effect<Vfs.DirectoryHandle, Vfs.FsFailure, Scope.Scope>
 
 export const rejected = (caller: Vfs.Caller) => {
   // @ts-expect-error Directory acquisition still requires Scope.
-  const unscoped: Effect.Effect<Vfs.DirectoryHandle, Vfs.FsError> = caller.openDirectory(".")
+  const unscoped: Effect.Effect<Vfs.DirectoryHandle, Vfs.FsFailure> = caller.openDirectory(".")
   // @ts-expect-error Raw bytes require the owning BytePath constructor.
   caller.stat(new Uint8Array([47]))
   // @ts-expect-error Numeric descriptors are not directory identities.
@@ -157,7 +158,7 @@ export const scopedFile = (caller: Vfs.Caller) =>
 
 export const rejectedReferenceFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) => {
   // @ts-expect-error Reference-based file acquisition still requires Scope.
-  const unscoped: Effect.Effect<Vfs.FileHandle, Vfs.FsError> = caller.openReference(reference)
+  const unscoped: Effect.Effect<Vfs.FileHandle, Vfs.FsFailure> = caller.openReference(reference)
   // @ts-expect-error Creation mode does not apply to an already identified object.
   caller.openReference(reference, { access: "write", mode: 0o600 })
   return unscoped
@@ -189,7 +190,7 @@ export const overlay = Effect.gen(function*() {
     readonly changes: ReadonlyArray<Vfs.OverlayChange>
     readonly capture: Vfs.OverlayCapture
   },
-  Vfs.ConfigurationError | Vfs.ImageError | Vfs.FsError | PlatformError.PlatformError,
+  Vfs.VfsError | PlatformError.PlatformError,
   Crypto.Crypto
 >
 
@@ -219,12 +220,7 @@ export const snapshotDelta = Effect.gen(function*() {
   return { changes, restored }
 }) satisfies Effect.Effect<
   { readonly changes: ReadonlyArray<Vfs.SnapshotChange>; readonly restored: Vfs.Snapshot },
-  | Vfs.ConfigurationError
-  | Vfs.ImageError
-  | Vfs.FsError
-  | Vfs.SnapshotDeltaError
-  | Schema.SchemaError
-  | PlatformError.PlatformError,
+  Vfs.VfsError | Schema.SchemaError | PlatformError.PlatformError,
   Crypto.Crypto
 >
 
@@ -233,10 +229,7 @@ export const constrainedDeltaCodec = Vfs.SnapshotDeltaFromBytes(Vfs.SnapshotDelt
 
 export const recoverBaseMismatch = (base: Vfs.Snapshot, delta: Vfs.SnapshotDelta) =>
   Vfs.applySnapshotDelta(base, delta).pipe(
-    Effect.catchTag(
-      "SnapshotDeltaError",
-      (error) => error.code === "BaseMismatch" ? Effect.succeed(base) : Effect.fail(error)
-    )
+    Effect.catchTag("VfsError", (error) => error.code === "BaseMismatch" ? Effect.succeed(base) : Effect.fail(error))
   )
 
 export const rejectedDelta = () => {
@@ -250,7 +243,7 @@ export const rejectedDelta = () => {
 
 export const rejectedFile = (caller: Vfs.Caller, file: Vfs.FileHandle) => {
   // @ts-expect-error File acquisition requires Scope too.
-  const unscoped: Effect.Effect<Vfs.FileHandle, Vfs.FsError> = caller.open("file", { access: "read" })
+  const unscoped: Effect.Effect<Vfs.FileHandle, Vfs.FsFailure> = caller.open("file", { access: "read" })
   // @ts-expect-error Positional offsets are bigint, never lossy numbers.
   file.pread(1, 0)
   // @ts-expect-error Decoding untrusted input requires explicit work limits.

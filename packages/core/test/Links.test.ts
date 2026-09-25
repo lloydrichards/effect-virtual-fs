@@ -1,8 +1,13 @@
 import { assert, describe } from "@effect/vitest"
 import { ByteSize, Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
+import * as InternalBytePath from "../src/internal/bytePath.js"
 
 import { it } from "./TestEffect.js"
+
+// The path an error names, as text; errors carry paths as bytes.
+const pathText = (path: Vfs.BytePath | undefined): string | undefined =>
+  path === undefined ? undefined : new TextDecoder().decode(InternalBytePath.getBytes(path))
 
 describe("links and byte namespace", () => {
   it.effect(
@@ -132,7 +137,7 @@ describe("links and byte namespace", () => {
         const failed = yield* Effect.flip(fs.readFile("/link"))
 
         assert.strictEqual(failed.code, "PathTooLong")
-        assert.strictEqual(failed.path, "/link")
+        assert.strictEqual(pathText(failed.path), "/link")
       })
   )
 

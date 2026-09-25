@@ -154,11 +154,11 @@ describe("snapshot delta Schema codec", () => {
       )
 
       const inspectionError = yield* Effect.flip(Vfs.inspectSnapshotDelta(base, inconsistent))
-      assert.instanceOf(inspectionError, Vfs.ImageError)
+      assert.instanceOf(inspectionError, Vfs.VfsError)
       assert.strictEqual(inspectionError.code, "InvalidStructure")
       assert.strictEqual(inspectionError.field, "changes")
       const error = yield* Effect.flip(Vfs.applySnapshotDelta(base, inconsistent))
-      assert.instanceOf(error, Vfs.ImageError)
+      assert.instanceOf(error, Vfs.VfsError)
       assert.strictEqual(error.code, "InvalidStructure")
       assert.strictEqual(error.field, "changes")
     }).pipe(Effect.provide(BunCrypto.layer)))
@@ -257,7 +257,7 @@ describe("snapshot delta Schema codec", () => {
         ] as const
       ) {
         const error = yield* Effect.flip(Vfs.applySnapshotDelta(base, delta, limits))
-        assert.instanceOf(error, Vfs.ImageError)
+        assert.instanceOf(error, Vfs.VfsError)
         assert.strictEqual(error.code, "LimitExceeded")
         assert.strictEqual(error.field, field)
       }
@@ -272,7 +272,7 @@ describe("snapshot delta Schema codec", () => {
       file.payload = { _tag: "Base", path: ownPath }
       const hostile = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(encodeDocument(source))
       const error = yield* Effect.flip(Vfs.applySnapshotDelta(fresh.base, hostile))
-      assert.instanceOf(error, Vfs.ImageError)
+      assert.instanceOf(error, Vfs.VfsError)
       assert.strictEqual(error.code, "InvalidStructure")
       assert.strictEqual(error.field, "baseReference")
     }).pipe(Effect.provide(BunCrypto.layer)))

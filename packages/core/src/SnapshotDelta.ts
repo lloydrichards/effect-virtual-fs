@@ -4,7 +4,6 @@
  * @since 0.1.0
  */
 import * as ByteSize from "effect/ByteSize"
-import * as Data from "effect/Data"
 import * as Schema from "effect/Schema"
 import { BytePath } from "./BytePath.js"
 import * as Internal from "./internal/snapshotDeltaModel.js"
@@ -194,42 +193,6 @@ export const SnapshotChangesOptions = Schema.Struct({
  * @since 0.1.0
  */
 export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type
-
-/**
- * A valid snapshot delta was inspected or applied against a valid but semantically different base.
- *
- * @example
- * ```ts
- * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
- * import { Effect } from "effect"
- *
- * const program = Effect.gen(function*() {
- *   const volume = yield* Vfs.make()
- *   const caller = yield* volume.caller()
- *   const base = yield* volume.snapshot
- *
- *   yield* caller.mkdir("/work")
- *
- *   // Omitting limits uses `default`; `constrained` suits memory-sensitive hosts.
- *   const tight = { ...Vfs.SnapshotDeltaLimits.constrained, maxOutputRecords: 0 }
- *
- *   return yield* Vfs.diffSnapshots(base, yield* volume.snapshot, tight).pipe(
- *     Effect.as("diffed"),
- *     Effect.catchTag("ImageError", (error) => Effect.succeed(`${error.code} at ${error.field}`))
- *   )
- * }).pipe(Effect.provide(NodeCrypto.layer))
- *
- * Effect.runPromise(program).then(console.log)
- * // LimitExceeded at outputRecords
- * ```
- *
- * @category errors
- * @since 0.1.0
- */
-export class SnapshotDeltaError extends Data.TaggedError("SnapshotDeltaError")<{
-  readonly code: "BaseMismatch"
-}> {}
 
 const SnapshotDeltaLimitsSchema = Schema.Struct({
   maxEncodedBytes: Schema.ByteSize,

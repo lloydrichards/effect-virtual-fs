@@ -2,8 +2,13 @@ import { assert, describe } from "@effect/vitest"
 import { ByteSize, Clock, Effect, Predicate, Result } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
+import * as InternalBytePath from "../src/internal/bytePath.js"
 
 import { it } from "./TestEffect.js"
+
+// The path an error names, as text; errors carry paths as bytes.
+const pathText = (path: Vfs.BytePath | undefined): string | undefined =>
+  path === undefined ? undefined : new TextDecoder().decode(InternalBytePath.getBytes(path))
 
 describe("metadata authority", () => {
   it.effect(
@@ -66,17 +71,17 @@ describe("metadata authority", () => {
             entries: []
           }))
 
-          assert.strictEqual(rootError._tag, "ImageError")
+          assert.strictEqual(rootError._tag, "VfsError")
 
-          if (Predicate.isTagged("ImageError")(rootError)) assert.strictEqual(rootError.code, "InvalidStructure")
+          if (Predicate.isTagged("VfsError")(rootError)) assert.strictEqual(rootError.code, "InvalidStructure")
 
           const entryError = yield* Effect.flip(Vfs.fromFixture({
             entries: [{ kind: "file", path: "/f", bytes: new Uint8Array(), metadata: { birthtimeNs: nanoseconds } }]
           }))
 
-          assert.strictEqual(entryError._tag, "ImageError")
+          assert.strictEqual(entryError._tag, "VfsError")
 
-          if (Predicate.isTagged("ImageError")(entryError)) assert.strictEqual(entryError.code, "InvalidStructure")
+          if (Predicate.isTagged("VfsError")(entryError)) assert.strictEqual(entryError.code, "InvalidStructure")
         }
       })
   )
@@ -95,7 +100,7 @@ describe("metadata authority", () => {
         }
       }
 
-      const code = (effect: Effect.Effect<void, Vfs.FsError>) => Effect.map(Effect.flip(effect), (error) => error.code)
+      const code = (effect: Effect.Effect<void, Vfs.VfsError>) => Effect.map(Effect.flip(effect), (error) => error.code)
 
       assert.deepStrictEqual([
         yield* code(fs.chmod("/file", -1, options)),
@@ -125,9 +130,9 @@ describe("metadata authority", () => {
       assert.isTrue(Result.isFailure(result), "out-of-domain Clock must fail construction")
 
       if (Result.isFailure(result)) {
-        assert.isTrue(Predicate.isTagged(result.failure, "ConfigurationError"))
+        assert.isTrue(Predicate.isTagged(result.failure, "VfsError"))
 
-        if (Predicate.isTagged(result.failure, "ConfigurationError")) {
+        if (Predicate.isTagged(result.failure, "VfsError")) {
           assert.strictEqual(result.failure.field, "clock.currentTimeNanos")
         }
       }
@@ -275,7 +280,7 @@ describe("metadata authority", () => {
         )
 
         assert.strictEqual(mixed.code, "AccessDenied")
-        assert.strictEqual(mixed.path, "/deep/f")
+        assert.strictEqual(pathText(mixed.path), "/deep/f")
       })
   )
 
@@ -292,7 +297,7 @@ describe("metadata authority", () => {
       )
 
       assert.strictEqual(denied.code, "AccessDenied")
-      assert.strictEqual(denied.path, "/deep/f")
+      assert.strictEqual(pathText(denied.path), "/deep/f")
 
       const handle = yield* guest.openDirectory("/deep")
 

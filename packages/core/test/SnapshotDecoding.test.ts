@@ -69,7 +69,7 @@ describe("snapshot decoding", () => {
           ]
         ) {
           const error = yield* Effect.flip(Vfs.decodeSnapshot(encodedFile(data), limits))
-          assert.instanceOf(error, Vfs.ImageError)
+          assert.instanceOf(error, Vfs.VfsError)
           assert.strictEqual(error.code, "InvalidEncoding", data)
         }
       })
