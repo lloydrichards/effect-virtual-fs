@@ -25,7 +25,7 @@ Architectural and behavioral decisions, grouped by domain. Accepted decisions ar
 - [Reference-based mutations](core/reference-mutations.md) adds directory-reference-and-name mutation operations beside the path operations and keeps share reservations and locks in adapters.
 - [Volume durability and usage facts](core/volume-durability-and-usage-facts.md) gives a volume a durability tier, an incarnation token, readable limits, and a live usage query.
 - [Watch event overflow](core/watch-event-overflow.md) defines bounded per-subscriber watches, a rescan marker, and retryable volume admission.
-- [Persistent tree rebuild](core/persistent-tree-rebuild.md) is a draft that rebuilds the engine on a persistent tree value with one transaction runner, composes staging, overlay, and watch over it, and stages the work as ordered refactor and design issues.
+- [Persistent tree rebuild](core/persistent-tree-rebuild.md) rebuilds the engine on a persistent volume value with one transition runner, composes staging, overlay, and watch over it, and stages the remaining serialisation and public API work as design issues.
 - [Consolidated first-core contracts](core/consolidated-first-core-contracts.md) is deprecated; the focused contracts own its rules.
 - [Remaining implementation profile](core/remaining-implementation-profile.md) is deprecated; the focused contracts own its rules.
 
