@@ -59,7 +59,7 @@ sources:
   - id: serialisation-code
     resource: ../../../packages/core/src/internal/snapshotDelta.ts
     title: Current delta computation and verification
-generated: { by: claude/okf, at: "2026-09-25T18:00:00Z" }
+generated: { by: claude/okf, at: "2026-09-25T22:30:00+02:00" }
 ---
 
 # Persistent tree rebuild
@@ -89,7 +89,7 @@ Publicly, a `Target` tagged enum of path, reference, or handle and an `Entry` of
 5. Persistent tree behind the existing state for the non-staged path, whole suite green. Delivered by [Draft A](https://github.com/lloydrichards/effect-virtual-fs/pull/202 "delivered by").
 6. Staging as a `commit` decorator and overlay as a layer, on one stacked branch. Delivered by [Draft B](https://github.com/lloydrichards/effect-virtual-fs/pull/203 "delivered by"), which also splits the permits and closes the watch subscriber leak.
 7. Serialisation version 2: one tree schema, change-event deltas, streaming codecs.
-8. Public API major with a deprecation minor in front, and the layer-based test volume across packages.
+8. Public API on targets, services, and one error family, shipped as one breaking 0.6.0 without a deprecation minor. Delivered by the [public API decision](public-api-targets-services-and-errors.md "delivered by") across five stacked drafts; the layer-based test volume follows in #183.
 
 Steps 1 to 4 are safe on the current tree and independently shippable, and all four merged on 2026-09-25; the decision comments on #178 to #181 record where they differ from the original plan. Steps 5 and 6 landed as two stacked drafts on the same day, proven by a differential harness of 16,041 scenarios against the old engine that differs only in revision values; the decision comments on #184 record the trie in place of `HashMap`, the number-keyed inode, and the directory holds kept beside the value. The consumer companions for memory, NFS, and persistence decide what core must offer and run alongside the discussion.
 

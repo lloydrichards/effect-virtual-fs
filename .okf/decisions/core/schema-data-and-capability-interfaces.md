@@ -8,12 +8,12 @@ sources:
   - id: core
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: Schema data types and capability interfaces
-generated: { by: codex/okf, at: "2026-09-13T18:05:00+02:00" }
+generated: { by: claude/okf, at: "2026-09-25T22:30:00+02:00" }
 ---
 
 # Schema data and capability interfaces
 
-Reusable identities, configuration, metadata, fixtures, and snapshot image records are modeled with Schema and derive their TypeScript types. Filesystem, configuration, and image errors use `Data.TaggedError` while they have no serialization requirement.
+Reusable identities, configuration, metadata, fixtures, and snapshot image records are modeled with Schema and derive their TypeScript types. Every failure is one `VfsError`, a `Schema.TaggedError` with a code union, so an error can cross a wire; the [public API decision](public-api-targets-services-and-errors.md "refined by") replaced the earlier `Data.TaggedError` classes once remote access gave errors a serialization requirement.
 
 Volume, Caller, FileHandle, and DirectoryHandle remain capability interfaces. BytePath, Snapshot, and SnapshotDelta are opaque controlled values with Effect-style string TypeIds and private authenticity registries; a decoded image tree is not itself a Snapshot. Schema validation does not imply deep immutability or serialize live resources.
 
