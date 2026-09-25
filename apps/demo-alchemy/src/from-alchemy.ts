@@ -1,10 +1,10 @@
-import { LiveVolume } from "@effect-vfs/core"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import type { ReadWriteBucketClient } from "alchemy/Cloudflare/R2"
 import type { RuntimeContext } from "alchemy/RuntimeContext"
 import * as Effect from "effect/Effect"
 import type { NotebookR2Client } from "./notebook.js"
 
-const storageError = (cause: unknown) => new LiveVolume.LiveVolumeError({ code: "Storage", cause })
+const storageError = (cause: unknown) => new Vfs.VfsError({ code: "Storage", operation: "AlchemyStore", cause })
 
 const quote = (etag: string) => `"${etag.replace(/^"|"$/g, "")}"`
 
@@ -33,11 +33,11 @@ export const fromAlchemy = (
             if (object === null) return Effect.succeed(null)
 
             if (!("bytes" in object)) {
-              return new LiveVolume.LiveVolumeError({ code: "Storage", cause: "R2 object has no body" })
+              return new Vfs.VfsError({ code: "Storage", operation: "AlchemyStore", cause: "R2 object has no body" })
             }
 
             if (!object.etag) {
-              return new LiveVolume.LiveVolumeError({ code: "Storage", cause: "R2 object has no ETag" })
+              return new Vfs.VfsError({ code: "Storage", operation: "AlchemyStore", cause: "R2 object has no ETag" })
             }
 
             return object.bytes().pipe(
@@ -66,7 +66,7 @@ export const fromAlchemy = (
             if (object === null) return Effect.succeed(null)
 
             if (!object.etag) {
-              return new LiveVolume.LiveVolumeError({ code: "Storage", cause: "R2 response has no ETag" })
+              return new Vfs.VfsError({ code: "Storage", operation: "AlchemyStore", cause: "R2 response has no ETag" })
             }
 
             return Effect.succeed({ etag: quote(object.etag) })

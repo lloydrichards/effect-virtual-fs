@@ -10,7 +10,8 @@ import * as Migrator from "effect/unstable/sql/Migrator"
 import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
 
 /**
- * Checkpoint lookup, naming, or storage failure. Image failures retain core's `ImageError`.
+ * Checkpoint lookup, naming, or storage failure. An image that fails to encode or decode is reported as core's
+ * `VfsError` with its image code, such as `InvalidStructure` or `LimitExceeded`.
  *
  * @example
  * ```ts
@@ -71,7 +72,9 @@ const StoredRow = Schema.Struct({
 // static properties, which left these entry points off the API page entirely.
 const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.DecodeLimits) {
   const ownedLimits = yield* Schema.decodeEffect(Vfs.DecodeLimits, { onExcessProperty: "error" })(limits).pipe(
-    Effect.mapError(() => new Vfs.ImageError({ code: "InvalidStructure", field: "limits" }))
+    Effect.mapError(() =>
+      new Vfs.VfsError({ code: "InvalidArgument", operation: "CheckpointStore.make", field: "limits" })
+    )
   )
 
   const sql = (yield* SqlClient).withoutTransforms()
@@ -109,18 +112,20 @@ const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.Decode
     if (rows.length === 0) return yield* new CheckpointError({ code: "NotFound", operation: "load", name })
 
     const row = yield* Schema.decodeUnknownEffect(StoredRow)(rows[0]).pipe(
-      Effect.mapError(() => new Vfs.ImageError({ code: "InvalidStructure", field: "row" }))
+      Effect.mapError(() => new Vfs.VfsError({ code: "InvalidStructure", operation: "load", field: "row" }))
     )
 
     if (row.kind !== "blob" || row.size === null) {
-      return yield* new Vfs.ImageError({ code: "InvalidStructure", field: "image" })
+      return yield* new Vfs.VfsError({ code: "InvalidStructure", operation: "load", field: "image" })
     }
 
     if (BigInt(row.size) > maxEncodedBytes) {
-      return yield* new Vfs.ImageError({ code: "LimitExceeded", field: "encodedBytes" })
+      return yield* new Vfs.VfsError({ code: "LimitExceeded", operation: "load", field: "encodedBytes" })
     }
 
-    if (row.image === null) return yield* new Vfs.ImageError({ code: "InvalidStructure", field: "image" })
+    if (row.image === null) {
+      return yield* new Vfs.VfsError({ code: "InvalidStructure", operation: "load", field: "image" })
+    }
 
     return yield* Vfs.decodeSnapshot(row.image, ownedLimits)
   })
@@ -175,9 +180,9 @@ const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.Decode
  */
 export class CheckpointStore extends Context.Service<CheckpointStore, {
   /** Saves a new name. A duplicate fails without modifying the existing checkpoint. */
-  readonly save: (name: string, snapshot: Vfs.Snapshot) => Effect.Effect<void, CheckpointError | Vfs.ImageError>
+  readonly save: (name: string, snapshot: Vfs.Snapshot) => Effect.Effect<void, CheckpointError | Vfs.VfsError>
   /** Loads a validated snapshot. A missing name fails with `NotFound`. */
-  readonly load: (name: string) => Effect.Effect<Vfs.Snapshot, CheckpointError | Vfs.ImageError>
+  readonly load: (name: string) => Effect.Effect<Vfs.Snapshot, CheckpointError | Vfs.VfsError>
 }>()(
   "@effect-vfs/persistence/CheckpointStore"
 ) {

@@ -341,7 +341,7 @@ export const toFileSystem = (
   fs: FileSystem.FileSystem,
   destination: string,
   options?: FileSystemWriteOptions
-): Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.FsError | PlatformError> =>
+): Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError | PlatformError> =>
   Sink.unwrap(Effect.gen(function*() {
     const existing = options?.existing ?? "reject"
     const times = options?.times ?? "mtime"

@@ -240,8 +240,8 @@ export const layerCrypto: Layer.Layer<FileSystem.FileSystem> = internal.layerCry
  * changes, but keep independent caller state, descriptors, and file cursors.
  *
  * The caller defaults to a privileged uid and gid of `0` with umask `0`. Invalid
- * caller options fail with `VirtualFileSystem.ConfigurationError`. Filesystem
- * operations translate core failures to Effect `PlatformError` values.
+ * caller options fail with a `VfsError` whose code is `InvalidArgument` and whose `field` names the option.
+ * Filesystem operations translate core failures to Effect `PlatformError` values.
  *
  * @example
  * ```ts
@@ -293,4 +293,4 @@ export const layerCrypto: Layer.Layer<FileSystem.FileSystem> = internal.layerCry
 export const bind: (
   volume: Vfs.Volume,
   options?: Vfs.RootCallerOptions
-) => Effect.Effect<FileSystem.FileSystem, Vfs.ConfigurationError | Vfs.FsError> = internal.bind
+) => Effect.Effect<FileSystem.FileSystem, Vfs.VfsError> = internal.bind

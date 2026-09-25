@@ -119,7 +119,7 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
 
       for (const invalid of [{ ...limits, maxRecords: -1 }, { ...limits, extra: true }]) {
         const error = yield* Effect.flip(CheckpointStore.make(invalid))
-        assert.strictEqual(error.code, "InvalidStructure")
+        assert.strictEqual(error.code, "InvalidArgument")
         assert.strictEqual(error.field, "limits")
       }
     })))
@@ -136,12 +136,12 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       const narrow = yield* CheckpointStore.make(bounded)
       const image = yield* snapshot
       const saveError = yield* Effect.flip(narrow.save("rejected", image))
-      assert.instanceOf(saveError, Vfs.ImageError)
+      assert.instanceOf(saveError, Vfs.VfsError)
       assert.strictEqual(saveError.code, "LimitExceeded")
       assert.strictEqual((yield* Effect.flip(broad.load("rejected"))).code, "NotFound")
       yield* broad.save("stored", image)
       const loadError = yield* Effect.flip(narrow.load("stored"))
-      assert.instanceOf(loadError, Vfs.ImageError)
+      assert.instanceOf(loadError, Vfs.VfsError)
       assert.strictEqual(loadError.code, "LimitExceeded")
     })))
 
@@ -161,14 +161,14 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
         const bytes = new TextEncoder().encode(text)
         yield* sql`INSERT INTO effect_vfs_checkpoints (name, image) VALUES (${name}, ${bytes})`
         const error = yield* Effect.flip(store.load(name))
-        assert.instanceOf(error, Vfs.ImageError)
+        assert.instanceOf(error, Vfs.VfsError)
         assert.strictEqual(error.code, code)
       }
 
       const oversized = ByteSize.toBigInt(limits.maxEncodedBytes) + 1n
       yield* sql`INSERT INTO effect_vfs_checkpoints VALUES ('oversized', zeroblob(${oversized}))`
       const error = yield* Effect.flip(store.load("oversized"))
-      assert.instanceOf(error, Vfs.ImageError)
+      assert.instanceOf(error, Vfs.VfsError)
       assert.strictEqual(error.code, "LimitExceeded")
       assert.strictEqual(error.field, "encodedBytes")
     })))

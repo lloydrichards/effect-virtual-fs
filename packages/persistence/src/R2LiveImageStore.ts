@@ -7,7 +7,7 @@
  * @since 0.5.0
  */
 import { GetObjectCommand, PutObjectCommand, type S3Client, S3ServiceException } from "@aws-sdk/client-s3"
-import { LiveVolume } from "@effect-vfs/core"
+import { LiveVolume, VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { ByteSize, Crypto, Effect, Exit, Layer } from "effect"
 
 /** A complete R2 image plus the metadata needed to validate and fence it.
@@ -51,14 +51,14 @@ export interface ObjectRecord {
  * @since 0.5.0
  */
 export interface R2Client {
-  readonly read: (key: string) => Effect.Effect<ObjectRecord | null, LiveVolume.LiveVolumeError>
+  readonly read: (key: string) => Effect.Effect<ObjectRecord | null, Vfs.VfsError>
   readonly write: (
     key: string,
     bytes: Uint8Array,
     generation: string,
     digest: string,
     condition: { readonly ifMatch: string } | { readonly ifNoneMatch: "*" }
-  ) => Effect.Effect<{ readonly etag: string } | null, LiveVolume.LiveVolumeError>
+  ) => Effect.Effect<{ readonly etag: string } | null, Vfs.VfsError>
 }
 
 /** Use R2's S3-compatible API from a Bun or Node NFS server.
@@ -99,7 +99,7 @@ export const fromS3 = (client: S3Client, bucket: string): R2Client => ({
           throw error
         }
       },
-      catch: (cause) => new LiveVolume.LiveVolumeError({ code: "Storage", cause })
+      catch: (cause) => fail("Storage", cause)
     }),
   write: (key, bytes, generation, digest, condition) =>
     Effect.tryPromise({
@@ -124,7 +124,7 @@ export const fromS3 = (client: S3Client, bucket: string): R2Client => ({
           throw error
         }
       },
-      catch: (cause) => new LiveVolume.LiveVolumeError({ code: "Storage", cause })
+      catch: (cause) => fail("Storage", cause)
     })
 })
 
@@ -156,8 +156,12 @@ export interface Options {
   readonly durability?: "survives-power-loss"
 }
 
-const fail = (code: LiveVolume.LiveVolumeError["code"], cause?: unknown) =>
-  new LiveVolume.LiveVolumeError({ code, cause })
+const fail = (code: Vfs.StoreCode, cause?: unknown): Vfs.StoreFailure =>
+  VfsError.make({ code, operation: "R2LiveImageStore", cause })
+
+// A rejected option names the option; the store cannot open until the caller fixes it.
+const invalid = (field: string): Vfs.ArgumentFailure =>
+  VfsError.make({ code: "InvalidArgument", operation: "R2LiveImageStore", field })
 
 const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
 
@@ -190,7 +194,7 @@ export const layer = (options: Options) =>
       const crypto = yield* Crypto.Crypto
       const maxImage = ByteSize.toBigInt(options.maxImageBytes)
 
-      if (options.key.length === 0 || maxImage <= 0n) return yield* fail("InvalidConfiguration")
+      if (options.key.length === 0 || maxImage <= 0n) return yield* invalid("options")
 
       let generation: number | undefined
       let etag: string | undefined
@@ -230,7 +234,7 @@ export const layer = (options: Options) =>
 
           if (existing !== null) return yield* validate(existing)
 
-          if (BigInt(initial.length) > maxImage) return yield* fail("InvalidConfiguration")
+          if (BigInt(initial.length) > maxImage) return yield* invalid("maxImageBytes")
 
           const hash = yield* digest(initial).pipe(Effect.mapError((cause) => fail("Storage", cause)))
 

@@ -1,5 +1,5 @@
 import { GetObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from "@aws-sdk/client-s3"
-import { LiveVolume } from "@effect-vfs/core"
+import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, describe, it, vi } from "@effect/vitest"
 import { ByteSize, Effect, Layer } from "effect"
@@ -29,7 +29,7 @@ const makeClient = () => {
           loseNextReply = false
 
           return Effect.fail(
-            new LiveVolume.LiveVolumeError({ code: "Storage", cause: new Error("reply lost after write") })
+            new Vfs.VfsError({ code: "Storage", operation: "FakeR2", cause: new Error("reply lost after write") })
           )
         }
 

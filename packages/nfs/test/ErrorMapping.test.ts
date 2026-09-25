@@ -26,22 +26,31 @@ const expected = {
   VolumeUnavailable: Status.IO,
   VolumeBusy: Status.DELAY,
   SymlinkLoop: Status.INVAL,
-  UnrepresentableName: Status.INVAL
-} satisfies Readonly<Record<Vfs.FsCode, number>>
+  UnrepresentableName: Status.INVAL,
+  InvalidEncoding: Status.SERVERFAULT,
+  UnsupportedVersion: Status.SERVERFAULT,
+  InvalidStructure: Status.SERVERFAULT,
+  LimitExceeded: Status.SERVERFAULT,
+  BaseMismatch: Status.SERVERFAULT,
+  Storage: Status.IO,
+  Ownership: Status.IO,
+  IncompatibleStore: Status.IO,
+  CorruptStore: Status.IO
+} satisfies Readonly<Record<Vfs.VfsCode, number>>
 
 it("translates every core filesystem failure to an NFSv4.1 status", () => {
   for (const [code, status] of Object.entries(expected)) {
     // SAFETY: expected has exactly the FsCode keys by its Record type.
-    const fsCode = code as Vfs.FsCode
+    const fsCode = code as Vfs.VfsCode
 
-    assert.strictEqual(failureForFs(new Vfs.FsError({ code: fsCode, operation: "test" })), status, code)
+    assert.strictEqual(failureForFs(new Vfs.VfsError({ code: fsCode, operation: "test" })), status, code)
   }
 })
 
 it("returns SERVERFAULT for an unexpected runtime error code", () => {
   for (const code of ["FutureCode", "toString"]) {
-    // SAFETY: These invalid runtime values exercise compatibility with unknown core error codes.
-    const error = new Vfs.FsError({ code: code as Vfs.FsCode, operation: "test" })
+    // The constructor validates its code, so an unknown runtime code is forced onto a valid error afterwards.
+    const error = Object.assign(new Vfs.VfsError({ code: "NotFound", operation: "test" }), { code })
 
     assert.strictEqual(failureForFs(error), Status.SERVERFAULT, code)
   }

@@ -355,8 +355,46 @@ describe("SQLite live image store", () => {
       }).pipe(Layer.provide(SqliteClient.layer({ filename: actual, disableWAL: true })))
 
       const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(mismatched)))
-      assert.strictEqual(error.code, "InvalidConfiguration")
+      assert.deepStrictEqual([error.code, error.field], ["InvalidArgument", "filename"])
     })).pipe(Effect.provide(files)))
+
+  it.effect("reports a database with a schema version it did not write as an incompatible store", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const filesystem = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
+      const filename = path.join(directory, "live.sqlite")
+
+      yield* Effect.gen(function*() {
+        const sql = yield* SqlClient
+        yield* sql.unsafe("PRAGMA user_version=2")
+      }).pipe(Effect.provide(SqliteClient.layer({ filename, disableWAL: true })))
+
+      const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(store(filename))))
+      assert.strictEqual(error.code, "IncompatibleStore")
+    })).pipe(Effect.provide(files)))
+
+  it.effect("names the option a malformed configuration got wrong", () =>
+    Effect.gen(function*() {
+      const opened = (settings: Partial<SqliteLiveImageStore.Options>) =>
+        Effect.flip(
+          Effect.scoped(LiveVolume.open(options)).pipe(
+            Effect.provide(
+              SqliteLiveImageStore.layer({
+                filename: "/tmp/effect-vfs-never-opened.sqlite",
+                maxImageBytes: options.maxImageBytes,
+                maxDatabaseBytes: ByteSize.megabytes(2),
+                ...settings
+              }).pipe(Layer.provide(SqliteClient.layer({ filename: ":memory:" })))
+            )
+          )
+        )
+
+      assert.strictEqual((yield* opened({ filename: "relative.sqlite" })).field, "filename")
+      assert.strictEqual((yield* opened({ maxImageBytes: ByteSize.bytes(0) })).field, "maxImageBytes")
+      assert.strictEqual((yield* opened({ maxDatabaseBytes: ByteSize.bytes(0) })).field, "maxDatabaseBytes")
+      assert.strictEqual((yield* opened({ busyTimeoutMs: -1 })).field, "busyTimeoutMs")
+    }).pipe(Effect.provide(files)))
 
   it.effect("rejects a full-database write without publishing it", () =>
     Effect.scoped(Effect.gen(function*() {
