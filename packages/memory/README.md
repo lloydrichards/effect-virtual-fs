@@ -175,7 +175,9 @@ const program = Effect.gen(function*() {
     TreeTransfer.toCaller(workspace, "/workspace")
   )
 
-  return yield* workspace.readDirectory("/workspace")
+  const listing = yield* workspace.readDirectory("/workspace")
+
+  return listing.value.map((entry) => new TextDecoder().decode(entry.name))
 })
 
 console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))))
