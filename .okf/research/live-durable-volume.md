@@ -18,7 +18,7 @@ sources:
     resource: ../../packages/core/src/Snapshot.ts
     title: Public snapshot exclusions
   - id: watch
-    resource: ../../packages/core/src/internal/virtualFileSystem/watchHub.ts
+    resource: ../../packages/core/src/internal/watchHub.ts
     title: Bounded per-subscriber watch queues
   - id: checkpoint
     resource: ../../packages/persistence/src/CheckpointStore.ts
