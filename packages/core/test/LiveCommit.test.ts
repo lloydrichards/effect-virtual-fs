@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Fiber } from "effect"
+import * as TestClock from "effect/testing/TestClock"
 import { LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
 
 const bytes = (...values: Array<number>) => new Uint8Array(values)
@@ -230,7 +231,9 @@ describe("live commit", () => {
       yield* setOutcome("rejected")
       assert.strictEqual((yield* Effect.flip(caller.unlink("/f"))).code, "StorageRejected")
       assert.strictEqual((yield* caller.stat(ref)).nlink, 1)
-      // A path read commits its access-time update, so it also reports the rejection.
+      // A second on, the file was last accessed no later than it changed, so the read refreshes its access time,
+      // commits that, and reports the rejection.
+      yield* TestClock.adjust("1 second")
       assert.strictEqual((yield* Effect.flip(caller.readFile("/f"))).code, "StorageRejected")
 
       yield* setOutcome("committed")
@@ -238,6 +241,77 @@ describe("live commit", () => {
       yield* caller.unlink("/f")
       assert.strictEqual((yield* Effect.flip(caller.stat(ref))).code, "StaleReference")
     }))
+
+  it.effect("offers a commit only for a read whose access time is due", () =>
+    Effect.gen(function*() {
+      const { caller, commits } = yield* answering(Effect.succeed("committed" as const))
+      yield* caller.writeFile("/f", bytes(1), { access: "write", create: "exclusive" })
+      const file = yield* caller.open("/f", { access: "read" })
+      yield* TestClock.adjust("1 second")
+      const before = commits()
+
+      // Each first read after the change refreshes an access time; the root was changed by the create.
+      yield* caller.readFile("/f")
+      yield* caller.readDirectory("/")
+      assert.strictEqual(commits() - before, 2)
+
+      yield* caller.readFile("/f")
+      yield* caller.readDirectory("/")
+      yield* file.pread(1, 0n)
+      yield* file.read(1)
+      assert.strictEqual(commits() - before, 2)
+    }).pipe(Effect.scoped))
+
+  it.effect("does not commit a read at the instant its access time already holds", () =>
+    Effect.gen(function*() {
+      const { caller, commits } = yield* answering(Effect.succeed("committed" as const))
+      yield* caller.writeFile("/f", bytes(1), { access: "write", create: "exclusive" })
+      const before = commits()
+
+      // The clock has not moved since the write, so every access time already equals now.
+      yield* caller.readFile("/f")
+      yield* caller.readFile("/f")
+      yield* caller.readDirectory("/")
+      assert.strictEqual(commits() - before, 0)
+    }))
+
+  it.effect("commits one refresh for two due reads that waited behind the same change", () =>
+    Effect.gen(function*() {
+      const { caller, pauseNext, record } = yield* pausable
+      yield* caller.writeFile("/f", bytes(1), { access: "write", create: "exclusive" })
+      yield* TestClock.adjust("1 second")
+
+      const { entered, release } = yield* pauseNext
+      const change = yield* caller.mkdir("/x").pipe(Effect.forkChild({ startImmediately: true }))
+      yield* entered
+
+      // Both reads are queued behind the paused change with a due access time; once it is released, the second
+      // refresh sees the first one's and stores nothing.
+      const first = yield* caller.readFile("/f").pipe(Effect.forkChild({ startImmediately: true }))
+      const second = yield* caller.readFile("/f").pipe(Effect.forkChild({ startImmediately: true }))
+      yield* settle
+      assert.isUndefined(first.pollUnsafe())
+      assert.isUndefined(second.pollUnsafe())
+      const before = record.commits()
+
+      yield* release
+      yield* Fiber.join(change)
+      assert.deepStrictEqual(yield* Fiber.join(first), bytes(1))
+      assert.deepStrictEqual(yield* Fiber.join(second), bytes(1))
+      assert.strictEqual(record.commits() - before, 1)
+      assert.strictEqual((yield* caller.stat("/f")).atimeNs, 1_000_000_000n)
+    }))
+
+  it.effect("does not commit a change that changes nothing", () =>
+    Effect.gen(function*() {
+      const { caller, commits } = yield* answering(Effect.succeed("committed" as const))
+      const file = yield* caller.open("/f", { access: "readWrite", create: "exclusive" })
+      const before = commits()
+
+      assert.strictEqual(yield* file.write(bytes()), 0)
+      yield* caller.setattr("/f", {})
+      assert.strictEqual(commits() - before, 0)
+    }).pipe(Effect.scoped))
 
   it.effect("does not commit when a failed open scope closes", () =>
     Effect.gen(function*() {
