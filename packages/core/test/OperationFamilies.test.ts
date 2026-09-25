@@ -521,13 +521,136 @@ const renameRows: ReadonlyArray<Row> = [
   }
 ]
 
+const openRows: ReadonlyArray<Row> = [
+  {
+    scenario: "creates a missing file",
+    path: ({ admin }) => Effect.scoped(admin.open("/dir/new", { access: "write", create: "ifMissing" })),
+    reference: ({ admin, dir }) =>
+      Effect.scoped(admin.openChildReference(dir, name("new"), { access: "write", create: "ifMissing" })),
+    check: kindAt("/dir/new", "file"),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "opens an existing file",
+    path: ({ admin }) => Effect.scoped(admin.open("/file", { access: "read" })),
+    reference: ({ admin, root }) => Effect.scoped(admin.openChildReference(root, name("file"), { access: "read" })),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects a missing file without create",
+    path: ({ admin }) => Effect.scoped(admin.open("/dir/missing", { access: "read" })),
+    reference: ({ admin, dir }) => Effect.scoped(admin.openChildReference(dir, name("missing"), { access: "read" })),
+    expected: { path: "NotFound at /dir/missing", reference: "NotFound" }
+  },
+  {
+    scenario: "rejects an existing file for an exclusive create",
+    path: ({ admin }) => Effect.scoped(admin.open("/file", { access: "write", create: "exclusive" })),
+    reference: ({ admin, root }) =>
+      Effect.scoped(admin.openChildReference(root, name("file"), { access: "write", create: "exclusive" })),
+    expected: { path: "AlreadyExists at /file", reference: "AlreadyExists" }
+  },
+  {
+    scenario: "rejects a dangling symbolic link for an exclusive create",
+    path: Effect.fnUntraced(function*({ admin }) {
+      yield* admin.symlink("/missing", "/dangling")
+      yield* Effect.scoped(admin.open("/dangling", { access: "write", create: "exclusive" }))
+    }),
+    reference: Effect.fnUntraced(function*({ admin, root }) {
+      yield* admin.symlink("/missing", "/dangling")
+      yield* Effect.scoped(
+        admin.openChildReference(root, name("dangling"), { access: "write", create: "exclusive" })
+      )
+    }),
+    expected: { path: "AlreadyExists at /dangling", reference: "AlreadyExists" }
+  },
+  {
+    scenario: "creates the target of a dangling symbolic link",
+    path: Effect.fnUntraced(function*({ admin }) {
+      yield* admin.symlink("/dir/target", "/link")
+      yield* Effect.scoped(admin.open("/link", { access: "write", create: "ifMissing" }))
+    }),
+    reference: Effect.fnUntraced(function*({ admin, root }) {
+      yield* admin.symlink("/dir/target", "/link")
+      yield* Effect.scoped(admin.openChildReference(root, name("link"), { access: "write", create: "ifMissing" }))
+    }),
+    check: kindAt("/dir/target", "file"),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects a symbolic link loop",
+    path: Effect.fnUntraced(function*({ admin }) {
+      yield* admin.symlink("/loop", "/loop")
+      yield* Effect.scoped(admin.open("/loop", { access: "read" }))
+    }),
+    reference: Effect.fnUntraced(function*({ admin, root }) {
+      yield* admin.symlink("/loop", "/loop")
+      yield* Effect.scoped(admin.openChildReference(root, name("loop"), { access: "read" }))
+    }),
+    expected: { path: "SymlinkLoop at /loop", reference: "SymlinkLoop at loop" }
+  },
+  {
+    scenario: "rejects a directory",
+    path: ({ admin }) => Effect.scoped(admin.open("/dir", { access: "read" })),
+    reference: ({ admin, root }) => Effect.scoped(admin.openChildReference(root, name("dir"), { access: "read" })),
+    expected: { path: "IsDirectory at /dir", reference: "IsDirectory" }
+  },
+  {
+    scenario: "treats a dot name as a directory on paths but invalid on references",
+    path: ({ admin }) => Effect.scoped(admin.open("/dir/.", { access: "read" })),
+    reference: ({ admin, dir }) => Effect.scoped(admin.openChildReference(dir, name("."), { access: "read" })),
+    expected: { path: "IsDirectory at /dir/.", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "will not create through a trailing slash",
+    path: ({ admin }) => Effect.scoped(admin.open("/dir/new/", { access: "write", create: "ifMissing" })),
+    reference: ({ admin, dir }) =>
+      Effect.scoped(admin.openChildReference(dir, name("new/"), { access: "write", create: "ifMissing" })),
+    expected: { path: "NotFound at /dir/new/", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects a trailing slash on an existing file",
+    path: ({ admin }) => Effect.scoped(admin.open("/file/", { access: "read" })),
+    reference: ({ admin, root }) => Effect.scoped(admin.openChildReference(root, name("file/"), { access: "read" })),
+    expected: { path: "NotDirectory at /file/", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects truncating a read-only open",
+    path: ({ admin }) => Effect.scoped(admin.open("/file", { access: "read", truncate: true })),
+    reference: ({ admin, root }) =>
+      Effect.scoped(admin.openChildReference(root, name("file"), { access: "read", truncate: true })),
+    expected: { path: "InvalidArgument at /file", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects a mode without create",
+    path: ({ admin }) => Effect.scoped(admin.open("/file", { access: "read", mode: 0o600 })),
+    reference: ({ admin, root }) =>
+      Effect.scoped(admin.openChildReference(root, name("file"), { access: "read", mode: 0o600 })),
+    expected: { path: "InvalidArgument at /file", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "denies creating in an unwritable directory",
+    path: ({ guest }) => Effect.scoped(guest.open("/new", { access: "write", create: "ifMissing" })),
+    reference: ({ guest, root }) =>
+      Effect.scoped(guest.openChildReference(root, name("new"), { access: "write", create: "ifMissing" })),
+    expected: { path: "AccessDenied at /new", reference: "AccessDenied" }
+  },
+  {
+    scenario: "reports a removed parent as missing on paths and stale on references",
+    path: ({ admin }) => Effect.scoped(admin.open("/gone/new", { access: "write", create: "ifMissing" })),
+    reference: ({ admin, gone }) =>
+      Effect.scoped(admin.openChildReference(gone, name("new"), { access: "write", create: "ifMissing" })),
+    expected: { path: "NotFound at /gone/new", reference: "StaleReference" }
+  }
+]
+
 const TABLE: ReadonlyArray<readonly [verb: string, rows: ReadonlyArray<Row>]> = [
   ["mkdir", mkdirRows],
   ["link", linkRows],
   ["symlink", symlinkRows],
   ["unlink", unlinkRows],
   ["rmdir", rmdirRows],
-  ["rename", renameRows]
+  ["rename", renameRows],
+  ["open", openRows]
 ]
 
 describe("operation families", () => {
