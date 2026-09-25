@@ -214,6 +214,29 @@ describe("reference mutations", () => {
       yield* fs.rmdirReference(root, name("right"))
     }))
 
+  it.effect("reports one directory change when a rename stays in its directory", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      const root = yield* fs.rootReference
+      const file = yield* fs.openChildReference(root, name("file"), { access: "write", create: "exclusive" })
+      yield* file.handle.close
+      yield* fs.linkReference(file.reference, root, name("alias"))
+
+      const noOp = yield* fs.renameReference(root, name("file"), root, name("alias"))
+      assert.strictEqual(noOp._tag, "SameDirectory")
+
+      if (Vfs.RenameReferenceResult.guards.SameDirectory(noOp)) {
+        assert.strictEqual(noOp.directory.before, noOp.directory.after)
+      }
+
+      const moved = yield* fs.renameReference(root, name("file"), root, name("moved"))
+      assert.strictEqual(moved._tag, "SameDirectory")
+
+      if (Vfs.RenameReferenceResult.guards.SameDirectory(moved)) {
+        assert.isTrue(moved.directory.after > moved.directory.before)
+      }
+    }))
+
   it.effect("applies metadata and truncation authority to the invoking caller", () =>
     Effect.gen(function*() {
       yield* TestClock.setTime(0)

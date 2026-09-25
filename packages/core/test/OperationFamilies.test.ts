@@ -416,12 +416,118 @@ const rmdirRows: ReadonlyArray<Row> = [
   }
 ]
 
+const renameRows: ReadonlyArray<Row> = [
+  {
+    scenario: "moves an entry to a new name",
+    path: ({ admin }) => admin.rename("/file", "/dir/moved"),
+    reference: ({ admin, root, dir }) => admin.renameReference(root, name("file"), dir, name("moved")),
+    check: kindAt("/dir/moved", "file"),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects a missing source",
+    path: ({ admin }) => admin.rename("/missing", "/moved"),
+    reference: ({ admin, root }) => admin.renameReference(root, name("missing"), root, name("moved")),
+    expected: { path: "NotFound at /missing", reference: "NotFound" }
+  },
+  {
+    scenario: "accepts a rename onto the same entry",
+    path: ({ admin }) => admin.rename("/file", "/file"),
+    reference: ({ admin, root }) => admin.renameReference(root, name("file"), root, name("file")),
+    check: kindAt("/file", "file"),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "skips the sticky-directory check for a rename onto the same entry",
+    path: ({ guest }) => guest.rename("/sticky/file", "/sticky/file"),
+    reference: ({ guest, sticky }) => guest.renameReference(sticky, name("file"), sticky, name("file")),
+    check: kindAt("/sticky/file", "file"),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "denies moving another owner's entry out of a sticky directory",
+    path: ({ guest }) => guest.rename("/sticky/file", "/sticky/moved"),
+    reference: ({ guest, sticky }) => guest.renameReference(sticky, name("file"), sticky, name("moved")),
+    expected: { path: "AccessDenied at /sticky/file", reference: "AccessDenied" }
+  },
+  {
+    scenario: "rejects a dot source name",
+    path: ({ admin }) => admin.rename("/dir/.", "/moved"),
+    reference: ({ admin, dir, root }) => admin.renameReference(dir, name("."), root, name("moved")),
+    expected: { path: "InvalidArgument at /dir/.", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects a dot destination name",
+    path: ({ admin }) => admin.rename("/file", "/dir/.."),
+    reference: ({ admin, root, dir }) => admin.renameReference(root, name("file"), dir, name("..")),
+    expected: { path: "InvalidArgument at /file", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects replacing a directory with a file",
+    path: ({ admin }) => admin.rename("/file", "/dir/existing"),
+    reference: ({ admin, root, dir }) => admin.renameReference(root, name("file"), dir, name("existing")),
+    expected: { path: "IsDirectory at /dir/existing", reference: "IsDirectory" }
+  },
+  {
+    scenario: "rejects replacing a file with a directory",
+    path: ({ admin }) => admin.rename("/dir/existing", "/file"),
+    reference: ({ admin, dir, root }) => admin.renameReference(dir, name("existing"), root, name("file")),
+    expected: { path: "NotDirectory at /file", reference: "NotDirectory" }
+  },
+  {
+    scenario: "rejects replacing a directory that has entries",
+    path: ({ admin }) => admin.rename("/sticky/subdir", "/dir"),
+    reference: ({ admin, sticky, root }) => admin.renameReference(sticky, name("subdir"), root, name("dir")),
+    expected: { path: "NotEmpty at /dir", reference: "NotEmpty" }
+  },
+  {
+    scenario: "rejects moving a directory into itself",
+    path: ({ admin }) => admin.rename("/dir", "/dir/existing/inner"),
+    reference: Effect.fnUntraced(function*({ admin, root, dir }) {
+      const existing = yield* admin.lookupReference(dir, name("existing"))
+      yield* admin.renameReference(root, name("dir"), existing, name("inner"))
+    }),
+    expected: { path: "InvalidArgument at /dir/existing/inner", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "requires a path destination with a trailing slash to exist",
+    path: ({ admin }) => admin.rename("/dir/existing", "/moved/"),
+    reference: ({ admin, dir, root }) => admin.renameReference(dir, name("existing"), root, name("moved/")),
+    expected: { path: "NotFound at /moved/", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects a trailing slash on a path source that is a file",
+    path: ({ admin }) => admin.rename("/file/", "/moved"),
+    reference: ({ admin, root }) => admin.renameReference(root, name("file/"), root, name("moved")),
+    expected: { path: "NotDirectory at /file/", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "reports a removed source parent as missing on paths and stale on references",
+    path: ({ admin }) => admin.rename("/gone/entry", "/moved"),
+    reference: ({ admin, gone, root }) => admin.renameReference(gone, name("entry"), root, name("moved")),
+    expected: { path: "NotFound at /gone/entry", reference: "StaleReference" }
+  },
+  {
+    scenario: "checks reference names before either directory",
+    path: ({ admin }) => admin.rename("/gone/entry", "/dir/."),
+    reference: ({ admin, gone, dir }) => admin.renameReference(gone, name("entry"), dir, name(".")),
+    expected: { path: "NotFound at /gone/entry", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "prepares both paths before locating either parent",
+    path: ({ admin }) => admin.rename("/gone/entry", "\uD800"),
+    reference: ({ admin, gone, root }) => admin.renameReference(gone, name("entry"), root, name("moved")),
+    expected: { path: "InvalidPathEncoding at \uD800", reference: "StaleReference" }
+  }
+]
+
 const TABLE: ReadonlyArray<readonly [verb: string, rows: ReadonlyArray<Row>]> = [
   ["mkdir", mkdirRows],
   ["link", linkRows],
   ["symlink", symlinkRows],
   ["unlink", unlinkRows],
-  ["rmdir", rmdirRows]
+  ["rmdir", rmdirRows],
+  ["rename", renameRows]
 ]
 
 describe("operation families", () => {
