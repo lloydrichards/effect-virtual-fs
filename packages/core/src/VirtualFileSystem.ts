@@ -751,6 +751,7 @@ export type OpenOptions = typeof OpenOptions.Type
 /**
  * Settings for creating a directory through a parent object reference.
  * `exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
+ * `recursive` creates every missing directory on a path in one change, as `mkdir -p` does.
  *
  * @category schemas
  * @since 0.4.0
@@ -760,6 +761,7 @@ export const MkdirOptions: typeof CallerModule.MkdirOptions = CallerModule.Mkdir
 /**
  * Settings for creating a directory through a parent object reference.
  * `exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
+ * `recursive` creates every missing directory on a path in one change, as `mkdir -p` does.
  *
  * @category models
  * @since 0.4.0
@@ -1086,7 +1088,15 @@ export interface Caller {
     >
     (entry: Entry, options: OpenEntryOptions): Effect.Effect<OpenEntryResult, FsFailure, Scope.Scope>
   }
-  /** Creates a directory. */
+  /**
+   * Creates a directory. With `recursive`, every missing directory on a path is created in one change, so a
+   * failure creates none and a watcher sees them all at once; symbolic links on the way are followed, dot names
+   * are walked, and a final name that is already a directory (or a link to one) succeeds without a change. The
+   * result names the directory the path ends on, with its parent's revision before and after the call, so a path
+   * that leaves a directory it created, such as `new/..`, still reports the change. A name on the way that is not
+   * a directory fails with `NotDirectory`, a final one with `AlreadyExists`, and only names the caller wrote are
+   * created, so a dangling link fails with `NotFound`.
+   */
   readonly mkdir: (entry: EntryInput, options?: MkdirOptions) => Effect.Effect<ReferenceEntryResult, FsFailure>
   /** Creates a symbolic link to `target`, stored as given. */
   readonly symlink: (

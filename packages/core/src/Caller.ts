@@ -170,7 +170,10 @@ export type RenameReferenceResult = typeof RenameReferenceResult.Type
 
 /**
  * Schema for the options of `mkdir`. `exactMode` skips the caller's umask for
- * an explicit creation mode; permission policy still applies.
+ * an explicit creation mode; permission policy still applies. `recursive`
+ * creates every missing directory on the path in one change, as `mkdir -p`
+ * does, and succeeds when the final directory already exists; the mode
+ * applies to every directory it creates and the times to the final one.
  *
  * @category schemas
  * @since 0.6.0
@@ -178,7 +181,8 @@ export type RenameReferenceResult = typeof RenameReferenceResult.Type
 export const MkdirOptions = Schema.Struct({
   mode: Schema.optionalKey(Mode),
   exactMode: Schema.optionalKey(Schema.Boolean),
-  times: Schema.optionalKey(Times)
+  times: Schema.optionalKey(Times),
+  recursive: Schema.optionalKey(Schema.Boolean)
 })
 
 /**

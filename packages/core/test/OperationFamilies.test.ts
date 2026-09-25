@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Result } from "effect"
 import { Testing, type VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../src/index.js"
+import { GUEST } from "./support/caller.js"
 import { pathText } from "./support/text.js"
 
 // Path-addressed and reference-addressed verbs share one mutation body, but each family keeps its own
@@ -10,8 +11,6 @@ import { pathText } from "./support/text.js"
 // string input is named by its replacement encoding.
 
 const name = (value: string) => new TextEncoder().encode(value)
-
-const GUEST = { uid: 9, gid: 9, groups: [], privileged: false } as const
 
 type FsError = VfsErrorModule.VfsError
 
@@ -52,8 +51,8 @@ interface Row {
   // A row may build its own volume when the fixture's cannot express the situation.
   readonly path: (fixture: Fixture) => Effect.Effect<unknown, FsError>
   readonly reference: (fixture: Fixture) => Effect.Effect<unknown, FsError>
-  // Confirms a successful operation took effect, on the fixture it ran against.
-  readonly check?: (fixture: Fixture) => Effect.Effect<unknown, FsError>
+  // Confirms a successful operation took effect, on the fixture it ran against, for the family that ran.
+  readonly check?: (fixture: Fixture, family: "path" | "reference") => Effect.Effect<unknown, FsError>
   readonly expected: { readonly path: string; readonly reference: string }
 }
 
@@ -91,7 +90,7 @@ const outcome = Effect.fnUntraced(function*(row: Row, family: "path" | "referenc
   if (Result.isFailure(acted)) return yield* report(acted.failure)
 
   if (row.check === undefined) return "ok"
-  const checked = yield* Effect.result(row.check(fixture))
+  const checked = yield* Effect.result(row.check(fixture, family))
 
   return Result.isFailure(checked) ? `ok, but the check failed with ${yield* report(checked.failure)}` : "ok"
 })
@@ -167,6 +166,55 @@ const mkdirRows: ReadonlyArray<Row> = [
     path: ({ admin }) => admin.mkdir("/dir/existing", { mode: -1 }),
     reference: ({ admin, dir }) => admin.mkdir(Vfs.Entry(dir, name("existing")), { mode: -1 }),
     expected: { path: "InvalidArgument at /dir/existing", reference: "InvalidArgument" }
+  }
+]
+
+// A recursive mkdir walks a path as path resolution does, so it creates what an entry cannot name: a missing
+// parent, or a dot name it treats as the directory it names.
+const mkdirRecursiveRows: ReadonlyArray<Row> = [
+  {
+    scenario: "creates missing parents on paths, where an entry names one child",
+    path: ({ admin }) => admin.mkdir("/dir/a/b", { recursive: true }),
+    reference: ({ admin, dir }) => admin.mkdir(Vfs.Entry(dir, name("a")), { recursive: true }),
+    check: (fixture, family) => kindAt(family === "path" ? "/dir/a/b" : "/dir/a", "directory")(fixture),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "accepts an existing directory, even in an unwritable parent",
+    path: ({ guest }) => guest.mkdir("/dir", { recursive: true }),
+    reference: ({ guest, root }) => guest.mkdir(Vfs.Entry(root, name("dir")), { recursive: true }),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "walks a dot name on paths but rejects it on references",
+    path: ({ admin }) => admin.mkdir("/dir/.", { recursive: true }),
+    reference: ({ admin, dir }) => admin.mkdir(Vfs.Entry(dir, name(".")), { recursive: true }),
+    expected: { path: "ok", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects an existing file",
+    path: ({ admin }) => admin.mkdir("/file", { recursive: true }),
+    reference: ({ admin, root }) => admin.mkdir(Vfs.Entry(root, name("file")), { recursive: true }),
+    expected: { path: "AlreadyExists at /file", reference: "AlreadyExists" }
+  },
+  {
+    scenario: "rejects a parent that is a file",
+    path: ({ admin }) => admin.mkdir("/file/x", { recursive: true }),
+    reference: ({ admin, file }) => admin.mkdir(Vfs.Entry(file, name("x")), { recursive: true }),
+    expected: { path: "NotDirectory at /file/x", reference: "NotDirectory" }
+  },
+  {
+    scenario: "recreates a removed parent on paths, where its reference is stale",
+    path: ({ admin }) => admin.mkdir("/gone/x", { recursive: true }),
+    reference: ({ admin, gone }) => admin.mkdir(Vfs.Entry(gone, name("x")), { recursive: true }),
+    check: kindAt("/gone/x", "directory"),
+    expected: { path: "ok", reference: "StaleReference" }
+  },
+  {
+    scenario: "denies a missing directory in an unwritable parent",
+    path: ({ guest }) => guest.mkdir("/new", { recursive: true }),
+    reference: ({ guest, root }) => guest.mkdir(Vfs.Entry(root, name("new")), { recursive: true }),
+    expected: { path: "AccessDenied at /new", reference: "AccessDenied" }
   }
 ]
 
@@ -1016,6 +1064,7 @@ const setattrRows: ReadonlyArray<Row> = [
 
 const TABLE: ReadonlyArray<readonly [verb: string, rows: ReadonlyArray<Row>]> = [
   ["mkdir", mkdirRows],
+  ["mkdir recursive", mkdirRecursiveRows],
   ["link", linkRows],
   ["symlink", symlinkRows],
   ["unlink", unlinkRows],
