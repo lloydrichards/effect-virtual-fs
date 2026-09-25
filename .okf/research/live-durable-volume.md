@@ -83,7 +83,7 @@ sources:
   - id: issue-50
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/50
     title: Restart recovery
-generated: { by: codex/okf, at: 2026-09-20T11:50:43Z }
+generated: { by: codex/okf, at: "2026-09-26T10:40:00+02:00" }
 ---
 
 # Live durable volume proposal
@@ -168,7 +168,7 @@ Recovery proceeds before callers become available:
 
 Unlinked open files remain charged, readable, and durably writable during a live lifetime. A final close removes their durable record. Close must still invalidate and release the runtime handle if cleanup storage fails; retain the durable orphan for startup reclamation and stop the provider. A finalizer must not retain a live resource merely to retry disk cleanup forever.
 
-Access-time updates in `read`, `readFile`, and `readDirectory` also pass through staging and commit before returning data. Preserve their current revision and watch behavior. This is expensive but avoids introducing an unreviewed lazy-atime policy. No-op operations and pure observations need no database transaction.
+Access-time updates in `read`, `readFile`, and `readDirectory` also pass through staging and commit before returning data. Preserve their current revision and watch behavior. This is expensive but avoids introducing an unreviewed lazy-atime policy. The [relatime reads decision](../decisions/core/relatime-reads.md "resolved by") later limited these writes to due access times and dropped commits for changes that leave the value unchanged. No-op operations and pure observations need no database transaction.
 
 ## Failure outcomes
 
@@ -251,7 +251,7 @@ The smallest convincing test set exercises observable boundaries, not only injec
 The test-only SQLite VFS now has `lost-write` and `reorder-write` modes. The first reports `SQLITE_OK` while omitting one selected main-file write. The second defers that write until after the next write to the same file. Both leave `xSync` to the underlying VFS and log successful sync calls. This is a deterministic model of a device or filesystem that does not honor the order or persistence SQLite expects; it is not a physical power-cut simulation. The bounded Linux matrix uses the existing live-volume worker, acknowledgement output, reopen check, and `PRAGMA integrity_check`.[^sqlite-live-store]
 
 One exploratory matrix on Debian 12, Linux 6.1 arm64, ext4 on a QEMU VirtIO disk, Bun 1.2.21, `@effect/sql-sqlite-bun` 4.0.0-rc.114, and SQLite 3.50.4 covered twelve cases. The six acknowledged cases injected the first, second, or third matching main-file write. All six writers reported `committed` after successful sync calls. The three lost-write cases failed to reopen and failed `PRAGMA integrity_check`; the first had an invalid page reference. The three reordered-write cases reopened the complete new image and passed integrity checking. In the six unacknowledged cases, both fault modes recovered the old image after UPDATE and before COMMIT, and the complete new image after COMMIT. All six passed integrity checking. The commit connection reported DELETE journaling, `synchronous=3` (`EXTRA`), `fullfsync=1`, and exclusive locking. These results show that the provider cannot promise acknowledged durability when the storage stack lies about writes and syncs. They do not establish a supported power-loss configuration. The gate returns failure for an invariant breach. Its fault placement and results must be rerun for any proposed driver or storage configuration.
-The open performance question is the maximum useful volume size with full-image commits and durable atime reads. Measure it before choosing defaults. If the bound is too small for the intended workload, change the persistence representation to transactional rows while retaining the same staging, failure, and publication contract.
+The open performance question is the maximum useful volume size with full-image commits; relatime took durable atime reads out of it. Measure it before choosing defaults. If the bound is too small for the intended workload, change the persistence representation to transactional rows while retaining the same staging, failure, and publication contract.
 
 [^engine]: `coordinated`, `replaceContent`, `fileHandle`, `releaseFile`, `captureSnapshot`, and the returned `volume` in the engine source.
 

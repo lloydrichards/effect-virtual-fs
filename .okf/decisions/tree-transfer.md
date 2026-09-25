@@ -20,7 +20,7 @@ sources:
   - id: host-tests
     resource: ../../packages/memory/test/TreeTransferFileSystem.test.ts
     title: Host filesystem round-trip tests
-generated: { by: claude/okf, at: "2026-09-24T09:10:00Z" }
+generated: { by: claude/okf, at: "2026-09-26T10:40:00+02:00" }
 ---
 
 # Tree transfer
@@ -31,7 +31,7 @@ A tree transfer is an Effect `Stream` of core fixture entries, rooted at the tra
 
 ## Sources
 
-A `Caller` cannot take a snapshot, and reading file contents updates access time. `fromCaller` therefore reads live, while `fromSnapshot` gives a point-in-time read that never changes the source. A snapshot-only source was rejected because it would encode the whole volume for every subtree copy.
+A `Caller` cannot take a snapshot, and reading file contents can update access time (under relatime since the [relatime reads decision](core/relatime-reads.md "amended by")). `fromCaller` therefore reads live, while `fromSnapshot` gives a point-in-time read that never changes the source. A snapshot-only source was rejected because it would encode the whole volume for every subtree copy.
 
 Sources always enforce limits. A supplied policy must be complete, and omission uses a finite default preset, matching the [portable snapshot delta](overlay/portable-snapshot-deltas.md "follows") precedent. Requiring limits on every call was rejected as noisier without adding safety, since the default is always finite. The five fields use `VolumeOptions` names. Separate link-table and symbolic-link bounds fold into `maxEntries`.
 
