@@ -9,8 +9,11 @@
  */
 import * as Schema from "effect/Schema"
 import * as SchemaTransformation from "effect/SchemaTransformation"
-import { BytePath } from "./BytePath.js"
+import type { BytePath } from "./BytePath.js"
 import * as Internal from "./internal/bytePath.js"
+
+// Declared from the byte-path internals rather than the BytePath module, which imports this one for its failures.
+const BytePathSchema = Schema.declare<BytePath>(Internal.isBytePath)
 
 /**
  * Schema for the codes an operation on a volume, caller, or handle reports.
@@ -136,7 +139,7 @@ export const ErrorPath = Schema.Uint8ArrayFromBase64.check(
   Schema.makeFilter((bytes) => Internal.isPathBytes(bytes) ? undefined : "must be non-empty and hold no NUL")
 ).pipe(
   Schema.decodeTo(
-    BytePath,
+    BytePathSchema,
     SchemaTransformation.transform<BytePath, Uint8Array>({
       decode: (bytes) => Internal.make(bytes.slice()),
       encode: (path) => Internal.getBytes(path) ?? new Uint8Array()
