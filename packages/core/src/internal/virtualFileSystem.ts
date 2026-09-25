@@ -1168,9 +1168,14 @@ export const makeVolume = Effect.fnUntraced(
       ino
     })
 
-    const gate = Semaphore.makeUnsafe(1)
     const maxPendingOperations = settings.maxPendingOperations ?? 64
-    const admission = yield* Semaphore.make(maxPendingOperations + 1)
+    // Observations each take one permit and run beside each other; a change, a cleanup or a watch registration
+    // takes them all, so it sees no reader and no reader sees it half done.
+    const permits = maxPendingOperations + 1
+    const gate = Semaphore.makeUnsafe(permits)
+    const observing = gate.withPermits(1)
+    const changing = gate.withPermits(permits)
+    const admission = yield* Semaphore.make(permits)
 
     const admit = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FsError, R> =>
       admission.withPermitsIfAvailable(1)(effect).pipe(
@@ -1352,7 +1357,7 @@ export const makeVolume = Effect.fnUntraced(
     const checkAvailable = (operation: string) =>
       Effect.suspend(() => available ? Effect.void : Effect.fail(new FsError({ code: "VolumeUnavailable", operation })))
 
-    const watchCoordinate: WatchHub.Coordinator = (effect) => gate.withPermit(effect)
+    const watchCoordinate: WatchHub.Coordinator = (effect) => changing(effect)
 
     const watchHub = yield* WatchHub.make<Change, FsError>(
       watchCoordinate,
@@ -1428,12 +1433,12 @@ export const makeVolume = Effect.fnUntraced(
     const annotateFailure = (error: FsError) =>
       Effect.annotateCurrentSpan({ operation: error.operation, code: error.code })
 
-    // Permit waits stay interruptible. A change and its publication run under one permit; with a store, the
+    // Permit waits stay interruptible. A change and its publication run under every permit; with a store, the
     // change itself stays interruptible and only the commit and installation are not.
     const coordinated = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>, onStorageFailure?: () => void) =>
       admit(
         op,
-        gate.withPermit(
+        changing(
           commitProvider === undefined
             ? Effect.uninterruptible(
               Effect.map(transition(Effect.andThen(checkAvailable(op.operation), effect)), ([value, finished]) => {
@@ -1451,17 +1456,16 @@ export const makeVolume = Effect.fnUntraced(
         )
       ).pipe(Effect.tapError((error) => error instanceof FsError ? annotateFailure(error) : Effect.void))
 
-    // Pure observations share the permit without making a draft or calling the store.
+    // Pure observations take one permit each, so they run beside each other and never beside a change.
     const coordinatedRead = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>) =>
-      admit(op, gate.withPermit(Effect.andThen(checkAvailable(op.operation), effect))).pipe(
+      admit(op, observing(Effect.andThen(checkAvailable(op.operation), effect))).pipe(
         Effect.tapError((error) => error instanceof FsError ? annotateFailure(error) : Effect.void)
       )
 
-    const coordinatedCleanup = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      gate.withPermit(Effect.uninterruptible(effect))
+    const coordinatedCleanup = <A, E, R>(effect: Effect.Effect<A, E, R>) => changing(Effect.uninterruptible(effect))
 
     // Stops the volume once its store is going away; a later operation fails as unavailable.
-    const shutdown = commitProvider === undefined ? undefined : gate.withPermit(Effect.sync(() => {
+    const shutdown = commitProvider === undefined ? undefined : changing(Effect.sync(() => {
       available = false
     }))
 
@@ -2352,7 +2356,9 @@ export const makeVolume = Effect.fnUntraced(
 
               return acquired
             }),
-            () => releaseDirectory(acquired),
+            // Nothing to undo here: the finalizer that follows an interrupted acquisition releases the hold under
+            // every permit, where a detached directory may leave the table.
+            () => {},
             finalizeDirectory(acquired)
           )
         }

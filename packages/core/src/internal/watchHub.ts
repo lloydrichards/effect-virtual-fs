@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect"
+import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
-import type * as Scope from "effect/Scope"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 
 /** @internal */
@@ -49,23 +50,49 @@ export const make = Effect.fnUntraced(function*<A, E = never>(
     if (subscribers.size > 0) { for (const event of events()) publish(event) }
   }
 
-  const subscribe = (afterSubscribe: Effect.Effect<void>) =>
-    Effect.acquireRelease(
-      coordinate(Effect.gen(function*() {
-        if (checkAvailable !== undefined) yield* checkAvailable
-        const subscriber: Subscriber<A> = { queue: yield* Queue.bounded<A>(capacity), overflowed: false }
+  // The finalizer is registered before the registration waits for the volume, so a scope that closes while the
+  // registration is under way, or right after it, still removes the subscriber it added.
+  const subscribe = Effect.fnUntraced(function*(afterSubscribe: Effect.Effect<void>) {
+    const scope = yield* Effect.scope
+    let registered: Subscriber<A> | undefined
 
-        yield* afterSubscribe
-        subscribers.add(subscriber)
+    yield* Scope.addFinalizer(
+      scope,
+      Effect.suspend(() => {
+        const subscriber = registered
 
-        return subscriber
-      })),
-      (subscriber) =>
-        coordinate(Effect.sync(() => subscribers.delete(subscriber))).pipe(
+        if (subscriber === undefined) return Effect.void
+
+        return coordinate(Effect.sync(() => subscribers.delete(subscriber))).pipe(
           Effect.andThen(Queue.shutdown(subscriber.queue))
-        ),
-      { interruptible: true }
-    ).pipe(Effect.map((subscriber) => Stream.fromEffectRepeat(Queue.take(subscriber.queue))))
+        )
+      })
+    )
+
+    const closed = () => Predicate.isTagged(scope.state, "Closed")
+
+    const subscriber = yield* coordinate(Effect.gen(function*() {
+      if (checkAvailable !== undefined) yield* checkAvailable
+      const created: Subscriber<A> = { queue: yield* Queue.bounded<A>(capacity), overflowed: false }
+
+      yield* afterSubscribe
+
+      // A scope closed before or during registration already ran its finalizer, which found nothing to remove,
+      // so the subscriber is dropped here and its stream is empty.
+      if (closed()) {
+        yield* Queue.shutdown(created.queue)
+
+        return undefined
+      }
+
+      subscribers.add(created)
+      registered = created
+
+      return created
+    }))
+
+    return subscriber === undefined ? Stream.empty : Stream.fromEffectRepeat(Queue.take(subscriber.queue))
+  })
 
   return { publishUnsafe, publishManyUnsafe, subscribe }
 })
