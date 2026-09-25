@@ -275,4 +275,137 @@ describe("volume watch", () => {
         assert.deepStrictEqual(paths, ["Create /sentinel"])
       })
   )
+
+  it.effect("publishes Remove then Create for a rename", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      yield* caller.mkdir("/a")
+      yield* caller.mkdir("/b")
+      yield* caller.writeFile("/a/f", new Uint8Array([1]), { access: "write", create: "ifMissing" })
+
+      const stream = yield* volume.watch
+
+      const watcher = yield* Stream.runCollect(Stream.take(stream, 2)).pipe(
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* caller.rename("/a/f", "/b/g")
+
+      const events = yield* Fiber.join(watcher)
+      const changes: Array<string> = []
+
+      for (const event of events) {
+        changes.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+      }
+
+      assert.deepStrictEqual(changes, ["Remove /a/f", "Create /b/g"])
+    }))
+
+  it.effect("publishes only the source and destination for a rename over an occupied name", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      yield* caller.writeFile("/x", new Uint8Array([1]), { access: "write", create: "ifMissing" })
+      yield* caller.writeFile("/y", new Uint8Array([2]), { access: "write", create: "ifMissing" })
+
+      const stream = yield* volume.watch
+
+      const watcher = yield* Stream.runCollect(Stream.take(stream, 3)).pipe(
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* caller.rename("/x", "/y")
+      yield* caller.mkdir("/sentinel")
+
+      const events = yield* Fiber.join(watcher)
+      const changes: Array<string> = []
+
+      for (const event of events) {
+        changes.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+      }
+
+      assert.deepStrictEqual(changes, ["Remove /x", "Create /y", "Create /sentinel"])
+    }))
+
+  it.effect("publishes nothing for a rename between two names of one file", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      yield* caller.writeFile("/f", new Uint8Array([1]), { access: "write", create: "ifMissing" })
+      yield* caller.link("/f", "/alias")
+
+      const stream = yield* volume.watch
+
+      const watcher = yield* Stream.runCollect(Stream.take(stream, 1)).pipe(
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* caller.rename("/f", "/alias")
+      yield* caller.mkdir("/sentinel")
+
+      const events = yield* Fiber.join(watcher)
+      const changes: Array<string> = []
+
+      for (const event of events) {
+        changes.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+      }
+
+      assert.deepStrictEqual(changes, ["Create /sentinel"])
+      assert.strictEqual((yield* caller.stat("/f")).ino, (yield* caller.stat("/alias")).ino)
+    }))
+
+  it.effect("publishes every current name of a hard-linked file after one name moved", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      yield* caller.mkdir("/dir")
+      yield* caller.writeFile("/dir/original", new Uint8Array([1]), { access: "write", create: "ifMissing" })
+      yield* caller.link("/dir/original", "/alias")
+      yield* caller.rename("/dir/original", "/dir/moved")
+
+      const stream = yield* volume.watch
+
+      const watcher = yield* Stream.runCollect(Stream.take(stream, 2)).pipe(
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* caller.chmod("/alias", 0o600)
+
+      const events = yield* Fiber.join(watcher)
+      const changes: Array<string> = []
+
+      for (const event of events) {
+        changes.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+      }
+
+      assert.deepStrictEqual(changes.sort(), ["Update /alias", "Update /dir/moved"])
+    }))
+
+  it.effect("publishes a moved directory's descendant updates at the new path", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      yield* caller.mkdir("/old")
+      yield* caller.mkdir("/old/work")
+      yield* caller.writeFile("/old/work/f", new Uint8Array([1]), { access: "write", create: "ifMissing" })
+      yield* caller.rename("/old", "/new")
+
+      const stream = yield* volume.watch
+
+      const watcher = yield* Stream.runCollect(Stream.take(stream, 1)).pipe(
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* caller.chmod("/new/work/f", 0o600)
+
+      const events = yield* Fiber.join(watcher)
+      const changes: Array<string> = []
+
+      for (const event of events) {
+        changes.push(event._tag + " " + new TextDecoder().decode(yield* Vfs.pathToBytes(event.path)))
+      }
+
+      assert.deepStrictEqual(changes, ["Update /new/work/f"])
+    }))
 })

@@ -170,4 +170,99 @@ describe("mutation revisions", () => {
       assert.isTrue(surviving.revision > beforeUnlinkFile.revision)
       assert.strictEqual(surviving.value.nlink, 1)
     }))
+
+  it.effect(
+    "advances the parent for rmdir, same-directory rename, rename over an existing entry, exclusive open, and writeFile create",
+    () =>
+      Effect.gen(function*() {
+        yield* TestClock.setTime(0)
+        const fs = yield* (yield* Vfs.make()).caller()
+        yield* fs.mkdir("/p")
+        yield* fs.mkdir("/p/d")
+        yield* fs.writeFile("/p/sibling", new Uint8Array([1]), { access: "write", create: "exclusive" })
+        const root = yield* fs.rootReference
+        const parent = yield* fs.lookupReference(root, name("p"))
+        const sibling = yield* fs.lookupReference(parent, name("sibling"))
+        const siblingRevision = (yield* fs.observeMetadata(sibling)).revision
+        const parentRevision = () => Effect.map(fs.observeDirectory(parent), (observation) => observation.revision)
+
+        const beforeRmdir = yield* parentRevision()
+        yield* fs.rmdir("/p/d")
+        const afterRmdir = yield* parentRevision()
+        assert.isTrue(afterRmdir > beforeRmdir)
+
+        yield* fs.writeFile("/p/a", new Uint8Array([2]), { access: "write", create: "exclusive" })
+        const afterWrite = yield* parentRevision()
+        assert.isTrue(afterWrite > afterRmdir)
+
+        const opened = yield* fs.open("/p/x", { access: "write", create: "exclusive" })
+        yield* opened.close
+        const afterOpen = yield* parentRevision()
+        assert.isTrue(afterOpen > afterWrite)
+
+        const moved = yield* fs.lookupReference(parent, name("a"))
+        const displaced = yield* fs.lookupReference(parent, name("x"))
+        const movedBefore = (yield* fs.observeMetadata(moved)).revision
+        yield* fs.rename("/p/a", "/p/b")
+        const afterRename = yield* parentRevision()
+        assert.isTrue(afterRename > afterOpen)
+        const movedAfterRename = (yield* fs.observeMetadata(moved)).revision
+        assert.isTrue(movedAfterRename > movedBefore)
+        assert.strictEqual(yield* fs.lookupReference(parent, name("b")), moved)
+
+        yield* fs.rename("/p/b", "/p/x")
+        assert.isTrue((yield* parentRevision()) > afterRename)
+        assert.strictEqual(yield* fs.lookupReference(parent, name("x")), moved)
+        assert.isTrue((yield* fs.observeMetadata(moved)).revision > movedAfterRename)
+        assert.strictEqual((yield* Effect.flip(fs.observeMetadata(displaced))).code, "StaleReference")
+        assert.strictEqual((yield* fs.observeMetadata(sibling)).revision, siblingRevision)
+      })
+  )
+
+  it.effect("keeps the revision of a hard link's target when its other name is unlinked", () =>
+    Effect.gen(function*() {
+      yield* TestClock.setTime(0)
+      const fs = yield* (yield* Vfs.make()).caller()
+      yield* fs.writeFile("/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      yield* fs.link("/f", "/alias")
+      const root = yield* fs.rootReference
+      const reference = yield* fs.lookupReference(root, name("f"))
+      assert.strictEqual(yield* fs.lookupReference(root, name("alias")), reference)
+      const linked = yield* fs.observeMetadata(reference)
+      assert.strictEqual(linked.value.nlink, 2)
+
+      yield* fs.unlink("/alias")
+      const unlinked = yield* fs.observeMetadata(reference)
+      assert.isTrue(unlinked.revision > linked.revision)
+      assert.strictEqual(unlinked.value.nlink, 1)
+      assert.strictEqual(yield* fs.lookupReference(root, name("f")), reference)
+
+      assert.deepStrictEqual(yield* fs.readFile("/f"), new Uint8Array([1]))
+      assert.strictEqual((yield* fs.observeMetadata(reference)).revision, unlinked.revision)
+      assert.strictEqual((yield* fs.observeMetadata(reference)).revision, unlinked.revision)
+    }))
+
+  it.effect("keeps revisions after a failed mutation", () =>
+    Effect.gen(function*() {
+      yield* TestClock.setTime(0)
+      const fs = yield* (yield* Vfs.make()).caller()
+      yield* fs.mkdir("/p")
+      yield* fs.mkdir("/p/existing")
+      yield* fs.writeFile("/p/sibling", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const root = yield* fs.rootReference
+      const parent = yield* fs.lookupReference(root, name("p"))
+      const sibling = yield* fs.lookupReference(parent, name("sibling"))
+      const parentBefore = (yield* fs.observeDirectory(parent)).revision
+      const siblingBefore = (yield* fs.observeMetadata(sibling)).revision
+      const rootBefore = (yield* fs.observeDirectory(root)).revision
+
+      assert.strictEqual((yield* Effect.flip(fs.chmod("/p/missing", 0o600))).code, "NotFound")
+      assert.strictEqual((yield* Effect.flip(fs.mkdir("/p/existing"))).code, "AlreadyExists")
+      assert.strictEqual((yield* Effect.flip(fs.rename("/p/missing", "/p/moved"))).code, "NotFound")
+
+      assert.strictEqual((yield* fs.observeDirectory(parent)).revision, parentBefore)
+      assert.strictEqual((yield* fs.observeMetadata(sibling)).revision, siblingBefore)
+      assert.strictEqual((yield* fs.observeDirectory(root)).revision, rootBefore)
+      assert.strictEqual((yield* Effect.flip(fs.lookupReference(parent, name("moved")))).code, "NotFound")
+    }))
 })

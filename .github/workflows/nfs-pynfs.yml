@@ -6,22 +6,13 @@ name: NFS pynfs gate
 # verdict is the comparison with the classified
 # apps/nfs-preview/conformance/known-failures.json, not the suite's own pass count.
 #
-# No branches filter, like the other NFS gates, so stacked pull requests get the check too.
-# The paths filter means this cannot be a required check as written; move the path test into
-# a job-level condition before requiring it.
+# Privileged mounting stays out of the normal PR validation suite: this runs on demand, and
+# on a pull request only once it carries the `nfs-gate` label.
 
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - packages/core/**
-      - packages/nfs/**
-      - packages/config-typescript/**
-      - apps/nfs-preview/**
-      - bun.lock
-      - package.json
-      - turbo.json
-      - .github/workflows/nfs-pynfs.yml
+    types: [labeled, synchronize, reopened]
 
 permissions:
   contents: read
@@ -33,6 +24,7 @@ concurrency:
 jobs:
   pynfs:
     name: pynfs NFSv4.1
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'nfs-gate')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
