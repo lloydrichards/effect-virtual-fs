@@ -143,8 +143,8 @@ for setup and recovery, [power-loss testing](POWER_LOSS_TESTING.md) for qualific
 | `AlreadyExists` | A valid save attempted to reuse a name. The original is preserved. |
 | `Storage`       | SQLite or migration failed; `cause` preserves diagnostic details.  |
 
-Core `ImageError` is preserved for invalid configuration limits, unsupported or corrupt images, and exceeded
-image budgets. Save validates the name and image before attempting insertion, so invalid input can fail before
+Core `VfsError` codes are preserved: `InvalidArgument` names invalid configuration limits, and the image codes report
+unsupported or corrupt images and exceeded image budgets. Save validates the name and image before attempting insertion, so invalid input can fail before
 duplicate-name detection. Restore applies its own destination volume limits independently.
 
 ## Database ownership and commit behavior
