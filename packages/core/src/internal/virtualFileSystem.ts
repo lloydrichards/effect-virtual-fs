@@ -5,6 +5,7 @@ import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
+import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
@@ -887,20 +888,15 @@ export const makeVolume = Effect.fnUntraced(
 
     const gate = Semaphore.makeUnsafe(1)
     const maxPendingOperations = settings.maxPendingOperations ?? 64
-    let admitted = 0
+    const admission = yield* Semaphore.make(maxPendingOperations + 1)
 
     const admit = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FsError, R> =>
-      Effect.suspend((): Effect.Effect<A, E | FsError, R> => {
-        if (admitted >= maxPendingOperations + 1) {
-          return Effect.fail(new FsError({ code: "VolumeBusy", operation }))
-        }
-
-        admitted += 1
-
-        return effect.pipe(Effect.ensuring(Effect.sync(() => {
-          admitted -= 1
-        })))
-      })
+      admission.withPermitsIfAvailable(1)(effect).pipe(
+        Effect.flatMap(Option.match({
+          onNone: () => new FsError({ code: "VolumeBusy", operation }),
+          onSome: Effect.succeed
+        }))
+      )
 
     let state: EngineState = {
       root: {
