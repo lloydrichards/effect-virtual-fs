@@ -843,10 +843,174 @@ const truncateRows: ReadonlyArray<Row> = [
     expected: { path: "InvalidArgument", reference: "InvalidArgument" }
   },
   {
+    scenario: "rejects a negative length before resolving the target",
+    path: ({ admin }) => admin.truncate("/gone", -1n),
+    reference: ({ admin, gone }) => admin.truncate(gone, -1n),
+    expected: { path: "InvalidArgument", reference: "InvalidArgument" }
+  },
+  {
     scenario: "reports a removed target as missing on paths and stale on references",
     path: ({ admin }) => admin.truncate("/gone", 0n),
     reference: ({ admin, gone }) => admin.truncate(gone, 0n),
     expected: { path: "NotFound at /gone", reference: "StaleReference" }
+  }
+]
+
+// Takes write access on /file away from the guest, so a size or a now-time change needs more than the mode.
+const readOnlyFile = ({ admin }: Fixture) => admin.chmod("/file", 0o644)
+
+const metadataAt = <A>(path: string, select: (metadata: Vfs.Metadata) => A, expected: A) => ({ admin }: Fixture) =>
+  Effect.map(
+    admin.stat(Vfs.Target.Path({ path: path, followFinalSymlink: false })),
+    (metadata) => assert.deepStrictEqual(select(metadata), expected)
+  )
+
+// #209: every argument validates first, then the path resolves, then ownership (NotPermitted) for mode, owner and
+// explicit times, then write permission (AccessDenied) for size and now-times. The first failure wins.
+const setattrRows: ReadonlyArray<Row> = [
+  {
+    scenario: "changes every attribute in one call",
+    path: ({ admin }) => admin.setattr("/file", { size: 4n, mode: 0o600, owner: { uid: 9 }, times: EXPLICIT_TIMES }),
+    reference: ({ admin, file }) =>
+      admin.setattr(file, { size: 4n, mode: 0o600, owner: { uid: 9 }, times: EXPLICIT_TIMES }),
+    check: metadataAt("/file", ({ mode, mtimeNs, size, uid }) => ({ size, mode, uid, mtimeNs }), {
+      size: 4n,
+      mode: 0o600,
+      uid: 9,
+      mtimeNs: 1n
+    }),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects an invalid attribute before resolving the target",
+    path: ({ admin }) => admin.setattr("/gone", { mode: -1 }),
+    reference: ({ admin, gone }) => admin.setattr(gone, { mode: -1 }),
+    expected: { path: "InvalidArgument", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects an invalid attribute before checking ownership",
+    path: ({ guest }) => guest.setattr("/file", { mode: 0o600, size: -1n }),
+    reference: ({ guest, file }) => guest.setattr(file, { mode: 0o600, size: -1n }),
+    expected: { path: "InvalidArgument", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "reports a removed target as missing on paths and stale on references",
+    path: ({ guest }) => guest.setattr("/gone", { mode: 0o700 }),
+    reference: ({ guest, gone }) => guest.setattr(gone, { mode: 0o700 }),
+    expected: { path: "NotFound at /gone", reference: "StaleReference" }
+  },
+  {
+    scenario: "rejects a size on a directory before checking ownership",
+    path: ({ guest }) => guest.setattr("/dir", { size: 0n, mode: 0o700 }),
+    reference: ({ guest, dir }) => guest.setattr(dir, { size: 0n, mode: 0o700 }),
+    expected: { path: "IsDirectory at /dir", reference: "IsDirectory" }
+  },
+  {
+    scenario: "rejects a size on a symbolic link",
+    path: ({ admin }) =>
+      Effect.andThen(
+        admin.symlink("/file", "/link"),
+        admin.setattr(Vfs.Target.Path({ path: "/link", followFinalSymlink: false }), { size: 0n })
+      ),
+    reference: ({ admin, root }) =>
+      Effect.flatMap(
+        admin.symlink("/file", Vfs.Entry(root, name("link"))),
+        (link) => admin.setattr(link.reference, { size: 0n })
+      ),
+    expected: { path: "SymlinkLoop at /link", reference: "SymlinkLoop" }
+  },
+  {
+    scenario: "denies a mode to a caller that does not own the target",
+    path: ({ guest }) => guest.setattr("/file", { mode: 0o600 }),
+    reference: ({ guest, file }) => guest.setattr(file, { mode: 0o600 }),
+    expected: { path: "NotPermitted at /file", reference: "NotPermitted" }
+  },
+  {
+    scenario: "denies an owner to a caller that does not own the target",
+    path: ({ guest }) => guest.setattr("/file", { owner: { gid: 9 } }),
+    reference: ({ guest, file }) => guest.setattr(file, { owner: { gid: 9 } }),
+    expected: { path: "NotPermitted at /file", reference: "NotPermitted" }
+  },
+  {
+    scenario: "denies explicit times to a caller that does not own the target",
+    path: ({ guest }) => guest.setattr("/file", { times: EXPLICIT_TIMES }),
+    reference: ({ guest, file }) => guest.setattr(file, { times: EXPLICIT_TIMES }),
+    expected: { path: "NotPermitted at /file", reference: "NotPermitted" }
+  },
+  {
+    scenario: "checks ownership before write permission",
+    path: (fixture) =>
+      Effect.andThen(readOnlyFile(fixture), fixture.guest.setattr("/file", { size: 0n, times: EXPLICIT_TIMES })),
+    reference: (fixture) =>
+      Effect.andThen(readOnlyFile(fixture), fixture.guest.setattr(fixture.file, { size: 0n, times: EXPLICIT_TIMES })),
+    expected: { path: "NotPermitted at /file", reference: "NotPermitted" }
+  },
+  {
+    scenario: "denies a size without write access",
+    path: (fixture) => Effect.andThen(readOnlyFile(fixture), fixture.guest.setattr("/file", { size: 0n })),
+    reference: (fixture) => Effect.andThen(readOnlyFile(fixture), fixture.guest.setattr(fixture.file, { size: 0n })),
+    expected: { path: "AccessDenied at /file", reference: "AccessDenied" }
+  },
+  {
+    scenario: "checks write permission before the size limits",
+    path: (fixture) => Effect.andThen(readOnlyFile(fixture), fixture.guest.setattr("/file", { size: 2n ** 60n })),
+    reference: (fixture) =>
+      Effect.andThen(readOnlyFile(fixture), fixture.guest.setattr(fixture.file, { size: 2n ** 60n })),
+    expected: { path: "AccessDenied at /file", reference: "AccessDenied" }
+  },
+  {
+    scenario: "rejects a size over the file limit at apply",
+    path: ({ admin }) => admin.setattr("/file", { size: 2n ** 60n }),
+    reference: ({ admin, file }) => admin.setattr(file, { size: 2n ** 60n }),
+    expected: { path: "FileTooLarge", reference: "FileTooLarge" }
+  },
+  {
+    scenario: "charges a larger size against the volume limit at apply",
+    path: () =>
+      Effect.flatMap(
+        smallVolume,
+        (fs) =>
+          Effect.andThen(
+            fs.writeFile("/f", new Uint8Array(), { access: "write", create: "exclusive" }),
+            fs.setattr("/f", { size: 8n })
+          )
+      ),
+    reference: () =>
+      Effect.flatMap(smallVolume, (fs) =>
+        Effect.flatMap(fs.root, (root) =>
+          Effect.flatMap(
+            Effect.scoped(fs.open(Vfs.Entry(root, name("f")), { access: "write", create: "exclusive" })),
+            (opened) => fs.setattr(opened.reference, { size: 8n })
+          ))),
+    expected: { path: "NoSpace", reference: "NoSpace" }
+  },
+  {
+    scenario: "denies setting times to now without write access",
+    path: ({ guest }) => guest.setattr("/", { times: NOW_TIMES }),
+    reference: ({ guest, root }) => guest.setattr(root, { times: NOW_TIMES }),
+    expected: { path: "AccessDenied at /", reference: "AccessDenied" }
+  },
+  {
+    scenario: "lets a caller with write access set a size and both times to now",
+    path: ({ guest }) => guest.setattr("/file", { size: 2n, times: NOW_TIMES }),
+    reference: ({ guest, file }) => guest.setattr(file, { size: 2n, times: NOW_TIMES }),
+    check: metadataAt("/file", ({ size }) => size, 2n),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "keeps a requested setuid mode across the owner change that would clear it",
+    path: ({ admin }) => admin.setattr("/file", { mode: 0o4755, owner: { uid: 9 } }),
+    reference: ({ admin, file }) => admin.setattr(file, { mode: 0o4755, owner: { uid: 9 } }),
+    check: metadataAt("/file", ({ mode, uid }) => ({ mode, uid }), { mode: 0o4755, uid: 9 }),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    // Linux notify_change returns early when no attribute is valid, so nothing is checked or changed.
+    scenario: "checks and changes nothing without attributes",
+    path: ({ guest }) => guest.setattr("/file", {}),
+    reference: ({ guest, file }) => guest.setattr(file, {}),
+    check: metadataAt("/file", ({ mode, uid }) => ({ mode, uid }), { mode: 0o666, uid: 0 }),
+    expected: { path: "ok", reference: "ok" }
   }
 ]
 
@@ -862,7 +1026,8 @@ const TABLE: ReadonlyArray<readonly [verb: string, rows: ReadonlyArray<Row>]> = 
   ["chown", chownRows],
   ["utimes", utimesRows],
   ["access", accessRows],
-  ["truncate", truncateRows]
+  ["truncate", truncateRows],
+  ["setattr", setattrRows]
 ]
 
 describe("operation families", () => {

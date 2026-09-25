@@ -23,11 +23,12 @@ import {
   OpenEntryOptions,
   OpenOptions,
   RootCallerOptions,
+  SetattrOptions,
   SymlinkOptions,
   WriteFileOptions
 } from "../Caller.js"
 import { DirectoryHandleId, FileHandleId, SeekMode } from "../FileHandle.js"
-import { type Metadata, Mode, OwnerUpdate, Times } from "../Metadata.js"
+import { type Metadata, Mode, OwnerUpdate, Times, type TimeUpdate } from "../Metadata.js"
 import type { Snapshot } from "../Snapshot.js"
 import { type Entry, type EntryInput, isEntry, isTarget, type NameInput, Target, type TargetInput } from "../Target.js"
 import type { FsFailure, ImageFailure } from "../VfsError.js"
@@ -123,6 +124,10 @@ const isMode = Schema.is(Mode)
 
 const isNatural = Schema.is(Schema.Natural)
 
+// A length arrives typed, but a caller outside TypeScript can pass anything. The published setattr schema
+// bounds it, so truncate and setattr agree with it.
+const isLength = Schema.is(SetattrOptions.fields.size.schema)
+
 // Whether an identity belongs to a group, by its primary group or a supplementary one.
 const inGroup = (identity: Identity, gid: number) => identity.gid === gid || identity.groups.includes(gid)
 
@@ -133,6 +138,17 @@ const isSeekMode = Schema.is(SeekMode)
 const decodeOwnerUpdate = Schema.decodeEffect(OwnerUpdate, { onExcessProperty: "error" })
 
 const decodeTimes = Schema.decodeEffect(Times, { onExcessProperty: "error" })
+
+const decodeExpected = Schema.decodeEffect(SetattrOptions.fields.expected.schema, { onExcessProperty: "error" })
+
+const SETATTR_FIELDS: ReadonlyArray<string> = Object.keys(SetattrOptions.fields)
+
+// The validated attributes one change applies; an undefined attribute keeps its value.
+type Attributes = { readonly [K in keyof SetattrOptions]?: SetattrOptions[K] | undefined }
+
+// A time after one update: the current value when omitted, the clock when "now", or the explicit value.
+const timeAt = (update: TimeUpdate | undefined, value: bigint, now: bigint) =>
+  update === undefined || update.kind === "omit" ? value : update.kind === "now" ? now : update.nanoseconds
 
 const decodeWriteFileOptions = Schema.decodeEffect(WriteFileOptions, { onExcessProperty: "error" })
 
@@ -1539,11 +1555,8 @@ export const makeVolume = Effect.fnUntraced(
       if (publish) publishNode(file.ino)
     }
 
-    const resize = Effect.fnUntraced(function*(file: RegularFile, length: bigint, op: OpContext, publish = true) {
-      if (!Predicate.isBigInt(length) || length < 0n) {
-        return yield* op.fail("InvalidArgument")
-      }
-
+    // Sets a file's length at a time the caller read, leaving its event to the caller.
+    const resizeAt = Effect.fnUntraced(function*(file: RegularFile, length: bigint, now: bigint, op: OpContext) {
       if (length > BigInt(maxFileBytes)) return yield* op.fail("FileTooLarge")
       const size = Number(length)
 
@@ -1551,7 +1564,14 @@ export const makeVolume = Effect.fnUntraced(
 
       const data = new Uint8Array(size)
       data.set(file.data.bytes.subarray(0, size))
-      replaceContent(file, data, yield* timestamp(op), publish)
+      replaceContent(file, data, now, false)
+    })
+
+    const resize = Effect.fnUntraced(function*(file: RegularFile, length: bigint, op: OpContext) {
+      if (!isLength(length)) return yield* op.fail("InvalidArgument")
+
+      yield* resizeAt(file, length, yield* timestamp(op), op)
+      publishNode(file.ino)
     })
 
     const fileHandle = (ref: FileReference): FileHandle => {
@@ -2045,149 +2065,96 @@ export const makeVolume = Effect.fnUntraced(
         })
       }
 
-      const permittedMode = (metadata: Pick<Metadata, "kind" | "uid" | "gid">, mode: number, op: OpContext) => {
-        if (!identity.privileged && identity.uid !== metadata.uid) {
-          return Effect.fail(op.fail("NotPermitted"))
-        }
+      // The mode an owner may set: an unprivileged caller outside the file's group cannot set setgid on it.
+      const grantedMode = (metadata: Pick<Metadata, "kind" | "gid">, mode: number) =>
+        !identity.privileged && metadata.kind === "file" && !inGroup(identity, metadata.gid) ? mode & ~0o2000 : mode
 
-        const group = inGroup(identity, metadata.gid)
+      const permittedMode = (metadata: Pick<Metadata, "kind" | "uid" | "gid">, mode: number, op: OpContext) =>
+        !identity.privileged && identity.uid !== metadata.uid
+          ? Effect.fail(op.fail("NotPermitted"))
+          : Effect.succeed(grantedMode(metadata, mode))
 
-        return Effect.succeed(!identity.privileged && metadata.kind === "file" && !group ? mode & ~0o2000 : mode)
-      }
+      // Changes the attributes one change at a time would, as one change: one draft, one revision, one event.
+      // Every check runs against the node before any attribute applies, ownership (NotPermitted) before
+      // permission (AccessDenied), so the first failure leaves everything unchanged. The attributes apply as
+      // size, owner, mode, then times, the POSIX composition of chown then chmod, so a requested mode wins over
+      // the set-ID clearing that a resize or an owner change triggers; an adapter owns any protocol-specific
+      // sanitising of the mode, as NFS SETATTR does after knfsd. The attributes arrive validated; an owner with
+      // neither id still checks ownership, and times that omit both are no change and check nothing. An expected
+      // revision is checked first, against the target as the change finds it, so a caller that decided the
+      // attributes from an earlier observation learns the target moved instead of applying them to a newer state.
+      const changeAttributes = (
+        resolve: () => Effect.Effect<ResolvedNode, FsFailure>,
+        attributes: Attributes,
+        op: OpContext
+      ) => {
+        const { size, mode } = attributes
+        const expected = attributes.expected?.revision
+        // Copied now: the change runs after the permit wait, and the caller may reuse its objects meanwhile.
+        const owner = attributes.owner === undefined ? undefined : { ...attributes.owner }
 
-      const changeMode = Effect.fnUntraced(
-        function*(resolve: () => Effect.Effect<ResolvedNode, FsFailure>, mode: number, op: OpContext) {
-          if (!isMode(mode)) return yield* op.fail("InvalidArgument")
-          const resolving = resolve()
+        const times = attributes.times === undefined
+          ? undefined
+          : { access: { ...attributes.times.access }, modification: { ...attributes.times.modification } }
 
-          return yield* coordinated(
-            op,
-            Effect.gen(function*() {
-              const resolved = yield* resolving
-              const node = nodeNow(resolved.ino)
-              const permitted = yield* permittedMode(node.metadata, mode, resolved.op)
-              current().put({
-                ...node,
-                metadata: {
-                  ...node.metadata,
-                  mode: permitted,
-                  ctimeNs: (yield* timestamp(op))
-                }
-              })
-              publishNode(node.ino)
-            })
-          )
-        }
-      )
-
-      const changeOwner = Effect.fnUntraced(
-        function*(resolve: () => Effect.Effect<ResolvedNode, FsFailure>, owner: OwnerUpdate, op: OpContext) {
-          const decoded = yield* decodeOwnerUpdate(owner).pipe(
-            Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
-          )
-
-          const update = { ...decoded }
-          const resolving = resolve()
-
-          return yield* coordinated(
-            op,
-            Effect.gen(function*() {
-              const resolved = yield* resolving
-              const node = nodeNow(resolved.ino)
-
-              if (
-                !identity.privileged && (identity.uid !== node.metadata.uid ||
-                  (update.uid !== undefined && update.uid !== node.metadata.uid) ||
-                  (update.gid !== undefined && !inGroup(identity, update.gid)))
-              ) {
-                return yield* resolved.op.fail("NotPermitted")
-              }
-
-              if (update.uid === undefined && update.gid === undefined) return
-              current().put({
-                ...node,
-                metadata: {
-                  ...node.metadata,
-                  uid: update.uid ?? node.metadata.uid,
-                  gid: update.gid ?? node.metadata.gid,
-                  mode: node.kind === "file" ? node.metadata.mode & ~SET_ID_BITS : node.metadata.mode,
-                  ctimeNs: (yield* timestamp(op))
-                }
-              })
-              publishNode(node.ino)
-            })
-          )
-        }
-      )
-
-      const changeTimes = Effect.fnUntraced(
-        function*(resolve: () => Effect.Effect<ResolvedNode, FsFailure>, times: Times, op: OpContext) {
-          const decoded = yield* decodeTimes(times).pipe(
-            Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
-          )
-
-          const access = { ...decoded.access }
-          const modification = { ...decoded.modification }
-          const resolving = resolve()
-
-          return yield* coordinated(
-            op,
-            Effect.gen(function*() {
-              const resolved = yield* resolving
-              const node = nodeNow(resolved.ino)
-
-              if (access.kind === "omit" && modification.kind === "omit") return
-
-              // POSIX grants write access only when both times are UTIME_NOW; both UTIME_OMIT
-              // returned above. Every other combination, mixed ones included, needs ownership.
-              if (!identity.privileged && identity.uid !== node.metadata.uid) {
-                if (access.kind !== "now" || modification.kind !== "now") {
-                  return yield* resolved.op.fail("NotPermitted")
-                }
-
-                yield* authorize(node, identity, WRITE, resolved.op)
-              }
-
-              const now = yield* timestamp(op)
-              current().put({
-                ...node,
-                metadata: {
-                  ...node.metadata,
-                  atimeNs: access.kind === "omit"
-                    ? node.metadata.atimeNs
-                    : access.kind === "now"
-                    ? now
-                    : access.nanoseconds,
-                  mtimeNs: modification.kind === "omit"
-                    ? node.metadata.mtimeNs
-                    : modification.kind === "now"
-                    ? now
-                    : modification.nanoseconds,
-                  ctimeNs: now
-                }
-              })
-              publishNode(node.ino)
-            })
-          )
-        }
-      )
-
-      // Takes bits the caller already validated, since that failure names the path on paths only.
-      const truncateNode = (resolve: () => Effect.Effect<ResolvedNode, FsFailure>, length: bigint, op: OpContext) => {
+        const timed = times !== undefined && (times.access.kind !== "omit" || times.modification.kind !== "omit")
+        const bothNow = times?.access.kind === "now" && times.modification.kind === "now"
         const resolving = resolve()
 
         return coordinated(
           op,
           Effect.gen(function*() {
-            const { ino, op: nodeOp } = yield* resolving
-            const node = nodeNow(ino)
+            const resolved = yield* resolving
+            const node = nodeNow(resolved.ino)
 
-            if (node.kind === "symlink") return yield* nodeOp.fail("SymlinkLoop")
+            if (expected !== undefined && node.revision !== expected) {
+              return yield* resolved.op.fail("StaleReference", { field: "expected" })
+            }
 
-            if (node.kind !== "file") return yield* nodeOp.fail("IsDirectory")
+            if (size !== undefined && node.kind === "symlink") return yield* resolved.op.fail("SymlinkLoop")
 
-            yield* authorize(node, identity, WRITE, nodeOp)
-            yield* resize(node, length, op)
+            if (size !== undefined && node.kind !== "file") return yield* resolved.op.fail("IsDirectory")
+            const owns = identity.privileged || identity.uid === node.metadata.uid
+
+            if (
+              (mode !== undefined && !owns) ||
+              (owner !== undefined && !identity.privileged && (!owns ||
+                (owner.uid !== undefined && owner.uid !== node.metadata.uid) ||
+                (owner.gid !== undefined && !inGroup(identity, owner.gid)))) ||
+              // POSIX grants write access only when both times are UTIME_NOW; every other combination that
+              // changes a time, mixed ones included, needs ownership.
+              (timed && !owns && !bothNow)
+            ) {
+              return yield* resolved.op.fail("NotPermitted")
+            }
+
+            if (size !== undefined || (timed && !owns)) yield* authorize(node, identity, WRITE, resolved.op)
+            const chowned = owner?.uid !== undefined || owner?.gid !== undefined
+
+            if (size === undefined && !chowned && mode === undefined && !timed) return
+            const now = yield* timestamp(op)
+
+            if (size !== undefined && node.kind === "file") yield* resizeAt(node, size, now, op)
+            const sized = nodeNow(resolved.ino)
+            const gid = owner?.gid ?? sized.metadata.gid
+            const cleared = chowned && sized.kind === "file" ? sized.metadata.mode & ~SET_ID_BITS : sized.metadata.mode
+
+            if (chowned || mode !== undefined || timed) {
+              current().put({
+                ...sized,
+                metadata: {
+                  ...sized.metadata,
+                  uid: owner?.uid ?? sized.metadata.uid,
+                  gid,
+                  mode: mode === undefined ? cleared : grantedMode({ kind: sized.kind, gid }, mode),
+                  atimeNs: timeAt(times?.access, sized.metadata.atimeNs, now),
+                  mtimeNs: timeAt(times?.modification, sized.metadata.mtimeNs, now),
+                  ctimeNs: now
+                }
+              })
+            }
+
+            publishNode(node.ino)
           })
         )
       }
@@ -2786,7 +2753,9 @@ export const makeVolume = Effect.fnUntraced(
         )
       })
 
-      const fail = (op: OpContext, cause: unknown) => op.fail("InvalidArgument", { cause })
+      // An invalid argument, naming the attribute at fault when there is one.
+      const fail = (op: OpContext, cause?: unknown, field?: string) =>
+        op.fail("InvalidArgument", field === undefined ? { cause } : { cause, field })
 
       // The context an entry's own failures use: the path on a path input, the verb's own on an entry.
       const preparedOp = (prepared: PreparedEntry, op: OpContext) =>
@@ -3483,23 +3452,65 @@ export const makeVolume = Effect.fnUntraced(
         chmod: Effect.fn("Caller.chmod")(function*(input, mode) {
           const op = OpContext.make("chmod")
           const target = asTarget(input)
-          yield* changeMode(() => asResolvedNode(target, op), mode, op)
+
+          if (!isMode(mode)) return yield* op.fail("InvalidArgument")
+          yield* changeAttributes(() => asResolvedNode(target, op), { mode }, op)
         }),
         chown: Effect.fn("Caller.chown")(function*(input, owner) {
           const op = OpContext.make("chown")
           const target = asTarget(input)
-          yield* changeOwner(() => asResolvedNode(target, op), owner, op)
+          const decoded = yield* decodeOwnerUpdate(owner).pipe(Effect.mapError((cause) => fail(op, cause)))
+          yield* changeAttributes(() => asResolvedNode(target, op), { owner: decoded }, op)
         }),
         utimes: Effect.fn("Caller.utimes")(function*(input, times) {
           const op = OpContext.make("utimes")
           const target = asTarget(input)
-          yield* changeTimes(() => asResolvedNode(target, op), times, op)
+          const decoded = yield* decodeTimes(times).pipe(Effect.mapError((cause) => fail(op, cause)))
+          yield* changeAttributes(() => asResolvedNode(target, op), { times: decoded }, op)
         }),
+        // A negative length fails before the target resolves, as truncate(2) rejects it before the lookup.
         truncate: Effect.fn("Caller.truncate")(function*(input, length) {
           const op = OpContext.make("truncate")
           const target = asTarget(input)
 
-          return yield* truncateNode(() => asResolvedNode(target, op), length, op)
+          if (!isLength(length)) return yield* op.fail("InvalidArgument")
+          yield* changeAttributes(() => asResolvedNode(target, op), { size: length }, op)
+        }),
+        // Every attribute validates before the target resolves, and a failure names the attribute in `field`.
+        setattr: Effect.fn("Caller.setattr")(function*(input, attributes) {
+          const op = OpContext.make("setattr")
+          const target = asTarget(input)
+
+          // A caller outside TypeScript can pass anything, so a non-object fails typed rather than as a defect;
+          // the check reads a widened copy so the attributes keep their type below.
+          const raw: unknown = attributes
+
+          if (!Predicate.isObject(raw)) return yield* fail(op)
+          const unknown = Object.keys(attributes).find((key) => !SETATTR_FIELDS.includes(key))
+
+          if (unknown !== undefined) return yield* fail(op, undefined, unknown)
+
+          if (attributes.size !== undefined && !isLength(attributes.size)) return yield* fail(op, undefined, "size")
+
+          if (attributes.mode !== undefined && !isMode(attributes.mode)) return yield* fail(op, undefined, "mode")
+
+          const owner = attributes.owner === undefined
+            ? undefined
+            : yield* decodeOwnerUpdate(attributes.owner).pipe(Effect.mapError((cause) => fail(op, cause, "owner")))
+
+          const times = attributes.times === undefined
+            ? undefined
+            : yield* decodeTimes(attributes.times).pipe(Effect.mapError((cause) => fail(op, cause, "times")))
+
+          const expected = attributes.expected === undefined
+            ? undefined
+            : yield* decodeExpected(attributes.expected).pipe(Effect.mapError((cause) => fail(op, cause, "expected")))
+
+          yield* changeAttributes(
+            () => asResolvedNode(target, op),
+            { size: attributes.size, mode: attributes.mode, owner, times, expected },
+            op
+          )
         }),
         withDirectory: Effect.fn("Caller.withDirectory")(function*(input) {
           const acquired = yield* acquireDirectory(input, OpContext.make("withDirectory"))

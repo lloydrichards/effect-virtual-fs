@@ -734,6 +734,26 @@ export const SymlinkOptions: typeof CallerModule.SymlinkOptions = CallerModule.S
 export type SymlinkOptions = typeof SymlinkOptions.Type
 
 /**
+ * The attributes `setattr` changes together: a regular file's size, the
+ * permission mode, the owner, and the access and modification times. An
+ * omitted attribute keeps its current value. `expected` pins the revision the
+ * caller last observed and fails as `StaleReference` naming `expected` when
+ * the target has moved on.
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const SetattrOptions: typeof CallerModule.SetattrOptions = CallerModule.SetattrOptions
+
+/**
+ * The attributes `setattr` changes together.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type SetattrOptions = typeof SetattrOptions.Type
+
+/**
  * Settings for atomically looking up or creating and opening one referenced child.
  * `exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
  *
@@ -1033,6 +1053,15 @@ export interface Caller {
   readonly utimes: (target: TargetInput, times: Times) => Effect.Effect<void, FsFailure>
   /** Sets the size of a regular file. */
   readonly truncate: (target: TargetInput, length: bigint) => Effect.Effect<void, FsFailure>
+  /**
+   * Changes a target's size, owner, mode and times as one change. Every check passes before any attribute
+   * applies, so a failure changes nothing. The attributes apply as size, owner, mode, then times, the POSIX
+   * composition of chown then chmod, so a requested mode wins over the set-ID clearing an owner change or a
+   * resize triggers. A protocol adapter that sanitises the requested mode, as NFS does after Linux knfsd,
+   * does so before it calls setattr, and passes the revision it read as `expected` so the change refuses a
+   * target another change has moved.
+   */
+  readonly setattr: (target: TargetInput, attributes: SetattrOptions) => Effect.Effect<void, FsFailure>
   /** A caller whose working directory is the target, released with the scope. */
   readonly withDirectory: (directory: TargetInput) => Effect.Effect<Caller, FsFailure, Scope.Scope>
   /** A handle on a directory, released with the scope. */
