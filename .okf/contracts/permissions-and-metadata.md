@@ -19,7 +19,7 @@ sources:
     title: Memory chmod masks its input to 0o7777
   - resource: ../../packages/nfs/src/internal/nfs4.ts
     title: NFS mode4 above 0o7777 rejected with INVAL
-generated: { by: claude-code, at: "2026-09-26T10:05:00+02:00" }
+generated: { by: claude-code, at: "2026-09-26T13:20:00+02:00" }
 ---
 
 # Permissions and metadata
@@ -33,6 +33,8 @@ A denial reports one of two codes, as Linux does. `AccessDenied` (EACCES) means 
 Metadata includes file kind, identity, link count, size, ownership, mode, and bigint nanosecond timestamps. Returned metadata is copied. Core timestamps use the Effect clock without promising physical nanosecond precision.
 
 `mode` holds the permission, setuid, setgid and sticky bits only, at most `0o7777`, and never the file-type bits; the kind is the one source of the type. `Metadata.typedMode` joins the kind's `S_IFREG`, `S_IFDIR` or `S_IFLNK` bits with `mode` to give the POSIX `st_mode`, and every adapter that reports an `st_mode` builds it that way. Snapshots, live images and the tree schema store the permission bits only. A volume has no device nodes, so `dev` and `rdev` are 0 by contract and `(dev, ino)` is unique only within one volume.
+
+`setattr` changes size, owner, mode and times as one change, and its checks run in a fixed order with the first failure winning: every attribute validates first (`InvalidArgument` naming the attribute in `field`, and without one when the attributes are not an object), then the target resolves, then an `expected` revision that no longer matches fails `StaleReference` naming `expected`, then a size on a directory or a symbolic link fails, then ownership (`NotPermitted`) for mode, owner and explicit times, then write permission (`AccessDenied`) for size and both-now times, and last the size limits. The attributes apply as size, owner, mode, times, the POSIX composition of chown then chmod, so a requested mode keeps setuid and setgid that a resize or an owner change would clear; a protocol adapter owns any sanitising of the mode, as NFS SETATTR clears set-ID bits after Linux knfsd. An empty `setattr` checks and changes nothing, as Linux `notify_change` does without attributes. `chmod`, `chown`, `utimes` and `truncate` are one-field cases of the same change, recorded in the [atomic setattr decision](../decisions/core/atomic-setattr.md "implements").
 
 `chmod` input differs by layer. Core rejects a mode above `0o7777` with `InvalidArgument`. The memory adapter masks its input with `0o7777`, so a stat-style mode such as `0o100644` sets `0o644`, as Node does. NFS rejects a `mode4` above `0o7777` with `INVAL`, since RFC 8881 defines only the 12 permission bits.
 
