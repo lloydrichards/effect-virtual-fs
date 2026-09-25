@@ -1,5 +1,5 @@
 import { assert, describe } from "@effect/vitest"
-import { ByteSize, Deferred, Effect, Fiber, Predicate, Stream } from "effect"
+import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scheduler, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import * as LiveImage from "../src/internal/liveImage.js"
 import {
@@ -11,6 +11,12 @@ import {
   VolumeSource
 } from "../src/internal/virtualFileSystem.js"
 import { it } from "./TestEffect.js"
+
+// Smaller budgets livelock the runtime: it counts an op before checking whether to yield.
+const MIN_OP_BUDGET = 3
+
+// Comfortably past the yields an mkdir needs to commit at MIN_OP_BUDGET (about 43).
+const MAX_INTERRUPT_DELAY = 128
 
 describe("live volume staging", () => {
   it.effect("does not commit when a failed open scope closes", () =>
@@ -287,4 +293,61 @@ describe("live volume staging", () => {
       assert.strictEqual((yield* Effect.flip(handle.close)).code, "StorageRejected")
       assert.strictEqual((yield* Effect.flip(volume.usage)).code, "VolumeUnavailable")
     })))
+
+  it.effect("leaves no uncommitted change visible when a staged mutation is interrupted", () =>
+    Effect.gen(function*() {
+      let commits = 0
+
+      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, {
+        commit: () =>
+          Effect.sync(() => {
+            commits++
+
+            return "committed" as const
+          })
+      })
+
+      const caller = yield* volume.caller()
+      const handle = yield* caller.open("/handle", { access: "readWrite", create: "exclusive" })
+      const exists = (path: string) => Effect.exit(caller.lstat(path)).pipe(Effect.map(Exit.isSuccess))
+
+      // Path, content, and handle mutations each swap engine state, so each is swept separately.
+      const mutations = [
+        { name: "mkdir", run: (path: string) => caller.mkdir(path), visible: exists },
+        {
+          name: "writeFile",
+          run: (path: string) => caller.writeFile(path, new Uint8Array([1]), { access: "write", create: "exclusive" }),
+          visible: exists
+        },
+        { name: "symlink", run: (path: string) => caller.symlink("/target", path), visible: exists },
+        {
+          name: "pwrite",
+          run: (_path: string, delay: number) => handle.pwrite(new Uint8Array([1]), BigInt(delay)),
+          visible: (_path: string, delay: number) => handle.stat.pipe(Effect.map(({ size }) => size > BigInt(delay)))
+        }
+      ]
+
+      // A tiny op budget makes the mutation yield often, so sweeping the interrupt point lands it
+      // inside the mutation body at some delay.
+      for (const mutation of mutations) {
+        for (let delay = 0; delay < MAX_INTERRUPT_DELAY; delay++) {
+          const before = commits
+          const path = `/${mutation.name}-${delay}`
+
+          const fiber = yield* mutation.run(path, delay).pipe(
+            Effect.provideService(Scheduler.MaxOpsBeforeYield, MIN_OP_BUDGET),
+            Effect.forkChild({ startImmediately: true })
+          )
+
+          for (let step = 0; step < delay; step++) yield* Effect.yieldNow
+          yield* Fiber.interrupt(fiber)
+
+          const visible = yield* mutation.visible(path, delay)
+          assert.strictEqual(visible, commits > before, `${mutation.name} interrupted after ${delay} yields`)
+        }
+      }
+
+      yield* caller.mkdir("/still-available")
+      assert.strictEqual((yield* caller.stat("/still-available")).kind, "directory")
+    }))
 })

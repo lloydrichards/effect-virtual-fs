@@ -5,7 +5,6 @@ import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
-import * as Exit from "effect/Exit"
 import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
@@ -1225,17 +1224,26 @@ export const makeVolume = Effect.fnUntraced(
               const context = contexts.get(candidate)
 
               if (context === undefined) return yield* Effect.die("Missing staged engine state")
-              state = candidate
-              activeStage = context
-              const result = yield* Effect.exit(effect)
-              state = previous
-              activeStage = undefined
 
-              if (Exit.isFailure(result)) return yield* Effect.failCause(result.cause)
+              // The swap and the change run to completion as they do unstaged, and the swap is
+              // undone however the change ends. Swapping outside this region would let an
+              // interrupt land before the restore is installed.
+              const value = yield* Effect.uninterruptible(
+                Effect.sync(() => {
+                  state = candidate
+                  activeStage = context
+                }).pipe(
+                  Effect.andThen(effect),
+                  Effect.ensuring(Effect.sync(() => {
+                    state = previous
+                    activeStage = undefined
+                  }))
+                )
+              )
 
               for (const event of context.events) emit(event)
 
-              return result.value
+              return value
             }), onStorageFailure)
       )
 
