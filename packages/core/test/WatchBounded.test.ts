@@ -4,6 +4,12 @@ import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { withVolumeTestSeams } from "../src/internal/testSeams.js"
 import { it } from "./TestEffect.js"
 
+const paths = (events: Iterable<Vfs.Change>) =>
+  Effect.forEach(events, (event) =>
+    Vfs.pathToBytes(event.path).pipe(
+      Effect.map((bytes) => `${event._tag} ${new TextDecoder().decode(bytes)}`)
+    ))
+
 describe("bounded watches", () => {
   it.effect("rejects excess admission before mutation and releases cancelled waits", () =>
     Effect.gen(function*() {
@@ -120,5 +126,22 @@ describe("bounded watches", () => {
       yield* Scope.close(slowScope, Exit.void)
       yield* Scope.close(fastScope, Exit.void)
       yield* Scope.close(rescanScope, Exit.void)
+    }))
+
+  it.effect("drops changes after the overflow marker until the consumer takes it, then resumes", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make({ maxWatchEvents: 3 })
+      const caller = yield* volume.caller()
+      const stream = yield* volume.watch
+
+      yield* caller.mkdir("/a")
+      yield* caller.mkdir("/b")
+      yield* caller.mkdir("/c")
+      yield* caller.mkdir("/d")
+      assert.deepEqual(yield* paths(yield* Stream.runCollect(Stream.take(stream, 1))), ["Create /a"])
+      yield* caller.mkdir("/e")
+      assert.deepEqual(yield* paths(yield* Stream.runCollect(Stream.take(stream, 2))), ["Create /b", "Rescan /"])
+      yield* caller.mkdir("/f")
+      assert.deepEqual(yield* paths(yield* Stream.runCollect(Stream.take(stream, 1))), ["Create /f"])
     }))
 })
