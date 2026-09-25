@@ -1,8 +1,8 @@
 import { GetObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from "@aws-sdk/client-s3"
 import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { assert, describe, it, vi } from "@effect/vitest"
-import { ByteSize, Deferred, Effect, Layer } from "effect"
+import { assert, it, vi } from "@effect/vitest"
+import { ByteSize, Deferred, Effect } from "effect"
 import * as R2LiveImageStore from "../src/R2LiveImageStore.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
@@ -49,11 +49,10 @@ const makeClient = () => {
 }
 
 const layer = (client: R2LiveImageStore.R2Client) =>
-  R2LiveImageStore.layer({ client, key: "volume/live", maxImageBytes: ByteSize.kilobytes(64) }).pipe(
-    Layer.provide(NodeCrypto.layer)
-  )
+  R2LiveImageStore.layer({ client, key: "volume/live", maxImageBytes: ByteSize.kilobytes(64) })
 
-describe("R2 live image store", () => {
+// The stores digest images with Crypto; LiveVolume.open itself needs none.
+it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
   it.effect("reports power-loss durability only when the application qualifies the R2 transport", () =>
     Effect.gen(function*() {
       const remote = makeClient()
@@ -68,9 +67,7 @@ describe("R2 live image store", () => {
         }
       }
 
-      const unqualifiedServices = Layer.merge(layer(remote.client), NodeCrypto.layer)
-
-      const unqualified = yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(unqualifiedServices)))
+      const unqualified = yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(layer(remote.client))))
 
       assert.strictEqual(unqualified.durability, "memory-only")
 
@@ -79,10 +76,9 @@ describe("R2 live image store", () => {
         key: "volume/live",
         maxImageBytes: options.maxImageBytes,
         durability: "survives-power-loss"
-      }).pipe(Layer.provide(NodeCrypto.layer))
+      })
 
-      const qualifiedServices = Layer.merge(qualifiedStore, NodeCrypto.layer)
-      const qualified = yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(qualifiedServices)))
+      const qualified = yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(qualifiedStore)))
 
       assert.strictEqual(qualified.durability, "survives-power-loss")
     }))
@@ -164,9 +160,6 @@ describe("R2 live image store", () => {
         LiveVolume.LiveImageStore.pipe(
           Effect.provide(
             R2LiveImageStore.layer({ client: makeClient().client, key: "", maxImageBytes: ByteSize.kilobytes(64) })
-              .pipe(
-                Layer.provide(NodeCrypto.layer)
-              )
           )
         )
       )

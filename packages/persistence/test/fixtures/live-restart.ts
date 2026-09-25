@@ -219,7 +219,7 @@ const program = Effect.gen(function*() {
     )
 
     if (mode === "write-hold") return yield* Effect.never
-  })).pipe(Effect.provide(Layer.mergeAll(storage, NodeCrypto.layer, NodeFileSystem.layer)))
+  })).pipe(Effect.provide(Layer.merge(storage, NodeFileSystem.layer)))
 
   if (faultVfs === "") {
     yield* exercise
