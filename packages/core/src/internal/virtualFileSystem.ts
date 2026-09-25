@@ -118,6 +118,9 @@ export const Identity = Schema.Struct({
 /** @internal */
 export type Identity = typeof Identity.Type
 
+// Whether an identity belongs to a group, by its primary group or a supplementary one.
+const inGroup = (identity: Identity, gid: number) => identity.gid === gid || identity.groups.includes(gid)
+
 /** @internal */
 export const RootCallerOptions = Schema.Struct({
   identity: Schema.optionalKey(Identity),
@@ -1484,7 +1487,7 @@ export const makeVolume = Effect.fnUntraced(
 
       const shift = metadata.uid === identity.uid ?
         6
-        : metadata.gid === identity.gid || identity.groups.includes(metadata.gid)
+        : inGroup(identity, metadata.gid)
         ? 3
         : 0
 
@@ -2232,7 +2235,7 @@ export const makeVolume = Effect.fnUntraced(
           return Effect.fail(op.fail("AccessDenied"))
         }
 
-        const group = identity.gid === metadata.gid || identity.groups.includes(metadata.gid)
+        const group = inGroup(identity, metadata.gid)
 
         return Effect.succeed(!identity.privileged && metadata.kind === "file" && !group ? mode & ~0o2000 : mode)
       }
@@ -2276,7 +2279,7 @@ export const makeVolume = Effect.fnUntraced(
               if (
                 !identity.privileged && (identity.uid !== node.metadata.uid ||
                   (update.uid !== undefined && update.uid !== node.metadata.uid) ||
-                  (update.gid !== undefined && update.gid !== identity.gid && !identity.groups.includes(update.gid)))
+                  (update.gid !== undefined && !inGroup(identity, update.gid)))
               ) {
                 return yield* op.fail("AccessDenied")
               }
@@ -2714,7 +2717,7 @@ export const makeVolume = Effect.fnUntraced(
           if (
             !identity.privileged &&
             ((owner?.uid !== undefined && owner.uid !== identity.uid) ||
-              (owner?.gid !== undefined && owner.gid !== identity.gid && !identity.groups.includes(owner.gid)))
+              (owner?.gid !== undefined && !inGroup(identity, owner.gid)))
           ) {
             return yield* entry.op.fail("AccessDenied")
           }
