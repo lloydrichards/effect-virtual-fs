@@ -46,7 +46,7 @@ describe("snapshot decoding", () => {
         const caller = yield* (yield* Vfs.fromSnapshot(snapshot)).caller()
         assert.strictEqual((yield* caller.stat("/f")).size, 12_000_000n)
         const file = yield* caller.open("/f", { access: "read" })
-        assert.deepStrictEqual(yield* file.pread(1, 11_999_999n), new Uint8Array([0]))
+        assert.deepStrictEqual((yield* file.pread(1, 11_999_999n)).bytes, new Uint8Array([0]))
       })
   )
 

@@ -2,6 +2,7 @@ import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Predicate, Schema } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { entryNames, rawEntryNames } from "./TestEffect.js"
 
 const encoder = new TextEncoder()
 
@@ -172,7 +173,7 @@ describe("snapshot deltas", () => {
         root.birthtimeNs
       ], [0o755, 5, 6, 11n, 12n, 13n, 14n])
       assert.deepStrictEqual(
-        (yield* fs.readDirectoryBytes("/")).map((name) => Array.from(name).join(",")).sort(),
+        (rawEntryNames(yield* fs.readDirectory("/"))).map((name) => Array.from(name).join(",")).sort(),
         [
           encoder.encode("becomes-directory"),
           encoder.encode("becomes-file"),
@@ -195,7 +196,7 @@ describe("snapshot deltas", () => {
       assert.deepStrictEqual(yield* fs.readFile("/becomes-file"), new Uint8Array([3, 4]))
       assert.strictEqual((yield* fs.stat("/becomes-directory")).kind, "directory")
       assert.deepStrictEqual(yield* fs.readFile(raw), new Uint8Array([255, 0]))
-      assert.deepStrictEqual(yield* fs.readLinkBytes("/link"), new Uint8Array([47, 255]))
+      assert.deepStrictEqual(yield* fs.readLink("/link"), new Uint8Array([47, 255]))
       assert.strictEqual((yield* Effect.flip(fs.stat("/removed"))).code, "NotFound")
     }).pipe(Effect.provide(BunCrypto.layer)))
 
@@ -235,7 +236,7 @@ describe("snapshot deltas", () => {
       const applied = yield* Vfs.applySnapshotDelta(baseSnapshot, delta)
       const fs = yield* (yield* Vfs.fromSnapshot(applied)).caller()
 
-      assert.deepStrictEqual(yield* fs.readDirectoryBytes("/"), [
+      assert.deepStrictEqual(rawEntryNames(yield* fs.readDirectory("/")), [
         encoder.encode("B"),
         encoder.encode("a"),
         encoder.encode("a-shared"),
@@ -243,7 +244,7 @@ describe("snapshot deltas", () => {
         new Uint8Array([0xd0]),
         new Uint8Array([0xfc])
       ])
-      assert.deepStrictEqual(yield* fs.readDirectoryBytes("/dir"), [
+      assert.deepStrictEqual(rawEntryNames(yield* fs.readDirectory("/dir")), [
         encoder.encode("b"),
         encoder.encode("z-alias")
       ])
@@ -465,7 +466,9 @@ describe("snapshot deltas", () => {
       assert.strictEqual((yield* Vfs.inspectSnapshotDelta(base, delta, undefined, limits)).length, 1)
       const restored = yield* Vfs.applySnapshotDelta(base, delta, limits)
       assert.deepStrictEqual(
-        yield* (yield* Vfs.fromSnapshot(restored)).caller().pipe(Effect.flatMap((fs) => fs.readDirectory("/"))),
+        entryNames(
+          yield* (yield* Vfs.fromSnapshot(restored)).caller().pipe(Effect.flatMap((fs) => fs.readDirectory("/")))
+        ),
         []
       )
     }).pipe(Effect.provide(BunCrypto.layer)))

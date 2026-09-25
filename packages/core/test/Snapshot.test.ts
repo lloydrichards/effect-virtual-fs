@@ -46,7 +46,7 @@ const SnapshotJson = Schema.fromJsonString(Schema.Struct({
   extra: Schema.mutableKey(Schema.optionalKey(Schema.Boolean))
 }))
 
-import { it } from "./TestEffect.js"
+import { entryNames, it, text } from "./TestEffect.js"
 
 describe("fixtures and snapshots", () => {
   syncIt("rejects objects that forge the public BytePath symbol", () => {
@@ -104,7 +104,7 @@ describe("fixtures and snapshots", () => {
         const stat = yield* fs.stat("/dir/file")
         assert.strictEqual(stat.ino, (yield* f.stat).ino)
         assert.deepStrictEqual([stat.nlink, stat.uid, stat.mode, stat.mtimeNs], [2, 7, 0o640, 0n])
-        assert.strictEqual(yield* fs.readLink("/dangling"), "absent")
+        assert.strictEqual(text(yield* fs.readLink("/dangling")), "absent")
       })
   )
 
@@ -151,9 +151,12 @@ describe("fixtures and snapshots", () => {
         yield* f.write(new Uint8Array([1, 2, 3]))
         yield* fs.unlink("/removed")
         const restored = yield* (yield* Vfs.fromSnapshot(yield* volume.snapshot, { maxBytes: ByteSize.zero })).caller()
-        assert.strictEqual((yield* restored.lstat(path)).ino, (yield* restored.lstat("/alias")).ino)
+        assert.strictEqual(
+          (yield* restored.stat(Vfs.Target.Path({ path: path, followFinalSymlink: false }))).ino,
+          (yield* restored.stat(Vfs.Target.Path({ path: "/alias", followFinalSymlink: false }))).ino
+        )
         assert.strictEqual((yield* Effect.flip(restored.stat("/removed"))).code, "NotFound")
-        assert.strictEqual(yield* restored.readLink(path), "")
+        assert.strictEqual(text(yield* restored.readLink(path)), "")
       })
   )
 
@@ -266,7 +269,7 @@ describe("fixtures and snapshots", () => {
       })
 
       const restored = yield* Vfs.fromSnapshot(decoded)
-      assert.deepStrictEqual(yield* (yield* restored.caller()).readDirectory("/"), [])
+      assert.deepStrictEqual(entryNames(yield* (yield* restored.caller()).readDirectory("/")), [])
     }))
 
   it.effect(
@@ -284,7 +287,7 @@ describe("fixtures and snapshots", () => {
         })
 
         const restored = yield* (yield* Vfs.fromSnapshot(snapshot)).caller()
-        const names = yield* restored.readDirectory("/")
+        const names = entryNames(yield* restored.readDirectory("/"))
         assert.isTrue(names.join() === "before" || names.join() === "after")
         const encoded = yield* Vfs.encodeSnapshot(snapshot)
 
@@ -362,8 +365,14 @@ describe("fixtures and snapshots", () => {
         yield* caller.writeFile("/after", bytes, { access: "write", create: "ifMissing" })
         const restored = yield* (yield* Vfs.fromSnapshot(yield* volume.snapshot)).caller()
 
-        assert.strictEqual((yield* restored.lstat("/after")).kind, "file")
-        assert.strictEqual((yield* restored.lstat("/d99/f99")).kind, "file")
+        assert.strictEqual(
+          (yield* restored.stat(Vfs.Target.Path({ path: "/after", followFinalSymlink: false }))).kind,
+          "file"
+        )
+        assert.strictEqual(
+          (yield* restored.stat(Vfs.Target.Path({ path: "/d99/f99", followFinalSymlink: false }))).kind,
+          "file"
+        )
       })),
     20_000
   )

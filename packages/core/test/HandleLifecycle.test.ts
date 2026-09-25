@@ -80,13 +80,13 @@ const fileOpeners: ReadonlyArray<readonly [string, Opener]> = [
   ["open", (caller) => caller.open("/file", { access: "read" })],
   ["openReference", (caller) =>
     Effect.gen(function*() {
-      const reference = yield* caller.lookupReference(yield* caller.rootReference, name("file"))
+      const reference = yield* caller.lookup(Vfs.Entry(yield* caller.root, name("file")))
 
-      return yield* caller.openReference(reference)
+      return yield* caller.open(reference, { access: "read" })
     })],
   ["openChildReference", (caller) =>
     Effect.gen(function*() {
-      return yield* caller.openChildReference(yield* caller.rootReference, name("file"), { access: "read" })
+      return yield* caller.open(Vfs.Entry(yield* caller.root, name("file")), { access: "read" })
     })]
 ]
 

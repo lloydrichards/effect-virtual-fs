@@ -63,11 +63,13 @@ export const Metadata = Schema.Struct({
   atimeNs: Timestamp,
   mtimeNs: Timestamp,
   ctimeNs: Timestamp,
-  birthtimeNs: Timestamp
+  birthtimeNs: Timestamp,
+  /** The object's revision, advanced by every committed change to it. */
+  revision: Schema.BigInt
 })
 
 /**
- * Metadata of a filesystem object.
+ * Metadata of a filesystem object, including its revision.
  *
  * @category models
  * @since 0.6.0

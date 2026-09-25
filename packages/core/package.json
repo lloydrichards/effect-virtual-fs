@@ -67,6 +67,10 @@
       "types": "./dist/Metadata.d.ts",
       "import": "./dist/Metadata.js"
     },
+    "./Target": {
+      "types": "./dist/Target.d.ts",
+      "import": "./dist/Target.js"
+    },
     "./Volume": {
       "types": "./dist/Volume.d.ts",
       "import": "./dist/Volume.js"

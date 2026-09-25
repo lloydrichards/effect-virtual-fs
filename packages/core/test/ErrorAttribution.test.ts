@@ -92,11 +92,11 @@ describe("filesystem error attribution", () => {
   it.effect("keeps reference failures pathless and names scoped directory entry points", () =>
     Effect.scoped(Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
-      const root = yield* fs.rootReference
+      const root = yield* fs.root
 
-      assert.deepEqual(attribution(yield* Effect.flip(fs.unlinkReference(root, encoder.encode("missing")))), {
+      assert.deepEqual(attribution(yield* Effect.flip(fs.unlink(Vfs.Entry(root, encoder.encode("missing"))))), {
         code: "NotFound",
-        operation: "unlinkReference",
+        operation: "unlink",
         path: "<absent>"
       })
 

@@ -1,6 +1,6 @@
 import { assert, describe } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Fiber } from "effect"
-import { LiveVolume } from "../src/index.js"
+import { LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
 import { it } from "./TestEffect.js"
 
 const bytes = (...values: Array<number>) => new Uint8Array(values)
@@ -165,12 +165,12 @@ describe("live commit", () => {
   it.effect("shows the pre-rename state to waiting reads when the commit is rejected", () =>
     Effect.gen(function*() {
       const { caller, pauseNext, setOutcome } = yield* renameFixture
-      const root = yield* caller.rootReference
-      const a = yield* caller.lookupReference(root, name("a"))
-      const b = yield* caller.lookupReference(root, name("b"))
-      const file = yield* caller.lookupReference(a, name("f"))
-      const aBefore = (yield* caller.observeDirectory(a)).revision
-      const bBefore = (yield* caller.observeDirectory(b)).revision
+      const root = yield* caller.root
+      const a = yield* caller.lookup(Vfs.Entry(root, name("a")))
+      const b = yield* caller.lookup(Vfs.Entry(root, name("b")))
+      const file = yield* caller.lookup(Vfs.Entry(a, name("f")))
+      const aBefore = (yield* caller.readDirectory(a)).revision
+      const bBefore = (yield* caller.readDirectory(b)).revision
 
       const { entered, release } = yield* pauseNext
       const rename = yield* caller.rename("/a/f", "/b/f").pipe(Effect.forkChild({ startImmediately: true }))
@@ -189,9 +189,9 @@ describe("live commit", () => {
 
       assert.strictEqual((yield* Fiber.join(source)).kind, "file")
       assert.strictEqual((yield* Effect.flip(Fiber.join(target))).code, "NotFound")
-      assert.strictEqual((yield* caller.observeDirectory(a)).revision, aBefore)
-      assert.strictEqual((yield* caller.observeDirectory(b)).revision, bBefore)
-      assert.strictEqual(yield* caller.lookupReference(a, name("f")), file)
+      assert.strictEqual((yield* caller.readDirectory(a)).revision, aBefore)
+      assert.strictEqual((yield* caller.readDirectory(b)).revision, bBefore)
+      assert.strictEqual(yield* caller.lookup(Vfs.Entry(a, name("f"))), file)
     }))
 
   it.effect("keeps identity and revisions across a rejected rename", () =>
@@ -202,42 +202,42 @@ describe("live commit", () => {
       yield* caller.writeFile("/from/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       yield* caller.link("/from/file", "/alias")
 
-      const root = yield* caller.rootReference
-      const from = yield* caller.lookupReference(root, name("from"))
-      const file = yield* caller.lookupReference(from, name("file"))
-      const before = (yield* caller.observeMetadata(from)).revision
+      const root = yield* caller.root
+      const from = yield* caller.lookup(Vfs.Entry(root, name("from")))
+      const file = yield* caller.lookup(Vfs.Entry(from, name("file")))
+      const before = (yield* caller.stat(from)).revision
       yield* setOutcome("rejected")
 
       assert.strictEqual((yield* Effect.flip(caller.rename("/from/file", "/to/file"))).code, "StorageRejected")
       yield* setOutcome("committed")
-      assert.strictEqual((yield* caller.observeMetadata(from)).revision, before)
-      assert.strictEqual(yield* caller.lookupReference(from, name("file")), file)
-      assert.strictEqual(yield* caller.lookupReference(root, name("alias")), file)
+      assert.strictEqual((yield* caller.stat(from)).revision, before)
+      assert.strictEqual(yield* caller.lookup(Vfs.Entry(from, name("file"))), file)
+      assert.strictEqual(yield* caller.lookup(Vfs.Entry(root, name("alias"))), file)
       assert.strictEqual((yield* Effect.flip(caller.stat("/to/file"))).code, "NotFound")
 
       yield* caller.rename("/from/file", "/to/file")
-      const to = yield* caller.lookupReference(root, name("to"))
-      assert.strictEqual(yield* caller.lookupReference(to, name("file")), file)
-      assert.strictEqual(yield* caller.lookupReference(root, name("alias")), file)
+      const to = yield* caller.lookup(Vfs.Entry(root, name("to")))
+      assert.strictEqual(yield* caller.lookup(Vfs.Entry(to, name("file"))), file)
+      assert.strictEqual(yield* caller.lookup(Vfs.Entry(root, name("alias"))), file)
     }))
 
   it.effect("preserves a reference and its link count after a rejected unlink", () =>
     Effect.gen(function*() {
       const { caller, setOutcome } = yield* pausable
       yield* caller.writeFile("/f", bytes(1, 2), { access: "write", create: "exclusive" })
-      const root = yield* caller.rootReference
-      const ref = yield* caller.lookupReference(root, name("f"))
+      const root = yield* caller.root
+      const ref = yield* caller.lookup(Vfs.Entry(root, name("f")))
 
       yield* setOutcome("rejected")
       assert.strictEqual((yield* Effect.flip(caller.unlink("/f"))).code, "StorageRejected")
-      assert.strictEqual((yield* caller.observeMetadata(ref)).value.nlink, 1)
+      assert.strictEqual((yield* caller.stat(ref)).nlink, 1)
       // A path read commits its access-time update, so it also reports the rejection.
       assert.strictEqual((yield* Effect.flip(caller.readFile("/f"))).code, "StorageRejected")
 
       yield* setOutcome("committed")
       assert.deepStrictEqual(yield* caller.readFile("/f"), bytes(1, 2))
       yield* caller.unlink("/f")
-      assert.strictEqual((yield* Effect.flip(caller.observeMetadata(ref))).code, "StaleReference")
+      assert.strictEqual((yield* Effect.flip(caller.stat(ref))).code, "StaleReference")
     }))
 
   it.effect("does not commit when a failed open scope closes", () =>

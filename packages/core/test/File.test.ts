@@ -20,7 +20,7 @@ describe("regular files", () => {
       const read = yield* b.read(2)
       assert.deepStrictEqual(read, bytes(4, 2))
       read[0] = 8
-      assert.deepStrictEqual(yield* a.pread(3, 0n), bytes(4, 2, 3))
+      assert.deepStrictEqual((yield* a.pread(3, 0n)).bytes, bytes(4, 2, 3))
       assert.strictEqual(yield* a.seek(0n, "current"), 3n)
       assert.deepStrictEqual(yield* b.read(5), bytes(3))
       assert.deepStrictEqual(yield* b.read(1), bytes())
@@ -37,7 +37,7 @@ describe("regular files", () => {
         yield* f.truncate(1n)
         assert.strictEqual(yield* f.seek(0n, "current"), 8n)
         yield* f.write(bytes(7))
-        assert.deepStrictEqual(yield* f.pread(10, 0n), bytes(1, 0, 0, 0, 0, 0, 0, 0, 7))
+        assert.deepStrictEqual((yield* f.pread(10, 0n)).bytes, bytes(1, 0, 0, 0, 0, 0, 0, 0, 7))
         yield* f.pwrite(bytes(6), 1n)
         assert.strictEqual(yield* f.seek(0n, "current"), 9n)
         assert.strictEqual((yield* Effect.flip(f.seek(-10n, "current"))).code, "InvalidArgument")
@@ -59,12 +59,12 @@ describe("regular files", () => {
         const a = yield* fs.open("/f", { access: "readWrite", append: true, create: "ifMissing" })
         const b = yield* fs.open("/f", { access: "write", append: true })
         yield* Effect.all([a.write(bytes(1, 1)), b.write(bytes(2, 2))], { concurrency: "unbounded" })
-        const data = yield* a.pread(4, 0n)
+        const data = (yield* a.pread(4, 0n)).bytes
         assert.isTrue(data.join() === "1,1,2,2" || data.join() === "2,2,1,1")
         const position = yield* a.seek(0n, "current")
         yield* a.pwrite(bytes(9), 0n)
         assert.strictEqual(yield* a.seek(0n, "current"), position)
-        assert.strictEqual((yield* a.pread(1, 0n))[0], 9)
+        assert.strictEqual((yield* a.pread(1, 0n)).bytes[0], 9)
         yield* a.seek(0n, "start")
         yield* a.write(bytes())
         assert.strictEqual(yield* a.seek(0n, "current"), 0n)
@@ -87,7 +87,7 @@ describe("regular files", () => {
         yield* f.truncate(4n)
         assert.strictEqual((yield* Effect.flip(f.pwrite(bytes(8), 6n))).code, "NoSpace")
         assert.strictEqual(yield* f.pwrite(bytes(8, 9), 5n), 1)
-        assert.deepStrictEqual(yield* f.pread(9, 0n), bytes(1, 9, 3, 4, 0, 8))
+        assert.deepStrictEqual((yield* f.pread(9, 0n)).bytes, bytes(1, 9, 3, 4, 0, 8))
       })
   )
 
@@ -141,7 +141,7 @@ describe("regular files", () => {
           (yield* Effect.flip(guest.open("/f", { access: "write", truncate: true }))).code,
           "AccessDenied"
         )
-        assert.deepStrictEqual(yield* f.pread(3, 0n), bytes(1, 2))
+        assert.deepStrictEqual((yield* f.pread(3, 0n)).bytes, bytes(1, 2))
         assert.strictEqual(
           (yield* Effect.flip(fs.open("/f", { access: "write", create: "exclusive" }))).code,
           "AlreadyExists"

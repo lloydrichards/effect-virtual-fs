@@ -20,7 +20,7 @@ const changePaths = (changes: ReadonlyArray<Vfs.OverlayChange>) =>
     return pathText(change.path).pipe(Effect.map((path) => `${change._tag}:${path}`))
   })
 
-import { it } from "./TestEffect.js"
+import { entryNames, it } from "./TestEffect.js"
 
 describe("overlay volumes", () => {
   it.effect("is an ordinary Volume with an isolated base and sibling namespace", () =>
@@ -45,7 +45,7 @@ describe("overlay volumes", () => {
       yield* a.rename("/shared", "/moved")
 
       assert.strictEqual(text(yield* a.readFile("/alias")), "bXse")
-      assert.strictEqual(text(yield* old.pread(4, 0n)), "bXse")
+      assert.strictEqual(text((yield* old.pread(4, 0n)).bytes), "bXse")
       assert.strictEqual((yield* a.stat("/alias")).ino, (yield* a.stat("/moved")).ino)
       assert.strictEqual(text(yield* b.readFile("/shared")), "base")
       assert.strictEqual((yield* b.stat("/shared")).mode, 0o644)
@@ -137,7 +137,7 @@ describe("overlay volumes", () => {
       )
 
       assert.strictEqual(blocked.code, "NoSpace")
-      assert.strictEqual(text(yield* held.pread(3, 0n)), "abc")
+      assert.strictEqual(text((yield* held.pread(3, 0n)).bytes), "abc")
       yield* Scope.close(scope, Exit.void)
       yield* fs.writeFile("/new", bytes("x"), { access: "write", create: "exclusive" })
       assert.strictEqual(text(yield* fs.readFile("/new")), "x")
@@ -155,7 +155,7 @@ describe("overlay volumes", () => {
       const stranger = yield* first.caller({ identity: { uid: 8, gid: 8, groups: [], privileged: false } })
       const foreign = yield* (yield* second.caller()).open("/private", { access: "read" })
       assert.strictEqual((yield* Effect.flip(stranger.readFile("/private"))).code, "AccessDenied")
-      assert.strictEqual((yield* Effect.flip(owner.chmodHandle(foreign, 0o644))).code, "ForeignHandle")
+      assert.strictEqual((yield* Effect.flip(owner.chmod(foreign, 0o644))).code, "ForeignHandle")
       assert.strictEqual(text(yield* owner.readFile("/private")), "secret")
     }))
 
@@ -252,7 +252,7 @@ describe("overlay volumes", () => {
         const captured = yield* Fiber.join(captureFiber)
         yield* Fiber.join(renameFiber)
         const capturedFs = yield* (yield* Vfs.fromSnapshot(captured.snapshot)).caller()
-        assert.deepStrictEqual(yield* capturedFs.readDirectory("/"), ["before"])
+        assert.deepStrictEqual(entryNames(yield* capturedFs.readDirectory("/")), ["before"])
         assert.deepStrictEqual(yield* changePaths(captured.changes), [])
       })
   )
@@ -435,7 +435,7 @@ describe("overlay volumes", () => {
       yield* Effect.yieldNow
       assert.isUndefined(oldWatch.pollUnsafe())
       yield* oldHandle.pwrite(bytes("X"), 0n)
-      assert.strictEqual(text(yield* oldHandle.pread(4, 0n)), "Xase")
+      assert.strictEqual(text((yield* oldHandle.pread(4, 0n)).bytes), "Xase")
       assert.strictEqual(text(yield* oldCaller.readFile("/f")), "Xase")
       assert.strictEqual(text(yield* freshCaller.readFile("/f")), "new")
       assert.strictEqual((yield* Fiber.join(oldWatch)).length, 1)

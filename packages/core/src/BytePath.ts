@@ -46,8 +46,8 @@ export type BytePathId = typeof BytePathId
  *     create: "exclusive"
  *   })
  *
- *   // `readDirectory` fails `UnrepresentableName` here; the byte variant keeps it.
- *   return yield* caller.readDirectoryBytes("/")
+ *   // A listing carries names as bytes, so nothing is lost to text decoding.
+ *   return (yield* caller.readDirectory("/")).value.map((entry) => entry.name)
  * })
  *
  * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)

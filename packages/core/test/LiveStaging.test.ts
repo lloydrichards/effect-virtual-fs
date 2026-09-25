@@ -11,7 +11,7 @@ import {
   VolumeSource
 } from "../src/internal/virtualFileSystem.js"
 import { VolumeIdentity } from "../src/Volume.js"
-import { it } from "./TestEffect.js"
+import { entryNames, it } from "./TestEffect.js"
 
 // Smaller budgets livelock the runtime: it counts an op before checking whether to yield.
 const MIN_OP_BUDGET = 3
@@ -57,7 +57,7 @@ describe("live volume staging", () => {
       assert.strictEqual((yield* Effect.flip(caller.mkdir("/rejected"))).code, "StorageRejected")
       outcome = "committed"
 
-      assert.deepEqual(yield* handle.pread(2, 0n), new Uint8Array([1]))
+      assert.deepEqual((yield* handle.pread(2, 0n)).bytes, new Uint8Array([1]))
       assert.strictEqual(yield* handle.seek(0n, "current"), 1n)
       assert.deepEqual(yield* volume.usage, { usedBytes: 1n, entries: 1 })
       assert.strictEqual((yield* Effect.flip(caller.stat("/rejected"))).code, "NotFound")
@@ -68,7 +68,7 @@ describe("live volume staging", () => {
       assert.strictEqual(event._tag, "Some")
 
       if (Predicate.isTagged("Some")(event)) {
-        assert.deepEqual(yield* caller.readDirectory("/"), ["file", "visible"])
+        assert.deepEqual(entryNames(yield* caller.readDirectory("/")), ["file", "visible"])
         assert.deepEqual(yield* Vfs.pathToBytes(event.value.path), new TextEncoder().encode("/visible"))
       }
     })))
@@ -102,19 +102,19 @@ describe("live volume staging", () => {
       const caller = yield* volume.caller()
       const handle = yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
       yield* handle.write(new Uint8Array([1]))
-      const root = yield* caller.rootReference
-      const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
+      const root = yield* caller.root
+      const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
 
       outcome = "rejected"
       assert.strictEqual((yield* Effect.flip(caller.unlink("/file"))).code, "StorageRejected")
       outcome = "committed"
-      assert.strictEqual((yield* caller.observeMetadata(reference)).value.nlink, 1)
+      assert.strictEqual((yield* caller.stat(reference)).nlink, 1)
       assert.deepEqual(yield* caller.readFile("/file"), new Uint8Array([1]))
 
       yield* caller.unlink("/file")
-      assert.strictEqual((yield* Effect.flip(caller.openReference(reference))).code, "StaleReference")
+      assert.strictEqual((yield* Effect.flip(caller.open(reference, { access: "read" }))).code, "StaleReference")
       yield* handle.write(new Uint8Array([2]))
-      assert.deepEqual(yield* handle.pread(2, 0n), new Uint8Array([1, 2]))
+      assert.deepEqual((yield* handle.pread(2, 0n)).bytes, new Uint8Array([1, 2]))
       assert.deepEqual(yield* volume.usage, { usedBytes: 2n, entries: 0 })
       yield* handle.close
       assert.deepEqual(yield* volume.usage, { usedBytes: 0n, entries: 0 })
@@ -227,23 +227,23 @@ describe("live volume staging", () => {
       yield* caller.writeFile("/from/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       yield* caller.link("/from/file", "/alias")
 
-      const root = yield* caller.rootReference
-      const from = yield* caller.lookupReference(root, new TextEncoder().encode("from"))
-      const file = yield* caller.lookupReference(from, new TextEncoder().encode("file"))
-      const before = (yield* caller.observeMetadata(from)).revision
+      const root = yield* caller.root
+      const from = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("from")))
+      const file = yield* caller.lookup(Vfs.Entry(from, new TextEncoder().encode("file")))
+      const before = (yield* caller.stat(from)).revision
       outcome = "rejected"
 
       assert.strictEqual((yield* Effect.flip(caller.rename("/from/file", "/to/file"))).code, "StorageRejected")
       outcome = "committed"
-      assert.strictEqual((yield* caller.observeMetadata(from)).revision, before)
-      assert.strictEqual(yield* caller.lookupReference(from, new TextEncoder().encode("file")), file)
-      assert.strictEqual(yield* caller.lookupReference(root, new TextEncoder().encode("alias")), file)
+      assert.strictEqual((yield* caller.stat(from)).revision, before)
+      assert.strictEqual(yield* caller.lookup(Vfs.Entry(from, new TextEncoder().encode("file"))), file)
+      assert.strictEqual(yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("alias"))), file)
       assert.strictEqual((yield* Effect.flip(caller.stat("/to/file"))).code, "NotFound")
 
       yield* caller.rename("/from/file", "/to/file")
-      const to = yield* caller.lookupReference(root, new TextEncoder().encode("to"))
-      assert.strictEqual(yield* caller.lookupReference(to, new TextEncoder().encode("file")), file)
-      assert.strictEqual(yield* caller.lookupReference(root, new TextEncoder().encode("alias")), file)
+      const to = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("to")))
+      assert.strictEqual(yield* caller.lookup(Vfs.Entry(to, new TextEncoder().encode("file"))), file)
+      assert.strictEqual(yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("alias"))), file)
     }))
 
   it.effect("holds observers behind a pending commit", () =>
@@ -302,24 +302,27 @@ describe("live volume staging", () => {
       const root = yield* caller.openDirectory("/")
       const reads: Array<string> = []
 
-      const options = (label: string) => ({
-        get relativeTo() {
-          reads.push(label)
+      // A path target whose base is read lazily, to observe when the operation reads it.
+      const target = (label: string) =>
+        Vfs.Target.Path({
+          path: "/file",
+          get relativeTo() {
+            reads.push(label)
 
-          return root
-        }
-      })
+            return root
+          }
+        })
 
-      assert.strictEqual((yield* Effect.flip(caller.access("/file", 8, options("invalid")))).code, "InvalidArgument")
+      assert.strictEqual((yield* Effect.flip(caller.access(target("invalid"), 8))).code, "InvalidArgument")
       pause = true
       const writer = yield* caller.mkdir("/new").pipe(Effect.forkChild({ startImmediately: true }))
       yield* Deferred.await(entered)
 
-      const access = yield* caller.access("/file", 4, options("access")).pipe(
+      const access = yield* caller.access(target("access"), 4).pipe(
         Effect.forkChild({ startImmediately: true })
       )
 
-      const truncate = yield* caller.truncate("/file", 0n, options("truncate")).pipe(
+      const truncate = yield* caller.truncate(target("truncate"), 0n).pipe(
         Effect.forkChild({ startImmediately: true })
       )
 
@@ -360,7 +363,11 @@ describe("live volume staging", () => {
 
       const caller = yield* volume.caller()
       const handle = yield* caller.open("/handle", { access: "readWrite", create: "exclusive" })
-      const exists = (path: string) => Effect.exit(caller.lstat(path)).pipe(Effect.map(Exit.isSuccess))
+
+      const exists = (path: string) =>
+        Effect.exit(caller.stat(Vfs.Target.Path({ path: path, followFinalSymlink: false }))).pipe(
+          Effect.map(Exit.isSuccess)
+        )
 
       // Path, content, and handle mutations each swap engine state, so each is swept separately.
       const mutations = [

@@ -26,7 +26,7 @@ describe("metadata authority", () => {
 
           if (Result.isFailure(result)) assert.strictEqual(result.failure.code, "InvalidArgument")
           assert.deepStrictEqual(yield* handle.stat, before)
-          assert.strictEqual((yield* Effect.flip(fs.utimesHandle(handle, times))).code, "InvalidArgument")
+          assert.strictEqual((yield* Effect.flip(fs.utimes(handle, times))).code, "InvalidArgument")
           assert.deepStrictEqual(yield* handle.stat, before)
         }
       })
@@ -86,29 +86,19 @@ describe("metadata authority", () => {
       })
   )
 
-  it.effect("validates a metadata change before reading its options", () =>
+  it.effect("validates a metadata change before resolving its target", () =>
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
-      yield* fs.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const reads: Array<string> = []
-
-      const options = {
-        get followFinalSymlink() {
-          reads.push("followFinalSymlink")
-
-          return true
-        }
-      }
 
       const code = (effect: Effect.Effect<void, Vfs.VfsError>) => Effect.map(Effect.flip(effect), (error) => error.code)
 
+      // A bad argument is reported before the missing path would be.
       assert.deepStrictEqual([
-        yield* code(fs.chmod("/file", -1, options)),
-        yield* code(fs.chown("/file", { uid: -1 }, options)),
+        yield* code(fs.chmod("/missing", -1)),
+        yield* code(fs.chown("/missing", { uid: -1 })),
         // SAFETY: deliberately violates Times to reach the decode failure.
-        yield* code(fs.utimes("/file", { access: { kind: "never" } } as never, options))
+        yield* code(fs.utimes("/missing", { access: { kind: "never" } } as never))
       ], ["InvalidArgument", "InvalidArgument", "InvalidArgument"])
-      assert.deepStrictEqual(reads, [])
     }))
 
   it.effect("rejects unsupported captured clock samples before creation or mutation", () =>
@@ -166,10 +156,10 @@ describe("metadata authority", () => {
         yield* opened.write(new Uint8Array([1]))
         assert.strictEqual((yield* Effect.flip(owner.open("/f", { access: "read" }))).code, "AccessDenied")
         const stranger = yield* volume.caller({ identity: { uid: 9, gid: 9, groups: [], privileged: false } })
-        assert.strictEqual((yield* Effect.flip(stranger.chmodHandle(f, 0o777))).code, "AccessDenied")
-        yield* owner.chmodHandle(f, 0o600)
+        assert.strictEqual((yield* Effect.flip(stranger.chmod(f, 0o777))).code, "AccessDenied")
+        yield* owner.chmod(f, 0o600)
         yield* admin.unlink("/f")
-        yield* owner.chmodHandle(f, 0o400)
+        yield* owner.chmod(f, 0o400)
         assert.strictEqual((yield* f.stat).mode, 0o400)
       })
   )
@@ -232,14 +222,14 @@ describe("metadata authority", () => {
       Effect.gen(function*() {
         const fs = yield* (yield* Vfs.make()).caller()
         yield* fs.symlink("missing", "/link")
-        yield* fs.chown("/link", { uid: 5 }, { followFinalSymlink: false })
-        assert.strictEqual((yield* fs.lstat("/link")).uid, 5)
+        yield* fs.chown(Vfs.Target.Path({ path: "/link", followFinalSymlink: false }), { uid: 5 })
+        assert.strictEqual((yield* fs.stat(Vfs.Target.Path({ path: "/link", followFinalSymlink: false }))).uid, 5)
         const foreign = yield* (yield* (yield* Vfs.make()).caller()).openDirectory("/")
         yield* foreign.close
-        assert.strictEqual((yield* Effect.flip(fs.chmodHandle(foreign, 0))).code, "ForeignHandle")
+        assert.strictEqual((yield* Effect.flip(fs.chmod(foreign, 0))).code, "ForeignHandle")
         const own = yield* fs.openDirectory("/")
         yield* own.close
-        assert.strictEqual((yield* Effect.flip(fs.chmodHandle(own, 0))).code, "InvalidHandle")
+        assert.strictEqual((yield* Effect.flip(fs.chmod(own, 0))).code, "InvalidHandle")
       })
   )
 
@@ -250,9 +240,9 @@ describe("metadata authority", () => {
         const fs = yield* (yield* Vfs.make({ maxBytes: ByteSize.bytes(3) })).caller()
         const f = yield* fs.open("/f", { access: "readWrite", create: "exclusive" })
         yield* f.write(new Uint8Array([1, 2, 3]))
-        assert.strictEqual((yield* Effect.flip(fs.access("/f", 1))).code, "AccessDenied")
+        assert.strictEqual(yield* fs.access("/f", 1), 0)
         yield* fs.chmod("/f", 0o100)
-        yield* fs.access("/f", 1)
+        assert.strictEqual(yield* fs.access("/f", 1), 1)
         yield* fs.truncate("/f", 1n)
         assert.strictEqual(yield* f.seek(0n, "current"), 3n)
         assert.strictEqual((yield* Effect.flip(fs.truncate("/f", 4n))).code, "NoSpace")
@@ -302,7 +292,7 @@ describe("metadata authority", () => {
       const handle = yield* guest.openDirectory("/deep")
 
       const throughHandle = yield* Effect.flip(
-        guest.utimesHandle(handle, { access: { kind: "value", nanoseconds: 3n }, modification: { kind: "omit" } })
+        guest.utimes(handle, { access: { kind: "value", nanoseconds: 3n }, modification: { kind: "omit" } })
       )
 
       assert.strictEqual(throughHandle.code, "AccessDenied")

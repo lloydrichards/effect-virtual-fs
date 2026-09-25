@@ -16,11 +16,11 @@ describe("volume watch", () => {
         Effect.forkChild({ startImmediately: true })
       )
 
-      const opened = yield* caller.openChildReference(
-        yield* caller.rootReference,
-        new TextEncoder().encode("sized"),
-        { access: "read", create: "exclusive", initialSize: 3n }
-      )
+      const opened = yield* caller.open(Vfs.Entry(yield* caller.root, new TextEncoder().encode("sized")), {
+        access: "read",
+        create: "exclusive",
+        initialSize: 3n
+      })
 
       yield* opened.handle.close
       yield* caller.mkdir("/sentinel")
@@ -180,7 +180,7 @@ describe("volume watch", () => {
           Effect.forkChild({ startImmediately: true })
         )
 
-        yield* caller.chmodHandle(removed, 0o700)
+        yield* caller.chmod(removed, 0o700)
         yield* caller.mkdir("/sentinel")
 
         const events = yield* Fiber.join(watcher)
@@ -211,7 +211,7 @@ describe("volume watch", () => {
           Effect.forkChild({ startImmediately: true })
         )
 
-        yield* caller.utimesHandle(displaced, { access: { kind: "now" }, modification: { kind: "now" } })
+        yield* caller.utimes(displaced, { access: { kind: "now" }, modification: { kind: "now" } })
         yield* caller.mkdir("/sentinel")
 
         const events = yield* Fiber.join(watcher)
@@ -267,7 +267,7 @@ describe("volume watch", () => {
           Effect.forkChild({ startImmediately: true })
         )
 
-        yield* caller.chmodHandle(moved, 0o700)
+        yield* caller.chmod(moved, 0o700)
 
         const events = yield* Fiber.join(watcher)
         const paths: Array<string> = []
@@ -296,7 +296,7 @@ describe("volume watch", () => {
           Effect.forkChild({ startImmediately: true })
         )
 
-        yield* caller.chmodHandle(handle, 0o600)
+        yield* caller.chmod(handle, 0o600)
         yield* caller.mkdir("/sentinel")
 
         const events = yield* Fiber.join(watcher)

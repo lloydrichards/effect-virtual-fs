@@ -83,47 +83,49 @@ export const RootCallerOptions = Schema.Struct({
 export type RootCallerOptions = typeof RootCallerOptions.Type
 
 /**
- * Schema for the settings of a path-addressed open.
+ * Schema for the options of `open` on a target: the access mode, whether a
+ * missing file is created, the creation mode, and append and truncate flags.
  *
  * @category schemas
  * @since 0.6.0
  */
-export const OpenSettings = Schema.Struct({
+export const OpenOptions = Schema.Struct({
   access: Schema.Literals(["read", "write", "readWrite"]),
   create: Schema.optionalKey(Schema.Literals(["never", "ifMissing", "exclusive"])),
   mode: Schema.optionalKey(Mode),
   append: Schema.optionalKey(Schema.Boolean),
-  truncate: Schema.optionalKey(Schema.Boolean),
-  followFinalSymlink: Schema.optionalKey(Schema.Boolean)
+  truncate: Schema.optionalKey(Schema.Boolean)
 })
 
 /**
- * Settings of a path-addressed open.
+ * Options of `open` on a target.
  *
  * @category models
  * @since 0.6.0
  */
-export type OpenSettings = typeof OpenSettings.Type
+export type OpenOptions = typeof OpenOptions.Type
 
 /**
- * Schema for the settings of a whole-file write.
+ * Schema for the options of `writeFile`: the open options plus whether a
+ * final symbolic link is replaced or followed and the mode the file ends with.
  *
  * @category schemas
  * @since 0.6.0
  */
-export const WriteFileSettings = Schema.Struct({
-  ...OpenSettings.fields,
+export const WriteFileOptions = Schema.Struct({
+  ...OpenOptions.fields,
+  followFinalSymlink: Schema.optionalKey(Schema.Boolean),
   replaceFinalSymlink: Schema.optionalKey(Schema.Boolean),
   finalMode: Schema.optionalKey(Mode)
 })
 
 /**
- * Settings of a whole-file write.
+ * Options of `writeFile`.
  *
  * @category models
  * @since 0.6.0
  */
-export type WriteFileSettings = typeof WriteFileSettings.Type
+export type WriteFileOptions = typeof WriteFileOptions.Type
 
 /**
  * Schema for a directory's revision before and after a change.
@@ -145,7 +147,7 @@ export const DirectoryChange = Schema.Struct({
 export type DirectoryChange = typeof DirectoryChange.Type
 
 /**
- * Schema for the result of a reference-addressed rename.
+ * Schema for the result of `rename`.
  *
  * @category schemas
  * @since 0.6.0
@@ -159,7 +161,7 @@ export const RenameReferenceResult = Schema.TaggedUnion({
 })
 
 /**
- * The result of a reference-addressed rename.
+ * The result of `rename`.
  *
  * @category models
  * @since 0.6.0
@@ -167,79 +169,66 @@ export const RenameReferenceResult = Schema.TaggedUnion({
 export type RenameReferenceResult = typeof RenameReferenceResult.Type
 
 /**
- * Schema for the settings of a reference-addressed directory creation.
+ * Schema for the options of `mkdir`. `exactMode` skips the caller's umask for
+ * an explicit creation mode; permission policy still applies.
  *
  * @category schemas
  * @since 0.6.0
  */
-export const MkdirReferenceSettings = Schema.Struct({
+export const MkdirOptions = Schema.Struct({
   mode: Schema.optionalKey(Mode),
   exactMode: Schema.optionalKey(Schema.Boolean),
   times: Schema.optionalKey(Times)
 })
 
 /**
- * Settings of a reference-addressed directory creation.
+ * Options of `mkdir`.
  *
  * @category models
  * @since 0.6.0
  */
-export type MkdirReferenceSettings = typeof MkdirReferenceSettings.Type
+export type MkdirOptions = typeof MkdirOptions.Type
 
 /**
- * Schema for the settings of a reference-addressed symbolic link creation.
+ * Schema for the options of `symlink`.
  *
  * @category schemas
  * @since 0.6.0
  */
-export const SymlinkReferenceSettings = Schema.Struct({
+export const SymlinkOptions = Schema.Struct({
   times: Schema.optionalKey(Times)
 })
 
 /**
- * Settings of a reference-addressed symbolic link creation.
+ * Options of `symlink`.
  *
  * @category models
  * @since 0.6.0
  */
-export type SymlinkReferenceSettings = typeof SymlinkReferenceSettings.Type
-
-/**
- * Schema for the settings of opening an existing file by reference.
- *
- * @category schemas
- * @since 0.6.0
- */
-export const OpenReferenceSettings = Schema.Struct({
-  access: Schema.Literals(["read", "write", "readWrite"]),
-  append: Schema.optionalKey(Schema.Boolean),
-  truncate: Schema.optionalKey(Schema.Boolean)
-})
-
-/**
- * Settings of opening an existing file by reference.
- *
- * @category models
- * @since 0.6.0
- */
-export type OpenReferenceSettings = typeof OpenReferenceSettings.Type
+export type SymlinkOptions = typeof SymlinkOptions.Type
 
 const ObjectReferenceSchema = Schema.declare<ObjectReference>((input): input is ObjectReference =>
   Predicate.hasProperty(ObjectReferenceId)(input) && input[ObjectReferenceId] === true
 )
 
 /**
- * Schema for the settings of a lookup-or-create-and-open through a parent reference.
+ * Schema for the options of `open` on an entry, a lookup-or-create-and-open in
+ * one gate hold. `expected` pins the child the caller last observed under the
+ * name (or `null` for none) and fails as `VolumeBusy` when another has
+ * appeared; `expectedChild` pins its revision and times as well and fails as
+ * `StaleReference` when they moved.
  *
  * @category schemas
  * @since 0.6.0
  */
-export const OpenChildReferenceSettings = Schema.Struct({
-  ...OpenSettings.fields,
+export const OpenEntryOptions = Schema.Struct({
+  ...OpenOptions.fields,
+  followFinalSymlink: Schema.optionalKey(Schema.Boolean),
   times: Schema.optionalKey(Times),
   initialSize: Schema.optionalKey(Schema.BigInt),
   exactMode: Schema.optionalKey(Schema.Boolean),
   owner: Schema.optionalKey(OwnerUpdate),
+  expected: Schema.optionalKey(Schema.NullOr(ObjectReferenceSchema)),
   expectedChild: Schema.optionalKey(Schema.NullOr(Schema.Struct({
     reference: ObjectReferenceSchema,
     revision: Schema.BigInt,
@@ -249,9 +238,9 @@ export const OpenChildReferenceSettings = Schema.Struct({
 })
 
 /**
- * Settings of a lookup-or-create-and-open through a parent reference.
+ * Options of `open` on an entry.
  *
  * @category models
  * @since 0.6.0
  */
-export type OpenChildReferenceSettings = typeof OpenChildReferenceSettings.Type
+export type OpenEntryOptions = typeof OpenEntryOptions.Type
