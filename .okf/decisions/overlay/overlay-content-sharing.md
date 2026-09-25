@@ -8,15 +8,18 @@ sources:
   - id: core
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: Current node identity, byte ownership and eager restoration
+  - id: engine
+    resource: ../../../packages/core/src/internal/virtualFileSystem.ts
+    title: The restored base value kept on the snapshot and shared by its workspaces
   - id: research
     resource: ../../research/overlay-filesystem.md
     title: Overlay storage alternatives
-generated: { by: codex/okf, at: 2026-09-10T11:48:22Z }
+generated: { by: claude/okf, at: 2026-09-25T18:00:00Z }
 ---
 
 # Overlay content sharing
 
-Accepted by the user on 2026-09-10 and implemented with a weak snapshot-identity cache. V1 workspaces created from the same immutable snapshot share unchanged file contents. First content change gives the workspace private whole-file contents. Copying only changed blocks or ranges is deferred.
+Accepted by the user on 2026-09-10. Since the persistent tree rebuild, a base snapshot restores once into an immutable volume value kept on the snapshot handle, and every workspace starts from that value, so unchanged inodes and file contents are shared by structure rather than through a decoded-content cache. V1 workspaces created from the same immutable snapshot share unchanged file contents. First content change gives the workspace private whole-file contents. Copying only changed blocks or ranges is deferred.
 
 Reads and metadata-only changes, including access times and permissions, retain shared contents. Metadata remains private. Public reads still return owned bytes under the [byte ownership contract](../../contracts/byte-ownership.md "preserves"); internal sharing must never expose mutable backing buffers.
 
