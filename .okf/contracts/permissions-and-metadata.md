@@ -11,7 +11,9 @@ sources:
     title: Permission and metadata behavior tests
   - resource: ../../packages/memory/test/Timestamp.test.ts
     title: Adapter timestamp boundary tests
-generated: { by: codex/okf, at: 2026-09-10T00:00:00Z }
+  - resource: ../../packages/core/src/VfsError.ts
+    title: AccessDenied and NotPermitted codes
+generated: { by: codex/okf, at: 2026-09-26T10:00:00Z }
 ---
 
 # Permissions and metadata
@@ -19,6 +21,8 @@ generated: { by: codex/okf, at: 2026-09-10T00:00:00Z }
 Callers carry uid, gid, supplementary groups, explicit privilege, and umask. Traversal and operations apply owner, group, and other mode checks; new entries inherit the parent gid and apply the caller's umask.
 
 An operation checks the mode bits it needs on the node it acts on, so reading metadata or a symbolic-link target is authorized by the traversal that reached the object and checks nothing on the object itself, as POSIX `stat` and `readlink` do. The same rule governs [object references](object-references.md "constrains").
+
+A denial reports one of two codes, as Linux does. `AccessDenied` (EACCES) means the mode bits refuse the access. `NotPermitted` (EPERM) means the change needs ownership or privilege: chmod, chown, or explicit times by a non-owner, removing another owner's entry from a sticky directory, or an unprivileged create that names an owner.
 
 Metadata includes file kind, identity, link count, size, ownership, mode, and bigint nanosecond timestamps. Returned metadata is copied. Core timestamps use the Effect clock without promising physical nanosecond precision.
 

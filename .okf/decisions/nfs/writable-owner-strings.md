@@ -20,7 +20,7 @@ sources:
   - id: encoder
     resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: GETATTR owner-string encoder
-generated: { by: codex/okf, at: 2026-09-20T12:11:27Z }
+generated: { by: codex/okf, at: 2026-09-26T10:00:00Z }
 ---
 
 # Writable NFS owner strings
@@ -29,7 +29,7 @@ The first writable profile accepts only canonical, unsigned decimal strings for 
 
 No NFSv4 domain or application-supplied name mapper is introduced. RFC 8881 permits servers to choose numeric-string support and recommends `BADOWNER` when no translation exists. A name-mapping feature would need a separate policy and matching `GETATTR` representation so an accepted `SETATTR` value can be read back consistently.[^rfc]
 
-Translating a string does not authorize a change. The existing application policy maps the connection's credential to a core caller; that caller's `chownReference` rule decides whether the requested uid or gid may be set. NFS maps an ownership restriction from this operation to `NFS4ERR_PERM`, while invalid or untranslatable owner strings return `NFS4ERR_BADOWNER`. The adapter must recognize `AccessDenied` from `chownReference` as `PERM`; the generic mapping remains `ACCESS`, as required by the [error-mapping decision](error-mapping.md "constrained by"). UID zero in a wire credential grants no privilege by itself, consistent with [explicit caller privilege](../core/explicit-caller-privilege.md "constrained by").[^core]
+Translating a string does not authorize a change. The existing application policy maps the connection's credential to a core caller; that caller's `chownReference` rule decides whether the requested uid or gid may be set. NFS maps an ownership restriction from this operation to `NFS4ERR_PERM`, while invalid or untranslatable owner strings return `NFS4ERR_BADOWNER`. Core reports that restriction as `NotPermitted`, which the [error-mapping decision](error-mapping.md "constrained by") maps to `PERM` for `SETATTR` and OPEN; mode-bit denials stay `AccessDenied` and map to `ACCESS`. Until [#207](https://github.com/lloydrichards/effect-virtual-fs/issues/207) core reported both as `AccessDenied`, and `SETATTR` special-cased owner changes to `PERM`. UID zero in a wire credential grants no privilege by itself, consistent with [explicit caller privilege](../core/explicit-caller-privilege.md "constrained by").[^core]
 
 An unprivileged caller must own the object, cannot change its uid, and may set its gid only to the caller's primary or supplementary groups. A privileged caller may set either ID within the accepted range. Translation does not require a local account lookup.[^core]
 
