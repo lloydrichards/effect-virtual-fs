@@ -12,7 +12,7 @@ Added in v0.6.0
 
 ### Metadata (type alias)
 
-Metadata of a filesystem object.
+Metadata of a filesystem object, including its revision.
 
 **Signature**
 
@@ -29,6 +29,7 @@ export type Metadata = {
   readonly mtimeNs: bigint
   readonly ctimeNs: bigint
   readonly birthtimeNs: bigint
+  readonly revision: bigint
 }
 ```
 
@@ -127,6 +128,7 @@ export declare const Metadata: Schema.Struct<{
   readonly mtimeNs: Schema.BigInt
   readonly ctimeNs: Schema.BigInt
   readonly birthtimeNs: Schema.BigInt
+  readonly revision: Schema.BigInt
 }>
 ```
 

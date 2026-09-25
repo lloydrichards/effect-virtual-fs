@@ -75,6 +75,14 @@ export const apiPages = [
   },
   {
     packageDir: "packages/core",
+    moduleName: "Target",
+    label: "Core · Target",
+    href: "/api/core/target",
+    routePath: "core/target",
+    contentPath: "content/api/core/target.mdx"
+  },
+  {
+    packageDir: "packages/core",
     moduleName: "FileHandle",
     label: "Core · FileHandle",
     href: "/api/core/file-handle",

@@ -38,14 +38,14 @@ export type Identity = {
 
 Added in v0.6.0
 
-### MkdirReferenceSettings (type alias)
+### MkdirOptions (type alias)
 
-Settings of a reference-addressed directory creation.
+Options of `mkdir`.
 
 **Signature**
 
 ```ts
-export type MkdirReferenceSettings = {
+export type MkdirOptions = {
   readonly mode?: number
   readonly exactMode?: boolean
   readonly times?: {
@@ -63,20 +63,19 @@ export type MkdirReferenceSettings = {
 
 Added in v0.6.0
 
-### OpenChildReferenceSettings (type alias)
+### OpenEntryOptions (type alias)
 
-Settings of a lookup-or-create-and-open through a parent reference.
+Options of `open` on an entry.
 
 **Signature**
 
 ```ts
-export type OpenChildReferenceSettings = {
+export type OpenEntryOptions = {
   readonly access: "read" | "write" | "readWrite"
   readonly mode?: number
   readonly create?: "never" | "ifMissing" | "exclusive"
   readonly append?: boolean
   readonly truncate?: boolean
-  readonly followFinalSymlink?: boolean
   readonly exactMode?: boolean
   readonly times?: {
     readonly access:
@@ -88,8 +87,10 @@ export type OpenChildReferenceSettings = {
       | { readonly kind: "omit" }
       | { readonly kind: "value"; readonly nanoseconds: bigint }
   }
+  readonly followFinalSymlink?: boolean
   readonly initialSize?: bigint
   readonly owner?: { readonly uid?: number; readonly gid?: number }
+  readonly expected?: ObjectReference | null
   readonly expectedChild?: {
     readonly reference: ObjectReference
     readonly revision: bigint
@@ -101,36 +102,19 @@ export type OpenChildReferenceSettings = {
 
 Added in v0.6.0
 
-### OpenReferenceSettings (type alias)
+### OpenOptions (type alias)
 
-Settings of opening an existing file by reference.
-
-**Signature**
-
-```ts
-export type OpenReferenceSettings = {
-  readonly access: "read" | "write" | "readWrite"
-  readonly append?: boolean
-  readonly truncate?: boolean
-}
-```
-
-Added in v0.6.0
-
-### OpenSettings (type alias)
-
-Settings of a path-addressed open.
+Options of `open` on a target.
 
 **Signature**
 
 ```ts
-export type OpenSettings = {
+export type OpenOptions = {
   readonly access: "read" | "write" | "readWrite"
   readonly mode?: number
   readonly create?: "never" | "ifMissing" | "exclusive"
   readonly append?: boolean
   readonly truncate?: boolean
-  readonly followFinalSymlink?: boolean
 }
 ```
 
@@ -138,7 +122,7 @@ Added in v0.6.0
 
 ### RenameReferenceResult (type alias)
 
-The result of a reference-addressed rename.
+The result of `rename`.
 
 **Signature**
 
@@ -177,14 +161,14 @@ export type RootCallerOptions = {
 
 Added in v0.6.0
 
-### SymlinkReferenceSettings (type alias)
+### SymlinkOptions (type alias)
 
-Settings of a reference-addressed symbolic link creation.
+Options of `symlink`.
 
 **Signature**
 
 ```ts
-export type SymlinkReferenceSettings = {
+export type SymlinkOptions = {
   readonly times?: {
     readonly access:
       | { readonly kind: "now" }
@@ -200,14 +184,14 @@ export type SymlinkReferenceSettings = {
 
 Added in v0.6.0
 
-### WriteFileSettings (type alias)
+### WriteFileOptions (type alias)
 
-Settings of a whole-file write.
+Options of `writeFile`.
 
 **Signature**
 
 ```ts
-export type WriteFileSettings = {
+export type WriteFileOptions = {
   readonly access: "read" | "write" | "readWrite"
   readonly mode?: number
   readonly create?: "never" | "ifMissing" | "exclusive"
@@ -253,14 +237,15 @@ export declare const Identity: Schema.Struct<{
 
 Added in v0.6.0
 
-### MkdirReferenceSettings
+### MkdirOptions
 
-Schema for the settings of a reference-addressed directory creation.
+Schema for the options of `mkdir`. `exactMode` skips the caller's umask for
+an explicit creation mode; permission policy still applies.
 
 **Signature**
 
 ```ts
-export declare const MkdirReferenceSettings: Schema.Struct<{
+export declare const MkdirOptions: Schema.Struct<{
   readonly mode: Schema.optionalKey<Schema.Natural>
   readonly exactMode: Schema.optionalKey<Schema.Boolean>
   readonly times: Schema.optionalKey<
@@ -286,14 +271,19 @@ export declare const MkdirReferenceSettings: Schema.Struct<{
 
 Added in v0.6.0
 
-### OpenChildReferenceSettings
+### OpenEntryOptions
 
-Schema for the settings of a lookup-or-create-and-open through a parent reference.
+Schema for the options of `open` on an entry, a lookup-or-create-and-open in
+one gate hold. `expected` pins the child the caller last observed under the
+name (or `null` for none) and fails as `VolumeBusy` when another has
+appeared; `expectedChild` pins its revision and times as well and fails as
+`StaleReference` when they moved.
 
 **Signature**
 
 ```ts
-export declare const OpenChildReferenceSettings: Schema.Struct<{
+export declare const OpenEntryOptions: Schema.Struct<{
+  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
   readonly times: Schema.optionalKey<
     Schema.Struct<{
       readonly access: Schema.Union<
@@ -320,6 +310,7 @@ export declare const OpenChildReferenceSettings: Schema.Struct<{
       readonly gid: Schema.optionalKey<Schema.Natural>
     }>
   >
+  readonly expected: Schema.optionalKey<Schema.NullOr<Schema.declare<ObjectReference, ObjectReference>>>
   readonly expectedChild: Schema.optionalKey<
     Schema.NullOr<
       Schema.Struct<{
@@ -335,42 +326,25 @@ export declare const OpenChildReferenceSettings: Schema.Struct<{
   readonly mode: Schema.optionalKey<Schema.Natural>
   readonly append: Schema.optionalKey<Schema.Boolean>
   readonly truncate: Schema.optionalKey<Schema.Boolean>
-  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
 }>
 ```
 
 Added in v0.6.0
 
-### OpenReferenceSettings
+### OpenOptions
 
-Schema for the settings of opening an existing file by reference.
-
-**Signature**
-
-```ts
-export declare const OpenReferenceSettings: Schema.Struct<{
-  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
-  readonly append: Schema.optionalKey<Schema.Boolean>
-  readonly truncate: Schema.optionalKey<Schema.Boolean>
-}>
-```
-
-Added in v0.6.0
-
-### OpenSettings
-
-Schema for the settings of a path-addressed open.
+Schema for the options of `open` on a target: the access mode, whether a
+missing file is created, the creation mode, and append and truncate flags.
 
 **Signature**
 
 ```ts
-export declare const OpenSettings: Schema.Struct<{
+export declare const OpenOptions: Schema.Struct<{
   readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
   readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
   readonly mode: Schema.optionalKey<Schema.Natural>
   readonly append: Schema.optionalKey<Schema.Boolean>
   readonly truncate: Schema.optionalKey<Schema.Boolean>
-  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
 }>
 ```
 
@@ -378,7 +352,7 @@ Added in v0.6.0
 
 ### RenameReferenceResult
 
-Schema for the result of a reference-addressed rename.
+Schema for the result of `rename`.
 
 **Signature**
 
@@ -422,14 +396,14 @@ export declare const RootCallerOptions: Schema.Struct<{
 
 Added in v0.6.0
 
-### SymlinkReferenceSettings
+### SymlinkOptions
 
-Schema for the settings of a reference-addressed symbolic link creation.
+Schema for the options of `symlink`.
 
 **Signature**
 
 ```ts
-export declare const SymlinkReferenceSettings: Schema.Struct<{
+export declare const SymlinkOptions: Schema.Struct<{
   readonly times: Schema.optionalKey<
     Schema.Struct<{
       readonly access: Schema.Union<
@@ -453,14 +427,16 @@ export declare const SymlinkReferenceSettings: Schema.Struct<{
 
 Added in v0.6.0
 
-### WriteFileSettings
+### WriteFileOptions
 
-Schema for the settings of a whole-file write.
+Schema for the options of `writeFile`: the open options plus whether a
+final symbolic link is replaced or followed and the mode the file ends with.
 
 **Signature**
 
 ```ts
-export declare const WriteFileSettings: Schema.Struct<{
+export declare const WriteFileOptions: Schema.Struct<{
+  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
   readonly replaceFinalSymlink: Schema.optionalKey<Schema.Boolean>
   readonly finalMode: Schema.optionalKey<Schema.Natural>
   readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
@@ -468,7 +444,6 @@ export declare const WriteFileSettings: Schema.Struct<{
   readonly mode: Schema.optionalKey<Schema.Natural>
   readonly append: Schema.optionalKey<Schema.Boolean>
   readonly truncate: Schema.optionalKey<Schema.Boolean>
-  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
 }>
 ```
 

@@ -111,9 +111,9 @@ const program = Effect.gen(function*() {
     create: "exclusive"
   })
 
-  const names = yield* fs.readDirectoryBytes("/")
+  const listing = yield* fs.readDirectory("/")
   const roundTrip = yield* Vfs.pathToBytes(opaquePath)
-  return { names: names.map((name) => Array.from(name)), roundTrip: Array.from(roundTrip) }
+  return { names: listing.value.map((entry) => Array.from(entry.name)), roundTrip: Array.from(roundTrip) }
 })
 
 console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))))
@@ -121,8 +121,8 @@ console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer
 ```
 
 The constructors and byte-returning operations copy their buffers, so later mutation cannot change stored paths.
-String-returning operations fail with `VfsError` code `UnrepresentableName` when a name is not valid UTF-8. Use the byte
-variants of directory enumeration, symbolic-link targets, and resolved paths when exact bytes matter.
+Directory listings, symbolic-link targets, and resolved paths come back as bytes; decoding them to text is the caller's
+choice, and a strict decoder reports a name that is not valid UTF-8.
 
 ## Build fixtures and restore snapshots
 
