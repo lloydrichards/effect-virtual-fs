@@ -709,6 +709,12 @@ class Draft {
     return ino
   }
 
+  // Whether another inode can be allocated. The allocator itself must stay exactly representable, since a live
+  // image refuses one past the largest safe integer, so the last inode it hands out is one below that.
+  get canAllocate(): boolean {
+    return this.nextInode < Number.MAX_SAFE_INTEGER
+  }
+
   openCount(ino: Ino): number {
     return this.opens?.get(ino) ?? this.base.open.get(ino) ?? 0
   }
@@ -1579,7 +1585,9 @@ export const makeVolume = Effect.fnUntraced(
     // Whether the volume's entry quota is already full.
     const atEntryLimit = () => settings.maxEntries !== undefined && current().entries >= settings.maxEntries
 
-    const reserveEntry = (op: OpContext) => atEntryLimit() ? Effect.fail(op.fail("NoSpace")) : Effect.void
+    // Every new entry but a replacement names a new inode, so running out of inode numbers is running out of space.
+    const reserveEntry = (op: OpContext) =>
+      atEntryLimit() || !current().canAllocate ? Effect.fail(op.fail("NoSpace")) : Effect.void
 
     const reserveBytes = (op: OpContext, bytes: bigint) =>
       settings.maxBytes !== undefined && bytes > ByteSize.toBigInt(settings.maxBytes) - current().usedBytes

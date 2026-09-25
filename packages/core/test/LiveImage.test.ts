@@ -87,6 +87,22 @@ describe("private live image", () => {
       assert.deepEqual(restored.records, document.records)
     }))
 
+  it.effect("rejects an inode allocator past the largest safe integer", () =>
+    Effect.gen(function*() {
+      const valid = yield* LiveImage.encode(empty())
+      const text = new TextDecoder().decode(valid)
+      const atLimit = text.replace("\"nextInode\":\"2\"", "\"nextInode\":\"9007199254740991\"")
+      const pastLimit = text.replace("\"nextInode\":\"2\"", "\"nextInode\":\"9007199254740992\"")
+      assert.isTrue(atLimit !== text && pastLimit !== text)
+
+      const restored = yield* LiveImage.decode(new TextEncoder().encode(atLimit), ByteSize.bytes(4096))
+      assert.strictEqual(restored.nextInode, 9007199254740991n)
+      assert.strictEqual(
+        (yield* Effect.flip(LiveImage.decode(new TextEncoder().encode(pastLimit), ByteSize.bytes(4096)))).code,
+        "InvalidStructure"
+      )
+    }))
+
   it.effect("rejects inconsistent stored counters and references", () =>
     Effect.gen(function*() {
       const valid = yield* LiveImage.encode(empty())
