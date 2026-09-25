@@ -14,11 +14,11 @@ interface Pause {
 }
 
 // A staged volume whose paused commit holds the permit until released, so later operations queue behind it.
-const pausedVolume = Effect.gen(function*() {
+const pausedVolumeWith = Effect.fnUntraced(function*(options?: Vfs.VolumeOptions) {
   let pause: Pause | undefined
   let outcome: "committed" | "rejected" = "committed"
 
-  const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
+  const { volume } = yield* makeVolume(VolumeSource.Empty(), options, {
     commit: () =>
       Effect.suspend(() => {
         const paused = pause
@@ -58,6 +58,20 @@ const pausedVolume = Effect.gen(function*() {
     })
 
   return { volume, caller, hold, pauseNext, reject }
+})
+
+const pausedVolume = pausedVolumeWith()
+
+// A busy volume with an unlinked two-byte file still open, so its release is visible in `usedBytes`.
+const busyWithUnlinkedOpen = Effect.fnUntraced(function*(scope: Scope.Scope) {
+  const paused = yield* pausedVolumeWith({ maxPendingOperations: 1 })
+  yield* paused.caller.writeFile("/file", bytes(1, 2), { access: "write", create: "exclusive" })
+  const handle = yield* paused.caller.open("/file", { access: "read" }).pipe(Scope.provide(scope))
+  yield* paused.caller.unlink("/file")
+  const { finish } = yield* paused.hold
+  const waiter = yield* paused.caller.stat("/").pipe(Effect.forkChild({ startImmediately: true }))
+
+  return { ...paused, handle, finish: Effect.andThen(finish, Fiber.join(waiter)) }
 })
 
 type Opener = (caller: Vfs.Caller) => Effect.Effect<unknown, Vfs.FsError, Scope.Scope>
@@ -226,4 +240,37 @@ describe("handle lifecycles", () => {
       yield* handle.write(bytes(3))
       assert.deepStrictEqual(yield* caller.readFile("/file"), bytes(1, 3))
     })))
+
+  it.effect("keeps a file open for a retry when its explicit close is refused as busy", () =>
+    Effect.gen(function*() {
+      const { volume, handle, finish } = yield* busyWithUnlinkedOpen(yield* Effect.scope)
+      const refused = yield* Effect.flip(handle.close).pipe(Effect.forkChild({ startImmediately: true }))
+      yield* finish
+      assert.strictEqual((yield* Fiber.join(refused)).code, "VolumeBusy")
+      assert.strictEqual((yield* volume.usage).usedBytes, 2n)
+      yield* handle.close
+      assert.strictEqual((yield* volume.usage).usedBytes, 0n)
+    }))
+
+  it.effect("releases a file whose scope closes while the volume is busy", () =>
+    Effect.gen(function*() {
+      const scope = yield* Scope.make()
+      const { volume, finish } = yield* busyWithUnlinkedOpen(scope)
+      const closing = yield* Scope.close(scope, Exit.void).pipe(Effect.forkChild({ startImmediately: true }))
+      yield* finish
+      yield* Fiber.join(closing)
+      assert.strictEqual((yield* volume.usage).usedBytes, 0n)
+    }))
+
+  it.effect("releases a file whose scope close is interrupted while it waits", () =>
+    Effect.gen(function*() {
+      const scope = yield* Scope.make()
+      const { volume, finish } = yield* busyWithUnlinkedOpen(scope)
+      const closing = yield* Scope.close(scope, Exit.void).pipe(Effect.forkChild({ startImmediately: true }))
+      // Cleanup is uninterruptible, so the interrupt returns only once the release has run after the hold.
+      const interrupting = yield* Fiber.interrupt(closing).pipe(Effect.forkChild({ startImmediately: true }))
+      yield* finish
+      yield* Fiber.join(interrupting)
+      assert.strictEqual((yield* volume.usage).usedBytes, 0n)
+    }))
 })

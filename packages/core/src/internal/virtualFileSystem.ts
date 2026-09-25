@@ -655,12 +655,12 @@ const isDirectoryHandle = (value: PathInput | FileHandle | DirectoryHandle): val
 // The handle's own scope, forked from its acquiring scope; explicit close closes it too.
 interface HandleScope {
   scope: Scope.Closeable | undefined
+  closed: boolean
 }
 
 interface FileReference extends HandleScope {
   readonly volume: symbol
   file: RegularFile | undefined
-  closed: boolean
   offset: bigint
   readonly access: "read" | "write" | "readWrite"
   readonly append: boolean
@@ -671,7 +671,6 @@ const files = new WeakMap<FileHandle, FileReference>()
 interface DirectoryReference extends HandleScope {
   readonly volume: symbol
   directory: Directory | undefined
-  closed: boolean
 }
 
 const handles = new WeakMap<DirectoryHandle, DirectoryReference>()
@@ -1483,13 +1482,15 @@ export const makeVolume = Effect.fnUntraced(
       reference.closed = true
     }
 
-    const release = (reference: DirectoryReference) =>
-      Effect.suspend(() =>
-        reference.closed ? Effect.void : coordinatedCleanup(Effect.sync(() => releaseDirectory(reference)))
+    const finalizeDirectory = (reference: DirectoryReference) =>
+      Effect.uninterruptible(
+        Effect.suspend(() =>
+          reference.closed ? Effect.void : coordinatedCleanup(Effect.sync(() => releaseDirectory(reference)))
+        )
       )
 
     // Only a close that released the handle closes its scope; an interrupted close leaves both open.
-    const closeScope = (reference: HandleScope & { readonly closed: boolean }) =>
+    const closeReleasedScope = (reference: HandleScope) =>
       Effect.suspend(() =>
         !reference.closed || reference.scope === undefined ? Effect.void : Scope.close(reference.scope, Exit.void)
       )
@@ -1569,7 +1570,12 @@ export const makeVolume = Effect.fnUntraced(
         const ino = ref.file.metadata.ino
         const open = state.openFiles.get(ino)
 
-        if (open !== undefined && --open.count === 0) state.openFiles.delete(ino)
+        if (open !== undefined) {
+          open.count -= 1
+
+          if (open.count === 0) state.openFiles.delete(ino)
+        }
+
         reclaim(ref.file)
         ref.file = undefined
       }
@@ -1577,26 +1583,31 @@ export const makeVolume = Effect.fnUntraced(
       ref.closed = true
     }
 
+    const releaseOpenFile = (ref: FileReference) =>
+      coordinatedCleanup(Effect.sync(() => {
+        if (!ref.closed) releaseFile(ref)
+      }))
+
     // Explicit close and scope cleanup share one release. A release whose commit fails still completes as
-    // cleanup, so the handle never stays open; only an explicit close reports the failure.
+    // cleanup, so the handle never stays open; only an explicit close reports the failure. A close refused
+    // admission never entered the volume, so it leaves the handle open for a retry.
     const closeFile = (ref: FileReference, op: OpContext, check: Effect.Effect<unknown, FsError>) =>
       coordinated(op, Effect.andThen(check, Effect.sync(() => releaseFile(ref))), () => releaseFile(ref)).pipe(
-        Effect.tapError(() =>
-          coordinatedCleanup(Effect.sync(() => {
-            if (!ref.closed) releaseFile(ref)
-          }))
-        )
+        Effect.tapError((error) => error.code === "VolumeBusy" ? Effect.void : releaseOpenFile(ref))
       )
 
     // Keyed on the file rather than the closed flag, so a rerun releases an open that published after a first run.
+    // Cleanup is uninterruptible and does not need admission, so an interrupted or busy scope close still releases.
     const finalizeFile = (ref: FileReference) =>
-      Effect.suspend(() =>
+      Effect.uninterruptible(Effect.suspend(() =>
         ref.file === undefined
           ? Effect.sync(() => {
             ref.closed = true
           })
-          : Effect.ignore(closeFile(ref, OpContext.make("close"), Effect.void))
-      )
+          : Effect.ignore(closeFile(ref, OpContext.make("close"), Effect.void)).pipe(
+            Effect.andThen(Effect.suspend(() => ref.closed ? Effect.void : releaseOpenFile(ref)))
+          )
+      ))
 
     // Acquires a handle into its own scope, forked from the caller's. The finalizer is registered before waiting,
     // since a closed scope runs a new finalizer at once and the permit is not reentrant. A scope that closes
@@ -1829,7 +1840,7 @@ export const makeVolume = Effect.fnUntraced(
           Effect.withSpan("FileHandle.sync")
         ),
         close: closeFile(ref, closeOp, Effect.suspend(() => get(closeOp))).pipe(
-          Effect.ensuring(closeScope(ref)),
+          Effect.ensuring(closeReleasedScope(ref)),
           Effect.withSpan("FileHandle.close")
         )
       })
@@ -2149,7 +2160,7 @@ export const makeVolume = Effect.fnUntraced(
               return acquired
             }),
             () => releaseDirectory(acquired),
-            release(acquired)
+            finalizeDirectory(acquired)
           )
         }
       )
@@ -3748,7 +3759,7 @@ export const makeVolume = Effect.fnUntraced(
               releaseDirectory(acquired)
 
               return Effect.void
-            })).pipe(Effect.ensuring(closeScope(acquired)), Effect.withSpan("DirectoryHandle.close"))
+            })).pipe(Effect.ensuring(closeReleasedScope(acquired)), Effect.withSpan("DirectoryHandle.close"))
           })
 
           handles.set(handle, acquired)
