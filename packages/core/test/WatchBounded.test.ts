@@ -1,7 +1,7 @@
 import { assert, describe } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber, Option, PubSub, Queue, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { setRegistrationHook } from "../src/internal/testHooks.js"
+import { withVolumeTestSeams } from "../src/internal/testSeams.js"
 import { it } from "./TestEffect.js"
 
 describe("bounded watches", () => {
@@ -12,12 +12,13 @@ describe("bounded watches", () => {
       const registered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
 
-      const clear = setRegistrationHook(volume, {
-        afterSubscribe: Deferred.succeed(registered, undefined).pipe(Effect.andThen(Deferred.await(release)))
-      })
+      const afterSubscribe = Deferred.succeed(registered, undefined).pipe(Effect.andThen(Deferred.await(release)))
 
-      yield* Effect.addFinalizer(() => Effect.sync(clear))
-      const watching = yield* volume.watch.pipe(Effect.forkChild({ startImmediately: true }))
+      const watching = yield* volume.watch.pipe(
+        withVolumeTestSeams({ afterSubscribe }),
+        Effect.forkChild({ startImmediately: true })
+      )
+
       yield* Deferred.await(registered)
       const waiting = yield* caller.mkdir("/cancelled").pipe(Effect.forkChild({ startImmediately: true }))
       yield* Effect.yieldNow
@@ -40,12 +41,13 @@ describe("bounded watches", () => {
       const registered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
 
-      const clear = setRegistrationHook(volume, {
-        afterSubscribe: Deferred.succeed(registered, undefined).pipe(Effect.andThen(Deferred.await(release)))
-      })
+      const afterSubscribe = Deferred.succeed(registered, undefined).pipe(Effect.andThen(Deferred.await(release)))
 
-      yield* Effect.addFinalizer(() => Effect.sync(clear))
-      const holding = yield* volume.watch.pipe(Effect.forkChild({ startImmediately: true }))
+      const holding = yield* volume.watch.pipe(
+        withVolumeTestSeams({ afterSubscribe }),
+        Effect.forkChild({ startImmediately: true })
+      )
+
       yield* Deferred.await(registered)
 
       const cancelled = yield* volume.watch.pipe(Effect.forkChild({ startImmediately: true }))

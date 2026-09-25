@@ -1,7 +1,7 @@
 import { assert, describe } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { setObservationHook, setRegistrationHook } from "../src/internal/testHooks.js"
+import { withVolumeTestSeams } from "../src/internal/testSeams.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
 
@@ -225,16 +225,18 @@ describe("overlay volumes", () => {
         const observationReady = yield* Deferred.make<void>()
         const releaseObservation = yield* Deferred.make<void>()
 
-        const clearHook = setObservationHook(base, {
-          betweenSnapshotAndSummary: Deferred.succeed(observationReady, undefined).pipe(
-            Effect.andThen(Deferred.await(releaseObservation))
-          )
-        })
+        const betweenSnapshotAndSummary = Deferred.succeed(observationReady, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseObservation))
+        )
 
-        yield* Effect.addFinalizer(() => Effect.sync(clearHook))
         const overlay = yield* Vfs.makeOverlay(base)
         const fs = yield* overlay.caller()
-        const captureFiber = yield* overlay.capture().pipe(Effect.forkChild({ startImmediately: true }))
+
+        const captureFiber = yield* overlay.capture().pipe(
+          withVolumeTestSeams({ betweenSnapshotAndSummary }),
+          Effect.forkChild({ startImmediately: true })
+        )
+
         yield* Deferred.await(observationReady)
         const renameStarted = yield* Deferred.make<void>()
 
@@ -266,17 +268,19 @@ describe("overlay volumes", () => {
         const observationReady = yield* Deferred.make<void>()
         const releaseObservation = yield* Deferred.make<void>()
 
-        const clearHook = setObservationHook(base, {
-          betweenSnapshotAndSummary: Deferred.succeed(observationReady, undefined).pipe(
-            Effect.andThen(Deferred.await(releaseObservation))
-          )
-        })
+        const betweenSnapshotAndSummary = Deferred.succeed(observationReady, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseObservation))
+        )
 
-        yield* Effect.addFinalizer(() => Effect.sync(clearHook))
         const overlay = yield* Vfs.makeOverlay(base)
         const fs = yield* overlay.caller()
         const handle = yield* fs.open("/file", { access: "readWrite" })
-        const captureFiber = yield* overlay.capture().pipe(Effect.forkChild({ startImmediately: true }))
+
+        const captureFiber = yield* overlay.capture().pipe(
+          withVolumeTestSeams({ betweenSnapshotAndSummary }),
+          Effect.forkChild({ startImmediately: true })
+        )
+
         yield* Deferred.await(observationReady)
         const writeStarted = yield* Deferred.make<void>()
 
@@ -436,21 +440,4 @@ describe("overlay volumes", () => {
       assert.strictEqual(text(yield* freshCaller.readFile("/f")), "new")
       assert.strictEqual((yield* Fiber.join(oldWatch)).length, 1)
     }))
-
-  it.effect(
-    "honours a registration hook set on the overlay the caller holds",
-    () =>
-      Effect.scoped(Effect.gen(function*() {
-        const source = yield* Vfs.make()
-        const overlay = yield* Vfs.makeOverlay(yield* source.snapshot)
-        const registered = yield* Deferred.make<void>()
-        const clearHook = setRegistrationHook(overlay, { afterSubscribe: Deferred.succeed(registered, undefined) })
-
-        yield* Effect.addFinalizer(() => Effect.sync(clearHook))
-        const stream = yield* overlay.watch
-
-        assert.isTrue(Predicate.isNotUndefined(stream))
-        assert.isTrue(yield* Deferred.isDone(registered))
-      }))
-  )
 })
