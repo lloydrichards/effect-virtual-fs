@@ -2,7 +2,7 @@ import { GetObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from
 import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, describe, it, vi } from "@effect/vitest"
-import { ByteSize, Effect, Layer } from "effect"
+import { ByteSize, Deferred, Effect, Layer } from "effect"
 import * as R2LiveImageStore from "../src/R2LiveImageStore.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
@@ -157,6 +157,44 @@ describe("R2 live image store", () => {
 
       assert.strictEqual(error.code, "CorruptStore")
     }))
+
+  // A commit that was already writing when another one froze the store must not unfreeze it when it lands.
+  it.effect("stays frozen when an earlier commit lands after a later one lost its reply", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const held = yield* Deferred.make<void>()
+      const lost = yield* Deferred.make<void>()
+      let writes = 0
+      let etag = 0
+
+      const client: R2LiveImageStore.R2Client = {
+        read: () => Effect.succeed(null),
+        write: () =>
+          Effect.suspend(() => {
+            const write = writes++
+
+            if (write === 1) return Deferred.await(held).pipe(Effect.as({ etag: `"${++etag}"` }))
+
+            if (write === 2) {
+              return Effect.fail(new Vfs.VfsError({ code: "Storage", operation: "FakeR2" })).pipe(
+                Effect.ensuring(Deferred.succeed(lost, undefined))
+              )
+            }
+
+            return Effect.succeed({ etag: `"${++etag}"` })
+          })
+      }
+
+      const store = yield* LiveVolume.LiveImageStore.pipe(Effect.provide(layer(client)))
+      yield* store.loadOrCreate(bytes("initial"))
+      const release = Deferred.await(lost).pipe(Effect.andThen(Deferred.succeed(held, undefined)))
+
+      const [early, late] = yield* Effect.all([store.commit(bytes("early")), store.commit(bytes("late")), release], {
+        concurrency: "unbounded"
+      })
+
+      assert.deepStrictEqual([early, late], ["committed", "unknown"])
+      assert.strictEqual(yield* store.commit(bytes("after")), "unknown")
+    })))
 
   it.effect("sends an ETag condition through the S3 client", () =>
     Effect.gen(function*() {
