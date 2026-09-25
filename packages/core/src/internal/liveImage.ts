@@ -61,7 +61,12 @@ export type Document = typeof Document.Type
 
 const invalid = () => new ImageError({ code: "InvalidStructure", field: "liveImage" })
 
+// The engine keys its inode table by a JavaScript number, so every inode an image allocates must be exactly
+// representable. Every record's inode lies below the allocator, so bounding the allocator bounds them all.
+const MAX_INODE_ALLOCATOR = BigInt(Number.MAX_SAFE_INTEGER)
+
 const validate = Effect.fnUntraced(function*(document: Document) {
+  if (document.nextInode > MAX_INODE_ALLOCATOR) return yield* invalid()
   const records = new Map<bigint, Record>()
 
   for (const record of document.records) {
