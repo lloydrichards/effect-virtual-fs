@@ -153,7 +153,6 @@ export const ErrorPath = Schema.Uint8ArrayFromBase64.check(
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -164,7 +163,7 @@ export const ErrorPath = Schema.Uint8ArrayFromBase64.check(
  *   )
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * Effect.runPromise(program).then(console.log)
  * // readFile: NotFound
  * ```
  *

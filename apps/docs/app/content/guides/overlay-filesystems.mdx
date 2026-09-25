@@ -10,7 +10,6 @@ base, edits one of them, reviews the result, and captures it:
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Effect } from "effect"
 
 const encoder = new TextEncoder()
@@ -61,9 +60,7 @@ const program = Effect.gen(function* () {
   return { changedKinds, unchanged, notes }
 })
 
-console.log(
-  await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer)))
-)
+console.log(await Effect.runPromise(program))
 ```
 
 `changedKinds` contains `Updated` and `Added`. The sibling still

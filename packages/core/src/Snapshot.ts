@@ -41,7 +41,6 @@ export interface Snapshot {
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { ByteSize, Effect } from "effect"
  *
  * // All four are required: each bounds a different resource. `maxEncodedBytes`
@@ -62,7 +61,7 @@ export interface Snapshot {
  *   return "accepted"
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * Effect.runPromise(program).then(console.log)
  * // accepted
  * ```
  *

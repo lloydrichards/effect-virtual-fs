@@ -459,7 +459,6 @@ export const TransferReport = Schema.Struct({
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { TreeTransfer } from "@effect-vfs/memory"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, Stream } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -474,7 +473,7 @@ export const TransferReport = Schema.Struct({
  *   return entries.map((entry) => entry.path)
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * Effect.runPromise(program).then(console.log)
  * // [ '/', '/a.txt' ]
  * ```
  *
@@ -500,7 +499,6 @@ export const fromCaller: (
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { TreeTransfer } from "@effect-vfs/memory"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, Stream } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -510,7 +508,7 @@ export const fromCaller: (
  *   return entries.length
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * Effect.runPromise(program).then(console.log)
  * // 1
  * ```
  *
@@ -539,7 +537,6 @@ export const fromSnapshot: (
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { TreeTransfer } from "@effect-vfs/memory"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, Stream } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -561,7 +558,7 @@ export const fromSnapshot: (
  *   return [report.files, listing.value.map((entry) => new TextDecoder().decode(entry.name))]
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * Effect.runPromise(program).then(console.log)
  * // [ 1, [ 'a.txt' ] ]
  * ```
  *
@@ -627,7 +624,6 @@ export interface VolumeTransferOptions {
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { TreeTransfer } from "@effect-vfs/memory"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -644,7 +640,7 @@ export interface VolumeTransferOptions {
  *   return listing.value.map((entry) => new TextDecoder().decode(entry.name))
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * Effect.runPromise(program).then(console.log)
  * // [ 'app.js' ]
  * ```
  *
@@ -719,7 +715,6 @@ export const fromFileSystem: (
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { MemoryFileSystem, TreeTransfer } from "@effect-vfs/memory"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, Stream } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -736,7 +731,7 @@ export const fromFileSystem: (
  *   return yield* fs.readFileString("/out/app.js")
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * Effect.runPromise(program).then(console.log)
  * // run()
  * ```
  *

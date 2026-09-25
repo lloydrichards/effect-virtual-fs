@@ -51,7 +51,6 @@ export const isWatchOverflow: (error: PlatformError.PlatformError) => boolean = 
  * @example
  * ```ts
  * import { MemoryFileSystem } from "@effect-vfs/memory"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * const program = Effect.gen(function*() {
@@ -62,7 +61,7 @@ export const isWatchOverflow: (error: PlatformError.PlatformError) => boolean = 
  *   return yield* fs.readFileString("/tmp/greeting.txt")
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * Effect.runPromise(program).then(console.log)
  * // hello
  * ```
  *
@@ -88,8 +87,7 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  * @example
  * ```ts
  * import { MemoryFileSystem } from "@effect-vfs/memory"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
- * import { Effect, FileSystem, Layer } from "effect"
+ * import { Effect, FileSystem } from "effect"
  *
  * const writeManifest = Effect.gen(function*() {
  *   const fs = yield* FileSystem.FileSystem
@@ -100,9 +98,7 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  *   return yield* fs.readFileString("/dist/manifest.json")
  * })
  *
- * const memoryLayer = MemoryFileSystem.layer.pipe(Layer.provide(NodeCrypto.layer))
- *
- * Effect.runPromise(writeManifest.pipe(Effect.provide(memoryLayer)))
+ * Effect.runPromise(writeManifest.pipe(Effect.provide(MemoryFileSystem.layer)))
  *   .then(console.log)
  * // {"version":"1.2.3"}
  * ```
@@ -110,7 +106,6 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  * @example
  * ```ts
  * import { MemoryFileSystem } from "@effect-vfs/memory"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, FileSystem, Layer } from "effect"
  *
  * const write = Effect.gen(function*() {
@@ -140,7 +135,7 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  *   return [shared, isolated]
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * Effect.runPromise(program).then(console.log)
  * // [ true, false ]
  * ```
  *
@@ -169,7 +164,6 @@ export const layer: Layer.Layer<FileSystem.FileSystem> = internal.layer
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { MemoryFileSystem } from "@effect-vfs/memory"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, FileSystem, Layer } from "effect"
  *
  * const encoder = new TextEncoder()
@@ -199,12 +193,7 @@ export const layer: Layer.Layer<FileSystem.FileSystem> = internal.layer
  *   return yield* fs.readFileString("/project/package.json")
  * })
  *
- * Effect.runPromise(
- *   program.pipe(
- *     Effect.provide(seeded),
- *     Effect.provide(NodeCrypto.layer)
- *   )
- * ).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(seeded))).then(console.log)
  * // {"version":"1.2.3"}
  * ```
  *

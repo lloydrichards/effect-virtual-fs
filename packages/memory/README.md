@@ -16,10 +16,8 @@ The binding and snapshot examples below import `@effect-vfs/core` directly. Add 
 those APIs:
 
 ```sh
-npm install @effect-vfs/core@latest "@effect/platform-node-shared@$(npm view @effect-vfs/memory peerDependencies.effect)"
+npm install @effect-vfs/core@latest
 ```
-
-The second command installs the `NodeCrypto` provider at the version matching the package's Effect peer dependency.
 
 ## Replace the host filesystem
 
@@ -65,7 +63,6 @@ an existing `@effect-vfs/core` volume.
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function*() {
@@ -86,7 +83,7 @@ const program = Effect.gen(function*() {
   }
 })
 
-console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))))
+console.log(await Effect.runPromise(program))
 // { isolatedBHasFile: false, sharedContents: "visible to both" }
 ```
 
@@ -108,7 +105,6 @@ core volume and expose it through `MemoryFileSystem.bind`.
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 
@@ -138,7 +134,7 @@ const program = Effect.gen(function*() {
   }
 })
 
-console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))))
+console.log(await Effect.runPromise(program))
 // { current: "version 2", restored: "version 1" }
 ```
 
@@ -155,7 +151,6 @@ filter or merge them before a sink writes them.
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { TreeTransfer } from "@effect-vfs/memory"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, Predicate, Stream } from "effect"
 
 const program = Effect.gen(function*() {
@@ -180,7 +175,7 @@ const program = Effect.gen(function*() {
   return listing.value.map((entry) => new TextDecoder().decode(entry.name))
 })
 
-console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))))
+console.log(await Effect.runPromise(program))
 // [ "index.ts" ]
 ```
 

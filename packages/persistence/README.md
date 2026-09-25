@@ -26,7 +26,6 @@ before choosing a database path and size limits.
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { CheckpointStore } from "@effect-vfs/persistence"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { Effect, Layer } from "effect"
 import * as ByteSize from "effect/ByteSize"
@@ -53,7 +52,7 @@ const save = Effect.gen(function*() {
 })
 
 // Run once. Reusing the same name fails with AlreadyExists.
-await Effect.runPromise(save.pipe(Effect.provide(Checkpoints), Effect.provide(NodeCrypto.layer)))
+await Effect.runPromise(save.pipe(Effect.provide(Checkpoints)))
 
 // This can run in another process with the same database and layer setup.
 const restore = Effect.gen(function*() {
@@ -63,7 +62,7 @@ const restore = Effect.gen(function*() {
   return yield* (yield* volume.caller()).readFile("/hello.txt")
 })
 
-const bytes = await Effect.runPromise(restore.pipe(Effect.provide(Checkpoints), Effect.provide(NodeCrypto.layer)))
+const bytes = await Effect.runPromise(restore.pipe(Effect.provide(Checkpoints)))
 console.log(new TextDecoder().decode(bytes)) // hello
 ```
 

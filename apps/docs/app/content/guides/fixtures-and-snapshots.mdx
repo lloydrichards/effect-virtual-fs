@@ -20,7 +20,6 @@ writable state:
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 
@@ -60,9 +59,7 @@ const program = Effect.gen(function* () {
   }
 })
 
-console.log(
-  await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer)))
-)
+console.log(await Effect.runPromise(program))
 ```
 
 The restored config contains `{"mode":"development"}`. Writing to the restored volume does not change the source
