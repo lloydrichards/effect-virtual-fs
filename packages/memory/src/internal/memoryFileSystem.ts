@@ -7,13 +7,15 @@
  * @internal
  * @since 0.1.0
  */
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { BytePath, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import { type PlatformError, systemError } from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import { at, info, openOptions, sizeInput, textOf, textPath, validateMode } from "./adapterSupport.js"
 import { makeCopyOperations } from "./copyOperations.js"
@@ -28,6 +30,9 @@ export const isWatchOverflow = (error: PlatformError): boolean =>
   error.reason.module === "FileSystem" &&
   error.reason.method === "watch" &&
   error.reason.description === "WatchOverflow"
+
+// Registrations a watch makes before giving up on a path that keeps changing as it opens.
+const MAX_WATCH_ATTEMPTS = 3
 
 const childPath = (parent: string, name: string) => parent === "/" ? `/${name}` : `${parent}/${name}`
 
@@ -220,52 +225,90 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
         temp("makeTempFileScoped", "file", options),
         (path) => remove(path.slice(0, path.lastIndexOf("/")), { recursive: true, force: true }).pipe(Effect.orDie)
       ),
+    // The watch is scoped to the object the path resolves to, so it follows renames of the path and its ancestors.
+    // A change can land between resolving the path and registering the watch, so a registration is kept only when
+    // the path still names its object once the watch is active; otherwise it is closed and the path resolved again.
+    // A watched file reports only the changes made under the watched name, carried across those renames, not the
+    // changes made under its other hard links.
     watch: (path, options) =>
       Stream.unwrap(
         Effect.gen(function*() {
-          const stream = yield* volume.watch
-          const resolved = yield* textPath(yield* caller.realPath(path), "watch")
-          const prefix = new TextEncoder().encode(resolved)
+          const parent = yield* Effect.scope
 
-          return stream.pipe(
-            Stream.filterEffect((event) =>
-              Predicate.isTagged("Rescan")(event) ?
-                Effect.succeed(true) :
-                Vfs.pathToBytes(event.path).pipe(
-                  Effect.mapError((error) => toPlatformError(error, "watch", path)),
-                  Effect.map((bytes) => {
-                    if (!prefix.every((byte, index) => bytes[index] === byte)) return false
+          // lookup resolves a child entry, so the root is reached through caller.root.
+          const namesObject = (name: string, object: Vfs.ObjectReference) =>
+            Effect.flatMap(
+              caller.realPath(name),
+              (resolved) => BytePath.isRoot(resolved) ? caller.root : caller.lookup(resolved)
+            ).pipe(Effect.map((current) => current === object), Effect.orElseSucceed(() => false))
 
-                    if (bytes.length === prefix.length) return true
-                    const start = resolved === "/" ? 1 : prefix.length + 1
+          for (let attempt = 1;; attempt++) {
+            const resolved = yield* caller.realPath(path)
+            const scope = BytePath.isRoot(resolved) ? yield* caller.root : yield* caller.lookup(resolved)
+            const file = (yield* caller.stat(scope)).kind !== "directory"
+            let watchedName = yield* textPath(resolved, "watch")
+            const registration = yield* Scope.fork(parent)
 
-                    if (resolved !== "/" && bytes[prefix.length] !== 47) return false
+            const opened = yield* volume.watch({ scope, recursive: options?.recursive === true }).pipe(
+              Scope.provide(registration),
+              Effect.result
+            )
 
-                    return options?.recursive === true || !bytes.subarray(start).includes(47)
-                  })
-                )
-            ),
-            Stream.mapEffect((event) => {
-              if (Predicate.isTagged("Rescan")(event)) {
-                return Effect.fail(
-                  systemError({
-                    module: "FileSystem",
-                    method: "watch",
-                    pathOrDescriptor: path,
-                    _tag: "Unknown",
-                    description: "WatchOverflow"
+            if (Result.isSuccess(opened)) {
+              if (yield* namesObject(path, scope)) {
+                return opened.success.pipe(
+                  Stream.mapEffect((event) => {
+                    if (Predicate.isTagged("Rescan")(event)) {
+                      return Effect.fail(
+                        systemError({
+                          module: "FileSystem",
+                          method: "watch",
+                          pathOrDescriptor: path,
+                          _tag: "Unknown",
+                          description: "WatchOverflow"
+                        })
+                      )
+                    }
+
+                    const tag = event._tag
+
+                    return textPath(event.path, "watch").pipe(
+                      Effect.mapError((error) => toPlatformError(error, "watch", path)),
+                      Effect.map((name) => ({ _tag: tag, path: name }))
+                    )
+                  }),
+                  Stream.filterEffect((change) => {
+                    if (!file || change.path === watchedName) return Effect.succeed(true)
+
+                    // Core reports the object at its current name, so a change under another name follows a rename
+                    // of the file or an ancestor unless the watched name still names the object: then it came
+                    // through another hard link. A file with one link has no other name to confuse it with.
+                    return Effect.gen(function*() {
+                      if (yield* namesObject(watchedName, scope)) return false
+
+                      const links = yield* caller.stat(scope).pipe(
+                        Effect.map((metadata) => metadata.nlink),
+                        Effect.orElseSucceed(() => 0)
+                      )
+
+                      if (links > 1 && !(yield* namesObject(change.path, scope))) return false
+                      watchedName = change.path
+
+                      return true
+                    })
                   })
                 )
               }
+            } else if (opened.failure.code !== "StaleReference") {
+              return yield* opened.failure
+            }
 
-              const tag = event._tag
+            yield* Scope.close(registration, Exit.void)
 
-              return textPath(event.path, "watch").pipe(
-                Effect.mapError((error) => toPlatformError(error, "watch", path)),
-                Effect.map((name) => ({ _tag: tag, path: name }))
-              )
-            })
-          )
+            if (attempt === MAX_WATCH_ATTEMPTS) {
+              return yield* new Vfs.VfsError({ code: "VolumeBusy", operation: "watch" })
+            }
+          }
         }).pipe(Effect.mapError((error) => toPlatformError(error, "watch", path)))
       ),
     glob: Effect.fnUntraced(function*(pattern, options) {
