@@ -266,14 +266,15 @@ describe("TreeTransfer", () => {
       assert.deepStrictEqual(failure(error), ["InvalidArgument", "limits"])
     }).pipe(Effect.provide(Testing.layer())))
 
-  it.effect("should record the original access time while live reads update the source", () =>
+  it.effect("should record the original access time, which a live read newer than the last change keeps", () =>
     Effect.gen(function*() {
       const caller = yield* Vfs.Caller
 
       const [entry] = yield* Stream.runCollect(TreeTransfer.fromCaller(caller, "/file"))
 
       assert.strictEqual(entry?.kind === "file" && entry.metadata?.atimeNs, 5n)
-      assert.notStrictEqual(
+      // The fixture's access time is newer than its modification time, so relatime leaves it in place.
+      assert.strictEqual(
         (yield* caller.stat(Vfs.Target.Path({ path: "/file", followFinalSymlink: false }))).atimeNs,
         5n
       )

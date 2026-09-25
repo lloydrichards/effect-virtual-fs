@@ -2104,7 +2104,8 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const handler = yield* makeHandler(caller)
       const { session } = yield* startSession(handler, "read-preflight", { maxResponse: 512 })
 
-      // Reading updates the access time, so the worst-case reply must fit before READ runs.
+      // The file was never read after it changed, so READ refreshes its access time; the worst-case reply
+      // must fit before READ runs.
       const reply = yield* run(
         handler,
         call([

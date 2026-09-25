@@ -2268,7 +2268,7 @@ const makeCookieVerifier = (generation: Uint8Array, revision: bigint): Uint8Arra
 
 /**
  * Operations that change server state before the reply size is known. READ belongs here
- * because reading updates the file's access time, which a slot rollback cannot undo.
+ * because reading can update the file's access time, which a slot rollback cannot undo.
  */
 const stateChangingKinds: ReadonlySet<ParsedOperation["kind"]> = new Set([
   "Read",
