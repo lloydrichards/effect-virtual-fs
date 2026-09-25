@@ -9,6 +9,7 @@ import * as Encoding from "effect/Encoding"
 import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Random from "effect/Random"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
@@ -796,6 +797,22 @@ const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
 
 // Each execution constructs a fresh volume and captures its Clock.
 
+// 128 bits as lowercase hex. A platform Crypto service supplies them when one is in context; otherwise Effect's
+// Random does, in four 32-bit draws, so a constructor needs no service and a test can seed its identities.
+const randomHex128: Effect.Effect<string> = Effect.gen(function*() {
+  const crypto = yield* Effect.serviceOption(Crypto.Crypto)
+
+  if (Option.isSome(crypto)) return Encoding.encodeHex(yield* Effect.orDie(crypto.value.randomBytes(16)))
+
+  let hex = ""
+
+  for (let draw = 0; draw < 4; draw++) {
+    hex += (yield* Random.nextIntBetween(0, 0x100000000, { halfOpen: true })).toString(16).padStart(8, "0")
+  }
+
+  return hex
+})
+
 /** @internal */
 export const makeVolume = Effect.fnUntraced(
   function*(
@@ -831,13 +848,12 @@ export const makeVolume = Effect.fnUntraced(
     )
 
     const settings = { ...decoded }
-    const crypto = yield* Crypto.Crypto
 
     const identity = settings.identity === undefined
-      ? VolumeIdentity.make(Encoding.encodeHex(yield* crypto.randomBytes(16)))
+      ? VolumeIdentity.make(yield* randomHex128)
       : VolumeIdentity.make(settings.identity)
 
-    const incarnation = VolumeIncarnation.make(Encoding.encodeHex(yield* crypto.randomBytes(16)))
+    const incarnation = VolumeIncarnation.make(yield* randomHex128)
     const clock = yield* Clock.clockWith(Effect.succeed)
     const initialTime = clock.currentTimeNanosUnsafe()
 

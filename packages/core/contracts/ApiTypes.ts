@@ -106,11 +106,7 @@ export const rootCaller = Effect.gen(function*() {
   void limits
   void usage
   return yield* volume.caller()
-}) satisfies Effect.Effect<
-  Vfs.Caller,
-  Vfs.VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
->
+}) satisfies Effect.Effect<Vfs.Caller, Vfs.VfsError>
 
 export const scopedDirectory = (caller: Vfs.Caller) =>
   Effect.scoped(Effect.gen(function*() {
@@ -190,8 +186,7 @@ export const overlay = Effect.gen(function*() {
     readonly changes: ReadonlyArray<Vfs.OverlayChange>
     readonly capture: Vfs.OverlayCapture
   },
-  Vfs.VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
+  Vfs.VfsError
 >
 
 const customDeltaLimits: Vfs.SnapshotDeltaLimits = {
