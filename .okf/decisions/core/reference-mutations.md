@@ -77,7 +77,7 @@ Before reference mutations, path operations accepted a live `DirectoryHandle` ba
 
 [^core]: `Caller` exposes reference-based mutations, `openReference` with access settings, and atomic `openChildReference` with initial attributes and optional child conditions.
 
-[^engine]: One `Semaphore(1)` gate coordinates mutations and observations; `Metadata` timestamps are bigint nanoseconds; unlinked open files survive through `openCount`.
+[^engine]: One `Semaphore(1)` gate coordinates mutations and observations; `Metadata` timestamps are bigint nanoseconds; unlinked open files survive through the engine state's inode-keyed `openFiles` table.
 
 [^export]: `NfsExport.openChild` reserves registry capacity and owns the scoped core handle. The dispatcher maps core failures to NFS statuses.
 
