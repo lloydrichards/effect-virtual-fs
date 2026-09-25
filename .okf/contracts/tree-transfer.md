@@ -23,7 +23,7 @@ sources:
   - id: host-tests
     resource: ../../packages/memory/test/TreeTransferFileSystem.test.ts
     title: Host filesystem round-trip tests
-generated: { by: claude/okf, at: "2026-09-26T10:40:00+02:00" }
+generated: { by: claude-code, at: "2026-09-26T13:00:00+02:00" }
 ---
 
 # Tree transfer
@@ -38,7 +38,7 @@ A second name for an object already emitted becomes a `hardLink` entry that name
 
 ## Sources
 
-`fromCaller` reads through a live caller with that caller's permissions. It reads each entry's metadata before its contents, so entries carry the source's original access time. The reads themselves refresh source access times under relatime, so only a read whose access time is due changes the source, and on a durable volume only such a read commits. `fromSnapshot` restores a snapshot into a private volume and walks it with a privileged caller, so it never reads or changes the original volume.
+`fromCaller` reads through a live caller with that caller's permissions. It reaches the root and every entry below it by its path, never following a final link, so it holds no directory handle while it streams, it needs search permission on each directory above an entry, as a path lookup does, and it does not follow a directory renamed out of the tree. It reads each entry's metadata before its contents, so entries carry the source's original access time. The reads themselves refresh source access times under relatime, so only a read whose access time is due changes the source, and on a durable volume only such a read commits. `fromSnapshot` restores a snapshot into a private volume and walks it with a privileged caller, so it never reads or changes the original volume.
 
 Every source enforces a complete `TreeTransferLimits` policy: `maxEntries`, `maxBytes`, `maxFileBytes`, `maxDepth`, and `maxPathBytes`. Omission uses the frozen `default` preset; `constrained` is also provided. `maxEntries` counts every emitted entry including the root. `maxBytes` counts file contents and symbolic-link targets, as volume capacity does. `maxDepth` counts components below the root, and `maxPathBytes` measures the rooted entry path. Limits are checked while streaming, before the entry is emitted; a file's size is checked before and after it is read, and a directory listing that would exceed `maxEntries` fails before any of its children are visited. Exceeding a limit fails `TransferError` with code `LimitExceeded` and the field name. A malformed policy fails `InvalidArgument`.
 

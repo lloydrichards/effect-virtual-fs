@@ -22,6 +22,9 @@ sources:
   - id: tracing-tests
     resource: ../../packages/core/test/Tracing.test.ts
     title: Public tracing boundary tests
+  - id: tree-tests
+    resource: ../../packages/core/test/RemoveRecursive.test.ts
+    title: Recursive removal as a composition of changes
 generated: { by: claude-code, at: "2026-09-26T12:00:00+02:00" }
 ---
 
@@ -34,5 +37,7 @@ Runtime-only per-object revisions distinguish committed content, metadata, link-
 Watches stream committed create, update, and remove paths through a scoped queue for each subscriber. Registration is coordinated with mutations, so no committed event is lost between subscribing and becoming active. Watches have no replay. When a queue fills, its subscriber receives buffered changes followed by `Rescan` at `/`. It must rescan and repeat if another marker arrives. Other subscribers continue to receive events. A watch scoped to an object reference receives only the changes that name the object or lie in its subtree (its direct children when not recursive), tested against the committed tree before they count toward its queue; it follows renames of the object and its ancestors, receives `Rescan` at the object's current path, and ends after `Remove` for the object once its last name is gone; that `Remove` is never replaced by `Rescan`. The [scoped watch decision](../decisions/core/scoped-watch.md "defined by") defines the scope. The [watch overflow decision](../decisions/core/watch-event-overflow.md "defined by") defines the capacity and adapter behavior.
 
 Events are path addressed. A committed change to a node with no reachable name, such as an unlinked file still held by a handle, publishes nothing. Aliases observe changes to the same file. Multi-call adapter helpers are compositions, not transactions.
+
+Recursive operations are compositions too, with one exception. `walk` reads each directory in its own observation, so it sees each listing whole but no snapshot of the tree, and it writes nothing. A recursive `remove` is one change per entry and stops at the first failure, leaving what it has not reached. A recursive `mkdir` is one transition: every directory it creates publishes together, and a failure creates none. The [recursive tree operations decision](../decisions/core/recursive-tree-operations.md "defined by") defines the partial-failure rules.
 
 These choices [implement the remaining implementation policy](../decisions/core/remaining-implementation-profile.md "implements") and [depend on the resource and authority model](resources-and-authority.md "depends on").

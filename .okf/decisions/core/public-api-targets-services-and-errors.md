@@ -20,7 +20,7 @@ sources:
   - id: table
     resource: ../../../packages/core/test/OperationFamilies.test.ts
     title: Side-by-side codes per addressing mode
-generated: { by: claude-code, at: "2026-09-26T10:05:00+02:00" }
+generated: { by: claude-code, at: "2026-09-26T13:00:00+02:00" }
 ---
 
 # Public API on targets, services, and one error family
@@ -42,7 +42,7 @@ Step 8 of the [persistent tree rebuild](persistent-tree-rebuild.md "extends"). T
 7. **Identity without Crypto.** Constructors draw identity and incarnation from Effect's `Random`, or from a `Crypto` service when one is in context, and no longer fail with `PlatformError`. `Crypto` stays on the delta functions that hash.
 8. **Services and layers.** `Volume` and `Caller` are Effect service keys carrying `Volume.layer`, `layerFromSnapshot`, `layerFromFixture`, `layerOverlay`, `layerLive`, and `Caller.layer`. A caller supplied through the service keeps its own volume, credentials, umask, and working directory. `CurrentFileSystem` goes.
 9. **Modules.** Per-concept subpaths own the schemas the engine imports: `Volume`, `Caller`, `Target`, `FileHandle`, `Metadata`, `VfsError`, `Snapshot`, `SnapshotDelta`, `BytePath`, `LiveVolume`, `Fixture`, `Watch`; `VirtualFileSystem` remains the barrel, and its declarations import nothing from `internal/`. `BytePath` gains a toolkit.
-10. **Declined for 0.6.0.** Recursive tree operations, path-scoped watch, file-type bits in `Metadata`, an atomic `setattr`, an unscoped open, and a serialisable reference key each have their own issue. The `EPERM` versus `EACCES` split was declined here too, then brought into 0.6.0 by the amendment below. File-type bits then joined 0.6.0 as `Metadata.typedMode`, with `mode` kept as permission bits, by the [permission mode and typed mode decision](permission-mode-and-typed-mode.md "amended by"). The [atomic setattr decision](atomic-setattr.md "amended by") later added `setattr` and declined the unscoped open.
+10. **Declined for 0.6.0.** Recursive tree operations, path-scoped watch, file-type bits in `Metadata`, an atomic `setattr`, an unscoped open, and a serialisable reference key each have their own issue. The `EPERM` versus `EACCES` split was declined here too, then brought into 0.6.0 by the amendment below. File-type bits then joined 0.6.0 as `Metadata.typedMode`, with `mode` kept as permission bits, by the [permission mode and typed mode decision](permission-mode-and-typed-mode.md "amended by"). The [atomic setattr decision](atomic-setattr.md "amended by") later added `setattr` and declined the unscoped open. Recursive tree operations joined 0.6.0 as `walk`, `mkdir { recursive }` and `remove { recursive, force }` by the [recursive tree operations decision](recursive-tree-operations.md "amended by").
 
 ## Consequences
 

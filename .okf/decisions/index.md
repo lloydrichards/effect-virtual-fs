@@ -32,6 +32,7 @@ Architectural and behavioral decisions, grouped by domain. Accepted decisions ar
 - [Atomic setattr](core/atomic-setattr.md) adds a `setattr` that changes size, owner, mode and times as one change with a fixed check order, makes NFS SETATTR all or nothing with knfsd set-ID sanitising and unchanged-owner handling, and declines the unscoped open.
 - [Scoped watch](core/scoped-watch.md) narrows a watch to an object reference and optionally its subtree, filters before the queue counts, rescans at the scope, and ends after the scope is removed.
 - [Relatime reads](core/relatime-reads.md) refreshes access times under the Linux relatime rule, lets reads share the volume and escalate only when the time is due, and skips the commit for a change that leaves the value unchanged.
+- [Recursive tree operations](core/recursive-tree-operations.md) adds a walk over references, a recursive mkdir in one transition, and a recursive remove that stops at the first failure and forgives only a missing target, and moves memory's tree helpers onto them.
 - [Consolidated first-core contracts](core/consolidated-first-core-contracts.md) is deprecated; the focused contracts own its rules.
 - [Remaining implementation profile](core/remaining-implementation-profile.md) is deprecated; the focused contracts own its rules.
 
