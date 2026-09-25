@@ -1,6 +1,6 @@
 import { assert, describe } from "@effect/vitest"
-import { Cause, Deferred, Effect, Exit, Fiber, Scope } from "effect"
-import type { VirtualFileSystem as Vfs } from "../src/index.js"
+import { Cause, Deferred, Effect, Exit, Fiber, Scheduler, Scope } from "effect"
+import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { makeVolume, VolumeSource } from "../src/internal/virtualFileSystem.js"
 import { it } from "./TestEffect.js"
 
@@ -63,8 +63,13 @@ const fileOpeners: ReadonlyArray<readonly [string, Opener]> = [
     })]
 ]
 
+const directoryOpeners: ReadonlyArray<readonly [string, Opener]> = [
+  ["openDirectory", (caller) => caller.openDirectory("/")],
+  ["withDirectory", (caller) => caller.withDirectory("/")]
+]
+
 describe("handle lifecycles", () => {
-  for (const [label, opener] of fileOpeners) {
+  for (const [label, opener] of [...fileOpeners, ...directoryOpeners]) {
     it.effect(`${label} is interrupted when its scope closes while it waits`, () =>
       Effect.gen(function*() {
         const { caller, hold } = yield* pausedVolume
@@ -73,8 +78,10 @@ describe("handle lifecycles", () => {
         const scope = yield* Scope.make()
         const opening = yield* opener(caller).pipe(Scope.provide(scope), Effect.forkChild({ startImmediately: true }))
         yield* Effect.yieldNow
-        yield* Scope.close(scope, Exit.void)
+        // A directory finalizer takes the permit, so closing waits behind the held commit.
+        const closing = yield* Scope.close(scope, Exit.void).pipe(Effect.forkChild({ startImmediately: true }))
         yield* finish
+        yield* Fiber.join(closing)
         const result = yield* Fiber.await(opening)
         assert.isTrue(Exit.isFailure(result) && Cause.hasInterruptsOnly(result.cause))
       }))
@@ -97,6 +104,28 @@ describe("handle lifecycles", () => {
         yield* caller.unlink("/file")
         assert.strictEqual((yield* volume.usage).usedBytes, 0n)
       }))
+  }
+
+  for (const [label, opener] of fileOpeners) {
+    it.effect(`${label} releases what it acquired when its scope closes during acquisition`, () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+        yield* caller.writeFile("/file", bytes(1, 2), { access: "write", create: "exclusive" })
+
+        // Each attempt closes the scope a few more yields in, sweeping the close across the acquisition.
+        for (let delay = 0; delay < 64; delay++) {
+          const scope = yield* Scope.make()
+
+          yield* Effect.all([
+            opener(caller).pipe(Scope.provide(scope), Effect.exit),
+            Effect.andThen(Effect.repeat(Effect.yieldNow, { times: delay }), Scope.close(scope, Exit.void))
+          ], { concurrency: "unbounded" })
+        }
+
+        yield* caller.unlink("/file")
+        assert.deepStrictEqual(yield* volume.usage, { usedBytes: 0n, entries: 0 })
+      }).pipe(Effect.provideService(Scheduler.MaxOpsBeforeYield, 3)))
   }
 
   it.effect("does not create a file for an exclusive open whose scope closes while it waits", () =>

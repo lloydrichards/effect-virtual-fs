@@ -5,11 +5,13 @@ import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
+import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
+import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import { BytePath } from "../BytePath.js"
 import { ImageError, type Snapshot } from "../Snapshot.js"
@@ -1469,11 +1471,13 @@ export const makeVolume = Effect.fnUntraced(
       node.objectReference = undefined
     }
 
+    const releaseDirectory = (reference: DirectoryReference) => {
+      reference.directory = undefined
+      reference.closed = true
+    }
+
     const release = (reference: DirectoryReference) =>
-      coordinatedCleanup(Effect.sync(() => {
-        reference.directory = undefined
-        reference.closed = true
-      }))
+      coordinatedCleanup(Effect.sync(() => releaseDirectory(reference)))
 
     const authorize = (node: Node, identity: Identity, bits: number, op: OpContext) => {
       if (identity.privileged) return Effect.void
@@ -1576,6 +1580,38 @@ export const makeVolume = Effect.fnUntraced(
             )
           )
       )
+
+    // Acquires a handle into its own scope, forked from the caller's. The finalizer is registered before waiting,
+    // since a closed scope runs a new finalizer at once and the permit is not reentrant. A scope that closes
+    // before or during acquisition interrupts it, and releasing here, under the permit, keeps the acquisition
+    // from outliving a finalizer that already ran.
+    const acquireHandle = <A, E, R>(
+      coordinate: (acquire: Effect.Effect<A, E, R>) => Effect.Effect<A, E | FsError, R>,
+      acquire: Effect.Effect<A, E, R>,
+      releaseAcquired: () => void,
+      finalize: Effect.Effect<void>
+    ) =>
+      Effect.gen(function*() {
+        const scope = yield* Scope.fork(yield* Effect.scope)
+        yield* Scope.addFinalizer(scope, finalize)
+        const closed = () => Predicate.isTagged(scope.state, "Closed")
+
+        return yield* coordinate(
+          Effect.suspend(() => closed() ? Effect.interrupt : acquire).pipe(
+            Effect.tap(() =>
+              Effect.suspend(() => {
+                if (!closed()) return Effect.void
+                releaseAcquired()
+
+                return Effect.interrupt
+              })
+            )
+          )
+        ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)))
+      })
+
+    const acquireFile = <A, E, R>(ref: FileReference, op: OpContext, acquire: Effect.Effect<A, E, R>) =>
+      acquireHandle((effect) => coordinated(op, effect), acquire, () => releaseFile(ref), finalizeFile(ref))
 
     // Replacing a payload clears setuid and setgid, and charges the volume for the size delta.
     const replaceContent = (file: RegularFile, data: Uint8Array, now: bigint, publish = true) => {
@@ -2088,21 +2124,19 @@ export const makeVolume = Effect.fnUntraced(
           const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
           const acquired = makeDirectoryReference()
-          // Register before retaining a directory. Closed scopes can run this immediately,
-          // so registration must not happen while holding the volume permit.
-          yield* Effect.addFinalizer(() => release(acquired))
 
-          return yield* coordinatedRead(
-            op,
-            Effect.uninterruptible(Effect.gen(function*() {
-              if (acquired.closed) return yield* Effect.interrupt
+          return yield* acquireHandle(
+            (acquire) => coordinatedRead(op, Effect.uninterruptible(acquire)),
+            Effect.gen(function*() {
               const path = yield* Effect.fromResult(prepared)
               const directory = yield* locate(path, base, op)
               yield* authorize(directory, identity, EXECUTE, pathOp)
               acquired.directory = directory
 
               return acquired
-            }))
+            }),
+            () => releaseDirectory(acquired),
+            release(acquired)
           )
         }
       )
@@ -3060,12 +3094,10 @@ export const makeVolume = Effect.fnUntraced(
 
           const acquired = makeFileReference(chosen.access, chosen.append ?? false)
 
-          yield* Effect.addFinalizer(() => finalizeFile(acquired))
-
-          return yield* coordinated(
+          return yield* acquireFile(
+            acquired,
             op,
             Effect.gen(function*() {
-              if (acquired.closed) return yield* Effect.interrupt
               const node = yield* referencedNode(objectReference, op)
 
               if (node.kind !== "file") return yield* op.fail("IsDirectory")
@@ -3113,12 +3145,10 @@ export const makeVolume = Effect.fnUntraced(
 
             const acquired = makeFileReference(chosen.access, chosen.append ?? false)
 
-            yield* Effect.addFinalizer(() => finalizeFile(acquired))
-
-            return yield* coordinated(
+            return yield* acquireFile(
+              acquired,
               op,
               Effect.gen(function*() {
-                if (acquired.closed) return yield* Effect.interrupt
                 const parent = yield* referencedDirectory(directoryReference, op)
                 yield* authorize(parent, identity, EXECUTE, op)
                 const direct = parent.entries.get(name)
@@ -3534,12 +3564,10 @@ export const makeVolume = Effect.fnUntraced(
 
           const acquired = makeFileReference(chosen.access, chosen.append ?? false)
 
-          yield* Effect.addFinalizer(() => finalizeFile(acquired))
-
-          return yield* coordinated(
+          return yield* acquireFile(
+            acquired,
             op,
             Effect.gen(function*() {
-              if (acquired.closed) return yield* Effect.interrupt
               const path = yield* Effect.fromResult(prepared)
 
               if (chosen.create === "exclusive") {
