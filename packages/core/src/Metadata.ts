@@ -77,6 +77,64 @@ export const Metadata = Schema.Struct({
 export type Metadata = typeof Metadata.Type
 
 /**
+ * Mask of the file-type bits in a POSIX `st_mode`.
+ *
+ * @category constants
+ * @since 0.6.0
+ */
+export const S_IFMT = 0o170000
+
+/**
+ * File-type bits of a regular file in a POSIX `st_mode`.
+ *
+ * @category constants
+ * @since 0.6.0
+ */
+export const S_IFREG = 0o100000
+
+/**
+ * File-type bits of a directory in a POSIX `st_mode`.
+ *
+ * @category constants
+ * @since 0.6.0
+ */
+export const S_IFDIR = 0o040000
+
+/**
+ * File-type bits of a symbolic link in a POSIX `st_mode`.
+ *
+ * @category constants
+ * @since 0.6.0
+ */
+export const S_IFLNK = 0o120000
+
+const FILE_TYPE_BITS = { directory: S_IFDIR, file: S_IFREG, symlink: S_IFLNK } as const
+
+/**
+ * The POSIX `st_mode` of an object: the file-type bits of its `kind` joined
+ * with its permission `mode`. `mode` itself never carries type bits, so the
+ * kind has a single source.
+ *
+ * A volume has no device nodes, so a `stat` built from metadata reports `dev`
+ * and `rdev` as 0, and `(dev, ino)` identifies an object only within one volume.
+ *
+ * @example
+ * ```ts
+ * import { S_IFDIR, S_IFMT, typedMode } from "@effect-vfs/core/Metadata"
+ *
+ * const stMode = typedMode({ kind: "directory", mode: 0o755 })
+ *
+ * console.log(stMode.toString(8)) // "40755"
+ * console.log((stMode & S_IFMT) === S_IFDIR) // true
+ * ```
+ *
+ * @category getters
+ * @since 0.6.0
+ */
+export const typedMode = (metadata: Pick<Metadata, "kind" | "mode">): number =>
+  FILE_TYPE_BITS[metadata.kind] | metadata.mode
+
+/**
  * Schema for an ownership update; an omitted field keeps its current value.
  *
  * @category schemas

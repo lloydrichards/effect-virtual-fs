@@ -1,7 +1,7 @@
 import { assert, describe } from "@effect/vitest"
 import { ByteSize, Clock, Effect, Predicate, Result } from "effect"
 import * as TestClock from "effect/testing/TestClock"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { Metadata, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as InternalBytePath from "../src/internal/bytePath.js"
 
 import { it } from "./TestEffect.js"
@@ -314,5 +314,42 @@ describe("metadata authority", () => {
 
       yield* member.chown("/f", { gid: 9 })
       assert.strictEqual((yield* admin.stat("/f")).gid, 9)
+    }))
+})
+
+describe("typed mode", () => {
+  it.effect("joins each kind's file-type bits with the permission bits it reports", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller({ umask: 0 })
+      yield* fs.mkdir("/d", { mode: 0o1755 })
+      yield* fs.open("/f", { access: "write", create: "exclusive" })
+      yield* fs.chmod("/f", 0o4640)
+      yield* fs.symlink("f", "/l")
+
+      const directory = yield* fs.stat("/d")
+      const file = yield* fs.stat("/f")
+      const symlink = yield* fs.stat(Vfs.Target.Path({ path: "/l", followFinalSymlink: false }))
+
+      assert.strictEqual(Metadata.typedMode(directory), 0o41755)
+      assert.strictEqual(Metadata.typedMode(file), 0o104640)
+      assert.strictEqual(Metadata.typedMode(symlink), 0o120777)
+
+      // mode itself stays permission bits only, so the kind has one source.
+      assert.deepStrictEqual([directory.mode, file.mode, symlink.mode], [0o1755, 0o4640, 0o777])
+      assert.deepStrictEqual(
+        [directory, file, symlink].map((metadata) => Metadata.typedMode(metadata) & Metadata.S_IFMT),
+        [Metadata.S_IFDIR, Metadata.S_IFREG, Metadata.S_IFLNK]
+      )
+    }))
+
+  it.effect("gives each kind its own type bits, apart from every permission bit", () =>
+    Effect.sync(() => {
+      const typeBits = { directory: 0o040000, file: 0o100000, symlink: 0o120000 } as const
+
+      for (const kind of ["directory", "file", "symlink"] as const) {
+        assert.strictEqual(Metadata.typedMode({ kind, mode: 0 }), typeBits[kind])
+        assert.strictEqual(Metadata.typedMode({ kind, mode: 0o7777 }), typeBits[kind] | 0o7777)
+        assert.strictEqual(Metadata.typedMode({ kind, mode: 0o7777 }) & Metadata.S_IFMT, typeBits[kind])
+      }
     }))
 })
