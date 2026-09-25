@@ -571,6 +571,51 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         }
       )
     }))
+  it.effect("refuses a mode change by a caller that does not own the file as not permitted", () =>
+    Effect.gen(function*() {
+      const {
+        caller,
+        handler,
+        session
+      } = yield* setup(true, true, 1002)
+
+      const before = (yield* caller.stat("/file")).mode
+
+      assert.deepStrictEqual(
+        yield* result(yield* run(handler, session, 1, [[33, (writer) => writer.write(XdrCodec.uint32, 0o600)]])),
+        {
+          status: Status.PERM,
+          attrsset: []
+        }
+      )
+      assert.strictEqual((yield* caller.stat("/file")).mode, before)
+    }))
+  it.effect("refuses explicit timestamps from a caller that does not own the file as not permitted", () =>
+    Effect.gen(function*() {
+      const {
+        caller,
+        handler,
+        session
+      } = yield* setup(true, true, 1002)
+
+      const before = (yield* caller.stat("/file")).mtimeNs
+
+      assert.deepStrictEqual(
+        yield* result(
+          yield* run(handler, session, 1, [[54, (writer) =>
+            Effect.gen(function*() {
+              yield* writer.write(XdrCodec.uint32, 1)
+              yield* writer.write(XdrCodec.uint64, 34n)
+              yield* writer.write(XdrCodec.uint32, 567)
+            })]])
+        ),
+        {
+          status: Status.PERM,
+          attrsset: []
+        }
+      )
+      assert.strictEqual((yield* caller.stat("/file")).mtimeNs, before)
+    }))
   it.effect("does not treat an unprivileged mapped UID zero as the file owner", () =>
     Effect.gen(function*() {
       const {

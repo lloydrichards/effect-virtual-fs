@@ -1629,6 +1629,7 @@ const fsStatuses: Readonly<Record<Vfs.VfsCode, number>> = {
   NotEmpty: Status.NOTEMPTY,
   NotDirectory: Status.NOTDIR,
   AccessDenied: Status.ACCESS,
+  NotPermitted: Status.PERM,
   InvalidHandle: Status.SERVERFAULT,
   ForeignHandle: Status.SERVERFAULT,
   InvalidReference: Status.SERVERFAULT,
@@ -1661,11 +1662,20 @@ const fsStatuses: Readonly<Record<Vfs.VfsCode, number>> = {
   CorruptStore: Status.IO
 }
 
+// RFC 8881 Section 15.2 lists NFS4ERR_PERM for CREATE, OPEN and SETATTR only. Core's NotPermitted (EPERM) from
+// any other operation, such as a sticky-directory REMOVE or RENAME, answers ACCESS, which their Section 15.2 lists
+// include.
+const PERM_OPERATIONS: ReadonlySet<number> = new Set([Operation.CREATE, Operation.OPEN, Operation.SETATTR])
+
 // The table is total over the codes this build knows. The guard is for a core release newer than this server,
 // whose errors can carry a code added since, which a client should see as a server fault.
 /** @internal */
-export const failureForFs = (error: Vfs.VfsError): number =>
-  Object.hasOwn(fsStatuses, error.code) ? fsStatuses[error.code] : Status.SERVERFAULT
+export const failureForFs = (error: Vfs.VfsError, operation: number): number => {
+  if (!Object.hasOwn(fsStatuses, error.code)) return Status.SERVERFAULT
+  const status = fsStatuses[error.code]
+
+  return status === Status.PERM && !PERM_OPERATIONS.has(operation) ? Status.ACCESS : status
+}
 
 type WriteField = (writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>
 
@@ -2842,7 +2852,7 @@ export const makeNfs4Handler = (
               const noCurrent = (): ResultPart => ({ code: operation.code, status: Status.NOFILEHANDLE })
 
               const mapFs = <A>(effect: Effect.Effect<A, Vfs.VfsError>): Effect.Effect<A, number> =>
-                effect.pipe(Effect.mapError(failureForFs))
+                effect.pipe(Effect.mapError((error) => failureForFs(error, operation.code)))
 
               // Fails as ACCESS unless every requested bit is granted.
               const requireAccess = (reference: Vfs.ObjectReference, bits: number): Effect.Effect<void, number> =>
@@ -2912,7 +2922,9 @@ export const makeNfs4Handler = (
                 reference: Vfs.ObjectReference,
                 symlinkStatus: number
               ): Effect.Effect<Vfs.ObjectReference, number> =>
-                requireDirectory(reference, symlinkStatus).pipe(Effect.flatMap(() => parentOf(reference)))
+                requireDirectory(reference, symlinkStatus).pipe(
+                  Effect.flatMap(() => parentOf(reference, operation.code))
+                )
 
               /** Requires a regular file, naming the offending type as Sections 18.16.4 and 18.22.3 do. */
               const requireRegularFile = (reference: Vfs.ObjectReference): Effect.Effect<void, number> =>
@@ -2958,7 +2970,7 @@ export const makeNfs4Handler = (
                         try {
                           validateName(name, options.limits.maxNameBytes)
                         } catch (error) {
-                          if (error instanceof InvalidNameError) return Effect.fail(nameStatus(error))
+                          if (error instanceof InvalidNameError) return Effect.fail(nameStatus(error, operation.code))
                           throw error
                         }
                       }
@@ -2976,7 +2988,8 @@ export const makeNfs4Handler = (
                   try: () => {
                     validateName(name, options.limits.maxNameBytes)
                   },
-                  catch: (error) => error instanceof InvalidNameError ? nameStatus(error) : Status.SERVERFAULT
+                  catch: (error) =>
+                    error instanceof InvalidNameError ? nameStatus(error, operation.code) : Status.SERVERFAULT
                 })
 
               const writeChangeInfo = (change: Vfs.DirectoryChange): WriteField => (writer) =>
@@ -3739,7 +3752,11 @@ export const makeNfs4Handler = (
                   return statusResult(
                     withCurrent((reference) =>
                       requireDirectory(reference, Status.SYMLINK).pipe(
-                        Effect.andThen(export_.lookup(reference, operation.value).pipe(Effect.mapError(nameStatus)))
+                        Effect.andThen(
+                          export_.lookup(reference, operation.value).pipe(
+                            Effect.mapError((error) => nameStatus(error, operation.code))
+                          )
+                        )
                       )
                     ),
                     (reference) => {
@@ -3752,7 +3769,9 @@ export const makeNfs4Handler = (
                   // SECINFO consumes the current filehandle (RFC 8881 Section 18.29.3).
                   return statusResult(
                     withCurrent((reference) =>
-                      export_.lookup(reference, operation.value).pipe(Effect.mapError(nameStatus))
+                      export_.lookup(reference, operation.value).pipe(
+                        Effect.mapError((error) => nameStatus(error, operation.code))
+                      )
                     ),
                     () => {
                       setCurrent(undefined)
@@ -3913,7 +3932,7 @@ export const makeNfs4Handler = (
 
                           const allowed = yield* export_.access(reference, bit).pipe(
                             Effect.map((granted) => granted === bit),
-                            Effect.mapError(failureForFs)
+                            Effect.mapError((error) => failureForFs(error, operation.code))
                           )
 
                           if (allowed) granted |= flag
@@ -4176,7 +4195,7 @@ export const makeNfs4Handler = (
                           export_.lookup(directory, value.name).pipe(
                             Effect.catch((error) =>
                               error instanceof InvalidNameError || error.code !== "NotFound"
-                                ? Effect.fail(nameStatus(error)) :
+                                ? Effect.fail(nameStatus(error, operation.code)) :
                                 Effect.void
                             )
                           )
@@ -4253,11 +4272,11 @@ export const makeNfs4Handler = (
                           }).pipe(Effect.mapError((error) => {
                             if (error instanceof ExportCapacityError) return Status.DELAY
 
-                            if (error instanceof InvalidNameError) return nameStatus(error)
+                            if (error instanceof InvalidNameError) return nameStatus(error, operation.code)
 
                             if (error.code === "StaleReference") return Status.DELAY
 
-                            return failureForFs(error)
+                            return failureForFs(error, operation.code)
                           }))
                         )
 
@@ -4317,7 +4336,7 @@ export const makeNfs4Handler = (
                       Effect.andThen(mapFs(export_.observeMetadata(directory))),
                       Effect.flatMap((directoryObservation) =>
                         export_.lookup(directory, value.name).pipe(
-                          Effect.mapError(nameStatus),
+                          Effect.mapError((error) => nameStatus(error, operation.code)),
                           Effect.map((reference) => ({ revision: directoryObservation.revision, reference }))
                         )
                       )
@@ -4564,7 +4583,7 @@ export const makeNfs4Handler = (
                         )
                       ),
                       Effect.catchTag("VfsError", (error) =>
-                        Effect.succeed({ code: operation.code, status: failureForFs(error) }))
+                        Effect.succeed({ code: operation.code, status: failureForFs(error, operation.code) }))
                     )
                   }
                 }
@@ -5163,11 +5182,7 @@ export const makeNfs4Handler = (
 
                       const status = yield* mutation.pipe(
                         Effect.as(Status.OK),
-                        Effect.catch((error) =>
-                          Effect.succeed(
-                            change.kind === "owner" && error.code === "AccessDenied" ? Status.PERM : failureForFs(error)
-                          )
-                        )
+                        Effect.catch((error) => Effect.succeed(failureForFs(error, operation.code)))
                       )
 
                       if (status !== Status.OK) return yield* reply(status)
@@ -5244,8 +5259,8 @@ export const makeNfs4Handler = (
                             error instanceof ExportCapacityError ?
                               Status.DELAY :
                               error instanceof InvalidNameError
-                              ? nameStatus(error)
-                              : failureForFs(error)
+                              ? nameStatus(error, operation.code)
+                              : failureForFs(error, operation.code)
                           )
                         )
 
@@ -5309,7 +5324,7 @@ export const makeNfs4Handler = (
                           Effect.mapError((error) =>
                             error.code === "IsDirectory" || error.code === "NotDirectory" || error.code === "NotEmpty"
                               ? Status.EXIST
-                              : failureForFs(error)
+                              : failureForFs(error, operation.code)
                           )
                         )
                     }),
@@ -5363,15 +5378,18 @@ export const makeNfs4Handler = (
               currentStateid = undefined
             }
 
-            function parentOf(reference: Vfs.ObjectReference): Effect.Effect<Vfs.ObjectReference, number> {
+            function parentOf(
+              reference: Vfs.ObjectReference,
+              operation: number
+            ): Effect.Effect<Vfs.ObjectReference, number> {
               // The root has no parent in this export (RFC 8881 Section 18.14.3).
               return export_.parent(reference).pipe(
-                Effect.mapError(failureForFs),
+                Effect.mapError((error) => failureForFs(error, operation)),
                 Effect.filterOrFail((parent) => parent !== reference, () => Status.NOENT)
               )
             }
 
-            function nameStatus(error: Vfs.VfsError | InvalidNameError): number {
+            function nameStatus(error: Vfs.VfsError | InvalidNameError, operation: number): number {
               if (error instanceof InvalidNameError) {
                 // RFC 8881 Section 14.5: reserved components are BADNAME, over-long names NAMETOOLONG,
                 // valid UTF-8 the file system cannot store (a slash or NUL) BADCHAR, and other
@@ -5388,7 +5406,7 @@ export const makeNfs4Handler = (
                 }
               }
 
-              return failureForFs(error)
+              return failureForFs(error, operation)
             }
 
             function isSpecialStateId(stateid: Uint8Array): boolean {

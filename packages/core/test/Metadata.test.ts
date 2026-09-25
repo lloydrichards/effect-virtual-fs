@@ -156,7 +156,7 @@ describe("metadata authority", () => {
         yield* opened.write(new Uint8Array([1]))
         assert.strictEqual((yield* Effect.flip(owner.open("/f", { access: "read" }))).code, "AccessDenied")
         const stranger = yield* volume.caller({ identity: { uid: 9, gid: 9, groups: [], privileged: false } })
-        assert.strictEqual((yield* Effect.flip(stranger.chmod(f, 0o777))).code, "AccessDenied")
+        assert.strictEqual((yield* Effect.flip(stranger.chmod(f, 0o777))).code, "NotPermitted")
         yield* owner.chmod(f, 0o600)
         yield* admin.unlink("/f")
         yield* owner.chmod(f, 0o400)
@@ -176,8 +176,8 @@ describe("metadata authority", () => {
         yield* owner.chmod("/f", 0o6777)
         yield* owner.chown("/f", { gid: 8 })
         assert.strictEqual((yield* f.stat).mode, 0o777)
-        assert.strictEqual((yield* Effect.flip(owner.chown("/f", { uid: 8 }))).code, "AccessDenied")
-        assert.strictEqual((yield* Effect.flip(owner.chown("/f", { gid: 9 }))).code, "AccessDenied")
+        assert.strictEqual((yield* Effect.flip(owner.chown("/f", { uid: 8 }))).code, "NotPermitted")
+        assert.strictEqual((yield* Effect.flip(owner.chown("/f", { gid: 9 }))).code, "NotPermitted")
         yield* admin.chown("/f", { gid: 9 })
         yield* owner.chmod("/f", 0o2777)
         assert.strictEqual((yield* f.stat).mode, 0o777)
@@ -205,7 +205,7 @@ describe("metadata authority", () => {
           (yield* Effect.flip(
             guest.utimes("/f", { access: { kind: "value", nanoseconds: 3n }, modification: { kind: "omit" } })
           )).code,
-          "AccessDenied"
+          "NotPermitted"
         )
         yield* admin.utimes("/f", { access: { kind: "value", nanoseconds: 3n }, modification: { kind: "omit" } })
         const before = yield* admin.stat("/f")
@@ -269,7 +269,7 @@ describe("metadata authority", () => {
           guest.utimes("/deep/f", { access: { kind: "now" }, modification: { kind: "omit" } })
         )
 
-        assert.strictEqual(mixed.code, "AccessDenied")
+        assert.strictEqual(mixed.code, "NotPermitted")
         assert.strictEqual(pathText(mixed.path), "/deep/f")
       })
   )
@@ -295,7 +295,7 @@ describe("metadata authority", () => {
         guest.utimes(handle, { access: { kind: "value", nanoseconds: 3n }, modification: { kind: "omit" } })
       )
 
-      assert.strictEqual(throughHandle.code, "AccessDenied")
+      assert.strictEqual(throughHandle.code, "NotPermitted")
       assert.strictEqual(throughHandle.path, undefined)
     }))
 
@@ -309,7 +309,7 @@ describe("metadata authority", () => {
 
       // POSIX permits a group change only to the caller's effective or supplementary group,
       // with no exemption for re-asserting the group the node already carries.
-      assert.strictEqual((yield* Effect.flip(owner.chown("/f", { gid: 9 }))).code, "AccessDenied")
+      assert.strictEqual((yield* Effect.flip(owner.chown("/f", { gid: 9 }))).code, "NotPermitted")
       const member = yield* volume.caller({ identity: { uid: 7, gid: 7, groups: [9], privileged: false } })
 
       yield* member.chown("/f", { gid: 9 })

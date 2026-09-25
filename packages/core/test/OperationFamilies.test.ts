@@ -366,7 +366,7 @@ const unlinkRows: ReadonlyArray<Row> = [
     scenario: "denies removing another owner's file from a sticky directory",
     path: ({ guest }) => guest.unlink("/sticky/file"),
     reference: ({ guest, sticky }) => guest.unlink(Vfs.Entry(sticky, name("file"))),
-    expected: { path: "AccessDenied at /sticky/file", reference: "AccessDenied" }
+    expected: { path: "NotPermitted at /sticky/file", reference: "NotPermitted" }
   },
   {
     scenario: "reports a directory before the sticky-directory check",
@@ -432,7 +432,7 @@ const rmdirRows: ReadonlyArray<Row> = [
     scenario: "applies the sticky-directory check before the kind check",
     path: ({ guest }) => guest.rmdir("/sticky/file"),
     reference: ({ guest, sticky }) => guest.rmdir(Vfs.Entry(sticky, name("file"))),
-    expected: { path: "AccessDenied at /sticky/file", reference: "AccessDenied" }
+    expected: { path: "NotPermitted at /sticky/file", reference: "NotPermitted" }
   }
 ]
 
@@ -468,7 +468,7 @@ const renameRows: ReadonlyArray<Row> = [
     scenario: "denies moving another owner's entry out of a sticky directory",
     path: ({ guest }) => guest.rename("/sticky/file", "/sticky/moved"),
     reference: ({ guest, sticky }) => guest.rename(Vfs.Entry(sticky, name("file")), Vfs.Entry(sticky, name("moved"))),
-    expected: { path: "AccessDenied at /sticky/file", reference: "AccessDenied" }
+    expected: { path: "NotPermitted at /sticky/file", reference: "NotPermitted" }
   },
   {
     scenario: "rejects a dot source name",
@@ -704,7 +704,7 @@ const chmodRows: ReadonlyArray<Row> = [
     scenario: "denies a caller that does not own the target",
     path: ({ guest }) => guest.chmod("/file", 0o600),
     reference: ({ guest, file }) => guest.chmod(file, 0o600),
-    expected: { path: "AccessDenied", reference: "AccessDenied" }
+    expected: { path: "NotPermitted at /file", reference: "NotPermitted" }
   },
   {
     scenario: "reports a removed target as missing on paths and stale on references",
@@ -736,7 +736,7 @@ const chownRows: ReadonlyArray<Row> = [
     scenario: "denies a caller that does not own the target",
     path: ({ guest }) => guest.chown("/file", { gid: 9 }),
     reference: ({ guest, file }) => guest.chown(file, { gid: 9 }),
-    expected: { path: "AccessDenied", reference: "AccessDenied" }
+    expected: { path: "NotPermitted at /file", reference: "NotPermitted" }
   },
   {
     scenario: "reports a removed target as missing on paths and stale on references",
@@ -762,7 +762,7 @@ const utimesRows: ReadonlyArray<Row> = [
     scenario: "denies explicit times to a caller that does not own the target",
     path: ({ guest }) => guest.utimes("/file", EXPLICIT_TIMES),
     reference: ({ guest, file }) => guest.utimes(file, EXPLICIT_TIMES),
-    expected: { path: "AccessDenied at /file", reference: "AccessDenied" }
+    expected: { path: "NotPermitted at /file", reference: "NotPermitted" }
   },
   {
     scenario: "lets a caller with write access set both times to now",

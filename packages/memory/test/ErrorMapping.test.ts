@@ -34,6 +34,21 @@ it.layer(Layer.empty)("memory adapter error mapping", (it) => {
       assert.strictEqual(reason.description, "NoSpace")
     }))
 
+  it.effect("should report an ownership denial as PermissionDenied that says EPERM", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const owner = yield* Memory.bind(volume)
+      yield* owner.writeFileString("/file", "x")
+      const guest = yield* Memory.bind(volume, { identity: { uid: 1, gid: 1, groups: [], privileged: false } })
+
+      const error = yield* Effect.flip(guest.chmod("/file", 0o600))
+
+      const reason = systemReason(error)
+      assert.strictEqual(reason._tag, "PermissionDenied")
+      assert.strictEqual(reason.method, "chmod")
+      assert.strictEqual(reason.description, "NotPermitted (EPERM)")
+    }))
+
   it.effect("should attribute a missing path to watch when watch subscription fails", () =>
     Effect.gen(function*() {
       const fs = yield* Memory.make

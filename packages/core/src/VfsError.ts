@@ -26,7 +26,10 @@ export const FsCode = Schema.Literals([
   "AlreadyExists",
   "NotEmpty",
   "NotDirectory",
+  // EACCES: the mode bits deny the access.
   "AccessDenied",
+  // EPERM: the change needs ownership or privilege, whatever the mode bits say.
+  "NotPermitted",
   "InvalidHandle",
   "ForeignHandle",
   "InvalidReference",

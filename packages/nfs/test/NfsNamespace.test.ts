@@ -441,6 +441,58 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
       assert.strictEqual((yield* admin.stat("/private/file")).kind, "file")
       assert.strictEqual((yield* Effect.flip(admin.stat("/blocked"))).code, "NotFound")
     }))
+  // Core fails these NotPermitted (EPERM). RFC 8881 Section 15.2 lists no NFS4ERR_PERM for REMOVE or RENAME,
+  // so the answer is ACCESS.
+  it.effect("refuses removing, moving or replacing another owner's entry in a sticky directory as ACCESS", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const admin = yield* volume.caller()
+      yield* admin.chmod(yield* admin.root, 0o1777)
+      yield* admin.writeFile("/file", new Uint8Array([1]), {
+        access: "write",
+        create: "exclusive"
+      })
+
+      const guest = yield* volume.caller({
+        identity: {
+          uid: 1000,
+          gid: 1000,
+          groups: [],
+          privileged: false
+        }
+      })
+
+      yield* guest.writeFile("/mine", new Uint8Array([2, 2]), {
+        access: "write",
+        create: "exclusive"
+      })
+
+      const handler = yield* makeHandler(admin, true, guest)
+
+      const {
+        session
+      } = yield* startSession(handler, "namespace-sticky-denial")
+
+      assert.deepStrictEqual(
+        {
+          remove: yield* status(yield* handler.compound(yield* call([sequence(session, 1), root, remove("file")]))),
+          moveSource: yield* status(
+            yield* handler.compound(yield* call([sequence(session, 2), root, save, root, rename("file", "moved")]))
+          ),
+          replaceTarget: yield* status(
+            yield* handler.compound(yield* call([sequence(session, 3), root, save, root, rename("mine", "file")]))
+          )
+        },
+        {
+          remove: Status.ACCESS,
+          moveSource: Status.ACCESS,
+          replaceTarget: Status.ACCESS
+        }
+      )
+      assert.strictEqual((yield* admin.stat("/file")).size, 1n)
+      assert.strictEqual((yield* admin.stat("/mine")).size, 2n)
+      assert.strictEqual((yield* Effect.flip(admin.stat("/moved"))).code, "NotFound")
+    }))
   it.effect("reopens an injected committed image with NFS namespace and metadata changes", () => {
     let image: Uint8Array | undefined
 

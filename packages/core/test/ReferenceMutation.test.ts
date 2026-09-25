@@ -53,7 +53,7 @@ describe("reference mutations", () => {
       yield* file.handle.close
       const code = <A>(effect: Effect.Effect<A, Vfs.VfsError>) => Effect.map(Effect.flip(effect), (error) => error.code)
 
-      assert.strictEqual(yield* code(guest.remove(Vfs.Entry(sticky, name("file")))), "AccessDenied")
+      assert.strictEqual(yield* code(guest.remove(Vfs.Entry(sticky, name("file")))), "NotPermitted")
       assert.strictEqual(yield* code(fs.remove(Vfs.Entry(sticky, name("missing")))), "NotFound")
       assert.strictEqual(yield* code(fs.remove(Vfs.Entry(sticky, name(".")))), "InvalidArgument")
       assert.strictEqual(yield* code(fs.remove(Vfs.Entry(root, name("sticky")))), "NotEmpty")
@@ -269,14 +269,14 @@ describe("reference mutations", () => {
       })
 
       const guest = yield* volume.caller({ identity: { uid: 9, gid: 9, groups: [], privileged: false } })
-      assert.strictEqual((yield* Effect.flip(guest.chmod(opened.reference, 0o600))).code, "AccessDenied")
-      assert.strictEqual((yield* Effect.flip(guest.chown(opened.reference, { uid: 9 }))).code, "AccessDenied")
+      assert.strictEqual((yield* Effect.flip(guest.chmod(opened.reference, 0o600))).code, "NotPermitted")
+      assert.strictEqual((yield* Effect.flip(guest.chown(opened.reference, { uid: 9 }))).code, "NotPermitted")
       assert.strictEqual(
         (yield* Effect.flip(guest.utimes(opened.reference, {
           access: { kind: "value", nanoseconds: 1n },
           modification: { kind: "value", nanoseconds: 1n }
         }))).code,
-        "AccessDenied"
+        "NotPermitted"
       )
       assert.strictEqual((yield* Effect.flip(guest.truncate(opened.reference, 0n))).code, "AccessDenied")
       assert.strictEqual(
