@@ -4,7 +4,7 @@ import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
-import { assert, describe, it } from "@effect/vitest"
+import { assert, it } from "@effect/vitest"
 import { ByteSize, Data, Effect, FileSystem, Layer, Option, Path, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
@@ -24,6 +24,15 @@ const files = Layer.mergeAll(NodeCrypto.layer, NodeFileSystem.layer, NodePath.la
 
 const platform = Layer.mergeAll(files, NodeChildProcessSpawner.layer.pipe(Layer.provide(files)))
 
+// A database path inside a temporary directory that the enclosing scope removes.
+const temporaryDatabase = Effect.gen(function*() {
+  const filesystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
+
+  return { directory, filename: path.join(directory, "live.sqlite") }
+})
+
 class DirectorySyncFailure extends Data.TaggedError("DirectorySyncFailure") {}
 
 const store = (filename: string, maxDatabaseBytes = ByteSize.megabytes(2)) =>
@@ -31,16 +40,15 @@ const store = (filename: string, maxDatabaseBytes = ByteSize.megabytes(2)) =>
     Layer.provide(SqliteClient.layer({ filename, disableWAL: true, busyTimeout: 0 }))
   )
 
-describe("SQLite live image store", () => {
+// The restart tests poll and kill child processes on real time, so the suite runs without the test clock.
+it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it) => {
   for (const existing of [false, true]) {
     it.effect(
       existing ? "syncs the verified parent of an existing database" : "syncs the verified parent after first creation",
       () =>
         Effect.scoped(Effect.gen(function*() {
           const filesystem = yield* FileSystem.FileSystem
-          const path = yield* Path.Path
-          const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-          const filename = path.join(directory, "live.sqlite")
+          const { directory, filename } = yield* temporaryDatabase
           const realDirectory = yield* filesystem.realPath(directory)
 
           if (existing) yield* filesystem.writeFile(filename, new Uint8Array())
@@ -64,16 +72,14 @@ describe("SQLite live image store", () => {
 
           yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(live)))
           assert.strictEqual(observed, true)
-        })).pipe(Effect.provide(files))
+        }))
     )
   }
 
   it.effect("fails startup when directory sync fails, then reopens the new database", () =>
     Effect.scoped(Effect.gen(function*() {
       const filesystem = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { filename } = yield* temporaryDatabase
 
       const failed = SqliteLiveImageStore.layer({
         filename,
@@ -103,18 +109,16 @@ describe("SQLite live image store", () => {
 
       yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(recovered)))
       assert.strictEqual(synced, true)
-    })).pipe(Effect.provide(files)))
+    })))
 
-  it.live(
+  it.effect(
     "reopens after the SQLite creator is killed before directory sync",
     () =>
       Effect.scoped(Effect.gen(function*() {
         const filesystem = yield* FileSystem.FileSystem
-        const path = yield* Path.Path
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 
-        const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-        const filename = path.join(directory, "live.sqlite")
+        const { filename } = yield* temporaryDatabase
 
         const creatorScript =
           "import { Database } from 'bun:sqlite'; const db = new Database(process.argv[1]); console.log('opened'); await new Promise(() => {})"
@@ -148,7 +152,7 @@ describe("SQLite live image store", () => {
 
         yield* Effect.scoped(LiveVolume.open(options).pipe(Effect.provide(recovered)))
         assert.strictEqual(synced, true)
-      })).pipe(Effect.provide(platform)),
+      })),
     15_000
   )
 
@@ -157,8 +161,7 @@ describe("SQLite live image store", () => {
       const filesystem = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { directory, filename } = yield* temporaryDatabase
       const evidence = path.join(directory, "pragmas.txt")
       const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
 
@@ -172,15 +175,13 @@ describe("SQLite live image store", () => {
       assert.match(settings, /^temp_store=2$/m)
       assert.match(settings, /^cache_spill=0$/m)
       assert.match(settings, /^journal_size_limit=0$/m)
-    })).pipe(Effect.provide(platform)))
+    })))
 
   it.effect("preserves an acknowledged write across process exit", () =>
     Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { filename } = yield* temporaryDatabase
       const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
 
       const run = (mode: string) =>
@@ -192,15 +193,13 @@ describe("SQLite live image store", () => {
       const written = yield* run("write")
       const reopened = yield* run("verify")
       assert.strictEqual(reopened.trim(), written.trim())
-    })).pipe(Effect.provide(platform)), 15_000)
+    })), 15_000)
 
-  it.live("recovers an acknowledged write after the writer is killed", () =>
+  it.effect("recovers an acknowledged write after the writer is killed", () =>
     Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { filename } = yield* temporaryDatabase
       const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
 
       const command = (mode: string) =>
@@ -218,17 +217,16 @@ describe("SQLite live image store", () => {
 
       const reopened = yield* spawner.string(command("verify"))
       assert.strictEqual(reopened.trim(), new TextDecoder().decode(acknowledged.value).trim())
-    })).pipe(Effect.provide(platform)), 15_000)
+    })), 15_000)
 
-  it.live(
+  it.effect(
     "rolls back an unacknowledged transaction when the writer is killed before COMMIT",
     () =>
       Effect.scoped(Effect.gen(function*() {
         const filesystem = yield* FileSystem.FileSystem
         const path = yield* Path.Path
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-        const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-        const filename = path.join(directory, "live.sqlite")
+        const { filename } = yield* temporaryDatabase
         const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
 
         const command = (mode: string) =>
@@ -251,17 +249,15 @@ describe("SQLite live image store", () => {
 
         const reopened = yield* spawner.string(command("verify"))
         assert.strictEqual(reopened.trim(), identity.trim())
-      })).pipe(Effect.provide(platform)),
+      })),
     15_000
   )
 
   it.effect("reopens names, bytes, hard links and identity", () =>
     Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { filename } = yield* temporaryDatabase
       const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
 
       const run = (mode: string) =>
@@ -276,29 +272,24 @@ describe("SQLite live image store", () => {
       assert.ok(beforeIncarnation)
       assert.strictEqual(afterIdentity, beforeIdentity)
       assert.notStrictEqual(afterIncarnation, beforeIncarnation)
-    })).pipe(Effect.provide(platform)))
+    })))
 
   it.effect("rejects a competing owner", () =>
     Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { filename } = yield* temporaryDatabase
 
       yield* Effect.scoped(Effect.gen(function*() {
         yield* LiveVolume.open(options)
         const competing = yield* Effect.flip(LiveVolume.open(options).pipe(Effect.provide(store(filename))))
         assert.deepStrictEqual([competing.code, competing.operation], ["Ownership", "SqliteLiveImageStore.layer"])
       })).pipe(Effect.provide(store(filename)))
-    })).pipe(Effect.provide(files)), 15_000)
+    })), 15_000)
 
   it.effect("rejects a damaged image", () =>
     Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { filename } = yield* temporaryDatabase
       const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
 
       yield* spawner.string(ChildProcess.make("bun", [worker], {
@@ -313,15 +304,13 @@ describe("SQLite live image store", () => {
 
       const damaged = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(store(filename))))
       assert.strictEqual(damaged.code, "CorruptStore")
-    })).pipe(Effect.provide(platform)))
+    })))
 
   it.effect("rejects extra schema objects that could create statement journals", () =>
     Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { filename } = yield* temporaryDatabase
       const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
 
       yield* spawner.string(ChildProcess.make("bun", [worker], {
@@ -338,13 +327,12 @@ describe("SQLite live image store", () => {
 
       const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(store(filename))))
       assert.strictEqual(error.code, "CorruptStore")
-    })).pipe(Effect.provide(platform)))
+    })))
 
   it.effect("rejects a SQLite client bound to another database", () =>
     Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
       const path = yield* Path.Path
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
+      const { directory } = yield* temporaryDatabase
       const declared = path.join(directory, "declared.sqlite")
       const actual = path.join(directory, "actual.sqlite")
 
@@ -356,14 +344,11 @@ describe("SQLite live image store", () => {
 
       const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(mismatched)))
       assert.deepStrictEqual([error.code, error.field], ["InvalidArgument", "filename"])
-    })).pipe(Effect.provide(files)))
+    })))
 
   it.effect("reports a database with a schema version it did not write as an incompatible store", () =>
     Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { filename } = yield* temporaryDatabase
 
       yield* Effect.gen(function*() {
         const sql = yield* SqlClient
@@ -372,7 +357,7 @@ describe("SQLite live image store", () => {
 
       const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(store(filename))))
       assert.strictEqual(error.code, "IncompatibleStore")
-    })).pipe(Effect.provide(files)))
+    })))
 
   it.effect("names the option a malformed configuration got wrong", () =>
     Effect.gen(function*() {
@@ -405,14 +390,11 @@ describe("SQLite live image store", () => {
           field
         ])
       }
-    }).pipe(Effect.provide(files)))
+    }))
 
   it.effect("rejects a full-database write without publishing it", () =>
     Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { filename } = yield* temporaryDatabase
 
       yield* Effect.scoped(Effect.gen(function*() {
         const live = yield* LiveVolume.open(options)
@@ -426,14 +408,11 @@ describe("SQLite live image store", () => {
         assert.strictEqual(error.code, "StorageRejected")
         assert.strictEqual((yield* Effect.flip(caller.stat("/too-large"))).code, "NotFound")
       })).pipe(Effect.provide(store(filename, ByteSize.bytes(12_288))))
-    })).pipe(Effect.provide(files)))
+    })))
 
   it.effect("freezes the volume when a SQLite commit succeeds but its acknowledgement is lost", () =>
     Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { filename } = yield* temporaryDatabase
       let loseAcknowledgement = false
 
       const sql = Layer.effect(
@@ -476,14 +455,11 @@ describe("SQLite live image store", () => {
         assert.strictEqual((yield* Effect.flip(caller.stat("/durable"))).code, "VolumeUnavailable")
         assert.strictEqual((yield* Effect.flip(live.usage)).code, "VolumeUnavailable")
       })).pipe(Effect.provide(injected))
-    })).pipe(Effect.provide(files)))
+    })))
 
   it.effect("freezes the volume when an update fails and rollback cannot be confirmed", () =>
     Effect.scoped(Effect.gen(function*() {
-      const filesystem = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-live-" })
-      const filename = path.join(directory, "live.sqlite")
+      const { filename } = yield* temporaryDatabase
       let failTransaction = false
 
       const sql = Layer.effect(
@@ -520,5 +496,5 @@ describe("SQLite live image store", () => {
         assert.strictEqual(failure.code, "OutcomeUnknown")
         assert.strictEqual((yield* Effect.flip(caller.stat("/"))).code, "VolumeUnavailable")
       })).pipe(Effect.provide(injected))
-    })).pipe(Effect.provide(files)))
+    })))
 })
