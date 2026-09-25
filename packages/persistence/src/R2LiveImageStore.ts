@@ -7,8 +7,9 @@
  * @since 0.5.0
  */
 import { GetObjectCommand, PutObjectCommand, type S3Client, S3ServiceException } from "@aws-sdk/client-s3"
-import { LiveVolume, VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { ByteSize, Crypto, Effect, Exit, Layer } from "effect"
+import { LiveVolume, type VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { ByteSize, type Crypto, Effect, Exit, Layer } from "effect"
+import { makeDigest, storeFailures } from "./internal/storeSupport.js"
 
 /** A complete R2 image plus the metadata needed to validate and fence it.
  *
@@ -156,14 +157,7 @@ export interface Options {
   readonly durability?: "survives-power-loss"
 }
 
-const fail = (code: Vfs.StoreCode, cause?: unknown): Vfs.StoreFailure =>
-  VfsError.make({ code, operation: "R2LiveImageStore", cause })
-
-// A rejected option names the option; the store cannot open until the caller fixes it.
-const invalid = (field: string): Vfs.ArgumentFailure =>
-  VfsError.make({ code: "InvalidArgument", operation: "R2LiveImageStore", field })
-
-const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
+const { fail, invalid } = storeFailures("R2LiveImageStore")
 
 /**
  * A single-key experimental store. The application must ensure one live owner;
@@ -187,11 +181,13 @@ const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16)
  *
  * @since 0.5.0
  */
-export const layer = (options: Options) =>
+export const layer = (
+  options: Options
+): Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Crypto.Crypto> =>
   Layer.effect(
     LiveVolume.LiveImageStore,
     Effect.gen(function*() {
-      const crypto = yield* Crypto.Crypto
+      const digest = yield* makeDigest
       const maxImage = ByteSize.toBigInt(options.maxImageBytes)
 
       if (options.key.length === 0 || maxImage <= 0n) return yield* invalid("options")
@@ -199,8 +195,6 @@ export const layer = (options: Options) =>
       let generation: number | undefined
       let etag: string | undefined
       let available = true
-
-      const digest = (image: Uint8Array) => Effect.map(crypto.digest("SHA-256", image), hex)
 
       const validate = Effect.fnUntraced(function*(record: ObjectRecord) {
         if (

@@ -3,9 +3,10 @@
  *
  * @since 0.4.0
  */
-import { LiveVolume, VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { ByteSize, Crypto, Effect, Exit, FileSystem, Layer, Path, Schema } from "effect"
+import { LiveVolume, type VfsError } from "@effect-vfs/core"
+import { ByteSize, type Crypto, Effect, Exit, FileSystem, Layer, Path, Schema } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
+import { makeDigest, storeFailures } from "./internal/storeSupport.js"
 
 /**
  * Limits and the local database path used to verify the supplied SQL client.
@@ -46,14 +47,7 @@ const StoreRow = Schema.Struct({
   digest: Schema.String
 })
 
-const fail = (code: Vfs.StoreCode, cause?: unknown): Vfs.StoreFailure =>
-  VfsError.make({ code, operation: "SqliteLiveImageStore", cause })
-
-// A rejected option names the option; the store cannot open until the caller fixes it.
-const invalid = (field: string): Vfs.ArgumentFailure =>
-  VfsError.make({ code: "InvalidArgument", operation: "SqliteLiveImageStore", field })
-
-const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
+const { fail, invalid } = storeFailures("SqliteLiveImageStore")
 
 /**
  * Reserve one SQLite connection and its exclusive lock for the Layer scope.
@@ -73,13 +67,17 @@ const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16)
  *
  * @since 0.4.0
  */
-export const layer = (options: Options) =>
+export const layer = (options: Options): Layer.Layer<
+  LiveVolume.LiveImageStore,
+  VfsError.ArgumentFailure | VfsError.StoreFailure,
+  SqlClient | Crypto.Crypto | FileSystem.FileSystem | Path.Path
+> =>
   Layer.effect(
     LiveVolume.LiveImageStore,
     Effect.gen(function*() {
       const filesystem = yield* FileSystem.FileSystem
       const path = yield* Path.Path
-      const crypto = yield* Crypto.Crypto
+      const digest = yield* makeDigest
       const sql = yield* SqlClient
       const maxImage = ByteSize.toBigInt(options.maxImageBytes)
       const maxDatabase = ByteSize.toBigInt(options.maxDatabaseBytes)
@@ -107,8 +105,6 @@ export const layer = (options: Options) =>
           Effect.mapError((cause) => fail("CorruptStore", cause))
         )
       })
-
-      const digest = (image: Uint8Array) => Effect.map(crypto.digest("SHA-256", image), hex)
 
       yield* run(`PRAGMA busy_timeout=${timeout}`).pipe(Effect.mapError((cause) => fail("Storage", cause)))
       yield* run("PRAGMA journal_mode=DELETE").pipe(Effect.mapError((cause) => fail("Ownership", cause)))
