@@ -1,4 +1,4 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as NodeSocket from "@effect/platform-node-shared/NodeSocket"
 import * as NodeSocketServer from "@effect/platform-node-shared/NodeSocketServer"
@@ -366,8 +366,8 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
     "rejects transport options and invalid explicit limits before binding",
     () =>
       Effect.gen(function*() {
-        const volume = yield* Vfs.make()
-        const caller = yield* volume.caller()
+        const volume = yield* Vfs.Volume
+        const caller = yield* Vfs.Caller
 
         const transportOption = yield* Effect.flip(
           NfsServer.make(
@@ -445,13 +445,14 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
         assert.instanceOf(closed, ConfigurationError)
         assert.strictEqual(closed.option, "caller")
       }).pipe(
-        Effect.provideService(SocketServer.SocketServer, testSocketServer)
+        Effect.provideService(SocketServer.SocketServer, testSocketServer),
+        Effect.provide(Testing.layer())
       )
   )
 
   it.effect("refuses writable export when the volume cannot promise power-loss durability", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
 
       const error = yield* Effect.flip(NfsServer.make({
         volume,
@@ -462,12 +463,12 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
 
       assert.instanceOf(error, ConfigurationError)
       assert.strictEqual(error.option, "volume.durability")
-    }).pipe(Effect.provideService(SocketServer.SocketServer, testSocketServer)))
+    }).pipe(Effect.provideService(SocketServer.SocketServer, testSocketServer), Effect.provide(Testing.layer())))
 
   it.effect("requires an explicit identity policy for writable export", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
 
       // SAFETY: This test deliberately passes the forbidden local writable option to exercise runtime validation.
       // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- Runtime validation requires an invalid typed input.
@@ -479,12 +480,12 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
 
       assert.instanceOf(error, ConfigurationError)
       assert.strictEqual(error.option, "policy")
-    }).pipe(Effect.provideService(SocketServer.SocketServer, testSocketServer)))
+    }).pipe(Effect.provideService(SocketServer.SocketServer, testSocketServer), Effect.provide(Testing.layer())))
 
   it.effect("accepts a socket server bound to a UNIX-domain socket path as a local address", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
 
       const unix = SocketServer.SocketServer.of({
         address: NetAddress.unixPathAddress("/tmp/effect-vfs-nfs.sock"),
@@ -496,12 +497,12 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       )
 
       assert.deepStrictEqual(server.address, { path: "/tmp/effect-vfs-nfs.sock" })
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped, Effect.provide(Testing.layer())))
 
   it.effect("rejects a socket server that is not bound to loopback TCP", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
 
       const nonLoopback = SocketServer.SocketServer.of({
         address: NetAddress.inetAddressFromIpStringUnsafe("0.0.0.0", 2049),
@@ -515,11 +516,11 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
 
       assert.instanceOf(error, ConfigurationError)
       assert.strictEqual(error.option, "policy")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("requires both network policy and explicit opt-in for a non-loopback bind", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
 
       const nonLoopback = SocketServer.SocketServer.of({
         address: NetAddress.inetAddressFromIpStringUnsafe("0.0.0.0", 2049),
@@ -555,11 +556,11 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       )
 
       assert.deepStrictEqual(server.address, { host: "0.0.0.0", port: 2049 })
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped, Effect.provide(Testing.layer())))
 
   live("passes the accepted TCP peer to the identity policy", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
       const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 })
       let observed: Parameters<NfsIdentityPolicy>[0] | undefined
       const acceptedFlavors: Array<"sys" | "none"> = ["none"]
@@ -604,11 +605,11 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
         credential: { flavor: "none" },
         peer: { transport: "tcp", address: "127.0.0.1", port: tcpPeer.port }
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   live("passes a UNIX peer with no invented client address to the identity policy", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
       const nonce = yield* (yield* Crypto.Crypto).randomBytes(8)
       const path = `/tmp/effect-vfs-nfs-${process.pid}-${Encoding.encodeHex(nonce)}.sock`
       const socketServer = yield* NodeSocketServer.make({ path })
@@ -645,11 +646,11 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
         credential: { flavor: "none" },
         peer: { transport: "unix", address: null, port: null, path }
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   live("bounds mapped callers and gives policy denial the same RPC response", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
       const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 })
 
       const peer = Effect.map(
@@ -696,14 +697,14 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       assert.deepStrictEqual((yield* fields(allowed)).slice(0, 3), [81, 1, 0])
       assert.deepStrictEqual(yield* fields(deniedByPolicy), [82, 1, 1, 1, 7])
       assert.deepStrictEqual(yield* fields(deniedByLimit), [83, 1, 1, 1, 7])
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   live(
     "binds an ephemeral loopback port, serves RPC, and releases the port with its scope",
     () =>
       Effect.gen(function*() {
-        const volume = yield* Vfs.make()
-        const caller = yield* volume.caller()
+        const volume = yield* Vfs.Volume
+        const caller = yield* Vfs.Caller
         const firstScope = yield* Scope.make()
 
         const firstSocketServer = yield* NodeSocketServer.make({
@@ -773,13 +774,13 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
 
         assert.strictEqual(tcpPort(second), tcpPort(first))
         yield* Scope.close(secondScope, Exit.void)
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect("gives each concurrently open socket its own connection identity", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       const scope = yield* Scope.make()
 
       const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 }).pipe(Scope.provide(scope))
@@ -846,12 +847,12 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       yield* owner.close
       yield* stranger.close
       yield* Scope.close(scope, Exit.void)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("closes a connection it has no permit for instead of abandoning it", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       const scope = yield* Scope.make()
 
       const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 }).pipe(Scope.provide(scope))
@@ -888,12 +889,12 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       )
 
       yield* held.close
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("sends a callback down the backchannel and accepts the client's reply over TCP", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       const scope = yield* Scope.make()
 
       const socketServer = yield* NodeSocketServer.make({ host: "127.0.0.1", port: 0 }).pipe(Scope.provide(scope))
@@ -1032,5 +1033,5 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
 
       yield* client.close
       yield* Scope.close(scope, Exit.void)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 })

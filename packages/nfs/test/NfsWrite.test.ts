@@ -1,12 +1,21 @@
-import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it } from "@effect/vitest"
 import { Deferred, Effect, Fiber, Layer } from "effect"
 import * as ByteSize from "effect/ByteSize"
-import { makeExport } from "../src/internal/export.js"
-import { makeNfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
+import { Operation, Status } from "../src/internal/nfs4.js"
 import { type EncoderSession, make, XdrCodec } from "../src/internal/xdr.js"
-import { call, generation, limits, openByName, parseOpen, sequence, startSession } from "./support/harness.js"
+import {
+  call,
+  exportFor,
+  handlerFor,
+  limits,
+  openByName,
+  openSession,
+  parseOpen,
+  sequence,
+  startSession
+} from "./support/harness.js"
 
 const write = (stateid: Uint8Array, bytes: Uint8Array, offset = 0n, stable = 2) => (writer: EncoderSession) =>
   Effect.gen(function*() {
@@ -86,44 +95,20 @@ const readCommitResult = (bytes: Uint8Array) =>
 it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
   it.effect("reports the committed prefix and replays a lost WRITE reply without writing twice", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({
-        maxBytes: ByteSize.bytes(4),
-        maxFileBytes: ByteSize.bytes(4)
-      })
+      const volume = yield* Vfs.Volume
 
-      const caller = yield* volume.caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1, 2]), {
         access: "write",
         create: "exclusive"
       })
       const storageGeneration = new Uint8Array(16).fill(9)
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          caller,
-          storageGeneration,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          storageGeneration,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          storageGeneration,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "write-prefix")
+      const { handler, client, session } = yield* openSession(caller, "write-prefix", {
+        storageGeneration,
+        writable: true,
+        export: { generation: storageGeneration, capacity: volume }
+      })
 
       const opened = yield* parseOpen(
         yield* handler.compound(
@@ -203,11 +188,13 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
       )
 
       assert.strictEqual(badStability.status, Status.INVAL)
-    }))
+    }).pipe(
+      Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(4), maxFileBytes: ByteSize.bytes(4) } }))
+    ))
   it.effect("writes through the held write handle after either OPEN upgrade order", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/read-first", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -217,31 +204,10 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          caller,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "write-upgrade")
+      const { handler, client, session } = yield* openSession(caller, "write-upgrade", {
+        writable: true,
+        export: { capacity: volume }
+      })
 
       let sequenceId = 1
 
@@ -280,44 +246,28 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
         assert.strictEqual(result.count, 1)
         assert.deepStrictEqual(yield* caller.readFile(`/${name}`), new Uint8Array([2]))
       }
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reuses the held write handle across downgrade and upgrade cycles", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const export_ = makeExport(
-        caller,
-        generation,
-        {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        },
-        generation,
-        volume
-      )
+      const export_ = exportFor(caller, { capacity: volume })
 
       let openedHandles = 0
 
-      const handler = yield* makeNfs4Handler({
+      const handler = yield* handlerFor({
         ...export_,
         open: (reference, access) => {
           openedHandles++
 
           return export_.open(reference, access)
         }
-      }, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits,
-        writable: true
-      })
+      }, { writable: true })
 
       const {
         client,
@@ -383,7 +333,7 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
 
       assert.strictEqual(openedHandles, 1)
       assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array([4]))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("returns IO without publishing bytes when storage rejects the write", () =>
     Effect.gen(function*() {
       let reject = false
@@ -413,31 +363,10 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
           create: "exclusive"
         })
 
-        const handler = yield* makeNfs4Handler(
-          makeExport(
-            caller,
-            generation,
-            {
-              maxFilehandles: 16,
-              maxNameBytes: ByteSize.bytes(255)
-            },
-            generation,
-            volume
-          ),
-          {
-            leaseDurationSeconds: 30,
-            callbackTimeout: "1 second",
-            generation,
-            now: () => 0,
-            limits,
-            writable: true
-          }
-        )
-
-        const {
-          client,
-          session
-        } = yield* startSession(handler, "write-reject")
+        const { handler, client, session } = yield* openSession(caller, "write-reject", {
+          writable: true,
+          export: { capacity: volume }
+        })
 
         const opened = yield* parseOpen(
           yield* handler.compound(
@@ -506,31 +435,10 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
           create: "exclusive"
         })
 
-        const handler = yield* makeNfs4Handler(
-          makeExport(
-            caller,
-            generation,
-            {
-              maxFilehandles: 16,
-              maxNameBytes: ByteSize.bytes(255)
-            },
-            generation,
-            volume
-          ),
-          {
-            leaseDurationSeconds: 30,
-            callbackTimeout: "1 second",
-            generation,
-            now: () => 0,
-            limits,
-            writable: true
-          }
-        )
-
-        const {
-          client,
-          session
-        } = yield* startSession(handler, "write-commit-order")
+        const { handler, client, session } = yield* openSession(caller, "write-commit-order", {
+          writable: true,
+          export: { capacity: volume }
+        })
 
         const opened = yield* parseOpen(
           yield* handler.compound(
@@ -593,31 +501,10 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
           create: "exclusive"
         })
 
-        const handler = yield* makeNfs4Handler(
-          makeExport(
-            caller,
-            generation,
-            {
-              maxFilehandles: 16,
-              maxNameBytes: ByteSize.bytes(255)
-            },
-            generation,
-            volume
-          ),
-          {
-            leaseDurationSeconds: 30,
-            callbackTimeout: "1 second",
-            generation,
-            now: () => 0,
-            limits,
-            writable: true
-          }
-        )
-
-        const {
-          client,
-          session
-        } = yield* startSession(handler, "write-unknown")
+        const { handler, client, session } = yield* openSession(caller, "write-unknown", {
+          writable: true,
+          export: { capacity: volume }
+        })
 
         const opened = yield* parseOpen(
           yield* handler.compound(

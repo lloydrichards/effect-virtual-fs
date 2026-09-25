@@ -1,10 +1,9 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it } from "@effect/vitest"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
-import { makeExport } from "../src/internal/export.js"
-import { makeNfs4Handler, type Nfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
+import { type Nfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
 import type { CompoundCall } from "../src/internal/rpc.js"
 import {
   type DecoderSession,
@@ -14,7 +13,16 @@ import {
   type XdrDecodeError,
   type XdrEncodeError
 } from "../src/internal/xdr.js"
-import { call, generation, limits, openReadOnly, parseOpen, sequence, startSession } from "./support/harness.js"
+import {
+  call,
+  limits,
+  makeHandler,
+  openReadOnly,
+  openSession,
+  parseOpen,
+  sequence,
+  startSession
+} from "./support/harness.js"
 
 const ACCESS_ALL = 0x3f
 
@@ -174,12 +182,6 @@ const decode = (bytes: Uint8Array) =>
     return { status, operations }
   })
 
-const makeHandler = (caller: Vfs.Caller) =>
-  makeNfs4Handler(
-    makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
-    { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits }
-  )
-
 const run = (handler: Nfs4Handler, request: Effect.Effect<CompoundCall, XdrEncodeError>) =>
   Effect.flatMap(request, (call) => Effect.flatMap(handler.compound(call), decode))
 
@@ -200,7 +202,7 @@ const fattr = (
 it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
   it.effect("answers must-not-implement and optional operations with NOTSUPP", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const handler = yield* makeHandler(caller)
 
       const setclientid = yield* run(
@@ -265,14 +267,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       )
 
       assert.deepStrictEqual(unknown.operations[1], { code: Operation.ILLEGAL, status: Status.OP_ILLEGAL })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("completes COMMIT, PUTPUBFH, and SECINFO on a read-only export", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
-      const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "commit")
+      const { handler, session } = yield* openSession(caller, "commit")
 
       const handles = yield* run(
         handler,
@@ -368,14 +369,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       )
 
       assert.strictEqual(missing.status, Status.NOENT)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("compares attributes with VERIFY and NVERIFY", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
-      const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "verify")
+      const { handler, session } = yield* openSession(caller, "verify")
 
       const probe = (
         sequenceId: number,
@@ -425,14 +425,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         yield* probe(7, Operation.VERIFY, 11, (values) => values.write(XdrCodec.uint32, 0)),
         Status.INVAL
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("manages open stateids with OPEN_DOWNGRADE, TEST_STATEID, and FREE_STATEID", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const handler = yield* makeHandler(caller)
-      const { client, session } = yield* startSession(handler, "stateids")
+      const { handler, client, session } = yield* openSession(caller, "stateids")
 
       const opened = yield* parseOpen(
         yield* handler.compound(
@@ -562,14 +561,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       )
 
       assert.strictEqual(badDowngrade.status, Status.BAD_STATEID)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("validates lock stateids and rejects write-lock tests on a read-only export", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const handler = yield* makeHandler(caller)
-      const { client, session } = yield* startSession(handler, "locks")
+      const { handler, client, session } = yield* openSession(caller, "locks")
 
       const onFile = (sequenceId: number, operation: (writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>) =>
         run(
@@ -646,11 +644,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         })
 
       assert.strictEqual(yield* onFile(5, truncatedLock), Status.BADXDR)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("reports ACCESS from mode bits against the RPC identity without granting writes", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       yield* caller.chmod("/file", 0o640)
       yield* caller.chown("/file", { uid: 501, gid: 20 })
@@ -660,8 +658,7 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       yield* caller.mkdir("/dir")
       yield* caller.chmod("/dir", 0o751)
       yield* caller.chown("/dir", { uid: 501, gid: 20 })
-      const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "access")
+      const { handler, session } = yield* openSession(caller, "access")
       let sequenceId = 0
 
       const access = (credentials: CompoundCall["credentials"], name: string) =>
@@ -697,13 +694,12 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       const directorySupported = 0x01 | 0x02 | 0x04 | 0x08 | 0x10
       assert.deepStrictEqual(yield* access({ _tag: "None" }, "dir"), { supported: directorySupported, access: 0x02 })
       assert.deepStrictEqual(yield* access(sys(501, 501), "dir"), { supported: directorySupported, access: 0x03 })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("distinguishes reserved names from invalid names", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
-      const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "names")
+      const caller = yield* Vfs.Caller
+      const { handler, session } = yield* openSession(caller, "names")
 
       const lookup = (sequenceId: number, name: Uint8Array) =>
         run(
@@ -724,11 +720,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(yield* lookup(2, new TextEncoder().encode("..")), Status.BADNAME)
       assert.strictEqual(yield* lookup(3, new Uint8Array([0xff, 0xfe])), Status.INVAL)
       assert.strictEqual(yield* lookup(4, new TextEncoder().encode("missing")), Status.NOENT)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("follows the EXCHANGE_ID client record cases of RFC 8881 Section 18.35.4", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const handler = yield* makeHandler(caller)
       const owner = "record-cases"
 
@@ -828,11 +824,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual((yield* exchange(sys(1111, 37), v2, UPDATE)).status, Status.NOT_SAME)
       assert.strictEqual((yield* exchange(sys(501, 20), v1, UPDATE)).status, Status.PERM)
       assert.strictEqual((yield* exchange(sys(1111, 37), v1, UPDATE)).status, Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("guards CREATE_SESSION by principal, channel size, and operation-level replay", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const handler = yield* makeHandler(caller)
 
       const exchanged = yield* run(
@@ -919,13 +915,12 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
 
       assert.strictEqual(replayed.status, Status.OK)
       assert.deepStrictEqual(replayed.operations[1]!.value, other.operations[0]!.value)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("scopes RECLAIM_COMPLETE with rca_one_fs to the current filehandle", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
-      const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "reclaim")
+      const caller = yield* Vfs.Caller
+      const { handler, session } = yield* openSession(caller, "reclaim")
 
       const reclaim = (oneFs: boolean) => (writer: EncoderSession) =>
         Effect.gen(function*() {
@@ -948,14 +943,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         (yield* run(handler, call([sequence(session, 4), reclaim(false)]))).status,
         Status.COMPLETE_ALREADY
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("answers SECINFO_NO_NAME for the current object and its parent", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.mkdir("/dir")
-      const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "secinfo-no-name")
+      const { handler, session } = yield* openSession(caller, "secinfo-no-name")
 
       const current = yield* run(
         handler,
@@ -1039,14 +1033,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       )
 
       assert.strictEqual(badStyle.status, Status.BADXDR)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("answers delegation wants in OPEN share_access with OPEN_DELEGATE_NONE_EXT", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
-      const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "wants")
+      const { handler, session } = yield* openSession(caller, "wants")
       let sequenceId = 0
 
       // The macOS 26 client opens with CLAIM_FH and OPEN4_SHARE_ACCESS_WANT_READ_DELEG (0x0100).
@@ -1105,14 +1098,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual((yield* open(0x0601)).status, Status.INVAL)
       assert.strictEqual((yield* open(0x0100)).status, Status.INVAL)
       assert.strictEqual((yield* open(0x0102)).status, Status.ROFS)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("substitutes the current stateid in OPEN_DOWNGRADE and CLOSE within one compound", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const handler = yield* makeHandler(caller)
-      const { client, session } = yield* startSession(handler, "current-stateid")
+      const { handler, client, session } = yield* openSession(caller, "current-stateid")
       const current = new Uint8Array([0, 0, 0, 1, ...new Uint8Array(12)])
 
       const reply = yield* run(
@@ -1155,11 +1147,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(new DataView(downgraded.buffer).getUint32(0), 2)
       assert.deepStrictEqual(downgraded.subarray(4), opened.stateid.subarray(4))
       assert.strictEqual(reply.operations[5]!.status, Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("keeps RFC precedence for replayed CREATE_SESSION, write-only VERIFY attributes, and minimal channels", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const handler = yield* makeHandler(caller)
 
@@ -1240,11 +1232,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       )
 
       assert.strictEqual(verify.status, Status.INVAL, "time_access_set is write-only, not unsupported")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("rejects an oversized reply before any state-changing operation runs", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const handler = yield* makeHandler(caller)
       // Small enough for SEQUENCE + PUTROOTFH + OPEN, too small once a worst-case GETATTR follows.
@@ -1311,17 +1303,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
 
       assert.strictEqual(destroyTooBig.status, Status.REP_TOO_BIG)
       assert.strictEqual((yield* run(handler, call([sequence(other.session, 1)]))).status, Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("renews the lease on CREATE_SESSION and rejects channels without room for two operations", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       let now = 0
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
-        { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => now, limits }
-      )
+      const handler = yield* makeHandler(caller, { now: () => now })
 
       const exchanged = yield* run(
         handler,
@@ -1380,15 +1369,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       // Without renewal the record created at t=0 would have expired at t=30s.
       now = 50_000
       assert.strictEqual((yield* run(handler, call([sequence(session, 1)]))).status, Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("checks filehandles, object kinds, and names before rejecting mutations as read-only", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       yield* caller.symlink("file", "/link")
-      const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "precedence")
+      const { handler, session } = yield* openSession(caller, "precedence")
       let sequenceId = 0
 
       const attempt = (...operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>) =>
@@ -1441,17 +1429,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(yield* attempt(root, savefh, rename), Status.ROFS)
       assert.strictEqual(yield* attempt(root, lookup("file"), savefh, root, link), Status.ROFS)
       assert.strictEqual(yield* attempt(root, remove("file")), Status.ROFS)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("bounds the back channel and the client-record table", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const constrained = { ...limits, maxClients: 2 }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }),
-        { leaseDurationSeconds: 30, callbackTimeout: "1 second", generation, now: () => 0, limits: constrained }
-      )
+      const handler = yield* makeHandler(caller, { limits: constrained })
 
       const exchange = (owner: string) =>
         run(
@@ -1508,16 +1493,15 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       )
 
       assert.strictEqual(backTooSmall.status, Status.TOOSMALL)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("names the object type when OPEN, READ, COMMIT, and locks meet a non-regular object", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1, 2, 3, 4]), { access: "write", create: "exclusive" })
       yield* caller.mkdir("/dir")
       yield* caller.symlink("file", "/link")
-      const handler = yield* makeHandler(caller)
-      const { client, session } = yield* startSession(handler, "object-types")
+      const { handler, client, session } = yield* openSession(caller, "object-types")
       let sequenceId = 0
 
       const attempt = (...operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>) =>
@@ -1628,14 +1612,13 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       )
 
       assert.deepStrictEqual(badUnlockType.operations[3], { code: Operation.LOCKU, status: Status.BADXDR })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("answers reclaim claims, share reservations, and masked downgrades per Sections 18.16 and 18.18", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const handler = yield* makeHandler(caller)
-      const { client, session } = yield* startSession(handler, "share-reservations")
+      const { handler, client, session } = yield* openSession(caller, "share-reservations")
       let sequenceId = 0
 
       const attempt = (...operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>) =>
@@ -1730,15 +1713,14 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(masked.status, Status.OK)
       const widened = yield* attempt(root, lookup("file"), downgrade(stateidOf(denyWrite, 2), 1, 1))
       assert.strictEqual(widened.status, Status.INVAL, "deny READ is not a subset of deny WRITE")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("moves the current stateid with the filehandle", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/a", new Uint8Array([1]), { access: "write", create: "exclusive" })
       yield* caller.writeFile("/b", new Uint8Array([2]), { access: "write", create: "exclusive" })
-      const handler = yield* makeHandler(caller)
-      const { client, session } = yield* startSession(handler, "current-stateid-set")
+      const { handler, client, session } = yield* openSession(caller, "current-stateid-set")
       const current = new Uint8Array([0, 0, 0, 1, ...new Uint8Array(12)])
 
       const root = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)
@@ -1824,13 +1806,12 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       )
 
       assert.strictEqual(downgrade.status, Status.NOFILEHANDLE)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("binds connections, accepts backchannel parameters, and judges a misplaced SEQUENCE in place", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
-      const handler = yield* makeHandler(caller)
-      const { session } = yield* startSession(handler, "bind")
+      const caller = yield* Vfs.Caller
+      const { handler, session } = yield* openSession(caller, "bind")
 
       const bind = (id: Uint8Array) => (writer: EncoderSession) =>
         Effect.gen(function*() {
@@ -1991,16 +1972,15 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
         code: Operation.DESTROY_SESSION,
         status: Status.NOT_ONLY_OP
       }])
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("keeps anonymous READ, LOOKUP, READLINK, LOCKU, and OPEN4_CREATE inside their error lists", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1, 2]), { access: "write", create: "exclusive" })
       yield* caller.mkdir("/dir")
       yield* caller.symlink("file", "/link")
-      const handler = yield* makeHandler(caller)
-      const { client, session } = yield* startSession(handler, "error-lists")
+      const { handler, client, session } = yield* openSession(caller, "error-lists")
       let sequenceId = 0
 
       const attempt = (...operations: ReadonlyArray<(writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>>) =>
@@ -2114,11 +2094,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(yield* status(root, create("..", 0, 2)), Status.BADNAME)
       assert.strictEqual(yield* status(root, create("new", 0, 2)), Status.ROFS)
       assert.strictEqual(yield* status(root, openAs("w", 0)), Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("rejects a READ that cannot fit the channel before it touches the file", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
       const before = (yield* caller.stat("/file")).atimeNs
       const handler = yield* makeHandler(caller)
@@ -2171,11 +2151,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       )
 
       assert.strictEqual(fitting.status, Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("reports TOO_MANY_OPS from the header count even when a later operation is malformed", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const handler = yield* makeHandler(caller)
       const { session } = yield* startSession(handler, "count", { maxOperations: 3 })
 
@@ -2194,11 +2174,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.deepStrictEqual((yield* run(handler, oversized)).operations, [
         { code: Operation.SEQUENCE, status: Status.TOO_MANY_OPS }
       ])
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("reports an illegal first opcode as OP_ILLEGAL and a malformed operation in place", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const handler = yield* makeHandler(caller)
 
       const illegal = yield* run(
@@ -2238,11 +2218,11 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
 
       // The slot was consumed, so the retry is served from the reply cache.
       assert.deepStrictEqual(yield* handler.compound(request), first)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("rejects state protection it cannot honor and names forbidden bytes as BADCHAR", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const handler = yield* makeHandler(caller)
 
@@ -2320,5 +2300,5 @@ it.layer(NodeCrypto.layer)("read-only-local protocol completeness", (it) => {
       assert.strictEqual(yield* lookup(2, new Uint8Array([0x61, 0x00])), Status.BADCHAR)
       assert.strictEqual(yield* lookup(3, new Uint8Array([0xff, 0x61])), Status.INVAL)
       assert.strictEqual(yield* lookup(4, new TextEncoder().encode("file")), Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 })

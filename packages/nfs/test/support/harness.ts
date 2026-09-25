@@ -1,7 +1,16 @@
+import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
-import { type Nfs4Handler, type Nfs4Limits, Operation, Status } from "../../src/internal/nfs4.js"
+import { type ExportLimits, makeExport, type NfsExport } from "../../src/internal/export.js"
+import {
+  makeNfs4Handler,
+  type Nfs4Handler,
+  type Nfs4Limits,
+  type Nfs4Options,
+  Operation,
+  Status
+} from "../../src/internal/nfs4.js"
 import type { Connection, Credentials } from "../../src/internal/rpc.js"
 import { type EncoderSession, make, XdrCodec, type XdrEncodeError } from "../../src/internal/xdr.js"
 
@@ -33,6 +42,44 @@ export const limits: Nfs4Limits = {
   maxReaddirReplyBytes: ByteSize.bytes(16_384),
   maxNameBytes: ByteSize.bytes(255)
 }
+
+export const EXPORT_LIMITS: ExportLimits = { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }
+
+export const HANDLER_OPTIONS: Nfs4Options = {
+  leaseDurationSeconds: 30,
+  callbackTimeout: "1 second",
+  generation,
+  now: () => 0,
+  limits
+}
+
+/** What a test changes about the export; `identity` defaults to `generation`, as in `makeExport`. */
+export interface ExportOverrides {
+  readonly generation?: Uint8Array
+  readonly identity?: Uint8Array
+  readonly limits?: Partial<ExportLimits>
+  readonly capacity?: Pick<Vfs.Volume, "limits" | "usage">
+}
+
+export interface HandlerOverrides extends Partial<Nfs4Options> {
+  readonly export?: ExportOverrides
+}
+
+export const exportFor = (caller: Vfs.Caller, overrides: ExportOverrides = {}): NfsExport =>
+  makeExport(
+    caller,
+    overrides.generation ?? generation,
+    { ...EXPORT_LIMITS, ...overrides.limits },
+    overrides.identity ?? overrides.generation ?? generation,
+    overrides.capacity
+  )
+
+export const handlerFor = (export_: NfsExport, overrides: Partial<Nfs4Options> = {}) =>
+  makeNfs4Handler(export_, { ...HANDLER_OPTIONS, ...overrides })
+
+/** The export over `caller` and the handler serving it. */
+export const makeHandler = (caller: Vfs.Caller, { export: exportOverrides, ...overrides }: HandlerOverrides = {}) =>
+  handlerFor(exportFor(caller, exportOverrides), overrides)
 
 /**
  * Distinct connections let a test exercise trunking without a socket. `onSend` receives anything
@@ -243,3 +290,13 @@ export const stateidWithSequence = (stateid: Uint8Array, sequence: number) => {
 
   return copy
 }
+
+/** The export over `caller`, the handler serving it, and a confirmed session for `owner`. */
+export const openSession = (caller: Vfs.Caller, owner: string, overrides: HandlerOverrides = {}) =>
+  Effect.gen(function*() {
+    const { export: exportOverrides, ...options } = overrides
+    const export_ = exportFor(caller, exportOverrides)
+    const handler = yield* handlerFor(export_, options)
+
+    return { export_, handler, ...(yield* startSession(handler, owner)) }
+  })

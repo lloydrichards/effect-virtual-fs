@@ -1,12 +1,11 @@
-import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import * as ByteSize from "effect/ByteSize"
-import { makeExport } from "../src/internal/export.js"
-import { makeNfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
+import { Operation, Status } from "../src/internal/nfs4.js"
 import { type EncoderSession, make, XdrCodec } from "../src/internal/xdr.js"
-import { call, generation, limits, sequence, startSession } from "./support/harness.js"
+import { call, limits, makeHandler, openSession, sequence, startSession } from "./support/harness.js"
 
 const root = (writer: EncoderSession) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH)
 
@@ -106,41 +105,15 @@ const namespaceChange = (bytes: Uint8Array, operation: number, prefix: ReadonlyA
     }
   })
 
-const makeHandler = (
-  caller: Parameters<typeof makeExport>[0],
-  writable = true,
-  mapped?: Parameters<typeof makeExport>[0]
-) => {
-  const options = {
-    leaseDurationSeconds: 30,
-    callbackTimeout: "1 second",
-    generation,
-    now: () => 0,
-    limits,
-    writable
-  } as const
-
-  return makeNfs4Handler(
-    makeExport(caller, generation, {
-      maxFilehandles: 32,
-      maxNameBytes: ByteSize.bytes(255)
-    }),
-    mapped === undefined ? options : {
-      ...options,
-      callerFor: () => Effect.succeed(mapped)
-    }
-  )
-}
-
 it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
   it.effect("creates a directory and symlink, reporting the directory change and retaining the created handle", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
-      const handler = yield* makeHandler(caller)
+      const caller = yield* Vfs.Caller
 
-      const {
-        session
-      } = yield* startSession(handler, "namespace-create")
+      const { handler, session } = yield* openSession(caller, "namespace-create", {
+        writable: true,
+        export: { limits: { maxFilehandles: 32 } }
+      })
 
       const response = yield* make.openReader(
         yield* handler.compound(
@@ -194,10 +167,10 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         Status.OK
       )
       assert.strictEqual((yield* caller.stat("/docs/nested")).kind, "directory")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("links and renames by saved and current handles while preserving inode identity", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.mkdir("/from")
       yield* caller.mkdir("/to")
       yield* caller.writeFile("/from/file", new Uint8Array([1]), {
@@ -205,11 +178,11 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         create: "exclusive"
       })
       const original = yield* caller.stat("/from/file")
-      const handler = yield* makeHandler(caller)
 
-      const {
-        session
-      } = yield* startSession(handler, "namespace-move")
+      const { handler, session } = yield* openSession(caller, "namespace-move", {
+        writable: true,
+        export: { limits: { maxFilehandles: 32 } }
+      })
 
       assert.strictEqual(
         yield* status(
@@ -245,15 +218,15 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         Status.OK
       )
       assert.deepStrictEqual(yield* caller.readFile("/to/moved"), new Uint8Array([1]))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("keeps earlier compound mutations when a later operation fails", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
-      const handler = yield* makeHandler(caller)
+      const caller = yield* Vfs.Caller
 
-      const {
-        session
-      } = yield* startSession(handler, "namespace-partial")
+      const { handler, session } = yield* openSession(caller, "namespace-partial", {
+        writable: true,
+        export: { limits: { maxFilehandles: 32 } }
+      })
 
       const reply = yield* handler.compound(
         yield* call([sequence(session, 1), root, createDirectory("kept"), root, remove("missing")])
@@ -261,10 +234,10 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
 
       assert.strictEqual(yield* status(reply), Status.NOENT)
       assert.strictEqual((yield* caller.stat("/kept")).kind, "directory")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reports changes for links, directory removal, and replacement rename", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.mkdir("/from")
       yield* caller.mkdir("/to")
       yield* caller.mkdir("/to/empty")
@@ -280,11 +253,11 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
       const rootReference = yield* caller.root
       const fromReference = yield* caller.lookup(Vfs.Entry(rootReference, new TextEncoder().encode("from")))
       const toReference = yield* caller.lookup(Vfs.Entry(rootReference, new TextEncoder().encode("to")))
-      const handler = yield* makeHandler(caller)
 
-      const {
-        session
-      } = yield* startSession(handler, "namespace-change")
+      const { handler, session } = yield* openSession(caller, "namespace-change", {
+        writable: true,
+        export: { limits: { maxFilehandles: 32 } }
+      })
 
       const beforeLink = (yield* caller.stat(toReference)).revision
 
@@ -352,15 +325,15 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
       })
       assert.strictEqual((yield* caller.stat("/to/replaced")).ino, original.ino)
       assert.deepStrictEqual(yield* caller.readFile("/to/replaced"), new Uint8Array([1]))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("validates namespace operands and keeps read-only exports unchanged", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
-      const writable = yield* makeHandler(caller)
+      const writable = yield* makeHandler(caller, { writable: true, export: { limits: { maxFilehandles: 32 } } })
 
       const {
         session
@@ -386,7 +359,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         yield* status(yield* writable.compound(yield* call([sequence(session, 5), root, rename("file", "other")]))),
         Status.NOFILEHANDLE
       )
-      const readOnly = yield* makeHandler(caller, false)
+      const readOnly = yield* makeHandler(caller, { writable: false, export: { limits: { maxFilehandles: 32 } } })
 
       const {
         session: readOnlySession
@@ -402,11 +375,10 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         yield* status(yield* readOnly.compound(yield* call([sequence(readOnlySession, 2), root, remove("file")]))),
         Status.ROFS
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("enforces the mapped caller's directory permissions for namespace changes", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const admin = yield* volume.caller()
+      const admin = yield* Vfs.Caller
       yield* admin.mkdir("/private", {
         mode: 0o700
       })
@@ -415,20 +387,18 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         create: "exclusive"
       })
 
-      const guest = yield* volume.caller({
-        identity: {
-          uid: 1000,
-          gid: 1000,
-          groups: [],
-          privileged: false
-        }
+      const guest = yield* Testing.callerAs({
+        uid: 1000,
+        gid: 1000,
+        groups: [],
+        privileged: false
       })
 
-      const handler = yield* makeHandler(admin, true, guest)
-
-      const {
-        session
-      } = yield* startSession(handler, "namespace-mapped-denial")
+      const { handler, session } = yield* openSession(admin, "namespace-mapped-denial", {
+        writable: true,
+        callerFor: () => Effect.succeed(guest),
+        export: { limits: { maxFilehandles: 32 } }
+      })
 
       assert.strictEqual(
         yield* status(yield* handler.compound(yield* call([sequence(session, 1), root, createDirectory("blocked")]))),
@@ -440,26 +410,23 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
       )
       assert.strictEqual((yield* admin.stat("/private/file")).kind, "file")
       assert.strictEqual((yield* Effect.flip(admin.stat("/blocked"))).code, "NotFound")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   // Core fails these NotPermitted (EPERM). RFC 8881 Section 15.2 lists no NFS4ERR_PERM for REMOVE or RENAME,
   // so the answer is ACCESS.
   it.effect("refuses removing, moving or replacing another owner's entry in a sticky directory as ACCESS", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const admin = yield* volume.caller()
+      const admin = yield* Vfs.Caller
       yield* admin.chmod(yield* admin.root, 0o1777)
       yield* admin.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const guest = yield* volume.caller({
-        identity: {
-          uid: 1000,
-          gid: 1000,
-          groups: [],
-          privileged: false
-        }
+      const guest = yield* Testing.callerAs({
+        uid: 1000,
+        gid: 1000,
+        groups: [],
+        privileged: false
       })
 
       yield* guest.writeFile("/mine", new Uint8Array([2, 2]), {
@@ -467,11 +434,11 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         create: "exclusive"
       })
 
-      const handler = yield* makeHandler(admin, true, guest)
-
-      const {
-        session
-      } = yield* startSession(handler, "namespace-sticky-denial")
+      const { handler, session } = yield* openSession(admin, "namespace-sticky-denial", {
+        writable: true,
+        callerFor: () => Effect.succeed(guest),
+        export: { limits: { maxFilehandles: 32 } }
+      })
 
       assert.deepStrictEqual(
         {
@@ -492,7 +459,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
       assert.strictEqual((yield* admin.stat("/file")).size, 1n)
       assert.strictEqual((yield* admin.stat("/mine")).size, 2n)
       assert.strictEqual((yield* Effect.flip(admin.stat("/moved"))).code, "NotFound")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reopens an injected committed image with NFS namespace and metadata changes", () => {
     let image: Uint8Array | undefined
 
@@ -524,30 +491,10 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         const volume = yield* LiveVolume.open(options)
         const caller = yield* volume.caller()
 
-        const handler = yield* makeNfs4Handler(
-          makeExport(
-            caller,
-            generation,
-            {
-              maxFilehandles: 32,
-              maxNameBytes: ByteSize.bytes(255)
-            },
-            generation,
-            volume
-          ),
-          {
-            leaseDurationSeconds: 30,
-            callbackTimeout: "1 second",
-            generation,
-            now: () => 0,
-            limits,
-            writable: true
-          }
-        )
-
-        const {
-          session
-        } = yield* startSession(handler, "namespace-live-before")
+        const { handler, session } = yield* openSession(caller, "namespace-live-before", {
+          writable: true,
+          export: { limits: { maxFilehandles: 32 }, capacity: volume }
+        })
 
         assert.strictEqual(
           yield* status(yield* handler.compound(yield* call([sequence(session, 1), root, createDirectory("docs")]))),

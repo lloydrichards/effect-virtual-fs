@@ -1,17 +1,16 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it } from "@effect/vitest"
 import { Effect } from "effect"
-import * as ByteSize from "effect/ByteSize"
-import { makeExport } from "../src/internal/export.js"
-import { makeNfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
+import { Operation, Status } from "../src/internal/nfs4.js"
 import { type EncoderSession, make, XdrCodec } from "../src/internal/xdr.js"
 import {
   call,
-  generation,
   limits,
+  makeHandler,
   openByName,
   openReadOnly,
+  openSession,
   parseOpen,
   sequence,
   startSession,
@@ -116,26 +115,13 @@ const resultStateid = (bytes: Uint8Array, operation: number) =>
 it.layer(NodeCrypto.layer)("NFSv4.1 byte-range locks", (it) => {
   it.effect("shares one owner's range across separate open stateids", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
+      const handler = yield* makeHandler(caller, { writable: true })
 
       const first = yield* startSession(handler, "shared-lock-owner")
       const second = yield* startSession(handler, "other-lock-owner")
@@ -231,29 +217,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 byte-range locks", (it) => {
         ),
         Operation.LOCK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reports two-client read/write conflicts and permits disjoint ranges", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
+      const handler = yield* makeHandler(caller, { writable: true })
 
       const a = yield* startSession(handler, "writer-a")
       const b = yield* startSession(handler, "writer-b")
@@ -321,33 +294,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 byte-range locks", (it) => {
         Operation.LOCK
       )
       assert.strictEqual((yield* statuses(yield* onFile(a, 5, unlock(released, 100n, 50n)))).status, Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("holds read locks through stateids and releases them before CLOSE", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1, 2]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "lock-holder")
+      const { handler, client, session } = yield* openSession(caller, "lock-holder")
 
       const opened = yield* parseOpen(
         yield* handler.compound(
@@ -465,10 +421,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 byte-range locks", (it) => {
         Status.OK
       )
       assert.strictEqual((yield* statuses(yield* onFile(13, unlock(narrowed, 4n, 2n)))).status, Status.BAD_STATEID)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("bounds lock records without consuming owner capacity on a rejected request", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -480,24 +436,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 byte-range locks", (it) => {
         maxLocks: 1
       }
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: constrained
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "lock-limits")
+      const { handler, client, session } = yield* openSession(caller, "lock-limits", { limits: constrained })
 
       const opened = yield* parseOpen(
         yield* handler.compound(
@@ -553,31 +492,21 @@ it.layer(NodeCrypto.layer)("NFSv4.1 byte-range locks", (it) => {
         (yield* statuses(yield* onFile(9, lock(opened.stateid, client, "b", 0xffff_ffff_ffff_fffen, 2n)))).status,
         Status.INVAL
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("keeps a split within the range limit and replays a lock only once", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits: {
-            ...limits,
-            maxLocks: 1
-          }
+      const handler = yield* makeHandler(caller, {
+        limits: {
+          ...limits,
+          maxLocks: 1
         }
-      )
+      })
 
       const client = yield* startSession(handler, "split-limit")
 
@@ -616,28 +545,16 @@ it.layer(NodeCrypto.layer)("NFSv4.1 byte-range locks", (it) => {
       assert.strictEqual((yield* statuses(yield* onFile(3, unlock(held, 4n, 2n)))).status, Status.DELAY)
       const released = yield* resultStateid(yield* onFile(4, unlock(held, 0n, 5n)), Operation.LOCKU)
       assert.strictEqual((yield* statuses(yield* onFile(5, unlock(released, 5n, 5n)))).status, Status.OK)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("does not let another client unlock an owner's byte range", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits
-        }
-      )
+      const handler = yield* makeHandler(caller)
 
       const first = yield* startSession(handler, "first-lock-client")
 
@@ -693,10 +610,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 byte-range locks", (it) => {
         )).status,
         Status.LOCKS_HELD
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("releases lock-owner capacity when a client's lease expires", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
@@ -710,19 +627,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 byte-range locks", (it) => {
 
       let now = 0
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(caller, generation, {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        }),
-        {
-          leaseDurationSeconds: 1,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => now,
-          limits: constrained
-        }
-      )
+      const handler = yield* makeHandler(caller, { leaseDurationSeconds: 1, now: () => now, limits: constrained })
 
       const first = yield* startSession(handler, "expired-lock-client")
 
@@ -777,5 +682,5 @@ it.layer(NodeCrypto.layer)("NFSv4.1 byte-range locks", (it) => {
         )).status,
         Status.OK
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 })

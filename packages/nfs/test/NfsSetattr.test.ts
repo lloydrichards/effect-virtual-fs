@@ -1,19 +1,17 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it } from "@effect/vitest"
 import { Effect } from "effect"
-import * as ByteSize from "effect/ByteSize"
-import { makeExport } from "../src/internal/export.js"
-import { makeNfs4Handler, type Nfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
+import { type Nfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
 import { type DecoderSession, type EncoderSession, make, XdrCodec } from "../src/internal/xdr.js"
 import {
   call,
-  generation,
+  type HandlerOverrides,
   limits,
   openByName,
+  openSession,
   parseOpen,
   sequence,
-  startSession,
   type WriteOperation
 } from "./support/harness.js"
 
@@ -55,21 +53,19 @@ const setattr =
     })
 
 const setup = Effect.fnUntraced(function*(mapped = false, writable = true, mappedUid = 1000) {
-  const volume = yield* Vfs.make()
-  const caller = yield* volume.caller()
+  const volume = yield* Vfs.Volume
+  const caller = yield* Vfs.Caller
   yield* caller.writeFile("/file", new Uint8Array([1, 2]), {
     access: "write",
     create: "exclusive"
   })
 
   const guest = mapped ?
-    yield* volume.caller({
-      identity: {
-        uid: mappedUid,
-        gid: 1000,
-        groups: [1001],
-        privileged: false
-      }
+    yield* Testing.callerAs({
+      uid: mappedUid,
+      gid: 1000,
+      groups: [1001],
+      privileged: false
     }) :
     undefined
 
@@ -81,36 +77,13 @@ const setup = Effect.fnUntraced(function*(mapped = false, writable = true, mappe
     })
   }
 
-  const options = {
-    leaseDurationSeconds: 30,
-    callbackTimeout: "1 second",
-    generation,
-    now: () => 0,
-    limits,
-    writable
-  } as const
+  const overrides: HandlerOverrides = { writable, export: { limits: { maxFilehandles: 32 }, capacity: volume } }
 
-  const handler = yield* makeNfs4Handler(
-    makeExport(
-      caller,
-      generation,
-      {
-        maxFilehandles: 32,
-        maxNameBytes: ByteSize.bytes(255)
-      },
-      generation,
-      volume
-    ),
-    guest === undefined ? options : {
-      ...options,
-      callerFor: () => Effect.succeed(guest)
-    }
+  const { client, handler, session } = yield* openSession(
+    caller,
+    "setattr-client",
+    guest === undefined ? overrides : { ...overrides, callerFor: () => Effect.succeed(guest) }
   )
-
-  const {
-    client,
-    session
-  } = yield* startSession(handler, "setattr-client")
 
   return {
     caller,
@@ -212,7 +185,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
           attrsset: []
         }
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reports mode and owner attributes applied through the mapped caller", () =>
     Effect.gen(function*() {
       const {
@@ -302,7 +275,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         ),
         ["0", "4294967295"]
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects noncanonical owner strings without changing ownership", () =>
     Effect.gen(function*() {
       const {
@@ -345,7 +318,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
 
       assert.strictEqual((yield* caller.stat("/file")).uid, original.uid)
       assert.strictEqual((yield* caller.stat("/file")).gid, original.gid)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects malformed timestamp selectors and nanoseconds before mutation", () =>
     Effect.gen(function*() {
       const {
@@ -377,7 +350,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         atimeNs: original.atimeNs,
         mtimeNs: original.mtimeNs
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("maps explicit and server-time timestamp setters to the correct metadata fields", () =>
     Effect.gen(function*() {
       const {
@@ -419,7 +392,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
       const after = yield* caller.stat("/file")
       assert.notStrictEqual(after.atimeNs, 12_000_000_345n)
       assert.strictEqual(after.mtimeNs, 34_000_000_567n)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("lets a mapped non-owner writer set both timestamps to server time", () =>
     Effect.gen(function*() {
       const {
@@ -444,7 +417,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
           attrsset: [48, 54]
         }
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("requires a writable open stateid for size and refuses conflicting share denial", () =>
     Effect.gen(function*() {
       const {
@@ -486,7 +459,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         }
       )
       assert.strictEqual((yield* caller.stat("/file")).size, 5n)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("refuses size changes while a write-denying open exists", () =>
     Effect.gen(function*() {
       const {
@@ -517,7 +490,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         }
       )
       assert.strictEqual((yield* caller.stat("/file")).size, 2n)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reports prior attributes when a later ownership change is denied", () =>
     Effect.gen(function*() {
       const {
@@ -539,7 +512,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         mode: 0o640,
         uid: 1000
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("lets an owner select a supplementary group but rejects another group", () =>
     Effect.gen(function*() {
       const {
@@ -570,7 +543,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
           attrsset: []
         }
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("refuses a mode change by a caller that does not own the file as not permitted", () =>
     Effect.gen(function*() {
       const {
@@ -589,7 +562,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         }
       )
       assert.strictEqual((yield* caller.stat("/file")).mode, before)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("refuses explicit timestamps from a caller that does not own the file as not permitted", () =>
     Effect.gen(function*() {
       const {
@@ -615,7 +588,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         }
       )
       assert.strictEqual((yield* caller.stat("/file")).mtimeNs, before)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("does not treat an unprivileged mapped UID zero as the file owner", () =>
     Effect.gen(function*() {
       const {
@@ -632,7 +605,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         }
       )
       assert.strictEqual((yield* caller.stat("/file")).uid, 1000)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("keeps a read-only export immutable", () =>
     Effect.gen(function*() {
       const {
@@ -650,5 +623,5 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         attrsset: []
       })
       assert.notStrictEqual((yield* caller.stat("/file")).mode, 0o600)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 })

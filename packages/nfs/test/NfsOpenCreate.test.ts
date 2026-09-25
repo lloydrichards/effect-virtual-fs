@@ -1,12 +1,21 @@
-import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it } from "@effect/vitest"
 import { Deferred, Effect, Fiber, Layer, Result } from "effect"
 import * as ByteSize from "effect/ByteSize"
-import { makeExport } from "../src/internal/export.js"
-import { makeNfs4Handler, Operation, Status } from "../src/internal/nfs4.js"
+import { Operation, Status } from "../src/internal/nfs4.js"
 import { type EncoderSession, make, XdrCodec } from "../src/internal/xdr.js"
-import { call, generation, limits, openByName, parseOpen, sequence, startSession } from "./support/harness.js"
+import {
+  call,
+  exportFor,
+  handlerFor,
+  limits,
+  openByName,
+  openSession,
+  parseOpen,
+  sequence,
+  startSession
+} from "./support/harness.js"
 
 const create = (
   client: bigint,
@@ -103,31 +112,13 @@ const createInfo = (bytes: Uint8Array) =>
 it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
   it.effect("creates an exact regular file, replays once, and guards an existing name", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
 
-      const caller = yield* volume.caller({
-        umask: 0
-      })
+      const caller = yield* Vfs.Caller
 
-      const export_ = makeExport(
-        caller,
-        generation,
-        {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        },
-        generation,
-        volume
-      )
+      const export_ = exportFor(caller, { capacity: volume })
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits,
-        writable: true
-      })
+      const handler = yield* handlerFor(export_, { writable: true })
 
       const {
         client,
@@ -185,14 +176,12 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       )
 
       assert.strictEqual(yield* statusOf(guarded), Status.EXIST)
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("ignores an existing file's mode attribute and applies a zero size", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
 
-      const caller = yield* volume.caller({
-        umask: 0
-      })
+      const caller = yield* Vfs.Caller
 
       yield* caller.writeFile("/old", new Uint8Array([1, 2]), {
         access: "write",
@@ -200,31 +189,10 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
         mode: 0o600
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          caller,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "existing")
+      const { handler, client, session } = yield* openSession(caller, "existing", {
+        writable: true,
+        export: { capacity: volume }
+      })
 
       const reply = yield* handler.compound(
         yield* call([
@@ -243,41 +211,20 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
         mode: 0o600,
         size: 0n
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
   it.effect("ignores unsupported create attributes on existing names", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/old", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          caller,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "ignored-attrs")
+      const { handler, client, session } = yield* openSession(caller, "ignored-attrs", {
+        writable: true,
+        export: { capacity: volume }
+      })
 
       yield* parseOpen(
         yield* handler.compound(
@@ -312,37 +259,16 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
         )
       )
       assert.deepStrictEqual(yield* caller.readFile("/old"), new Uint8Array([1]))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("applies an explicit mode exactly and rejects undefined mode bits", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          caller,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "mode")
+      const { handler, client, session } = yield* openSession(caller, "mode", {
+        writable: true,
+        export: { capacity: volume }
+      })
 
       yield* parseOpen(
         yield* handler.compound(
@@ -368,37 +294,16 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       assert.strictEqual(yield* statusOf(invalid), Status.INVAL)
       assert.isTrue(Result.isFailure(yield* Effect.result(caller.stat("/invalid"))))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("sets a new file's requested size inside creation", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          caller,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "initial-size")
+      const { handler, client, session } = yield* openSession(caller, "initial-size", {
+        writable: true,
+        export: { capacity: volume }
+      })
 
       yield* parseOpen(
         yield* handler.compound(
@@ -422,38 +327,17 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
         )
       )
       assert.deepStrictEqual(yield* caller.readFile("/sized"), new Uint8Array(3))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reports a symbolic-link target as SYMLINK for ordinary create", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       yield* caller.symlink("target", "/link")
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          caller,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "symlink")
+      const { handler, client, session } = yield* openSession(caller, "symlink", {
+        writable: true,
+        export: { capacity: volume }
+      })
 
       const reply = yield* handler.compound(
         yield* call([
@@ -465,41 +349,20 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       assert.strictEqual(yield* statusOf(reply), Status.SYMLINK)
       assert.strictEqual(Result.isFailure(yield* Effect.result(caller.stat("/target"))), true)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects a conflicting reservation before truncating or creating", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/old", new Uint8Array([1, 2]), {
         access: "write",
         create: "exclusive"
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          caller,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "conflict")
+      const { handler, client, session } = yield* openSession(caller, "conflict", {
+        writable: true,
+        export: { capacity: volume }
+      })
 
       yield* parseOpen(
         yield* handler.compound(
@@ -522,37 +385,16 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       assert.strictEqual(yield* statusOf(reply), Status.SHARE_DENIED)
       assert.deepStrictEqual(yield* caller.readFile("/old"), new Uint8Array([1, 2]))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("upgrades the same owner's create open and keeps its stateid identity", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          caller,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "upgrade")
+      const { handler, client, session } = yield* openSession(caller, "upgrade", {
+        writable: true,
+        export: { capacity: volume }
+      })
 
       const first = yield* parseOpen(
         yield* handler.compound(
@@ -579,26 +421,17 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       assert.deepStrictEqual(second.stateid.subarray(4), first.stateid.subarray(4))
       assert.deepStrictEqual(second.filehandle, first.filehandle)
       assert.strictEqual(new DataView(second.stateid.buffer, second.stateid.byteOffset).getUint32(0), 2)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects a replaced child before truncation or an extra open reservation", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/victim", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = makeExport(
-        caller,
-        generation,
-        {
-          maxFilehandles: 16,
-          maxNameBytes: ByteSize.bytes(255)
-        },
-        generation,
-        volume
-      )
+      const base = exportFor(caller, { capacity: volume })
 
       let replace = false
 
@@ -619,11 +452,7 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
           ))
       }
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
+      const handler = yield* handlerFor(export_, {
         limits: {
           ...limits,
           maxOpens: 1
@@ -658,33 +487,17 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       assert.strictEqual(yield* statusOf(reply), Status.DELAY)
       assert.deepStrictEqual(yield* caller.readFile("/victim"), new Uint8Array([7]))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("does not publish a file when the filehandle budget is full", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
 
-      const export_ = makeExport(
-        caller,
-        generation,
-        {
-          maxFilehandles: 1,
-          maxNameBytes: ByteSize.bytes(255)
-        },
-        generation,
-        volume
-      )
+      const export_ = exportFor(caller, { limits: { maxFilehandles: 1 }, capacity: volume })
 
       yield* export_.handleFor(yield* caller.root)
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits,
-        writable: true
-      })
+      const handler = yield* handlerFor(export_, { writable: true })
 
       const {
         client,
@@ -701,39 +514,23 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       assert.strictEqual(yield* statusOf(reply), Status.DELAY)
       assert.strictEqual(Result.isFailure(yield* Effect.result(caller.stat("/no-room"))), true)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("reuses a registered filehandle when the registry is full", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/old", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const export_ = makeExport(
-        caller,
-        generation,
-        {
-          maxFilehandles: 2,
-          maxNameBytes: ByteSize.bytes(255)
-        },
-        generation,
-        volume
-      )
+      const export_ = exportFor(caller, { limits: { maxFilehandles: 2 }, capacity: volume })
 
       yield* export_.handleFor(yield* caller.root)
       const old = yield* caller.lookup(Vfs.Entry(yield* caller.root, new TextEncoder().encode("old")))
       yield* export_.handleFor(old)
 
-      const handler = yield* makeNfs4Handler(export_, {
-        leaseDurationSeconds: 30,
-        callbackTimeout: "1 second",
-        generation,
-        now: () => 0,
-        limits,
-        writable: true
-      })
+      const handler = yield* handlerFor(export_, { writable: true })
 
       const {
         client,
@@ -750,40 +547,17 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
           ])
         )
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("does not publish a file when its requested size exceeds the core limit", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({
-        maxFileBytes: ByteSize.bytes(2)
+      const volume = yield* Vfs.Volume
+
+      const caller = yield* Vfs.Caller
+
+      const { handler, client, session } = yield* openSession(caller, "too-large", {
+        writable: true,
+        export: { capacity: volume }
       })
-
-      const caller = yield* volume.caller()
-
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          caller,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "too-large")
 
       const reply = yield* handler.compound(
         yield* call([
@@ -795,47 +569,24 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       assert.strictEqual(yield* statusOf(reply), Status.FBIG)
       assert.strictEqual(Result.isFailure(yield* Effect.result(caller.stat("/too-large"))), true)
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxFileBytes: ByteSize.bytes(2) } }))))
   it.effect("uses the mapped caller's directory permission", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const admin = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const admin = yield* Vfs.Caller
 
-      const guest = yield* volume.caller({
-        identity: {
-          uid: 1000,
-          gid: 1000,
-          groups: [],
-          privileged: false
-        }
+      const guest = yield* Testing.callerAs({
+        uid: 1000,
+        gid: 1000,
+        groups: [],
+        privileged: false
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          admin,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true,
-          callerFor: () => Effect.succeed(guest)
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "guest")
+      const { handler, client, session } = yield* openSession(admin, "guest", {
+        writable: true,
+        callerFor: () => Effect.succeed(guest),
+        export: { capacity: volume }
+      })
 
       const reply = yield* handler.compound(
         yield* call([
@@ -847,48 +598,25 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       assert.strictEqual(yield* statusOf(reply), Status.ACCESS)
       assert.strictEqual(Result.isFailure(yield* Effect.result(admin.stat("/forbidden"))), true)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("refuses a create that names another owner for an unprivileged caller as not permitted", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const admin = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const admin = yield* Vfs.Caller
       yield* admin.chmod(yield* admin.root, 0o777)
 
-      const guest = yield* volume.caller({
-        identity: {
-          uid: 1000,
-          gid: 1000,
-          groups: [],
-          privileged: false
-        }
+      const guest = yield* Testing.callerAs({
+        uid: 1000,
+        gid: 1000,
+        groups: [],
+        privileged: false
       })
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          admin,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true,
-          callerFor: () => Effect.succeed(guest)
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "guest-owner")
+      const { handler, client, session } = yield* openSession(admin, "guest-owner", {
+        writable: true,
+        callerFor: () => Effect.succeed(guest),
+        export: { capacity: volume }
+      })
 
       const foreign = yield* handler.compound(
         yield* call([
@@ -911,7 +639,7 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       assert.strictEqual(yield* statusOf(own), Status.OK)
       assert.strictEqual((yield* admin.stat("/own")).uid, 1000)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
   it.effect("keeps rejected store commits unpublished and reopens a confirmed create", () => {
     let saved: Uint8Array | undefined
     let reject = false
@@ -945,31 +673,10 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
         const volume = yield* open
         const caller = yield* volume.caller()
 
-        const handler = yield* makeNfs4Handler(
-          makeExport(
-            caller,
-            generation,
-            {
-              maxFilehandles: 16,
-              maxNameBytes: ByteSize.bytes(255)
-            },
-            generation,
-            volume
-          ),
-          {
-            leaseDurationSeconds: 30,
-            callbackTimeout: "1 second",
-            generation,
-            now: () => 0,
-            limits,
-            writable: true
-          }
-        )
-
-        const {
-          client,
-          session
-        } = yield* startSession(handler, "store")
+        const { handler, client, session } = yield* openSession(caller, "store", {
+          writable: true,
+          export: { capacity: volume }
+        })
 
         reject = true
 
@@ -1039,31 +746,10 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       const caller = yield* volume.caller()
 
-      const handler = yield* makeNfs4Handler(
-        makeExport(
-          caller,
-          generation,
-          {
-            maxFilehandles: 16,
-            maxNameBytes: ByteSize.bytes(255)
-          },
-          generation,
-          volume
-        ),
-        {
-          leaseDurationSeconds: 30,
-          callbackTimeout: "1 second",
-          generation,
-          now: () => 0,
-          limits,
-          writable: true
-        }
-      )
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "unknown")
+      const { handler, client, session } = yield* openSession(caller, "unknown", {
+        writable: true,
+        export: { capacity: volume }
+      })
 
       unknown = true
 
@@ -1112,31 +798,10 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
         const caller = yield* volume.caller()
 
-        const handler = yield* makeNfs4Handler(
-          makeExport(
-            caller,
-            generation,
-            {
-              maxFilehandles: 16,
-              maxNameBytes: ByteSize.bytes(255)
-            },
-            generation,
-            volume
-          ),
-          {
-            leaseDurationSeconds: 30,
-            callbackTimeout: "1 second",
-            generation,
-            now: () => 0,
-            limits,
-            writable: true
-          }
-        )
-
-        const {
-          client,
-          session
-        } = yield* startSession(handler, "interrupted")
+        const { handler, client, session } = yield* openSession(caller, "interrupted", {
+          writable: true,
+          export: { capacity: volume }
+        })
 
         hold = true
 
