@@ -106,6 +106,9 @@ const SET_ID_BITS = 0o6000
 // Sticky: only the owner of an entry or of its directory may remove it.
 const STICKY_BIT = 0o1000
 
+// relatime, as Linux mounts by default: a read refreshes an access time at least this old, 24 hours.
+const RELATIME_INTERVAL_NS = 86_400_000_000_000n
+
 // Nodes walked between yields. Whole-tree reads are one synchronous tick otherwise, which
 // starves the event loop and leaves nothing for interruption to act on.
 // Options for a single path walk; `lookup` is defined per volume, so this lives at module level.
@@ -213,6 +216,30 @@ interface SymbolicLink {
 }
 
 type Node = Directory | RegularFile | SymbolicLink
+
+// Whether a read at `now` refreshes a node's access time: when it is not newer than the last modification or
+// status change, or when it is at least a day old. A time already equal to `now` is never refreshed, as Linux
+// skips it, so reads at one instant (a frozen or coarse clock) store nothing.
+const accessDue = (metadata: NodeMetadata, now: bigint) =>
+  now !== metadata.atimeNs && (
+    metadata.atimeNs <= metadata.mtimeNs || metadata.atimeNs <= metadata.ctimeNs ||
+    now - metadata.atimeNs >= RELATIME_INTERVAL_NS
+  )
+
+interface Access {
+  readonly node: Node
+  readonly now: bigint
+}
+
+// A read's result with the node it accessed and the time it read, or none when the read touches no access time.
+interface Accessed<A> {
+  readonly value: A
+  readonly access: Access | undefined
+}
+
+// Whether a read's access time is due under relatime; the one rule both the observation and the change apply.
+const refreshDue = <A>(read: Accessed<A>): read is Accessed<A> & { readonly access: Access } =>
+  read.access !== undefined && accessDue(read.access.node.metadata, read.access.now)
 
 // The whole volume as one value. A transition builds the next value; nothing is published until it is installed.
 interface VolumeState {
@@ -410,6 +437,12 @@ class Draft {
   // Replaces an inode without stamping it; access-time updates do not advance revisions.
   putQuiet(node: Node): void {
     this.pending.set(node.ino, node)
+  }
+
+  // Whether the next value would equal the base, so there is nothing to commit.
+  get unchanged(): boolean {
+    return this.pending.size === 0 && this.opens === undefined && this.nextInode === this.base.nextInode &&
+      this.entries === this.base.entries && this.usedBytes === this.base.usedBytes
   }
 
   // Drops an inode nothing reaches. The link change that orphaned it was stamped; its removal advances nothing.
@@ -1157,6 +1190,9 @@ export const makeVolume = Effect.fnUntraced(
       finished: Draft,
       onStorageFailure: (() => void) | undefined
     ) {
+      // A change that changes nothing, such as a read whose access time another read refreshed first, offers
+      // nothing; its handle writes and events still apply.
+      if (finished.unchanged) return install(finished)
       const next = finished.finish()
 
       if (provider.prepare !== undefined) yield* provider.prepare(next)
@@ -1204,6 +1240,28 @@ export const makeVolume = Effect.fnUntraced(
     const coordinatedRead = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>) =>
       admit(op, observing(Effect.andThen(checkAvailable(op.operation), effect))).pipe(
         Effect.tapError((error) => Schema.is(VfsError)(error) ? annotateFailure(error) : Effect.void)
+      )
+
+    // Refreshes the access time a read reports, when relatime says it is due.
+    const refreshAccess = <A>(read: Accessed<A>): A => {
+      if (refreshDue(read)) {
+        const { node, now } = read.access
+        current().putQuiet({ ...node, metadata: { ...node.metadata, atimeNs: now } })
+      }
+
+      return read.value
+    }
+
+    // A read that may refresh an access time. It observes under one permit, so reads run beside each other, and
+    // only when the access time is due does it run again as a change. The change repeats every check and the rule,
+    // since another read may have refreshed the time meanwhile, and its result is the one returned.
+    const accessing = <A, E, R>(op: OpContext, read: Effect.Effect<Accessed<A>, E, R>) =>
+      Effect.flatMap(
+        coordinatedRead(op, read),
+        (observed) =>
+          refreshDue(observed)
+            ? coordinated(op, Effect.map(read, refreshAccess))
+            : Effect.succeed(observed.value)
       )
 
     const coordinatedCleanup = <A, E, R>(effect: Effect.Effect<A, E, R>) => changing(Effect.uninterruptible(effect))
@@ -1589,34 +1647,38 @@ export const makeVolume = Effect.fnUntraced(
         // Failures past admission report "read" for both entry points.
         const readOp = OpContext.make("read")
 
+        const body = Effect.gen(function*() {
+          const file = yield* get(op, "read")
+
+          if (!isNatural(maximum)) return yield* readOp.fail("InvalidArgument")
+          const offset = position ?? ref.offset
+
+          if (!Predicate.isBigInt(offset) || offset < 0n || offset > MAX_FILE_OFFSET) {
+            return yield* readOp.fail("InvalidArgument")
+          }
+
+          const start = Number(offset > file.metadata.size ? file.metadata.size : offset)
+          const data = file.data.bytes.slice(start, start + Math.min(maximum, file.data.bytes.length - start))
+          const eof = start + data.length >= file.data.bytes.length
+
+          const access = maximum > 0 ? { node: file, now: yield* timestamp(readOp) } : undefined
+
+          return { value: { bytes: data, eof, next: offset + BigInt(data.length) }, access }
+        })
+
+        // A positioned read runs beside other reads. A cursor read stays a change, since two reads beside each
+        // other would start at the same offset.
+        if (position !== undefined) return Effect.map(accessing(op, body), ({ bytes, eof }) => ({ bytes, eof }))
+
         return coordinated(
           op,
-          Effect.gen(function*() {
-            const file = yield* get(op, "read")
+          Effect.map(body, (read) => {
+            const { bytes, eof, next } = refreshAccess(read)
+            current().after.push(() => {
+              ref.offset = next
+            })
 
-            if (!isNatural(maximum)) return yield* readOp.fail("InvalidArgument")
-            const offset = position ?? ref.offset
-
-            if (!Predicate.isBigInt(offset) || offset < 0n || offset > MAX_FILE_OFFSET) {
-              return yield* readOp.fail("InvalidArgument")
-            }
-
-            const start = Number(offset > file.metadata.size ? file.metadata.size : offset)
-            const data = file.data.bytes.slice(start, start + Math.min(maximum, file.data.bytes.length - start))
-            const eof = start + data.length >= file.data.bytes.length
-
-            if (maximum > 0) {
-              current().putQuiet({ ...file, metadata: { ...file.metadata, atimeNs: (yield* timestamp(readOp)) } })
-            }
-
-            if (position === undefined) {
-              const next = offset + BigInt(data.length)
-              current().after.push(() => {
-                ref.offset = next
-              })
-            }
-
-            return { bytes: data, eof }
+            return { bytes, eof }
           })
         )
       }
@@ -3051,7 +3113,7 @@ export const makeVolume = Effect.fnUntraced(
           const op = OpContext.make("readDirectory")
           const target = asTarget(input)
 
-          return yield* coordinated(
+          return yield* accessing(
             op,
             Effect.gen(function*() {
               const directory = yield* resolveDirectory(target, op)
@@ -3063,12 +3125,9 @@ export const makeVolume = Effect.fnUntraced(
                 )
               )
 
-              current().putQuiet({
-                ...directory.node,
-                metadata: { ...directory.node.metadata, atimeNs: (yield* timestamp(op)) }
-              })
+              const access = { node: directory.node, now: yield* timestamp(op) }
 
-              return Object.freeze({ value, revision: directory.node.revision })
+              return { value: Object.freeze({ value, revision: directory.node.revision }), access }
             })
           )
         }),
@@ -3148,7 +3207,7 @@ export const makeVolume = Effect.fnUntraced(
           const op = OpContext.make("readFile")
           const target = asTarget(input)
 
-          return yield* coordinated(
+          return yield* accessing(
             op,
             Effect.gen(function*() {
               const resolved = yield* resolveTarget(target, op)
@@ -3160,9 +3219,8 @@ export const makeVolume = Effect.fnUntraced(
               if (node.kind !== "file") return yield* resolved.op.fail("IsDirectory")
               yield* authorize(node, identity, READ, resolved.op)
               const data = new Uint8Array(node.data.bytes)
-              current().putQuiet({ ...node, metadata: { ...node.metadata, atimeNs: (yield* timestamp(op)) } })
 
-              return data
+              return { value: data, access: { node, now: yield* timestamp(op) } }
             })
           )
         }),
