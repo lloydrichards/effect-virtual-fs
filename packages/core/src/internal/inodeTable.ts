@@ -9,8 +9,11 @@ const WIDTH = 1 << BITS
 
 const MASK = WIDTH - 1
 
-// Keys below this use bit shifts; larger keys fall back to division so they never wrap through ToUint32.
+// Bit shifts serve keys below 2^32 at shifts below 32; ToUint32 would wrap a larger key, and a shift count is
+// masked to five bits, so both cases divide instead.
 const SHIFTABLE = 0x100000000
+
+const MAX_SHIFT = 32
 
 // Identifies the batch of writes that may still mutate an array it created.
 /** @internal */
@@ -32,7 +35,7 @@ export interface InodeTable<A> {
 export const empty = <A>(): InodeTable<A> => ({ root: { owner: undefined, items: [] }, levels: 1, capacity: WIDTH })
 
 const index = (key: number, shift: number): number =>
-  key < SHIFTABLE ? (key >>> shift) & MASK : Math.floor(key / 2 ** shift) % WIDTH
+  key < SHIFTABLE && shift < MAX_SHIFT ? (key >>> shift) & MASK : Math.floor(key / 2 ** shift) % WIDTH
 
 /** @internal */
 export const get = <A>(table: InodeTable<A>, key: number): A | undefined => {
