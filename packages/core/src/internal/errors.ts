@@ -4,44 +4,13 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as SchemaIssue from "effect/SchemaIssue"
 import type { PathInput } from "../VirtualFileSystem.js"
-import { ConfigurationError, FsError } from "../VirtualFileSystemError.js"
+import { ConfigurationError, FsCode, FsError } from "../VirtualFileSystemError.js"
 
 /** @internal */
 export { ConfigurationError, FsError }
 
 /** @internal */
-export const FsCode = Schema.Literals([
-  "NotFound",
-  "AlreadyExists",
-  "NotEmpty",
-  "NotDirectory",
-  "AccessDenied",
-  "InvalidHandle",
-  "ForeignHandle",
-  "InvalidReference",
-  "ForeignReference",
-  "StaleReference",
-  "ClosedCaller",
-  "InvalidArgument",
-  "InvalidPathEncoding",
-  "PathTooLong",
-  "NoSpace",
-  "IsDirectory",
-  "FileTooLarge",
-  "NoData",
-  "SymlinkLoop",
-  "UnrepresentableName",
-  // A durable provider knows the mutation was not committed.
-  "StorageRejected",
-  // A commit or publication failed after its outcome ceased to be knowable to the caller.
-  "OutcomeUnknown",
-  // The provider stopped serving operations until recovery establishes its state.
-  "VolumeUnavailable",
-  "VolumeBusy"
-])
-
-/** @internal */
-export type FsCode = typeof FsCode.Type
+export { FsCode }
 
 // Names the offending option so the caller learns which key it got wrong, not just that decoding failed.
 const configurationField = (issue: SchemaIssue.Issue): string => {

@@ -8,13 +8,26 @@ import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
-import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import { BytePath } from "../BytePath.js"
+import {
+  CallerId,
+  type Identity,
+  MkdirReferenceSettings,
+  ObjectReferenceId,
+  OpenChildReferenceSettings,
+  OpenReferenceSettings,
+  OpenSettings,
+  RootCallerOptions,
+  SymlinkReferenceSettings,
+  WriteFileSettings
+} from "../Caller.js"
+import { DirectoryHandleId, FileHandleId, SeekMode } from "../FileHandle.js"
+import { type Metadata, Mode, OwnerUpdate, Times } from "../Metadata.js"
 import { ImageError, type Snapshot } from "../Snapshot.js"
 import type {
   Caller,
@@ -30,10 +43,20 @@ import type {
   VolumeLimits,
   VolumeUsage
 } from "../VirtualFileSystem.js"
+import {
+  OverlayChange,
+  OverlayChangesOptions,
+  type VolumeDurability,
+  VolumeId,
+  VolumeIdentity,
+  VolumeIncarnation,
+  VolumeOptions
+} from "../Volume.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import { ConfigurationError, decodeConfiguration, FsCode as FsCodeSchema, FsError, OpContext } from "./errors.js"
 import * as Image from "./image.js"
 import * as InodeTable from "./inodeTable.js"
+import { MAX_FILE_BYTES } from "./limits.js"
 import * as LiveImage from "./liveImage.js"
 import * as MetadataDomain from "./metadata.js"
 import * as Content from "./overlayContent.js"
@@ -57,21 +80,6 @@ import { type CommitProvider, offerCommit } from "./stagedState.js"
 import { VolumeTestSeams } from "./testSeams.js"
 import { makeTurnstile } from "./turnstile.js"
 import * as WatchHub from "./watchHub.js"
-
-/** @internal */
-export const VolumeId = Symbol("@effect-vfs/core/Volume")
-
-/** @internal */
-export const CallerId = Symbol("@effect-vfs/core/Caller")
-
-/** @internal */
-export const FileHandleId = Symbol("@effect-vfs/core/FileHandle")
-
-/** @internal */
-export const DirectoryHandleId = Symbol("@effect-vfs/core/DirectoryHandle")
-
-/** @internal */
-export const ObjectReferenceId = Symbol("@effect-vfs/core/ObjectReference")
 
 /** @internal */
 export { ConfigurationError, FsCodeSchema as FsCode, FsError }
@@ -106,225 +114,22 @@ const WALK_YIELD_INTERVAL = 128
 // Largest signed 64-bit file offset, as POSIX off_t.
 const MAX_FILE_OFFSET = 0x7fffffffffffffffn
 
-const Mode = Schema.Natural.check(Schema.isLessThanOrEqualTo(0o7777))
-
 const isMode = Schema.is(Mode)
 
 const isNatural = Schema.is(Schema.Natural)
 
-/** @internal */
-export const Identity = Schema.Struct({
-  uid: Schema.Natural,
-  gid: Schema.Natural,
-  groups: Schema.Array(Schema.Natural),
-  privileged: Schema.Boolean
-})
-
-/** @internal */
-export type Identity = typeof Identity.Type
-
 // Whether an identity belongs to a group, by its primary group or a supplementary one.
 const inGroup = (identity: Identity, gid: number) => identity.gid === gid || identity.groups.includes(gid)
 
-/** @internal */
-export const RootCallerOptions = Schema.Struct({
-  identity: Schema.optionalKey(Identity),
-  umask: Schema.optionalKey(Schema.Natural.check(Schema.isLessThanOrEqualTo(0o777)))
-})
-
-/** @internal */
-export type RootCallerOptions = typeof RootCallerOptions.Type
-
-const Hex128 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{32}$/))
-
-/** @internal */
-export const VolumeDurability = Schema.Literals([
-  "memory-only",
-  "survives-process-crash",
-  "survives-operating-system-crash",
-  "survives-power-loss"
-])
-
-/** @internal */
-export type VolumeDurability = typeof VolumeDurability.Type
-
-const durabilityRank: Readonly<Record<VolumeDurability, number>> = {
-  "memory-only": 0,
-  "survives-process-crash": 1,
-  "survives-operating-system-crash": 2,
-  "survives-power-loss": 3
-}
-
-/** @internal */
-export const VolumeDurabilityOrder: Order.Order<VolumeDurability> = Order.mapInput(
-  Order.Number,
-  (durability: VolumeDurability) => durabilityRank[durability]
-)
-
-/** @internal */
-export const isVolumeDurabilityAtLeast = (actual: VolumeDurability, required: VolumeDurability): boolean =>
-  VolumeDurabilityOrder(actual, required) >= 0
-
-/** @internal */
-export const VolumeIdentity = Hex128.pipe(Schema.brand("@effect-vfs/core/VolumeIdentity"))
-
-/** @internal */
-export type VolumeIdentity = typeof VolumeIdentity.Type
-
-/** @internal */
-export const VolumeIncarnation = Hex128.pipe(Schema.brand("@effect-vfs/core/VolumeIncarnation"))
-
-/** @internal */
-export type VolumeIncarnation = typeof VolumeIncarnation.Type
-
-/** @internal */
-export const VolumeOptions = Schema.Struct({
-  identity: Schema.optionalKey(VolumeIdentity),
-  maxEntries: Schema.optionalKey(Schema.Natural),
-  maxPendingOperations: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
-  maxWatchEvents: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(2))),
-  maxBytes: Schema.optionalKey(Schema.ByteSize),
-  maxFileBytes: Schema.optionalKey(
-    Schema.ByteSize.check(
-      Schema.makeFilter((size) =>
-        ByteSize.isLessThanOrEqualTo(size, ByteSize.bytes(0xffffffff)) ? undefined : "must be at most 4294967295 bytes"
-      )
-    )
-  ),
-  maxPathBytes: Schema.optionalKey(
-    Schema.ByteSize.check(
-      Schema.makeFilter((size) =>
-        ByteSize.isGreaterThanOrEqualTo(size, ByteSize.bytes(1)) ? undefined : "must be at least 1 byte"
-      )
-    )
-  )
-})
-
-/** @internal */
-export type VolumeOptions = typeof VolumeOptions.Type
-
 const isTimestamp = Schema.is(MetadataDomain.Timestamp)
-
-/** @internal */
-export const Metadata = Schema.Struct({
-  kind: Schema.Literals(["directory", "file", "symlink"]),
-  ino: Schema.BigInt,
-  nlink: Schema.Natural,
-  size: Schema.BigInt,
-  uid: Schema.Natural,
-  gid: Schema.Natural,
-  mode: Mode,
-  atimeNs: MetadataDomain.Timestamp,
-  mtimeNs: MetadataDomain.Timestamp,
-  ctimeNs: MetadataDomain.Timestamp,
-  birthtimeNs: MetadataDomain.Timestamp
-})
-
-/** @internal */
-export type Metadata = typeof Metadata.Type
-
-/** @internal */
-export const OwnerUpdate = Schema.Struct({
-  uid: Schema.optionalKey(Schema.Natural),
-  gid: Schema.optionalKey(Schema.Natural)
-})
-
-/** @internal */
-export type OwnerUpdate = typeof OwnerUpdate.Type
-
-/** @internal */
-export const TimeUpdate = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("now") }),
-  Schema.Struct({ kind: Schema.Literal("omit") }),
-  Schema.Struct({ kind: Schema.Literal("value"), nanoseconds: MetadataDomain.Timestamp })
-])
-
-/** @internal */
-export const Times = Schema.Struct({ access: TimeUpdate, modification: TimeUpdate })
-
-/** @internal */
-export type Times = typeof Times.Type
-
-/** @internal */
-export const SeekMode = Schema.Literals(["start", "current", "end", "data", "hole"])
-
-/** @internal */
-export type SeekMode = typeof SeekMode.Type
 
 const isSeekMode = Schema.is(SeekMode)
 
 /** @internal */
-export const OpenSettings = Schema.Struct({
-  access: Schema.Literals(["read", "write", "readWrite"]),
-  create: Schema.optionalKey(Schema.Literals(["never", "ifMissing", "exclusive"])),
-  mode: Schema.optionalKey(Mode),
-  append: Schema.optionalKey(Schema.Boolean),
-  truncate: Schema.optionalKey(Schema.Boolean),
-  followFinalSymlink: Schema.optionalKey(Schema.Boolean)
-})
+export type OpenOptions = OpenSettings & RelativeOptions
 
 /** @internal */
-export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
-
-/** @internal */
-export const DirectoryChange = Schema.Struct({
-  before: Schema.BigInt,
-  after: Schema.BigInt
-})
-
-/** @internal */
-export const RenameReferenceResult = Schema.TaggedUnion({
-  SameDirectory: { directory: DirectoryChange },
-  DifferentDirectories: {
-    sourceDirectory: DirectoryChange,
-    destinationDirectory: DirectoryChange
-  }
-})
-
-/** @internal */
-export const MkdirReferenceSettings = Schema.Struct({
-  mode: Schema.optionalKey(Mode),
-  exactMode: Schema.optionalKey(Schema.Boolean),
-  times: Schema.optionalKey(Times)
-})
-
-/** @internal */
-export const SymlinkReferenceSettings = Schema.Struct({
-  times: Schema.optionalKey(Times)
-})
-
-/** @internal */
-export const OpenReferenceSettings = Schema.Struct({
-  access: Schema.Literals(["read", "write", "readWrite"]),
-  append: Schema.optionalKey(Schema.Boolean),
-  truncate: Schema.optionalKey(Schema.Boolean)
-})
-
-/** @internal */
-export const OpenChildReferenceSettings = Schema.Struct({
-  ...OpenSettings.fields,
-  times: Schema.optionalKey(Times),
-  initialSize: Schema.optionalKey(Schema.BigInt),
-  exactMode: Schema.optionalKey(Schema.Boolean),
-  owner: Schema.optionalKey(OwnerUpdate),
-  expectedChild: Schema.optionalKey(Schema.NullOr(Schema.Struct({
-    reference: Schema.declare<ObjectReference>((input): input is ObjectReference =>
-      Predicate.hasProperty(ObjectReferenceId)(input) && input[ObjectReferenceId] === true
-    ),
-    revision: Schema.BigInt,
-    atimeNs: MetadataDomain.Timestamp,
-    mtimeNs: MetadataDomain.Timestamp
-  })))
-})
-
-const WriteFileSettings = Schema.Struct({
-  ...OpenSettings.fields,
-  replaceFinalSymlink: Schema.optionalKey(Schema.Boolean),
-  finalMode: Schema.optionalKey(Mode)
-})
-
-/** @internal */
-export type WriteFileOptions = typeof WriteFileSettings.Type & RelativeOptions
+export type WriteFileOptions = WriteFileSettings & RelativeOptions
 
 const decodeOwnerUpdate = Schema.decodeEffect(OwnerUpdate, { onExcessProperty: "error" })
 
@@ -343,109 +148,7 @@ const decodeOpenReferenceSettings = Schema.decodeEffect(OpenReferenceSettings, {
 const decodeOpenChildReferenceSettings = Schema.decodeEffect(OpenChildReferenceSettings, { onExcessProperty: "error" })
 
 // What opening or creating a resolved entry needs; a path open supplies only the OpenSettings fields.
-type OpenRequest = Omit<typeof OpenChildReferenceSettings.Type, "append" | "followFinalSymlink" | "expectedChild">
-
-/** @internal */
-export const OverlayNodeKind = Schema.Literals(["directory", "file", "symlink"])
-
-/** @internal */
-export type OverlayNodeKind = typeof OverlayNodeKind.Type
-
-/** @internal */
-export const OverlayDifference = Schema.Literals([
-  "content",
-  "mode",
-  "uid",
-  "gid",
-  "atimeNs",
-  "mtimeNs",
-  "ctimeNs",
-  "birthtimeNs"
-])
-
-/** @internal */
-export type OverlayDifference = typeof OverlayDifference.Type
-
-const OverlayDifferences = Schema.Array(OverlayDifference)
-
-const NonEmptyOverlayDifferences = OverlayDifferences.check(Schema.isMinLength(1))
-
-/** @internal */
-export const OverlayChange = Schema.Union([
-  Schema.TaggedStruct("Added", { path: BytePath, kind: OverlayNodeKind }),
-  Schema.TaggedStruct("Removed", { path: BytePath, kind: OverlayNodeKind }),
-  Schema.TaggedStruct("Replaced", {
-    path: BytePath,
-    beforeKind: OverlayNodeKind,
-    afterKind: OverlayNodeKind,
-    differences: OverlayDifferences
-  }),
-  Schema.TaggedStruct("Renamed", {
-    from: BytePath,
-    to: BytePath,
-    kind: OverlayNodeKind,
-    differences: OverlayDifferences
-  }),
-  Schema.TaggedStruct("Updated", { path: BytePath, kind: OverlayNodeKind, differences: NonEmptyOverlayDifferences })
-])
-
-/** @internal */
-export type OverlayChange = typeof OverlayChange.Type
-
-/** @internal */
-export const OverlayChangesOptions = Schema.Struct({
-  includeTimestamps: Schema.optionalKey(Schema.Boolean)
-})
-
-/** @internal */
-export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
-
-/** @internal */
-export const FixtureMetadata = Schema.Struct({
-  uid: Schema.optionalKey(Schema.Natural),
-  gid: Schema.optionalKey(Schema.Natural),
-  mode: Schema.optionalKey(Mode),
-  atimeNs: Schema.optionalKey(MetadataDomain.Timestamp),
-  mtimeNs: Schema.optionalKey(MetadataDomain.Timestamp),
-  ctimeNs: Schema.optionalKey(MetadataDomain.Timestamp),
-  birthtimeNs: Schema.optionalKey(MetadataDomain.Timestamp)
-})
-
-const FixturePath = Schema.Union([
-  Schema.String,
-  BytePath
-])
-
-/** @internal */
-export const FixtureEntry = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("directory"),
-    path: FixturePath,
-    metadata: Schema.optionalKey(FixtureMetadata)
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("file"),
-    path: FixturePath,
-    bytes: Schema.Uint8Array,
-    metadata: Schema.optionalKey(FixtureMetadata)
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("symlink"),
-    path: FixturePath,
-    target: FixturePath,
-    metadata: Schema.optionalKey(FixtureMetadata)
-  }),
-  Schema.Struct({ kind: Schema.Literal("hardLink"), path: FixturePath, target: FixturePath })
-]).pipe(Schema.toTaggedUnion("kind"))
-
-/** @internal */
-export const Fixture = Schema.Struct({
-  rootMetadata: Schema.optionalKey(FixtureMetadata),
-  entries: Schema.Array(FixtureEntry)
-})
-
-/** @internal */
-export type Fixture = typeof Fixture.Type
+type OpenRequest = Omit<OpenChildReferenceSettings, "append" | "followFinalSymlink" | "expectedChild">
 
 // An inode number: monotonic within a volume, never reused, and persisted by the live image. A number keys the
 // inode table more cheaply than a bigint; the public metadata still reports it as one.
@@ -1209,7 +912,7 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     // The schema caps this value at uint32, so this boundary conversion is exact.
-    const maxFileBytes = Number(ByteSize.toBigInt(settings.maxFileBytes ?? ByteSize.bytes(0xffffffff)))
+    const maxFileBytes = Number(ByteSize.toBigInt(settings.maxFileBytes ?? ByteSize.bytes(MAX_FILE_BYTES)))
 
     const limits: VolumeLimits = Object.freeze({
       maxBytes: settings.maxBytes,
@@ -4135,7 +3838,7 @@ export const openImageVolume = Effect.fnUntraced(function*(
     maxEntries: document.limits.maxEntries,
     maxBytes: document.limits.maxBytes === undefined ? undefined : ByteSize.bytes(document.limits.maxBytes),
     maxFileBytes: document.limits.maxFileBytes === undefined
-      ? ByteSize.bytes(0xffffffff)
+      ? ByteSize.bytes(MAX_FILE_BYTES)
       : ByteSize.bytes(document.limits.maxFileBytes),
     maxPathBytes: document.limits.maxPathBytes === undefined ? undefined : ByteSize.bytes(document.limits.maxPathBytes),
     maxPendingOperations: 64,

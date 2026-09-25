@@ -8,9 +8,9 @@ import {
   openImageVolume,
   prepareEmptyLiveImage,
   retainedFiles,
-  VolumeIdentity,
   VolumeSource
 } from "../src/internal/virtualFileSystem.js"
+import { VolumeIdentity } from "../src/Volume.js"
 import { it } from "./TestEffect.js"
 
 // Smaller budgets livelock the runtime: it counts an op before checking whether to yield.

@@ -2,21 +2,15 @@
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
+import { Fixture as FixtureSchema, FixtureEntry, type FixtureMetadata } from "../Fixture.js"
 import { ImageError } from "../Snapshot.js"
 import type { Fixture, PathInput, VolumeOptions } from "../VirtualFileSystem.js"
+import { VolumeIdentity, VolumeOptions as VolumeOptionsSchema } from "../Volume.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import { decodeConfiguration, OpContext } from "./errors.js"
 import * as Image from "./image.js"
 import { inputBytes, isAttachedBytes, isDotComponent, nameBytes, preparePath } from "./path.js"
-import {
-  Fixture as FixtureSchema,
-  FixtureEntry,
-  type FixtureMetadata,
-  makeVolume,
-  restoredSource,
-  VolumeIdentity,
-  VolumeOptions as VolumeOptionsSchema
-} from "./virtualFileSystem.js"
+import { makeVolume, restoredSource } from "./virtualFileSystem.js"
 
 const DEFAULT_MODE: Record<Image.Record["_tag"], number> = { directory: 0o755, file: 0o644, symlink: 0o777 }
 
@@ -46,7 +40,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
 
     const metadata = (
       kind: "directory" | "file" | "symlink",
-      overrides?: typeof FixtureMetadata.Type
+      overrides?: FixtureMetadata
     ): Image.StoredMetadata => ({
       uid: overrides?.uid ?? 0,
       gid: overrides?.gid ?? 0,

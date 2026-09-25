@@ -259,8 +259,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
                 )
               }
 
-              // SAFETY: the Rescan branch returns above, so only platform watch tags remain.
-              const tag = event._tag as Exclude<Vfs.Change["_tag"], "Rescan">
+              const tag = event._tag
 
               return textPath(event.path, "watch").pipe(
                 Effect.mapError((error) => toPlatformError(error, "watch", path)),

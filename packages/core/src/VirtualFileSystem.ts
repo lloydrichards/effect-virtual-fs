@@ -22,7 +22,17 @@ import * as SchemaTransformation from "effect/SchemaTransformation"
 import type * as Scope from "effect/Scope"
 import type * as Stream from "effect/Stream"
 import type { BytePath } from "./BytePath.js"
+import type { CallerId, ObjectReferenceId } from "./Caller.js"
+import * as CallerModule from "./Caller.js"
+import type { DirectoryHandleId, FileHandleId } from "./FileHandle.js"
+import * as FileHandleModule from "./FileHandle.js"
+import * as FixtureModule from "./Fixture.js"
+import * as MetadataModule from "./Metadata.js"
 import type { ConfigurationError, FsError } from "./VirtualFileSystemError.js"
+import * as VfsErrorModule from "./VirtualFileSystemError.js"
+import type { VolumeId } from "./Volume.js"
+import * as VolumeModule from "./Volume.js"
+import * as WatchModule from "./Watch.js"
 
 export { BytePath } from "./BytePath.js"
 
@@ -48,16 +58,6 @@ export {
   SnapshotDifference,
   SnapshotNodeKind
 } from "./SnapshotDelta.js"
-
-const VolumeId: typeof VfsModel.VolumeId = VfsModel.VolumeId
-
-const CallerId: typeof VfsModel.CallerId = VfsModel.CallerId
-
-const FileHandleId: typeof VfsModel.FileHandleId = VfsModel.FileHandleId
-
-const DirectoryHandleId: typeof VfsModel.DirectoryHandleId = VfsModel.DirectoryHandleId
-
-const ObjectReferenceId: typeof VfsModel.ObjectReferenceId = VfsModel.ObjectReferenceId
 
 /**
  * A UTF-8 string path or an opaque byte-preserving path.
@@ -103,7 +103,7 @@ export type PathInput = string | BytePath
  * @category schemas
  * @since 0.1.0
  */
-export const FsCode: typeof VfsModel.FsCode = VfsModel.FsCode
+export const FsCode: typeof VfsErrorModule.FsCode = VfsErrorModule.FsCode
 
 /**
  * A portable virtual filesystem error code.
@@ -183,7 +183,7 @@ export { ConfigurationError } from "./VirtualFileSystemError.js"
  * @category schemas
  * @since 0.1.0
  */
-export const Identity: typeof VfsModel.Identity = VfsModel.Identity
+export const Identity: typeof CallerModule.Identity = CallerModule.Identity
 
 /**
  * A caller identity used for permission checks.
@@ -227,7 +227,7 @@ export type Identity = typeof Identity.Type
  * @category schemas
  * @since 0.1.0
  */
-export const RootCallerOptions: typeof VfsModel.RootCallerOptions = VfsModel.RootCallerOptions
+export const RootCallerOptions: typeof CallerModule.RootCallerOptions = CallerModule.RootCallerOptions
 
 /**
  * Options for creating a root caller on a volume.
@@ -243,7 +243,7 @@ export type RootCallerOptions = typeof RootCallerOptions.Type
  * @category schemas
  * @since 0.1.0
  */
-export const VolumeDurability: typeof VfsModel.VolumeDurability = VfsModel.VolumeDurability
+export const VolumeDurability: typeof VolumeModule.VolumeDurability = VolumeModule.VolumeDurability
 
 /**
  * The failure boundary survived by an acknowledged volume write.
@@ -259,7 +259,7 @@ export type VolumeDurability = typeof VolumeDurability.Type
  * @category ordering
  * @since 0.1.0
  */
-export const VolumeDurabilityOrder: Order.Order<VolumeDurability> = VfsModel.VolumeDurabilityOrder
+export const VolumeDurabilityOrder: Order.Order<VolumeDurability> = VolumeModule.VolumeDurabilityOrder
 
 /**
  * Returns whether `actual` survives at least the failure boundary required by `required`.
@@ -270,7 +270,7 @@ export const VolumeDurabilityOrder: Order.Order<VolumeDurability> = VfsModel.Vol
 export const isVolumeDurabilityAtLeast: (
   actual: VolumeDurability,
   required: VolumeDurability
-) => boolean = VfsModel.isVolumeDurabilityAtLeast
+) => boolean = VolumeModule.isVolumeDurabilityAtLeast
 
 /**
  * Schema for the stable logical identity of a volume.
@@ -278,7 +278,7 @@ export const isVolumeDurabilityAtLeast: (
  * @category schemas
  * @since 0.1.0
  */
-export const VolumeIdentity: typeof VfsModel.VolumeIdentity = VfsModel.VolumeIdentity
+export const VolumeIdentity: typeof VolumeModule.VolumeIdentity = VolumeModule.VolumeIdentity
 
 /**
  * Stable logical identity of a volume as a branded 128-bit lowercase hexadecimal string.
@@ -294,7 +294,7 @@ export type VolumeIdentity = typeof VolumeIdentity.Type
  * @category schemas
  * @since 0.1.0
  */
-export const VolumeIncarnation: typeof VfsModel.VolumeIncarnation = VfsModel.VolumeIncarnation
+export const VolumeIncarnation: typeof VolumeModule.VolumeIncarnation = VolumeModule.VolumeIncarnation
 
 /**
  * One uninterrupted storage lifetime as a branded 128-bit lowercase hexadecimal string.
@@ -334,7 +334,7 @@ export type VolumeIncarnation = typeof VolumeIncarnation.Type
  * @category schemas
  * @since 0.1.0
  */
-export const VolumeOptions: typeof VfsModel.VolumeOptions = VfsModel.VolumeOptions
+export const VolumeOptions: typeof VolumeModule.VolumeOptions = VolumeModule.VolumeOptions
 
 /**
  * Capacity, admission, watch retention, and path limits for a volume.
@@ -405,7 +405,7 @@ export interface VolumeUsage {
  * @category schemas
  * @since 0.1.0
  */
-export const Metadata: typeof VfsModel.Metadata = VfsModel.Metadata
+export const Metadata: typeof MetadataModule.Metadata = MetadataModule.Metadata
 
 /**
  * Metadata for a directory, regular file, or symbolic link.
@@ -482,7 +482,7 @@ export interface DirectoryEntry {
  * @category schemas
  * @since 0.4.0
  */
-export const DirectoryChange: typeof VfsModel.DirectoryChange = VfsModel.DirectoryChange
+export const DirectoryChange: typeof CallerModule.DirectoryChange = CallerModule.DirectoryChange
 
 /**
  * A directory revision transition captured inside one coordinated operation.
@@ -509,7 +509,7 @@ export interface ReferenceEntryResult {
  * @category schemas
  * @since 0.4.0
  */
-export const RenameReferenceResult: typeof VfsModel.RenameReferenceResult = VfsModel.RenameReferenceResult
+export const RenameReferenceResult: typeof CallerModule.RenameReferenceResult = CallerModule.RenameReferenceResult
 
 /**
  * The directory transitions produced by a same-directory or cross-directory rename.
@@ -578,7 +578,7 @@ export interface MetadataOptions extends RelativeOptions {
  * @category schemas
  * @since 0.1.0
  */
-export const OwnerUpdate: typeof VfsModel.OwnerUpdate = VfsModel.OwnerUpdate
+export const OwnerUpdate: typeof MetadataModule.OwnerUpdate = MetadataModule.OwnerUpdate
 
 /**
  * An owner update for `chown` operations.
@@ -594,7 +594,7 @@ export type OwnerUpdate = typeof OwnerUpdate.Type
  * @category schemas
  * @since 0.1.0
  */
-export const TimeUpdate: typeof VfsModel.TimeUpdate = VfsModel.TimeUpdate
+export const TimeUpdate: typeof MetadataModule.TimeUpdate = MetadataModule.TimeUpdate
 
 /**
  * Schema for independent access and modification time updates.
@@ -631,7 +631,7 @@ export const TimeUpdate: typeof VfsModel.TimeUpdate = VfsModel.TimeUpdate
  * @category schemas
  * @since 0.1.0
  */
-export const Times: typeof VfsModel.Times = VfsModel.Times
+export const Times: typeof MetadataModule.Times = MetadataModule.Times
 
 /**
  * Access and modification time updates for `utimes` operations.
@@ -688,7 +688,7 @@ export interface DirectoryHandle {
  * @category schemas
  * @since 0.1.0
  */
-export const SeekMode: typeof VfsModel.SeekMode = VfsModel.SeekMode
+export const SeekMode: typeof FileHandleModule.SeekMode = FileHandleModule.SeekMode
 
 /**
  * The origin used by a file handle seek operation.
@@ -729,7 +729,7 @@ export type SeekMode = typeof SeekMode.Type
  * @category schemas
  * @since 0.1.0
  */
-export const OpenSettings: typeof VfsModel.OpenSettings = VfsModel.OpenSettings
+export const OpenSettings: typeof CallerModule.OpenSettings = CallerModule.OpenSettings
 
 /**
  * Options for acquiring a scoped file handle.
@@ -746,7 +746,7 @@ export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
  * @category schemas
  * @since 0.4.0
  */
-export const MkdirReferenceSettings: typeof VfsModel.MkdirReferenceSettings = VfsModel.MkdirReferenceSettings
+export const MkdirReferenceSettings: typeof CallerModule.MkdirReferenceSettings = CallerModule.MkdirReferenceSettings
 
 /**
  * Settings for creating a directory through a parent object reference.
@@ -763,7 +763,8 @@ export type MkdirReferenceSettings = typeof MkdirReferenceSettings.Type
  * @category schemas
  * @since 0.4.0
  */
-export const SymlinkReferenceSettings: typeof VfsModel.SymlinkReferenceSettings = VfsModel.SymlinkReferenceSettings
+export const SymlinkReferenceSettings: typeof CallerModule.SymlinkReferenceSettings =
+  CallerModule.SymlinkReferenceSettings
 
 /**
  * Settings for creating a symbolic link through a parent object reference.
@@ -779,7 +780,7 @@ export type SymlinkReferenceSettings = typeof SymlinkReferenceSettings.Type
  * @category schemas
  * @since 0.4.0
  */
-export const OpenReferenceSettings: typeof VfsModel.OpenReferenceSettings = VfsModel.OpenReferenceSettings
+export const OpenReferenceSettings: typeof CallerModule.OpenReferenceSettings = CallerModule.OpenReferenceSettings
 
 /**
  * Settings for opening an existing regular-file reference.
@@ -796,8 +797,8 @@ export type OpenReferenceSettings = typeof OpenReferenceSettings.Type
  * @category schemas
  * @since 0.4.0
  */
-export const OpenChildReferenceSettings: typeof VfsModel.OpenChildReferenceSettings =
-  VfsModel.OpenChildReferenceSettings
+export const OpenChildReferenceSettings: typeof CallerModule.OpenChildReferenceSettings =
+  CallerModule.OpenChildReferenceSettings
 
 /**
  * Settings for atomically looking up or creating and opening one referenced child.
@@ -867,7 +868,7 @@ export interface OpenChildReferenceResult {
  * @category models
  * @since 0.1.0
  */
-export type WriteFileOptions = VfsModel.WriteFileOptions
+export type WriteFileOptions = CallerModule.WriteFileSettings & RelativeOptions
 
 /**
  * A scoped regular-file capability with an independent bigint cursor.
@@ -1197,15 +1198,19 @@ export interface Caller {
  * // [ 'Create /logs', 'Remove /logs' ]
  * ```
  *
+ * @category schemas
+ * @since 0.1.0
+ */
+export const Change: typeof WatchModule.Change = WatchModule.Change
+
+/**
+ * One committed change observed through a watch subscription. `Rescan` at `/`
+ * means the subscriber lost events.
+ *
  * @category models
  * @since 0.1.0
  */
-export interface Change {
-  /** Kind of committed change. `Rescan` means this subscriber lost events. */
-  readonly _tag: "Create" | "Update" | "Remove" | "Rescan"
-  /** Absolute path of the changed entry, or `/` when retained events were lost. */
-  readonly path: BytePath
-}
+export type Change = typeof Change.Type
 
 /**
  * Schema for the filesystem entry kinds reported by overlay summaries.
@@ -1213,7 +1218,7 @@ export interface Change {
  * @category schemas
  * @since 0.1.0
  */
-export const OverlayNodeKind: typeof VfsModel.OverlayNodeKind = VfsModel.OverlayNodeKind
+export const OverlayNodeKind: typeof VolumeModule.OverlayNodeKind = VolumeModule.OverlayNodeKind
 
 /**
  * A filesystem entry kind reported by an overlay summary.
@@ -1229,7 +1234,7 @@ export type OverlayNodeKind = typeof OverlayNodeKind.Type
  * @category schemas
  * @since 0.1.0
  */
-export const OverlayDifference: typeof VfsModel.OverlayDifference = VfsModel.OverlayDifference
+export const OverlayDifference: typeof VolumeModule.OverlayDifference = VolumeModule.OverlayDifference
 
 /**
  * A content, ownership, permission, or timestamp field that differs from the overlay base.
@@ -1250,7 +1255,7 @@ export type OverlayDifference = typeof OverlayDifference.Type
  * @category schemas
  * @since 0.1.0
  */
-export const OverlayChange: typeof VfsModel.OverlayChange = VfsModel.OverlayChange
+export const OverlayChange: typeof VolumeModule.OverlayChange = VolumeModule.OverlayChange
 
 /**
  * A path-oriented final-state difference from an overlay's immutable base.
@@ -1289,7 +1294,7 @@ export type OverlayChange = typeof OverlayChange.Type
  * @category schemas
  * @since 0.1.0
  */
-export const OverlayChangesOptions: typeof VfsModel.OverlayChangesOptions = VfsModel.OverlayChangesOptions
+export const OverlayChangesOptions: typeof VolumeModule.OverlayChangesOptions = VolumeModule.OverlayChangesOptions
 
 /**
  * Filtering options for an overlay final-difference summary.
@@ -1871,7 +1876,7 @@ export const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsError>
  * @category schemas
  * @since 0.1.0
  */
-export const Fixture: typeof VfsModel.Fixture = VfsModel.Fixture
+export const Fixture: typeof FixtureModule.Fixture = FixtureModule.Fixture
 
 /**
  * A complete filesystem fixture accepted by `fromFixture`.
