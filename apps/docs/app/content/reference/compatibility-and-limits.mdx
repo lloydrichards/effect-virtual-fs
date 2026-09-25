@@ -107,6 +107,24 @@ accept it.
 
 A slow consumer does not retain an unbounded event history. Treat `Rescan` as an invalidation signal, not a replay.
 
+## Tree operations
+
+Three caller verbs work on a whole tree. Only a recursive `mkdir` is one change; the other two are compositions of
+smaller operations, so another caller can change the tree while they run.
+
+- `caller.walk(directory)` streams every entry below a directory, depth first and in the byte order of each
+  directory's names, with its path relative to the directory, its reference, its kind, and its depth. It reads one
+  directory at a time, holds no handle, reports symbolic links without following them, and refreshes no access time.
+  It reaches each directory by name, as a path does, so it needs search permission on the directories above it and
+  skips a directory that went away or was renamed out of the tree after it was listed. `maxDepth`, `maxEntries`, and
+  `maxBytes` are optional and fail with `LimitExceeded` when passed.
+- `mkdir(path, { recursive: true })` creates every missing directory on the path in one change, as `mkdir -p` does,
+  so a failure creates none of them. It follows symbolic links on the way, walks dot names, and succeeds when the
+  final directory exists.
+- `remove(entry, { recursive: true })` empties a directory entry by entry, each by name, and stops at the first
+  failure, whose path names the entry it stopped at. A directory with entries must be readable; no permission is
+  changed to make it so. `force` forgives only the target itself going missing.
+
 ## Glob limits
 
 Globbing belongs to the memory adapter. Patterns are root-relative POSIX-style paths.

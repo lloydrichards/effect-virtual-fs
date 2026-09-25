@@ -270,6 +270,16 @@ export interface Caller {
   readonly readDirectory: (
     directory: TargetInput
   ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsFailure>
+  /**
+   * Every entry below a directory, as a stream that reads one directory at a time and holds no handle. Entries
+   * arrive depth first, each directory's entries in the byte order of their names; symbolic links are reported,
+   * never followed. Each directory is read in one observation, so the walk sees each listing whole but no
+   * snapshot of the tree, and it refreshes no access time. Each directory below the root is reached by name, as a
+   * path lookup reaches it, so it needs search permission on every directory above it, and one that goes away or
+   * is renamed out of the tree before the walk reads it is skipped. A failure below the root names the entry's
+   * path under the path the root was given by, or under the root when it was given by reference or handle.
+   */
+  readonly walk: (directory: TargetInput, options?: WalkOptions) => Stream.Stream<WalkEntry, WalkFailure>
   /** The bytes a symbolic link points at. A path never follows the final link. */
   readonly readLink: (target: TargetInput) => Effect.Effect<Uint8Array, FsFailure>
   /** The canonical absolute path of a target. */
@@ -295,7 +305,15 @@ export interface Caller {
     ): Effect.Effect<FileHandle, FsFailure, Scope.Scope>
     (entry: Entry, options: OpenEntryOptions): Effect.Effect<OpenEntryResult, FsFailure, Scope.Scope>
   }
-  /** Creates a directory. */
+  /**
+   * Creates a directory. With `recursive`, every missing directory on a path is created in one change, so a
+   * failure creates none and a watcher sees them all at once; symbolic links on the way are followed, dot names
+   * are walked, and a final name that is already a directory (or a link to one) succeeds without a change. The
+   * result names the directory the path ends on, with its parent's revision before and after the call, so a path
+   * that leaves a directory it created, such as `new/..`, still reports the change. A name on the way that is not
+   * a directory fails with `NotDirectory`, a final one with `AlreadyExists`, and only names the caller wrote are
+   * created, so a dangling link fails with `NotFound`.
+   */
   readonly mkdir: (entry: EntryInput, options?: MkdirOptions) => Effect.Effect<ReferenceEntryResult, FsFailure>
   /** Creates a symbolic link to `target`, stored as given. */
   readonly symlink: (
@@ -309,8 +327,18 @@ export interface Caller {
   readonly unlink: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
   /** Removes an empty directory. */
   readonly rmdir: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
-  /** Removes a file, a symbolic link, or an empty directory. */
-  readonly remove: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
+  /**
+   * Removes a file, a symbolic link, or an empty directory. With `recursive`, a directory that has entries is
+   * emptied first, entries before their directories, each removal its own change; it stops at the first failure,
+   * whose path names the entry it stopped at, and leaves what it has not reached. Each entry is removed by its name
+   * in a directory reached by name, so a subtree renamed out of the target is left alone. A directory with entries
+   * must be readable, and no permission is changed to make it so. With `force`, a missing target is success and the
+   * result is `undefined`; a failure below the target is still a failure.
+   */
+  readonly remove: {
+    (entry: EntryInput, options?: RemoveOptions & { readonly force?: false }): Effect.Effect<DirectoryChange, FsFailure>
+    (entry: EntryInput, options: RemoveOptions): Effect.Effect<DirectoryChange | undefined, FsFailure>
+  }
   /** Moves an entry, replacing a compatible destination. */
   readonly rename: (from: EntryInput, to: EntryInput) => Effect.Effect<RenameReferenceResult, FsFailure>
   /** Sets the permission bits of a target. */
@@ -723,6 +751,7 @@ Added in v0.1.0
 
 Settings for creating a directory through a parent object reference.
 `exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
+`recursive` creates every missing directory on a path in one change, as `mkdir -p` does.
 
 **Signature**
 
@@ -740,6 +769,7 @@ export type MkdirOptions = {
       | { readonly kind: "omit" }
       | { readonly kind: "value"; readonly nanoseconds: bigint }
   }
+  readonly recursive?: boolean
 }
 ```
 
@@ -1114,6 +1144,18 @@ export interface ReferenceEntryResult {
 
 Added in v0.4.0
 
+### RemoveOptions (type alias)
+
+Settings for removing an entry.
+
+**Signature**
+
+```ts
+export type RemoveOptions = { readonly recursive?: boolean; readonly force?: boolean }
+```
+
+Added in v0.6.0
+
 ### RenameReferenceResult (type alias)
 
 The directory transitions produced by a same-directory or cross-directory rename.
@@ -1400,6 +1442,63 @@ export interface VolumeUsage {
 ```
 
 Added in v0.1.0
+
+### WalkEntry (interface)
+
+One entry a walk reached: its path below the walk's root, its name, the
+object it names and the directory it was listed in, its kind, and its depth.
+
+**Details**
+
+`path` is relative to the walk's root, with no leading slash (`a/b` for
+`b` in the root's child `a`), so it reads the same whichever way the root
+was addressed; the root itself is not an entry. `depth` is 1 for a child of
+the root. A symbolic link is reported as a link and never followed.
+
+**Signature**
+
+```ts
+export interface WalkEntry {
+  readonly path: BytePath
+  readonly name: Uint8Array
+  readonly reference: ObjectReference
+  readonly directory: ObjectReference
+  readonly kind: Metadata["kind"]
+  readonly depth: number
+}
+```
+
+Added in v0.6.0
+
+### WalkFailure (type alias)
+
+What a walk fails with: a failure of the directory it lists, or
+`LimitExceeded` when it would pass one of its bounds, which `field` names.
+
+**Signature**
+
+```ts
+export type WalkFailure = FsFailure | (VfsError & { readonly code: "LimitExceeded" })
+```
+
+Added in v0.6.0
+
+### WalkOptions (type alias)
+
+Settings for walking a directory tree.
+
+**Signature**
+
+```ts
+export type WalkOptions = {
+  readonly maxEntries?: number
+  readonly maxBytes?: ByteSize.ByteSize
+  readonly order?: "pre" | "post"
+  readonly maxDepth?: number
+}
+```
+
+Added in v0.6.0
 
 ### WatchOptions (type alias)
 
@@ -1822,6 +1921,7 @@ Added in v0.1.0
 
 Settings for creating a directory through a parent object reference.
 `exactMode` skips the caller's umask for an explicit creation mode; permission policy still applies.
+`recursive` creates every missing directory on a path in one change, as `mkdir -p` does.
 
 **Signature**
 
@@ -1847,6 +1947,7 @@ export declare const MkdirOptions: Schema.Struct<{
       >
     }>
   >
+  readonly recursive: Schema.optionalKey<Schema.Boolean>
 }>
 ```
 
@@ -2095,6 +2196,22 @@ export declare const OwnerUpdate: Schema.Struct<{
 ```
 
 Added in v0.1.0
+
+### RemoveOptions
+
+Settings for removing an entry: whether a directory goes with everything
+under it, and whether a missing target is success.
+
+**Signature**
+
+```ts
+export declare const RemoveOptions: Schema.Struct<{
+  readonly recursive: Schema.optionalKey<Schema.Boolean>
+  readonly force: Schema.optionalKey<Schema.Boolean>
+}>
+```
+
+Added in v0.6.0
 
 ### RenameReferenceResult
 
@@ -2463,6 +2580,24 @@ Effect.runPromise(program).then(console.log)
 ```
 
 Added in v0.1.0
+
+### WalkOptions
+
+Settings for walking a directory tree: the order and the optional depth,
+entry, and byte bounds.
+
+**Signature**
+
+```ts
+export declare const WalkOptions: Schema.Struct<{
+  readonly order: Schema.optionalKey<Schema.Literals<readonly ["pre", "post"]>>
+  readonly maxDepth: Schema.optionalKey<Schema.Natural>
+  readonly maxEntries: Schema.optionalKey<Schema.Natural>
+  readonly maxBytes: Schema.optionalKey<Schema.ByteSize>
+}>
+```
+
+Added in v0.6.0
 
 ### WatchOptions
 
