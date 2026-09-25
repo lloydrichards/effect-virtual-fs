@@ -58,6 +58,7 @@ export type MkdirOptions = {
       | { readonly kind: "omit" }
       | { readonly kind: "value"; readonly nanoseconds: bigint }
   }
+  readonly recursive?: boolean
 }
 ```
 
@@ -116,6 +117,18 @@ export type OpenOptions = {
   readonly append?: boolean
   readonly truncate?: boolean
 }
+```
+
+Added in v0.6.0
+
+### RemoveOptions (type alias)
+
+Options of `remove`.
+
+**Signature**
+
+```ts
+export type RemoveOptions = { readonly recursive?: boolean; readonly force?: boolean }
 ```
 
 Added in v0.6.0
@@ -211,6 +224,23 @@ export type SymlinkOptions = {
 
 Added in v0.6.0
 
+### WalkOptions (type alias)
+
+Options of `walk`.
+
+**Signature**
+
+```ts
+export type WalkOptions = {
+  readonly maxEntries?: number
+  readonly maxBytes?: ByteSize.ByteSize
+  readonly order?: "pre" | "post"
+  readonly maxDepth?: number
+}
+```
+
+Added in v0.6.0
+
 ### WriteFileOptions (type alias)
 
 Options of `writeFile`.
@@ -267,7 +297,10 @@ Added in v0.6.0
 ### MkdirOptions
 
 Schema for the options of `mkdir`. `exactMode` skips the caller's umask for
-an explicit creation mode; permission policy still applies.
+an explicit creation mode; permission policy still applies. `recursive`
+creates every missing directory on the path in one change, as `mkdir -p`
+does, and succeeds when the final directory already exists; the mode
+applies to every directory it creates and the times to the final one.
 
 **Signature**
 
@@ -293,6 +326,7 @@ export declare const MkdirOptions: Schema.Struct<{
       >
     }>
   >
+  readonly recursive: Schema.optionalKey<Schema.Boolean>
 }>
 ```
 
@@ -372,6 +406,22 @@ export declare const OpenOptions: Schema.Struct<{
   readonly mode: Schema.optionalKey<Schema.Natural>
   readonly append: Schema.optionalKey<Schema.Boolean>
   readonly truncate: Schema.optionalKey<Schema.Boolean>
+}>
+```
+
+Added in v0.6.0
+
+### RemoveOptions
+
+Schema for the options of `remove`. `recursive` removes a directory and
+everything under it; `force` succeeds when the target itself is missing.
+
+**Signature**
+
+```ts
+export declare const RemoveOptions: Schema.Struct<{
+  readonly recursive: Schema.optionalKey<Schema.Boolean>
+  readonly force: Schema.optionalKey<Schema.Boolean>
 }>
 ```
 
@@ -494,6 +544,28 @@ export declare const SymlinkOptions: Schema.Struct<{
       >
     }>
   >
+}>
+```
+
+Added in v0.6.0
+
+### WalkOptions
+
+Schema for the options of `walk`: the order entries arrive in and the
+optional bounds on how deep, how many, and how many bytes the walk may
+reach. `order` defaults to `"pre"`, each directory before its entries; a
+`"post"` walk reports each directory after them. Every bound defaults to
+unbounded, and a walk that would pass one fails with `LimitExceeded` naming
+the bound in `field`.
+
+**Signature**
+
+```ts
+export declare const WalkOptions: Schema.Struct<{
+  readonly order: Schema.optionalKey<Schema.Literals<readonly ["pre", "post"]>>
+  readonly maxDepth: Schema.optionalKey<Schema.Natural>
+  readonly maxEntries: Schema.optionalKey<Schema.Natural>
+  readonly maxBytes: Schema.optionalKey<Schema.ByteSize>
 }>
 ```
 
