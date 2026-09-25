@@ -6,47 +6,6 @@ Added in v0.1.0
 
 ---
 
-## errors
-
-### SnapshotDeltaError (class)
-
-A valid snapshot delta was inspected or applied against a valid but semantically different base.
-
-**Signature**
-
-```ts
-export declare class SnapshotDeltaError
-```
-
-**Example**
-
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { Effect } from "effect"
-
-const program = Effect.gen(function* () {
-  const volume = yield* Vfs.make()
-  const caller = yield* volume.caller()
-  const base = yield* volume.snapshot
-
-  yield* caller.mkdir("/work")
-
-  // Omitting limits uses `default`; `constrained` suits memory-sensitive hosts.
-  const tight = { ...Vfs.SnapshotDeltaLimits.constrained, maxOutputRecords: 0 }
-
-  return yield* Vfs.diffSnapshots(base, yield* volume.snapshot, tight).pipe(
-    Effect.as("diffed"),
-    Effect.catchTag("ImageError", (error) => Effect.succeed(`${error.code} at ${error.field}`))
-  )
-}).pipe(Effect.provide(NodeCrypto.layer))
-
-Effect.runPromise(program).then(console.log)
-// LimitExceeded at outputRecords
-```
-
-Added in v0.1.0
-
 ## models
 
 ### SnapshotChange (type alias)

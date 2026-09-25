@@ -121,7 +121,7 @@ console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer
 ```
 
 The constructors and byte-returning operations copy their buffers, so later mutation cannot change stored paths.
-String-returning operations fail with `FsError` code `UnrepresentableName` when a name is not valid UTF-8. Use the byte
+String-returning operations fail with `VfsError` code `UnrepresentableName` when a name is not valid UTF-8. Use the byte
 variants of directory enumeration, symbolic-link targets, and resolved paths when exact bytes matter.
 
 ## Build fixtures and restore snapshots
@@ -224,9 +224,10 @@ scope cleanup remains safe after an explicit close.
 
 ## Handle expected failures as data
 
-Filesystem failures are typed `FsError` values with a stable `code`, `operation`, and optional `path`. Configuration
-and snapshot failures use `ConfigurationError` and `ImageError`. Interruption and defects remain separate from these
-expected failures.
+Every failure is a `VfsError` with a stable `code` and the `operation` that failed. A rejected option names its
+`field`, a path-addressed failure names its `path` as bytes, and a classified failure keeps its `cause`. Codec and
+store failures share the class with their own codes. Interruption and defects remain separate from these expected
+failures.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
@@ -237,7 +238,7 @@ const program = Effect.gen(function*() {
   const fs = yield* (yield* Vfs.make()).caller()
 
   return yield* fs.readFile("/optional.json").pipe(
-    Effect.catchTag("FsError", (error) =>
+    Effect.catchTag("VfsError", (error) =>
       error.code === "NotFound"
         ? Effect.succeed(new TextEncoder().encode("{}"))
         : Effect.fail(error))
@@ -295,7 +296,7 @@ candidate.
 - Absolute paths ignore a supplied directory base. Relative paths can use a live, same-volume directory handle.
 - Operations coordinate through one permit per volume. At most 65 operations are admitted at once by
   default, including the active operation; set `maxPendingOperations` to change the waiting budget.
-  Excess work fails with retryable `FsError` code `VolumeBusy`
+  Excess work fails with retryable `VfsError` code `VolumeBusy`
   before mutation or storage commit. Interruption while waiting makes no change; interruption after a commit
   does not roll it back.
 - Each watch subscriber retains at most 256 events by default; set `maxWatchEvents` to change this bound

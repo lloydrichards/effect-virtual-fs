@@ -108,7 +108,7 @@ const expandTypeAliases = async (packagePath: string, moduleName: string, conten
 // Docgen omits the base type of tagged error classes, including their public fields.
 // oxlint-disable-next-line effecttsgo/async-function -- Prettier exposes an asynchronous formatting API.
 const expandTaggedErrorClasses = async (packagePath: string, moduleName: string, content: string): Promise<string> => {
-  if (moduleName !== "VirtualFileSystemError") return content
+  if (moduleName !== "VfsError") return content
 
   let project = projects.get(packagePath)
 
@@ -188,7 +188,7 @@ for (const packagePath of packageDirs) {
       facade.replace(
         /^export\s*\{[\s\S]*?\}\s*from\s*"\.\/(?:Snapshot|BytePath|SnapshotDelta)\.js"\n/gm,
         ""
-      ).replace(/^export \{ (?:FsError|ConfigurationError) \} from "\.\/VirtualFileSystemError\.js"\n/gm, ""),
+      ).replace(/^export \{[\s\S]*?\} from "\.\/VfsError\.js"\n/gm, ""),
       "utf8"
     )
   }

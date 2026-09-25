@@ -10,50 +10,6 @@ Added in v0.1.0
 
 ---
 
-## errors
-
-### ImageError (class)
-
-Describes a snapshot encoding, decoding, structure, or resource-limit failure.
-
-**Signature**
-
-```ts
-export declare class ImageError
-```
-
-**Example**
-
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { ByteSize, Effect } from "effect"
-
-// Decoding is a trust boundary. `code` says what went wrong and `field` says
-// which input or limit it was, so a caller can decline just the bad payload.
-const program = Effect.gen(function* () {
-  const volume = yield* Vfs.make()
-  const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
-
-  return yield* Vfs.decodeSnapshot(bytes, {
-    maxEncodedBytes: ByteSize.bytes(16),
-    maxRecords: 10_000,
-    maxEntries: 10_000,
-    maxDecodedBytes: ByteSize.megabytes(16)
-  }).pipe(
-    Effect.as("accepted"),
-    Effect.catchTag("ImageError", (error) =>
-      error.code === "LimitExceeded" ? Effect.succeed(`declined at ${error.field}`) : Effect.fail(error)
-    )
-  )
-})
-
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
-// declined at encodedBytes
-```
-
-Added in v0.1.0
-
 ## models
 
 ### DecodeLimits (type alias)

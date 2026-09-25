@@ -11,7 +11,8 @@ Added in v0.1.0
 
 ### CheckpointError (class)
 
-Checkpoint lookup, naming, or storage failure. Image failures retain core's `ImageError`.
+Checkpoint lookup, naming, or storage failure. An image that fails to encode or decode is reported as core's
+`VfsError` with its image code, such as `InvalidStructure` or `LimitExceeded`.
 
 **Signature**
 

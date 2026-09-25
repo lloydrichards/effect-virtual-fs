@@ -57,7 +57,7 @@ export declare const layer: (
   options: Options
 ) => Layer.Layer<
   LiveVolume.LiveImageStore,
-  LiveVolume.LiveVolumeError,
+  VfsError.ArgumentFailure | VfsError.StoreFailure,
   SqlClient | Crypto.Crypto | FileSystem.FileSystem | Path.Path
 >
 ```

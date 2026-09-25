@@ -90,7 +90,7 @@ an object to edit. Decode it with `decodeSnapshot`, then pass the opaque result 
 - Set `maxRecords` to the largest number of stored filesystem objects and payload records you expect.
 - Set `maxEntries` to the largest reachable namespace you expect.
 
-Use `ByteSize` values for byte limits and numbers for record and entry counts. Decoding fails with an `ImageError`
+Use `ByteSize` values for byte limits and numbers for record and entry counts. Decoding fails with a `VfsError`
 before returning a partial snapshot when the input is malformed, uses an unsupported version, or exceeds a limit.
 
 Decoding limits protect the conversion from bytes to a snapshot. `fromSnapshot` can also receive `VolumeOptions` when
@@ -160,7 +160,7 @@ move appears as a removal and an addition rather than an inferred rename. Timest
 you pass `{ includeTimestamps: true }`.
 
 Applying a delta never mutates the base. It returns another immutable snapshot. A semantically different base fails
-with `SnapshotDeltaError` and the `BaseMismatch` code.
+with a `VfsError` carrying the `BaseMismatch` code.
 
 Delta creation, inspection, and application require Effect's `Crypto.Crypto` service. The example provides the Bun
 implementation at the program boundary. Use the corresponding official crypto layer for another runtime.

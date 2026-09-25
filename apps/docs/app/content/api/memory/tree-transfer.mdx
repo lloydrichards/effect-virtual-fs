@@ -602,7 +602,7 @@ export declare const toCaller: (
   caller: Vfs.Caller,
   destination: Vfs.PathInput,
   options?: WriteOptions
-) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.FsError>
+) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError>
 ```
 
 **Example**
@@ -657,7 +657,7 @@ export declare const toFileSystem: (
   fs: FileSystem.FileSystem,
   destination: string,
   options?: FileSystemWriteOptions
-) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.FsError | PlatformError.PlatformError>
+) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError | PlatformError.PlatformError>
 ```
 
 **Example**
@@ -706,11 +706,7 @@ memory until the volume is built.
 export declare const toVolume: <E, R>(
   entries: Stream.Stream<Entry, E, R>,
   options?: VolumeTransferOptions
-) => Effect.Effect<
-  Vfs.Volume,
-  E | TransferError | Vfs.FsError | Vfs.ConfigurationError | Vfs.ImageError | PlatformError.PlatformError,
-  R | Crypto.Crypto
->
+) => Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError | PlatformError.PlatformError, R | Crypto.Crypto>
 ```
 
 **Example**
@@ -760,7 +756,7 @@ export declare const fromCaller: (
   caller: Vfs.Caller,
   root: Vfs.PathInput,
   options?: ReadOptions
-) => Stream.Stream<Entry, TransferError | Vfs.FsError>
+) => Stream.Stream<Entry, TransferError | Vfs.VfsError>
 ```
 
 **Example**
@@ -851,11 +847,7 @@ export declare const fromSnapshot: (
   snapshot: Vfs.Snapshot,
   root: Vfs.PathInput,
   options?: ReadOptions
-) => Stream.Stream<
-  Entry,
-  TransferError | Vfs.FsError | Vfs.ConfigurationError | Vfs.ImageError | PlatformError.PlatformError,
-  Crypto.Crypto
->
+) => Stream.Stream<Entry, TransferError | Vfs.VfsError | PlatformError.PlatformError, Crypto.Crypto>
 ```
 
 **Example**

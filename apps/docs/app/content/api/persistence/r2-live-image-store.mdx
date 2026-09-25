@@ -84,14 +84,14 @@ Transport operations required by the live-image adapter.
 
 ```ts
 export interface R2Client {
-  readonly read: (key: string) => Effect.Effect<ObjectRecord | null, LiveVolume.LiveVolumeError>
+  readonly read: (key: string) => Effect.Effect<ObjectRecord | null, Vfs.VfsError>
   readonly write: (
     key: string,
     bytes: Uint8Array,
     generation: string,
     digest: string,
     condition: { readonly ifMatch: string } | { readonly ifNoneMatch: "*" }
-  ) => Effect.Effect<{ readonly etag: string } | null, LiveVolume.LiveVolumeError>
+  ) => Effect.Effect<{ readonly etag: string } | null, Vfs.VfsError>
 }
 ```
 
@@ -147,7 +147,7 @@ ETag conditions detect stale writes but cannot prevent stale reads.
 ```ts
 export declare const layer: (
   options: Options
-) => Layer.Layer<LiveVolume.LiveImageStore, LiveVolume.LiveVolumeError, Crypto.Crypto>
+) => Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Crypto.Crypto>
 ```
 
 **Example**
