@@ -440,4 +440,160 @@ describe("overlay volumes", () => {
       assert.strictEqual(text(yield* freshCaller.readFile("/f")), "new")
       assert.strictEqual((yield* Fiber.join(oldWatch)).length, 1)
     }))
+
+  it.effect("reports an unambiguous alias rename", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({
+        entries: [
+          { kind: "file", path: "/a", bytes: bytes("shared") },
+          { kind: "hardLink", path: "/b", target: "/a" }
+        ]
+      })).snapshot
+
+      const overlay = yield* Vfs.makeOverlay(base)
+      yield* (yield* overlay.caller()).rename("/b", "/c")
+      assert.deepStrictEqual(yield* changePaths(yield* overlay.changes()), ["Renamed:/b->/c"])
+    }))
+
+  it.effect("does not infer a rename from equal content", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/a", bytes: bytes("same") }] }))
+        .snapshot
+
+      const overlay = yield* Vfs.makeOverlay(base)
+      const fs = yield* overlay.caller()
+      yield* fs.unlink("/a")
+      yield* fs.writeFile("/b", bytes("same"), { access: "write", create: "exclusive" })
+      assert.deepStrictEqual(yield* changePaths(yield* overlay.changes()), ["Removed:/a", "Added:/b"])
+    }))
+
+  it.effect("reports one-sided alias changes", () =>
+    Effect.gen(function*() {
+      const single = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/a", bytes: bytes("x") }] }))
+        .snapshot
+
+      const linked = yield* Vfs.makeOverlay(single)
+      yield* (yield* linked.caller()).link("/a", "/b")
+      assert.deepStrictEqual(yield* changePaths(yield* linked.changes()), ["Added:/b"])
+
+      const aliased = yield* (yield* Vfs.fromFixture({
+        entries: [
+          { kind: "file", path: "/a", bytes: bytes("x") },
+          { kind: "hardLink", path: "/b", target: "/a" }
+        ]
+      })).snapshot
+
+      const unlinked = yield* Vfs.makeOverlay(aliased)
+      yield* (yield* unlinked.caller()).unlink("/b")
+      assert.deepStrictEqual(yield* changePaths(yield* unlinked.changes()), ["Removed:/b"])
+    }))
+
+  it.effect("omits a reverted edit", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/a", bytes: bytes("base") }] }))
+        .snapshot
+
+      const overlay = yield* Vfs.makeOverlay(base)
+      const fs = yield* overlay.caller()
+      yield* fs.writeFile("/a", bytes("edit"), { access: "write", truncate: true })
+      yield* fs.writeFile("/a", bytes("base"), { access: "write", truncate: true })
+      assert.deepStrictEqual(yield* overlay.changes(), [])
+    }))
+
+  it.effect("reports a new occupant at a rename source", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/a", bytes: bytes("moved") }] }))
+        .snapshot
+
+      const overlay = yield* Vfs.makeOverlay(base)
+      const fs = yield* overlay.caller()
+      yield* fs.rename("/a", "/b")
+      yield* fs.writeFile("/a", bytes("new"), { access: "write", create: "exclusive" })
+      assert.deepStrictEqual(yield* changePaths(yield* overlay.changes()), ["Added:/a", "Renamed:/a->/b"])
+    }))
+
+  it.effect("orders differences in a fixed sequence", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/a", bytes: bytes("v") }] }))
+        .snapshot
+
+      const overlay = yield* Vfs.makeOverlay(base)
+      const fs = yield* overlay.caller()
+      yield* fs.chmod("/a", 0o600)
+      yield* fs.utimes("/a", {
+        access: { kind: "value", nanoseconds: 10n },
+        modification: { kind: "value", nanoseconds: 20n }
+      })
+
+      const plain = yield* overlay.changes()
+      const timed = yield* overlay.changes({ includeTimestamps: true })
+      const [first] = plain
+      const [firstTimed] = timed
+      assert.isDefined(first)
+      assert.isDefined(firstTimed)
+
+      if (!Predicate.isTagged("Updated")(first) || !Predicate.isTagged("Updated")(firstTimed)) {
+        return yield* Effect.die("expected updated changes")
+      }
+
+      assert.deepStrictEqual(first.differences, ["mode"])
+      // Explicit utimes values report atime and mtime; the chmod's ctime bump is not reported.
+      assert.deepStrictEqual(firstTimed.differences, ["mode", "atimeNs", "mtimeNs"])
+    }))
+
+  it.effect("sorts changed paths bytewise", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({ entries: [] })).snapshot
+      const overlay = yield* Vfs.makeOverlay(base)
+      const fs = yield* overlay.caller()
+
+      for (const raw of [[47, 255], [47, 1, 1], [47, 1]]) {
+        const path = yield* Vfs.pathFromBytes(new Uint8Array(raw))
+        yield* fs.writeFile(path, bytes("x"), { access: "write", create: "exclusive" })
+      }
+
+      const changes = yield* overlay.changes()
+
+      const paths = yield* Effect.forEach(changes, (change) =>
+        Predicate.isTagged("Renamed")(change)
+          ? Effect.die("expected path changes")
+          : Effect.map(Vfs.pathToBytes(change.path), (value) => [...value]))
+
+      assert.deepStrictEqual(paths, [[47, 1], [47, 1, 1], [47, 255]])
+    }))
+
+  it.effect("lists a directory and its descendants separately", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({ entries: [] })).snapshot
+      const overlay = yield* Vfs.makeOverlay(base)
+      const fs = yield* overlay.caller()
+      yield* fs.mkdir("/dir")
+      yield* fs.writeFile("/dir/file", bytes("x"), { access: "write", create: "exclusive" })
+      assert.deepStrictEqual(yield* changePaths(yield* overlay.changes()), ["Added:/dir", "Added:/dir/file"])
+    }))
+
+  it.effect("returns frozen changes", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/a", bytes: bytes("v") }] }))
+        .snapshot
+
+      const overlay = yield* Vfs.makeOverlay(base)
+      const fs = yield* overlay.caller()
+      yield* fs.chmod("/a", 0o600)
+      yield* fs.mkdir("/dir")
+      const changes = yield* overlay.changes()
+      assert.strictEqual(changes.length, 2)
+      assert.isTrue(Object.isFrozen(changes))
+    }))
+
+  it.effect("rejects an invalid overlay limit without touching the base", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/a", bytes: bytes("v") }] }))
+        .snapshot
+
+      const before = yield* Vfs.encodeSnapshot(base)
+      // @ts-expect-error exercises runtime rejection of a value outside the public ByteSize contract
+      assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: -1 })), Vfs.ConfigurationError)
+      assert.deepStrictEqual(yield* Vfs.encodeSnapshot(base), before)
+    }))
 })

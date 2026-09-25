@@ -1,5 +1,5 @@
 import { assert, describe } from "@effect/vitest"
-import { Effect } from "effect"
+import { Effect, type Scope } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
@@ -343,6 +343,109 @@ describe("reference mutations", () => {
       )
       assert.deepStrictEqual(yield* fs.readFile("/guarded"), new Uint8Array([7]))
       yield* first.handle.close
+    }))
+
+  it.effect("reports the parent's revision before and after every entry mutation", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      const root = yield* fs.rootReference
+      const parent = (yield* fs.mkdirReference(root, name("parent"))).reference
+      const other = (yield* fs.mkdirReference(root, name("other"))).reference
+      const seed = yield* fs.openChildReference(parent, name("seed"), { access: "write", create: "exclusive" })
+      yield* seed.handle.close
+
+      const revision = (reference: Vfs.ObjectReference) =>
+        Effect.map(fs.observeDirectory(reference), (observation) => observation.revision)
+
+      const openChild = Effect.fnUntraced(function*(create: "exclusive" | "ifMissing") {
+        const opened = yield* fs.openChildReference(parent, name("file"), { access: "write", create })
+
+        yield* opened.handle.close
+
+        return opened.directory
+      })
+
+      const cases: ReadonlyArray<{
+        readonly label: string
+        readonly bumps: boolean
+        readonly run: Effect.Effect<Vfs.DirectoryChange, Vfs.FsError, Scope.Scope>
+      }> = [
+        {
+          label: "mkdirReference",
+          bumps: true,
+          run: Effect.map(fs.mkdirReference(parent, name("dir")), (r) => r.directory)
+        },
+        {
+          label: "symlinkReference",
+          bumps: true,
+          run: Effect.map(fs.symlinkReference("target", parent, name("link")), (r) => r.directory)
+        },
+        {
+          label: "linkReference",
+          bumps: true,
+          run: Effect.map(fs.linkReference(seed.reference, parent, name("alias")), (r) => r.directory)
+        },
+        { label: "unlinkReference", bumps: true, run: fs.unlinkReference(parent, name("alias")) },
+        { label: "rmdirReference", bumps: true, run: fs.rmdirReference(parent, name("dir")) },
+        { label: "openChildReference exclusive", bumps: true, run: openChild("exclusive") },
+        { label: "openChildReference existing", bumps: false, run: openChild("ifMissing") },
+        { label: "removeReference file", bumps: true, run: fs.removeReference(parent, name("file")) },
+        {
+          label: "mkdirReference again",
+          bumps: true,
+          run: Effect.map(fs.mkdirReference(parent, name("dir")), (r) => r.directory)
+        },
+        { label: "removeReference directory", bumps: true, run: fs.removeReference(parent, name("dir")) },
+        { label: "removeReference symlink", bumps: true, run: fs.removeReference(parent, name("link")) },
+        {
+          label: "renameReference same directory",
+          bumps: true,
+          run: Effect.flatMap(fs.renameReference(parent, name("seed"), parent, name("renamed")), (result) =>
+            Vfs.RenameReferenceResult.guards.SameDirectory(result)
+              ? Effect.succeed(result.directory)
+              : Effect.die(`expected SameDirectory, got ${result._tag}`))
+        }
+      ]
+
+      for (const { bumps, label, run } of cases) {
+        const rootBefore = yield* revision(root)
+        const r0 = yield* revision(parent)
+        const change = yield* run
+        const r1 = yield* revision(parent)
+        assert.strictEqual(change.before, r0, `${label}: before`)
+        assert.strictEqual(change.after, r1, `${label}: after`)
+
+        if (bumps) {
+          assert.isTrue(r1 > r0, `${label}: parent advanced`)
+        } else assert.strictEqual(r1, r0, `${label}: parent unchanged`)
+        assert.strictEqual(yield* revision(root), rootBefore, `${label}: root untouched`)
+      }
+
+      const rootBefore = yield* revision(root)
+      const parentBefore = yield* revision(parent)
+      const otherBefore = yield* revision(other)
+      const moved = yield* fs.renameReference(parent, name("renamed"), other, name("moved"))
+      const parentAfter = yield* revision(parent)
+      const otherAfter = yield* revision(other)
+      assert.strictEqual(moved._tag, "DifferentDirectories")
+
+      if (Vfs.RenameReferenceResult.guards.DifferentDirectories(moved)) {
+        assert.deepStrictEqual(moved.sourceDirectory, { before: parentBefore, after: parentAfter })
+        assert.deepStrictEqual(moved.destinationDirectory, { before: otherBefore, after: otherAfter })
+      }
+
+      assert.isTrue(parentAfter > parentBefore)
+      assert.isTrue(otherAfter > otherBefore)
+      assert.strictEqual(yield* revision(root), rootBefore)
+
+      const otherUntouched = yield* revision(other)
+      const beforeFailure = yield* revision(parent)
+      yield* fs.mkdirReference(parent, name("existing"))
+      const beforeRepeat = yield* revision(parent)
+      assert.strictEqual((yield* Effect.flip(fs.mkdirReference(parent, name("existing")))).code, "AlreadyExists")
+      assert.isTrue(beforeRepeat > beforeFailure)
+      assert.strictEqual(yield* revision(parent), beforeRepeat)
+      assert.strictEqual(yield* revision(other), otherUntouched)
     }))
 
   it.effect("returns non-overlapping revision pairs under concurrent creation", () =>

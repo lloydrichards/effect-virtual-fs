@@ -135,4 +135,41 @@ describe("links and byte namespace", () => {
         assert.strictEqual(failed.path, "/link")
       })
   )
+
+  it.effect("resolves realPath through a hard link to the name used", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      yield* fs.writeFile("/f", new Uint8Array([1]), { access: "write", create: "ifMissing" })
+      yield* fs.link("/f", "/alias")
+      assert.strictEqual(yield* fs.realPath("/alias"), "/alias")
+      assert.strictEqual(yield* fs.realPath("/f"), "/f")
+      yield* fs.rename("/f", "/g")
+      assert.strictEqual(yield* fs.realPath("/alias"), "/alias")
+      assert.strictEqual(yield* fs.realPath("/g"), "/g")
+      assert.strictEqual((yield* Effect.flip(fs.realPath("/f"))).code, "NotFound")
+    }))
+
+  it.effect("resolves realPath of a handle-relative path after its directory moved", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      yield* fs.mkdir("/old")
+      yield* fs.mkdir("/old/work")
+      const handle = yield* fs.openDirectory("/old/work")
+      assert.strictEqual(yield* fs.realPath(".", { relativeTo: handle }), "/old/work")
+      yield* fs.rename("/old", "/new")
+      assert.strictEqual(yield* fs.realPath(".", { relativeTo: handle }), "/new/work")
+      yield* fs.writeFile("x", new Uint8Array([1]), { access: "write", create: "ifMissing", relativeTo: handle })
+      assert.strictEqual(yield* fs.realPath("x", { relativeTo: handle }), "/new/work/x")
+      assert.strictEqual((yield* fs.stat("/new/work/x")).kind, "file")
+    }))
+
+  it.effect("fails realPath with NotFound once the handle's directory is removed", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      yield* fs.mkdir("/gone")
+      const handle = yield* fs.openDirectory("/gone")
+      assert.strictEqual(yield* fs.realPath(".", { relativeTo: handle }), "/gone")
+      yield* fs.rmdir("/gone")
+      assert.strictEqual((yield* Effect.flip(fs.realPath(".", { relativeTo: handle }))).code, "NotFound")
+    }))
 })
