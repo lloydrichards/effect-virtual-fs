@@ -1,9 +1,9 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { assert, it } from "@effect/vitest"
-import { ByteSize, Effect, Fiber, Layer, Option, Stream } from "effect"
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { assert, describe, it } from "@effect/vitest"
+import { ByteSize, Effect, Option } from "effect"
 import * as Memory from "../src/MemoryFileSystem.js"
 
-it.layer(Layer.empty)("memory adapter compatibility", (it) => {
+describe("memory adapter compatibility", () => {
   for (const root of ["/", "//", ".", "/directory/..", "/alias/../"]) {
     it.effect(`should reject recursive removal of ${root} without changing the tree`, () =>
       Effect.gen(function*() {
@@ -68,17 +68,12 @@ it.layer(Layer.empty)("memory adapter compatibility", (it) => {
 
   it.effect("should preserve a destination symlink and its target when replacement exceeds capacity", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(45) })
-      const fs = yield* Memory.bind(volume)
+      const fs = yield* Memory.bind(yield* Vfs.Volume)
       yield* fs.writeFileString("/source", "x".repeat(32))
       yield* fs.writeFileString("/external", "safe")
       yield* fs.symlink("/external", "/destination")
 
-      const watched = yield* fs.watch("/").pipe(
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkChild({ startImmediately: true })
-      )
+      const watched = yield* Testing.collectChanges(fs.watch("/"), 1)
 
       const error = yield* Effect.flip(fs.copy("/source", "/destination", { overwrite: true }))
       assert.strictEqual(error.reason._tag, "Unknown")
@@ -86,31 +81,26 @@ it.layer(Layer.empty)("memory adapter compatibility", (it) => {
       assert.strictEqual(yield* fs.readFileString("/external"), "safe")
       assert.deepStrictEqual(yield* fs.readDirectory("/"), ["destination", "external", "source"])
       yield* fs.makeDirectory("/sentinel")
-      assert.deepStrictEqual(yield* Fiber.join(watched), [{ _tag: "Create", path: "/sentinel" }])
-    }))
+      assert.deepStrictEqual(yield* watched, [{ _tag: "Create", path: "/sentinel" }])
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(45) } }))))
 
   it.effect("should replace a symlink within capacity when its storage can be reused", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(19), maxEntries: 3 })
-      const fs = yield* Memory.bind(volume)
+      const fs = yield* Memory.bind(yield* Vfs.Volume)
       yield* fs.writeFileString("/source", "copied")
       yield* fs.writeFileString("/external", "safe")
       yield* fs.symlink("/external", "/destination")
 
-      const watched = yield* fs.watch("/").pipe(
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkChild({ startImmediately: true })
-      )
+      const watched = yield* Testing.collectChanges(fs.watch("/"), 1)
 
       yield* fs.copy("/source", "/destination", { overwrite: true })
       assert.strictEqual(yield* fs.readFileString("/destination"), "copied")
       assert.strictEqual(yield* fs.readFileString("/external"), "safe")
-      const events = yield* Fiber.join(watched)
+      const events = yield* watched
       assert.strictEqual(events.length, 1)
       assert.strictEqual(events[0]?.path, "/destination")
       assert.deepStrictEqual(yield* fs.readDirectory("/"), ["destination", "external", "source"])
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(19), maxEntries: 3 } }))))
 
   it.effect("should copy source mode and contents to existing destination aliases when copying a file", () =>
     Effect.gen(function*() {
@@ -121,11 +111,7 @@ it.layer(Layer.empty)("memory adapter compatibility", (it) => {
       const handle = yield* fs.open("/destination")
       const before = yield* fs.stat("/destination")
 
-      const watched = yield* fs.watch("/").pipe(
-        Stream.take(3),
-        Stream.runCollect,
-        Effect.forkChild({ startImmediately: true })
-      )
+      const watched = yield* Testing.collectChanges(fs.watch("/"), 3)
 
       yield* fs.copyFile("/source", "/destination")
       const after = yield* fs.stat("/destination")
@@ -134,7 +120,7 @@ it.layer(Layer.empty)("memory adapter compatibility", (it) => {
       assert.strictEqual((yield* fs.stat("/alias")).mode & 0o7777, 0o600)
       assert.strictEqual(new TextDecoder().decode(Option.getOrThrow(yield* handle.readAlloc(6))), "copied")
       yield* fs.makeDirectory("/sentinel")
-      assert.deepStrictEqual(yield* Fiber.join(watched), [
+      assert.deepStrictEqual(yield* watched, [
         { _tag: "Update", path: "/destination" },
         { _tag: "Update", path: "/alias" },
         { _tag: "Create", path: "/sentinel" }
@@ -143,7 +129,7 @@ it.layer(Layer.empty)("memory adapter compatibility", (it) => {
 
   it.effect("should preserve destination bytes and metadata when copying mode is denied", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
       const owner = yield* Memory.bind(volume)
 
       const guest = yield* Memory.bind(volume, {
@@ -154,19 +140,15 @@ it.layer(Layer.empty)("memory adapter compatibility", (it) => {
       yield* owner.writeFileString("/destination", "keep", { mode: 0o666 })
       const before = yield* owner.stat("/destination")
 
-      const watched = yield* owner.watch("/").pipe(
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkChild({ startImmediately: true })
-      )
+      const watched = yield* Testing.collectChanges(owner.watch("/"), 1)
 
       const error = yield* Effect.flip(guest.copyFile("/source", "/destination"))
       assert.strictEqual(error.reason._tag, "PermissionDenied")
       assert.deepStrictEqual(yield* owner.stat("/destination"), before)
       assert.strictEqual(yield* owner.readFileString("/destination"), "keep")
       yield* owner.makeDirectory("/sentinel")
-      assert.deepStrictEqual(yield* Fiber.join(watched), [{ _tag: "Create", path: "/sentinel" }])
-    }))
+      assert.deepStrictEqual(yield* watched, [{ _tag: "Create", path: "/sentinel" }])
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("should leave a file unchanged when copied to itself or a hard-link alias", () =>
     Effect.gen(function*() {
@@ -175,17 +157,13 @@ it.layer(Layer.empty)("memory adapter compatibility", (it) => {
       yield* fs.link("/source", "/alias")
       const before = yield* fs.stat("/source")
 
-      const watched = yield* fs.watch("/").pipe(
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkChild({ startImmediately: true })
-      )
+      const watched = yield* Testing.collectChanges(fs.watch("/"), 1)
 
       yield* fs.copyFile("/source", "/source")
       yield* fs.copyFile("/source", "/alias")
       assert.deepStrictEqual(yield* fs.stat("/source"), before)
       yield* fs.makeDirectory("/sentinel")
-      assert.deepStrictEqual(yield* Fiber.join(watched), [{ _tag: "Create", path: "/sentinel" }])
+      assert.deepStrictEqual(yield* watched, [{ _tag: "Create", path: "/sentinel" }])
     }))
 
   it.effect("should keep special mode bits when copying a directory tree", () =>
@@ -202,8 +180,7 @@ it.layer(Layer.empty)("memory adapter compatibility", (it) => {
 
   it.effect("should report a copy larger than the volume as out of space", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(16) })
-      const fs = yield* Memory.bind(volume)
+      const fs = yield* Memory.bind(yield* Vfs.Volume)
       yield* fs.makeDirectory("/source")
       yield* fs.writeFileString("/source/a", "0123456789")
 
@@ -211,7 +188,7 @@ it.layer(Layer.empty)("memory adapter compatibility", (it) => {
 
       assert.deepStrictEqual([error.reason._tag, error.reason.description], ["Unknown", "NoSpace"])
       assert.isFalse(yield* fs.exists("/copy"))
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(16) } }))))
 
   it.effect("should reject copying a file onto one of its own hard links", () =>
     Effect.gen(function*() {

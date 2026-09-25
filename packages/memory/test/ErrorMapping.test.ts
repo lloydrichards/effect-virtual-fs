@@ -1,6 +1,6 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { assert, it } from "@effect/vitest"
-import { ByteSize, Effect, Layer, Stream } from "effect"
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { assert, describe, it } from "@effect/vitest"
+import { ByteSize, Effect, Stream } from "effect"
 import * as PlatformError from "effect/PlatformError"
 import { toPlatformError } from "../src/internal/platformError.js"
 import * as Memory from "../src/MemoryFileSystem.js"
@@ -19,11 +19,10 @@ it("should map volume admission pressure to Busy when translating a core error",
   assert.strictEqual(reason.cause, coreError)
 })
 
-it.layer(Layer.empty)("memory adapter error mapping", (it) => {
+describe("memory adapter error mapping", () => {
   it.effect("should report NoSpace when a write exceeds capacity", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(1) })
-      const fs = yield* Memory.bind(volume)
+      const fs = yield* Memory.bind(yield* Vfs.Volume)
 
       const error = yield* Effect.flip(fs.writeFileString("/file", "too large"))
 
@@ -32,11 +31,11 @@ it.layer(Layer.empty)("memory adapter error mapping", (it) => {
       assert.strictEqual(reason.method, "writeFile")
       assert.strictEqual(reason.pathOrDescriptor, "/file")
       assert.strictEqual(reason.description, "NoSpace")
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(1) } }))))
 
   it.effect("should report an ownership denial as PermissionDenied that says EPERM", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
       const owner = yield* Memory.bind(volume)
       yield* owner.writeFileString("/file", "x")
       const guest = yield* Memory.bind(volume, { identity: { uid: 1, gid: 1, groups: [], privileged: false } })
@@ -47,7 +46,7 @@ it.layer(Layer.empty)("memory adapter error mapping", (it) => {
       assert.strictEqual(reason._tag, "PermissionDenied")
       assert.strictEqual(reason.method, "chmod")
       assert.strictEqual(reason.description, "NotPermitted (EPERM)")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("should attribute a missing path to watch when watch subscription fails", () =>
     Effect.gen(function*() {

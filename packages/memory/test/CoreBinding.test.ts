@@ -1,15 +1,15 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { assert, it } from "@effect/vitest"
-import { ByteSize, Deferred, Effect, Exit, Fiber, Layer, Option, Scope, Stream } from "effect"
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { assert, describe, it } from "@effect/vitest"
+import { ByteSize, Deferred, Effect, Exit, Fiber, Option, Scope, Stream } from "effect"
 import * as Memory from "../src/MemoryFileSystem.js"
 
 const bytes = new TextEncoder()
 
-it.layer(Layer.empty)("core-backed memory bindings", (it) => {
+describe("core-backed memory bindings", () => {
   it.effect("should share file contents and keep cursors independent when bindings use one volume", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const core = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const core = yield* Vfs.Caller
       const a = yield* Memory.bind(volume)
       const b = yield* Memory.bind(volume)
       yield* core.writeFile("/f", bytes.encode("abc"), { access: "write", create: "exclusive" })
@@ -20,18 +20,17 @@ it.layer(Layer.empty)("core-backed memory bindings", (it) => {
       assert.strictEqual(yield* bf.seek(0n, "current"), 0n)
       yield* b.writeFileString("/f", "xyz")
       assert.strictEqual(new TextDecoder().decode(Option.getOrThrow(yield* bf.readAlloc(3))), "xyz")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("should leave the volume namespace unchanged when binding an adapter", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const adapter = yield* Memory.bind(volume)
+      const adapter = yield* Memory.bind(yield* Vfs.Volume)
       assert.isFalse(yield* adapter.exists("/tmp"))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("should close only the handle owned by a binding when its scope closes", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
       const a = yield* Memory.bind(volume)
       const b = yield* Memory.bind(volume)
       yield* b.writeFileString("/f", "xyz")
@@ -41,36 +40,30 @@ it.layer(Layer.empty)("core-backed memory bindings", (it) => {
       yield* Effect.flip(closed.readAlloc(1))
       assert.strictEqual(yield* closed.seek(10n, "start"), 0n)
       assert.strictEqual(yield* b.readFileString("/f"), "xyz")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("should deliver direct core and alias writes in commit order when an adapter watches", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const core = yield* volume.caller()
-      const adapter = yield* Memory.bind(volume)
+      const core = yield* Vfs.Caller
+      const adapter = yield* Memory.bind(yield* Vfs.Volume)
       yield* core.writeFile("/f", bytes.encode("old"), { access: "write", create: "exclusive" })
       yield* core.link("/f", "/alias")
-
-      const watch = yield* adapter.watch("/").pipe(
-        Stream.take(4),
-        Stream.runCollect,
-        Effect.forkChild({ startImmediately: true })
-      )
+      const changes = yield* Testing.collectChanges(adapter.watch("/"), 4)
 
       yield* core.writeFile("/f", bytes.encode("new"), { access: "write", truncate: true })
       yield* core.rename("/alias", "/renamed")
-      assert.deepStrictEqual(yield* Fiber.join(watch), [
+      assert.deepStrictEqual(yield* changes, [
         { _tag: "Update", path: "/f" },
         { _tag: "Update", path: "/alias" },
         { _tag: "Remove", path: "/alias" },
         { _tag: "Create", path: "/renamed" }
       ])
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("should recover subtree changes when a watch overflows during rescan", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxWatchEvents: 2 })
-      const core = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const core = yield* Vfs.Caller
       yield* core.mkdir("/sub")
       const adapter = yield* Memory.bind(volume)
       const scope = yield* Scope.make()
@@ -133,48 +126,36 @@ it.layer(Layer.empty)("core-backed memory bindings", (it) => {
         { _tag: "Create", path: "/sub/ready" },
         { _tag: "Create", path: "/sub/during-rescan" }
       ])
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxWatchEvents: 2 } }))))
 
   it.effect("should preserve the old file and publish no update when a whole-file write exceeds quota", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(3) })
-      const core = yield* volume.caller()
-      const adapter = yield* Memory.bind(volume)
+      const core = yield* Vfs.Caller
+      const adapter = yield* Memory.bind(yield* Vfs.Volume)
       yield* adapter.writeFileString("/f", "old")
       const before = yield* core.stat("/f")
-
-      const watch = yield* adapter.watch("/").pipe(
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkChild({ startImmediately: true })
-      )
+      const changes = yield* Testing.collectChanges(adapter.watch("/"), 1)
 
       yield* Effect.flip(adapter.writeFileString("/f", "too long"))
       assert.deepStrictEqual(yield* core.stat("/f"), before)
       assert.strictEqual(yield* adapter.readFileString("/f"), "old")
       yield* core.mkdir("/sentinel")
-      assert.deepStrictEqual(yield* Fiber.join(watch), [{ _tag: "Create", path: "/sentinel" }])
-    }))
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Create", path: "/sentinel" }])
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(3) } }))))
 
   it.effect("should filter unrelated byte names when converting watched paths to strings", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const core = yield* volume.caller()
-      const adapter = yield* Memory.bind(volume)
+      const core = yield* Vfs.Caller
+      const adapter = yield* Memory.bind(yield* Vfs.Volume)
       yield* core.mkdir("/watched")
-
-      const watch = yield* adapter.watch("/watched").pipe(
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkChild({ startImmediately: true })
-      )
+      const changes = yield* Testing.collectChanges(adapter.watch("/watched"), 1)
 
       yield* core.mkdir(yield* Vfs.pathFromBytes(new Uint8Array([47, 255])))
       yield* core.mkdir("/watched/child")
-      assert.deepStrictEqual(yield* Fiber.join(watch), [{ _tag: "Create", path: "/watched/child" }])
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Create", path: "/watched/child" }])
       const invalid = yield* Effect.flip(adapter.readDirectory("/"))
       assert.strictEqual(invalid.reason._tag, "InvalidData")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("should preserve hard-link topology when copying a directory", () =>
     Effect.gen(function*() {
