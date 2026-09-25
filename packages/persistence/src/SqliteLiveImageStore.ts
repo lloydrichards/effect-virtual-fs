@@ -4,7 +4,7 @@
  * @since 0.4.0
  */
 import { LiveVolume, type VfsError } from "@effect-vfs/core"
-import { ByteSize, type Crypto, Effect, Exit, FileSystem, Layer, Path, Schema } from "effect"
+import { ByteSize, type Crypto, Effect, Exit, FileSystem, Layer, Path, Ref, Schema } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { makeDigest, storeFailures } from "./internal/storeSupport.js"
 
@@ -48,6 +48,12 @@ const StoreRow = Schema.Struct({
 })
 
 const { fail, invalid } = storeFailures("SqliteLiveImageStore")
+
+// The generation this owner last read or wrote, and whether an unconfirmed commit has frozen it.
+interface Ownership {
+  readonly generation: number | undefined
+  readonly available: boolean
+}
 
 /**
  * Reserve one SQLite connection and its exclusive lock for the Layer scope.
@@ -224,14 +230,16 @@ export const layer = (options: Options): Layer.Layer<
         Effect.mapError((cause) => fail("Storage", cause))
       )
 
-      let generation: number | undefined
-      let available = true
+      const ownership = yield* Ref.make<Ownership>({ generation: undefined, available: true })
+      const freeze = Ref.update(ownership, (state) => ({ ...state, available: false }))
 
       const select =
         "SELECT generation, typeof(image) AS kind, length(image) AS size, CASE WHEN typeof(image) = 'blob' AND length(image) <= ? THEN image ELSE NULL END AS image, digest FROM effect_vfs_live_image WHERE id = 1"
 
       return LiveVolume.LiveImageStore.of({
         loadOrCreate: Effect.fnUntraced(function*(initial: Uint8Array) {
+          const { available, generation } = yield* Ref.get(ownership)
+
           if (!available) return yield* fail("Storage")
 
           if (generation !== undefined) return yield* fail("Ownership")
@@ -273,11 +281,13 @@ export const layer = (options: Options): Layer.Layer<
 
           if (actual !== row.digest) return yield* fail("CorruptStore")
 
-          generation = row.generation
+          yield* Ref.update(ownership, (state) => ({ ...state, generation: row.generation }))
 
           return new Uint8Array(row.image)
         }),
         commit: Effect.fnUntraced(function*(image: Uint8Array) {
+          const { available, generation } = yield* Ref.get(ownership)
+
           if (!available || generation === undefined) return "unknown" as const
 
           if (BigInt(image.length) > maxImage) return "rejected" as const
@@ -302,13 +312,13 @@ export const layer = (options: Options): Layer.Layer<
             const rolledBack = yield* Effect.exit(run("ROLLBACK"))
 
             if (Exit.isSuccess(rolledBack)) return "rejected" as const
-            available = false
+            yield* freeze
 
             return "unknown" as const
           }
 
           if (updated.value.length !== 1) {
-            available = false
+            yield* freeze
             yield* Effect.exit(run("ROLLBACK"))
 
             return "unknown" as const
@@ -317,13 +327,14 @@ export const layer = (options: Options): Layer.Layer<
           const committed = yield* Effect.exit(run("COMMIT"))
 
           if (Exit.isFailure(committed)) {
-            available = false
+            yield* freeze
             yield* Effect.exit(run("ROLLBACK"))
 
             return "unknown" as const
           }
 
-          generation++
+          // Keep any freeze another commit set while this one was in flight.
+          yield* Ref.update(ownership, (state) => ({ ...state, generation: generation + 1 }))
 
           return "committed" as const
         })

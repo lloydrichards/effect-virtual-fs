@@ -8,7 +8,7 @@
  */
 import { GetObjectCommand, PutObjectCommand, type S3Client, S3ServiceException } from "@aws-sdk/client-s3"
 import { LiveVolume, type VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { ByteSize, type Crypto, Effect, Exit, Layer } from "effect"
+import { ByteSize, type Crypto, Effect, Exit, Layer, Ref } from "effect"
 import { makeDigest, storeFailures } from "./internal/storeSupport.js"
 
 /** A complete R2 image plus the metadata needed to validate and fence it.
@@ -159,6 +159,13 @@ export interface Options {
 
 const { fail, invalid } = storeFailures("R2LiveImageStore")
 
+// The generation and ETag this owner last read or wrote, and whether a lost reply has frozen it.
+interface Ownership {
+  readonly generation: number | undefined
+  readonly etag: string | undefined
+  readonly available: boolean
+}
+
 /**
  * A single-key experimental store. The application must ensure one live owner;
  * ETag conditions detect stale writes but cannot prevent stale reads.
@@ -192,9 +199,8 @@ export const layer = (
 
       if (options.key.length === 0 || maxImage <= 0n) return yield* invalid("options")
 
-      let generation: number | undefined
-      let etag: string | undefined
-      let available = true
+      const ownership = yield* Ref.make<Ownership>({ generation: undefined, etag: undefined, available: true })
+      const freeze = Ref.update(ownership, (state) => ({ ...state, available: false }))
 
       const validate = Effect.fnUntraced(function*(record: ObjectRecord) {
         if (
@@ -209,8 +215,7 @@ export const layer = (
         const actual = yield* digest(record.bytes).pipe(Effect.mapError((cause) => fail("Storage", cause)))
 
         if (actual !== record.digest) return yield* fail("CorruptStore")
-        generation = parsed
-        etag = record.etag
+        yield* Ref.update(ownership, (state) => ({ ...state, generation: parsed, etag: record.etag }))
 
         return new Uint8Array(record.bytes)
       })
@@ -218,6 +223,8 @@ export const layer = (
       return LiveVolume.LiveImageStore.of({
         durability: options.durability ?? "memory-only",
         loadOrCreate: Effect.fnUntraced(function*(initial: Uint8Array) {
+          const { available, generation } = yield* Ref.get(ownership)
+
           if (!available) return yield* fail("Storage")
 
           if (generation !== undefined) return yield* fail("Ownership")
@@ -247,12 +254,13 @@ export const layer = (
           }
 
           if (created.etag === "") return yield* fail("Storage")
-          generation = 0
-          etag = created.etag
+          yield* Ref.update(ownership, (state) => ({ ...state, generation: 0, etag: created.etag }))
 
           return new Uint8Array(initial)
         }),
         commit: Effect.fnUntraced(function*(image: Uint8Array) {
+          const { available, generation, etag } = yield* Ref.get(ownership)
+
           if (!available || generation === undefined || etag === undefined) return "unknown" as const
 
           if (BigInt(image.length) > maxImage || generation === Number.MAX_SAFE_INTEGER) return "rejected" as const
@@ -270,13 +278,15 @@ export const layer = (
           ))
 
           if (Exit.isFailure(written) || written.value === null || written.value.etag === "") {
-            available = false
+            yield* freeze
 
             return "unknown" as const
           }
 
-          generation++
-          etag = written.value.etag
+          const next = written.value.etag
+
+          // Keep any freeze another commit set while this write was in flight.
+          yield* Ref.update(ownership, (state) => ({ ...state, generation: generation + 1, etag: next }))
 
           return "committed" as const
         })
