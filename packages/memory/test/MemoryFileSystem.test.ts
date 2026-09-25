@@ -190,6 +190,27 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
       yield* fs.access("/metadata.txt", { readable: true, writable: true })
     }))
 
+  it.effect("should report a typed st_mode with zero dev and rdev", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.makeDirectory("/typed")
+      yield* fs.writeFileString("/typed/file", "content")
+      yield* fs.chmod("/typed", 0o750)
+      // A stat-style mode is accepted: its type bits are ignored, as Node does.
+      yield* fs.chmod("/typed/file", 0o100640)
+
+      const directory = yield* fs.stat("/typed")
+      const file = yield* fs.stat("/typed/file")
+
+      assert.strictEqual(directory.mode, 0o40750)
+      assert.strictEqual(file.mode, 0o100640)
+
+      for (const info of [directory, file]) {
+        assert.strictEqual(info.dev, 0)
+        assert.deepStrictEqual(info.rdev, Option.some(0))
+      }
+    }))
+
   it.effect("should skip directory symbolic links when globbing recursively", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
