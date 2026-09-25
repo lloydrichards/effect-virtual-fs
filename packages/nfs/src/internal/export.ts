@@ -75,17 +75,23 @@ export interface NfsExport {
   ) => Effect.Effect<void, Vfs.VfsError>
   /** The bits of `bits` the caller may exercise on the object. */
   readonly access: (reference: Vfs.ObjectReference, bits: number) => Effect.Effect<number, Vfs.VfsError>
+  /**
+   * Opens into a scope forked from the one in context, so closing that scope closes the file, and `close`
+   * closes the file early and unregisters it, never failing.
+   */
   readonly open: (
     reference: Vfs.ObjectReference,
     access?: Vfs.OpenOptions["access"]
-  ) => Effect.Effect<OpenedFile, Vfs.VfsError>
+  ) => Effect.Effect<OpenedFile, Vfs.VfsError, Scope.Scope>
+  /** Looks up or creates and opens a child, into a forked scope as `open` does. */
   readonly openChild: (
     directory: Vfs.ObjectReference,
     name: Uint8Array,
     settings: Vfs.OpenEntryOptions
   ) => Effect.Effect<
     Vfs.OpenEntryResult & { readonly close: Effect.Effect<void> },
-    Vfs.VfsError | InvalidNameError | ExportCapacityError
+    Vfs.VfsError | InvalidNameError | ExportCapacityError,
+    Scope.Scope
   >
   readonly fsid: readonly [bigint, bigint]
 }
@@ -263,10 +269,10 @@ export const makeExport = (
     activeCaller: Vfs.Caller,
     reference: Vfs.ObjectReference,
     access: Vfs.OpenOptions["access"] = "read"
-  ): Effect.Effect<OpenedFile, Vfs.VfsError> =>
+  ): Effect.Effect<OpenedFile, Vfs.VfsError, Scope.Scope> =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function*() {
-        const scope = yield* Scope.make()
+        const scope = yield* Scope.fork(yield* Effect.scope)
 
         const opened = yield* Effect.exit(restore(
           activeCaller.open(reference, { access }).pipe(Effect.provideService(Scope.Scope, scope))
@@ -358,7 +364,7 @@ export const makeExport = (
             const expected = settings.expectedChild
 
             if (expected == null || !idsByReference.has(expected.reference)) yield* restore(admitHandle)
-            const scope = yield* Scope.make()
+            const scope = yield* Scope.fork(yield* Effect.scope)
 
             const opened = yield* Effect.exit(restore(
               activeCaller.open(Vfs.Entry(directory, name), settings).pipe(Effect.provideService(Scope.Scope, scope))

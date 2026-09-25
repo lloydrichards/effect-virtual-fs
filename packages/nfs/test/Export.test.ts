@@ -1,7 +1,7 @@
 import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Effect, Exit, Predicate, Scope } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import { InvalidFilehandleError, InvalidNameError, makeExport, validateName } from "../src/internal/export.js"
 
@@ -10,6 +10,15 @@ const generation = (value: number) => new Uint8Array(16).fill(value)
 const utf8 = (value: string) => new TextEncoder().encode(value)
 
 const maxNameBytes = ByteSize.bytes(255)
+
+// The finalizers a scope still holds, read from the state the Scope interface exposes.
+const finalizerCount = (scope: Scope.Scope): number => {
+  const state = scope.state
+
+  if (!Predicate.isTagged(state, "Open")) return 0
+
+  return state.finalizers?.size ?? (state.finalizer === undefined ? 0 : 1)
+}
 
 it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
   it.effect("derives fsid from stable identity and filehandles from the incarnation", () =>
@@ -78,6 +87,50 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
       assert.strictEqual(yield* export_.resolve(handle), reference)
       yield* opened.close
       assert.strictEqual((yield* Effect.flip(export_.resolve(handle))).reason, "Stale")
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("closes an open with the scope it was opened in, and early on close", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      yield* caller.writeFile("/held", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      yield* caller.writeFile("/closed", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const root = yield* caller.root
+      const held = yield* caller.lookup(Vfs.Entry(root, utf8("held")))
+      const closed = yield* caller.lookup(Vfs.Entry(root, utf8("closed")))
+      const export_ = makeExport(caller, generation(1), { maxFilehandles: 4, maxNameBytes })
+      const parent = yield* Scope.make()
+
+      yield* Scope.provide(export_.open(held), parent)
+      const early = yield* Scope.provide(export_.open(closed), parent)
+      yield* caller.unlink("/held")
+      yield* caller.unlink("/closed")
+
+      yield* early.close
+      assert.strictEqual((yield* Effect.flip(caller.stat(closed))).code, "StaleReference")
+      assert.strictEqual((yield* caller.stat(held)).nlink, 0)
+
+      yield* Scope.close(parent, Exit.void)
+      assert.strictEqual((yield* Effect.flip(caller.stat(held))).code, "StaleReference")
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("leaves no finalizer in the scope an open was opened in once it closes", () =>
+    Effect.gen(function*() {
+      const caller = yield* Vfs.Caller
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const root = yield* caller.root
+      const reference = yield* caller.lookup(Vfs.Entry(root, utf8("file")))
+      const export_ = makeExport(caller, generation(1), { maxFilehandles: 4, maxNameBytes })
+      const parent = yield* Scope.make()
+
+      for (let cycle = 0; cycle < 8; cycle++) {
+        const opened = yield* Scope.provide(export_.open(reference), parent)
+        yield* opened.close
+        const child = yield* Scope.provide(export_.openChild(root, utf8("file"), { access: "read" }), parent)
+        yield* child.close
+      }
+
+      assert.strictEqual(finalizerCount(parent), 0)
+      yield* Scope.close(parent, Exit.void)
     }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("reclaims stale mappings without changing live handle identity", () =>
