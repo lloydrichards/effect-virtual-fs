@@ -556,7 +556,9 @@ export const fromSnapshot: (
  *     TreeTransfer.toCaller(workspace, "/copy")
  *   )
  *
- *   return [report.files, yield* workspace.readDirectory("/copy")]
+ *   const listing = yield* workspace.readDirectory("/copy")
+ *
+ *   return [report.files, listing.value.map((entry) => new TextDecoder().decode(entry.name))]
  * })
  *
  * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
@@ -637,7 +639,9 @@ export interface VolumeTransferOptions {
  *   })
  *   const volume = yield* TreeTransfer.toVolume(TreeTransfer.fromCaller(yield* source.caller(), "/dist"))
  *
- *   return yield* (yield* volume.caller()).readDirectory("/")
+ *   const listing = yield* (yield* volume.caller()).readDirectory("/")
+ *
+ *   return listing.value.map((entry) => new TextDecoder().decode(entry.name))
  * })
  *
  * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)

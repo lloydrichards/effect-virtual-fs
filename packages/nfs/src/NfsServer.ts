@@ -651,8 +651,8 @@ const make = (
 
     if (options.caller !== undefined) {
       const [volumeRoot, callerRoot] = yield* Effect.all([
-        volumeCaller.rootReference,
-        options.caller.rootReference
+        volumeCaller.root,
+        options.caller.root
       ]).pipe(Effect.mapError(() => configurationError("caller", "caller must be open and belong to volume")))
 
       if (volumeRoot !== callerRoot) {

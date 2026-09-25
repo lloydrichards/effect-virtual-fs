@@ -15,7 +15,7 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
   it.effect("derives fsid from stable identity and filehandles from the incarnation", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
-      const root = yield* caller.rootReference
+      const root = yield* caller.root
       const incarnation = generation(0x11)
       const identity = Uint8Array.from({ length: 16 }, (_, index) => index)
       const export_ = makeExport(caller, incarnation, { maxFilehandles: 2, maxNameBytes }, identity)
@@ -30,9 +30,9 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/original", new Uint8Array([1]), { access: "write", create: "exclusive" })
       yield* caller.link("/original", "/alias")
-      const root = yield* caller.rootReference
-      const original = yield* caller.lookupReference(root, utf8("original"))
-      const alias = yield* caller.lookupReference(root, utf8("alias"))
+      const root = yield* caller.root
+      const original = yield* caller.lookup(Vfs.Entry(root, utf8("original")))
+      const alias = yield* caller.lookup(Vfs.Entry(root, utf8("alias")))
       const export_ = makeExport(caller, generation(1), { maxFilehandles: 4, maxNameBytes })
       const before = yield* export_.handleFor(original)
       assert.deepStrictEqual(yield* export_.handleFor(alias), before)
@@ -44,7 +44,7 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
   it.effect("rejects handles from a different server generation", () =>
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
-      const root = yield* caller.rootReference
+      const root = yield* caller.root
       const oldExport = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
       const nextExport = makeExport(caller, generation(2), { maxFilehandles: 2, maxNameBytes })
       const failure = yield* Effect.flip(nextExport.resolve(yield* oldExport.handleFor(root)))
@@ -56,8 +56,8 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const root = yield* caller.rootReference
-      const reference = yield* caller.lookupReference(root, utf8("file"))
+      const root = yield* caller.root
+      const reference = yield* caller.lookup(Vfs.Entry(root, utf8("file")))
       const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
       const handle = yield* export_.handleFor(reference)
       yield* caller.unlink("/file")
@@ -69,8 +69,8 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const root = yield* caller.rootReference
-      const reference = yield* caller.lookupReference(root, utf8("file"))
+      const root = yield* caller.root
+      const reference = yield* caller.lookup(Vfs.Entry(root, utf8("file")))
       const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
       const handle = yield* export_.handleFor(reference)
       const opened = yield* export_.open(reference)
@@ -84,14 +84,14 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
     Effect.gen(function*() {
       const caller = yield* (yield* Vfs.make()).caller()
       yield* caller.writeFile("/old", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const root = yield* caller.rootReference
-      const old = yield* caller.lookupReference(root, utf8("old"))
+      const root = yield* caller.root
+      const old = yield* caller.lookup(Vfs.Entry(root, utf8("old")))
       const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
       const rootHandle = yield* export_.handleFor(root)
       const oldHandle = yield* export_.handleFor(old)
       yield* caller.unlink("/old")
       yield* caller.writeFile("/new", new Uint8Array([2]), { access: "write", create: "exclusive" })
-      const fresh = yield* caller.lookupReference(root, utf8("new"))
+      const fresh = yield* caller.lookup(Vfs.Entry(root, utf8("new")))
       yield* export_.handleFor(fresh)
       assert.deepStrictEqual(yield* export_.handleFor(root), rootHandle)
       assert.strictEqual((yield* Effect.flip(export_.resolve(oldHandle))).reason, "Unknown")

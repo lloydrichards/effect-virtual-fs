@@ -4,7 +4,7 @@
  * @internal
  * @since 0.1.0
  */
-import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -91,3 +91,47 @@ export const openOptions = Effect.fnUntraced(
       : { access, create: "never", append, truncate } satisfies Vfs.OpenOptions
   }
 )
+
+const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+
+// The text of a name or link target, failing as UnrepresentableName when it is not valid UTF-8.
+/** @internal */
+export const textOf = (bytes: Uint8Array, method: string): Effect.Effect<string, Vfs.VfsError> =>
+  Effect.try({
+    try: () => decoder.decode(bytes),
+    catch: () => new Vfs.VfsError({ code: "UnrepresentableName", operation: method })
+  })
+
+// The text of a byte path.
+/** @internal */
+export const textPath = (path: Vfs.BytePath, method: string): Effect.Effect<string, Vfs.VfsError> =>
+  Effect.flatMap(Vfs.pathToBytes(path), (bytes) => textOf(bytes, method))
+
+interface PathTargetFields {
+  path: Vfs.PathInput
+  relativeTo?: Vfs.DirectoryHandle
+  followFinalSymlink?: boolean
+}
+
+// A path target with an optional base handle and symbolic link policy.
+/** @internal */
+export const at = (
+  path: Vfs.PathInput,
+  base?: Vfs.DirectoryHandle,
+  followFinalSymlink?: boolean
+): Vfs.PathTarget => {
+  const target: PathTargetFields = { path }
+
+  if (base !== undefined) target.relativeTo = base
+
+  if (followFinalSymlink !== undefined) target.followFinalSymlink = followFinalSymlink
+
+  return Vfs.Target.Path(target)
+}
+
+// The names in a listing, as text.
+/** @internal */
+export const listingNames = (
+  listing: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>>,
+  method: string
+): Effect.Effect<Array<string>, Vfs.VfsError> => Effect.forEach(listing.value, (entry) => textOf(entry.name, method))

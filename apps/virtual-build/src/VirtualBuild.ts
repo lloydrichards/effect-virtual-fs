@@ -62,10 +62,12 @@ export const buildVirtual = Effect.fn("VirtualBuild.build")(function*(caller: Vf
           }
         } else return null
 
-        return prefix +
-          (yield* caller.realPath(path).pipe(
-            Effect.mapError((error) => new VirtualModuleError({ message: `Virtual module ${path}: ${error.code}` }))
-          ))
+        const resolved = yield* caller.realPath(path).pipe(
+          Effect.flatMap(Vfs.pathToBytes),
+          Effect.mapError((error) => new VirtualModuleError({ message: `Virtual module ${path}: ${error.code}` }))
+        )
+
+        return prefix + new TextDecoder().decode(resolved)
       }))
     },
     load(id) {

@@ -2291,8 +2291,8 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxNameBytes: ByteSize.bytes(255)
       })
 
-      const root = yield* caller.rootReference
-      const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
+      const root = yield* caller.root
+      const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
       const filehandle = yield* export_.handleFor(reference)
 
       const handler = yield* makeNfs4Handler(export_, {
@@ -2355,8 +2355,8 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       )
 
       const client = yield* startSession(handler, "browser")
-      const root = yield* caller.rootReference
-      const directoryObservation = yield* caller.observeDirectory(root)
+      const root = yield* caller.root
+      const directoryObservation = yield* caller.readDirectory(root)
 
       const browse = yield* call([sequence(client.session, 1), (writer) =>
         writer.write(XdrCodec.uint32, Operation.PUTROOTFH), (writer) =>
@@ -2497,8 +2497,8 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         access: "write",
         create: "exclusive"
       })
-      const root = yield* caller.rootReference
-      const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
+      const root = yield* caller.root
+      const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
 
       const export_ = makeExport(caller, generation, {
         maxFilehandles: 16,
@@ -3477,7 +3477,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       const export_ = {
         ...base,
-        open: (reference: Vfs.ObjectReference, access?: Vfs.OpenReferenceSettings["access"]) =>
+        open: (reference: Vfs.ObjectReference, access?: Vfs.OpenOptions["access"]) =>
           access === "write"
             ? Deferred.succeed(entered, undefined).pipe(
               Effect.andThen(Deferred.await(release)),
@@ -3765,9 +3765,9 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         maxNameBytes: ByteSize.bytes(255)
       })
 
-      const root = yield* caller.rootReference
-      const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
-      const observation = yield* caller.observeMetadata(reference)
+      const root = yield* caller.root
+      const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
+      const observation = yield* caller.stat(reference)
       const expectedHandle = yield* export_.handleFor(reference)
 
       const handler = yield* makeNfs4Handler(export_, {
@@ -3842,7 +3842,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.isFalse(yield* values.read(XdrCodec.boolean), "case_insensitive")
       assert.isTrue(yield* values.read(XdrCodec.boolean), "case_preserving")
       assert.deepStrictEqual(yield* values.read(XdrCodec.opaque()), expectedHandle)
-      assert.strictEqual(yield* values.read(XdrCodec.uint64), observation.value.ino)
+      assert.strictEqual(yield* values.read(XdrCodec.uint64), observation.ino)
       assert.isTrue(yield* values.read(XdrCodec.boolean), "homogeneous")
       assert.strictEqual(yield* values.read(XdrCodec.uint32), ByteSize.toNumberUnsafe(limits.maxNameBytes))
       assert.strictEqual(yield* values.read(XdrCodec.uint64), BigInt(limits.maxReadBytes))
@@ -3873,14 +3873,14 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
           })
         })
 
-      yield* expectTime(observation.value.atimeNs)
+      yield* expectTime(observation.atimeNs)
       assert.deepStrictEqual(yield* readTime(), {
         seconds: 0n,
         nanoseconds: 1
       }, "time_delta")
-      yield* expectTime(observation.value.ctimeNs)
-      yield* expectTime(observation.value.mtimeNs)
-      assert.strictEqual(yield* values.read(XdrCodec.uint64), observation.value.ino)
+      yield* expectTime(observation.ctimeNs)
+      yield* expectTime(observation.mtimeNs)
+      assert.strictEqual(yield* values.read(XdrCodec.uint64), observation.ino)
       assert.deepStrictEqual(yield* values.read(XdrCodec.array(XdrCodec.uint32)), [])
       assert.strictEqual(yield* values.read(XdrCodec.uint32), 0x2, "fs_charset_cap: FSCHARSET_CAP4_ALLOWS_ONLY_UTF8")
       yield* values.finish
@@ -4401,8 +4401,8 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         access: "write",
         create: "exclusive"
       })
-      const root = yield* caller.rootReference
-      const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
+      const root = yield* caller.root
+      const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
 
       const constrained = {
         ...limits,
@@ -4437,10 +4437,10 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )
       )
       yield* caller.unlink("/file")
-      assert.strictEqual((yield* caller.observeMetadata(reference)).value.nlink, 0)
+      assert.strictEqual((yield* caller.stat(reference)).nlink, 0)
       now = 1_001
       yield* startSession(handler, "replacement")
-      assert.strictEqual((yield* Effect.flip(caller.observeMetadata(reference))).code, "StaleReference")
+      assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
     }))
   it.effect("reclaims an expired lease without waiting for another client's traffic", () =>
     Effect.gen(function*() {
@@ -4450,8 +4450,8 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         access: "write",
         create: "exclusive"
       })
-      const root = yield* caller.rootReference
-      const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
+      const root = yield* caller.root
+      const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
 
       const handler = yield* makeNfs4Handler(
         makeExport(caller, generation, {
@@ -4486,7 +4486,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )
       )
       yield* caller.unlink("/file")
-      assert.strictEqual((yield* caller.observeMetadata(reference)).value.nlink, 0)
+      assert.strictEqual((yield* caller.stat(reference)).nlink, 0)
 
       // The client drops its connection and never returns. Nothing else reaches the server, so
       // reclamation has to come from the handler's own schedule rather than another compound.
@@ -4496,7 +4496,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
       // Observed through the VFS rather than a compound: any compound would itself sweep, which
       // is exactly the traffic this test must do without.
-      assert.strictEqual((yield* Effect.flip(caller.observeMetadata(reference))).code, "StaleReference")
+      assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
     }))
   it.effect("closes remaining opens when the handler scope closes", () =>
     Effect.gen(function*() {
@@ -4505,8 +4505,8 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         access: "write",
         create: "exclusive"
       })
-      const root = yield* caller.rootReference
-      const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
+      const root = yield* caller.root
+      const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
       const scope = yield* Scope.make()
 
       const handler = yield* makeNfs4Handler(
@@ -4535,9 +4535,9 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )
       )
       yield* caller.unlink("/file")
-      assert.strictEqual((yield* caller.observeMetadata(reference)).value.nlink, 0)
+      assert.strictEqual((yield* caller.stat(reference)).nlink, 0)
       yield* Scope.close(scope, Exit.void)
-      assert.strictEqual((yield* Effect.flip(caller.observeMetadata(reference))).code, "StaleReference")
+      assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
     }))
   live("does not let a connection finalizer wait out an in-flight compound", () =>
     Effect.gen(function*() {
@@ -5093,8 +5093,8 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         access: "write",
         create: "exclusive"
       })
-      const root = yield* caller.rootReference
-      const reference = yield* caller.lookupReference(root, new TextEncoder().encode("file"))
+      const root = yield* caller.root
+      const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
 
       const handler = yield* makeNfs4Handler(
         makeExport(caller, generation, {
@@ -5150,7 +5150,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         Status.COMPLETE_ALREADY
       )
       yield* caller.unlink("/file")
-      assert.strictEqual((yield* caller.observeMetadata(reference)).value.nlink, 0)
+      assert.strictEqual((yield* caller.stat(reference)).nlink, 0)
       assert.strictEqual(
         yield* (yield* make.openReader(
           yield* handler.compound(
@@ -5218,7 +5218,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         )).read(XdrCodec.uint32),
         Status.OK
       )
-      assert.strictEqual((yield* Effect.flip(caller.observeMetadata(reference))).code, "StaleReference")
+      assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
       assert.strictEqual(
         yield* (yield* make.openReader(yield* handler.compound(yield* call([sequence(client.session, 6)])), limits))
           .read(XdrCodec.uint32),

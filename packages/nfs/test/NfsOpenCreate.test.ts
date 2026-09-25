@@ -152,7 +152,7 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       })
       assert.deepStrictEqual(
         yield* export_.resolve(opened.filehandle),
-        yield* caller.lookupReference(yield* caller.rootReference, new TextEncoder().encode("new"))
+        yield* caller.lookup(Vfs.Entry(yield* caller.root, new TextEncoder().encode("new")))
       )
 
       const writeReply = yield* handler.compound(
@@ -672,7 +672,7 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
         volume
       )
 
-      yield* export_.handleFor(yield* caller.rootReference)
+      yield* export_.handleFor(yield* caller.root)
 
       const handler = yield* makeNfs4Handler(export_, {
         leaseDurationSeconds: 30,
@@ -719,8 +719,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
         volume
       )
 
-      yield* export_.handleFor(yield* caller.rootReference)
-      const old = yield* caller.lookupReference(yield* caller.rootReference, new TextEncoder().encode("old"))
+      yield* export_.handleFor(yield* caller.root)
+      const old = yield* caller.lookup(Vfs.Entry(yield* caller.root, new TextEncoder().encode("old")))
       yield* export_.handleFor(old)
 
       const handler = yield* makeNfs4Handler(export_, {

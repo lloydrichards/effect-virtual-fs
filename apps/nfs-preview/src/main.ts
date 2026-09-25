@@ -37,7 +37,7 @@ const program = Effect.scoped(
         }
       })
     )
-    yield* caller.rootReference
+    yield* caller.root
 
     const server = yield* NfsServer.make({
       volume,

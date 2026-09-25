@@ -221,8 +221,8 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
         session
       } = yield* setup()
 
-      const root = yield* caller.rootReference
-      const before = yield* caller.observeDirectory(root)
+      const root = yield* caller.root
+      const before = yield* caller.readDirectory(root)
 
       const opened = yield* readCreate(
         yield* handler.compound(
@@ -259,7 +259,7 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
       assert.deepStrictEqual(opened.attrs, [4, 33, 36, 37, 48, 54])
       assert.isTrue(opened.atomic)
       assert.strictEqual(opened.before, before.revision)
-      assert.strictEqual(opened.after, (yield* caller.observeDirectory(root)).revision)
+      assert.strictEqual(opened.after, (yield* caller.readDirectory(root)).revision)
       assert.notStrictEqual(opened.before, opened.after)
 
       const written = yield* handler.compound(

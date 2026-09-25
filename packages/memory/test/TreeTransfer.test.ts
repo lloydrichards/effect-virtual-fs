@@ -3,6 +3,9 @@ import { assert, it } from "@effect/vitest"
 import { ByteSize, Effect, Exit, Layer, Predicate, Schema, Stream } from "effect"
 import * as TreeTransfer from "../src/TreeTransfer.js"
 
+const entryNames = (listing: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>>) =>
+  listing.value.map((entry) => new TextDecoder().decode(entry.name))
+
 const text = new TextEncoder()
 
 const OWNER = { uid: 1000, gid: 1000, groups: [], privileged: false }
@@ -67,7 +70,10 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
         hardLinksDegraded: 0
       })
       const copied = yield* destination.caller()
-      assert.strictEqual((yield* copied.lstat("/copy/alias.bin")).nlink, 2)
+      assert.strictEqual(
+        (yield* copied.stat(Vfs.Target.Path({ path: "/copy/alias.bin", followFinalSymlink: false }))).nlink,
+        2
+      )
     }))
 
   it.effect("should keep every metadata field when building a new volume with owners and special bits requested", () =>
@@ -93,10 +99,16 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
         TreeTransfer.toCaller(destination, "/copy")
       )
 
-      const file = yield* destination.lstat("/copy/nested/data.bin")
+      const file = yield* destination.stat(
+        Vfs.Target.Path({ path: "/copy/nested/data.bin", followFinalSymlink: false })
+      )
+
       assert.deepStrictEqual({ mode: file.mode, mtimeNs: file.mtimeNs }, { mode: 0o755, mtimeNs: 32n })
       assert.notStrictEqual(file.atimeNs, 31n)
-      assert.strictEqual((yield* destination.lstat("/copy/nested")).mode, 0o555)
+      assert.strictEqual(
+        (yield* destination.stat(Vfs.Target.Path({ path: "/copy/nested", followFinalSymlink: false }))).mode,
+        0o555
+      )
     }))
 
   it.effect("should write children of a read-only directory when the destination caller is unprivileged", () =>
@@ -114,8 +126,11 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
         TreeTransfer.toCaller(owner, "/home/copy")
       )
 
-      assert.deepStrictEqual(yield* owner.readDirectory("/home/copy/nested"), ["data.bin"])
-      assert.strictEqual((yield* owner.lstat("/home/copy/nested")).mode, 0o555)
+      assert.deepStrictEqual(entryNames(yield* owner.readDirectory("/home/copy/nested")), ["data.bin"])
+      assert.strictEqual(
+        (yield* owner.stat(Vfs.Target.Path({ path: "/home/copy/nested", followFinalSymlink: false }))).mode,
+        0o555
+      )
     }))
 
   it.effect("should leave an existing destination untouched when existing entries are rejected", () =>
@@ -133,7 +148,7 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
       )
 
       assert.strictEqual(Schema.is(Vfs.VfsError)(error) && error.code, "AlreadyExists")
-      assert.deepStrictEqual(yield* destination.readDirectory("/copy"), ["keep"])
+      assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/copy")), ["keep"])
     }))
 
   it.effect("should merge into and replace existing entries when overwriting", () =>
@@ -149,8 +164,11 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
         TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })
       )
 
-      assert.strictEqual(yield* destination.readLink("/copy/relative"), "nested/data.bin")
-      assert.strictEqual((yield* destination.lstat("/copy/keep")).kind, "file")
+      assert.strictEqual(new TextDecoder().decode(yield* destination.readLink("/copy/relative")), "nested/data.bin")
+      assert.strictEqual(
+        (yield* destination.stat(Vfs.Target.Path({ path: "/copy/keep", followFinalSymlink: false }))).kind,
+        "file"
+      )
     }))
 
   it.effect("should remove a claimed destination when the source fails mid-transfer", () =>
@@ -166,7 +184,7 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
       const exit = yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy")))
 
       assert.isTrue(Exit.isFailure(exit))
-      assert.deepStrictEqual(yield* destination.readDirectory("/"), [])
+      assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/")), [])
     }))
 
   it.effect("should keep written entries when an overwriting transfer fails", () =>
@@ -181,7 +199,7 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
 
       yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })))
 
-      assert.deepStrictEqual(yield* destination.readDirectory("/copy"), ["alias.bin"])
+      assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/copy")), ["alias.bin"])
     }))
 
   it.effect("should exclude entries when the source stream is filtered", () =>
@@ -194,7 +212,10 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
         )
       )
 
-      const missing = yield* Effect.flip((yield* volume.caller()).lstat("/nested"))
+      const missing = yield* Effect.flip(
+        (yield* volume.caller()).stat(Vfs.Target.Path({ path: "/nested", followFinalSymlink: false }))
+      )
+
       assert.strictEqual(missing.code, "NotFound")
     }))
 
@@ -242,7 +263,10 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
       const [entry] = yield* Stream.runCollect(TreeTransfer.fromCaller(caller, "/file"))
 
       assert.strictEqual(entry?.kind === "file" && entry.metadata?.atimeNs, 5n)
-      assert.notStrictEqual((yield* caller.lstat("/file")).atimeNs, 5n)
+      assert.notStrictEqual(
+        (yield* caller.stat(Vfs.Target.Path({ path: "/file", followFinalSymlink: false }))).atimeNs,
+        5n
+      )
     }))
 
   it.effect("should leave the source unchanged when streaming from a snapshot", () =>
@@ -253,7 +277,10 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
 
       yield* Stream.runDrain(TreeTransfer.fromSnapshot(yield* volume.snapshot, "/file"))
 
-      assert.strictEqual((yield* (yield* volume.caller()).lstat("/file")).atimeNs, 5n)
+      assert.strictEqual(
+        (yield* (yield* volume.caller()).stat(Vfs.Target.Path({ path: "/file", followFinalSymlink: false }))).atimeNs,
+        5n
+      )
     }))
 
   for (
@@ -332,7 +359,7 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
         )
 
         assert.deepStrictEqual(failure(error), ["InvalidEntry", "path"])
-        assert.deepStrictEqual(yield* destination.readDirectory("/"), ["copy"])
+        assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/")), ["copy"])
       }))
   }
 
@@ -369,7 +396,7 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
         { kind: "file", path: "/tool", bytes: new Uint8Array(), metadata: { uid: 501, gid: 20, mode: 0o4755 } }
       ]))
 
-      const tool = yield* (yield* volume.caller()).lstat("/tool")
+      const tool = yield* (yield* volume.caller()).stat(Vfs.Target.Path({ path: "/tool", followFinalSymlink: false }))
 
       assert.deepStrictEqual({ uid: tool.uid, gid: tool.gid, mode: tool.mode }, { uid: 0, gid: 0, mode: 0o755 })
     }))
@@ -441,7 +468,7 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
 
       yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy")))
 
-      assert.deepStrictEqual(yield* destination.readDirectory("/copy"), ["theirs"])
+      assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/copy")), ["theirs"])
     }))
 
   it.effect("should restore final directory modes when an overwriting transfer fails", () =>
@@ -455,6 +482,9 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
 
       yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })))
 
-      assert.strictEqual((yield* destination.lstat("/copy/locked")).mode, 0o555)
+      assert.strictEqual(
+        (yield* destination.stat(Vfs.Target.Path({ path: "/copy/locked", followFinalSymlink: false }))).mode,
+        0o555
+      )
     }))
 })

@@ -41,7 +41,7 @@ export const makeOpen = (caller: Vfs.Caller): FileSystem.FileSystem["open"] => {
         return yield* resourceError(method, fd, "Invalid file position")
       }
 
-      const bytes = yield* handle.pread(length, length === 0 ? 0n : position).pipe(
+      const { bytes } = yield* handle.pread(length, length === 0 ? 0n : position).pipe(
         Effect.mapError((error) => toPlatformError(error, method, fd))
       )
 
