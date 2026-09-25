@@ -4,7 +4,7 @@
  * @internal
  * @since 0.1.0
  */
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Metadata, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -13,6 +13,13 @@ import * as Option from "effect/Option"
 import { type PlatformError, systemError } from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
 import { argumentError } from "./platformError.js"
+
+// Keyed by every kind, so a new kind fails to compile here as it does in typedMode.
+const FILE_INFO_TYPE = {
+  directory: "Directory",
+  file: "File",
+  symlink: "SymbolicLink"
+} as const satisfies Record<Vfs.Metadata["kind"], FileSystem.File.Type>
 
 /** @internal */
 export const info = Effect.fnUntraced(function*(
@@ -34,10 +41,11 @@ export const info = Effect.fnUntraced(function*(
   }
 
   return {
-    type: value.kind === "file" ? "File" : value.kind === "directory" ? "Directory" : "SymbolicLink",
+    type: FILE_INFO_TYPE[value.kind],
     ino: Option.some(Number(value.ino)),
+    // A volume has no device nodes, so dev and rdev are 0 by contract.
     dev: 0,
-    mode: value.mode | (value.kind === "file" ? 0o100000 : value.kind === "directory" ? 0o40000 : 0o120000),
+    mode: Metadata.typedMode(value),
     uid: Option.some(value.uid),
     gid: Option.some(value.gid),
     nlink: Option.some(value.nlink),
