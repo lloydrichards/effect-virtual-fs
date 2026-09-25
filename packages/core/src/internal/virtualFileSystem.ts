@@ -1495,6 +1495,11 @@ export const makeVolume = Effect.fnUntraced(
 
     const reserveEntry = (op: OpContext) => atEntryLimit() ? Effect.fail(op.fail("NoSpace")) : Effect.void
 
+    const reserveBytes = (op: OpContext, bytes: bigint) =>
+      settings.maxBytes !== undefined && bytes > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes
+        ? Effect.fail(op.fail("NoSpace"))
+        : Effect.void
+
     // A new subdirectory's ".." entry is a second link to the parent; other node kinds add none.
     const attach = (parent: Directory, name: string, node: Node, now: bigint) => {
       parent.entries.set(name, node)
@@ -1832,6 +1837,21 @@ export const makeVolume = Effect.fnUntraced(
         metadata: {
           ...directoryMetadata(state.nextInode, identity.uid, parent.metadata.gid, mode, now),
           ...creationTimes(times, now)
+        },
+        revision: nextRevision(),
+        objectReference: undefined
+      })
+
+      const newSymlink = (parent: Directory, target: Uint8Array, now: bigint, times?: Times): SymbolicLink => ({
+        kind: "symlink",
+        lineage: undefined,
+        target,
+        metadata: {
+          ...directoryMetadata(state.nextInode, identity.uid, parent.metadata.gid, 0o777, now),
+          ...creationTimes(times, now),
+          kind: "symlink",
+          nlink: 1,
+          size: BigInt(target.length)
         },
         revision: nextRevision(),
         objectReference: undefined
@@ -2355,6 +2375,32 @@ export const makeVolume = Effect.fnUntraced(
         }
       )
 
+      // Takes target bytes the caller already copied, so nothing else holds them.
+      const makeSymlink = Effect.fnUntraced(function*(
+        entry: ResolvedEntry,
+        target: Uint8Array,
+        times: Times | undefined,
+        op: OpContext
+      ) {
+        const parent = entry.parent
+        const name = yield* claimName(entry)
+
+        if (entry.trailingSlash) return yield* entry.op.fail("NotDirectory")
+        yield* reserveEntry(entry.op)
+        yield* reserveBytes(entry.op, BigInt(target.length))
+        const before = parent.revision
+        const now = yield* timestamp(op)
+        const child = newSymlink(parent, target, now, times)
+
+        attach(parent, name, child, now)
+        state.nextInode += 1n
+        state.entries += 1
+        state.usedBytes += BigInt(target.length)
+        publishEntry("Create", parent, name)
+
+        return { child, directory: { before, after: parent.revision } }
+      })
+
       const rootReferenceOp = OpContext.make("rootReference")
 
       return Object.freeze({
@@ -2544,44 +2590,10 @@ export const makeVolume = Effect.fnUntraced(
             return yield* coordinated(
               op,
               Effect.gen(function*() {
-                const parent = yield* referencedDirectory(directoryReference, op)
-                yield* authorize(parent, identity, WRITE | EXECUTE, op)
+                const entry = yield* ResolvedEntry.fromReference(directoryReference, name, op)
+                const { child, directory } = yield* makeSymlink(entry, targetBytes, chosen.times, op)
 
-                if (parent.entries.has(name)) {
-                  return yield* op.fail("AlreadyExists")
-                }
-
-                if (
-                  atEntryLimit() ||
-                  (settings.maxBytes !== undefined &&
-                    BigInt(targetBytes.length) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes)
-                ) return yield* op.fail("NoSpace")
-                const before = parent.revision
-                const now = yield* timestamp(op)
-                const initial = creationTimes(chosen.times, now)
-
-                const node: SymbolicLink = {
-                  kind: "symlink",
-                  lineage: undefined,
-                  target: targetBytes,
-                  metadata: {
-                    ...directoryMetadata(state.nextInode, identity.uid, parent.metadata.gid, 0o777, now),
-                    ...initial,
-                    kind: "symlink",
-                    nlink: 1,
-                    size: BigInt(targetBytes.length)
-                  },
-                  revision: nextRevision(),
-                  objectReference: undefined
-                }
-
-                attach(parent, name, node, now)
-                state.nextInode += 1n
-                state.entries += 1
-                state.usedBytes += BigInt(targetBytes.length)
-                publishEntry("Create", parent, name)
-
-                return { reference: referenceFor(node), directory: { before, after: parent.revision } }
+                return { reference: referenceFor(child), directory }
               })
             )
           }
@@ -3524,7 +3536,6 @@ export const makeVolume = Effect.fnUntraced(
         symlink: Effect.fn("Caller.symlink")(function*(target: PathInput, input: PathInput, options?: RelativeOptions) {
           const op = OpContext.make("symlink")
           const targetOp = op.at(target)
-          const pathOp = op.at(input)
           const prepared = preparePath(input, op.operation, settings.maxPathBytes)
 
           const rawTarget = inputBytes(target)
@@ -3543,46 +3554,8 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const path = yield* Effect.fromResult(prepared)
-              const bytes = targetBytes
-              const parent = yield* locate(path, base, op, { parentOnly: true })
-              yield* authorize(parent, identity, WRITE | EXECUTE, pathOp)
-              const name = path.components.at(-1)
-
-              if (isDotComponent(name) || parent.entries.has(name)) {
-                return yield* pathOp.fail("AlreadyExists")
-              }
-
-              if (path.trailingSlash) {
-                return yield* pathOp.fail("NotDirectory")
-              }
-
-              if (
-                atEntryLimit() ||
-                (settings.maxBytes !== undefined &&
-                  BigInt(bytes.length) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes)
-              ) return yield* pathOp.fail("NoSpace")
-              const now = yield* timestamp(op)
-
-              const node: SymbolicLink = {
-                kind: "symlink",
-                lineage: undefined,
-                target: new Uint8Array(bytes),
-                metadata: {
-                  ...directoryMetadata(state.nextInode, identity.uid, parent.metadata.gid, 0o777, now),
-                  kind: "symlink",
-                  nlink: 1,
-                  size: BigInt(bytes.length)
-                },
-                revision: nextRevision(),
-                objectReference: undefined
-              }
-
-              attach(parent, name, node, now)
-              state.nextInode += 1n
-              state.entries += 1
-              state.usedBytes += BigInt(bytes.length)
-              publishEntry("Create", parent, name)
+              const entry = yield* ResolvedEntry.fromPath(prepared, base, op)
+              yield* makeSymlink(entry, targetBytes, undefined, op)
             })
           )
         }),
