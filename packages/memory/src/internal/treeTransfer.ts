@@ -96,8 +96,10 @@ const entryMetadata = (metadata: Vfs.Metadata): EntryMetadata => ({
 })
 
 interface Pending {
-  readonly parent: Vfs.DirectoryHandle | undefined
-  readonly name: Vfs.PathInput
+  // The root's path, then each name below it, never following a final link. Every entry is reached by name, as a
+  // path lookup reaches it, so it needs search permission on each directory above it and a directory renamed out
+  // of the tree is not followed, and the stream holds no directory handle while it runs.
+  readonly location: string | Uint8Array
   // Stays a string while every component is UTF-8, so consumers can filter entries without decoding.
   readonly path: string | Uint8Array
   readonly pathBytes: number
@@ -105,10 +107,14 @@ interface Pending {
 }
 
 const childPath = (parent: string | Uint8Array, name: Uint8Array, text: string | undefined) => {
-  if (Predicate.isString(parent) && text !== undefined) return parent === "/" ? `/${text}` : `${parent}/${text}`
+  if (Predicate.isString(parent) && text !== undefined) {
+    return parent.endsWith("/")
+      ? `${parent}${text}`
+      : `${parent}/${text}`
+  }
 
   const prefix = Predicate.isString(parent) ? encoder.encode(parent) : parent
-  const separator = prefix.length === 1 ? 0 : 1
+  const separator = prefix.at(-1) === SLASH ? 0 : 1
   const output = new Uint8Array(prefix.length + separator + name.length)
   output.set(prefix)
 
@@ -129,8 +135,8 @@ export const fromCaller = (
 ): Stream.Stream<Entry, TransferError | Vfs.VfsError> =>
   Stream.unwrap(Effect.gen(function*() {
     const limits = yield* resolveLimits(options?.limits)
-    const scope = yield* Effect.scope
-    const pending: Array<Pending> = [{ parent: undefined, name: root, path: "/", pathBytes: 1, depth: 0 }]
+    const location = Predicate.isString(root) ? root : yield* BytePath.toBytes(root)
+    const pending: Array<Pending> = [{ location, path: "/", pathBytes: 1, depth: 0 }]
     const firstAliases = new Map<bigint, Vfs.PathInput>()
     let entries = 0
     let bytes = 0n
@@ -147,14 +153,13 @@ export const fromCaller = (
       if (next.depth > limits.maxDepth) return yield* limitExceeded("maxDepth", path)
 
       if (exceeds(next.pathBytes, limits.maxPathBytes)) return yield* limitExceeded("maxPathBytes", path)
-      const base = next.parent
+      const target = at(yield* emitPath(next.location), undefined, false)
       // Metadata is read before contents so entries carry the source's pre-read access time.
-      const metadata = yield* caller.stat(at(next.name, base, false))
+      const metadata = yield* caller.stat(target)
       let entry: Entry
 
       if (metadata.kind === "directory") {
-        const handle = yield* Scope.provide(caller.openDirectory(at(next.name, base)), scope)
-        const names = (yield* caller.readDirectory(handle)).value.map((entry) => entry.name).sort(BytePath.byteOrder)
+        const names = (yield* caller.readDirectory(target)).value.map((child) => child.name).sort(BytePath.byteOrder)
 
         for (let index = names.length - 1; index >= 0; index--) {
           const name = names[index]
@@ -162,8 +167,7 @@ export const fromCaller = (
           if (name === undefined) continue
           const text = decodeText(name)
           pending.push({
-            parent: handle,
-            name: text ?? (yield* Vfs.pathFromBytes(name)),
+            location: childPath(next.location, name, text),
             path: childPath(next.path, name, text),
             pathBytes: next.pathBytes === 1 ? 1 + name.length : next.pathBytes + 1 + name.length,
             depth: next.depth + 1
@@ -184,7 +188,7 @@ export const fromCaller = (
 
           if (metadata.kind === "file") {
             if (exceeds(metadata.size, limits.maxFileBytes)) return yield* limitExceeded("maxFileBytes", path)
-            const contents = yield* caller.readFile(at(next.name, base))
+            const contents = yield* caller.readFile(target)
 
             if (exceeds(contents.length, limits.maxFileBytes)) return yield* limitExceeded("maxFileBytes", path)
             bytes += BigInt(contents.length)
@@ -192,12 +196,12 @@ export const fromCaller = (
             if (exceeds(bytes, limits.maxBytes)) return yield* limitExceeded("maxBytes", path)
             entry = { kind: "file", path, bytes: contents, metadata: entryMetadata(metadata) }
           } else {
-            const target = yield* caller.readLink(at(next.name, base))
+            const link = yield* caller.readLink(target)
             // Symlink targets count toward stored bytes, as they do for volume capacity.
-            bytes += BigInt(target.length)
+            bytes += BigInt(link.length)
 
             if (exceeds(bytes, limits.maxBytes)) return yield* limitExceeded("maxBytes", path)
-            entry = { kind: "symlink", path, target: yield* toPathInput(target), metadata: entryMetadata(metadata) }
+            entry = { kind: "symlink", path, target: yield* toPathInput(link), metadata: entryMetadata(metadata) }
           }
         }
       }
