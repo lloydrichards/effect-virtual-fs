@@ -80,6 +80,12 @@ export * as Target from "./Target.js"
  * @since 0.6.0
  * @category re-exports
  */
+export * as Testing from "./Testing.js"
+
+/**
+ * @since 0.6.0
+ * @category re-exports
+ */
 export * as Volume from "./Volume.js"
 
 /**
