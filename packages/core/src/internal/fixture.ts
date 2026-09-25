@@ -13,9 +13,9 @@ import {
   FixtureEntry,
   type FixtureMetadata,
   makeVolume,
+  restoredSource,
   VolumeIdentity,
-  VolumeOptions as VolumeOptionsSchema,
-  VolumeSource
+  VolumeOptions as VolumeOptionsSchema
 } from "./virtualFileSystem.js"
 
 const DEFAULT_MODE: Record<Image.Record["_tag"], number> = { directory: 0o755, file: 0o644, symlink: 0o777 }
@@ -200,9 +200,9 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
 
     const { identity, ...volumeOptions } = config
 
-    if (identity === undefined) return (yield* makeVolume(VolumeSource.Snapshot({ image }), volumeOptions)).volume
+    if (identity === undefined) return (yield* makeVolume(restoredSource(image), volumeOptions)).volume
 
-    const { volume } = yield* makeVolume(VolumeSource.Snapshot({ image }), {
+    const { volume } = yield* makeVolume(restoredSource(image), {
       ...volumeOptions,
       identity: VolumeIdentity.make(identity)
     })

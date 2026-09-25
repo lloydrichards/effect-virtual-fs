@@ -841,29 +841,255 @@ const withoutLink = (links: ReadonlyArray<Link>, parent: Ino, name: string): Rea
 
 type VolumeSource =
   | { readonly _tag: "Empty" }
-  | { readonly _tag: "Snapshot"; readonly image: Image.Document }
   | { readonly _tag: "Live"; readonly document: LiveImage.Document }
+  // A snapshot's image, and the value it restores to once the volume's limits have accepted the image.
   | {
-    readonly _tag: "Overlay"
-    readonly base: Snapshot
+    readonly _tag: "Restored"
     readonly image: Image.Document
+    readonly restore: (initialTime: bigint) => Effect.Effect<VolumeState, ImageError>
   }
 
 /** @internal */
 export const VolumeSource = Data.taggedEnum<VolumeSource>()
 
-type VolumeFor<S extends VolumeSource> = S extends { readonly _tag: "Overlay" } ? OverlayVolume : Volume
-
 const UpdateChange = Schema.TaggedStruct("Update", { path: BytePath })
 
 const RescanChange = Schema.TaggedStruct("Rescan", { path: BytePath })
+
+// A fresh directory root for a volume whose image names none; a restored image always carries its own.
+const emptyRoot = (lineage: string | undefined, now: bigint): Directory => ({
+  kind: "directory",
+  ino: ROOT_INO,
+  lineage,
+  parent: ROOT_INO,
+  name: "",
+  entries: new Map(),
+  metadata: directoryMetadata(BigInt(ROOT_INO), 0, 0, 0o755, now),
+  revision: 1n
+})
+
+// Restores a snapshot image into a volume value. Inode numbers follow record order, so every volume restored
+// from one image assigns the same numbers, and every restored inode carries the image record as its lineage.
+const restoreImage = Effect.fnUntraced(function*(image: Image.Document, initialTime: bigint) {
+  // Restored inodes are built mutably here and frozen into the table once every entry is wired.
+  const incoming = new Map<string, { node: Node; entries: Map<string, Ino>; links: Array<Link> }>()
+  let nextInode = Ino(2)
+
+  for (const record of image.records) {
+    const isRoot = record.id === image.root
+    const ino = isRoot ? ROOT_INO : nextInode
+
+    if (!isRoot) nextInode = Ino(nextInode + 1)
+
+    const metadata: Metadata = {
+      ...record.metadata,
+      kind: record._tag,
+      ino: BigInt(ino),
+      nlink: Image.Record.guards.directory(record) ? 2 : 0,
+      size: 0n,
+      atimeNs: record.metadata.atimeNs,
+      mtimeNs: record.metadata.mtimeNs,
+      ctimeNs: record.metadata.ctimeNs,
+      birthtimeNs: record.metadata.birthtimeNs
+    }
+
+    if (Image.Record.guards.directory(record)) {
+      const entries = new Map<string, Ino>()
+      incoming.set(record.id, {
+        node: {
+          kind: "directory",
+          ino,
+          lineage: record.id,
+          parent: ROOT_INO,
+          name: "",
+          entries,
+          metadata,
+          revision: 1n
+        },
+        entries,
+        links: []
+      })
+    } else if (Image.Record.guards.file(record)) {
+      const data = Content.make(yield* CanonicalBase64.decode(record.data))
+      const links: Array<Link> = []
+      incoming.set(record.id, {
+        node: {
+          kind: "file",
+          ino,
+          lineage: record.id,
+          data,
+          links,
+          metadata: { ...metadata, size: BigInt(data.bytes.length) },
+          revision: 1n
+        },
+        entries: new Map(),
+        links
+      })
+    } else {
+      const target = yield* CanonicalBase64.decode(record.target)
+      const links: Array<Link> = []
+      incoming.set(record.id, {
+        node: {
+          kind: "symlink",
+          ino,
+          lineage: record.id,
+          target,
+          links,
+          metadata: { ...metadata, size: BigInt(target.length) },
+          revision: 1n
+        },
+        entries: new Map(),
+        links
+      })
+    }
+  }
+
+  for (const record of image.records) {
+    if (!Image.Record.guards.directory(record)) continue
+    const parent = incoming.get(record.id)
+
+    if (parent?.node.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
+
+    for (const entry of record.entries) {
+      const child = incoming.get(entry.target)
+
+      if (child === undefined) return yield* new ImageError({ code: "InvalidStructure" })
+      const name = Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name))
+      parent.entries.set(name, child.node.ino)
+
+      if (child.node.kind === "directory") {
+        child.node = { ...child.node, parent: parent.node.ino, name }
+        parent.node = {
+          ...parent.node,
+          metadata: { ...parent.node.metadata, nlink: parent.node.metadata.nlink + 1 }
+        }
+      } else {
+        child.links.push({ parent: parent.node.ino, name })
+        child.node = { ...child.node, metadata: { ...child.node.metadata, nlink: child.node.metadata.nlink + 1 } }
+      }
+    }
+  }
+
+  const owner = Symbol()
+  let inodes = InodeTable.empty<Node>()
+
+  for (const { node } of incoming.values()) inodes = InodeTable.set(inodes, node.ino, node, owner)
+
+  if (InodeTable.get(inodes, ROOT_INO) === undefined) {
+    inodes = InodeTable.set(inodes, ROOT_INO, emptyRoot(image.root, initialTime), owner)
+  }
+
+  return { inodes, nextInode }
+})
+
+// Volumes layered on one snapshot share its restored value, and so every unchanged inode and payload.
+const baseStates = new WeakMap<Snapshot, VolumeState>()
+
+/** @internal */
+export const hasBaseState = (snapshot: Snapshot): boolean => baseStates.has(snapshot)
+
+/** @internal */
+export const baseStateFor = (snapshot: Snapshot, image: Image.Document, initialTime: bigint) =>
+  Effect.suspend(() => {
+    const cached = baseStates.get(snapshot)
+
+    if (cached !== undefined) return Effect.succeed(cached)
+
+    return Effect.map(restoreImage(image, initialTime), (restored) => {
+      const value: VolumeState = { ...restored, open: new Map(), revision: 1n, entries: 0, usedBytes: 0n }
+      baseStates.set(snapshot, value)
+
+      return value
+    })
+  })
+
+const captureSnapshot = Effect.fnUntraced(function*(captured: VolumeState) {
+  const ids = new Map<Ino, string>([[ROOT_INO, "0"]])
+  const pending: Array<Ino> = [ROOT_INO]
+  const records: Array<Image.Record> = []
+
+  for (let index = 0; index < pending.length; index++) {
+    if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
+    const ino = pending[index]
+
+    if (ino === undefined) continue
+    const node = getNode(captured, ino)
+    const id = ids.get(ino)
+
+    if (id === undefined || node === undefined) return yield* new ImageError({ code: "InvalidStructure" })
+    const metadata = storedMetadata(node.metadata)
+
+    if (node.kind === "directory") {
+      const children: Array<{ name: typeof CanonicalBase64.Encoded.Type; target: string }> = []
+
+      for (const [name, child] of node.entries) {
+        let target = ids.get(child)
+
+        if (target === undefined) {
+          target = String(ids.size)
+          ids.set(child, target)
+          pending.push(child)
+        }
+
+        children.push({ name: CanonicalBase64.encode(nameBytes(name)), target })
+      }
+
+      records.push(Image.Record.cases.directory.make({ id, metadata, entries: children }))
+    } else if (node.kind === "file") {
+      records.push(Image.Record.cases.file.make({ id, metadata, data: CanonicalBase64.encode(node.data.bytes) }))
+    } else {records.push(
+        Image.Record.cases.symlink.make({ id, metadata, target: CanonicalBase64.encode(node.target) })
+      )}
+  }
+
+  return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records }, undefined, true)
+})
+
+// Every object's path, lineage, kind, content and stored metadata: what an overlay compares against its base.
+const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
+  const observation: Array<ObservationEntry> = []
+  const paths: Array<readonly [Ino, Uint8Array]> = [[ROOT_INO, new Uint8Array([SLASH_BYTE])]]
+
+  for (let index = 0; index < paths.length; index++) {
+    if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
+    const entry = paths[index]
+
+    if (entry === undefined) continue
+    const [ino, path] = entry
+    const node = getNode(captured, ino)
+
+    if (node === undefined) continue
+    observation.push({
+      path: new Uint8Array(path),
+      lineage: node.lineage,
+      kind: node.kind,
+      content: node.kind === "file" ? node.data.bytes : node.kind === "symlink" ? node.target : undefined,
+      metadata: storedMetadata(node.metadata)
+    })
+
+    if (node.kind !== "directory") continue
+
+    for (const [name, child] of node.entries) {
+      const bytes = nameBytes(name)
+      const childPath = new Uint8Array(path.length + (path.length === 1 ? 0 : 1) + bytes.length)
+      childPath.set(path)
+      let offset = path.length
+
+      if (path.length !== 1) childPath[offset++] = SLASH_BYTE
+      childPath.set(bytes, offset)
+      paths.push([child, childPath])
+    }
+  }
+
+  return observation
+})
 
 // Each execution constructs a fresh volume and captures its Clock.
 
 /** @internal */
 export const makeVolume = Effect.fnUntraced(
-  function*<S extends VolumeSource>(
-    source: S,
+  function*(
+    source: VolumeSource,
     options?: VolumeOptions,
     commitProvider?: CommitProvider<VolumeState>,
     captureInitial?: (
@@ -954,16 +1180,7 @@ export const makeVolume = Effect.fnUntraced(
         }))
       )
 
-    const root: Directory = {
-      kind: "directory",
-      ino: ROOT_INO,
-      lineage: image?.root,
-      parent: ROOT_INO,
-      name: "",
-      entries: new Map(),
-      metadata: directoryMetadata(BigInt(ROOT_INO), 0, 0, 0o755, initialTime),
-      revision: 1n
-    }
+    const root = emptyRoot(image?.root, initialTime)
 
     let state: VolumeState = {
       inodes: InodeTable.set(InodeTable.empty<Node>(), ROOT_INO, root),
@@ -986,11 +1203,11 @@ export const makeVolume = Effect.fnUntraced(
       maxWatchEvents: settings.maxWatchEvents ?? 256
     })
 
-    if (image !== undefined) {
+    if (Predicate.isTagged("Restored")(source)) {
       let content = 0n
       let count = 0
 
-      for (const record of image.records) {
+      for (const record of source.image.records) {
         if (Image.Record.guards.directory(record)) count += record.entries.length
         else {
           const length = CanonicalBase64.decodedLength(
@@ -1012,120 +1229,7 @@ export const makeVolume = Effect.fnUntraced(
         return yield* new ImageError({ code: "LimitExceeded", field: "volume" })
       }
 
-      const baseContents = Predicate.isTagged("Overlay")(source) ? Content.forOverlay(source.base, image) : undefined
-      // Restored inodes are built mutably here and frozen into the table once every entry is wired.
-      const incoming = new Map<string, { node: Node; entries: Map<string, Ino>; links: Array<Link> }>()
-      let nextInode = state.nextInode
-
-      for (const record of image.records) {
-        const isRoot = record.id === image.root
-        const ino = isRoot ? ROOT_INO : nextInode
-
-        if (!isRoot) nextInode = Ino(nextInode + 1)
-
-        const metadata: Metadata = {
-          ...record.metadata,
-          kind: record._tag,
-          ino: BigInt(ino),
-          nlink: Image.Record.guards.directory(record) ? 2 : 0,
-          size: 0n,
-          atimeNs: record.metadata.atimeNs,
-          mtimeNs: record.metadata.mtimeNs,
-          ctimeNs: record.metadata.ctimeNs,
-          birthtimeNs: record.metadata.birthtimeNs
-        }
-
-        if (Image.Record.guards.directory(record)) {
-          const entries = new Map<string, Ino>()
-          incoming.set(record.id, {
-            node: {
-              kind: "directory",
-              ino,
-              lineage: record.id,
-              parent: ROOT_INO,
-              name: "",
-              entries,
-              metadata,
-              revision: 1n
-            },
-            entries,
-            links: []
-          })
-        } else if (Image.Record.guards.file(record)) {
-          const data = baseContents?.get(record.id) ?? Content.make(yield* CanonicalBase64.decode(record.data))
-          const links: Array<Link> = []
-          incoming.set(record.id, {
-            node: {
-              kind: "file",
-              ino,
-              lineage: record.id,
-              data,
-              links,
-              metadata: { ...metadata, size: BigInt(data.bytes.length) },
-              revision: 1n
-            },
-            entries: new Map(),
-            links
-          })
-        } else {
-          const target = yield* CanonicalBase64.decode(record.target)
-          const links: Array<Link> = []
-          incoming.set(record.id, {
-            node: {
-              kind: "symlink",
-              ino,
-              lineage: record.id,
-              target,
-              links,
-              metadata: { ...metadata, size: BigInt(target.length) },
-              revision: 1n
-            },
-            entries: new Map(),
-            links
-          })
-        }
-      }
-
-      for (const record of image.records) {
-        if (!Image.Record.guards.directory(record)) continue
-        const parent = incoming.get(record.id)
-
-        if (parent?.node.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
-
-        for (const entry of record.entries) {
-          const child = incoming.get(entry.target)
-
-          if (child === undefined) return yield* new ImageError({ code: "InvalidStructure" })
-          const name = Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name))
-          parent.entries.set(name, child.node.ino)
-
-          if (child.node.kind === "directory") {
-            child.node = { ...child.node, parent: parent.node.ino, name }
-            parent.node = {
-              ...parent.node,
-              metadata: { ...parent.node.metadata, nlink: parent.node.metadata.nlink + 1 }
-            }
-          } else {
-            child.links.push({ parent: parent.node.ino, name })
-            child.node = { ...child.node, metadata: { ...child.node.metadata, nlink: child.node.metadata.nlink + 1 } }
-          }
-        }
-      }
-
-      const owner = Symbol()
-      let inodes = InodeTable.empty<Node>()
-
-      for (const { node } of incoming.values()) inodes = InodeTable.set(inodes, node.ino, node, owner)
-
-      if (InodeTable.get(inodes, ROOT_INO) === undefined) inodes = InodeTable.set(inodes, ROOT_INO, root, owner)
-
-      state = {
-        ...state,
-        inodes,
-        nextInode,
-        entries: count,
-        usedBytes: content
-      }
+      state = { ...state, ...(yield* source.restore(initialTime)), entries: count, usedBytes: content }
     }
 
     if (live !== undefined) {
@@ -1321,10 +1425,8 @@ export const makeVolume = Effect.fnUntraced(
     })
 
     // Records what failed on the span the caller has open.
-    const annotateFailure = (error: unknown) =>
-      error instanceof FsError
-        ? Effect.annotateCurrentSpan({ operation: error.operation, code: error.code })
-        : Effect.void
+    const annotateFailure = (error: FsError) =>
+      Effect.annotateCurrentSpan({ operation: error.operation, code: error.code })
 
     // Permit waits stay interruptible. A change and its publication run under one permit; with a store, the
     // change itself stays interruptible and only the commit and installation are not.
@@ -1347,12 +1449,12 @@ export const makeVolume = Effect.fnUntraced(
               )
             )
         )
-      ).pipe(Effect.tapError(annotateFailure))
+      ).pipe(Effect.tapError((error) => error instanceof FsError ? annotateFailure(error) : Effect.void))
 
     // Pure observations share the permit without making a draft or calling the store.
     const coordinatedRead = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>) =>
       admit(op, gate.withPermit(Effect.andThen(checkAvailable(op.operation), effect))).pipe(
-        Effect.tapError(annotateFailure)
+        Effect.tapError((error) => error instanceof FsError ? annotateFailure(error) : Effect.void)
       )
 
     const coordinatedCleanup = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -1429,86 +1531,6 @@ export const makeVolume = Effect.fnUntraced(
         return changes
       })
     }
-
-    const captureSnapshot = Effect.fnUntraced(function*(captured: VolumeState) {
-      const ids = new Map<Ino, string>([[ROOT_INO, "0"]])
-      const pending: Array<Ino> = [ROOT_INO]
-      const records: Array<Image.Record> = []
-
-      for (let index = 0; index < pending.length; index++) {
-        if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
-        const ino = pending[index]
-
-        if (ino === undefined) continue
-        const node = getNode(captured, ino)
-        const id = ids.get(ino)
-
-        if (id === undefined || node === undefined) return yield* new ImageError({ code: "InvalidStructure" })
-        const metadata = storedMetadata(node.metadata)
-
-        if (node.kind === "directory") {
-          const children: Array<{ name: typeof CanonicalBase64.Encoded.Type; target: string }> = []
-
-          for (const [name, child] of node.entries) {
-            let target = ids.get(child)
-
-            if (target === undefined) {
-              target = String(ids.size)
-              ids.set(child, target)
-              pending.push(child)
-            }
-
-            children.push({ name: CanonicalBase64.encode(nameBytes(name)), target })
-          }
-
-          records.push(Image.Record.cases.directory.make({ id, metadata, entries: children }))
-        } else if (node.kind === "file") {
-          records.push(Image.Record.cases.file.make({ id, metadata, data: CanonicalBase64.encode(node.data.bytes) }))
-        } else {records.push(
-            Image.Record.cases.symlink.make({ id, metadata, target: CanonicalBase64.encode(node.target) })
-          )}
-      }
-
-      return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records }, undefined, true)
-    })
-
-    const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
-      const observation: Array<ObservationEntry> = []
-      const paths: Array<readonly [Ino, Uint8Array]> = [[ROOT_INO, new Uint8Array([SLASH_BYTE])]]
-
-      for (let index = 0; index < paths.length; index++) {
-        if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
-        const entry = paths[index]
-
-        if (entry === undefined) continue
-        const [ino, path] = entry
-        const node = getNode(captured, ino)
-
-        if (node === undefined) continue
-        observation.push({
-          path: new Uint8Array(path),
-          lineage: node.lineage,
-          kind: node.kind,
-          content: node.kind === "file" ? node.data.bytes : node.kind === "symlink" ? node.target : undefined,
-          metadata: storedMetadata(node.metadata)
-        })
-
-        if (node.kind !== "directory") continue
-
-        for (const [name, child] of node.entries) {
-          const bytes = nameBytes(name)
-          const childPath = new Uint8Array(path.length + (path.length === 1 ? 0 : 1) + bytes.length)
-          childPath.set(path)
-          let offset = path.length
-
-          if (path.length !== 1) childPath[offset++] = SLASH_BYTE
-          childPath.set(bytes, offset)
-          paths.push([child, childPath])
-        }
-      }
-
-      return observation
-    })
 
     const captureState = Effect.fnUntraced(function*() {
       const captured = state
@@ -4009,20 +4031,6 @@ export const makeVolume = Effect.fnUntraced(
       })
     }
 
-    const baseObservation = Predicate.isTagged("Overlay")(source) ? yield* observeChanges(state) : undefined
-
-    const publicChange = (change: RawOverlayChange): OverlayChange =>
-      Predicate.isTagged("Renamed")(change)
-        ? OverlayChange.make({ ...change, from: ownedPath(change.from), to: ownedPath(change.to) })
-        : OverlayChange.make({ ...change, path: ownedPath(change.path) })
-
-    const publicChanges = (changes: ReadonlyArray<RawOverlayChange>): ReadonlyArray<OverlayChange> =>
-      Object.freeze(changes.map(publicChange))
-
-    const changeOptions = (options?: OverlayChangesOptions) => {
-      return Effect.fromResult(decodeConfiguration(OverlayChangesOptions, options === undefined ? {} : options))
-    }
-
     const volume: Volume = Object.freeze({
       [VolumeId]: true as const,
       durability,
@@ -4066,33 +4074,14 @@ export const makeVolume = Effect.fnUntraced(
       })
     })
 
-    if (!Predicate.isTagged("Overlay")(source) || baseObservation === undefined) {
-      // SAFETY: Overlay sources return below, so S is non-Overlay here and VolumeFor<S> is Volume.
-      return Object.freeze({ volume: volume as VolumeFor<S>, shutdown, initialImage })
-    }
-
-    const overlay: OverlayVolume = Object.freeze({
-      ...volume,
-      changes: Effect.fn("OverlayVolume.changes")(function*(options?: OverlayChangesOptions) {
-        const selected = yield* changeOptions(options)
-        const current = yield* coordinatedRead(OpContext.make("changes"), Effect.suspend(() => observeChanges(state)))
-
-        return publicChanges(compareOverlay(baseObservation, current, selected.includeTimestamps ?? false))
-      }),
-      capture: Effect.fn("OverlayVolume.capture")(function*(options?: OverlayChangesOptions) {
-        const selected = yield* changeOptions(options)
-        const current = yield* coordinatedRead(OpContext.make("capture"), captureState())
-
-        return Object.freeze({
-          snapshot: current.snapshot,
-          changes: publicChanges(
-            compareOverlay(baseObservation, current.observation, selected.includeTimestamps ?? false)
-          )
-        })
-      })
+    // What an overlay layered on this volume compares against its base: the current value's entries, and a
+    // snapshot with the entries observed from the same value.
+    const observe = Object.freeze({
+      changes: coordinatedRead(OpContext.make("changes"), Effect.suspend(() => observeChanges(state))),
+      capture: coordinatedRead(OpContext.make("capture"), captureState())
     })
 
-    return Object.freeze({ volume: overlay, shutdown, initialImage })
+    return Object.freeze({ volume, shutdown, initialImage, observe })
   }
 )
 
@@ -4168,19 +4157,83 @@ export const openImageVolume = Effect.fnUntraced(function*(
 })
 
 /** @internal */
+const publicChange = (change: RawOverlayChange): OverlayChange =>
+  Predicate.isTagged("Renamed")(change)
+    ? OverlayChange.make({ ...change, from: ownedPath(change.from), to: ownedPath(change.to) })
+    : OverlayChange.make({ ...change, path: ownedPath(change.path) })
+
+const publicChanges = (changes: ReadonlyArray<RawOverlayChange>): ReadonlyArray<OverlayChange> =>
+  Object.freeze(changes.map(publicChange))
+
+const changeOptions = (options?: OverlayChangesOptions) => {
+  return Effect.fromResult(decodeConfiguration(OverlayChangesOptions, options === undefined ? {} : options))
+}
+
+/** @internal */
+// A volume of its own restored from an image: nothing it holds is shared with another volume.
+/** @internal */
+export const restoredSource = (image: Image.Document): VolumeSource =>
+  VolumeSource.Restored({
+    image,
+    restore: (initialTime) =>
+      Effect.map(restoreImage(image, initialTime), (restored) => ({
+        ...restored,
+        open: new Map(),
+        revision: 1n,
+        entries: 0,
+        usedBytes: 0n
+      }))
+  })
+
+/** @internal */
 export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
   function*(snapshot: Snapshot, options?: VolumeOptions) {
-    const image = yield* Image.inspect(snapshot)
-
-    return (yield* makeVolume(VolumeSource.Snapshot({ image }), options)).volume
+    return (yield* makeVolume(restoredSource(yield* Image.inspect(snapshot)), options)).volume
   }
 )
 
+// An overlay is a volume started from its base's restored value, plus a fold of that value against the current one.
 /** @internal */
 export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
   function*(base: Snapshot, options?: VolumeOptions) {
     const image = yield* Image.inspect(base)
+    let baseState: VolumeState | undefined
 
-    return (yield* makeVolume(VolumeSource.Overlay({ base, image }), options)).volume
+    const source = VolumeSource.Restored({
+      image,
+      restore: (initialTime) =>
+        Effect.tap(baseStateFor(base, image, initialTime), (value) =>
+          Effect.sync(() => {
+            baseState = value
+          }))
+    })
+
+    const made = yield* makeVolume(source, options)
+
+    if (baseState === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "snapshot" })
+    const baseObservation = yield* observeChanges(baseState)
+
+    const overlay: OverlayVolume = Object.freeze({
+      ...made.volume,
+      changes: Effect.fn("OverlayVolume.changes")(function*(options?: OverlayChangesOptions) {
+        const selected = yield* changeOptions(options)
+        const current = yield* made.observe.changes
+
+        return publicChanges(compareOverlay(baseObservation, current, selected.includeTimestamps ?? false))
+      }),
+      capture: Effect.fn("OverlayVolume.capture")(function*(options?: OverlayChangesOptions) {
+        const selected = yield* changeOptions(options)
+        const current = yield* made.observe.capture
+
+        return Object.freeze({
+          snapshot: current.snapshot,
+          changes: publicChanges(
+            compareOverlay(baseObservation, current.observation, selected.includeTimestamps ?? false)
+          )
+        })
+      })
+    })
+
+    return overlay
   }
 )
