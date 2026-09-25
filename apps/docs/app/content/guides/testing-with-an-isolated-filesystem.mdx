@@ -126,6 +126,38 @@ it.effect(
 Providing `seededFileSystem` inside `it.effect` builds a new volume for that test. Other tests can reuse the same layer
 definition without sharing mutations.
 
+## Test against a core volume directly
+
+When the code under test takes the `Volume` or `Caller` services, provide `Testing.layer` from
+`@effect-vfs/core/Testing`. It builds a fresh volume, from a fixture when one is given, and a root caller on it.
+`callerAs` makes a caller with other credentials on the same volume, and `collectChanges` collects watch changes
+committed after the stream opened:
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as Testing from "@effect-vfs/core/Testing"
+import { assert, it } from "@effect/vitest"
+import { Effect } from "effect"
+
+it.effect("should report the directory a guest cannot read when it is private", () =>
+  Effect.gen(function* () {
+    const volume = yield* Vfs.Volume
+    const changes = yield* Testing.collectChanges(yield* volume.watch, 1)
+
+    yield* (yield* Vfs.Caller).mkdir("/private", { mode: 0o700 })
+
+    const guest = yield* Testing.callerAs({ uid: 1000, gid: 1000, groups: [], privileged: false })
+    const error = yield* Effect.flip(guest.readDirectory("/private"))
+
+    assert.strictEqual(error.code, "AccessDenied")
+    assert.deepStrictEqual((yield* changes).map((change) => change._tag), ["Create"])
+  }).pipe(Effect.provide(Testing.layer()))
+)
+```
+
+`it.layer` from `@effect/vitest` builds its layer once for the whole `describe` block, so its tests share one volume.
+Provide `Testing.layer()` to each test that needs state of its own.
+
 ## Write behavior-focused tests
 
 Keep each test centered on one observable promise:
