@@ -224,9 +224,85 @@ const linkRows: ReadonlyArray<Row> = [
   }
 ]
 
+// Its byte limit sits below an eight-byte link target.
+const smallVolume = Vfs.make({ maxBytes: ByteSize.bytes(4) }).pipe(
+  Effect.flatMap((volume) => volume.caller()),
+  Effect.orDie
+)
+
+const symlinkRows: ReadonlyArray<Row> = [
+  {
+    scenario: "creates a link to any target",
+    path: ({ admin }) => admin.symlink("/missing", "/dir/new"),
+    reference: ({ admin, dir }) => admin.symlinkReference("/missing", dir, name("new")),
+    check: targetAt("/dir/new", "/missing"),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects an existing name",
+    path: ({ admin }) => admin.symlink("/missing", "/dir/existing"),
+    reference: ({ admin, dir }) => admin.symlinkReference("/missing", dir, name("existing")),
+    expected: { path: "AlreadyExists at /dir/existing", reference: "AlreadyExists" }
+  },
+  {
+    scenario: "treats a dot name as existing on paths but invalid on references",
+    path: ({ admin }) => admin.symlink("/missing", "/dir/."),
+    reference: ({ admin, dir }) => admin.symlinkReference("/missing", dir, name(".")),
+    expected: { path: "AlreadyExists at /dir/.", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects a trailing slash on a path",
+    path: ({ admin }) => admin.symlink("/missing", "/dir/new/"),
+    reference: ({ admin, dir }) => admin.symlinkReference("/missing", dir, name("new/")),
+    expected: { path: "NotDirectory at /dir/new/", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects a target holding a NUL byte",
+    path: ({ admin }) => admin.symlink("a\0", "/dir/new"),
+    reference: ({ admin, dir }) => admin.symlinkReference("a\0", dir, name("new")),
+    expected: { path: "InvalidArgument at a\0", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "checks the target before a path's parent but after a reference's name",
+    // A lone surrogate cannot be encoded, which only the target check reports.
+    path: ({ admin }) => admin.symlink("\uD800", "/gone/new"),
+    reference: ({ admin, gone }) => admin.symlinkReference("\uD800", gone, name(".")),
+    expected: { path: "InvalidPathEncoding at \uD800", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "denies an unwritable parent before a path dot name but after a reference dot name",
+    path: ({ guest }) => guest.symlink("/missing", "/."),
+    reference: ({ guest, root }) => guest.symlinkReference("/missing", root, name(".")),
+    expected: { path: "AccessDenied at /.", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "reports a removed parent as missing on paths and stale on references",
+    path: ({ admin }) => admin.symlink("/missing", "/gone/new"),
+    reference: ({ admin, gone }) => admin.symlinkReference("/missing", gone, name("new")),
+    expected: { path: "NotFound at /gone/new", reference: "StaleReference" }
+  },
+  {
+    scenario: "reports an existing name before a path's trailing slash",
+    path: ({ admin }) => admin.symlink("/missing", "/dir/existing/"),
+    reference: ({ admin, dir }) => admin.symlinkReference("/missing", dir, name("existing/")),
+    expected: { path: "AlreadyExists at /dir/existing/", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "charges the target bytes against the volume limit",
+    path: () => Effect.flatMap(smallVolume, (fs) => fs.symlink("/missing", "/new")),
+    reference: () =>
+      Effect.flatMap(
+        smallVolume,
+        (fs) => Effect.flatMap(fs.rootReference, (root) => fs.symlinkReference("/missing", root, name("new")))
+      ),
+    expected: { path: "NoSpace at /new", reference: "NoSpace" }
+  }
+]
+
 const TABLE: ReadonlyArray<readonly [verb: string, rows: ReadonlyArray<Row>]> = [
   ["mkdir", mkdirRows],
-  ["link", linkRows]
+  ["link", linkRows],
+  ["symlink", symlinkRows]
 ]
 
 describe("operation families", () => {
