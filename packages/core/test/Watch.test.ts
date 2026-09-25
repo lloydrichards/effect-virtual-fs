@@ -84,6 +84,35 @@ describe("volume watch", () => {
       assert.strictEqual(event._tag, "Some")
     }))
 
+  it.effect("registers nothing when another fiber closes the scope while registration waits", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      const scope = yield* Scope.make()
+      const held = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+
+      // A registration in flight holds the volume until released, so the second one waits for the permit.
+      const first = yield* volume.watch.pipe(
+        withVolumeTestSeams({
+          afterSubscribe: Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release)))
+        }),
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Deferred.await(held)
+      const waiting = yield* volume.watch.pipe(Scope.provide(scope), Effect.forkChild({ startImmediately: true }))
+
+      for (let i = 0; i < 4; i++) yield* Effect.yieldNow
+      yield* Scope.close(scope, Exit.void)
+      yield* Deferred.succeed(release, undefined)
+      const live = yield* Fiber.join(first)
+      const dead = yield* Fiber.join(waiting)
+      yield* caller.mkdir("/after")
+      assert.strictEqual((yield* Stream.runHead(dead))._tag, "None")
+      assert.strictEqual((yield* Stream.runHead(live))._tag, "Some")
+    }))
+
   it.effect("reports every hard link path when a file's metadata changes", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()

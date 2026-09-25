@@ -625,4 +625,37 @@ describe("overlay volumes", () => {
       assert.deepStrictEqual(yield* changePaths((yield* Fiber.join(capturing)).changes), [])
       assert.deepStrictEqual(yield* changePaths(yield* overlay.changes()), ["Added:/dir"])
     }))
+
+  it.effect("does not let later observations overtake a change waiting for the volume", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/a", bytes: bytes("v") }] }))
+        .snapshot
+
+      const overlay = yield* Vfs.makeOverlay(base)
+      const fs = yield* overlay.caller()
+      const held = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+
+      // One observation holds a permit; a change queues behind it and must run before any later observation.
+      const capturing = yield* overlay.capture().pipe(
+        withVolumeTestSeams({
+          betweenSnapshotAndSummary: Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release)))
+        }),
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Deferred.await(held)
+      const changing = yield* fs.mkdir("/dir").pipe(Effect.forkChild({ startImmediately: true }))
+
+      for (let i = 0; i < 4; i++) yield* Effect.yieldNow
+      const observing = yield* fs.stat("/dir").pipe(Effect.forkChild({ startImmediately: true }))
+
+      for (let i = 0; i < 4; i++) yield* Effect.yieldNow
+      assert.isUndefined(changing.pollUnsafe())
+      assert.isUndefined(observing.pollUnsafe())
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(capturing)
+      yield* Fiber.join(changing)
+      assert.strictEqual((yield* Fiber.join(observing)).kind, "directory")
+    }))
 })
