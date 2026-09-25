@@ -52,7 +52,7 @@ import {
   strictString
 } from "./path.js"
 import { type CommitProvider, makeStagedState } from "./stagedState.js"
-import * as TestHooks from "./testHooks.js"
+import { VolumeTestSeams } from "./testSeams.js"
 import * as WatchHub from "./watchHub.js"
 
 /** @internal */
@@ -1440,10 +1440,10 @@ export const makeVolume = Effect.fnUntraced(
       return observation
     })
 
-    const captureState = Effect.fnUntraced(function*(hook?: TestHooks.ObservationHook) {
+    const captureState = Effect.fnUntraced(function*() {
       const snapshot = yield* captureSnapshot()
 
-      if (hook !== undefined) yield* hook.betweenSnapshotAndSummary
+      yield* (yield* VolumeTestSeams).betweenSnapshotAndSummary
 
       return { snapshot, observation: yield* observeChanges() }
     })
@@ -3783,10 +3783,6 @@ export const makeVolume = Effect.fnUntraced(
       return Effect.fromResult(decodeConfiguration(OverlayChangesOptions, options === undefined ? {} : options))
     }
 
-    // An overlay is a spread copy of `volume`, so the object the caller holds is not always the one
-    // built here. `watch` runs lazily, so it reads whichever surface was actually handed out.
-    let surface: Volume
-
     const volume: Volume = Object.freeze({
       [VolumeId]: true as const,
       durability,
@@ -3801,9 +3797,9 @@ export const makeVolume = Effect.fnUntraced(
           Effect.withSpan("Volume.usage")
         ),
       watch: Effect.gen(function*() {
-        const hook = TestHooks.getRegistrationHook(surface)
+        const seams = yield* VolumeTestSeams
 
-        return yield* admit(OpContext.make("watch"), watchHub.subscribe(hook?.afterSubscribe))
+        return yield* admit(OpContext.make("watch"), watchHub.subscribe(seams.afterSubscribe))
       }).pipe(Effect.withSpan("Volume.watch")),
       snapshot: coordinatedRead(OpContext.make("snapshot"), captureSnapshot()).pipe(Effect.withSpan("Volume.snapshot")),
 
@@ -3828,14 +3824,10 @@ export const makeVolume = Effect.fnUntraced(
       })
     })
 
-    surface = volume
-
     if (!Predicate.isTagged("Overlay")(source) || baseObservation === undefined) {
       // SAFETY: Overlay sources return below, so S is non-Overlay here and VolumeFor<S> is Volume.
       return Object.freeze({ volume: volume as VolumeFor<S>, shutdown: staged?.shutdown, initialImage })
     }
-
-    const hook = TestHooks.getObservationHook(source.base)
 
     const overlay: OverlayVolume = Object.freeze({
       ...volume,
@@ -3847,7 +3839,7 @@ export const makeVolume = Effect.fnUntraced(
       }),
       capture: Effect.fn("OverlayVolume.capture")(function*(options?: OverlayChangesOptions) {
         const selected = yield* changeOptions(options)
-        const current = yield* coordinatedRead(OpContext.make("capture"), captureState(hook))
+        const current = yield* coordinatedRead(OpContext.make("capture"), captureState())
 
         return Object.freeze({
           snapshot: current.snapshot,
@@ -3857,8 +3849,6 @@ export const makeVolume = Effect.fnUntraced(
         })
       })
     })
-
-    surface = overlay
 
     return Object.freeze({ volume: overlay, shutdown: staged?.shutdown, initialImage })
   }

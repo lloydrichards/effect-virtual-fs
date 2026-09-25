@@ -1,7 +1,7 @@
 import { assert, describe } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber, Predicate, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { setRegistrationHook } from "../src/internal/testHooks.js"
+import { withVolumeTestSeams } from "../src/internal/testSeams.js"
 
 import { it } from "./TestEffect.js"
 
@@ -42,13 +42,10 @@ describe("volume watch", () => {
       const subscribed = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
 
-      const clearHook = setRegistrationHook(volume, {
-        afterSubscribe: Deferred.succeed(subscribed, undefined).pipe(Effect.andThen(Deferred.await(release)))
-      })
-
-      yield* Effect.addFinalizer(() => Effect.sync(clearHook))
+      const afterSubscribe = Deferred.succeed(subscribed, undefined).pipe(Effect.andThen(Deferred.await(release)))
 
       const watcher = yield* volume.watch.pipe(
+        withVolumeTestSeams({ afterSubscribe }),
         Effect.flatMap(Stream.runHead),
         Effect.forkChild({ startImmediately: true })
       )
