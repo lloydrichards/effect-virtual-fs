@@ -52,6 +52,7 @@ Architectural and behavioral decisions, grouped by domain. Accepted decisions ar
 - [Package boundaries](package-boundaries.md)
 - [Adapter timestamp overflow](adapter-timestamp-overflow.md)
 - [Named checkpoint persistence](named-checkpoint-persistence.md)
+- [Persistence store helpers](persistence-store-helpers.md) names every persistence failure by its entry point and shares one failure and digest module between the live stores.
 - [Tree transfer](tree-transfer.md) moves directory trees as streams of fixture entries with bounded sources, rejecting sinks, and atomic new volumes.
 - [Virtual package resolution acceptance](virtual-package-resolution-acceptance.md)
 - [Explicit build rebuilds](explicit-build-rebuilds.md)
