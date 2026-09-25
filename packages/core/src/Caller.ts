@@ -220,6 +220,26 @@ export const WalkOptions = Schema.Struct({
 export type WalkOptions = typeof WalkOptions.Type
 
 /**
+ * Schema for the options of `remove`. `recursive` removes a directory and
+ * everything under it; `force` succeeds when the target itself is missing.
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const RemoveOptions = Schema.Struct({
+  recursive: Schema.optionalKey(Schema.Boolean),
+  force: Schema.optionalKey(Schema.Boolean)
+})
+
+/**
+ * Options of `remove`.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type RemoveOptions = typeof RemoveOptions.Type
+
+/**
  * Schema for the options of `symlink`.
  *
  * @category schemas

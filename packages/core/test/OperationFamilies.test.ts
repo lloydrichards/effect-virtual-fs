@@ -475,6 +475,48 @@ const rmdirRows: ReadonlyArray<Row> = [
   }
 ]
 
+// A recursive remove judges its target as remove does, then empties a directory entry by entry; `force` forgives
+// the target going missing on either family, but a stale directory reference is not a missing name.
+const removeRecursiveRows: ReadonlyArray<Row> = [
+  {
+    scenario: "removes a directory with entries",
+    path: ({ admin }) => admin.remove("/dir", { recursive: true }),
+    reference: ({ admin, root }) => admin.remove(Vfs.Entry(root, name("dir")), { recursive: true }),
+    check: missingAt("/dir"),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "forgives a missing name with force",
+    path: ({ admin }) => admin.remove("/dir/missing", { recursive: true, force: true }),
+    reference: ({ admin, dir }) => admin.remove(Vfs.Entry(dir, name("missing")), { recursive: true, force: true }),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "forgives a removed parent with force on paths, where its reference is stale",
+    path: ({ admin }) => admin.remove("/gone/x", { recursive: true, force: true }),
+    reference: ({ admin, gone }) => admin.remove(Vfs.Entry(gone, name("x")), { recursive: true, force: true }),
+    expected: { path: "ok", reference: "StaleReference" }
+  },
+  {
+    scenario: "rejects a dot name on both families",
+    path: ({ admin }) => admin.remove("/dir/.", { recursive: true }),
+    reference: ({ admin, dir }) => admin.remove(Vfs.Entry(dir, name(".")), { recursive: true }),
+    expected: { path: "InvalidArgument at /dir/.", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects a trailing slash on a path to a file",
+    path: ({ admin }) => admin.remove("/file/", { recursive: true }),
+    reference: ({ admin, root }) => admin.remove(Vfs.Entry(root, name("file/")), { recursive: true }),
+    expected: { path: "NotDirectory at /file/", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "denies removing another owner's directory from a sticky directory",
+    path: ({ guest }) => guest.remove("/sticky/subdir", { recursive: true }),
+    reference: ({ guest, sticky }) => guest.remove(Vfs.Entry(sticky, name("subdir")), { recursive: true }),
+    expected: { path: "NotPermitted at /sticky/subdir", reference: "NotPermitted" }
+  }
+]
+
 const renameRows: ReadonlyArray<Row> = [
   {
     scenario: "moves an entry to a new name",
@@ -1069,6 +1111,7 @@ const TABLE: ReadonlyArray<readonly [verb: string, rows: ReadonlyArray<Row>]> = 
   ["symlink", symlinkRows],
   ["unlink", unlinkRows],
   ["rmdir", rmdirRows],
+  ["remove recursive", removeRecursiveRows],
   ["rename", renameRows],
   ["open", openRows],
   ["chmod", chmodRows],
