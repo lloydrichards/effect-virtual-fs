@@ -175,7 +175,7 @@ it.layer(BunCrypto.layer)("overlay agent harness", (it) => {
       const reviewer = yield* workspace.caller()
       const observed = yield* collectObservations
 
-      const watched = yield* (yield* workspace.watch).pipe(
+      const watched = yield* (yield* workspace.watch()).pipe(
         Stream.take(2),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })

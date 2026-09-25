@@ -552,7 +552,7 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
       } = yield* setup()
 
       const volume = yield* Vfs.Volume
-      const changes = yield* Testing.collectChanges(yield* volume.watch, 2)
+      const changes = yield* Testing.collectChanges(yield* volume.watch(), 2)
       const before = yield* caller.stat("/file")
 
       const changed = yield* result(
