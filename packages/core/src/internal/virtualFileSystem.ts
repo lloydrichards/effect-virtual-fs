@@ -2336,6 +2336,25 @@ export const makeVolume = Effect.fnUntraced(
         return { child, directory: { before, after: parent.revision } }
       })
 
+      const linkNode = Effect.fnUntraced(
+        function*(node: Exclude<Node, Directory>, entry: ResolvedEntry, op: OpContext) {
+          const parent = entry.parent
+          const name = yield* claimName(entry)
+
+          if (entry.trailingSlash) return yield* entry.op.fail("NotDirectory")
+          yield* reserveEntry(entry.op)
+          const before = parent.revision
+          const now = yield* timestamp(op)
+          attach(parent, name, node, now)
+          node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
+          advanceRevision(node)
+          state.entries += 1
+          publishEntry("Create", parent, name)
+
+          return { before, after: parent.revision }
+        }
+      )
+
       const rootReferenceOp = OpContext.make("rootReference")
 
       return Object.freeze({
@@ -2585,23 +2604,10 @@ export const makeVolume = Effect.fnUntraced(
                   return yield* op.fail("StaleReference")
                 }
 
-                const parent = yield* referencedDirectory(directoryReference, op)
-                yield* authorize(parent, identity, WRITE | EXECUTE, op)
+                const entry = yield* ResolvedEntry.fromReference(directoryReference, name, op)
+                const directory = yield* linkNode(node, entry, op)
 
-                if (parent.entries.has(name)) {
-                  return yield* op.fail("AlreadyExists")
-                }
-
-                if (atEntryLimit()) return yield* op.fail("NoSpace")
-                const before = parent.revision
-                const now = yield* timestamp(op)
-                attach(parent, name, node, now)
-                node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
-                advanceRevision(node)
-                state.entries += 1
-                publishEntry("Create", parent, name)
-
-                return { reference: referenceFor(node), directory: { before, after: parent.revision } }
+                return { reference: referenceFor(node), directory }
               })
             )
           }
@@ -3492,7 +3498,6 @@ export const makeVolume = Effect.fnUntraced(
           ) {
             const op = OpContext.make("link")
             const sourceOp = op.at(source)
-            const destinationOp = op.at(destination)
             const a = preparePath(source, op.operation, settings.maxPathBytes)
             const b = preparePath(destination, op.operation, settings.maxPathBytes)
             const sourceBase = options?.sourceRelativeTo
@@ -3510,29 +3515,8 @@ export const makeVolume = Effect.fnUntraced(
                   return yield* sourceOp.fail("IsDirectory")
                 }
 
-                const path = yield* Effect.fromResult(b)
-                const parent = yield* locate(path, destinationBase, op, { parentOnly: true })
-                yield* authorize(parent, identity, WRITE | EXECUTE, destinationOp)
-                const name = path.components.at(-1)
-
-                if (isDotComponent(name) || parent.entries.has(name)) {
-                  return yield* destinationOp.fail("AlreadyExists")
-                }
-
-                if (path.trailingSlash) {
-                  return yield* destinationOp.fail("NotDirectory")
-                }
-
-                if (atEntryLimit()) {
-                  return yield* destinationOp.fail("NoSpace")
-                }
-
-                const now = yield* timestamp(op)
-                attach(parent, name, node, now)
-                node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
-                advanceRevision(node)
-                state.entries += 1
-                publishEntry("Create", parent, name)
+                const entry = yield* ResolvedEntry.fromPath(b, destinationBase, op)
+                yield* linkNode(node, entry, op)
               })
             )
           }
