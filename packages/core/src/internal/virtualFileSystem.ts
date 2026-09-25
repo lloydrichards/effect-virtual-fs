@@ -1,4 +1,5 @@
 // Runtime definitions and cohesive live virtual filesystem engine.
+import * as Brand from "effect/Brand"
 import * as ByteSize from "effect/ByteSize"
 import * as Clock from "effect/Clock"
 import * as Crypto from "effect/Crypto"
@@ -32,6 +33,7 @@ import type {
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import { ConfigurationError, decodeConfiguration, FsCode as FsCodeSchema, FsError, OpContext } from "./errors.js"
 import * as Image from "./image.js"
+import * as InodeTable from "./inodeTable.js"
 import * as LiveImage from "./liveImage.js"
 import * as MetadataDomain from "./metadata.js"
 import * as Content from "./overlayContent.js"
@@ -444,41 +446,76 @@ export const Fixture = Schema.Struct({
 /** @internal */
 export type Fixture = typeof Fixture.Type
 
+// An inode number: monotonic within a volume, never reused, and persisted by the live image. A number keys the
+// inode table more cheaply than a bigint; the public metadata still reports it as one.
+type Ino = number & Brand.Brand<"@effect-vfs/core/Ino">
+
+const Ino = Brand.nominal<Ino>()
+
+const ROOT_INO = Ino(1)
+
+// One name that reaches an inode: the directory holding it and the hex-encoded name bytes.
+interface Link {
+  readonly parent: Ino
+  readonly name: string
+}
+
+// Inodes are immutable values: every change replaces the value in the state's inode table.
 interface Directory {
   readonly kind: "directory"
+  readonly ino: Ino
   readonly lineage: string | undefined
-  parent: Directory | undefined
-  readonly entries: Map<string, Node>
-  metadata: Metadata
-  revision: bigint
-  objectReference: ObjectReference | undefined
+  // Directories have one name; a detached directory keeps its last one and reads as unnamed through nlink 0.
+  readonly parent: Ino
+  readonly name: string
+  readonly entries: ReadonlyMap<string, Ino>
+  readonly metadata: Metadata
+  readonly revision: bigint
 }
 
 interface RegularFile {
   readonly kind: "file"
+  readonly ino: Ino
   readonly lineage: string | undefined
-  data: Content.Content
-  metadata: Metadata
-  revision: bigint
-  objectReference: ObjectReference | undefined
+  readonly data: Content.Content
+  readonly links: ReadonlyArray<Link>
+  readonly metadata: Metadata
+  readonly revision: bigint
 }
 
 interface SymbolicLink {
   readonly kind: "symlink"
+  readonly ino: Ino
   readonly lineage: string | undefined
   readonly target: Uint8Array
-  metadata: Metadata
-  revision: bigint
-  objectReference: ObjectReference | undefined
+  readonly links: ReadonlyArray<Link>
+  readonly metadata: Metadata
+  readonly revision: bigint
 }
 
 type Node = Directory | RegularFile | SymbolicLink
+
+// The whole volume as one value. A transition builds the next value; nothing is published until it is installed.
+interface VolumeState {
+  readonly inodes: InodeTable.InodeTable<Node>
+  // Handles holding a file open; an unlinked file stays in the table, and in the live image, while any does.
+  readonly open: ReadonlyMap<Ino, number>
+  readonly nextInode: Ino
+  readonly revision: bigint
+  readonly entries: number
+  readonly usedBytes: bigint
+}
+
+/** @internal */
+export type EngineState = VolumeState
+
+const getNode = (state: VolumeState, ino: Ino): Node | undefined => InodeTable.get(state.inodes, ino)
 
 // The namespace entry a path or a directory reference plus name resolves to, so each verb has one body. A
 // path's final component can be absent or a dot and can carry a trailing slash; a reference name never does,
 // so a body's checks for those cases never fire on references.
 interface ResolvedEntry {
-  readonly parent: Directory
+  readonly parent: Ino
   readonly name: string | undefined
   readonly trailingSlash: boolean
   // Names the path on path-addressed entries; the method's own context on reference-addressed ones.
@@ -487,7 +524,7 @@ interface ResolvedEntry {
 
 // The node a path, handle, or object reference resolves to, so each node-addressed verb has one body.
 interface ResolvedNode {
-  readonly node: Node
+  readonly ino: Ino
   // Names the path on path-addressed nodes; the method's own context on handles and references.
   readonly op: OpContext
 }
@@ -497,21 +534,6 @@ interface ResolvedNode {
 // argument checks, still runs only after validation.
 const ownedOptions = <A extends object>(options: A | undefined): A | undefined =>
   options === undefined ? undefined : { ...options }
-
-// How many handles hold a file open. A file stays in the table, and keeps its content, while any handle does.
-interface OpenFile {
-  readonly file: RegularFile
-  count: number
-}
-
-interface EngineState {
-  root: Directory
-  openFiles: Map<bigint, OpenFile>
-  revisionCounter: bigint
-  nextInode: bigint
-  entries: number
-  usedBytes: bigint
-}
 
 interface LiveImageCommon {
   ino: bigint
@@ -535,31 +557,45 @@ interface RestoredVolumeOptions {
   maxPathBytes?: ByteSize.ByteSize
 }
 
+const byIno = (a: Node, b: Node) => a.ino - b.ino
+
 // Open files that no name reaches any more; the live image keeps them until their final close.
 /** @internal */
-export const retainedFiles = (state: EngineState): Array<RegularFile> =>
-  [...state.openFiles.values()].flatMap(({ file }) => file.metadata.nlink === 0 ? [file] : [])
+export const retainedFiles = (state: VolumeState): Array<RegularFile> => {
+  const retained: Array<RegularFile> = []
+
+  for (const ino of state.open.keys()) {
+    const node = getNode(state, ino)
+
+    if (node?.kind === "file" && node.links.length === 0) retained.push(node)
+  }
+
+  return retained.sort(byIno)
+}
 
 /** @internal */
 export const captureLiveImage = Effect.fnUntraced(function*(
-  state: EngineState,
+  state: VolumeState,
   identity: VolumeIdentity,
   limits: VolumeLimits
 ) {
   const records: Array<LiveImage.Record> = []
-  const visited = new Set<bigint>()
+  const visited = new Set<Ino>()
   const retained = retainedFiles(state)
-  const pending: Array<Node> = [state.root, ...retained]
+  const pending: Array<Ino> = [ROOT_INO, ...retained.map((file) => file.ino)]
 
   for (let index = 0; index < pending.length; index++) {
     if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
-    const node = pending[index]
+    const ino = pending[index]
 
-    if (node === undefined || visited.has(node.metadata.ino)) continue
-    visited.add(node.metadata.ino)
+    if (ino === undefined || visited.has(ino)) continue
+    visited.add(ino)
+    const node = getNode(state, ino)
+
+    if (node === undefined) return yield* new ImageError({ code: "InvalidStructure" })
 
     const common: LiveImageCommon = {
-      ino: node.metadata.ino,
+      ino: BigInt(node.ino),
       revision: node.revision,
       metadata: {
         ...storedMetadata(node.metadata),
@@ -574,7 +610,7 @@ export const captureLiveImage = Effect.fnUntraced(function*(
       const entries: Array<{ name: typeof CanonicalBase64.Encoded.Type; target: bigint }> = []
 
       for (const [name, child] of node.entries) {
-        entries.push({ name: CanonicalBase64.encode(nameBytes(name)), target: child.metadata.ino })
+        entries.push({ name: CanonicalBase64.encode(nameBytes(name)), target: BigInt(child) })
         pending.push(child)
       }
 
@@ -600,48 +636,126 @@ export const captureLiveImage = Effect.fnUntraced(function*(
     format: "effect-vfs-live",
     version: 1,
     identity,
-    root: state.root.metadata.ino,
-    nextInode: state.nextInode,
-    revisionCounter: state.revisionCounter,
+    root: BigInt(ROOT_INO),
+    nextInode: BigInt(state.nextInode),
+    revisionCounter: state.revision,
     entries: state.entries,
     usedBytes: state.usedBytes,
     limits: storedLimits,
-    retainedFiles: retained.map((file) => file.metadata.ino),
+    retainedFiles: retained.map((file) => BigInt(file.ino)),
     records
   }
 
   return yield* LiveImage.encode(document)
 })
 
+// Builds the next volume value for one transition. Reads see pending writes; a discarded draft leaves the
+// base untouched, so an interrupted or failed transition needs no rollback.
+class Draft {
+  // Pending writes, applied to the table in one batch under this owner when the draft finishes.
+  private readonly owner: InodeTable.Owner = Symbol()
+  private readonly pending = new Map<Ino, Node | undefined>()
+  private opens: Map<Ino, number> | undefined
+  private nextInode: Ino
+  private changed = false
+  // The revision every inode this transition replaces is stamped with.
+  readonly revision: bigint
+  entries: number
+  usedBytes: bigint
+  // Watch events, computed against the installed value once a watcher takes them.
+  readonly events: Array<(installed: VolumeState) => Iterable<Change>> = []
+  // Handle record writes, applied once the value is installed.
+  readonly after: Array<() => void> = []
+  readonly removed: Array<Ino> = []
+
+  constructor(readonly base: VolumeState) {
+    this.nextInode = base.nextInode
+    this.revision = base.revision + 1n
+    this.entries = base.entries
+    this.usedBytes = base.usedBytes
+  }
+
+  get(ino: Ino): Node | undefined {
+    const pending = this.pending.get(ino)
+
+    return pending !== undefined || this.pending.has(ino) ? pending : InodeTable.get(this.base.inodes, ino)
+  }
+
+  // Replaces an inode with a value built for this write, stamped with this transition's revision.
+  put(node: Node): void {
+    this.changed = true
+    // SAFETY: callers construct the value they pass, so stamping it in place replaces a spread on every write.
+    const stamped = node as { revision: bigint }
+    stamped.revision = this.revision
+    this.pending.set(node.ino, node)
+  }
+
+  // Replaces an inode without stamping it; access-time updates do not advance revisions.
+  putQuiet(node: Node): void {
+    this.pending.set(node.ino, node)
+  }
+
+  // Drops an inode nothing reaches. The link change that orphaned it was stamped; its removal advances nothing.
+  remove(ino: Ino): void {
+    this.removed.push(ino)
+    this.pending.set(ino, undefined)
+  }
+
+  allocate(): Ino {
+    const ino = this.nextInode
+    this.nextInode = Ino(ino + 1)
+
+    return ino
+  }
+
+  openCount(ino: Ino): number {
+    return this.opens?.get(ino) ?? this.base.open.get(ino) ?? 0
+  }
+
+  retain(ino: Ino): void {
+    this.opens = (this.opens ?? new Map()).set(ino, this.openCount(ino) + 1)
+  }
+
+  release(ino: Ino): number {
+    const count = this.openCount(ino) - 1
+    this.opens = (this.opens ?? new Map()).set(ino, count < 0 ? 0 : count)
+
+    return count
+  }
+
+  finish(): VolumeState {
+    const base = this.base
+    let inodes = base.inodes
+
+    for (const [ino, node] of this.pending) inodes = InodeTable.set(inodes, ino, node, this.owner)
+    let open = base.open
+
+    if (this.opens !== undefined) {
+      const next = new Map(base.open)
+
+      for (const [ino, count] of this.opens) {
+        if (count > 0) next.set(ino, count)
+        else next.delete(ino)
+      }
+
+      open = next
+    }
+
+    return {
+      inodes,
+      open,
+      nextInode: this.nextInode,
+      revision: this.changed ? this.revision : base.revision,
+      entries: this.entries,
+      usedBytes: this.usedBytes
+    }
+  }
+}
+
+// The object reference token stays opaque; this pairs it with the volume that issued it and the inode it names.
 interface ObjectReferenceState {
   readonly volume: symbol
-  cell: NodeCell | undefined
-  active: boolean
-}
-
-interface NodeCell {
-  node: Node
-}
-
-interface FileReferenceRecord {
-  cell: NodeCell | undefined
-  closed: boolean
-  offset: bigint
-}
-
-interface DirectoryReferenceRecord {
-  cell: NodeCell | undefined
-  closed: boolean
-}
-
-interface CandidateContext {
-  readonly nodes: Map<Node, Node>
-  readonly previous: Map<Node, Node>
-  readonly files: Map<FileReference, FileReferenceRecord>
-  readonly directories: Map<DirectoryReference, DirectoryReferenceRecord>
-  readonly invalidated: Set<ObjectReferenceState>
-  readonly events: Array<() => void>
-  readonly apply: Array<() => void>
+  readonly ino: Ino
 }
 
 const objectReferences = new WeakMap<ObjectReference, ObjectReferenceState>()
@@ -658,9 +772,10 @@ interface HandleScope {
   closed: boolean
 }
 
+// Handle records are written only after the transition that changes them is installed.
 interface FileReference extends HandleScope {
   readonly volume: symbol
-  file: RegularFile | undefined
+  ino: Ino | undefined
   offset: bigint
   readonly access: "read" | "write" | "readWrite"
   readonly append: boolean
@@ -670,7 +785,7 @@ const files = new WeakMap<FileHandle, FileReference>()
 
 interface DirectoryReference extends HandleScope {
   readonly volume: symbol
-  directory: Directory | undefined
+  ino: Ino | undefined
 }
 
 const handles = new WeakMap<DirectoryHandle, DirectoryReference>()
@@ -699,6 +814,20 @@ const storedMetadata = (metadata: Metadata): Image.StoredMetadata => ({
   birthtimeNs: metadata.birthtimeNs
 })
 
+const withEntries = (directory: Directory, edit: (entries: Map<string, Ino>) => void): Directory => {
+  const entries = new Map(directory.entries)
+  edit(entries)
+
+  return { ...directory, entries }
+}
+
+// Removes one link to a file or symbolic link.
+const withoutLink = (links: ReadonlyArray<Link>, parent: Ino, name: string): ReadonlyArray<Link> => {
+  const index = links.findIndex((link) => link.parent === parent && link.name === name)
+
+  return index < 0 ? links : [...links.slice(0, index), ...links.slice(index + 1)]
+}
+
 type VolumeSource =
   | { readonly _tag: "Empty" }
   | { readonly _tag: "Snapshot"; readonly image: Image.Document }
@@ -718,6 +847,11 @@ const UpdateChange = Schema.TaggedStruct("Update", { path: BytePath })
 
 const RescanChange = Schema.TaggedStruct("Rescan", { path: BytePath })
 
+// The candidate a staged commit sees: the next value plus the draft that produced it, installed on publish.
+interface Candidate {
+  value: VolumeState
+  draft: Draft | undefined
+}
 // Each execution constructs a fresh volume and captures its Clock.
 
 /** @internal */
@@ -725,9 +859,9 @@ export const makeVolume = Effect.fnUntraced(
   function*<S extends VolumeSource>(
     source: S,
     options?: VolumeOptions,
-    commitProvider?: CommitProvider<EngineState>,
+    commitProvider?: CommitProvider<VolumeState>,
     captureInitial?: (
-      state: EngineState,
+      state: VolumeState,
       identity: VolumeIdentity,
       limits: VolumeLimits
     ) => Effect.Effect<Uint8Array, ImageError>,
@@ -779,148 +913,28 @@ export const makeVolume = Effect.fnUntraced(
       })
 
     const volumeIdentity = Symbol()
-    let activeStage: CandidateContext | undefined
-    const directoryReferences = new Set<DirectoryReference>()
-    // A capability holds a cell instead of a particular node object. Publication can replace
-    // the node behind the cell without replacing the capability held by a caller.
-    const cells = new WeakMap<Node, NodeCell>()
+    // One token per inode, so aliases and renames return the same reference; dropped when the inode leaves the table.
+    const tokens = new Map<Ino, ObjectReference>()
+    // Directory handles holding an inode. Not part of the value: opening a directory is an observation, and the
+    // live image never keeps a detached directory. A held directory stays in the table until its last close.
+    const directoryHolds = new Map<Ino, number>()
 
-    const cellFor = (node: Node): NodeCell => {
-      const existing = cells.get(node)
+    const makeFileReference = (access: FileReference["access"], append: boolean): FileReference => ({
+      volume: volumeIdentity,
+      scope: undefined,
+      closed: false,
+      ino: undefined,
+      offset: 0n,
+      access,
+      append
+    })
 
-      if (existing !== undefined) return existing
-      const previous = activeStage?.previous.get(node)
-      const retained = previous === undefined ? undefined : cells.get(previous)
-
-      if (retained !== undefined) {
-        cells.set(node, retained)
-
-        return retained
-      }
-
-      let current = node
-
-      const cell: NodeCell = {
-        get node() {
-          return activeStage?.nodes.get(current) ?? current
-        },
-        set node(next) {
-          current = next
-        }
-      }
-
-      cells.set(node, cell)
-
-      return cell
-    }
-
-    const makeFileReference = (access: FileReference["access"], append: boolean): FileReference => {
-      const live: FileReferenceRecord = { cell: undefined, closed: false, offset: 0n }
-      let reference: FileReference
-
-      const record = () => {
-        if (activeStage === undefined) return live
-        let staged = activeStage.files.get(reference)
-
-        if (staged === undefined) {
-          staged = { ...live }
-          activeStage.files.set(reference, staged)
-          const pending = staged
-          activeStage.apply.push(() => {
-            Object.assign(live, pending)
-          })
-        }
-
-        return staged
-      }
-
-      reference = {
-        volume: volumeIdentity,
-        scope: undefined,
-        get file() {
-          const node = record().cell?.node
-
-          return node?.kind === "file" ? node : undefined
-        },
-        set file(file) {
-          record().cell = file === undefined ? undefined : cellFor(file)
-        },
-        get closed() {
-          return record().closed
-        },
-        set closed(value) {
-          record().closed = value
-        },
-        get offset() {
-          return record().offset
-        },
-        set offset(value) {
-          record().offset = value
-        },
-        access,
-        append
-      }
-
-      return reference
-    }
-
-    const makeDirectoryReference = (directory?: Directory): DirectoryReference => {
-      const live: DirectoryReferenceRecord = {
-        cell: directory === undefined ? undefined : cellFor(directory),
-        closed: false
-      }
-
-      let reference: DirectoryReference
-
-      const record = () => {
-        if (activeStage === undefined) return live
-        let staged = activeStage.directories.get(reference)
-
-        if (staged === undefined) {
-          staged = { ...live }
-          activeStage.directories.set(reference, staged)
-          const pending = staged
-          activeStage.apply.push(() => {
-            Object.assign(live, pending)
-
-            if (live.cell === undefined || live.cell.node === state.root) directoryReferences.delete(reference)
-            else directoryReferences.add(reference)
-          })
-        }
-
-        return staged
-      }
-
-      reference = {
-        volume: volumeIdentity,
-        scope: undefined,
-        get directory() {
-          const node = record().cell?.node
-
-          return node?.kind === "directory" ? node : undefined
-        },
-        set directory(directory) {
-          record().cell = directory === undefined ? undefined : cellFor(directory)
-
-          if (activeStage === undefined) {
-            if (directory === undefined || directory === state.root) directoryReferences.delete(reference)
-            else directoryReferences.add(reference)
-          }
-        },
-        get closed() {
-          return record().closed
-        },
-        set closed(value) {
-          record().closed = value
-        }
-      }
-
-      if (directory !== undefined && directory !== state.root && activeStage === undefined) {
-        directoryReferences.add(reference)
-      }
-
-      return reference
-    }
+    const makeDirectoryReference = (ino?: Ino): DirectoryReference => ({
+      volume: volumeIdentity,
+      scope: undefined,
+      closed: false,
+      ino
+    })
 
     const gate = Semaphore.makeUnsafe(1)
     const maxPendingOperations = settings.maxPendingOperations ?? 64
@@ -934,24 +948,25 @@ export const makeVolume = Effect.fnUntraced(
         }))
       )
 
-    let state: EngineState = {
-      root: {
-        kind: "directory",
-        lineage: image?.root,
-        parent: undefined,
-        entries: new Map(),
-        metadata: directoryMetadata(1n, 0, 0, 0o755, initialTime),
-        revision: 1n,
-        objectReference: undefined
-      },
-      openFiles: new Map(),
-      revisionCounter: 1n,
-      nextInode: 2n,
+    const root: Directory = {
+      kind: "directory",
+      ino: ROOT_INO,
+      lineage: image?.root,
+      parent: ROOT_INO,
+      name: "",
+      entries: new Map(),
+      metadata: directoryMetadata(BigInt(ROOT_INO), 0, 0, 0o755, initialTime),
+      revision: 1n
+    }
+
+    let state: VolumeState = {
+      inodes: InodeTable.set(InodeTable.empty<Node>(), ROOT_INO, root),
+      open: new Map(),
+      nextInode: Ino(2),
+      revision: 1n,
       entries: 0,
       usedBytes: 0n
     }
-
-    const nextRevision = () => ++state.revisionCounter
 
     // The schema caps this value at uint32, so this boundary conversion is exact.
     const maxFileBytes = Number(ByteSize.toBigInt(settings.maxFileBytes ?? ByteSize.bytes(0xffffffff)))
@@ -966,7 +981,6 @@ export const makeVolume = Effect.fnUntraced(
     })
 
     if (image !== undefined) {
-      const incoming = new Map<string, Node>()
       let content = 0n
       let count = 0
 
@@ -993,12 +1007,20 @@ export const makeVolume = Effect.fnUntraced(
       }
 
       const baseContents = Predicate.isTagged("Overlay")(source) ? Content.forOverlay(source.base, image) : undefined
+      // Restored inodes are built mutably here and frozen into the table once every entry is wired.
+      const incoming = new Map<string, { node: Node; entries: Map<string, Ino>; links: Array<Link> }>()
+      let nextInode = state.nextInode
 
       for (const record of image.records) {
+        const isRoot = record.id === image.root
+        const ino = isRoot ? ROOT_INO : nextInode
+
+        if (!isRoot) nextInode = Ino(nextInode + 1)
+
         const metadata: Metadata = {
           ...record.metadata,
           kind: record._tag,
-          ino: record.id === image.root ? 1n : state.nextInode++,
+          ino: BigInt(ino),
           nlink: Image.Record.guards.directory(record) ? 2 : 0,
           size: 0n,
           atimeNs: record.metadata.atimeNs,
@@ -1008,39 +1030,52 @@ export const makeVolume = Effect.fnUntraced(
         }
 
         if (Image.Record.guards.directory(record)) {
-          const node: Directory = record.id === image.root
-            ? state.root
-            : {
+          const entries = new Map<string, Ino>()
+          incoming.set(record.id, {
+            node: {
               kind: "directory",
+              ino,
               lineage: record.id,
-              parent: undefined,
-              entries: new Map(),
+              parent: ROOT_INO,
+              name: "",
+              entries,
               metadata,
-              revision: nextRevision(),
-              objectReference: undefined
-            }
-
-          node.metadata = metadata
-          incoming.set(record.id, node)
+              revision: 1n
+            },
+            entries,
+            links: []
+          })
         } else if (Image.Record.guards.file(record)) {
           const data = baseContents?.get(record.id) ?? Content.make(yield* CanonicalBase64.decode(record.data))
+          const links: Array<Link> = []
           incoming.set(record.id, {
-            kind: "file",
-            lineage: record.id,
-            data,
-            metadata: { ...metadata, size: BigInt(data.bytes.length) },
-            revision: nextRevision(),
-            objectReference: undefined
+            node: {
+              kind: "file",
+              ino,
+              lineage: record.id,
+              data,
+              links,
+              metadata: { ...metadata, size: BigInt(data.bytes.length) },
+              revision: 1n
+            },
+            entries: new Map(),
+            links
           })
         } else {
           const target = yield* CanonicalBase64.decode(record.target)
+          const links: Array<Link> = []
           incoming.set(record.id, {
-            kind: "symlink",
-            lineage: record.id,
-            target,
-            metadata: { ...metadata, size: BigInt(target.length) },
-            revision: nextRevision(),
-            objectReference: undefined
+            node: {
+              kind: "symlink",
+              ino,
+              lineage: record.id,
+              target,
+              links,
+              metadata: { ...metadata, size: BigInt(target.length) },
+              revision: 1n
+            },
+            entries: new Map(),
+            links
           })
         }
       }
@@ -1049,62 +1084,96 @@ export const makeVolume = Effect.fnUntraced(
         if (!Image.Record.guards.directory(record)) continue
         const parent = incoming.get(record.id)
 
-        if (parent?.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
+        if (parent?.node.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
 
         for (const entry of record.entries) {
-          const node = incoming.get(entry.target)
+          const child = incoming.get(entry.target)
 
-          if (node === undefined) return yield* new ImageError({ code: "InvalidStructure" })
-          parent.entries.set(Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name)), node)
+          if (child === undefined) return yield* new ImageError({ code: "InvalidStructure" })
+          const name = Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name))
+          parent.entries.set(name, child.node.ino)
 
-          if (node.kind === "directory") {
-            node.parent = parent
-            parent.metadata = { ...parent.metadata, nlink: parent.metadata.nlink + 1 }
-          } else node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1 }
+          if (child.node.kind === "directory") {
+            child.node = { ...child.node, parent: parent.node.ino, name }
+            parent.node = {
+              ...parent.node,
+              metadata: { ...parent.node.metadata, nlink: parent.node.metadata.nlink + 1 }
+            }
+          } else {
+            child.links.push({ parent: parent.node.ino, name })
+            child.node = { ...child.node, metadata: { ...child.node.metadata, nlink: child.node.metadata.nlink + 1 } }
+          }
         }
       }
 
-      state.entries = count
-      state.usedBytes = content
+      const owner = Symbol()
+      let inodes = InodeTable.empty<Node>()
+
+      for (const { node } of incoming.values()) inodes = InodeTable.set(inodes, node.ino, node, owner)
+
+      if (InodeTable.get(inodes, ROOT_INO) === undefined) inodes = InodeTable.set(inodes, ROOT_INO, root, owner)
+
+      state = {
+        ...state,
+        inodes,
+        nextInode,
+        entries: count,
+        usedBytes: content
+      }
     }
 
     if (live !== undefined) {
-      const incoming = new Map<bigint, Node>()
+      const incoming = new Map<bigint, { node: Node; entries: Map<string, Ino>; links: Array<Link> }>()
 
       for (const record of live.records) {
-        const metadata: Metadata = {
-          ...record.metadata,
-          kind: record._tag,
-          ino: record.ino
-        }
+        const ino = Ino(Number(record.ino))
+        const metadata: Metadata = { ...record.metadata, kind: record._tag, ino: record.ino }
 
         if (LiveImage.Record.guards.directory(record)) {
+          const entries = new Map<string, Ino>()
           incoming.set(record.ino, {
-            kind: "directory",
-            lineage: record.lineage,
-            parent: undefined,
-            entries: new Map(),
-            metadata,
-            revision: record.revision,
-            objectReference: undefined
+            node: {
+              kind: "directory",
+              ino,
+              lineage: record.lineage,
+              parent: ROOT_INO,
+              name: "",
+              entries,
+              metadata,
+              revision: record.revision
+            },
+            entries,
+            links: []
           })
         } else if (LiveImage.Record.guards.file(record)) {
+          const links: Array<Link> = []
           incoming.set(record.ino, {
-            kind: "file",
-            lineage: record.lineage,
-            data: Content.make(yield* CanonicalBase64.decode(record.data)),
-            metadata,
-            revision: record.revision,
-            objectReference: undefined
+            node: {
+              kind: "file",
+              ino,
+              lineage: record.lineage,
+              data: Content.make(yield* CanonicalBase64.decode(record.data)),
+              links,
+              metadata,
+              revision: record.revision
+            },
+            entries: new Map(),
+            links
           })
         } else {
+          const links: Array<Link> = []
           incoming.set(record.ino, {
-            kind: "symlink",
-            lineage: record.lineage,
-            target: yield* CanonicalBase64.decode(record.target),
-            metadata,
-            revision: record.revision,
-            objectReference: undefined
+            node: {
+              kind: "symlink",
+              ino,
+              lineage: record.lineage,
+              target: yield* CanonicalBase64.decode(record.target),
+              links,
+              metadata,
+              revision: record.revision
+            },
+            entries: new Map(),
+            links
           })
         }
       }
@@ -1113,126 +1182,125 @@ export const makeVolume = Effect.fnUntraced(
         if (!LiveImage.Record.guards.directory(record)) continue
         const parent = incoming.get(record.ino)
 
-        if (parent?.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
+        if (parent?.node.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
 
         for (const entry of record.entries) {
           const child = incoming.get(entry.target)
 
           if (child === undefined) return yield* new ImageError({ code: "InvalidStructure" })
-          parent.entries.set(Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name)), child)
+          const name = Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name))
+          parent.entries.set(name, child.node.ino)
 
-          if (child.kind === "directory") child.parent = parent
+          if (child.node.kind === "directory") child.node = { ...child.node, parent: parent.node.ino, name }
+          else child.links.push({ parent: parent.node.ino, name })
         }
       }
 
-      const root = incoming.get(live.root)
+      const restoredRoot = incoming.get(live.root)
 
-      if (root?.kind !== "directory") return yield* new ImageError({ code: "InvalidStructure" })
-      state.root = root
-      state.nextInode = live.nextInode
-      state.revisionCounter = live.revisionCounter
-      state.entries = live.entries
-      state.usedBytes = live.usedBytes
+      if (restoredRoot?.node.kind !== "directory" || restoredRoot.node.ino !== ROOT_INO) {
+        return yield* new ImageError({ code: "InvalidStructure" })
+      }
+
+      let usedBytes = live.usedBytes
 
       // A previous process's handles no longer exist. Their zero-link files
       // remain in the stored image but are reclaimed from this runtime state.
       for (const ino of live.retainedFiles) {
         const orphan = incoming.get(ino)
 
-        if (orphan?.kind !== "file") return yield* new ImageError({ code: "InvalidStructure" })
-        state.usedBytes -= BigInt(orphan.data.bytes.length)
+        if (orphan?.node.kind !== "file") return yield* new ImageError({ code: "InvalidStructure" })
+        usedBytes -= BigInt(orphan.node.data.bytes.length)
+        incoming.delete(ino)
+      }
+
+      const owner = Symbol()
+      let inodes = InodeTable.empty<Node>()
+
+      for (const { node } of incoming.values()) inodes = InodeTable.set(inodes, node.ino, node, owner)
+
+      state = {
+        inodes,
+        open: new Map(),
+        nextInode: Ino(Number(live.nextInode)),
+        revision: live.revisionCounter,
+        entries: live.entries,
+        usedBytes
       }
     }
 
     const initialImage = captureInitial === undefined ? undefined : yield* captureInitial(state, identity, limits)
 
-    const contexts = new WeakMap<EngineState, CandidateContext>()
+    // The running transition's draft; reads inside a transition see its pending writes.
+    let draft: Draft | undefined
 
-    const copyState = (current: EngineState) =>
-      Effect.sync(() => {
-        const nodes = new Map<Node, Node>()
+    const view = (ino: Ino): Node | undefined => draft === undefined ? getNode(state, ino) : draft.get(ino)
 
-        const copyDirectory = (node: Directory): Directory => {
-          const existing = nodes.get(node)
+    const watchCoordinate: WatchHub.Coordinator = (effect) =>
+      staged === undefined ? gate.withPermit(effect) : staged.coordinate(effect)
 
-          if (existing?.kind === "directory") return existing
-          const copy: Directory = { ...node, entries: new Map(), metadata: { ...node.metadata }, parent: undefined }
-          nodes.set(node, copy)
-          copy.parent = node.parent === undefined ? undefined : copyDirectory(node.parent)
+    const watchHub = yield* WatchHub.make<Change, FsError>(
+      watchCoordinate,
+      settings.maxWatchEvents ?? 256,
+      () => RescanChange.make({ path: ownedPath(new Uint8Array([47])) }),
+      Effect.suspend(() => staged === undefined ? Effect.void : staged.checkAvailable("watch"))
+    )
 
-          for (const [name, child] of node.entries) copy.entries.set(name, copyNode(child))
+    // Installs a finished draft: the only place the volume's value changes, and where its events publish.
+    const install = (finished: Draft) => {
+      const next = finished.finish()
+      state = next
 
-          return copy
-        }
+      for (const ino of finished.removed) tokens.delete(ino)
 
-        const copyNode = (node: Node): Node => {
-          if (node.kind === "directory") return copyDirectory(node)
-          const existing = nodes.get(node)
+      for (const apply of finished.after) apply()
 
-          if (existing !== undefined) return existing
-          const copy = { ...node, metadata: { ...node.metadata } }
-          nodes.set(node, copy)
+      for (const events of finished.events) watchHub.publishManyUnsafe(() => events(next))
+    }
 
-          return copy
-        }
+    // Runs a change against a fresh draft and hands the finished draft to `commit` on success. A failure or an
+    // interruption anywhere in the change discards the draft, so the volume's value is untouched.
+    const transition = <A, E, R>(change: Effect.Effect<A, E, R>, commit: (finished: Draft) => void) =>
+      Effect.suspend(() => {
+        const current = new Draft(state)
+        draft = current
 
-        const candidate: EngineState = { ...current, root: copyDirectory(current.root), openFiles: new Map() }
+        return Effect.onExit(change, (exit) => {
+          draft = undefined
 
-        // Open files stay alive after the namespace stops reaching them.
-        for (const [ino, { file, count }] of current.openFiles) {
-          const copy = copyNode(file)
+          if (Exit.isSuccess(exit)) commit(current)
 
-          if (copy.kind === "file") candidate.openFiles.set(ino, { file: copy, count })
-        }
-
-        for (const reference of directoryReferences) {
-          const directory = reference.directory
-
-          if (directory !== undefined) copyDirectory(directory)
-        }
-
-        contexts.set(candidate, {
-          nodes,
-          previous: new Map([...nodes].map(([prior, next]) => [next, prior])),
-          files: new Map(),
-          directories: new Map(),
-          invalidated: new Set(),
-          events: [],
-          apply: []
+          return Effect.void
         })
-
-        return candidate
       })
 
-    const staged = commitProvider === undefined ? undefined : makeStagedState<EngineState, () => void>(
-      state,
-      copyState,
-      commitProvider,
-      (candidate, events) => {
-        const context = contexts.get(candidate)
+    // A change that runs outside admission and needs no provider: handle cleanup.
+    const applyDirect = (change: (d: Draft) => void) => {
+      const current = new Draft(state)
+      draft = current
 
-        // copyState registers every candidate, so a miss is a broken invariant; stagedState reports the throw
-        // as OutcomeUnknown and stops the volume.
-        // TODO(#184): the candidate context disappears once staging is a commit decorator over a tree value.
-        if (context === undefined) throw new Error("Staged candidate was published without its engine context")
-        state = candidate
+      try {
+        change(current)
+      } finally {
+        draft = undefined
+      }
 
-        for (const [previous, next] of context.nodes) {
-          const cell = cells.get(previous)
+      install(current)
+    }
 
-          if (cell !== undefined) {
-            cell.node = next
-            cells.set(next, cell)
-          }
-        }
+    // The provider sees the next value; the draft that built it is installed on publish.
+    const boxedProvider = (provider: CommitProvider<VolumeState>): CommitProvider<Candidate> => {
+      const prepare = provider.prepare
+      const commit = (candidate: Candidate) => provider.commit(candidate.value)
 
-        for (const apply of context.apply) apply()
+      return prepare === undefined ? { commit } : { prepare: (candidate) => prepare(candidate.value), commit }
+    }
 
-        for (const reference of context.invalidated) {
-          reference.active = false
-          reference.cell = undefined
-        }
-
+    const staged = commitProvider === undefined ? undefined : makeStagedState<Candidate, () => void>(
+      { value: state, draft: undefined },
+      () => Effect.sync((): Candidate => ({ value: state, draft: undefined })),
+      boxedProvider(commitProvider),
+      (_candidate, events) => {
         for (const event of events) event()
       }
     )
@@ -1242,34 +1310,14 @@ export const makeVolume = Effect.fnUntraced(
       admit(
         op,
         staged === undefined
-          ? gate.withPermit(Effect.uninterruptible(effect))
+          ? gate.withPermit(Effect.uninterruptible(transition(effect, install)))
           : staged.mutate(op.operation, (candidate, emit) =>
-            Effect.gen(function*() {
-              const previous = state
-              const context = contexts.get(candidate)
-
-              if (context === undefined) return yield* Effect.die("Missing staged engine state")
-
-              // The swap and the change run to completion as they do unstaged, and the swap is
-              // undone however the change ends. Swapping outside this region would let an
-              // interrupt land before the restore is installed.
-              const value = yield* Effect.uninterruptible(
-                Effect.sync(() => {
-                  state = candidate
-                  activeStage = context
-                }).pipe(
-                  Effect.andThen(effect),
-                  Effect.ensuring(Effect.sync(() => {
-                    state = previous
-                    activeStage = undefined
-                  }))
-                )
-              )
-
-              for (const event of context.events) emit(event)
-
-              return value
-            }), onStorageFailure)
+            // The change runs to completion as it does unstaged; its draft is discarded however it ends.
+            Effect.uninterruptible(transition(effect, (finished) => {
+              candidate.value = finished.finish()
+              candidate.draft = finished
+              emit(() => install(finished))
+            })), onStorageFailure)
       )
 
     // Pure observations share the permit without making a candidate or calling the provider.
@@ -1281,102 +1329,87 @@ export const makeVolume = Effect.fnUntraced(
         ? gate.withPermit(Effect.uninterruptible(effect))
         : staged.coordinate(Effect.uninterruptible(effect))
 
-    const watchCoordinate: WatchHub.Coordinator = (effect) =>
-      staged === undefined ? gate.withPermit(effect) : staged.coordinate(effect)
+    const current = (): Draft => {
+      if (draft === undefined) throw new Error("Volume mutation outside a transition")
 
-    const watchHub = yield* WatchHub.make<Change, FsError>(
-      watchCoordinate,
-      settings.maxWatchEvents ?? 256,
-      () => RescanChange.make({ path: ownedPath(new Uint8Array([47])) }),
-      staged?.checkAvailable("watch")
-    )
-
-    const queuePublish = (publish: () => void) => {
-      if (activeStage === undefined) publish()
-      else activeStage.events.push(publish)
+      return draft
     }
 
-    const directoryHex = (directory: Directory): string => {
+    // The path that reaches a directory, or nothing once it is detached or an ancestor is gone.
+    const pathOf = (get: (ino: Ino) => Node | undefined, ino: Ino): string | undefined => {
       const names: Array<string> = []
-      let current = directory
+      let node = get(ino)
 
-      while (current.parent !== undefined) {
-        const parent = current.parent
-        const found = [...parent.entries].find(([, node]) => node === current)
+      if (node?.kind !== "directory" || node.metadata.nlink === 0) return undefined
 
-        if (found === undefined) break
-        names.push(found[0])
-        current = parent
+      while (node.ino !== ROOT_INO) {
+        names.push(node.name)
+        const parent = get(node.parent)
+
+        if (parent?.kind !== "directory" || parent.metadata.nlink === 0) return undefined
+        node = parent
       }
 
       return SLASH_HEX + names.reverse().join(SLASH_HEX)
     }
 
-    const publishEntry = (_tag: Change["_tag"], parent: Directory, name: string) => {
-      queuePublish(() =>
-        watchHub.publishUnsafe(() => {
-          const prefix = directoryHex(parent)
+    const entryPath = (prefix: string, name: string) =>
+      ownedPath(nameBytes(prefix + (prefix === SLASH_HEX ? "" : SLASH_HEX) + name))
 
-          return { _tag, path: ownedPath(nameBytes(prefix + (prefix === SLASH_HEX ? "" : SLASH_HEX) + name)) }
-        })
-      )
+    // Events name their paths against the installed value, and only once a watcher takes them.
+    const publishEntry = (_tag: Change["_tag"], parent: Ino, name: string) => {
+      current().events.push((installed) => {
+        const prefix = pathOf((ino) => getNode(installed, ino), parent)
+
+        return prefix === undefined ? [] : [{ _tag, path: entryPath(prefix, name) }]
+      })
     }
 
-    const publishNode = (target: Node) => {
-      // Directories are never hard linked, so one name reaches them and the parent chain resolves it.
+    const publishNode = (ino: Ino) => {
+      const target = current().get(ino)
+
+      if (target === undefined) return
+
       if (target.kind === "directory") {
-        // Removal and rename displacement drop the link count while open handles keep reaching the node.
-        // No name resolves it any more, so its empty parent chain would otherwise read as the root path.
-        // The file scan below stops on the same signal, and `lookup` already reads it as NotFound.
-        if (target.metadata.nlink === 0) return
-        queuePublish(() =>
-          watchHub.publishUnsafe(() => UpdateChange.make({ path: ownedPath(nameBytes(directoryHex(target))) }))
-        )
+        current().events.push((installed) => {
+          const path = pathOf((at) => getNode(installed, at), ino)
+
+          return path === undefined ? [] : [UpdateChange.make({ path: ownedPath(nameBytes(path)) })]
+        })
 
         return
       }
 
-      queuePublish(() =>
-        watchHub.publishManyUnsafe(() => {
-          const changes: Array<Change> = []
-          const pending: Array<readonly [Directory, string]> = [[state.root, SLASH_HEX]]
+      // The names bound now: a later transition may rename them, but this one published these.
+      const links = target.links
 
-          // nlink counts the names bound to this node, so the scan stops once it has found them all.
-          while (pending.length > 0 && changes.length < target.metadata.nlink) {
-            const next = pending.pop()
+      current().events.push((installed) => {
+        const changes: Array<Change> = []
 
-            if (next === undefined) break
-            const [directory, prefix] = next
+        for (const link of links) {
+          const prefix = pathOf((at) => getNode(installed, at), link.parent)
 
-            for (const [name, node] of directory.entries) {
-              const path = prefix + name
+          if (prefix !== undefined) changes.push(UpdateChange.make({ path: entryPath(prefix, link.name) }))
+        }
 
-              if (node === target) {
-                changes.push(UpdateChange.make({ path: ownedPath(nameBytes(path)) }))
-              }
-
-              if (node.kind === "directory") pending.push([node, path + SLASH_HEX])
-            }
-          }
-
-          return changes
-        })
-      )
+        return changes
+      })
     }
 
-    const captureSnapshot = Effect.fnUntraced(function*() {
-      const ids = new Map<Node, string>([[state.root, "0"]])
-      const pending: Array<Node> = [state.root]
+    const captureSnapshot = Effect.fnUntraced(function*(captured: VolumeState) {
+      const ids = new Map<Ino, string>([[ROOT_INO, "0"]])
+      const pending: Array<Ino> = [ROOT_INO]
       const records: Array<Image.Record> = []
 
       for (let index = 0; index < pending.length; index++) {
         if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
-        const node = pending[index]
+        const ino = pending[index]
 
-        if (node === undefined) continue
-        const id = ids.get(node)
+        if (ino === undefined) continue
+        const node = getNode(captured, ino)
+        const id = ids.get(ino)
 
-        if (id === undefined) return yield* new ImageError({ code: "InvalidStructure" })
+        if (id === undefined || node === undefined) return yield* new ImageError({ code: "InvalidStructure" })
         const metadata = storedMetadata(node.metadata)
 
         if (node.kind === "directory") {
@@ -1405,16 +1438,19 @@ export const makeVolume = Effect.fnUntraced(
       return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records }, undefined, true)
     })
 
-    const observeChanges = Effect.fnUntraced(function*() {
+    const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
       const observation: Array<ObservationEntry> = []
-      const paths: Array<readonly [Node, Uint8Array]> = [[state.root, new Uint8Array([SLASH_BYTE])]]
+      const paths: Array<readonly [Ino, Uint8Array]> = [[ROOT_INO, new Uint8Array([SLASH_BYTE])]]
 
       for (let index = 0; index < paths.length; index++) {
         if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
-        const current = paths[index]
+        const entry = paths[index]
 
-        if (current === undefined) continue
-        const [node, path] = current
+        if (entry === undefined) continue
+        const [ino, path] = entry
+        const node = getNode(captured, ino)
+
+        if (node === undefined) continue
         observation.push({
           path: new Uint8Array(path),
           lineage: node.lineage,
@@ -1441,51 +1477,59 @@ export const makeVolume = Effect.fnUntraced(
     })
 
     const captureState = Effect.fnUntraced(function*() {
-      const snapshot = yield* captureSnapshot()
+      const captured = state
+      const snapshot = yield* captureSnapshot(captured)
 
       yield* (yield* VolumeTestSeams).betweenSnapshotAndSummary
 
-      return { snapshot, observation: yield* observeChanges() }
+      return { snapshot, observation: yield* observeChanges(captured) }
     })
 
-    const advanceRevision = (node: Node) => {
-      node.revision = nextRevision()
-    }
+    const referenceFor = (ino: Ino): ObjectReference => {
+      const existing = tokens.get(ino)
 
-    const referenceFor = (node: Node): ObjectReference => {
-      if (node.objectReference !== undefined) return node.objectReference
+      if (existing !== undefined) return existing
       const reference = Object.freeze({ [ObjectReferenceId]: true as const })
-      objectReferences.set(reference, { volume: volumeIdentity, cell: cellFor(node), active: true })
-      node.objectReference = reference
+      objectReferences.set(reference, { volume: volumeIdentity, ino })
+      tokens.set(ino, reference)
 
       return reference
     }
 
-    const invalidateReference = (node: Node) => {
-      const reference = node.objectReference
+    const holdDirectory = (ino: Ino) => {
+      directoryHolds.set(ino, (directoryHolds.get(ino) ?? 0) + 1)
+    }
 
-      if (reference === undefined) return
-      const state = objectReferences.get(reference)
+    // Drops one hold; a detached directory nothing holds any more leaves the table.
+    const unholdDirectory = (ino: Ino) => {
+      const count = (directoryHolds.get(ino) ?? 1) - 1
 
-      if (state !== undefined) {
-        if (activeStage === undefined) {
-          state.active = false
-          state.cell = undefined
-        } else activeStage.invalidated.add(state)
+      if (count > 0) {
+        directoryHolds.set(ino, count)
+
+        return
       }
 
-      node.objectReference = undefined
+      directoryHolds.delete(ino)
+      const node = getNode(state, ino)
+
+      if (node?.kind === "directory" && node.metadata.nlink === 0) applyDirect((d) => d.remove(ino))
     }
 
     const releaseDirectory = (reference: DirectoryReference) => {
-      reference.directory = undefined
+      const ino = reference.ino
+      reference.ino = undefined
       reference.closed = true
+
+      if (ino !== undefined) unholdDirectory(ino)
     }
 
     const finalizeDirectory = (reference: DirectoryReference) =>
       Effect.uninterruptible(
         Effect.suspend(() =>
-          reference.closed ? Effect.void : coordinatedCleanup(Effect.sync(() => releaseDirectory(reference)))
+          reference.closed
+            ? Effect.void
+            : coordinatedCleanup(Effect.sync(() => releaseDirectory(reference)))
         )
       )
 
@@ -1510,89 +1554,118 @@ export const makeVolume = Effect.fnUntraced(
         : Effect.fail(op.fail("AccessDenied"))
     }
 
-    const reclaim = (file: RegularFile) => {
-      if (file.metadata.nlink === 0 && !state.openFiles.has(file.metadata.ino)) {
-        state.usedBytes -= BigInt(file.data.bytes.length)
-        file.data = Content.empty()
-        invalidateReference(file)
-      }
-    }
+    // An inode no name reaches leaves the table once nothing holds it open; a file's bytes are released then.
+    const reclaim = (d: Draft, ino: Ino) => {
+      const node = d.get(ino)
 
-    const retain = (file: RegularFile) => {
-      const open = state.openFiles.get(file.metadata.ino)
+      if (node === undefined) return
 
-      if (open === undefined) state.openFiles.set(file.metadata.ino, { file, count: 1 })
-      else open.count += 1
+      if (node.kind === "file") {
+        if (node.links.length > 0 || d.openCount(ino) > 0) return
+        d.usedBytes -= BigInt(node.data.bytes.length)
+      } else if (node.kind === "symlink") {
+        if (node.links.length > 0) return
+        d.usedBytes -= BigInt(node.target.length)
+      } else if (node.metadata.nlink > 0 || directoryHolds.has(ino)) return
+
+      d.remove(ino)
     }
 
     // Whether the volume's entry quota is already full.
-    const atEntryLimit = () => settings.maxEntries !== undefined && state.entries >= settings.maxEntries
+    const atEntryLimit = () => settings.maxEntries !== undefined && current().entries >= settings.maxEntries
 
     const reserveEntry = (op: OpContext) => atEntryLimit() ? Effect.fail(op.fail("NoSpace")) : Effect.void
 
     const reserveBytes = (op: OpContext, bytes: bigint) =>
-      settings.maxBytes !== undefined && bytes > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes
+      settings.maxBytes !== undefined && bytes > ByteSize.toBigInt(settings.maxBytes) - current().usedBytes
         ? Effect.fail(op.fail("NoSpace"))
         : Effect.void
 
-    // A new subdirectory's ".." entry is a second link to the parent; other node kinds add none.
-    const attach = (parent: Directory, name: string, node: Node, now: bigint) => {
-      parent.entries.set(name, node)
-      parent.metadata = {
-        ...parent.metadata,
-        nlink: parent.metadata.nlink + (node.kind === "directory" ? 1 : 0),
-        mtimeNs: now,
-        ctimeNs: now
+    // Adds a name for a child. A new subdirectory's ".." entry is a second link to the parent; other node kinds
+    // add none. The child records the name too, so events and paths never search for it.
+    const attach = (parent: Directory, name: string, child: Node, now: bigint) => {
+      const d = current()
+
+      d.put(withEntries(
+        {
+          ...parent,
+          metadata: {
+            ...parent.metadata,
+            nlink: parent.metadata.nlink + (child.kind === "directory" ? 1 : 0),
+            mtimeNs: now,
+            ctimeNs: now
+          }
+        },
+        (entries) => entries.set(name, child.ino)
+      ))
+
+      if (child.kind === "directory") d.put({ ...child, parent: parent.ino, name })
+      else {
+        d.put({
+          ...child,
+          links: [...child.links, { parent: parent.ino, name }],
+          metadata: { ...child.metadata, nlink: child.links.length + 1, ctimeNs: now }
+        })
       }
-      advanceRevision(parent)
     }
 
-    const detach = (node: Node, now: bigint) => {
-      if (node.kind === "directory") {
-        node.parent = undefined
-        node.metadata = { ...node.metadata, nlink: 0, ctimeNs: now }
-        advanceRevision(node)
-        invalidateReference(node)
-      } else {
-        node.metadata = { ...node.metadata, nlink: node.metadata.nlink - 1, ctimeNs: now }
-        advanceRevision(node)
+    // Drops the name `parent`/`name` from a child, which the caller has already removed from the parent.
+    const detach = (child: Node, parent: Ino, name: string, now: bigint) => {
+      const d = current()
 
-        if (node.kind === "file") reclaim(node)
-        else if (node.metadata.nlink === 0) {
-          state.usedBytes -= BigInt(node.target.length)
-          invalidateReference(node)
-        }
+      if (child.kind === "directory") {
+        d.put({ ...child, metadata: { ...child.metadata, nlink: 0, ctimeNs: now } })
+      } else {
+        const links = withoutLink(child.links, parent, name)
+        d.put({ ...child, links, metadata: { ...child.metadata, nlink: links.length, ctimeNs: now } })
       }
+
+      reclaim(d, child.ino)
     }
 
     const releaseFile = (ref: FileReference) => {
-      if (ref.file !== undefined) {
-        const ino = ref.file.metadata.ino
-        const open = state.openFiles.get(ino)
+      const ino = ref.ino
 
-        if (open !== undefined) {
-          open.count -= 1
-
-          if (open.count === 0) state.openFiles.delete(ino)
-        }
-
-        reclaim(ref.file)
-        ref.file = undefined
+      if (ino !== undefined) {
+        const d = current()
+        d.release(ino)
+        reclaim(d, ino)
       }
 
+      ref.ino = undefined
       ref.closed = true
     }
 
     const releaseOpenFile = (ref: FileReference) =>
       coordinatedCleanup(Effect.sync(() => {
-        if (!ref.closed) releaseFile(ref)
+        if (!ref.closed) applyDirect(() => releaseFile(ref))
       }))
 
     // Explicit close and scope cleanup share one release. A release whose commit fails still completes as
     // cleanup, so the handle never stays open; only an explicit close reports the failure. A close refused
     // admission never entered the volume, so it leaves the handle open for a retry.
     const closeFile = (ref: FileReference, op: OpContext, check: Effect.Effect<unknown, FsError>) =>
-      coordinated(op, Effect.andThen(check, Effect.sync(() => releaseFile(ref))), () => releaseFile(ref)).pipe(
+      coordinated(
+        op,
+        Effect.andThen(
+          check,
+          Effect.sync(() => {
+            const ino = ref.ino
+
+            if (ino !== undefined) {
+              const d = current()
+              d.release(ino)
+              reclaim(d, ino)
+            }
+
+            current().after.push(() => {
+              ref.ino = undefined
+              ref.closed = true
+            })
+          })
+        ),
+        () => applyDirect(() => releaseFile(ref))
+      ).pipe(
         Effect.tapError((error) => error.code === "VolumeBusy" ? Effect.void : releaseOpenFile(ref))
       )
 
@@ -1600,7 +1673,7 @@ export const makeVolume = Effect.fnUntraced(
     // Cleanup is uninterruptible and does not need admission, so an interrupted or busy scope close still releases.
     const finalizeFile = (ref: FileReference) =>
       Effect.uninterruptible(Effect.suspend(() =>
-        ref.file === undefined
+        ref.ino === undefined
           ? Effect.sync(() => {
             ref.closed = true
           })
@@ -1644,23 +1717,30 @@ export const makeVolume = Effect.fnUntraced(
       )
     })
 
-    const acquireFile = <A, E, R>(ref: FileReference, op: OpContext, acquire: Effect.Effect<A, E, R>) =>
-      acquireHandle(ref, (effect) => coordinated(op, effect), acquire, () => releaseFile(ref), finalizeFile(ref))
+    // Records the inode a handle opened, once the transition that opened it is installed.
+    const bindFile = (ref: FileReference, ino: Ino) => {
+      current().after.push(() => {
+        ref.ino = ino
+      })
+    }
 
     // Replacing a payload clears setuid and setgid, and charges the volume for the size delta.
     const replaceContent = (file: RegularFile, data: Uint8Array, now: bigint, publish = true) => {
-      state.usedBytes += BigInt(data.length - file.data.bytes.length)
-      file.data = Content.make(data)
-      file.metadata = {
-        ...file.metadata,
-        size: BigInt(data.length),
-        mode: file.metadata.mode & ~SET_ID_BITS,
-        mtimeNs: now,
-        ctimeNs: now
-      }
-      advanceRevision(file)
+      const d = current()
+      d.usedBytes += BigInt(data.length - file.data.bytes.length)
+      d.put({
+        ...file,
+        data: Content.make(data),
+        metadata: {
+          ...file.metadata,
+          size: BigInt(data.length),
+          mode: file.metadata.mode & ~SET_ID_BITS,
+          mtimeNs: now,
+          ctimeNs: now
+        }
+      })
 
-      if (publish) publishNode(file)
+      if (publish) publishNode(file.ino)
     }
 
     const resize = Effect.fnUntraced(function*(file: RegularFile, length: bigint, op: OpContext, publish = true) {
@@ -1679,11 +1759,14 @@ export const makeVolume = Effect.fnUntraced(
     })
 
     const fileHandle = (ref: FileReference): FileHandle => {
-      const get = (op: OpContext, access?: "read" | "write") =>
-        ref.file === undefined || (access === "read" && ref.access === "write") ||
-          (access === "write" && ref.access === "read")
+      const get = (op: OpContext, access?: "read" | "write") => {
+        const node = ref.ino === undefined ? undefined : view(ref.ino)
+
+        return node?.kind !== "file" || (access === "read" && ref.access === "write") ||
+            (access === "write" && ref.access === "read")
           ? Effect.fail(op.fail("InvalidHandle"))
-          : Effect.succeed(ref.file)
+          : Effect.succeed(node)
+      }
 
       const read = (maximum: number, position?: bigint) => {
         const op = OpContext.make(position === undefined ? "read" : "pread")
@@ -1706,10 +1789,15 @@ export const makeVolume = Effect.fnUntraced(
             const data = file.data.bytes.slice(start, start + Math.min(maximum, file.data.bytes.length - start))
 
             if (maximum > 0) {
-              file.metadata = { ...file.metadata, atimeNs: (yield* timestamp(readOp)) }
+              current().putQuiet({ ...file, metadata: { ...file.metadata, atimeNs: (yield* timestamp(readOp)) } })
             }
 
-            if (position === undefined) ref.offset += BigInt(data.length)
+            if (position === undefined) {
+              const next = offset + BigInt(data.length)
+              current().after.push(() => {
+                ref.offset = next
+              })
+            }
 
             return data
           })
@@ -1744,7 +1832,7 @@ export const makeVolume = Effect.fnUntraced(
 
             const free = settings.maxBytes === undefined
               ? BigInt(maxFileBytes)
-              : ByteSize.toBigInt(settings.maxBytes) - state.usedBytes
+              : ByteSize.toBigInt(settings.maxBytes) - current().usedBytes
 
             const maximumEnd = BigInt(file.data.bytes.length) + free
             const end = Number(BigInt(maxFileBytes) < maximumEnd ? BigInt(maxFileBytes) : maximumEnd)
@@ -1760,7 +1848,12 @@ export const makeVolume = Effect.fnUntraced(
             data.set(bytes.subarray(0, count), start)
             replaceContent(file, data, now)
 
-            if (position === undefined) ref.offset = offset + BigInt(count)
+            if (position === undefined) {
+              const next = offset + BigInt(count)
+              current().after.push(() => {
+                ref.offset = next
+              })
+            }
 
             return count
           })
@@ -1852,22 +1945,18 @@ export const makeVolume = Effect.fnUntraced(
 
     const createCaller = (reference: DirectoryReference, identity: Identity, umask: number): Caller => {
       const referencedNode = Effect.fnUntraced(function*(target: ObjectReference, op: OpContext) {
-        if (reference.directory === undefined) return yield* op.fail("ClosedCaller")
+        if (reference.ino === undefined) return yield* op.fail("ClosedCaller")
 
         if (!Predicate.isObject(target)) return yield* op.fail("InvalidReference")
-        const state = objectReferences.get(target)
+        const known = objectReferences.get(target)
 
-        if (state === undefined) return yield* op.fail("InvalidReference")
+        if (known === undefined) return yield* op.fail("InvalidReference")
 
-        if (state.volume !== volumeIdentity) {
+        if (known.volume !== volumeIdentity) {
           return yield* op.fail("ForeignReference")
         }
 
-        if (!state.active || activeStage?.invalidated.has(state)) {
-          return yield* op.fail("StaleReference")
-        }
-
-        const node = state.cell?.node
+        const node = view(known.ino)
 
         if (node === undefined) return yield* op.fail("StaleReference")
 
@@ -1894,23 +1983,52 @@ export const makeVolume = Effect.fnUntraced(
         return node
       })
 
+      // The caller's own directory, which a closed caller no longer has.
+      const callerDirectory = (op: OpContext) => {
+        const node = reference.ino === undefined ? undefined : view(reference.ino)
+
+        return node?.kind === "directory" ? Effect.succeed(node) : Effect.fail(op.fail("ClosedCaller"))
+      }
+
+      // Re-reads a directory the transition may have replaced since it was resolved.
+      const directoryNow = (ino: Ino): Directory => {
+        const node = view(ino)
+
+        if (node?.kind !== "directory") throw new Error("Directory left the inode table during a transition")
+
+        return node
+      }
+
+      const nodeNow = (ino: Ino): Node => {
+        const node = view(ino)
+
+        if (node === undefined) throw new Error("Inode left the table during a transition")
+
+        return node
+      }
+
       const creationTimes = (times: Times | undefined, now: bigint) => ({
         atimeNs: times?.access.kind === "value" ? times.access.nanoseconds : now,
         mtimeNs: times?.modification.kind === "value" ? times.modification.nanoseconds : now
       })
 
-      const newDirectory = (parent: Directory, mode: number, now: bigint, times?: Times): Directory => ({
-        kind: "directory",
-        lineage: undefined,
-        parent,
-        entries: new Map(),
-        metadata: {
-          ...directoryMetadata(state.nextInode, identity.uid, parent.metadata.gid, mode, now),
-          ...creationTimes(times, now)
-        },
-        revision: nextRevision(),
-        objectReference: undefined
-      })
+      const newDirectory = (parent: Directory, mode: number, now: bigint, times?: Times): Directory => {
+        const ino = current().allocate()
+
+        return {
+          kind: "directory",
+          ino,
+          lineage: undefined,
+          parent: parent.ino,
+          name: "",
+          entries: new Map(),
+          metadata: {
+            ...directoryMetadata(BigInt(ino), identity.uid, parent.metadata.gid, mode, now),
+            ...creationTimes(times, now)
+          },
+          revision: 0n
+        }
+      }
 
       const newFile = (
         parent: Directory,
@@ -1919,41 +2037,51 @@ export const makeVolume = Effect.fnUntraced(
         now: bigint,
         owner?: OwnerUpdate,
         times?: Times
-      ): RegularFile => ({
-        kind: "file",
-        lineage: undefined,
-        data,
-        metadata: {
-          ...directoryMetadata(
-            state.nextInode,
-            owner?.uid ?? identity.uid,
-            owner?.gid ?? parent.metadata.gid,
-            mode,
-            now
-          ),
-          ...creationTimes(times, now),
-          kind: "file",
-          size: BigInt(data.bytes.length),
-          nlink: 1
-        },
-        revision: nextRevision(),
-        objectReference: undefined
-      })
+      ): RegularFile => {
+        const ino = current().allocate()
 
-      const newSymlink = (parent: Directory, target: Uint8Array, now: bigint, times?: Times): SymbolicLink => ({
-        kind: "symlink",
-        lineage: undefined,
-        target,
-        metadata: {
-          ...directoryMetadata(state.nextInode, identity.uid, parent.metadata.gid, 0o777, now),
-          ...creationTimes(times, now),
+        return {
+          kind: "file",
+          ino,
+          lineage: undefined,
+          data,
+          links: [],
+          metadata: {
+            ...directoryMetadata(
+              BigInt(ino),
+              owner?.uid ?? identity.uid,
+              owner?.gid ?? parent.metadata.gid,
+              mode,
+              now
+            ),
+            ...creationTimes(times, now),
+            kind: "file",
+            size: BigInt(data.bytes.length),
+            nlink: 0
+          },
+          revision: 0n
+        }
+      }
+
+      const newSymlink = (parent: Directory, target: Uint8Array, now: bigint, times?: Times): SymbolicLink => {
+        const ino = current().allocate()
+
+        return {
           kind: "symlink",
-          nlink: 1,
-          size: BigInt(target.length)
-        },
-        revision: nextRevision(),
-        objectReference: undefined
-      })
+          ino,
+          lineage: undefined,
+          target,
+          links: [],
+          metadata: {
+            ...directoryMetadata(BigInt(ino), identity.uid, parent.metadata.gid, 0o777, now),
+            ...creationTimes(times, now),
+            kind: "symlink",
+            nlink: 0,
+            size: BigInt(target.length)
+          },
+          revision: 0n
+        }
+      }
 
       const lookup = Effect.fnUntraced(function*(
         path: PreparedPath,
@@ -1965,11 +2093,11 @@ export const makeVolume = Effect.fnUntraced(
         const pathOp = op.at(path.input)
         const { followFinalSymlink = true, allowMissing = false, parentOnly = false } = options
 
-        if (reference.directory === undefined) {
+        if (reference.ino === undefined) {
           return yield* pathOp.fail("ClosedCaller")
         }
 
-        let current: Node = path.absolute ? state.root : reference.directory
+        let current: Node = path.absolute ? nodeNow(ROOT_INO) : yield* callerDirectory(pathOp)
 
         if (!path.absolute && referencedBase !== undefined) {
           current = referencedBase
@@ -1985,11 +2113,13 @@ export const makeVolume = Effect.fnUntraced(
             return yield* pathOp.fail("ForeignHandle")
           }
 
-          if (target.directory === undefined) {
+          const directory = target.ino === undefined ? undefined : view(target.ino)
+
+          if (directory?.kind !== "directory") {
             return yield* pathOp.fail("InvalidHandle")
           }
 
-          current = target.directory
+          current = directory
           yield* authorize(current, identity, EXECUTE, pathOp)
         }
 
@@ -2015,7 +2145,7 @@ export const makeVolume = Effect.fnUntraced(
           if (component === DOT_HEX) continue
 
           if (component === DOT_DOT_HEX) {
-            current = current.parent ?? current
+            current = directoryNow(current.parent)
             parent = undefined
             name = undefined
             continue
@@ -2023,7 +2153,8 @@ export const makeVolume = Effect.fnUntraced(
 
           parent = current
           name = component
-          const child = current.entries.get(component)
+          const childIno = current.entries.get(component)
+          const child = childIno === undefined ? undefined : view(childIno)
 
           if (child === undefined) {
             if (allowMissing && index === work.components.length - 1 && !work.trailingSlash) {
@@ -2067,7 +2198,7 @@ export const makeVolume = Effect.fnUntraced(
 
             work = expanded.success
 
-            if (work.absolute) current = state.root
+            if (work.absolute) current = nodeNow(ROOT_INO)
             index = -1
           } else current = child
         }
@@ -2127,7 +2258,7 @@ export const makeVolume = Effect.fnUntraced(
           const parent = yield* locate(path, base, op, { parentOnly: true })
 
           return {
-            parent,
+            parent: parent.ino,
             name: path.components.at(-1),
             trailingSlash: path.trailingSlash,
             op: op.at(path.input)
@@ -2137,7 +2268,7 @@ export const makeVolume = Effect.fnUntraced(
         fromReference: Effect.fnUntraced(function*(directoryReference: ObjectReference, name: string, op: OpContext) {
           const parent = yield* referencedDirectory(directoryReference, op)
 
-          return { parent, name, trailingSlash: false, op } satisfies ResolvedEntry
+          return { parent: parent.ino, name, trailingSlash: false, op } satisfies ResolvedEntry
         })
       }
 
@@ -2155,7 +2286,8 @@ export const makeVolume = Effect.fnUntraced(
               const path = yield* Effect.fromResult(prepared)
               const directory = yield* locate(path, base, op)
               yield* authorize(directory, identity, EXECUTE, pathOp)
-              acquired.directory = directory
+              holdDirectory(directory.ino)
+              acquired.ino = directory.ino
 
               return acquired
             }),
@@ -2177,7 +2309,7 @@ export const makeVolume = Effect.fnUntraced(
             const directory = yield* locate(yield* Effect.fromResult(prepared), base, op)
             yield* authorize(directory, identity, READ, pathOp)
             const result = [...directory.entries.keys()].map(nameBytes)
-            directory.metadata = { ...directory.metadata, atimeNs: (yield* timestamp(op)) }
+            current().putQuiet({ ...directory, metadata: { ...directory.metadata, atimeNs: (yield* timestamp(op)) } })
 
             return result
           })
@@ -2216,24 +2348,16 @@ export const makeVolume = Effect.fnUntraced(
           op,
           Effect.gen(function*() {
             const result = yield* lookup(yield* Effect.fromResult(prepared), base, op)
-            const components: Array<string> = []
+            const directory = result.node?.kind === "directory" ? result.node : result.parent
+            const prefix = directory === undefined ? SLASH_HEX : pathOf(view, directory.ino)
 
-            if (result.node?.kind !== "directory" && result.name !== undefined) components.push(result.name)
-            let directory = result.node?.kind === "directory" ? result.node : result.parent
-
-            while (directory !== undefined && directory.parent !== undefined) {
-              const parent: Directory = directory.parent
-              const entry = [...parent.entries].find(([, child]) => child === directory)
-
-              if (entry === undefined) {
-                return yield* pathOp.fail("NotFound")
-              }
-
-              components.push(entry[0])
-              directory = parent
+            if (prefix === undefined) {
+              return yield* pathOp.fail("NotFound")
             }
 
-            return nameBytes(SLASH_HEX + components.reverse().join(SLASH_HEX))
+            if (result.node?.kind === "directory" || result.name === undefined) return nameBytes(prefix)
+
+            return nameBytes(prefix + (prefix === SLASH_HEX ? "" : SLASH_HEX) + result.name)
           })
         )
       })
@@ -2245,7 +2369,7 @@ export const makeVolume = Effect.fnUntraced(
           options: MetadataOptions | undefined,
           op: OpContext
         ) {
-          if (reference.directory === undefined) {
+          if (reference.ino === undefined) {
             return yield* op.fail("ClosedCaller")
           }
 
@@ -2258,11 +2382,11 @@ export const makeVolume = Effect.fnUntraced(
               return yield* op.fail("ForeignHandle")
             }
 
-            const node = "file" in ref ? ref.file : ref.directory
+            const node = ref.ino === undefined ? undefined : view(ref.ino)
 
             if (node === undefined) return yield* op.fail("InvalidHandle")
 
-            return { node, op } satisfies ResolvedNode
+            return { ino: node.ino, op } satisfies ResolvedNode
           }
 
           const path = yield* Effect.fromResult(preparePath(target, op.operation, settings.maxPathBytes))
@@ -2271,7 +2395,7 @@ export const makeVolume = Effect.fnUntraced(
             followFinalSymlink: options?.followFinalSymlink !== false
           })
 
-          return { node, op: op.at(target) } satisfies ResolvedNode
+          return { ino: node.ino, op: op.at(target) } satisfies ResolvedNode
         }),
         // Unlike fromTarget, a closed caller surfaces from the lookup and names the path.
         fromPath: Effect.fnUntraced(function*(
@@ -2282,10 +2406,10 @@ export const makeVolume = Effect.fnUntraced(
           const path = yield* Effect.fromResult(prepared)
           const node = yield* resolveNode(path, base, op)
 
-          return { node, op: op.at(path.input) } satisfies ResolvedNode
+          return { ino: node.ino, op: op.at(path.input) } satisfies ResolvedNode
         }),
         fromReference: (target: ObjectReference, op: OpContext) =>
-          Effect.map(referencedNode(target, op), (node): ResolvedNode => ({ node, op }))
+          Effect.map(referencedNode(target, op), (node): ResolvedNode => ({ ino: node.ino, op }))
       }
 
       const permittedMode = (metadata: Pick<Metadata, "kind" | "uid" | "gid">, mode: number, op: OpContext) => {
@@ -2306,15 +2430,17 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const { node } = yield* resolving
+              const node = nodeNow((yield* resolving).ino)
               const permitted = yield* permittedMode(node.metadata, mode, op)
-              node.metadata = {
-                ...node.metadata,
-                mode: permitted,
-                ctimeNs: (yield* timestamp(op))
-              }
-              advanceRevision(node)
-              publishNode(node)
+              current().put({
+                ...node,
+                metadata: {
+                  ...node.metadata,
+                  mode: permitted,
+                  ctimeNs: (yield* timestamp(op))
+                }
+              })
+              publishNode(node.ino)
             })
           )
         }
@@ -2332,7 +2458,7 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const { node } = yield* resolving
+              const node = nodeNow((yield* resolving).ino)
 
               if (
                 !identity.privileged && (identity.uid !== node.metadata.uid ||
@@ -2343,15 +2469,17 @@ export const makeVolume = Effect.fnUntraced(
               }
 
               if (update.uid === undefined && update.gid === undefined) return
-              node.metadata = {
-                ...node.metadata,
-                uid: update.uid ?? node.metadata.uid,
-                gid: update.gid ?? node.metadata.gid,
-                mode: node.kind === "file" ? node.metadata.mode & ~SET_ID_BITS : node.metadata.mode,
-                ctimeNs: (yield* timestamp(op))
-              }
-              advanceRevision(node)
-              publishNode(node)
+              current().put({
+                ...node,
+                metadata: {
+                  ...node.metadata,
+                  uid: update.uid ?? node.metadata.uid,
+                  gid: update.gid ?? node.metadata.gid,
+                  mode: node.kind === "file" ? node.metadata.mode & ~SET_ID_BITS : node.metadata.mode,
+                  ctimeNs: (yield* timestamp(op))
+                }
+              })
+              publishNode(node.ino)
             })
           )
         }
@@ -2371,7 +2499,7 @@ export const makeVolume = Effect.fnUntraced(
             op,
             Effect.gen(function*() {
               const resolved = yield* resolving
-              const node = resolved.node
+              const node = nodeNow(resolved.ino)
 
               if (access.kind === "omit" && modification.kind === "omit") return
 
@@ -2386,22 +2514,24 @@ export const makeVolume = Effect.fnUntraced(
               }
 
               const now = yield* timestamp(op)
-              node.metadata = {
-                ...node.metadata,
-                atimeNs: access.kind === "omit"
-                  ? node.metadata.atimeNs
-                  : access.kind === "now"
-                  ? now
-                  : access.nanoseconds,
-                mtimeNs: modification.kind === "omit"
-                  ? node.metadata.mtimeNs
-                  : modification.kind === "now"
-                  ? now
-                  : modification.nanoseconds,
-                ctimeNs: now
-              }
-              advanceRevision(node)
-              publishNode(node)
+              current().put({
+                ...node,
+                metadata: {
+                  ...node.metadata,
+                  atimeNs: access.kind === "omit"
+                    ? node.metadata.atimeNs
+                    : access.kind === "now"
+                    ? now
+                    : access.nanoseconds,
+                  mtimeNs: modification.kind === "omit"
+                    ? node.metadata.mtimeNs
+                    : modification.kind === "now"
+                    ? now
+                    : modification.nanoseconds,
+                  ctimeNs: now
+                }
+              })
+              publishNode(node.ino)
             })
           )
         }
@@ -2414,7 +2544,8 @@ export const makeVolume = Effect.fnUntraced(
         return coordinatedRead(
           op,
           Effect.gen(function*() {
-            const { node, op: nodeOp } = yield* resolving
+            const { ino, op: nodeOp } = yield* resolving
+            const node = nodeNow(ino)
 
             if (node.kind === "file" && (bits & EXECUTE) !== 0 && (node.metadata.mode & ANY_EXECUTE) === 0) {
               return yield* nodeOp.fail("AccessDenied")
@@ -2431,7 +2562,8 @@ export const makeVolume = Effect.fnUntraced(
         return coordinated(
           op,
           Effect.gen(function*() {
-            const { node, op: nodeOp } = yield* resolving
+            const { ino, op: nodeOp } = yield* resolving
+            const node = nodeNow(ino)
 
             if (node.kind !== "file") return yield* nodeOp.fail("IsDirectory")
 
@@ -2450,9 +2582,10 @@ export const makeVolume = Effect.fnUntraced(
       // Authorizes creating the entry and returns its name. Only a path can name a dot entry, and one always
       // exists, so it fails as AlreadyExists.
       const claimName = Effect.fnUntraced(function*(entry: ResolvedEntry) {
-        yield* authorize(entry.parent, identity, WRITE | EXECUTE, entry.op)
+        const parent = directoryNow(entry.parent)
+        yield* authorize(parent, identity, WRITE | EXECUTE, entry.op)
 
-        if (isDotComponent(entry.name) || entry.parent.entries.has(entry.name)) {
+        if (isDotComponent(entry.name) || parent.entries.has(entry.name)) {
           return yield* entry.op.fail("AlreadyExists")
         }
 
@@ -2468,10 +2601,10 @@ export const makeVolume = Effect.fnUntraced(
         },
         op: OpContext
       ) {
-        const parent = entry.parent
         const name = yield* claimName(entry)
 
         yield* reserveEntry(entry.op)
+        const parent = directoryNow(entry.parent)
         const before = parent.revision
         const now = yield* timestamp(op)
 
@@ -2483,29 +2616,26 @@ export const makeVolume = Effect.fnUntraced(
 
         // No Effect yield or expected failure between these publication writes.
         attach(parent, name, child, now)
-        state.nextInode += 1n
-        state.entries += 1
-        publishEntry("Create", parent, name)
+        current().entries += 1
+        publishEntry("Create", parent.ino, name)
 
-        return { child, directory: { before, after: parent.revision } }
+        return { child: child.ino, directory: { before, after: current().revision } }
       })
 
       const linkNode = Effect.fnUntraced(
         function*(node: Exclude<Node, Directory>, entry: ResolvedEntry, op: OpContext) {
-          const parent = entry.parent
           const name = yield* claimName(entry)
 
           if (entry.trailingSlash) return yield* entry.op.fail("NotDirectory")
           yield* reserveEntry(entry.op)
+          const parent = directoryNow(entry.parent)
           const before = parent.revision
           const now = yield* timestamp(op)
           attach(parent, name, node, now)
-          node.metadata = { ...node.metadata, nlink: node.metadata.nlink + 1, ctimeNs: now }
-          advanceRevision(node)
-          state.entries += 1
-          publishEntry("Create", parent, name)
+          current().entries += 1
+          publishEntry("Create", parent.ino, name)
 
-          return { before, after: parent.revision }
+          return { before, after: current().revision }
         }
       )
 
@@ -2516,42 +2646,48 @@ export const makeVolume = Effect.fnUntraced(
         times: Times | undefined,
         op: OpContext
       ) {
-        const parent = entry.parent
         const name = yield* claimName(entry)
 
         if (entry.trailingSlash) return yield* entry.op.fail("NotDirectory")
         yield* reserveEntry(entry.op)
         yield* reserveBytes(entry.op, BigInt(target.length))
+        const parent = directoryNow(entry.parent)
         const before = parent.revision
         const now = yield* timestamp(op)
         const child = newSymlink(parent, target, now, times)
 
         attach(parent, name, child, now)
-        state.nextInode += 1n
-        state.entries += 1
-        state.usedBytes += BigInt(target.length)
-        publishEntry("Create", parent, name)
+        current().entries += 1
+        current().usedBytes += BigInt(target.length)
+        publishEntry("Create", parent.ino, name)
 
-        return { child, directory: { before, after: parent.revision } }
+        return { child: child.ino, directory: { before, after: current().revision } }
       })
 
       // A directory's ".." entry was a link to the parent, so removing one drops the parent's link count.
       const removeChild = Effect.fnUntraced(function*(parent: Directory, name: string, child: Node, op: OpContext) {
         const before = parent.revision
         const now = yield* timestamp(op)
-        parent.entries.delete(name)
-        parent.metadata = {
-          ...parent.metadata,
-          nlink: parent.metadata.nlink - (child.kind === "directory" ? 1 : 0),
-          mtimeNs: now,
-          ctimeNs: now
-        }
-        advanceRevision(parent)
-        detach(child, now)
-        state.entries -= 1
-        publishEntry("Remove", parent, name)
+        const d = current()
 
-        return { before, after: parent.revision }
+        d.put(withEntries(
+          {
+            ...parent,
+            metadata: {
+              ...parent.metadata,
+              nlink: parent.metadata.nlink - (child.kind === "directory" ? 1 : 0),
+              mtimeNs: now,
+              ctimeNs: now
+            }
+          },
+          (entries) => entries.delete(name)
+        ))
+        // The event names the entry before the child loses its link, since a symlink's bytes go with it.
+        publishEntry("Remove", parent.ino, name)
+        detach(child, parent.ino, name, now)
+        d.entries -= 1
+
+        return { before, after: d.revision }
       })
 
       // Authorizes removing from the entry's directory and returns the named child. Only a path can name a dot
@@ -2560,20 +2696,21 @@ export const makeVolume = Effect.fnUntraced(
         entry: ResolvedEntry,
         dotNameCode: "IsDirectory" | "InvalidArgument"
       ) {
-        yield* authorize(entry.parent, identity, WRITE | EXECUTE, entry.op)
+        const parent = directoryNow(entry.parent)
+        yield* authorize(parent, identity, WRITE | EXECUTE, entry.op)
 
         if (isDotComponent(entry.name)) return yield* entry.op.fail(dotNameCode)
-        const child = entry.parent.entries.get(entry.name)
+        const childIno = parent.entries.get(entry.name)
+        const child = childIno === undefined ? undefined : view(childIno)
 
         if (child === undefined) return yield* entry.op.fail("NotFound")
 
-        return { name: entry.name, child }
+        return { parent, name: entry.name, child }
       })
 
       // Removes a file or an empty directory; only references reach it, so a dot name never does.
       const removeEntry = Effect.fnUntraced(function*(entry: ResolvedEntry, op: OpContext) {
-        const parent = entry.parent
-        const { name, child } = yield* removalTarget(entry, "InvalidArgument")
+        const { child, name, parent } = yield* removalTarget(entry, "InvalidArgument")
         yield* authorizeRemoval(parent, child, entry.op)
 
         if (child.kind === "directory" && child.entries.size > 0) return yield* entry.op.fail("NotEmpty")
@@ -2582,8 +2719,7 @@ export const makeVolume = Effect.fnUntraced(
       })
 
       const unlinkEntry = Effect.fnUntraced(function*(entry: ResolvedEntry, op: OpContext) {
-        const parent = entry.parent
-        const { name, child } = yield* removalTarget(entry, "IsDirectory")
+        const { child, name, parent } = yield* removalTarget(entry, "IsDirectory")
 
         if (child.kind === "directory") return yield* entry.op.fail("IsDirectory")
 
@@ -2595,8 +2731,7 @@ export const makeVolume = Effect.fnUntraced(
 
       // Needs no trailing-slash check: anything it removes is a directory.
       const rmdirEntry = Effect.fnUntraced(function*(entry: ResolvedEntry, op: OpContext) {
-        const parent = entry.parent
-        const { name, child } = yield* removalTarget(entry, "InvalidArgument")
+        const { child, name, parent } = yield* removalTarget(entry, "InvalidArgument")
         yield* authorizeRemoval(parent, child, entry.op)
 
         if (child.kind !== "directory") return yield* entry.op.fail("NotDirectory")
@@ -2608,8 +2743,9 @@ export const makeVolume = Effect.fnUntraced(
 
       const renameEntry = Effect.fnUntraced(
         function*(source: ResolvedEntry, destination: ResolvedEntry, op: OpContext) {
-          const sourceDirectory = source.parent
-          const destinationDirectory = destination.parent
+          const sourceDirectory = directoryNow(source.parent)
+          const destinationDirectory = directoryNow(destination.parent)
+          const sameDirectory = source.parent === destination.parent
           const sourceName = source.name
           const destinationName = destination.name
           yield* authorize(sourceDirectory, identity, WRITE | EXECUTE, source.op)
@@ -2622,10 +2758,12 @@ export const makeVolume = Effect.fnUntraced(
 
           const sourceBefore = sourceDirectory.revision
           const destinationBefore = destinationDirectory.revision
-          const child = sourceDirectory.entries.get(sourceName)
+          const childIno = sourceDirectory.entries.get(sourceName)
+          const child = childIno === undefined ? undefined : view(childIno)
 
           if (child === undefined) return yield* source.op.fail("NotFound")
-          const replaced = destinationDirectory.entries.get(destinationName)
+          const replacedIno = destinationDirectory.entries.get(destinationName)
+          const replaced = replacedIno === undefined ? undefined : view(replacedIno)
 
           if (destination.trailingSlash && replaced === undefined) {
             return yield* destination.op.fail("NotFound")
@@ -2640,18 +2778,18 @@ export const makeVolume = Effect.fnUntraced(
           }
 
           const result = () =>
-            sourceDirectory === destinationDirectory
+            sameDirectory
               ? {
                 _tag: "SameDirectory" as const,
-                directory: { before: sourceBefore, after: sourceDirectory.revision }
+                directory: { before: sourceBefore, after: directoryNow(source.parent).revision }
               }
               : {
                 _tag: "DifferentDirectories" as const,
-                sourceDirectory: { before: sourceBefore, after: sourceDirectory.revision },
-                destinationDirectory: { before: destinationBefore, after: destinationDirectory.revision }
+                sourceDirectory: { before: sourceBefore, after: directoryNow(source.parent).revision },
+                destinationDirectory: { before: destinationBefore, after: directoryNow(destination.parent).revision }
               }
 
-          if (child === replaced) return result()
+          if (child.ino === replaced?.ino) return result()
           yield* authorizeRemoval(sourceDirectory, child, source.op)
 
           if (replaced !== undefined) {
@@ -2670,53 +2808,73 @@ export const makeVolume = Effect.fnUntraced(
             }
           }
 
-          for (
-            let ancestor: Directory | undefined = destinationDirectory;
-            ancestor !== undefined;
-            ancestor = ancestor.parent
-          ) {
-            if (ancestor === child) return yield* destination.op.fail("InvalidArgument")
+          for (let ancestor = destinationDirectory;; ancestor = directoryNow(ancestor.parent)) {
+            if (ancestor.ino === child.ino) return yield* destination.op.fail("InvalidArgument")
+
+            if (ancestor.ino === ROOT_INO) break
           }
 
           const now = yield* timestamp(op)
+          const d = current()
 
-          // Every rejection above precedes the namespace and metadata writes below.
-          const oldEvent = () =>
-            ownedPath(
-              nameBytes(
-                directoryHex(sourceDirectory) + (sourceDirectory === state.root ? "" : SLASH_HEX) + sourceName
-              )
-            )
+          // Every rejection above precedes the namespace and metadata writes below, and the old name is
+          // published before the namespace changes.
+          publishEntry("Remove", sourceDirectory.ino, sourceName)
 
-          sourceDirectory.entries.delete(sourceName)
-          destinationDirectory.entries.set(destinationName, child)
+          d.put(withEntries(
+            {
+              ...sourceDirectory,
+              metadata: {
+                ...sourceDirectory.metadata,
+                nlink: sourceDirectory.metadata.nlink - (child.kind === "directory" ? 1 : 0),
+                mtimeNs: now,
+                ctimeNs: now
+              }
+            },
+            (entries) => entries.delete(sourceName)
+          ))
 
-          if (child.kind === "directory") child.parent = destinationDirectory
-          sourceDirectory.metadata = {
-            ...sourceDirectory.metadata,
-            nlink: sourceDirectory.metadata.nlink - (child.kind === "directory" ? 1 : 0),
-            mtimeNs: now,
-            ctimeNs: now
+          const destinationNow = directoryNow(destination.parent)
+
+          d.put(withEntries(
+            {
+              ...destinationNow,
+              metadata: {
+                ...destinationNow.metadata,
+                nlink: destinationNow.metadata.nlink + (child.kind === "directory" && replaced === undefined ? 1 : 0),
+                mtimeNs: now,
+                ctimeNs: now
+              }
+            },
+            (entries) => entries.set(destinationName, child.ino)
+          ))
+
+          const moved = nodeNow(child.ino)
+
+          if (moved.kind === "directory") {
+            d.put({
+              ...moved,
+              parent: destination.parent,
+              name: destinationName,
+              metadata: { ...moved.metadata, ctimeNs: now }
+            })
+          } else {
+            d.put({
+              ...moved,
+              links: [
+                ...withoutLink(moved.links, source.parent, sourceName),
+                { parent: destination.parent, name: destinationName }
+              ],
+              metadata: { ...moved.metadata, ctimeNs: now }
+            })
           }
-          destinationDirectory.metadata = {
-            ...destinationDirectory.metadata,
-            nlink: destinationDirectory.metadata.nlink + (child.kind === "directory" && replaced === undefined ? 1 : 0),
-            mtimeNs: now,
-            ctimeNs: now
-          }
-          child.metadata = { ...child.metadata, ctimeNs: now }
-          advanceRevision(sourceDirectory)
-
-          if (destinationDirectory !== sourceDirectory) advanceRevision(destinationDirectory)
-          advanceRevision(child)
 
           if (replaced !== undefined) {
-            detach(replaced, now)
-            state.entries -= 1
+            detach(nodeNow(replaced.ino), destination.parent, destinationName, now)
+            d.entries -= 1
           }
 
-          queuePublish(() => watchHub.publishUnsafe(() => ({ _tag: "Remove" as const, path: oldEvent() })))
-          publishEntry("Create", destinationDirectory, destinationName)
+          publishEntry("Create", destination.parent, destinationName)
 
           return result()
         }
@@ -2751,7 +2909,8 @@ export const makeVolume = Effect.fnUntraced(
         acquired: FileReference,
         op: OpContext
       ) {
-        const { parent, name } = entry
+        const { name } = entry
+        const parent = directoryNow(entry.parent)
         const before = parent.revision
         let file = found
         let created = false
@@ -2792,11 +2951,10 @@ export const makeVolume = Effect.fnUntraced(
 
           file = newFile(parent, Content.make(new Uint8Array(Number(size))), mode, now, owner, request.times)
           attach(parent, name, file, now)
-          state.entries += 1
-          state.usedBytes += size
-          state.nextInode += 1n
+          current().entries += 1
+          current().usedBytes += size
           created = true
-          publishEntry("Create", parent, name)
+          publishEntry("Create", parent.ino, name)
         } else {
           if (file.kind === "symlink") return yield* entry.op.fail("SymlinkLoop")
 
@@ -2804,11 +2962,38 @@ export const makeVolume = Effect.fnUntraced(
           yield* openExisting(file, request, entry.op, op)
         }
 
-        retain(file)
-        acquired.file = file
+        current().retain(file.ino)
+        bindFile(acquired, file.ino)
 
-        return { file, created, directory: { before, after: parent.revision } }
+        return { ino: file.ino, created, directory: { before, after: directoryNow(entry.parent).revision } }
       })
+
+      // Releases a file this transition opened, before the transition installs.
+      const releasePending = (opened: () => Ino | undefined) => () => {
+        const ino = opened()
+
+        if (ino === undefined) return
+        current().release(ino)
+        reclaim(current(), ino)
+      }
+
+      const acquireOpenedFile = <A, E, R>(
+        ref: FileReference,
+        op: OpContext,
+        acquire: (opened: (ino: Ino) => void) => Effect.Effect<A, E, R>
+      ) => {
+        let opened: Ino | undefined
+
+        return acquireHandle(
+          ref,
+          (effect) => coordinated(op, effect),
+          acquire((ino) => {
+            opened = ino
+          }),
+          releasePending(() => opened),
+          finalizeFile(ref)
+        )
+      }
 
       const rootReferenceOp = OpContext.make("rootReference")
 
@@ -2817,11 +3002,11 @@ export const makeVolume = Effect.fnUntraced(
         rootReference: coordinatedRead(
           rootReferenceOp,
           Effect.gen(function*() {
-            if (reference.directory === undefined) {
+            if (reference.ino === undefined) {
               return yield* rootReferenceOp.fail("ClosedCaller")
             }
 
-            return referenceFor(state.root)
+            return referenceFor(ROOT_INO)
           })
         ).pipe(Effect.withSpan("Caller.rootReference")),
         lookupReference: Effect.fn("Caller.lookupReference")(function*(directoryReference, name) {
@@ -2869,7 +3054,7 @@ export const makeVolume = Effect.fnUntraced(
 
               yield* authorize(directory, identity, EXECUTE, op.at("/"))
 
-              return referenceFor(directory.parent ?? directory)
+              return referenceFor(directory.parent)
             })
           )
         }),
@@ -2909,8 +3094,8 @@ export const makeVolume = Effect.fnUntraced(
               yield* authorize(directory, identity, READ, op.at("/"))
 
               const value = Object.freeze(
-                [...directory.entries].map(([name, node]) =>
-                  Object.freeze({ name: nameBytes(name), reference: referenceFor(node) })
+                [...directory.entries].map(([name, child]) =>
+                  Object.freeze({ name: nameBytes(name), reference: referenceFor(child) })
                 )
               )
 
@@ -3017,7 +3202,7 @@ export const makeVolume = Effect.fnUntraced(
                 const entry = yield* ResolvedEntry.fromReference(directoryReference, name, op)
                 const directory = yield* linkNode(node, entry, op)
 
-                return { reference: referenceFor(node), directory }
+                return { reference: referenceFor(node.ino), directory }
               })
             )
           }
@@ -3118,24 +3303,26 @@ export const makeVolume = Effect.fnUntraced(
 
           const acquired = makeFileReference(chosen.access, chosen.append ?? false)
 
-          return yield* acquireFile(
+          return yield* acquireOpenedFile(
             acquired,
             op,
-            Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, op)
+            (opened) =>
+              Effect.gen(function*() {
+                const node = yield* referencedNode(objectReference, op)
 
-              if (node.kind !== "file") return yield* op.fail("IsDirectory")
+                if (node.kind !== "file") return yield* op.fail("IsDirectory")
 
-              if (node.metadata.nlink === 0) {
-                return yield* op.fail("StaleReference")
-              }
+                if (node.metadata.nlink === 0) {
+                  return yield* op.fail("StaleReference")
+                }
 
-              yield* openExisting(node, chosen, op, op)
-              retain(node)
-              acquired.file = node
+                yield* openExisting(node, chosen, op, op)
+                current().retain(node.ino)
+                bindFile(acquired, node.ino)
+                opened(node.ino)
 
-              return fileHandle(acquired)
-            })
+                return fileHandle(acquired)
+              })
           )
         }),
         openChildReference: Effect.fn("Caller.openChildReference")(
@@ -3169,96 +3356,101 @@ export const makeVolume = Effect.fnUntraced(
 
             const acquired = makeFileReference(chosen.access, chosen.append ?? false)
 
-            return yield* acquireFile(
+            return yield* acquireOpenedFile(
               acquired,
               op,
-              Effect.gen(function*() {
-                const parent = yield* referencedDirectory(directoryReference, op)
-                yield* authorize(parent, identity, EXECUTE, op)
-                const direct = parent.entries.get(name)
+              (opened) =>
+                Effect.gen(function*() {
+                  const parent = yield* referencedDirectory(directoryReference, op)
+                  yield* authorize(parent, identity, EXECUTE, op)
+                  const directIno = parent.entries.get(name)
+                  const direct = directIno === undefined ? undefined : view(directIno)
 
-                if (expected !== undefined) {
-                  let expectedNode: Node | undefined
+                  if (expected !== undefined) {
+                    let expectedIno: Ino | undefined
 
-                  if (expected !== null) {
-                    const observed = yield* Effect.result(referencedNode(expected, op))
+                    if (expected !== null) {
+                      const observed = yield* Effect.result(referencedNode(expected, op))
 
-                    if (Result.isFailure(observed)) {
-                      return yield* op.fail("VolumeBusy", { cause: observed.failure })
+                      if (Result.isFailure(observed)) {
+                        return yield* op.fail("VolumeBusy", { cause: observed.failure })
+                      }
+
+                      expectedIno = observed.success.ino
                     }
 
-                    expectedNode = observed.success
+                    if (direct?.ino !== expectedIno) {
+                      return yield* op.fail("VolumeBusy")
+                    }
                   }
 
-                  if (direct !== expectedNode) {
-                    return yield* op.fail("VolumeBusy")
+                  if (chosen.expectedChild === null) {
+                    if (direct !== undefined) {
+                      return yield* op.fail("StaleReference")
+                    }
+                  } else if (chosen.expectedChild !== undefined) {
+                    const expectedChild = chosen.expectedChild
+                    const observed = yield* referencedNode(expectedChild.reference, op)
+
+                    if (
+                      direct?.ino !== observed.ino || observed.revision !== expectedChild.revision ||
+                      observed.metadata.atimeNs !== expectedChild.atimeNs ||
+                      observed.metadata.mtimeNs !== expectedChild.mtimeNs
+                    ) {
+                      return yield* op.fail("StaleReference")
+                    }
                   }
-                }
 
-                if (chosen.expectedChild === null) {
-                  if (direct !== undefined) {
-                    return yield* op.fail("StaleReference")
+                  if (direct !== undefined && chosen.create === "exclusive") {
+                    return yield* op.fail("AlreadyExists")
                   }
-                } else if (chosen.expectedChild !== undefined) {
-                  const expected = chosen.expectedChild
-                  const observed = yield* referencedNode(expected.reference, op)
 
-                  if (
-                    direct !== observed || observed.revision !== expected.revision ||
-                    observed.metadata.atimeNs !== expected.atimeNs || observed.metadata.mtimeNs !== expected.mtimeNs
-                  ) {
-                    return yield* op.fail("StaleReference")
+                  let file: Node | undefined = direct
+                  let mutationParent = parent.ino
+                  let mutationName = name
+
+                  if (file?.kind === "symlink" && chosen.followFinalSymlink !== false) {
+                    const resolved = yield* lookup(
+                      yield* Effect.fromResult(relativePath),
+                      undefined,
+                      op,
+                      {
+                        followFinalSymlink: true,
+                        allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
+                      },
+                      parent
+                    )
+
+                    file = resolved.node
+
+                    if (file === undefined) {
+                      if (resolved.parent === undefined || resolved.name === undefined) {
+                        return yield* op.fail("IsDirectory")
+                      }
+
+                      mutationParent = resolved.parent.ino
+                      mutationName = resolved.name
+                    }
                   }
-                }
 
-                if (direct !== undefined && chosen.create === "exclusive") {
-                  return yield* op.fail("AlreadyExists")
-                }
-
-                let file: Node | undefined = direct
-                let mutationParent = parent
-                let mutationName = name
-
-                if (file?.kind === "symlink" && chosen.followFinalSymlink !== false) {
-                  const resolved = yield* lookup(
-                    yield* Effect.fromResult(relativePath),
-                    undefined,
-                    op,
-                    {
-                      followFinalSymlink: true,
-                      allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
-                    },
-                    parent
+                  const result = yield* openFile(
+                    { parent: mutationParent, name: mutationName, trailingSlash: false, op },
+                    file,
+                    // A reference create always checks its size, even when none was given.
+                    { ...chosen, initialSize: chosen.initialSize ?? 0n },
+                    acquired,
+                    op
                   )
 
-                  file = resolved.node
+                  opened(result.ino)
 
-                  if (file === undefined) {
-                    if (resolved.parent === undefined || resolved.name === undefined) {
-                      return yield* op.fail("IsDirectory")
-                    }
-
-                    mutationParent = resolved.parent
-                    mutationName = resolved.name
+                  return {
+                    handle: fileHandle(acquired),
+                    reference: referenceFor(result.ino),
+                    created: result.created,
+                    directory: result.directory
                   }
-                }
-
-                const opened = yield* openFile(
-                  { parent: mutationParent, name: mutationName, trailingSlash: false, op },
-                  file,
-                  // A reference create always checks its size, even when none was given.
-                  { ...chosen, initialSize: chosen.initialSize ?? 0n },
-                  acquired,
-                  op
-                )
-
-                return {
-                  handle: fileHandle(acquired),
-                  reference: referenceFor(opened.file),
-                  created: opened.created,
-                  directory: opened.directory
-                }
-              })
+                })
             )
           }
         ),
@@ -3279,7 +3471,7 @@ export const makeVolume = Effect.fnUntraced(
 
               yield* authorize(node, identity, READ, pathOp)
               const data = new Uint8Array(node.data.bytes)
-              node.metadata = { ...node.metadata, atimeNs: (yield* timestamp(op)) }
+              current().putQuiet({ ...node, metadata: { ...node.metadata, atimeNs: (yield* timestamp(op)) } })
 
               return data
             })
@@ -3394,33 +3586,39 @@ export const makeVolume = Effect.fnUntraced(
                 }
 
                 const now = yield* timestamp(op)
+                const d = current()
 
-                let node = file
+                // Content and size are assigned below on the shared path that also covers an existing file.
+                const node = file ?? newFile(parent, Content.empty(), (chosen.mode ?? 0o666) & 0o777 & ~umask, now)
 
-                if (node === undefined) {
-                  // Content and size are assigned below on the shared path that also covers an existing file.
-                  node = newFile(parent, Content.empty(), (chosen.mode ?? 0o666) & 0o777 & ~umask, now)
-                  state.nextInode += 1n
+                const written: RegularFile = {
+                  ...node,
+                  data: Content.make(data),
+                  metadata: {
+                    ...node.metadata,
+                    mode: finalMode ?? node.metadata.mode & ~SET_ID_BITS,
+                    size: BigInt(size),
+                    mtimeNs: now,
+                    ctimeNs: now
+                  }
                 }
 
-                node.data = Content.make(data)
-                node.metadata = {
-                  ...node.metadata,
-                  mode: finalMode ?? node.metadata.mode & ~SET_ID_BITS,
-                  size: BigInt(size),
-                  mtimeNs: now,
-                  ctimeNs: now
-                }
-                advanceRevision(node)
-                state.usedBytes += BigInt(size - previous)
+                d.usedBytes += BigInt(size - previous)
 
                 if (file === undefined) {
-                  if (replaced !== undefined) detach(replaced, now)
-                  attach(parent, name, node, now)
+                  if (replaced !== undefined) {
+                    d.put(withEntries(parent, (entries) => entries.delete(name)))
+                    detach(replaced, parent.ino, name, now)
+                  }
 
-                  if (replaced === undefined) state.entries += 1
-                  publishEntry(replaced === undefined ? "Create" : "Update", parent, name)
-                } else publishNode(node)
+                  attach(directoryNow(parent.ino), name, written, now)
+
+                  if (replaced === undefined) d.entries += 1
+                  publishEntry(replaced === undefined ? "Create" : "Update", parent.ino, name)
+                } else {
+                  d.put(written)
+                  publishNode(written.ino)
+                }
               })
             )
           }
@@ -3588,61 +3786,64 @@ export const makeVolume = Effect.fnUntraced(
 
           const acquired = makeFileReference(chosen.access, chosen.append ?? false)
 
-          return yield* acquireFile(
+          return yield* acquireOpenedFile(
             acquired,
             op,
-            Effect.gen(function*() {
-              const path = yield* Effect.fromResult(prepared)
+            (opened) =>
+              Effect.gen(function*() {
+                const path = yield* Effect.fromResult(prepared)
 
-              if (chosen.create === "exclusive") {
-                const existing = yield* Effect.result(lookup(path, base, op, { followFinalSymlink: false }))
+                if (chosen.create === "exclusive") {
+                  const existing = yield* Effect.result(lookup(path, base, op, { followFinalSymlink: false }))
 
-                if (Result.isSuccess(existing)) {
+                  if (Result.isSuccess(existing)) {
+                    return yield* pathOp.fail("AlreadyExists")
+                  }
+
+                  if (existing.failure.code !== "NotFound") return yield* existing.failure
+                }
+
+                const resolved = yield* lookup(
+                  path,
+                  base,
+                  op,
+                  {
+                    followFinalSymlink: chosen.followFinalSymlink !== false,
+                    allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
+                  }
+                )
+
+                const parent = resolved.parent
+
+                if (parent === undefined) {
+                  return yield* pathOp.fail("IsDirectory")
+                }
+
+                const name = resolved.name
+
+                if (isDotComponent(name)) {
+                  return yield* pathOp.fail("IsDirectory")
+                }
+
+                yield* authorize(parent, identity, EXECUTE, pathOp)
+                const file = resolved.node
+
+                if (file !== undefined && chosen.create === "exclusive") {
                   return yield* pathOp.fail("AlreadyExists")
                 }
 
-                if (existing.failure.code !== "NotFound") return yield* existing.failure
-              }
+                const result = yield* openFile(
+                  { parent: parent.ino, name, trailingSlash: path.trailingSlash, op: pathOp },
+                  file,
+                  chosen,
+                  acquired,
+                  op
+                )
 
-              const resolved = yield* lookup(
-                path,
-                base,
-                op,
-                {
-                  followFinalSymlink: chosen.followFinalSymlink !== false,
-                  allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
-                }
-              )
+                opened(result.ino)
 
-              const parent = resolved.parent
-
-              if (parent === undefined) {
-                return yield* pathOp.fail("IsDirectory")
-              }
-
-              const name = resolved.name
-
-              if (isDotComponent(name)) {
-                return yield* pathOp.fail("IsDirectory")
-              }
-
-              yield* authorize(parent, identity, EXECUTE, pathOp)
-              const file = resolved.node
-
-              if (file !== undefined && chosen.create === "exclusive") {
-                return yield* pathOp.fail("AlreadyExists")
-              }
-
-              yield* openFile(
-                { parent, name, trailingSlash: path.trailingSlash, op: pathOp },
-                file,
-                chosen,
-                acquired,
-                op
-              )
-
-              return fileHandle(acquired)
-            })
+                return fileHandle(acquired)
+              })
           )
         }),
         unlink: Effect.fn("Caller.unlink")(function*(input: PathInput, options?: RelativeOptions) {
@@ -3745,14 +3946,16 @@ export const makeVolume = Effect.fnUntraced(
             [DirectoryHandleId]: true as const,
             stat: coordinatedRead(
               statOp,
-              Effect.suspend(() =>
-                acquired.directory === undefined
+              Effect.suspend(() => {
+                const node = acquired.ino === undefined ? undefined : view(acquired.ino)
+
+                return node === undefined
                   ? Effect.fail(statOp.fail("InvalidHandle"))
-                  : Effect.succeed({ ...acquired.directory.metadata })
-              )
+                  : Effect.succeed({ ...node.metadata })
+              })
             ).pipe(Effect.withSpan("DirectoryHandle.stat")),
             close: coordinatedCleanup(Effect.suspend(() => {
-              if (acquired.directory === undefined) {
+              if (acquired.ino === undefined) {
                 return Effect.fail(OpContext.make("close").fail("InvalidHandle"))
               }
 
@@ -3769,7 +3972,7 @@ export const makeVolume = Effect.fnUntraced(
       })
     }
 
-    const baseObservation = Predicate.isTagged("Overlay")(source) ? yield* observeChanges() : undefined
+    const baseObservation = Predicate.isTagged("Overlay")(source) ? yield* observeChanges(state) : undefined
 
     const publicChange = (change: RawOverlayChange): OverlayChange =>
       Predicate.isTagged("Renamed")(change)
@@ -3801,7 +4004,9 @@ export const makeVolume = Effect.fnUntraced(
 
         return yield* admit(OpContext.make("watch"), watchHub.subscribe(seams.afterSubscribe))
       }).pipe(Effect.withSpan("Volume.watch")),
-      snapshot: coordinatedRead(OpContext.make("snapshot"), captureSnapshot()).pipe(Effect.withSpan("Volume.snapshot")),
+      snapshot: coordinatedRead(OpContext.make("snapshot"), Effect.suspend(() => captureSnapshot(state))).pipe(
+        Effect.withSpan("Volume.snapshot")
+      ),
 
       caller: Effect.fn("Volume.caller")(function*(options?: RootCallerOptions) {
         const decoded = yield* Effect.fromResult(
@@ -3815,7 +4020,7 @@ export const makeVolume = Effect.fnUntraced(
           OpContext.make("caller"),
           Effect.sync(() =>
             createCaller(
-              makeDirectoryReference(state.root),
+              makeDirectoryReference(ROOT_INO),
               identity,
               decoded.umask ?? 0o022
             )
@@ -3833,7 +4038,7 @@ export const makeVolume = Effect.fnUntraced(
       ...volume,
       changes: Effect.fn("OverlayVolume.changes")(function*(options?: OverlayChangesOptions) {
         const selected = yield* changeOptions(options)
-        const current = yield* coordinatedRead(OpContext.make("changes"), observeChanges())
+        const current = yield* coordinatedRead(OpContext.make("changes"), Effect.suspend(() => observeChanges(state)))
 
         return publicChanges(compareOverlay(baseObservation, current, selected.includeTimestamps ?? false))
       }),
@@ -3876,7 +4081,7 @@ export const openImageVolume = Effect.fnUntraced(function*(
   durability: VolumeDurability = "memory-only"
 ) {
   const document = yield* LiveImage.decode(image, maxImageBytes)
-  const prepared = new WeakMap<EngineState, Uint8Array>()
+  const prepared = new WeakMap<VolumeState, Uint8Array>()
   const identity = VolumeIdentity.make(document.identity)
   const commitOp = OpContext.make("commit")
 
