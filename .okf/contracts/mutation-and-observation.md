@@ -17,10 +17,12 @@ sources:
     title: Watch registration and delivery tests
   - resource: ../../packages/core/test/WatchBounded.test.ts
     title: Bounded admission and watch overflow tests
+  - resource: ../../packages/core/test/ScopedWatch.test.ts
+    title: Scoped watch tests
   - id: tracing-tests
     resource: ../../packages/core/test/Tracing.test.ts
     title: Public tracing boundary tests
-generated: { by: codex/okf, at: 2026-09-20T00:00:00Z }
+generated: { by: claude-code, at: "2026-09-26T12:00:00+02:00" }
 ---
 
 # Mutation and observation
@@ -29,7 +31,7 @@ One volume coordinates mutations, observations, snapshot capture, and resource r
 
 Runtime-only per-object revisions distinguish committed content, metadata, link-count, and namespace changes even when clock values repeat. Each committed operation advances the volume revision once and stamps it on every object it changed, so objects changed by one operation report equal revisions. Metadata observations pair copied metadata with its revision. Directory observations pair owned entry names and stable child references with the directory revision from one state. Reads, rejected changes, and explicit no-op branches do not advance revisions.
 
-Watches stream committed create, update, and remove paths through a scoped queue for each subscriber. Registration is coordinated with mutations, so no committed event is lost between subscribing and becoming active. Watches have no replay. When a queue fills, its subscriber receives buffered changes followed by `Rescan` at `/`. It must rescan and repeat if another marker arrives. Other subscribers continue to receive events. The [watch overflow decision](../decisions/core/watch-event-overflow.md "defined by") defines the capacity and adapter behavior.
+Watches stream committed create, update, and remove paths through a scoped queue for each subscriber. Registration is coordinated with mutations, so no committed event is lost between subscribing and becoming active. Watches have no replay. When a queue fills, its subscriber receives buffered changes followed by `Rescan` at `/`. It must rescan and repeat if another marker arrives. Other subscribers continue to receive events. A watch scoped to an object reference receives only the changes that name the object or lie in its subtree (its direct children when not recursive), tested against the committed tree before they count toward its queue; it follows renames of the object and its ancestors, receives `Rescan` at the object's current path, and ends after `Remove` for the object once its last name is gone; that `Remove` is never replaced by `Rescan`. The [scoped watch decision](../decisions/core/scoped-watch.md "defined by") defines the scope. The [watch overflow decision](../decisions/core/watch-event-overflow.md "defined by") defines the capacity and adapter behavior.
 
 Events are path addressed. A committed change to a node with no reachable name, such as an unlinked file still held by a handle, publishes nothing. Aliases observe changes to the same file. Multi-call adapter helpers are compositions, not transactions.
 
