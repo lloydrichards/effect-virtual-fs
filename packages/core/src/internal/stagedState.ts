@@ -1,6 +1,6 @@
+// Classifies what a storage adapter says about a committed candidate.
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import * as Semaphore from "effect/Semaphore"
 import { FsError } from "./errors.js"
 
 /** @internal */
@@ -15,97 +15,35 @@ export interface CommitProvider<State> {
 }
 
 /** @internal */
-export const makeStagedState = <State, Event = never>(
-  initial: State,
-  // The copy must detach every mutable value that change can reach.
-  copy: (current: State) => Effect.Effect<State>,
-  rawProvider: CommitProvider<State>,
-  publish?: (candidate: State, events: ReadonlyArray<Event>) => void
-) => {
-  const gate = Semaphore.makeUnsafe(1)
-
-  const provider = {
-    ...rawProvider,
-    commit: (candidate: State) => Effect.suspend(() => rawProvider.commit(candidate))
-  }
-
-  let current = initial
-  let available = true
-
-  const checkAvailable = (operation: string) =>
-    Effect.suspend(() =>
-      available
-        ? Effect.void
-        : Effect.fail(new FsError({ code: "VolumeUnavailable", operation }))
-    )
-
-  const coordinate = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(effect)
-
-  const shutdown = coordinate(Effect.sync(() => {
-    available = false
-  }))
-
-  const read = <A, E, R>(operation: string, inspect: (state: Readonly<State>) => Effect.Effect<A, E, R>) =>
-    coordinate(Effect.gen(function*() {
-      yield* checkAvailable(operation)
-
-      return yield* inspect(current)
-    }))
-
-  const mutate = <A, E, R>(
-    operation: string,
-    change: (candidate: State, emit: (event: Event) => void) => Effect.Effect<A, E, R>,
-    onStorageFailure?: () => void
-  ) =>
-    coordinate(Effect.uninterruptibleMask((restore) =>
-      Effect.gen(function*() {
-        yield* checkAvailable(operation)
-        const candidate = yield* restore(copy(current))
-        const events: Array<Event> = []
-        const value = yield* restore(change(candidate, (event) => events.push(event)))
-
-        if (provider.prepare !== undefined) yield* restore(provider.prepare(candidate))
-        const committed = yield* Effect.exit(Effect.suspend(() => provider.commit(candidate)))
-
-        // TODO(#186): a failed commit exit is a defect or interruption inside the provider, so the error keeps no cause.
-        if (Exit.isFailure(committed)) {
-          available = false
-          onStorageFailure?.()
-
-          return yield* new FsError({ code: "OutcomeUnknown", operation })
-        }
-
-        const outcome = committed.value
-
-        if (outcome === "rejected") {
-          if (onStorageFailure !== undefined) {
-            available = false
-            onStorageFailure()
-          }
-
-          return yield* new FsError({ code: "StorageRejected", operation })
-        }
-
-        if (outcome === "unknown") {
-          available = false
-          onStorageFailure?.()
-
-          return yield* new FsError({ code: "OutcomeUnknown", operation })
-        }
-
-        current = candidate
-        const published = yield* Effect.exit(Effect.sync(() => publish?.(candidate, events)))
-
-        // TODO(#186): a failed publish exit is a defect, so the error keeps no cause.
-        if (Exit.isFailure(published)) {
-          available = false
-
-          return yield* new FsError({ code: "OutcomeUnknown", operation })
-        }
-
-        return value
-      })
-    ))
-
-  return { read, mutate, coordinate, checkAvailable, shutdown }
+export interface Classified {
+  /** Whether the volume may keep serving; false once storage's word cannot be trusted. */
+  readonly available: boolean
+  readonly failure: FsError | undefined
 }
+
+// Offers a candidate to the provider and reads its answer. A defect or interruption inside the provider, or an
+// uncertain outcome, stops the volume: nothing can say whether storage took the candidate. A definite rejection
+// stops it only when the change was a cleanup that must not be retried.
+/** @internal */
+export const offerCommit = <State>(
+  provider: CommitProvider<State>,
+  operation: string,
+  candidate: State,
+  cleanup: boolean
+): Effect.Effect<Classified> =>
+  Effect.map(Effect.exit(Effect.suspend(() => provider.commit(candidate))), (committed): Classified => {
+    // TODO(#186): a failed commit exit is a defect or interruption inside the provider, so the error keeps no cause.
+    if (Exit.isFailure(committed)) {
+      return { available: false, failure: new FsError({ code: "OutcomeUnknown", operation }) }
+    }
+
+    if (committed.value === "rejected") {
+      return { available: !cleanup, failure: new FsError({ code: "StorageRejected", operation }) }
+    }
+
+    if (committed.value === "unknown") {
+      return { available: false, failure: new FsError({ code: "OutcomeUnknown", operation }) }
+    }
+
+    return { available: true, failure: undefined }
+  })

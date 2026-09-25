@@ -71,7 +71,78 @@ const renameFixture = Effect.gen(function*() {
   return live
 })
 
+// A live volume whose store answers every commit with the given effect.
+const answering = Effect.fnUntraced(
+  function*(commit: Effect.Effect<LiveVolume.CommitOutcome>, maxImageBytes = MAX_IMAGE_BYTES) {
+    let commits = 0
+    const image = yield* LiveVolume.prepareEmptyImage()
+
+    const session = yield* LiveVolume.openImage(image, maxImageBytes, () =>
+      Effect.suspend(() => {
+        commits++
+
+        return commit
+      }))
+
+    return { volume: session.volume, caller: yield* session.volume.caller(), commits: () => commits }
+  }
+)
+
 describe("live commit", () => {
+  it.effect("stops the volume when the store throws, dies, or cannot say what it did", () =>
+    Effect.gen(function*() {
+      const answers: ReadonlyArray<Effect.Effect<LiveVolume.CommitOutcome>> = [
+        Effect.sync(() => {
+          throw new Error("storage exploded")
+        }),
+        Effect.die("storage died"),
+        Effect.succeed("unknown" as const)
+      ]
+
+      for (const answer of answers) {
+        const live = yield* answering(answer)
+        const failed = yield* Effect.flip(live.caller.mkdir("/a"))
+        assert.strictEqual(failed.code, "OutcomeUnknown")
+        assert.strictEqual(failed.operation, "mkdir")
+        assert.strictEqual((yield* Effect.flip(live.caller.stat("/"))).code, "VolumeUnavailable")
+        assert.strictEqual((yield* Effect.flip(live.caller.mkdir("/b"))).code, "VolumeUnavailable")
+        assert.strictEqual((yield* Effect.flip(live.volume.usage)).code, "VolumeUnavailable")
+        assert.strictEqual(live.commits(), 1)
+      }
+    }))
+
+  it.effect("rejects a candidate the image limit refuses without asking the store or stopping the volume", () =>
+    Effect.gen(function*() {
+      const image = yield* LiveVolume.prepareEmptyImage()
+      const live = yield* answering(Effect.succeed("committed" as const), ByteSize.bytes(image.length + 1024))
+
+      const failed = yield* Effect.flip(
+        live.caller.writeFile("/big", new Uint8Array(8192), { access: "write", create: "exclusive" })
+      )
+
+      assert.strictEqual(failed.code, "StorageRejected")
+      assert.strictEqual(failed.operation, "commit")
+      assert.strictEqual(live.commits(), 0)
+      assert.strictEqual((yield* Effect.flip(live.caller.stat("/big"))).code, "NotFound")
+      yield* live.caller.mkdir("/ok")
+      assert.strictEqual(live.commits(), 1)
+    }))
+
+  it.effect("settles a pending commit before honouring an interruption of its fiber", () =>
+    Effect.gen(function*() {
+      const live = yield* pausable
+      const { entered, release } = yield* live.pauseNext
+      const worker = yield* live.caller.mkdir("/new").pipe(Effect.forkChild({ startImmediately: true }))
+      yield* entered
+      const interrupting = yield* Fiber.interrupt(worker).pipe(Effect.forkChild({ startImmediately: true }))
+      yield* settle
+      assert.isUndefined(interrupting.pollUnsafe())
+      yield* release
+      yield* Fiber.join(interrupting)
+      assert.strictEqual((yield* live.caller.stat("/new")).kind, "directory")
+      assert.strictEqual(live.record.commits(), 1)
+    }))
+
   it.effect("holds reads behind a pending commit and never shows a half-applied rename", () =>
     Effect.gen(function*() {
       const { caller, pauseNext } = yield* renameFixture

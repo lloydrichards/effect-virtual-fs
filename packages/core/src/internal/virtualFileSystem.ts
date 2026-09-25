@@ -53,7 +53,7 @@ import {
   SLASH_HEX,
   strictString
 } from "./path.js"
-import { type CommitProvider, makeStagedState } from "./stagedState.js"
+import { type CommitProvider, offerCommit } from "./stagedState.js"
 import { VolumeTestSeams } from "./testSeams.js"
 import * as WatchHub from "./watchHub.js"
 
@@ -858,11 +858,6 @@ const UpdateChange = Schema.TaggedStruct("Update", { path: BytePath })
 
 const RescanChange = Schema.TaggedStruct("Rescan", { path: BytePath })
 
-// The candidate a staged commit sees: the next value plus the draft that produced it, installed on publish.
-interface Candidate {
-  value: VolumeState
-  draft: Draft | undefined
-}
 // Each execution constructs a fresh volume and captures its Clock.
 
 /** @internal */
@@ -1247,42 +1242,43 @@ export const makeVolume = Effect.fnUntraced(
 
     const view = (ino: Ino): Node | undefined => draft === undefined ? getNode(state, ino) : draft.get(ino)
 
-    const watchCoordinate: WatchHub.Coordinator = (effect) =>
-      staged === undefined ? gate.withPermit(effect) : staged.coordinate(effect)
+    // False once storage's answer about a candidate cannot be trusted; every later operation is refused.
+    let available = true
+
+    const checkAvailable = (operation: string) =>
+      Effect.suspend(() => available ? Effect.void : Effect.fail(new FsError({ code: "VolumeUnavailable", operation })))
+
+    const watchCoordinate: WatchHub.Coordinator = (effect) => gate.withPermit(effect)
 
     const watchHub = yield* WatchHub.make<Change, FsError>(
       watchCoordinate,
       settings.maxWatchEvents ?? 256,
       () => RescanChange.make({ path: ownedPath(new Uint8Array([47])) }),
-      Effect.suspend(() => staged === undefined ? Effect.void : staged.checkAvailable("watch"))
+      checkAvailable("watch")
     )
 
     // Installs a finished draft: the only place the volume's value changes, and where its events publish.
     const install = (finished: Draft) => {
-      const next = finished.finish()
-      state = next
+      state = finished.finish()
 
       for (const ino of finished.removed) tokens.delete(ino)
 
       for (const apply of finished.after) apply()
 
-      for (const events of finished.events) watchHub.publishManyUnsafe(() => events(next))
+      for (const events of finished.events) watchHub.publishManyUnsafe(() => events(state))
     }
 
-    // Runs a change against a fresh draft and hands the finished draft to `commit` on success. A failure or an
-    // interruption anywhere in the change discards the draft, so the volume's value is untouched.
-    const transition = <A, E, R>(change: Effect.Effect<A, E, R>, commit: (finished: Draft) => void) =>
+    // Runs a change against a fresh draft and returns the finished draft with the change's value. A failure or
+    // an interruption anywhere in the change discards the draft, so the volume's value is untouched.
+    const transition = <A, E, R>(change: Effect.Effect<A, E, R>) =>
       Effect.suspend(() => {
         const current = new Draft(state)
         draft = current
 
-        return Effect.onExit(change, (exit) => {
-          draft = undefined
-
-          if (Exit.isSuccess(exit)) commit(current)
-
-          return Effect.void
-        })
+        return Effect.onExit(change, () =>
+          Effect.sync(() => {
+            draft = undefined
+          })).pipe(Effect.map((value) => [value, current] as const))
       })
 
     // A change that runs outside admission and needs no provider: handle cleanup.
@@ -1299,46 +1295,73 @@ export const makeVolume = Effect.fnUntraced(
       install(current)
     }
 
-    // The provider sees the next value; the draft that built it is installed on publish.
-    const boxedProvider = (provider: CommitProvider<VolumeState>): CommitProvider<Candidate> => {
-      const prepare = provider.prepare
-      const commit = (candidate: Candidate) => provider.commit(candidate.value)
+    // Offers the finished draft's value to the store before installing it. A rejected candidate is discarded and
+    // the volume stays available; an uncertain answer stops the volume. A change that is a cleanup runs its
+    // release even when the store refuses, since the handle must not stay open.
+    const committed = Effect.fnUntraced(function*(
+      op: OpContext,
+      provider: CommitProvider<VolumeState>,
+      finished: Draft,
+      onStorageFailure: (() => void) | undefined
+    ) {
+      const next = finished.finish()
 
-      return prepare === undefined ? { commit } : { prepare: (candidate) => prepare(candidate.value), commit }
-    }
+      if (provider.prepare !== undefined) yield* provider.prepare(next)
+      const answer = yield* offerCommit(provider, op.operation, next, onStorageFailure !== undefined)
 
-    const staged = commitProvider === undefined ? undefined : makeStagedState<Candidate, () => void>(
-      { value: state, draft: undefined },
-      () => Effect.sync((): Candidate => ({ value: state, draft: undefined })),
-      boxedProvider(commitProvider),
-      (_candidate, events) => {
-        for (const event of events) event()
+      if (!answer.available) available = false
+
+      if (answer.failure !== undefined) {
+        if (!answer.available) onStorageFailure?.()
+
+        return yield* answer.failure
       }
-    )
 
-    // Permit waits stay interruptible. Changes and their publication run under one permit.
+      install(finished)
+    })
+
+    // Records what failed on the span the caller has open.
+    const annotateFailure = (error: unknown) =>
+      error instanceof FsError
+        ? Effect.annotateCurrentSpan({ operation: error.operation, code: error.code })
+        : Effect.void
+
+    // Permit waits stay interruptible. A change and its publication run under one permit; with a store, the
+    // change itself stays interruptible and only the commit and installation are not.
     const coordinated = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>, onStorageFailure?: () => void) =>
       admit(
         op,
-        staged === undefined
-          ? gate.withPermit(Effect.uninterruptible(transition(effect, install)))
-          : staged.mutate(op.operation, (candidate, emit) =>
-            // The change runs to completion as it does unstaged; its draft is discarded however it ends.
-            Effect.uninterruptible(transition(effect, (finished) => {
-              candidate.value = finished.finish()
-              candidate.draft = finished
-              emit(() => install(finished))
-            })), onStorageFailure)
+        gate.withPermit(
+          commitProvider === undefined
+            ? Effect.uninterruptible(
+              Effect.map(transition(Effect.andThen(checkAvailable(op.operation), effect)), ([value, finished]) => {
+                install(finished)
+
+                return value
+              })
+            )
+            : Effect.uninterruptibleMask((restore) =>
+              Effect.flatMap(
+                restore(transition(Effect.andThen(checkAvailable(op.operation), effect))),
+                ([value, finished]) => Effect.as(committed(op, commitProvider, finished, onStorageFailure), value)
+              )
+            )
+        )
+      ).pipe(Effect.tapError(annotateFailure))
+
+    // Pure observations share the permit without making a draft or calling the store.
+    const coordinatedRead = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>) =>
+      admit(op, gate.withPermit(Effect.andThen(checkAvailable(op.operation), effect))).pipe(
+        Effect.tapError(annotateFailure)
       )
 
-    // Pure observations share the permit without making a candidate or calling the provider.
-    const coordinatedRead = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>) =>
-      admit(op, staged === undefined ? gate.withPermit(effect) : staged.read(op.operation, () => effect))
-
     const coordinatedCleanup = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      staged === undefined
-        ? gate.withPermit(Effect.uninterruptible(effect))
-        : staged.coordinate(Effect.uninterruptible(effect))
+      gate.withPermit(Effect.uninterruptible(effect))
+
+    // Stops the volume once its store is going away; a later operation fails as unavailable.
+    const shutdown = commitProvider === undefined ? undefined : gate.withPermit(Effect.sync(() => {
+      available = false
+    }))
 
     const current = (): Draft => {
       if (draft === undefined) throw new Error("Volume mutation outside a transition")
@@ -4045,7 +4068,7 @@ export const makeVolume = Effect.fnUntraced(
 
     if (!Predicate.isTagged("Overlay")(source) || baseObservation === undefined) {
       // SAFETY: Overlay sources return below, so S is non-Overlay here and VolumeFor<S> is Volume.
-      return Object.freeze({ volume: volume as VolumeFor<S>, shutdown: staged?.shutdown, initialImage })
+      return Object.freeze({ volume: volume as VolumeFor<S>, shutdown, initialImage })
     }
 
     const overlay: OverlayVolume = Object.freeze({
@@ -4069,7 +4092,7 @@ export const makeVolume = Effect.fnUntraced(
       })
     })
 
-    return Object.freeze({ volume: overlay, shutdown: staged?.shutdown, initialImage })
+    return Object.freeze({ volume: overlay, shutdown, initialImage })
   }
 )
 
@@ -4095,7 +4118,9 @@ export const openImageVolume = Effect.fnUntraced(function*(
   durability: VolumeDurability = "memory-only"
 ) {
   const document = yield* LiveImage.decode(image, maxImageBytes)
-  const prepared = new WeakMap<VolumeState, Uint8Array>()
+  // The image prepared for the candidate the store is about to see; prepare and commit run in sequence under
+  // every permit, so one slot carries it between them.
+  let prepared: Uint8Array | undefined
   const identity = VolumeIdentity.make(document.identity)
   const commitOp = OpContext.make("commit")
 
@@ -4121,18 +4146,16 @@ export const openImageVolume = Effect.fnUntraced(function*(
             ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxImageBytes)
               ? commitOp.fail("StorageRejected")
               : Effect.sync(() => {
-                prepared.set(candidate, bytes)
+                prepared = bytes
               })
           )
         ),
-      commit: (candidate) =>
+      commit: () =>
         Effect.suspend(() => {
-          const bytes = prepared.get(candidate)
+          const bytes = prepared
+          prepared = undefined
 
-          if (bytes === undefined) return Effect.succeed("unknown" as const)
-          prepared.delete(candidate)
-
-          return commit(bytes)
+          return bytes === undefined ? Effect.succeed("unknown" as const) : commit(bytes)
         })
     },
     undefined,
