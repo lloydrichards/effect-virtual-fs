@@ -69,6 +69,7 @@ export const makeStagedState = <State, Event = never>(
         if (provider.prepare !== undefined) yield* restore(provider.prepare(candidate))
         const committed = yield* Effect.exit(Effect.suspend(() => provider.commit(candidate)))
 
+        // TODO(#186): a failed commit exit is a defect or interruption inside the provider, so the error keeps no cause.
         if (Exit.isFailure(committed)) {
           available = false
           onStorageFailure?.()
@@ -97,6 +98,7 @@ export const makeStagedState = <State, Event = never>(
         current = candidate
         const published = yield* Effect.exit(Effect.sync(() => publish?.(candidate, events)))
 
+        // TODO(#186): a failed publish exit is a defect, so the error keeps no cause.
         if (Exit.isFailure(published)) {
           available = false
 

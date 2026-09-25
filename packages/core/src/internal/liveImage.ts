@@ -189,7 +189,7 @@ const validate = Effect.fnUntraced(function*(document: Document) {
 /** @internal */
 export const encode = Effect.fnUntraced(function*(document: Document) {
   const text = yield* Schema.encodeEffect(Schema.fromJsonString(Document))(yield* validate(document)).pipe(
-    Effect.mapError(() => new ImageError({ code: "InvalidStructure", field: "liveImage" }))
+    Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "liveImage", cause }))
   )
 
   return new TextEncoder().encode(text)
@@ -207,11 +207,12 @@ export const decode = Effect.fnUntraced(function*(bytes: Uint8Array, maxEncodedB
 
   const text = yield* Effect.try({
     try: () => new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(bytes)),
-    catch: () => new ImageError({ code: "InvalidEncoding", field: "liveImage" })
+    // SAFETY: a fatal TextDecoder throws only TypeError.
+    catch: (cause) => new ImageError({ code: "InvalidEncoding", field: "liveImage", cause: cause as TypeError })
   })
 
   const parsed = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
-    Effect.mapError(() => new ImageError({ code: "InvalidEncoding", field: "liveImage" }))
+    Effect.mapError((cause) => new ImageError({ code: "InvalidEncoding", field: "liveImage", cause }))
   )
 
   const document = Schema.decodeUnknownResult(Document, { onExcessProperty: "error" })(parsed)

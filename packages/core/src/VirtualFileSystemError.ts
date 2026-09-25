@@ -4,6 +4,7 @@
  * @since 0.1.0
  */
 import * as Data from "effect/Data"
+import type { ImageError } from "./Snapshot.js"
 import type { FsCode, PathInput } from "./VirtualFileSystem.js"
 
 /**
@@ -28,6 +29,8 @@ export class FsError extends Data.TaggedError("FsError")<{
   readonly code: FsCode
   readonly operation: string
   readonly path?: PathInput
+  /** Underlying failure that this error classifies, when one exists. */
+  readonly cause?: FsError | ImageError | TypeError
 }> {
   override get message(): string {
     return `${this.operation} failed with ${this.code}`
