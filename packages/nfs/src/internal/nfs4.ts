@@ -10,7 +10,7 @@ import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
-import type * as Scope from "effect/Scope"
+import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import type * as Types from "effect/Types"
 import {
@@ -2658,6 +2658,9 @@ export const makeNfs4Handler = (
       handlerScope
     )
 
+    // The export forks each open's scope from the handler scope, so closing the handler scope closes them too.
+    // The handler still closes what `opens` holds through each open's own close, since that close is all the
+    // export contract promises; on the built-in export the second close finds a closed scope and does nothing.
     yield* Effect.addFinalizer(() => Effect.forEach(opens.values(), (open) => open.close, { discard: true }))
 
     /** Reads only the leading SEQUENCE of a compound to find its session, tolerating later decode errors. */
@@ -4368,15 +4371,18 @@ export const makeNfs4Handler = (
                               atimeNs: observed!.value.atimeNs,
                               mtimeNs: observed!.value.mtimeNs
                             }
-                          }).pipe(Effect.mapError((error) => {
-                            if (error instanceof ExportCapacityError) return Status.DELAY
+                          }).pipe(
+                            Scope.provide(handlerScope),
+                            Effect.mapError((error) => {
+                              if (error instanceof ExportCapacityError) return Status.DELAY
 
-                            if (error instanceof InvalidNameError) return nameStatus(error, operation.code)
+                              if (error instanceof InvalidNameError) return nameStatus(error, operation.code)
 
-                            if (error.code === "StaleReference") return Status.DELAY
+                              if (error.code === "StaleReference") return Status.DELAY
 
-                            return failureForFs(error, operation.code)
-                          }))
+                              return failureForFs(error, operation.code)
+                            })
+                          )
                         )
 
                         let id: Uint8Array
@@ -4484,7 +4490,12 @@ export const makeNfs4Handler = (
 
                             const replacement = addedAccess === 0 || heldHandle !== undefined ?
                               Effect.succeed(null) :
-                              mapFs(export_.open(reference, addedAccess === OPEN4_SHARE_ACCESS_READ ? "read" : "write"))
+                              mapFs(
+                                export_.open(reference, addedAccess === OPEN4_SHARE_ACCESS_READ ? "read" : "write")
+                                  .pipe(
+                                    Scope.provide(handlerScope)
+                                  )
+                              )
 
                             let transferred = false
 
@@ -4524,6 +4535,9 @@ export const makeNfs4Handler = (
                           return restore(
                             mapFs(
                               export_.open(reference, accessMode === 3 ? "readWrite" : wantsWrite ? "write" : "read")
+                                .pipe(
+                                  Scope.provide(handlerScope)
+                                )
                             )
                           ).pipe(
                             Effect.flatMap((opened) => {
@@ -4619,7 +4633,7 @@ export const makeNfs4Handler = (
                       Effect.andThen(readPermission),
                       Effect.andThen(
                         Effect.acquireUseRelease(
-                          mapFs(export_.open(reference)),
+                          mapFs(Scope.provide(export_.open(reference), handlerScope)),
                           (opened) => readFrom(opened.handle),
                           (opened) => opened.close
                         )
@@ -4681,8 +4695,10 @@ export const makeNfs4Handler = (
                           (body): ResultPart => ({ code: operation.code, status: Status.OK, body })
                         )
                       ),
-                      Effect.catchTag("VfsError", (error) =>
-                        Effect.succeed({ code: operation.code, status: failureForFs(error, operation.code) }))
+                      Effect.catchTag(
+                        "VfsError",
+                        (error) => Effect.succeed({ code: operation.code, status: failureForFs(error, operation.code) })
+                      )
                     )
                   }
                 }
@@ -4952,8 +4968,7 @@ export const makeNfs4Handler = (
                       }))
 
                       const nextCount = updates.reduce(
-                        (count, update) =>
-                          count + update.next.length - update.state.ranges.length,
+                        (count, update) => count + update.next.length - update.state.ranges.length,
                         lockCount
                       )
 
