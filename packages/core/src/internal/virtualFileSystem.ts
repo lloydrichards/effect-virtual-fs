@@ -120,6 +120,8 @@ interface LookupOptions {
   readonly followFinalSymlink?: boolean
   readonly allowMissing?: boolean
   readonly parentOnly?: boolean
+  // Creates a missing directory the path names, for a recursive mkdir; `final` says the name ends the path.
+  readonly createMissing?: (parent: Directory, name: string, final: boolean) => Effect.Effect<Directory, FsFailure>
 }
 
 // Nodes walked between yields. Whole-tree reads are one synchronous tick otherwise, which
@@ -2117,7 +2119,7 @@ export const makeVolume = Effect.fnUntraced(
         referencedBase?: Directory
       ) {
         const pathOp = op.at(path.input)
-        const { followFinalSymlink = true, allowMissing = false, parentOnly = false } = options
+        const { allowMissing = false, createMissing, followFinalSymlink = true, parentOnly = false } = options
 
         if (reference.ino === undefined) {
           return yield* pathOp.fail("ClosedCaller")
@@ -2157,6 +2159,9 @@ export const makeVolume = Effect.fnUntraced(
         let parent: Directory | undefined
         let name: string | undefined
         let traversals = 0
+        // Leading components that came from a symbolic link's target. Only the components the caller wrote are
+        // created, so a dangling link stays missing, as it does for mkdir -p.
+        let linked = 0
 
         for (let index = 0; index < work.components.length - (parentOnly ? 1 : 0); index++) {
           if (current.kind !== "directory") {
@@ -2187,6 +2192,11 @@ export const makeVolume = Effect.fnUntraced(
               return { node: undefined, parent, name }
             }
 
+            if (createMissing !== undefined && index >= linked) {
+              current = yield* createMissing(current, component, index === work.components.length - 1)
+              continue
+            }
+
             return yield* pathOp.fail("NotFound")
           }
 
@@ -2202,6 +2212,7 @@ export const makeVolume = Effect.fnUntraced(
             }
 
             const suffix = work.suffixes[index] ?? new Uint8Array(0)
+            const remaining = work.components.length - index - 1
 
             if (
               settings.maxPathBytes !== undefined &&
@@ -2223,6 +2234,7 @@ export const makeVolume = Effect.fnUntraced(
             }
 
             work = expanded.success
+            linked = work.components.length - remaining + Math.max(0, linked - index - 1)
 
             if (work.absolute) current = nodeNow(ROOT_INO)
             index = -1
@@ -2447,6 +2459,62 @@ export const makeVolume = Effect.fnUntraced(
         publishEntry("Create", parent.ino, name, child.ino)
 
         return { child: child.ino, directory: { before, after: current().revision } }
+      })
+
+      // Creates every missing directory a path names in the running transition, so a failure anywhere discards
+      // them all. The mode applies to each directory created and the times to the one in the final position. An
+      // entry names one child, created unless it is already a directory. The result names the directory the path
+      // ends on and its parent's revision before and after the call, so a final directory that already exists is
+      // no change, while a path that leaves a directory it created, such as `new/..`, reports the creation.
+      const makeDirectories = Effect.fnUntraced(function*(
+        prepared: PreparedEntry,
+        request: {
+          readonly mode: number
+          readonly exactMode?: boolean | undefined
+          readonly times?: Times | undefined
+        },
+        op: OpContext
+      ) {
+        let node: Node | undefined
+        let entryOp = op
+        // Each directory that gained a child, with its revision before the first.
+        const revisionsBefore = new Map<Ino, bigint>()
+
+        if (prepared.kind === "entry") {
+          const entry = yield* resolveEntry(prepared, op)
+          const made = yield* Effect.result(makeDirectory(entry, request, op))
+
+          if (Result.isSuccess(made)) return made.success
+          const existingIno = entry.name === undefined ? undefined : directoryNow(entry.parent).entries.get(entry.name)
+          node = existingIno === undefined ? undefined : view(existingIno)
+
+          if (made.failure.code !== "AlreadyExists" || node?.kind !== "directory") return yield* made.failure
+        } else {
+          entryOp = op.at(prepared.path.input)
+
+          const resolved = yield* lookup(prepared.path, prepared.base, op, {
+            createMissing: (parent, name, final) =>
+              Effect.map(
+                makeDirectory(
+                  { parent: parent.ino, name, trailingSlash: false, addressing: "path", op: entryOp },
+                  final ? request : { mode: request.mode, exactMode: request.exactMode },
+                  op
+                ),
+                (made) => {
+                  if (!revisionsBefore.has(parent.ino)) revisionsBefore.set(parent.ino, made.directory.before)
+
+                  return directoryNow(made.child)
+                }
+              )
+          })
+
+          node = resolved.node
+        }
+
+        if (node?.kind !== "directory") return yield* entryOp.fail("AlreadyExists")
+        const after = directoryNow(node.parent).revision
+
+        return { child: node.ino, directory: { before: revisionsBefore.get(node.parent) ?? after, after } }
       })
 
       const linkNode = Effect.fnUntraced(
@@ -3838,13 +3906,11 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const entry = yield* resolveEntry(prepared, op)
+              const request = { mode: chosen.mode ?? 0o777, exactMode: chosen.exactMode, times: chosen.times }
 
-              const { child, directory } = yield* makeDirectory(
-                entry,
-                { mode: chosen.mode ?? 0o777, exactMode: chosen.exactMode, times: chosen.times },
-                op
-              )
+              const { child, directory } = chosen.recursive === true
+                ? yield* makeDirectories(prepared, request, op)
+                : yield* makeDirectory(yield* resolveEntry(prepared, op), request, op)
 
               return { reference: referenceFor(child), directory }
             })
