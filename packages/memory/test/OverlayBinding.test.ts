@@ -1,11 +1,11 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { assert, it } from "@effect/vitest"
-import { Effect, Fiber, Layer, Stream } from "effect"
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { assert, describe, it } from "@effect/vitest"
+import { Effect } from "effect"
 import * as Memory from "../src/MemoryFileSystem.js"
 
 const bytes = new TextEncoder()
 
-it.layer(Layer.empty)("overlay memory binding", (it) => {
+describe("overlay memory binding", () => {
   it.effect("should expose direct and adapter writes when bound to an overlay volume", () =>
     Effect.gen(function*() {
       const base = yield* (yield* Vfs.fromFixture({
@@ -50,16 +50,12 @@ it.layer(Layer.empty)("overlay memory binding", (it) => {
       const core = yield* overlay.caller()
       const adapter = yield* Memory.bind(overlay)
 
-      const watched = yield* adapter.watch("/").pipe(
-        Stream.take(4),
-        Stream.runCollect,
-        Effect.forkChild({ startImmediately: true })
-      )
+      const watched = yield* Testing.collectChanges(adapter.watch("/"), 4)
 
       yield* core.rename("/direct", "/renamed")
       yield* adapter.rename("/source", "/destination")
 
-      assert.deepStrictEqual(yield* Fiber.join(watched), [
+      assert.deepStrictEqual(yield* watched, [
         { _tag: "Remove", path: "/direct" },
         { _tag: "Create", path: "/renamed" },
         { _tag: "Remove", path: "/source" },

@@ -3,6 +3,7 @@ import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import { assert, it } from "@effect/vitest"
 import { ByteSize, Effect, FileSystem, Result, Stream } from "effect"
 import * as TreeTransfer from "../src/TreeTransfer.js"
+import { snapshotEntries } from "./support/snapshotEntries.js"
 
 const text = new TextEncoder()
 
@@ -24,9 +25,6 @@ const hostTree = Vfs.fromFixture({
     { kind: "symlink", path: "/src/dangling", target: "missing" }
   ]
 })
-
-const snapshotEntries = (volume: Vfs.Volume, root: string) =>
-  Effect.flatMap(volume.snapshot, (snapshot) => Stream.runCollect(TreeTransfer.fromSnapshot(snapshot, root)))
 
 // Keeps only what an Effect FileSystem round trip promises: names, contents, link targets and topology, modes,
 // and millisecond access and modification times. Link metadata, owners, and change and birth times are dropped.

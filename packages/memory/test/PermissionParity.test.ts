@@ -1,4 +1,4 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Result } from "effect"
 import * as Memory from "../src/MemoryFileSystem.js"
@@ -8,13 +8,13 @@ const GUEST = { uid: 1, gid: 1, groups: [], privileged: false } as const
 // A guest bound to a volume with a guest-owned /work, so permission checks apply as they do to an unprivileged
 // Node process. Each expectation matches what Node does on a real filesystem.
 const guest = Effect.gen(function*() {
-  const volume = yield* Vfs.make()
+  const volume = yield* Vfs.Volume
   const owner = yield* Memory.bind(volume)
   yield* owner.makeDirectory("/work")
   yield* owner.chown("/work", GUEST.uid, GUEST.gid)
 
   return yield* Memory.bind(volume, { identity: GUEST })
-})
+}).pipe(Effect.provide(Testing.layer()))
 
 describe("permission parity with Node", () => {
   it.effect("creates a recursive directory whose mode lacks owner search", () =>
