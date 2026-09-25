@@ -12,7 +12,7 @@ sources:
     resource: ../../../packages/core/src/internal/virtualFileSystem.ts
     title: Admission and change publication
   - id: hub
-    resource: ../../../packages/core/src/internal/virtualFileSystem/watchHub.ts
+    resource: ../../../packages/core/src/internal/watchHub.ts
     title: Per-subscriber watch queues
   - id: adapter
     resource: ../../../packages/memory/src/internal/memoryFileSystem.ts
@@ -29,7 +29,7 @@ sources:
   - id: pubsub
     resource: ../../../node_modules/effect/src/PubSub.ts
     title: Effect PubSub publishUnsafe implementation
-generated: { by: codex/okf, at: 2026-09-20T00:00:00Z }
+generated: { by: codex/okf, at: 2026-09-25T00:00:00Z }
 ---
 
 # Watch event overflow
@@ -40,7 +40,9 @@ generated: { by: codex/okf, at: 2026-09-20T00:00:00Z }
 
 ## Watch retention and recovery
 
-Every subscriber has an independent queue. `maxWatchEvents` defaults to 256 and must be at least 2. The last slot is reserved for `Rescan`, the fourth `Change._tag`. When a queue fills, its subscriber receives buffered changes in order, followed by `Rescan` at `/`; further changes to that subscriber are dropped until it consumes the marker. A stalled subscriber cannot block a mutation or stop another subscriber's progress. Core watches cover the volume, so `/` calls for a full rescan. No path coalescing is part of this decision.[^api][^hub][^tests]
+Every subscriber has an independent queue. `maxWatchEvents` defaults to 256 and must be at least 2. The last slot is reserved for `Rescan`, the fourth `Change._tag`. When a queue fills, its subscriber receives buffered changes in order, followed by `Rescan` at `/`; further changes to that subscriber are dropped until it consumes the marker. Nothing is queued behind the marker, so the publisher treats an empty queue as the marker having been taken and delivers again from the next change. A stalled subscriber cannot block a mutation or stop another subscriber's progress. Core watches cover the volume, so `/` calls for a full rescan. No path coalescing is part of this decision.[^api][^hub][^tests]
+
+`Volume.watch` stays an effect that returns the stream only after the subscriber is registered under the mutation permit. A change committed after it returns is never missed, so a caller can subscribe and then write. A lazy `Stream` member would register only when first pulled and lose that guarantee, so none is offered; the memory adapter wraps the effect with `Stream.unwrap` at its own boundary. The stream takes one event per pull, so a partially consumed stream can be run again without losing buffered changes.[^hub][^adapter]
 
 A core consumer rescans after `Rescan` and repeats if another marker arrives. Effect's `FileSystem.WatchEvent` cannot represent the marker. `@effect-vfs/memory` ends its watch stream with a platform error identified by `MemoryFileSystem.isWatchOverflow`. Its caller opens a new watch before rescanning the watched path, then repeats if that watch overflows. Opening the watch first avoids a gap between the scan and registration.[^adapter][^adapter-api][^adapter-tests]
 
