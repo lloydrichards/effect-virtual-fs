@@ -1,6 +1,7 @@
 # Watch overview
 
-Change events published by a volume's watch stream.
+Change events published by a volume's watch stream, and the options that
+narrow a watch to one object's subtree.
 
 Added in v0.6.0
 
@@ -24,12 +25,25 @@ export type Change =
 
 Added in v0.6.0
 
+### WatchOptions (type alias)
+
+Options of a watch.
+
+**Signature**
+
+```ts
+export type WatchOptions = { readonly recursive?: boolean; readonly scope?: ObjectReference }
+```
+
+Added in v0.6.0
+
 ## schemas
 
 ### Change
 
-Schema for one committed change. `Rescan` at `/` means the subscriber lost
-events and must rescan; events are never replayed.
+Schema for one committed change. `Rescan` means the subscriber lost events
+and must rescan what it watches, whose path it names; events are never
+replayed.
 
 **Signature**
 
@@ -39,6 +53,33 @@ export declare const Change: Schema.TaggedUnion<{
   readonly Update: Schema.TaggedStruct<"Update", { readonly path: Schema.declare<BytePath, BytePath> }>
   readonly Remove: Schema.TaggedStruct<"Remove", { readonly path: Schema.declare<BytePath, BytePath> }>
   readonly Rescan: Schema.TaggedStruct<"Rescan", { readonly path: Schema.declare<BytePath, BytePath> }>
+}>
+```
+
+Added in v0.6.0
+
+### WatchOptions
+
+Schema for the options of a watch. `scope` narrows the watch to one object
+and, when `recursive` is not `false`, everything below it; without a scope
+the watch covers the volume.
+
+**Details**
+
+The scope is an object, not a path: a watch on a directory keeps receiving
+its changes, at their current paths, after the directory or one of its
+ancestors is renamed. Each change is tested against the scope on its own,
+so a move out of the scope arrives as `Remove` and a move into it as
+`Create`. With `recursive: false` only the object itself and its direct
+children are reported. When the object's last name is removed the watch
+reports `Remove` for it and ends.
+
+**Signature**
+
+```ts
+export declare const WatchOptions: Schema.Struct<{
+  readonly scope: Schema.optionalKey<Schema.declare<ObjectReference, ObjectReference>>
+  readonly recursive: Schema.optionalKey<Schema.Boolean>
 }>
 ```
 

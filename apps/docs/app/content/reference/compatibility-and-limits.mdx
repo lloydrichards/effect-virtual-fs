@@ -93,13 +93,17 @@ accept it.
 
 ## Watch behavior
 
-`volume.watch` opens a scoped stream of future committed create, update, and remove events.
+`volume.watch()` opens a scoped stream of future committed create, update, and remove events.
 
 - Events are not replayed.
 - Registration is coordinated with mutations so an event cannot be lost while the subscription becomes active.
 - `maxWatchEvents` defaults to 256 queued events per subscriber and can be configured on a volume.
 - When a subscriber loses events, it receives `Rescan` at `/` and must read the volume again.
 - Closing the owning scope releases the subscription.
+- `volume.watch({ scope })` narrows the stream to one object reference and, unless `recursive` is `false`, its
+  subtree. Changes outside the scope never count toward its queue. The scope follows renames of the object and its
+  ancestors, a move out of it arrives as `Remove` and a move into it as `Create`, `Rescan` names the object's current
+  path, and the stream ends after `Remove` for the object once its last name is gone.
 
 A slow consumer does not retain an unbounded event history. Treat `Rescan` as an invalidation signal, not a replay.
 
