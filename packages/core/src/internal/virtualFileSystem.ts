@@ -2401,6 +2401,77 @@ export const makeVolume = Effect.fnUntraced(
         return { child, directory: { before, after: parent.revision } }
       })
 
+      // A directory's ".." entry was a link to the parent, so removing one drops the parent's link count.
+      const removeChild = Effect.fnUntraced(function*(parent: Directory, name: string, child: Node, op: OpContext) {
+        const before = parent.revision
+        const now = yield* timestamp(op)
+        parent.entries.delete(name)
+        parent.metadata = {
+          ...parent.metadata,
+          nlink: parent.metadata.nlink - (child.kind === "directory" ? 1 : 0),
+          mtimeNs: now,
+          ctimeNs: now
+        }
+        advanceRevision(parent)
+        detach(child, now)
+        state.entries -= 1
+        publishEntry("Remove", parent, name)
+
+        return { before, after: parent.revision }
+      })
+
+      // Authorizes removing from the entry's directory and returns the named child. Only a path can name a dot
+      // entry, and each verb reports it with its own code.
+      const removalTarget = Effect.fnUntraced(function*(
+        entry: ResolvedEntry,
+        dotNameCode: "IsDirectory" | "InvalidArgument"
+      ) {
+        yield* authorize(entry.parent, identity, WRITE | EXECUTE, entry.op)
+
+        if (isDotComponent(entry.name)) return yield* entry.op.fail(dotNameCode)
+        const child = entry.parent.entries.get(entry.name)
+
+        if (child === undefined) return yield* entry.op.fail("NotFound")
+
+        return { name: entry.name, child }
+      })
+
+      // Removes a file or an empty directory; only references reach it, so a dot name never does.
+      const removeEntry = Effect.fnUntraced(function*(entry: ResolvedEntry, op: OpContext) {
+        const parent = entry.parent
+        const { name, child } = yield* removalTarget(entry, "InvalidArgument")
+        yield* authorizeRemoval(parent, child, entry.op)
+
+        if (child.kind === "directory" && child.entries.size > 0) return yield* entry.op.fail("NotEmpty")
+
+        return yield* removeChild(parent, name, child, op)
+      })
+
+      const unlinkEntry = Effect.fnUntraced(function*(entry: ResolvedEntry, op: OpContext) {
+        const parent = entry.parent
+        const { name, child } = yield* removalTarget(entry, "IsDirectory")
+
+        if (child.kind === "directory") return yield* entry.op.fail("IsDirectory")
+
+        if (entry.trailingSlash) return yield* entry.op.fail("NotDirectory")
+        yield* authorizeRemoval(parent, child, entry.op)
+
+        return yield* removeChild(parent, name, child, op)
+      })
+
+      // Needs no trailing-slash check: anything it removes is a directory.
+      const rmdirEntry = Effect.fnUntraced(function*(entry: ResolvedEntry, op: OpContext) {
+        const parent = entry.parent
+        const { name, child } = yield* removalTarget(entry, "InvalidArgument")
+        yield* authorizeRemoval(parent, child, entry.op)
+
+        if (child.kind !== "directory") return yield* entry.op.fail("NotDirectory")
+
+        if (child.entries.size > 0) return yield* entry.op.fail("NotEmpty")
+
+        return yield* removeChild(parent, name, child, op)
+      })
+
       const rootReferenceOp = OpContext.make("rootReference")
 
       return Object.freeze({
@@ -2631,27 +2702,9 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const parent = yield* referencedDirectory(directoryReference, op)
-              yield* authorize(parent, identity, WRITE | EXECUTE, op)
-              const child = parent.entries.get(name)
+              const entry = yield* ResolvedEntry.fromReference(directoryReference, name, op)
 
-              if (child === undefined) return yield* op.fail("NotFound")
-
-              if (child.kind === "directory") {
-                return yield* op.fail("IsDirectory")
-              }
-
-              yield* authorizeRemoval(parent, child, op)
-              const before = parent.revision
-              const now = yield* timestamp(op)
-              parent.entries.delete(name)
-              parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
-              advanceRevision(parent)
-              detach(child, now)
-              state.entries -= 1
-              publishEntry("Remove", parent, name)
-
-              return { before, after: parent.revision }
+              return yield* unlinkEntry(entry, op)
             })
           )
         }),
@@ -2662,34 +2715,9 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const parent = yield* referencedDirectory(directoryReference, op)
-              yield* authorize(parent, identity, WRITE | EXECUTE, op)
-              const child = parent.entries.get(name)
+              const entry = yield* ResolvedEntry.fromReference(directoryReference, name, op)
 
-              if (child === undefined) return yield* op.fail("NotFound")
-              yield* authorizeRemoval(parent, child, op)
-
-              if (child.kind !== "directory") {
-                return yield* op.fail("NotDirectory")
-              }
-
-              if (child.entries.size > 0) {
-                return yield* op.fail("NotEmpty")
-              }
-
-              const before = parent.revision
-              const now = yield* timestamp(op)
-              parent.entries.delete(name)
-              parent.metadata = { ...parent.metadata, nlink: parent.metadata.nlink - 1, mtimeNs: now, ctimeNs: now }
-              child.parent = undefined
-              child.metadata = { ...child.metadata, nlink: 0, ctimeNs: now }
-              advanceRevision(parent)
-              advanceRevision(child)
-              invalidateReference(child)
-              state.entries -= 1
-              publishEntry("Remove", parent, name)
-
-              return { before, after: parent.revision }
+              return yield* rmdirEntry(entry, op)
             })
           )
         }),
@@ -2700,42 +2728,9 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const parent = yield* referencedDirectory(directoryReference, op)
-              yield* authorize(parent, identity, WRITE | EXECUTE, op)
-              const child = parent.entries.get(name)
+              const entry = yield* ResolvedEntry.fromReference(directoryReference, name, op)
 
-              if (child === undefined) return yield* op.fail("NotFound")
-              yield* authorizeRemoval(parent, child, op)
-
-              if (child.kind === "directory" && child.entries.size > 0) {
-                return yield* op.fail("NotEmpty")
-              }
-
-              const before = parent.revision
-              const now = yield* timestamp(op)
-              parent.entries.delete(name)
-              parent.metadata = {
-                ...parent.metadata,
-                nlink: parent.metadata.nlink - (child.kind === "directory" ? 1 : 0),
-                mtimeNs: now,
-                ctimeNs: now
-              }
-
-              if (child.kind === "directory") {
-                child.parent = undefined
-                child.metadata = { ...child.metadata, nlink: 0, ctimeNs: now }
-                advanceRevision(parent)
-                advanceRevision(child)
-                invalidateReference(child)
-              } else {
-                advanceRevision(parent)
-                detach(child, now)
-              }
-
-              state.entries -= 1
-              publishEntry("Remove", parent, name)
-
-              return { before, after: parent.revision }
+              return yield* removeEntry(entry, op)
             })
           )
         }),
@@ -3715,42 +3710,14 @@ export const makeVolume = Effect.fnUntraced(
         }),
         unlink: Effect.fn("Caller.unlink")(function*(input: PathInput, options?: RelativeOptions) {
           const op = OpContext.make("unlink")
-          const pathOp = op.at(input)
           const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
 
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const path = yield* Effect.fromResult(prepared)
-              const parent = yield* locate(path, base, op, { parentOnly: true })
-              yield* authorize(parent, identity, WRITE | EXECUTE, pathOp)
-              const name = path.components.at(-1)
-
-              if (isDotComponent(name)) {
-                return yield* pathOp.fail("IsDirectory")
-              }
-
-              const child = parent.entries.get(name)
-
-              if (child === undefined) return yield* pathOp.fail("NotFound")
-
-              if (child.kind === "directory") {
-                return yield* pathOp.fail("IsDirectory")
-              }
-
-              if (path.trailingSlash) {
-                return yield* pathOp.fail("NotDirectory")
-              }
-
-              yield* authorizeRemoval(parent, child, pathOp)
-              const now = yield* timestamp(op)
-              parent.entries.delete(name)
-              parent.metadata = { ...parent.metadata, mtimeNs: now, ctimeNs: now }
-              advanceRevision(parent)
-              detach(child, now)
-              state.entries -= 1
-              publishEntry("Remove", parent, name)
+              const entry = yield* ResolvedEntry.fromPath(prepared, base, op)
+              yield* unlinkEntry(entry, op)
             })
           )
         }),
@@ -3874,45 +3841,14 @@ export const makeVolume = Effect.fnUntraced(
         }),
         rmdir: Effect.fn("Caller.rmdir")(function*(input: PathInput, options?: RelativeOptions) {
           const op = OpContext.make("rmdir")
-          const pathOp = op.at(input)
           const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
 
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const path = yield* Effect.fromResult(prepared)
-              const parent = yield* locate(path, base, op, { parentOnly: true })
-              yield* authorize(parent, identity, WRITE | EXECUTE, pathOp)
-              const name = path.components.at(-1)
-
-              if (isDotComponent(name)) {
-                return yield* pathOp.fail("InvalidArgument")
-              }
-
-              const child = parent.entries.get(name)
-
-              if (child === undefined) return yield* pathOp.fail("NotFound")
-              yield* authorizeRemoval(parent, child, pathOp)
-
-              if (child.kind !== "directory") {
-                return yield* pathOp.fail("NotDirectory")
-              }
-
-              if (child.entries.size > 0) {
-                return yield* pathOp.fail("NotEmpty")
-              }
-
-              const now = yield* timestamp(op)
-              parent.entries.delete(name)
-              parent.metadata = { ...parent.metadata, nlink: parent.metadata.nlink - 1, mtimeNs: now, ctimeNs: now }
-              child.parent = undefined
-              child.metadata = { ...child.metadata, nlink: 0, ctimeNs: now }
-              advanceRevision(parent)
-              advanceRevision(child)
-              invalidateReference(child)
-              state.entries -= 1
-              publishEntry("Remove", parent, name)
+              const entry = yield* ResolvedEntry.fromPath(prepared, base, op)
+              yield* rmdirEntry(entry, op)
             })
           )
         }),
