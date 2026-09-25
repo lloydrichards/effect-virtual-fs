@@ -1,12 +1,11 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Deferred, Effect, Exit, Fiber, Option, Scope, Stream } from "effect"
-import { layerDeterministicCrypto } from "../src/internal/crypto.js"
+import { ByteSize, Deferred, Effect, Exit, Fiber, Layer, Option, Scope, Stream } from "effect"
 import * as Memory from "../src/MemoryFileSystem.js"
 
 const bytes = new TextEncoder()
 
-it.layer(layerDeterministicCrypto)("core-backed memory bindings", (it) => {
+it.layer(Layer.empty)("core-backed memory bindings", (it) => {
   it.effect("should share file contents and keep cursors independent when bindings use one volume", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()

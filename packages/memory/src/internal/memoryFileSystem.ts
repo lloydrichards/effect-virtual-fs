@@ -8,7 +8,6 @@
  * @since 0.1.0
  */
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
@@ -18,7 +17,6 @@ import * as Result from "effect/Result"
 import * as Stream from "effect/Stream"
 import { info, openOptions, sizeInput, validateMode } from "./adapterSupport.js"
 import { makeCopyOperations } from "./copyOperations.js"
-import { layerDeterministicCrypto } from "./crypto.js"
 import { makeOpen } from "./fileHandle.js"
 import { compileGlobPatterns, matchesGlob } from "./glob.js"
 import { argumentError, toPlatformError } from "./platformError.js"
@@ -304,17 +302,11 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
 })
 
 /** @internal */
-export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = Effect.gen(function*() {
+export const make: Effect.Effect<FileSystem.FileSystem> = Effect.gen(function*() {
   const volume = yield* Vfs.fromFixture({ entries: [{ kind: "directory", path: "/tmp" }] })
 
   return yield* bind(volume)
 }).pipe(Effect.orDie)
 
 /** @internal */
-export const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto> = Layer.effect(FileSystem.FileSystem, make)
-
-/** @internal */
-export const makeCrypto: Effect.Effect<FileSystem.FileSystem> = make.pipe(Effect.provide(layerDeterministicCrypto))
-
-/** @internal */
-export const layerCrypto: Layer.Layer<FileSystem.FileSystem> = layer.pipe(Layer.provide(layerDeterministicCrypto))
+export const layer: Layer.Layer<FileSystem.FileSystem> = Layer.effect(FileSystem.FileSystem, make)
