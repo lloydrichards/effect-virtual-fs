@@ -1588,12 +1588,7 @@ export const makeVolume = Effect.fnUntraced(
       if (length > BigInt(maxFileBytes)) return yield* op.fail("FileTooLarge")
       const size = Number(length)
 
-      if (
-        settings.maxBytes !== undefined &&
-        BigInt(size - file.data.bytes.length) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes
-      ) {
-        return yield* op.fail("NoSpace")
-      }
+      yield* reserveBytes(op, BigInt(size - file.data.bytes.length))
 
       const data = new Uint8Array(size)
       data.set(file.data.bytes.subarray(0, size))
@@ -3350,9 +3345,7 @@ export const makeVolume = Effect.fnUntraced(
 
                   if (replaced !== undefined) yield* authorizeRemoval(parent, replaced, pathOp)
 
-                  if (replaced === undefined && atEntryLimit()) {
-                    return yield* pathOp.fail("NoSpace")
-                  }
+                  if (replaced === undefined) yield* reserveEntry(pathOp)
                 } else {
                   yield* authorize(
                     file,
@@ -3379,12 +3372,8 @@ export const makeVolume = Effect.fnUntraced(
 
                 const reclaimed = replaced !== undefined && replaced.metadata.nlink === 1 ? replaced.target.length : 0
 
-                if (
-                  settings.maxBytes !== undefined &&
-                  BigInt(size - previous) > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes + BigInt(reclaimed)
-                ) {
-                  return yield* pathOp.fail("NoSpace")
-                }
+                // Replacing a symbolic link frees its target bytes once this is its last link.
+                yield* reserveBytes(pathOp, BigInt(size - previous) - BigInt(reclaimed))
 
                 if (file !== undefined && !chosen.truncate && captured.length === 0 && chosen.finalMode === undefined) {
                   return
@@ -3401,27 +3390,13 @@ export const makeVolume = Effect.fnUntraced(
 
                 const now = yield* timestamp(op)
 
-                const node: RegularFile = file ??
-                  {
-                    kind: "file",
-                    lineage: undefined,
-                    // Assigned below on the shared path that also covers an existing file.
-                    data: Content.empty(),
-                    openCount: 0,
-                    metadata: {
-                      ...directoryMetadata(
-                        state.nextInode++,
-                        identity.uid,
-                        parent.metadata.gid,
-                        (chosen.mode ?? 0o666) & 0o777 & ~umask,
-                        now
-                      ),
-                      kind: "file",
-                      nlink: 1
-                    },
-                    revision: nextRevision(),
-                    objectReference: undefined
-                  }
+                let node = file
+
+                if (node === undefined) {
+                  // Content and size are assigned below on the shared path that also covers an existing file.
+                  node = newFile(parent, Content.empty(), (chosen.mode ?? 0o666) & 0o777 & ~umask, now)
+                  state.nextInode += 1n
+                }
 
                 node.data = Content.make(data)
                 node.metadata = {
