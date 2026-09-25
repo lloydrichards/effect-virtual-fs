@@ -55,6 +55,7 @@ import {
 } from "./path.js"
 import { type CommitProvider, offerCommit } from "./stagedState.js"
 import { VolumeTestSeams } from "./testSeams.js"
+import { makeTurnstile } from "./turnstile.js"
 import * as WatchHub from "./watchHub.js"
 
 /** @internal */
@@ -1173,8 +1174,19 @@ export const makeVolume = Effect.fnUntraced(
     // takes them all, so it sees no reader and no reader sees it half done.
     const permits = maxPendingOperations + 1
     const gate = Semaphore.makeUnsafe(permits)
-    const observing = gate.withPermits(1)
-    const changing = gate.withPermits(permits)
+    // The gate hands permits to whichever waiter it can satisfy, so a change waiting for every permit would be
+    // overtaken by each later observation. A change holds a turnstile while it gathers the permits, and an
+    // observation passes the turnstile before it takes one, so observations that arrive after a change wait
+    // behind it. The turnstile goes to its waiters in arrival order, even to one that arrives while a finished
+    // change is still releasing. Both waits stay interruptible, and every permit is taken and released by
+    // `withPermits`.
+    const turnstile = makeTurnstile()
+
+    const observing = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.andThen(turnstile.withTurn(Effect.void), gate.withPermits(1)(effect))
+
+    const changing = <A, E, R>(effect: Effect.Effect<A, E, R>) => turnstile.withTurn(gate.withPermits(permits)(effect))
+
     const admission = yield* Semaphore.make(permits)
 
     const admit = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FsError, R> =>
