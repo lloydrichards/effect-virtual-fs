@@ -11,88 +11,7 @@ Added in v0.4.0
 
 ---
 
-## errors
-
-### LiveVolumeError (class)
-
-A failed live-store startup or recovery.
-
-**Signature**
-
-```ts
-export declare class LiveVolumeError
-```
-
-Added in v0.4.0
-
-## models
-
-### ImageSession (interface)
-
-A live volume and the shutdown action its storage adapter must run before
-closing the underlying store.
-
-**Signature**
-
-```ts
-export interface ImageSession {
-  readonly volume: Volume
-  readonly shutdown: Effect.Effect<void>
-}
-```
-
-**Example**
-
-```ts
-import type { ImageSession } from "@effect-vfs/core/LiveVolume"
-
-const shutdown = (session: ImageSession) => session.shutdown
-```
-
-Added in v0.4.0
-
-### Options (interface)
-
-Configuration shared by every live-image provider.
-
-**Signature**
-
-```ts
-export interface Options {
-  readonly maxImageBytes: ByteSize.ByteSize
-  readonly volume: VolumeOptions
-}
-```
-
-Added in v0.4.0
-
-## utils
-
-### CommitOutcome (type alias)
-
-A storage commit's observed outcome.
-
-**Signature**
-
-```ts
-export type CommitOutcome = "committed" | "rejected" | "unknown"
-```
-
-Added in v0.4.0
-
-### LiveImageStore (class)
-
-One exclusively owned store. Its Layer holds the storage resource until the
-volume has shut down. Providers must atomically replace each image and
-classify ambiguous commits as `unknown`.
-
-**Signature**
-
-```ts
-export declare class LiveImageStore
-```
-
-Added in v0.4.0
+## constructors
 
 ### open
 
@@ -140,6 +59,89 @@ Store this image before opening it for mutation.
 export declare const prepareEmptyImage: (
   options?: VolumeOptions
 ) => Effect.Effect<Uint8Array, ConfigurationError | ImageError | PlatformError.PlatformError, Crypto.Crypto>
+```
+
+Added in v0.4.0
+
+## errors
+
+### LiveVolumeError (class)
+
+A failed live-store startup or recovery.
+
+**Signature**
+
+```ts
+export declare class LiveVolumeError
+```
+
+Added in v0.4.0
+
+## models
+
+### CommitOutcome (type alias)
+
+A storage commit's observed outcome.
+
+**Signature**
+
+```ts
+export type CommitOutcome = "committed" | "rejected" | "unknown"
+```
+
+Added in v0.4.0
+
+### ImageSession (interface)
+
+A live volume and the shutdown action its storage adapter must run before
+closing the underlying store.
+
+**Signature**
+
+```ts
+export interface ImageSession {
+  readonly volume: Volume
+  readonly shutdown: Effect.Effect<void>
+}
+```
+
+**Example**
+
+```ts
+import type { ImageSession } from "@effect-vfs/core/LiveVolume"
+
+const shutdown = (session: ImageSession) => session.shutdown
+```
+
+Added in v0.4.0
+
+### Options (interface)
+
+Configuration shared by every live-image provider.
+
+**Signature**
+
+```ts
+export interface Options {
+  readonly maxImageBytes: ByteSize.ByteSize
+  readonly volume: VolumeOptions
+}
+```
+
+Added in v0.4.0
+
+## services
+
+### LiveImageStore (class)
+
+One exclusively owned store. Its Layer holds the storage resource until the
+volume has shut down. Providers must atomically replace each image and
+classify ambiguous commits as `unknown`.
+
+**Signature**
+
+```ts
+export declare class LiveImageStore
 ```
 
 Added in v0.4.0

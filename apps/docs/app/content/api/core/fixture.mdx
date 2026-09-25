@@ -1,0 +1,332 @@
+# Fixture overview
+
+Fixture schemas: a declarative final state from which a volume is built.
+
+Added in v0.6.0
+
+---
+
+## models
+
+### Fixture (type alias)
+
+A whole fixture.
+
+**Signature**
+
+```ts
+export type Fixture = {
+  readonly entries: readonly (
+    | {
+        readonly kind: "directory"
+        readonly path: string | BytePath
+        readonly metadata?: {
+          readonly uid?: number
+          readonly gid?: number
+          readonly mode?: number
+          readonly atimeNs?: bigint
+          readonly mtimeNs?: bigint
+          readonly ctimeNs?: bigint
+          readonly birthtimeNs?: bigint
+        }
+      }
+    | {
+        readonly kind: "file"
+        readonly path: string | BytePath
+        readonly bytes: Uint8Array<ArrayBufferLike>
+        readonly metadata?: {
+          readonly uid?: number
+          readonly gid?: number
+          readonly mode?: number
+          readonly atimeNs?: bigint
+          readonly mtimeNs?: bigint
+          readonly ctimeNs?: bigint
+          readonly birthtimeNs?: bigint
+        }
+      }
+    | {
+        readonly kind: "symlink"
+        readonly path: string | BytePath
+        readonly target: string | BytePath
+        readonly metadata?: {
+          readonly uid?: number
+          readonly gid?: number
+          readonly mode?: number
+          readonly atimeNs?: bigint
+          readonly mtimeNs?: bigint
+          readonly ctimeNs?: bigint
+          readonly birthtimeNs?: bigint
+        }
+      }
+    | {
+        readonly kind: "hardLink"
+        readonly path: string | BytePath
+        readonly target: string | BytePath
+      }
+  )[]
+  readonly rootMetadata?: {
+    readonly uid?: number
+    readonly gid?: number
+    readonly mode?: number
+    readonly atimeNs?: bigint
+    readonly mtimeNs?: bigint
+    readonly ctimeNs?: bigint
+    readonly birthtimeNs?: bigint
+  }
+}
+```
+
+Added in v0.6.0
+
+### FixtureEntry (type alias)
+
+One fixture entry.
+
+**Signature**
+
+```ts
+export type FixtureEntry =
+  | {
+      readonly kind: "directory"
+      readonly path: string | BytePath
+      readonly metadata?: {
+        readonly uid?: number
+        readonly gid?: number
+        readonly mode?: number
+        readonly atimeNs?: bigint
+        readonly mtimeNs?: bigint
+        readonly ctimeNs?: bigint
+        readonly birthtimeNs?: bigint
+      }
+    }
+  | {
+      readonly kind: "file"
+      readonly path: string | BytePath
+      readonly bytes: Uint8Array<ArrayBufferLike>
+      readonly metadata?: {
+        readonly uid?: number
+        readonly gid?: number
+        readonly mode?: number
+        readonly atimeNs?: bigint
+        readonly mtimeNs?: bigint
+        readonly ctimeNs?: bigint
+        readonly birthtimeNs?: bigint
+      }
+    }
+  | {
+      readonly kind: "symlink"
+      readonly path: string | BytePath
+      readonly target: string | BytePath
+      readonly metadata?: {
+        readonly uid?: number
+        readonly gid?: number
+        readonly mode?: number
+        readonly atimeNs?: bigint
+        readonly mtimeNs?: bigint
+        readonly ctimeNs?: bigint
+        readonly birthtimeNs?: bigint
+      }
+    }
+  | {
+      readonly kind: "hardLink"
+      readonly path: string | BytePath
+      readonly target: string | BytePath
+    }
+```
+
+Added in v0.6.0
+
+### FixtureMetadata (type alias)
+
+Metadata a fixture entry pins.
+
+**Signature**
+
+```ts
+export type FixtureMetadata = {
+  readonly uid?: number
+  readonly gid?: number
+  readonly mode?: number
+  readonly atimeNs?: bigint
+  readonly mtimeNs?: bigint
+  readonly ctimeNs?: bigint
+  readonly birthtimeNs?: bigint
+}
+```
+
+Added in v0.6.0
+
+## schemas
+
+### Fixture
+
+Schema for a whole fixture: optional root metadata and its entries in order.
+
+**Signature**
+
+```ts
+export declare const Fixture: Schema.Struct<{
+  readonly rootMetadata: Schema.optionalKey<
+    Schema.Struct<{
+      readonly uid: Schema.optionalKey<Schema.Natural>
+      readonly gid: Schema.optionalKey<Schema.Natural>
+      readonly mode: Schema.optionalKey<Schema.Natural>
+      readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+      readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+      readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+      readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
+    }>
+  >
+  readonly entries: Schema.$Array<
+    Schema.toTaggedUnion<
+      "kind",
+      readonly [
+        Schema.Struct<{
+          readonly kind: Schema.Literal<"directory">
+          readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+          readonly metadata: Schema.optionalKey<
+            Schema.Struct<{
+              readonly uid: Schema.optionalKey<Schema.Natural>
+              readonly gid: Schema.optionalKey<Schema.Natural>
+              readonly mode: Schema.optionalKey<Schema.Natural>
+              readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
+            }>
+          >
+        }>,
+        Schema.Struct<{
+          readonly kind: Schema.Literal<"file">
+          readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+          readonly bytes: Schema.Uint8Array
+          readonly metadata: Schema.optionalKey<
+            Schema.Struct<{
+              readonly uid: Schema.optionalKey<Schema.Natural>
+              readonly gid: Schema.optionalKey<Schema.Natural>
+              readonly mode: Schema.optionalKey<Schema.Natural>
+              readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
+            }>
+          >
+        }>,
+        Schema.Struct<{
+          readonly kind: Schema.Literal<"symlink">
+          readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+          readonly target: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+          readonly metadata: Schema.optionalKey<
+            Schema.Struct<{
+              readonly uid: Schema.optionalKey<Schema.Natural>
+              readonly gid: Schema.optionalKey<Schema.Natural>
+              readonly mode: Schema.optionalKey<Schema.Natural>
+              readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+              readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
+            }>
+          >
+        }>,
+        Schema.Struct<{
+          readonly kind: Schema.Literal<"hardLink">
+          readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+          readonly target: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+        }>
+      ]
+    >
+  >
+}>
+```
+
+Added in v0.6.0
+
+### FixtureEntry
+
+Schema for one fixture entry: a directory, a file with bytes, a symbolic
+link, or a hard link to an earlier file entry.
+
+**Signature**
+
+```ts
+export declare const FixtureEntry: Schema.toTaggedUnion<
+  "kind",
+  readonly [
+    Schema.Struct<{
+      readonly kind: Schema.Literal<"directory">
+      readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+      readonly metadata: Schema.optionalKey<
+        Schema.Struct<{
+          readonly uid: Schema.optionalKey<Schema.Natural>
+          readonly gid: Schema.optionalKey<Schema.Natural>
+          readonly mode: Schema.optionalKey<Schema.Natural>
+          readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+          readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+          readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+          readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
+        }>
+      >
+    }>,
+    Schema.Struct<{
+      readonly kind: Schema.Literal<"file">
+      readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+      readonly bytes: Schema.Uint8Array
+      readonly metadata: Schema.optionalKey<
+        Schema.Struct<{
+          readonly uid: Schema.optionalKey<Schema.Natural>
+          readonly gid: Schema.optionalKey<Schema.Natural>
+          readonly mode: Schema.optionalKey<Schema.Natural>
+          readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+          readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+          readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+          readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
+        }>
+      >
+    }>,
+    Schema.Struct<{
+      readonly kind: Schema.Literal<"symlink">
+      readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+      readonly target: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+      readonly metadata: Schema.optionalKey<
+        Schema.Struct<{
+          readonly uid: Schema.optionalKey<Schema.Natural>
+          readonly gid: Schema.optionalKey<Schema.Natural>
+          readonly mode: Schema.optionalKey<Schema.Natural>
+          readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+          readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+          readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+          readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
+        }>
+      >
+    }>,
+    Schema.Struct<{
+      readonly kind: Schema.Literal<"hardLink">
+      readonly path: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+      readonly target: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+    }>
+  ]
+>
+```
+
+Added in v0.6.0
+
+### FixtureMetadata
+
+Schema for the metadata a fixture entry may pin; omitted fields take the
+volume's defaults.
+
+**Signature**
+
+```ts
+export declare const FixtureMetadata: Schema.Struct<{
+  readonly uid: Schema.optionalKey<Schema.Natural>
+  readonly gid: Schema.optionalKey<Schema.Natural>
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly atimeNs: Schema.optionalKey<Schema.BigInt>
+  readonly mtimeNs: Schema.optionalKey<Schema.BigInt>
+  readonly ctimeNs: Schema.optionalKey<Schema.BigInt>
+  readonly birthtimeNs: Schema.optionalKey<Schema.BigInt>
+}>
+```
+
+Added in v0.6.0

@@ -1,0 +1,374 @@
+# Volume overview
+
+Volume identity brands and schemas: durability, identity tokens, construction
+options, and the change summaries an overlay volume reports.
+
+Added in v0.6.0
+
+---
+
+## models
+
+### OverlayChange (type alias)
+
+One summarised change between an overlay and its base.
+
+**Signature**
+
+```ts
+export type OverlayChange =
+  | {
+      readonly _tag: "Added"
+      readonly path: BytePath
+      readonly kind: "directory" | "file" | "symlink"
+    }
+  | {
+      readonly _tag: "Removed"
+      readonly path: BytePath
+      readonly kind: "directory" | "file" | "symlink"
+    }
+  | {
+      readonly _tag: "Replaced"
+      readonly path: BytePath
+      readonly beforeKind: "directory" | "file" | "symlink"
+      readonly afterKind: "directory" | "file" | "symlink"
+      readonly differences: readonly (
+        "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
+      )[]
+    }
+  | {
+      readonly _tag: "Renamed"
+      readonly from: BytePath
+      readonly to: BytePath
+      readonly kind: "directory" | "file" | "symlink"
+      readonly differences: readonly (
+        "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
+      )[]
+    }
+  | {
+      readonly _tag: "Updated"
+      readonly path: BytePath
+      readonly kind: "directory" | "file" | "symlink"
+      readonly differences: readonly (
+        "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
+      )[]
+    }
+```
+
+Added in v0.6.0
+
+### OverlayChangesOptions (type alias)
+
+Options of an overlay change summary.
+
+**Signature**
+
+```ts
+export type OverlayChangesOptions = { readonly includeTimestamps?: boolean }
+```
+
+Added in v0.6.0
+
+### OverlayDifference (type alias)
+
+One way an overlay entry differs from its base.
+
+**Signature**
+
+```ts
+export type OverlayDifference =
+  "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
+```
+
+Added in v0.6.0
+
+### OverlayNodeKind (type alias)
+
+A kind of filesystem entry in an overlay summary.
+
+**Signature**
+
+```ts
+export type OverlayNodeKind = "directory" | "file" | "symlink"
+```
+
+Added in v0.6.0
+
+### VolumeDurability (type alias)
+
+The failure boundary a volume's committed mutations survive.
+
+**Signature**
+
+```ts
+export type VolumeDurability =
+  | "memory-only"
+  | "survives-process-crash"
+  | "survives-operating-system-crash"
+  | "survives-power-loss"
+```
+
+Added in v0.6.0
+
+### VolumeIdentity (type alias)
+
+A volume identity.
+
+**Signature**
+
+```ts
+export type VolumeIdentity = string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
+```
+
+Added in v0.6.0
+
+### VolumeIncarnation (type alias)
+
+A volume incarnation.
+
+**Signature**
+
+```ts
+export type VolumeIncarnation = string & Brand.Brand<"@effect-vfs/core/VolumeIncarnation">
+```
+
+Added in v0.6.0
+
+### VolumeOptions (type alias)
+
+Volume construction options.
+
+**Signature**
+
+```ts
+export type VolumeOptions = {
+  readonly identity?: string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
+  readonly maxEntries?: number
+  readonly maxPendingOperations?: number
+  readonly maxWatchEvents?: number
+  readonly maxBytes?: ByteSize.ByteSize
+  readonly maxFileBytes?: ByteSize.ByteSize
+  readonly maxPathBytes?: ByteSize.ByteSize
+}
+```
+
+Added in v0.6.0
+
+## ordering
+
+### VolumeDurabilityOrder
+
+Weakest-to-strongest ordering for volume durability guarantees.
+
+**Signature**
+
+```ts
+export declare const VolumeDurabilityOrder: Order.Order<
+  "memory-only" | "survives-process-crash" | "survives-operating-system-crash" | "survives-power-loss"
+>
+```
+
+Added in v0.6.0
+
+## predicates
+
+### isVolumeDurabilityAtLeast
+
+Returns whether `actual` survives at least the failure boundary required by `required`.
+
+**Signature**
+
+```ts
+export declare const isVolumeDurabilityAtLeast: (actual: VolumeDurability, required: VolumeDurability) => boolean
+```
+
+Added in v0.6.0
+
+## schemas
+
+### OverlayChange
+
+Schema for one summarised change between an overlay and its base.
+
+**Signature**
+
+```ts
+export declare const OverlayChange: Schema.Union<
+  readonly [
+    Schema.TaggedStruct<
+      "Added",
+      {
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+      }
+    >,
+    Schema.TaggedStruct<
+      "Removed",
+      {
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+      }
+    >,
+    Schema.TaggedStruct<
+      "Replaced",
+      {
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly beforeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+        readonly afterKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+        readonly differences: Schema.$Array<
+          Schema.Literals<readonly ["content", "mode", "uid", "gid", "atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"]>
+        >
+      }
+    >,
+    Schema.TaggedStruct<
+      "Renamed",
+      {
+        readonly from: Schema.declare<BytePath, BytePath>
+        readonly to: Schema.declare<BytePath, BytePath>
+        readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+        readonly differences: Schema.$Array<
+          Schema.Literals<readonly ["content", "mode", "uid", "gid", "atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"]>
+        >
+      }
+    >,
+    Schema.TaggedStruct<
+      "Updated",
+      {
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+        readonly differences: Schema.$Array<
+          Schema.Literals<readonly ["content", "mode", "uid", "gid", "atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"]>
+        >
+      }
+    >
+  ]
+>
+```
+
+Added in v0.6.0
+
+### OverlayChangesOptions
+
+Schema for the options of an overlay change summary.
+
+**Signature**
+
+```ts
+export declare const OverlayChangesOptions: Schema.Struct<{
+  readonly includeTimestamps: Schema.optionalKey<Schema.Boolean>
+}>
+```
+
+Added in v0.6.0
+
+### OverlayDifference
+
+Schema for one way an overlay entry differs from its base.
+
+**Signature**
+
+```ts
+export declare const OverlayDifference: Schema.Literals<
+  readonly ["content", "mode", "uid", "gid", "atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"]
+>
+```
+
+Added in v0.6.0
+
+### OverlayNodeKind
+
+Schema for the kinds of filesystem entry an overlay summary reports.
+
+**Signature**
+
+```ts
+export declare const OverlayNodeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+```
+
+Added in v0.6.0
+
+### VolumeDurability
+
+Schema for the failure boundary a volume's committed mutations survive.
+
+**Signature**
+
+```ts
+export declare const VolumeDurability: Schema.Literals<
+  readonly ["memory-only", "survives-process-crash", "survives-operating-system-crash", "survives-power-loss"]
+>
+```
+
+Added in v0.6.0
+
+### VolumeIdentity
+
+Schema for a volume identity: 128 bits as lowercase hexadecimal, stable
+across restarts of a durable volume.
+
+**Signature**
+
+```ts
+export declare const VolumeIdentity: Schema.brand<Schema.String, "@effect-vfs/core/VolumeIdentity">
+```
+
+Added in v0.6.0
+
+### VolumeIncarnation
+
+Schema for a volume incarnation: 128 bits as lowercase hexadecimal, minted
+on every construction.
+
+**Signature**
+
+```ts
+export declare const VolumeIncarnation: Schema.brand<Schema.String, "@effect-vfs/core/VolumeIncarnation">
+```
+
+Added in v0.6.0
+
+### VolumeOptions
+
+Schema for volume construction options.
+
+**Signature**
+
+```ts
+export declare const VolumeOptions: Schema.Struct<{
+  readonly identity: Schema.optionalKey<Schema.brand<Schema.String, "@effect-vfs/core/VolumeIdentity">>
+  readonly maxEntries: Schema.optionalKey<Schema.Natural>
+  readonly maxPendingOperations: Schema.optionalKey<Schema.Int>
+  readonly maxWatchEvents: Schema.optionalKey<Schema.Int>
+  readonly maxBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxFileBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxPathBytes: Schema.optionalKey<Schema.ByteSize>
+}>
+```
+
+Added in v0.6.0
+
+## type IDs
+
+### VolumeId
+
+Brand key that marks a volume.
+
+**Signature**
+
+```ts
+export declare const VolumeId: typeof VolumeId
+```
+
+Added in v0.6.0
+
+### VolumeId (type alias)
+
+Brand key that marks a volume.
+
+**Signature**
+
+```ts
+export type VolumeId = typeof VolumeId
+```
+
+Added in v0.6.0

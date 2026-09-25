@@ -1,0 +1,86 @@
+# FileHandle overview
+
+Identity brands and schemas for open file and directory handles.
+
+Added in v0.6.0
+
+---
+
+## models
+
+### SeekMode (type alias)
+
+The origin of a seek.
+
+**Signature**
+
+```ts
+export type SeekMode = "start" | "current" | "end" | "data" | "hole"
+```
+
+Added in v0.6.0
+
+## schemas
+
+### SeekMode
+
+Schema for the origin of a seek: the file start, the current position, the
+end, or the next data or hole region.
+
+**Signature**
+
+```ts
+export declare const SeekMode: Schema.Literals<readonly ["start", "current", "end", "data", "hole"]>
+```
+
+Added in v0.6.0
+
+## type IDs
+
+### DirectoryHandleId
+
+Brand key that marks an open directory handle.
+
+**Signature**
+
+```ts
+export declare const DirectoryHandleId: typeof DirectoryHandleId
+```
+
+Added in v0.6.0
+
+### DirectoryHandleId (type alias)
+
+Brand key that marks an open directory handle.
+
+**Signature**
+
+```ts
+export type DirectoryHandleId = typeof DirectoryHandleId
+```
+
+Added in v0.6.0
+
+### FileHandleId
+
+Brand key that marks an open file handle.
+
+**Signature**
+
+```ts
+export declare const FileHandleId: typeof FileHandleId
+```
+
+Added in v0.6.0
+
+### FileHandleId (type alias)
+
+Brand key that marks an open file handle.
+
+**Signature**
+
+```ts
+export type FileHandleId = typeof FileHandleId
+```
+
+Added in v0.6.0

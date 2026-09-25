@@ -507,50 +507,19 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 
 Added in v0.1.0
 
-### Change (interface)
+### Change (type alias)
 
-A committed namespace or content change emitted by a volume watch stream.
+One committed change observed through a watch subscription. `Rescan` at `/`
+means the subscriber lost events.
 
 **Signature**
 
 ```ts
-export interface Change {
-  /** Kind of committed change. `Rescan` means this subscriber lost events. */
-  readonly _tag: "Create" | "Update" | "Remove" | "Rescan"
-  /** Absolute path of the changed entry, or `/` when retained events were lost. */
-  readonly path: BytePath
-}
-```
-
-**Example**
-
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { Effect, Fiber, Stream } from "effect"
-
-const program = Effect.gen(function* () {
-  const volume = yield* Vfs.make()
-  const caller = yield* volume.caller()
-
-  const watcher = yield* volume.watch.pipe(
-    Effect.flatMap((stream) => Stream.runCollect(Stream.take(stream, 2))),
-    Effect.forkChild({ startImmediately: true })
-  )
-
-  yield* caller.mkdir("/logs")
-  yield* caller.rmdir("/logs")
-
-  // Each event pairs the kind of change with the absolute path it happened to.
-  const events = yield* Fiber.join(watcher)
-
-  return yield* Effect.forEach(events, (change) =>
-    Effect.map(Vfs.pathToBytes(change.path), (bytes) => `${change._tag} ${new TextDecoder().decode(bytes)}`)
-  )
-}).pipe(Effect.scoped)
-
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
-// [ 'Create /logs', 'Remove /logs' ]
+export type Change =
+  | { readonly _tag: "Create"; readonly path: BytePath }
+  | { readonly _tag: "Update"; readonly path: BytePath }
+  | { readonly _tag: "Remove"; readonly path: BytePath }
+  | { readonly _tag: "Rescan"; readonly path: BytePath }
 ```
 
 Added in v0.1.0
@@ -1560,7 +1529,7 @@ Options for an atomic whole-file write, including replacement and final mode con
 **Signature**
 
 ```ts
-export type WriteFileOptions = VfsModel.WriteFileOptions
+export type WriteFileOptions = CallerModule.WriteFileSettings & RelativeOptions
 ```
 
 **Example**
@@ -1634,6 +1603,54 @@ export declare const isVolumeDurabilityAtLeast: (actual: VolumeDurability, requi
 Added in v0.1.0
 
 ## schemas
+
+### Change
+
+A committed namespace or content change emitted by a volume watch stream.
+
+**Signature**
+
+```ts
+export declare const Change: Schema.TaggedUnion<{
+  readonly Create: Schema.TaggedStruct<"Create", { readonly path: Schema.declare<BytePath, BytePath> }>
+  readonly Update: Schema.TaggedStruct<"Update", { readonly path: Schema.declare<BytePath, BytePath> }>
+  readonly Remove: Schema.TaggedStruct<"Remove", { readonly path: Schema.declare<BytePath, BytePath> }>
+  readonly Rescan: Schema.TaggedStruct<"Rescan", { readonly path: Schema.declare<BytePath, BytePath> }>
+}>
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import { Effect, Fiber, Stream } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.make()
+  const caller = yield* volume.caller()
+
+  const watcher = yield* volume.watch.pipe(
+    Effect.flatMap((stream) => Stream.runCollect(Stream.take(stream, 2))),
+    Effect.forkChild({ startImmediately: true })
+  )
+
+  yield* caller.mkdir("/logs")
+  yield* caller.rmdir("/logs")
+
+  // Each event pairs the kind of change with the absolute path it happened to.
+  const events = yield* Fiber.join(watcher)
+
+  return yield* Effect.forEach(events, (change) =>
+    Effect.map(Vfs.pathToBytes(change.path), (bytes) => `${change._tag} ${new TextDecoder().decode(bytes)}`)
+  )
+}).pipe(Effect.scoped)
+
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+// [ 'Create /logs', 'Remove /logs' ]
+```
+
+Added in v0.1.0
 
 ### DirectoryChange
 
