@@ -27,3 +27,57 @@ export * as VirtualFileSystemError from "./VirtualFileSystemError.js"
  * @since 0.4.0
  */
 export * as LiveVolume from "./LiveVolume.js"
+
+/**
+ * @since 0.6.0
+ * @category re-exports
+ */
+export * as BytePath from "./BytePath.js"
+
+/**
+ * @since 0.6.0
+ * @category re-exports
+ */
+export * as Caller from "./Caller.js"
+
+/**
+ * @since 0.6.0
+ * @category re-exports
+ */
+export * as FileHandle from "./FileHandle.js"
+
+/**
+ * @since 0.6.0
+ * @category re-exports
+ */
+export * as Fixture from "./Fixture.js"
+
+/**
+ * @since 0.6.0
+ * @category re-exports
+ */
+export * as Metadata from "./Metadata.js"
+
+/**
+ * @since 0.6.0
+ * @category re-exports
+ */
+export * as Snapshot from "./Snapshot.js"
+
+/**
+ * @since 0.6.0
+ * @category re-exports
+ */
+export * as SnapshotDelta from "./SnapshotDelta.js"
+
+/**
+ * @since 0.6.0
+ * @category re-exports
+ */
+export * as Volume from "./Volume.js"
+
+/**
+ * @since 0.6.0
+ * @category re-exports
+ */
+export * as Watch from "./Watch.js"
