@@ -9,6 +9,133 @@ Added in v0.1.0
 
 ---
 
+## combinators
+
+### join
+
+A byte path naming `name` under `path`. A string name is encoded as UTF-8 and not checked: a slash in it
+adds further components, and a NUL makes a path that fails where it is used.
+
+**Signature**
+
+```ts
+export declare const join: (path: BytePath, name: string | Uint8Array) => BytePath
+```
+
+Added in v0.6.0
+
+## constructors
+
+### fromBytes
+
+A byte path holding a copy of `bytes`, which must be non-empty and hold no NUL.
+
+**Signature**
+
+```ts
+export declare const fromBytes: (bytes: Uint8Array) => Effect.Effect<BytePath, FsFailure>
+```
+
+Added in v0.6.0
+
+### fromInput
+
+A byte path for any path input: a byte path is returned as is, a string is encoded.
+
+**Signature**
+
+```ts
+export declare const fromInput: (input: PathInput) => Effect.Effect<BytePath, FsFailure>
+```
+
+Added in v0.6.0
+
+### fromString
+
+A byte path holding the UTF-8 encoding of `text`.
+
+**Signature**
+
+```ts
+export declare const fromString: (text: string) => Effect.Effect<BytePath, FsFailure>
+```
+
+Added in v0.6.0
+
+## getters
+
+### basename
+
+The final component of a byte path as bytes; empty for the root and for a path that ends in a slash.
+
+**Signature**
+
+```ts
+export declare const basename: (path: BytePath) => Uint8Array
+```
+
+Added in v0.6.0
+
+### decodeOption
+
+The text of raw bytes such as an entry name, or none when they are not valid UTF-8.
+
+**Signature**
+
+```ts
+export declare const decodeOption: (bytes: Uint8Array) => Option.Option<string>
+```
+
+Added in v0.6.0
+
+### parent
+
+The byte path holding everything before the final component, or the path itself when it has no parent.
+
+**Signature**
+
+```ts
+export declare const parent: (path: BytePath) => BytePath
+```
+
+Added in v0.6.0
+
+### toBytes
+
+A copy of the bytes a byte path holds.
+
+**Signature**
+
+```ts
+export declare const toBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsFailure>
+```
+
+Added in v0.6.0
+
+### toString
+
+The text of a byte path, failing as `UnrepresentableName` when its bytes are not valid UTF-8.
+
+**Signature**
+
+```ts
+export declare const toString: (path: BytePath) => Effect.Effect<string, FsFailure>
+```
+
+Added in v0.6.0
+
+### toStringOption
+
+The text of a byte path, or none when its bytes are not valid UTF-8.
+
+**Signature**
+
+```ts
+export declare const toStringOption: (path: BytePath) => Option.Option<string>
+```
+
+Added in v0.6.0
+
 ## models
 
 ### BytePath (interface)
@@ -49,6 +176,70 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 ```
 
 Added in v0.1.0
+
+## ordering
+
+### Order
+
+Orders byte paths by their bytes.
+
+**Signature**
+
+```ts
+export declare const Order: OrderModule.Order<BytePath>
+```
+
+Added in v0.6.0
+
+### byteOrder
+
+Orders raw byte strings, such as entry names, byte by byte and then by length.
+
+**Signature**
+
+```ts
+export declare const byteOrder: OrderModule.Order<Uint8Array>
+```
+
+Added in v0.6.0
+
+## predicates
+
+### isAbsolute
+
+Whether a byte path starts with a slash.
+
+**Signature**
+
+```ts
+export declare const isAbsolute: (path: BytePath) => boolean
+```
+
+Added in v0.6.0
+
+### isBytePath
+
+Whether a value is a byte path.
+
+**Signature**
+
+```ts
+export declare const isBytePath: (value: unknown) => value is BytePath
+```
+
+Added in v0.6.0
+
+### isRoot
+
+Whether a byte path is exactly `/`.
+
+**Signature**
+
+```ts
+export declare const isRoot: (path: BytePath) => boolean
+```
+
+Added in v0.6.0
 
 ## schemas
 
