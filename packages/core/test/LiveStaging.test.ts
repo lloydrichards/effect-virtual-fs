@@ -280,6 +280,56 @@ describe("live volume staging", () => {
       assert.deepEqual(yield* Fiber.join(reader), { usedBytes: 0n, entries: 1 })
     }))
 
+  it.effect("reads path options before waiting behind a pending commit", () =>
+    Effect.gen(function*() {
+      const entered = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      let pause = false
+
+      const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
+        commit: () =>
+          pause
+            ? Deferred.succeed(entered, undefined).pipe(
+              Effect.andThen(Deferred.await(release)),
+              Effect.as("committed" as const)
+            )
+            : Effect.succeed("committed" as const)
+      })
+
+      const caller = yield* volume.caller()
+      yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const root = yield* caller.openDirectory("/")
+      const reads: Array<string> = []
+
+      const options = (label: string) => ({
+        get relativeTo() {
+          reads.push(label)
+
+          return root
+        }
+      })
+
+      assert.strictEqual((yield* Effect.flip(caller.access("/file", 8, options("invalid")))).code, "InvalidArgument")
+      pause = true
+      const writer = yield* caller.mkdir("/new").pipe(Effect.forkChild({ startImmediately: true }))
+      yield* Deferred.await(entered)
+
+      const access = yield* caller.access("/file", 4, options("access")).pipe(
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      const truncate = yield* caller.truncate("/file", 0n, options("truncate")).pipe(
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Effect.yieldNow
+      assert.deepStrictEqual(reads, ["invalid", "access", "truncate"])
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(writer)
+      yield* Fiber.join(access)
+      yield* Fiber.join(truncate)
+    }))
+
   it.effect("closes a handle and stops service when final cleanup is rejected", () =>
     Effect.scoped(Effect.gen(function*() {
       let outcome: "committed" | "rejected" = "committed"

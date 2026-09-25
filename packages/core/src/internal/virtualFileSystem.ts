@@ -481,6 +481,19 @@ interface ResolvedEntry {
   readonly op: OpContext
 }
 
+// The node a path, handle, or object reference resolves to, so each node-addressed verb has one body.
+interface ResolvedNode {
+  readonly node: Node
+  // Names the path on path-addressed nodes; the method's own context on handles and references.
+  readonly op: OpContext
+}
+
+// Copies options before coordination, so a caller changing them while the operation waits has no effect. The
+// node-addressed bodies take a resolver rather than a resolve effect so that this copy, like each verb's own
+// argument checks, still runs only after validation.
+const ownedOptions = <A extends object>(options: A | undefined): A | undefined =>
+  options === undefined ? undefined : { ...options }
+
 interface EngineState {
   root: Directory
   retainedFiles: Map<bigint, RegularFile>
@@ -619,10 +632,6 @@ const objectReferences = new WeakMap<ObjectReference, ObjectReferenceState>()
 
 const isFileHandle = (value: PathInput | FileHandle | DirectoryHandle): value is FileHandle =>
   Predicate.hasProperty(FileHandleId)(value)
-
-// Only a PathInput target names a path; a handle-based call has none to report in its error.
-const pathOf = (target: PathInput | FileHandle | DirectoryHandle): PathInput | undefined =>
-  isFileHandle(target) || isDirectoryHandle(target) ? undefined : target
 
 const isDirectoryHandle = (value: PathInput | FileHandle | DirectoryHandle): value is DirectoryHandle =>
   Predicate.hasProperty(DirectoryHandleId)(value)
@@ -2168,8 +2177,9 @@ export const makeVolume = Effect.fnUntraced(
         )
       })
 
-      const metadataNode = Effect.fnUntraced(
-        function*(
+      const ResolvedNode = {
+        // A handle has no caller path, so its failures name none.
+        fromTarget: Effect.fnUntraced(function*(
           target: PathInput | FileHandle | DirectoryHandle,
           options: MetadataOptions | undefined,
           op: OpContext
@@ -2191,16 +2201,31 @@ export const makeVolume = Effect.fnUntraced(
 
             if (node === undefined) return yield* op.fail("InvalidHandle")
 
-            return node
+            return { node, op } satisfies ResolvedNode
           }
 
           const path = yield* Effect.fromResult(preparePath(target, op.operation, settings.maxPathBytes))
 
-          return yield* resolveNode(path, options?.relativeTo, op, {
+          const node = yield* resolveNode(path, options?.relativeTo, op, {
             followFinalSymlink: options?.followFinalSymlink !== false
           })
-        }
-      )
+
+          return { node, op: op.at(target) } satisfies ResolvedNode
+        }),
+        // Unlike fromTarget, a closed caller surfaces from the lookup and names the path.
+        fromPath: Effect.fnUntraced(function*(
+          prepared: Result.Result<PreparedPath, FsError>,
+          base: DirectoryHandle | undefined,
+          op: OpContext
+        ) {
+          const path = yield* Effect.fromResult(prepared)
+          const node = yield* resolveNode(path, base, op)
+
+          return { node, op: op.at(path.input) } satisfies ResolvedNode
+        }),
+        fromReference: (target: ObjectReference, op: OpContext) =>
+          Effect.map(referencedNode(target, op), (node): ResolvedNode => ({ node, op }))
+      }
 
       const permittedMode = (metadata: Pick<Metadata, "kind" | "uid" | "gid">, mode: number, op: OpContext) => {
         if (!identity.privileged && identity.uid !== metadata.uid) {
@@ -2213,16 +2238,14 @@ export const makeVolume = Effect.fnUntraced(
       }
 
       const changeMode = Effect.fnUntraced(
-        function*(target: PathInput | FileHandle | DirectoryHandle, mode: number, options?: MetadataOptions) {
-          const op = OpContext.make("chmod")
-
+        function*(resolve: () => Effect.Effect<ResolvedNode, FsError>, mode: number, op: OpContext) {
           if (!isMode(mode)) return yield* op.fail("InvalidArgument")
-          const chosen = options === undefined ? undefined : { ...options }
+          const resolving = resolve()
 
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const node = yield* metadataNode(target, chosen, op)
+              const { node } = yield* resolving
               const permitted = yield* permittedMode(node.metadata, mode, op)
               node.metadata = {
                 ...node.metadata,
@@ -2237,20 +2260,18 @@ export const makeVolume = Effect.fnUntraced(
       )
 
       const changeOwner = Effect.fnUntraced(
-        function*(target: PathInput | FileHandle | DirectoryHandle, owner: OwnerUpdate, options?: MetadataOptions) {
-          const op = OpContext.make("chown")
-
+        function*(resolve: () => Effect.Effect<ResolvedNode, FsError>, owner: OwnerUpdate, op: OpContext) {
           const decoded = yield* decodeOwnerUpdate(owner).pipe(
             Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
           )
 
           const update = { ...decoded }
-          const chosen = options === undefined ? undefined : { ...options }
+          const resolving = resolve()
 
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const node = yield* metadataNode(target, chosen, op)
+              const { node } = yield* resolving
 
               if (
                 !identity.privileged && (identity.uid !== node.metadata.uid ||
@@ -2276,36 +2297,31 @@ export const makeVolume = Effect.fnUntraced(
       )
 
       const changeTimes = Effect.fnUntraced(
-        function*(target: PathInput | FileHandle | DirectoryHandle, times: Times, options?: MetadataOptions) {
-          const op = OpContext.make("utimes")
-
+        function*(resolve: () => Effect.Effect<ResolvedNode, FsError>, times: Times, op: OpContext) {
           const decoded = yield* decodeTimes(times).pipe(
             Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
           )
 
           const access = { ...decoded.access }
           const modification = { ...decoded.modification }
-          const chosen = options === undefined ? undefined : { ...options }
+          const resolving = resolve()
 
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const node = yield* metadataNode(target, chosen, op)
+              const resolved = yield* resolving
+              const node = resolved.node
 
               if (access.kind === "omit" && modification.kind === "omit") return
 
               // POSIX grants write access only when both times are UTIME_NOW; both UTIME_OMIT
               // returned above. Every other combination, mixed ones included, needs ownership.
               if (!identity.privileged && identity.uid !== node.metadata.uid) {
-                const path = pathOf(target)
-                // A handle has no caller path, so its denial names none.
-                const located = path === undefined ? op : op.at(path)
-
                 if (access.kind !== "now" || modification.kind !== "now") {
-                  return yield* located.fail("AccessDenied")
+                  return yield* resolved.op.fail("AccessDenied")
                 }
 
-                yield* authorize(node, identity, WRITE, located)
+                yield* authorize(node, identity, WRITE, resolved.op)
               }
 
               const now = yield* timestamp(op)
@@ -2329,6 +2345,40 @@ export const makeVolume = Effect.fnUntraced(
           )
         }
       )
+
+      // Takes bits the caller already validated, since that failure names the path on paths only.
+      const accessNode = (resolve: () => Effect.Effect<ResolvedNode, FsError>, bits: number, op: OpContext) => {
+        const resolving = resolve()
+
+        return coordinatedRead(
+          op,
+          Effect.gen(function*() {
+            const { node, op: nodeOp } = yield* resolving
+
+            if (node.kind === "file" && (bits & EXECUTE) !== 0 && (node.metadata.mode & ANY_EXECUTE) === 0) {
+              return yield* nodeOp.fail("AccessDenied")
+            }
+
+            yield* authorize(node, identity, bits, nodeOp)
+          })
+        )
+      }
+
+      const truncateNode = (resolve: () => Effect.Effect<ResolvedNode, FsError>, length: bigint, op: OpContext) => {
+        const resolving = resolve()
+
+        return coordinated(
+          op,
+          Effect.gen(function*() {
+            const { node, op: nodeOp } = yield* resolving
+
+            if (node.kind !== "file") return yield* nodeOp.fail("IsDirectory")
+
+            yield* authorize(node, identity, WRITE, nodeOp)
+            yield* resize(node, length, op)
+          })
+        )
+      }
 
       const authorizeRemoval = (parent: Directory, child: Node, op: OpContext) =>
         (parent.metadata.mode & STICKY_BIT) !== 0 && !identity.privileged &&
@@ -2781,18 +2831,7 @@ export const makeVolume = Effect.fnUntraced(
             return yield* op.fail("InvalidArgument")
           }
 
-          return yield* coordinatedRead(
-            op,
-            Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, op)
-
-              if (node.kind === "file" && (bits & EXECUTE) !== 0 && (node.metadata.mode & ANY_EXECUTE) === 0) {
-                return yield* op.fail("AccessDenied")
-              }
-
-              yield* authorize(node, identity, bits, op)
-            })
-          )
+          return yield* accessNode(() => ResolvedNode.fromReference(objectReference, op), bits, op)
         }),
         observeDirectory: Effect.fn("Caller.observeDirectory")(function*(directoryReference) {
           const op = OpContext.make("observeDirectory")
@@ -2986,113 +3025,22 @@ export const makeVolume = Effect.fnUntraced(
         chmodReference: Effect.fn("Caller.chmodReference")(function*(objectReference, mode) {
           const op = OpContext.make("chmodReference")
 
-          if (!isMode(mode)) return yield* op.fail("InvalidArgument")
-
-          return yield* coordinated(
-            op,
-            Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, op)
-              const permitted = yield* permittedMode(node.metadata, mode, op)
-              node.metadata = { ...node.metadata, mode: permitted, ctimeNs: (yield* timestamp(op)) }
-              advanceRevision(node)
-              publishNode(node)
-            })
-          )
+          return yield* changeMode(() => ResolvedNode.fromReference(objectReference, op), mode, op)
         }),
         chownReference: Effect.fn("Caller.chownReference")(function*(objectReference, owner) {
           const op = OpContext.make("chownReference")
 
-          const decoded = yield* decodeOwnerUpdate(owner).pipe(
-            Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
-          )
-
-          const update = { ...decoded }
-
-          return yield* coordinated(
-            op,
-            Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, op)
-
-              if (
-                !identity.privileged && (identity.uid !== node.metadata.uid ||
-                  (update.uid !== undefined && update.uid !== node.metadata.uid) ||
-                  (update.gid !== undefined && update.gid !== identity.gid && !identity.groups.includes(update.gid)))
-              ) return yield* op.fail("AccessDenied")
-
-              if (update.uid === undefined && update.gid === undefined) return
-              node.metadata = {
-                ...node.metadata,
-                uid: update.uid ?? node.metadata.uid,
-                gid: update.gid ?? node.metadata.gid,
-                mode: node.kind === "file" ? node.metadata.mode & ~SET_ID_BITS : node.metadata.mode,
-                ctimeNs: (yield* timestamp(op))
-              }
-              advanceRevision(node)
-              publishNode(node)
-            })
-          )
+          return yield* changeOwner(() => ResolvedNode.fromReference(objectReference, op), owner, op)
         }),
         utimesReference: Effect.fn("Caller.utimesReference")(function*(objectReference, times) {
           const op = OpContext.make("utimesReference")
 
-          const decoded = yield* decodeTimes(times).pipe(
-            Effect.mapError((cause) => op.fail("InvalidArgument", { cause }))
-          )
-
-          const access = { ...decoded.access }
-          const modification = { ...decoded.modification }
-
-          return yield* coordinated(
-            op,
-            Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, op)
-
-              if (access.kind === "omit" && modification.kind === "omit") return
-
-              if (!identity.privileged && identity.uid !== node.metadata.uid) {
-                if (access.kind !== "now" || modification.kind !== "now") {
-                  return yield* op.fail("AccessDenied")
-                }
-
-                yield* authorize(node, identity, WRITE, op)
-              }
-
-              const now = yield* timestamp(op)
-              node.metadata = {
-                ...node.metadata,
-                atimeNs: access.kind === "omit"
-                  ? node.metadata.atimeNs
-                  : access.kind === "now"
-                  ? now
-                  : access.nanoseconds,
-                mtimeNs: modification.kind === "omit"
-                  ? node.metadata.mtimeNs
-                  : modification.kind === "now"
-                  ? now
-                  : modification.nanoseconds,
-                ctimeNs: now
-              }
-              advanceRevision(node)
-              publishNode(node)
-            })
-          )
+          return yield* changeTimes(() => ResolvedNode.fromReference(objectReference, op), times, op)
         }),
         truncateReference: Effect.fn("Caller.truncateReference")(function*(objectReference, length) {
           const op = OpContext.make("truncateReference")
 
-          return yield* coordinated(
-            op,
-            Effect.gen(function*() {
-              const node = yield* referencedNode(objectReference, op)
-
-              if (node.kind !== "file") {
-                return yield* op.fail("IsDirectory")
-              }
-
-              yield* authorize(node, identity, WRITE, op)
-              yield* resize(node, length, op)
-            })
-          )
+          return yield* truncateNode(() => ResolvedNode.fromReference(objectReference, op), length, op)
         }),
         openReference: Effect.fn("Caller.openReference")(function*(objectReference, raw = { access: "read" }) {
           const op = OpContext.make("openReference")
@@ -3421,67 +3369,48 @@ export const makeVolume = Effect.fnUntraced(
           }
         ),
         chmod: Effect.fn("Caller.chmod")(function*(path: PathInput, mode: number, options?: MetadataOptions) {
-          yield* changeMode(path, mode, options)
+          const op = OpContext.make("chmod")
+          yield* changeMode(() => ResolvedNode.fromTarget(path, ownedOptions(options), op), mode, op)
         }),
         chmodHandle: Effect.fn("Caller.chmodHandle")(function*(handle: FileHandle | DirectoryHandle, mode: number) {
-          yield* changeMode(handle, mode)
+          const op = OpContext.make("chmod")
+          yield* changeMode(() => ResolvedNode.fromTarget(handle, undefined, op), mode, op)
         }),
         chown: Effect.fn("Caller.chown")(function*(path: PathInput, owner: OwnerUpdate, options?: MetadataOptions) {
-          yield* changeOwner(path, owner, options)
+          const op = OpContext.make("chown")
+          yield* changeOwner(() => ResolvedNode.fromTarget(path, ownedOptions(options), op), owner, op)
         }),
         chownHandle: Effect.fn("Caller.chownHandle")(
           function*(handle: FileHandle | DirectoryHandle, owner: OwnerUpdate) {
-            yield* changeOwner(handle, owner)
+            const op = OpContext.make("chown")
+            yield* changeOwner(() => ResolvedNode.fromTarget(handle, undefined, op), owner, op)
           }
         ),
         utimes: Effect.fn("Caller.utimes")(function*(path: PathInput, times: Times, options?: MetadataOptions) {
-          yield* changeTimes(path, times, options)
+          const op = OpContext.make("utimes")
+          yield* changeTimes(() => ResolvedNode.fromTarget(path, ownedOptions(options), op), times, op)
         }),
         utimesHandle: Effect.fn("Caller.utimesHandle")(function*(handle: FileHandle | DirectoryHandle, times: Times) {
-          yield* changeTimes(handle, times)
+          const op = OpContext.make("utimes")
+          yield* changeTimes(() => ResolvedNode.fromTarget(handle, undefined, op), times, op)
         }),
         access: Effect.fn("Caller.access")(function*(input: PathInput, bits = 0, options?: RelativeOptions) {
           const op = OpContext.make("access")
-          const pathOp = op.at(input)
           const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
 
           if (!Number.isInteger(bits) || bits < 0 || bits > (READ | WRITE | EXECUTE)) {
-            return yield* pathOp.fail("InvalidArgument")
+            return yield* op.at(input).fail("InvalidArgument")
           }
 
-          return yield* coordinatedRead(
-            op,
-            Effect.gen(function*() {
-              const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, op)
-
-              if (node.kind === "file" && (bits & EXECUTE) !== 0 && (node.metadata.mode & ANY_EXECUTE) === 0) {
-                return yield* pathOp.fail("AccessDenied")
-              }
-
-              yield* authorize(node, identity, bits, pathOp)
-            })
-          )
+          return yield* accessNode(() => ResolvedNode.fromPath(prepared, base, op), bits, op)
         }),
         truncate: Effect.fn("Caller.truncate")(function*(input: PathInput, length: bigint, options?: RelativeOptions) {
           const op = OpContext.make("truncate")
-          const pathOp = op.at(input)
           const prepared = preparePath(input, op.operation, settings.maxPathBytes)
           const base = options?.relativeTo
 
-          return yield* coordinated(
-            op,
-            Effect.gen(function*() {
-              const node = yield* resolveNode(yield* Effect.fromResult(prepared), base, op)
-
-              if (node.kind !== "file") {
-                return yield* pathOp.fail("IsDirectory")
-              }
-
-              yield* authorize(node, identity, WRITE, pathOp)
-              yield* resize(node, length, op)
-            })
-          )
+          return yield* truncateNode(() => ResolvedNode.fromPath(prepared, base, op), length, op)
         }),
         lstat: Effect.fn("Caller.lstat")(function*(input: PathInput, options?: RelativeOptions) {
           const op = OpContext.make("lstat")

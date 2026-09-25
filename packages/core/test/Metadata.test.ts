@@ -81,6 +81,31 @@ describe("metadata authority", () => {
       })
   )
 
+  it.effect("validates a metadata change before reading its options", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      yield* fs.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const reads: Array<string> = []
+
+      const options = {
+        get followFinalSymlink() {
+          reads.push("followFinalSymlink")
+
+          return true
+        }
+      }
+
+      const code = (effect: Effect.Effect<void, Vfs.FsError>) => Effect.map(Effect.flip(effect), (error) => error.code)
+
+      assert.deepStrictEqual([
+        yield* code(fs.chmod("/file", -1, options)),
+        yield* code(fs.chown("/file", { uid: -1 }, options)),
+        // SAFETY: deliberately violates Times to reach the decode failure.
+        yield* code(fs.utimes("/file", { access: { kind: "never" } } as never, options))
+      ], ["InvalidArgument", "InvalidArgument", "InvalidArgument"])
+      assert.deepStrictEqual(reads, [])
+    }))
+
   it.effect("rejects unsupported captured clock samples before creation or mutation", () =>
     Effect.gen(function*() {
       const original = yield* Clock.clockWith(Effect.succeed)

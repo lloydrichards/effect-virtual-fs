@@ -643,6 +643,176 @@ const openRows: ReadonlyArray<Row> = [
   }
 ]
 
+const EXPLICIT_TIMES = {
+  access: { kind: "value", nanoseconds: 1n },
+  modification: { kind: "value", nanoseconds: 1n }
+} as const
+
+const NOW_TIMES = { access: { kind: "now" }, modification: { kind: "now" } } as const
+
+const chmodRows: ReadonlyArray<Row> = [
+  {
+    scenario: "changes the mode",
+    path: ({ admin }) => admin.chmod("/file", 0o600),
+    reference: ({ admin, file }) => admin.chmodReference(file, 0o600),
+    check: ({ admin }) => Effect.map(admin.lstat("/file"), (metadata) => assert.strictEqual(metadata.mode, 0o600)),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects an invalid mode",
+    path: ({ admin }) => admin.chmod("/file", -1),
+    reference: ({ admin, file }) => admin.chmodReference(file, -1),
+    expected: { path: "InvalidArgument", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects an invalid mode before resolving the target",
+    path: ({ admin }) => admin.chmod("/gone", -1),
+    reference: ({ admin, gone }) => admin.chmodReference(gone, -1),
+    expected: { path: "InvalidArgument", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "denies a caller that does not own the target",
+    path: ({ guest }) => guest.chmod("/file", 0o600),
+    reference: ({ guest, file }) => guest.chmodReference(file, 0o600),
+    expected: { path: "AccessDenied", reference: "AccessDenied" }
+  },
+  {
+    scenario: "reports a removed target as missing on paths and stale on references",
+    path: ({ admin }) => admin.chmod("/gone", 0o700),
+    reference: ({ admin, gone }) => admin.chmodReference(gone, 0o700),
+    expected: { path: "NotFound at /gone", reference: "StaleReference" }
+  }
+]
+
+const chownRows: ReadonlyArray<Row> = [
+  {
+    scenario: "changes the owner",
+    path: ({ admin }) => admin.chown("/file", { uid: 9 }),
+    reference: ({ admin, file }) => admin.chownReference(file, { uid: 9 }),
+    check: ({ admin }) => Effect.map(admin.lstat("/file"), (metadata) => assert.strictEqual(metadata.uid, 9)),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects an invalid owner",
+    path: ({ admin }) => admin.chown("/file", { uid: -1 }),
+    reference: ({ admin, file }) => admin.chownReference(file, { uid: -1 }),
+    expected: { path: "InvalidArgument", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "denies a caller that does not own the target",
+    path: ({ guest }) => guest.chown("/file", { gid: 9 }),
+    reference: ({ guest, file }) => guest.chownReference(file, { gid: 9 }),
+    expected: { path: "AccessDenied", reference: "AccessDenied" }
+  },
+  {
+    scenario: "reports a removed target as missing on paths and stale on references",
+    path: ({ admin }) => admin.chown("/gone", { uid: 9 }),
+    reference: ({ admin, gone }) => admin.chownReference(gone, { uid: 9 }),
+    expected: { path: "NotFound at /gone", reference: "StaleReference" }
+  }
+]
+
+const utimesRows: ReadonlyArray<Row> = [
+  {
+    scenario: "sets explicit times",
+    path: ({ admin }) => admin.utimes("/file", EXPLICIT_TIMES),
+    reference: ({ admin, file }) => admin.utimesReference(file, EXPLICIT_TIMES),
+    check: ({ admin }) => Effect.map(admin.lstat("/file"), (metadata) => assert.strictEqual(metadata.mtimeNs, 1n)),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "denies explicit times to a caller that does not own the target",
+    path: ({ guest }) => guest.utimes("/file", EXPLICIT_TIMES),
+    reference: ({ guest, file }) => guest.utimesReference(file, EXPLICIT_TIMES),
+    expected: { path: "AccessDenied at /file", reference: "AccessDenied" }
+  },
+  {
+    scenario: "lets a caller with write access set both times to now",
+    path: ({ guest }) => guest.utimes("/file", NOW_TIMES),
+    reference: ({ guest, file }) => guest.utimesReference(file, NOW_TIMES),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "denies setting times to now without write access",
+    path: ({ guest }) => guest.utimes("/", NOW_TIMES),
+    reference: ({ guest, root }) => guest.utimesReference(root, NOW_TIMES),
+    expected: { path: "AccessDenied at /", reference: "AccessDenied" }
+  },
+  {
+    scenario: "reports a removed target as missing on paths and stale on references",
+    path: ({ admin }) => admin.utimes("/gone", EXPLICIT_TIMES),
+    reference: ({ admin, gone }) => admin.utimesReference(gone, EXPLICIT_TIMES),
+    expected: { path: "NotFound at /gone", reference: "StaleReference" }
+  }
+]
+
+const accessRows: ReadonlyArray<Row> = [
+  {
+    scenario: "grants a permitted check",
+    path: ({ guest }) => guest.access("/file", 4),
+    reference: ({ guest, file }) => guest.accessReference(file, 4),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects invalid bits",
+    path: ({ admin }) => admin.access("/file", 8),
+    reference: ({ admin, file }) => admin.accessReference(file, 8),
+    expected: { path: "InvalidArgument at /file", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "denies execute on a file without any execute bit, even to an administrator",
+    path: ({ admin }) => admin.access("/file", 1),
+    reference: ({ admin, file }) => admin.accessReference(file, 1),
+    expected: { path: "AccessDenied at /file", reference: "AccessDenied" }
+  },
+  {
+    scenario: "denies a missing permission",
+    path: ({ guest }) => guest.access("/", 2),
+    reference: ({ guest, root }) => guest.accessReference(root, 2),
+    expected: { path: "AccessDenied at /", reference: "AccessDenied" }
+  },
+  {
+    scenario: "reports a removed target as missing on paths and stale on references",
+    path: ({ admin }) => admin.access("/gone"),
+    reference: ({ admin, gone }) => admin.accessReference(gone),
+    expected: { path: "NotFound at /gone", reference: "StaleReference" }
+  }
+]
+
+const truncateRows: ReadonlyArray<Row> = [
+  {
+    scenario: "resizes a file",
+    path: ({ admin }) => admin.truncate("/file", 4n),
+    reference: ({ admin, file }) => admin.truncateReference(file, 4n),
+    check: ({ admin }) => Effect.map(admin.lstat("/file"), (metadata) => assert.strictEqual(metadata.size, 4n)),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects a directory",
+    path: ({ admin }) => admin.truncate("/dir", 0n),
+    reference: ({ admin, dir }) => admin.truncateReference(dir, 0n),
+    expected: { path: "IsDirectory at /dir", reference: "IsDirectory" }
+  },
+  {
+    scenario: "rejects a directory before checking write access",
+    path: ({ guest }) => guest.truncate("/", 0n),
+    reference: ({ guest, root }) => guest.truncateReference(root, 0n),
+    expected: { path: "IsDirectory at /", reference: "IsDirectory" }
+  },
+  {
+    scenario: "rejects a negative length",
+    path: ({ admin }) => admin.truncate("/file", -1n),
+    reference: ({ admin, file }) => admin.truncateReference(file, -1n),
+    expected: { path: "InvalidArgument", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "reports a removed target as missing on paths and stale on references",
+    path: ({ admin }) => admin.truncate("/gone", 0n),
+    reference: ({ admin, gone }) => admin.truncateReference(gone, 0n),
+    expected: { path: "NotFound at /gone", reference: "StaleReference" }
+  }
+]
+
 const TABLE: ReadonlyArray<readonly [verb: string, rows: ReadonlyArray<Row>]> = [
   ["mkdir", mkdirRows],
   ["link", linkRows],
@@ -650,7 +820,12 @@ const TABLE: ReadonlyArray<readonly [verb: string, rows: ReadonlyArray<Row>]> = 
   ["unlink", unlinkRows],
   ["rmdir", rmdirRows],
   ["rename", renameRows],
-  ["open", openRows]
+  ["open", openRows],
+  ["chmod", chmodRows],
+  ["chown", chownRows],
+  ["utimes", utimesRows],
+  ["access", accessRows],
+  ["truncate", truncateRows]
 ]
 
 describe("operation families", () => {
