@@ -49,7 +49,7 @@ describe("live volume staging", () => {
       const handle = yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
       yield* handle.write(new Uint8Array([1]))
       const before = yield* handle.stat
-      const stream = yield* volume.watch
+      const stream = yield* volume.watch()
       const nextEvent = yield* Stream.runHead(stream).pipe(Effect.forkChild({ startImmediately: true }))
 
       outcome = "rejected"
@@ -92,7 +92,7 @@ describe("live volume staging", () => {
         assert.strictEqual(callerFailure.code, "VolumeUnavailable")
       }
 
-      assert.strictEqual((yield* Effect.flip(volume.watch)).code, "VolumeUnavailable")
+      assert.strictEqual((yield* Effect.flip(volume.watch())).code, "VolumeUnavailable")
     }))
 
   it.effect("preserves a reference after rejected unlink and retains its open file after committed unlink", () =>

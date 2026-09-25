@@ -126,7 +126,7 @@ export const callerAs = (
  *
  * const program = Effect.gen(function*() {
  *   const volume = yield* Vfs.Volume
- *   const changes = yield* Testing.collectChanges(yield* volume.watch, 1)
+ *   const changes = yield* Testing.collectChanges(yield* volume.watch(), 1)
  *
  *   yield* (yield* Vfs.Caller).mkdir("/work")
  *

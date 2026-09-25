@@ -8,7 +8,7 @@ describe("volume watch", () => {
     Effect.gen(function*() {
       const volume = yield* Vfs.Volume
       const caller = yield* Vfs.Caller
-      const stream = yield* volume.watch
+      const stream = yield* volume.watch()
 
       const watcher = yield* Testing.collectChanges(stream, 2)
 
@@ -40,7 +40,7 @@ describe("volume watch", () => {
 
       const afterSubscribe = Deferred.succeed(subscribed, undefined).pipe(Effect.andThen(Deferred.await(release)))
 
-      const watcher = yield* volume.watch.pipe(
+      const watcher = yield* volume.watch().pipe(
         withVolumeTestSeams({ afterSubscribe }),
         Effect.flatMap(Stream.runHead),
         Effect.forkChild({ startImmediately: true })
@@ -72,8 +72,8 @@ describe("volume watch", () => {
       const caller = yield* Vfs.Caller
       const scope = yield* Scope.make()
       yield* Scope.close(scope, Exit.void)
-      const dead = yield* volume.watch.pipe(Scope.provide(scope))
-      const live = yield* volume.watch
+      const dead = yield* volume.watch().pipe(Scope.provide(scope))
+      const live = yield* volume.watch()
       yield* caller.mkdir("/after")
       assert.strictEqual((yield* Stream.runHead(dead))._tag, "None")
       const event = yield* Stream.runHead(live)
@@ -89,7 +89,7 @@ describe("volume watch", () => {
       const release = yield* Deferred.make<void>()
 
       // A registration in flight holds the volume until released, so the second one waits for the permit.
-      const first = yield* volume.watch.pipe(
+      const first = yield* volume.watch().pipe(
         withVolumeTestSeams({
           afterSubscribe: Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release)))
         }),
@@ -97,7 +97,7 @@ describe("volume watch", () => {
       )
 
       yield* Deferred.await(held)
-      const waiting = yield* volume.watch.pipe(Scope.provide(scope), Effect.forkChild({ startImmediately: true }))
+      const waiting = yield* volume.watch().pipe(Scope.provide(scope), Effect.forkChild({ startImmediately: true }))
 
       for (let i = 0; i < 4; i++) yield* Effect.yieldNow
       yield* Scope.close(scope, Exit.void)
@@ -117,7 +117,7 @@ describe("volume watch", () => {
       yield* caller.writeFile("/dir/original", new Uint8Array([1]), { access: "write", create: "ifMissing" })
       yield* caller.link("/dir/original", "/alias")
 
-      const stream = yield* volume.watch
+      const stream = yield* volume.watch()
 
       const watcher = yield* Testing.collectChanges(stream, 2)
 
@@ -141,7 +141,7 @@ describe("volume watch", () => {
       yield* caller.mkdir("/parent")
       yield* caller.mkdir("/parent/child")
 
-      const stream = yield* volume.watch
+      const stream = yield* volume.watch()
 
       const watcher = yield* Testing.collectChanges(stream, 1)
 
@@ -166,7 +166,7 @@ describe("volume watch", () => {
         const removed = yield* caller.openDirectory("/parent/child")
         yield* caller.rmdir("/parent/child")
 
-        const stream = yield* volume.watch
+        const stream = yield* volume.watch()
 
         const watcher = yield* Testing.collectChanges(stream, 1)
 
@@ -195,7 +195,7 @@ describe("volume watch", () => {
         const displaced = yield* caller.openDirectory("/target")
         yield* caller.rename("/source", "/target")
 
-        const stream = yield* volume.watch
+        const stream = yield* volume.watch()
 
         const watcher = yield* Testing.collectChanges(stream, 1)
 
@@ -218,7 +218,7 @@ describe("volume watch", () => {
       const volume = yield* Vfs.Volume
       const caller = yield* Vfs.Caller
 
-      const stream = yield* volume.watch
+      const stream = yield* volume.watch()
 
       const watcher = yield* Testing.collectChanges(stream, 1)
 
@@ -247,7 +247,7 @@ describe("volume watch", () => {
         const moved = yield* caller.openDirectory("/origin/moved")
         yield* caller.rename("/origin/moved", "/destination/moved")
 
-        const stream = yield* volume.watch
+        const stream = yield* volume.watch()
 
         const watcher = yield* Testing.collectChanges(stream, 1)
 
@@ -274,7 +274,7 @@ describe("volume watch", () => {
         const handle = yield* caller.open("/orphan", { access: "read" })
         yield* caller.unlink("/orphan")
 
-        const stream = yield* volume.watch
+        const stream = yield* volume.watch()
 
         const watcher = yield* Testing.collectChanges(stream, 1)
 
@@ -300,7 +300,7 @@ describe("volume watch", () => {
       yield* caller.mkdir("/b")
       yield* caller.writeFile("/a/f", new Uint8Array([1]), { access: "write", create: "ifMissing" })
 
-      const stream = yield* volume.watch
+      const stream = yield* volume.watch()
 
       const watcher = yield* Testing.collectChanges(stream, 2)
 
@@ -323,7 +323,7 @@ describe("volume watch", () => {
       yield* caller.writeFile("/x", new Uint8Array([1]), { access: "write", create: "ifMissing" })
       yield* caller.writeFile("/y", new Uint8Array([2]), { access: "write", create: "ifMissing" })
 
-      const stream = yield* volume.watch
+      const stream = yield* volume.watch()
 
       const watcher = yield* Testing.collectChanges(stream, 3)
 
@@ -347,7 +347,7 @@ describe("volume watch", () => {
       yield* caller.writeFile("/f", new Uint8Array([1]), { access: "write", create: "ifMissing" })
       yield* caller.link("/f", "/alias")
 
-      const stream = yield* volume.watch
+      const stream = yield* volume.watch()
 
       const watcher = yield* Testing.collectChanges(stream, 1)
 
@@ -374,7 +374,7 @@ describe("volume watch", () => {
       yield* caller.link("/dir/original", "/alias")
       yield* caller.rename("/dir/original", "/dir/moved")
 
-      const stream = yield* volume.watch
+      const stream = yield* volume.watch()
 
       const watcher = yield* Testing.collectChanges(stream, 2)
 
@@ -399,7 +399,7 @@ describe("volume watch", () => {
       yield* caller.writeFile("/old/work/f", new Uint8Array([1]), { access: "write", create: "ifMissing" })
       yield* caller.rename("/old", "/new")
 
-      const stream = yield* volume.watch
+      const stream = yield* volume.watch()
 
       const watcher = yield* Testing.collectChanges(stream, 1)
 

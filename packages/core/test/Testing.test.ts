@@ -83,7 +83,7 @@ describe("Testing.collectChanges", () => {
       const caller = yield* Vfs.Caller
       yield* caller.mkdir("/before")
 
-      const changes = yield* Testing.collectChanges(yield* volume.watch, 2)
+      const changes = yield* Testing.collectChanges(yield* volume.watch(), 2)
       yield* caller.mkdir("/first")
       yield* caller.rmdir("/before")
       yield* caller.mkdir("/third")

@@ -13,7 +13,7 @@ describe("whole-file symlink replacement", () => {
         yield* fs.writeFile("/target", new Uint8Array([42]), { access: "write", create: "exclusive" })
         yield* fs.symlink("/target", "/link")
 
-        const watcher = yield* Testing.collectChanges(yield* volume.watch, 1)
+        const watcher = yield* Testing.collectChanges(yield* volume.watch(), 1)
 
         yield* fs.writeFile("/link", new Uint8Array(7), {
           access: "write",

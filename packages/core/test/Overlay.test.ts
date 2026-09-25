@@ -423,7 +423,7 @@ describe("overlay volumes", () => {
       const oldCaller = yield* old.caller()
       const oldHandle = yield* oldCaller.open("/f", { access: "readWrite" })
 
-      const oldWatch = yield* (yield* old.watch).pipe(
+      const oldWatch = yield* (yield* old.watch()).pipe(
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild({ startImmediately: true })
