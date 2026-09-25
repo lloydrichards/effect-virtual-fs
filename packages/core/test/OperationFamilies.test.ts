@@ -1,20 +1,21 @@
 import { assert, describe } from "@effect/vitest"
 import { ByteSize, Effect, Result } from "effect"
 import type * as Crypto from "effect/Crypto"
-import { VirtualFileSystem as Vfs, type VirtualFileSystemError } from "../src/index.js"
+import { type VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as InternalBytePath from "../src/internal/bytePath.js"
 import { it } from "./TestEffect.js"
 
 // Path-addressed and reference-addressed verbs share one mutation body, but each family keeps its own
 // validation order and error codes. Each row pins what both families report for the same situation, so a
 // difference is recorded here instead of being lost or "fixed" when the bodies merge. A failure reads as its
-// code, followed by the path it names when it names one.
+// code, followed by the path it names when it names one. Errors carry paths as bytes, so an unencodable
+// string input is named by its replacement encoding.
 
 const name = (value: string) => new TextEncoder().encode(value)
 
 const GUEST = { uid: 9, gid: 9, groups: [], privileged: false } as const
 
-type FsError = VirtualFileSystemError.FsError
+type FsError = VfsErrorModule.VfsError
 
 interface Fixture {
   readonly admin: Vfs.Caller
@@ -263,17 +264,18 @@ const symlinkRows: ReadonlyArray<Row> = [
     expected: { path: "NotDirectory at /dir/new/", reference: "InvalidArgument" }
   },
   {
+    // An error names only a path a BytePath can hold, and none holds a NUL.
     scenario: "rejects a target holding a NUL byte",
     path: ({ admin }) => admin.symlink("a\0", "/dir/new"),
     reference: ({ admin, dir }) => admin.symlinkReference("a\0", dir, name("new")),
-    expected: { path: "InvalidArgument at a\0", reference: "InvalidArgument" }
+    expected: { path: "InvalidArgument", reference: "InvalidArgument" }
   },
   {
     scenario: "checks the target before a path's parent but after a reference's name",
     // A lone surrogate cannot be encoded, which only the target check reports.
     path: ({ admin }) => admin.symlink("\uD800", "/gone/new"),
     reference: ({ admin, gone }) => admin.symlinkReference("\uD800", gone, name(".")),
-    expected: { path: "InvalidPathEncoding at \uD800", reference: "InvalidArgument" }
+    expected: { path: "InvalidPathEncoding at \uFFFD", reference: "InvalidArgument" }
   },
   {
     scenario: "denies an unwritable parent before a path dot name but after a reference dot name",
@@ -517,7 +519,7 @@ const renameRows: ReadonlyArray<Row> = [
     scenario: "prepares both paths before locating either parent",
     path: ({ admin }) => admin.rename("/gone/entry", "\uD800"),
     reference: ({ admin, gone, root }) => admin.renameReference(gone, name("entry"), root, name("moved")),
-    expected: { path: "InvalidPathEncoding at \uD800", reference: "StaleReference" }
+    expected: { path: "InvalidPathEncoding at \uFFFD", reference: "StaleReference" }
   }
 ]
 

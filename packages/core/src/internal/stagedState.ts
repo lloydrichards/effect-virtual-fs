@@ -1,7 +1,8 @@
 // Classifies what a storage adapter says about a committed candidate.
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import { FsError } from "./errors.js"
+import type { FsFailure } from "../VfsError.js"
+import { fsFailure } from "./errors.js"
 
 /** @internal */
 export type CommitOutcome = "committed" | "rejected" | "unknown"
@@ -9,7 +10,7 @@ export type CommitOutcome = "committed" | "rejected" | "unknown"
 /** @internal */
 export interface CommitProvider<State> {
   /** Checks and encodes a candidate before the commit boundary. Failure leaves the volume available. */
-  readonly prepare?: (candidate: State) => Effect.Effect<void, FsError>
+  readonly prepare?: (candidate: State) => Effect.Effect<void, FsFailure>
   /** Classifies a candidate as committed, definitely rejected, or uncertain. */
   readonly commit: (candidate: State) => Effect.Effect<CommitOutcome>
 }
@@ -18,7 +19,7 @@ export interface CommitProvider<State> {
 export interface Classified {
   /** Whether the volume may keep serving; false once storage's word cannot be trusted. */
   readonly available: boolean
-  readonly failure: FsError | undefined
+  readonly failure: FsFailure | undefined
 }
 
 // Offers a candidate to the provider and reads its answer. A defect or interruption inside the provider, or an
@@ -34,15 +35,15 @@ export const offerCommit = <State>(
   Effect.map(Effect.exit(Effect.suspend(() => provider.commit(candidate))), (committed): Classified => {
     // TODO(#186): a failed commit exit is a defect or interruption inside the provider, so the error keeps no cause.
     if (Exit.isFailure(committed)) {
-      return { available: false, failure: new FsError({ code: "OutcomeUnknown", operation }) }
+      return { available: false, failure: fsFailure("OutcomeUnknown", operation) }
     }
 
     if (committed.value === "rejected") {
-      return { available: !cleanup, failure: new FsError({ code: "StorageRejected", operation }) }
+      return { available: !cleanup, failure: fsFailure("StorageRejected", operation) }
     }
 
     if (committed.value === "unknown") {
-      return { available: false, failure: new FsError({ code: "OutcomeUnknown", operation }) }
+      return { available: false, failure: fsFailure("OutcomeUnknown", operation) }
     }
 
     return { available: true, failure: undefined }

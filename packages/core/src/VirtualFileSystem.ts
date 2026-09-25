@@ -28,19 +28,19 @@ import type { DirectoryHandleId, FileHandleId } from "./FileHandle.js"
 import * as FileHandleModule from "./FileHandle.js"
 import * as FixtureModule from "./Fixture.js"
 import * as MetadataModule from "./Metadata.js"
-import type { ConfigurationError, FsError } from "./VirtualFileSystemError.js"
-import * as VfsErrorModule from "./VirtualFileSystemError.js"
+import type { FsFailure, ImageFailure, VfsError } from "./VfsError.js"
+import * as VfsErrorModule from "./VfsError.js"
 import type { VolumeId } from "./Volume.js"
 import * as VolumeModule from "./Volume.js"
 import * as WatchModule from "./Watch.js"
 
 export { BytePath } from "./BytePath.js"
 
-import type { DecodeLimits, ImageError, Snapshot } from "./Snapshot.js"
+import type { DecodeLimits, Snapshot } from "./Snapshot.js"
 
-export { DecodeLimits, ImageError, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
+export { DecodeLimits, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 
-import { decodeConfiguration } from "./internal/errors.js"
+import { decodeConfiguration, retargetFailure } from "./internal/errors.js"
 import * as FixtureInternal from "./internal/fixture.js"
 import * as Image from "./internal/image.js"
 import * as Path from "./internal/path.js"
@@ -52,7 +52,6 @@ export {
   SnapshotChange,
   SnapshotChangesOptions,
   type SnapshotDelta,
-  SnapshotDeltaError,
   SnapshotDeltaLimits,
   SnapshotDeltaTypeId,
   SnapshotDifference,
@@ -132,7 +131,7 @@ export type FsCode = typeof FsCode.Type
  *   // Every filesystem operation fails with this one tagged error; `code`
  *   // distinguishes the cases, so match on it rather than on the tag alone.
  *   return yield* caller.readFile("/missing").pipe(
- *     Effect.catchTag("FsError", (error) =>
+ *     Effect.catchTag("VfsError", (error) =>
  *       error.code === "NotFound"
  *         ? Effect.succeed(new Uint8Array())
  *         : Effect.fail(error))
@@ -146,7 +145,6 @@ export type FsCode = typeof FsCode.Type
  * @category errors
  * @since 0.1.0
  */
-export { FsError } from "./VirtualFileSystemError.js"
 
 /**
  * Describes an invalid volume or caller option and names the rejected field.
@@ -164,7 +162,7 @@ export { FsError } from "./VirtualFileSystemError.js"
  *
  *   return yield* Vfs.make(options).pipe(
  *     Effect.as("ok"),
- *     Effect.catchTag("ConfigurationError", (error) => Effect.succeed(`rejected ${error.field}`))
+ *     Effect.catchTag("VfsError", (error) => Effect.succeed(`rejected ${error.field}`))
  *   )
  * })
  *
@@ -175,7 +173,17 @@ export { FsError } from "./VirtualFileSystemError.js"
  * @category errors
  * @since 0.1.0
  */
-export { ConfigurationError } from "./VirtualFileSystemError.js"
+export {
+  type ArgumentFailure,
+  DeltaCode,
+  type FsFailure,
+  ImageCode,
+  type ImageFailure,
+  StoreCode,
+  type StoreFailure,
+  VfsCode,
+  VfsError
+} from "./VfsError.js"
 
 /**
  * Schema for a caller's numeric identity, supplementary groups, and explicit privilege.
@@ -323,7 +331,7 @@ export type VolumeIncarnation = typeof VolumeIncarnation.Type
  *     create: "exclusive"
  *   }).pipe(
  *     Effect.as("written"),
- *     Effect.catchTag("FsError", (error) => Effect.succeed(error.code))
+ *     Effect.catchTag("VfsError", (error) => Effect.succeed(error.code))
  *   )
  * })
  *
@@ -678,8 +686,8 @@ export type Times = typeof Times.Type
  */
 export interface DirectoryHandle {
   readonly [DirectoryHandleId]: true
-  readonly stat: Effect.Effect<Metadata, FsError>
-  readonly close: Effect.Effect<void, FsError>
+  readonly stat: Effect.Effect<Metadata, FsFailure>
+  readonly close: Effect.Effect<void, FsFailure>
 }
 
 /**
@@ -853,7 +861,7 @@ export interface OpenChildReferenceResult {
  *     create: "exclusive"
  *   }).pipe(
  *     Effect.as("replaced"),
- *     Effect.catchTag("FsError", (error) => Effect.succeed(error.code))
+ *     Effect.catchTag("VfsError", (error) => Effect.succeed(error.code))
  *   )
  *
  *   yield* caller.writeFile("/app.conf", bytes, { access: "write", truncate: true })
@@ -905,23 +913,23 @@ export type WriteFileOptions = CallerModule.WriteFileSettings & RelativeOptions
 export interface FileHandle {
   readonly [FileHandleId]: true
   /** Reads up to `maximumBytes` from the cursor and advances it by the returned length. */
-  readonly read: (maximumBytes: number) => Effect.Effect<Uint8Array, FsError>
+  readonly read: (maximumBytes: number) => Effect.Effect<Uint8Array, FsFailure>
   /** Reads at `offset` without changing the cursor. */
-  readonly pread: (maximumBytes: number, offset: bigint) => Effect.Effect<Uint8Array, FsError>
+  readonly pread: (maximumBytes: number, offset: bigint) => Effect.Effect<Uint8Array, FsFailure>
   /** Writes at the cursor and advances it, or writes at end of file when opened for append. */
-  readonly write: (bytes: Uint8Array) => Effect.Effect<number, FsError>
+  readonly write: (bytes: Uint8Array) => Effect.Effect<number, FsFailure>
   /** Writes at `offset` without changing the cursor. Append mode does not affect positional writes. */
-  readonly pwrite: (bytes: Uint8Array, offset: bigint) => Effect.Effect<number, FsError>
+  readonly pwrite: (bytes: Uint8Array, offset: bigint) => Effect.Effect<number, FsFailure>
   /** Moves the cursor and returns its new offset. `data` finds content and `hole` finds end of file. */
-  readonly seek: (offset: bigint, mode: SeekMode) => Effect.Effect<bigint, FsError>
+  readonly seek: (offset: bigint, mode: SeekMode) => Effect.Effect<bigint, FsFailure>
   /** Sets the file length without changing the cursor. */
-  readonly truncate: (length: bigint) => Effect.Effect<void, FsError>
+  readonly truncate: (length: bigint) => Effect.Effect<void, FsFailure>
   /** Reads metadata for the open file. */
-  readonly stat: Effect.Effect<Metadata, FsError>
+  readonly stat: Effect.Effect<Metadata, FsFailure>
   /** Checks handle and provider health. Durable mutations have already committed; memory volumes have nothing to flush. */
-  readonly sync: Effect.Effect<void, FsError>
+  readonly sync: Effect.Effect<void, FsFailure>
   /** Closes the handle. A repeated explicit close fails; scope cleanup remains safe. */
-  readonly close: Effect.Effect<void, FsError>
+  readonly close: Effect.Effect<void, FsFailure>
 }
 
 /**
@@ -1014,75 +1022,75 @@ export interface FileHandle {
 export interface Caller {
   readonly [CallerId]: true
   /** Returns the stable reference for this volume's root directory. */
-  readonly rootReference: Effect.Effect<ObjectReference, FsError>
+  readonly rootReference: Effect.Effect<ObjectReference, FsFailure>
   /** Looks up one byte-preserving child name from a referenced directory. */
-  readonly lookupReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<ObjectReference, FsError>
+  readonly lookupReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<ObjectReference, FsFailure>
   /** Returns a referenced directory's current parent. The root is its own parent. */
-  readonly parentReference: (directory: ObjectReference) => Effect.Effect<ObjectReference, FsError>
+  readonly parentReference: (directory: ObjectReference) => Effect.Effect<ObjectReference, FsFailure>
   /** Reads metadata and its matching live revision. Requires no permission on the object, as `stat` does not. */
-  readonly observeMetadata: (reference: ObjectReference) => Effect.Effect<ObjectObservation<Metadata>, FsError>
+  readonly observeMetadata: (reference: ObjectReference) => Effect.Effect<ObjectObservation<Metadata>, FsFailure>
   /** Checks permission bits on the exact referenced object without resolving a path. */
-  readonly accessReference: (reference: ObjectReference, bits?: number) => Effect.Effect<void, FsError>
+  readonly accessReference: (reference: ObjectReference, bits?: number) => Effect.Effect<void, FsFailure>
   /** Reads owned directory entries and their matching directory revision. */
   readonly observeDirectory: (
     reference: ObjectReference
-  ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsError>
+  ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsFailure>
   /** Reads an owned symbolic-link target through a stable reference. Requires no permission on the link. */
-  readonly readLinkReference: (reference: ObjectReference) => Effect.Effect<Uint8Array, FsError>
+  readonly readLinkReference: (reference: ObjectReference) => Effect.Effect<Uint8Array, FsFailure>
   /** Creates one directory from a referenced parent and returns its exact identity and directory transition. */
   readonly mkdirReference: (
     directory: ObjectReference,
     name: Uint8Array,
     settings?: MkdirReferenceSettings
-  ) => Effect.Effect<ReferenceEntryResult, FsError>
+  ) => Effect.Effect<ReferenceEntryResult, FsFailure>
   /** Creates one symbolic link from a referenced parent and returns its exact identity and directory transition. */
   readonly symlinkReference: (
     target: PathInput,
     directory: ObjectReference,
     name: Uint8Array,
     settings?: SymlinkReferenceSettings
-  ) => Effect.Effect<ReferenceEntryResult, FsError>
+  ) => Effect.Effect<ReferenceEntryResult, FsFailure>
   /** Creates another name for the exact source object; symbolic links are not followed. */
   readonly linkReference: (
     source: ObjectReference,
     destinationDirectory: ObjectReference,
     destinationName: Uint8Array
-  ) => Effect.Effect<ReferenceEntryResult, FsError>
+  ) => Effect.Effect<ReferenceEntryResult, FsFailure>
   /** Removes a non-directory child and returns the parent directory transition. */
-  readonly unlinkReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsError>
+  readonly unlinkReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsFailure>
   /** Removes an empty directory child and returns the parent directory transition. */
-  readonly rmdirReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsError>
+  readonly rmdirReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsFailure>
   /** Removes a child of either type in one coordinated mutation and returns the parent directory transition. */
-  readonly removeReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsError>
+  readonly removeReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsFailure>
   /** Renames one referenced child and returns one transition per distinct parent directory. */
   readonly renameReference: (
     sourceDirectory: ObjectReference,
     sourceName: Uint8Array,
     destinationDirectory: ObjectReference,
     destinationName: Uint8Array
-  ) => Effect.Effect<RenameReferenceResult, FsError>
+  ) => Effect.Effect<RenameReferenceResult, FsFailure>
   /** Changes permission bits on the exact referenced object. */
-  readonly chmodReference: (reference: ObjectReference, mode: number) => Effect.Effect<void, FsError>
+  readonly chmodReference: (reference: ObjectReference, mode: number) => Effect.Effect<void, FsFailure>
   /** Changes ownership on the exact referenced object. */
-  readonly chownReference: (reference: ObjectReference, owner: OwnerUpdate) => Effect.Effect<void, FsError>
+  readonly chownReference: (reference: ObjectReference, owner: OwnerUpdate) => Effect.Effect<void, FsFailure>
   /** Changes timestamps on the exact referenced object. */
-  readonly utimesReference: (reference: ObjectReference, times: Times) => Effect.Effect<void, FsError>
+  readonly utimesReference: (reference: ObjectReference, times: Times) => Effect.Effect<void, FsFailure>
   /** Changes the length of the exact referenced regular file. */
-  readonly truncateReference: (reference: ObjectReference, length: bigint) => Effect.Effect<void, FsError>
+  readonly truncateReference: (reference: ObjectReference, length: bigint) => Effect.Effect<void, FsFailure>
   /** Opens an existing referenced regular file. Omitted settings preserve read-only behavior. */
   readonly openReference: (
     reference: ObjectReference,
     settings?: OpenReferenceSettings
-  ) => Effect.Effect<FileHandle, FsError, Scope.Scope>
+  ) => Effect.Effect<FileHandle, FsFailure, Scope.Scope>
   /** Atomically looks up or creates and opens one child; `expected` guards its current identity, with `null` meaning absent. */
   readonly openChildReference: (
     directory: ObjectReference,
     name: Uint8Array,
     settings: OpenChildReferenceSettings,
     expected?: ObjectReference | null
-  ) => Effect.Effect<OpenChildReferenceResult, FsError, Scope.Scope>
+  ) => Effect.Effect<OpenChildReferenceResult, FsFailure, Scope.Scope>
   /** Reads metadata, following the final symbolic link by default. */
-  readonly stat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>
+  readonly stat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsFailure>
   /** Atomically moves an entry within this volume without replacing a non-empty directory. */
   readonly rename: (
     source: PathInput,
@@ -1091,29 +1099,29 @@ export interface Caller {
       readonly sourceRelativeTo?: DirectoryHandle
       readonly destinationRelativeTo?: DirectoryHandle
     }
-  ) => Effect.Effect<void, FsError>
+  ) => Effect.Effect<void, FsFailure>
   /** Reads and returns an owned copy of a regular file's complete contents. */
-  readonly readFile: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsError>
+  readonly readFile: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsFailure>
   /** Atomically writes a complete regular file according to the replacement options. */
-  readonly writeFile: (path: PathInput, bytes: Uint8Array, options: WriteFileOptions) => Effect.Effect<void, FsError>
+  readonly writeFile: (path: PathInput, bytes: Uint8Array, options: WriteFileOptions) => Effect.Effect<void, FsFailure>
   /** Checks the requested permission bits without opening the entry. */
-  readonly access: (path: PathInput, bits?: number, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  readonly access: (path: PathInput, bits?: number, options?: RelativeOptions) => Effect.Effect<void, FsFailure>
   /** Sets a regular file's length. Extending creates a zero-filled region. */
-  readonly truncate: (path: PathInput, length: bigint, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  readonly truncate: (path: PathInput, length: bigint, options?: RelativeOptions) => Effect.Effect<void, FsFailure>
   /** Changes permission bits, following the final symbolic link by default. */
-  readonly chmod: (path: PathInput, mode: number, options?: MetadataOptions) => Effect.Effect<void, FsError>
+  readonly chmod: (path: PathInput, mode: number, options?: MetadataOptions) => Effect.Effect<void, FsFailure>
   /** Changes uid, gid, or both, following the final symbolic link by default. */
-  readonly chown: (path: PathInput, owner: OwnerUpdate, options?: MetadataOptions) => Effect.Effect<void, FsError>
+  readonly chown: (path: PathInput, owner: OwnerUpdate, options?: MetadataOptions) => Effect.Effect<void, FsFailure>
   /** Updates access and modification times, following the final symbolic link by default. */
-  readonly utimes: (path: PathInput, times: Times, options?: MetadataOptions) => Effect.Effect<void, FsError>
+  readonly utimes: (path: PathInput, times: Times, options?: MetadataOptions) => Effect.Effect<void, FsFailure>
   /** Changes permission bits through a live, same-volume handle. */
-  readonly chmodHandle: (handle: FileHandle | DirectoryHandle, mode: number) => Effect.Effect<void, FsError>
+  readonly chmodHandle: (handle: FileHandle | DirectoryHandle, mode: number) => Effect.Effect<void, FsFailure>
   /** Changes uid, gid, or both through a live, same-volume handle. */
-  readonly chownHandle: (handle: FileHandle | DirectoryHandle, owner: OwnerUpdate) => Effect.Effect<void, FsError>
+  readonly chownHandle: (handle: FileHandle | DirectoryHandle, owner: OwnerUpdate) => Effect.Effect<void, FsFailure>
   /** Updates access and modification times through a live, same-volume handle. */
-  readonly utimesHandle: (handle: FileHandle | DirectoryHandle, times: Times) => Effect.Effect<void, FsError>
+  readonly utimesHandle: (handle: FileHandle | DirectoryHandle, times: Times) => Effect.Effect<void, FsFailure>
   /** Reads metadata without following the final symbolic link. */
-  readonly lstat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsError>
+  readonly lstat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsFailure>
   /** Creates a hard link to an existing non-directory entry. */
   readonly link: (
     source: PathInput,
@@ -1123,44 +1131,47 @@ export interface Caller {
       readonly destinationRelativeTo?: DirectoryHandle
       readonly followSourceSymlink?: boolean
     }
-  ) => Effect.Effect<void, FsError>
+  ) => Effect.Effect<void, FsFailure>
   /** Creates a symbolic link. The target bytes are stored without resolving them. */
-  readonly symlink: (target: PathInput, path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  readonly symlink: (target: PathInput, path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsFailure>
   /** Reads a symbolic-link target as UTF-8, failing `UnrepresentableName` for other bytes. See `readLinkBytes`. */
-  readonly readLink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsError>
+  readonly readLink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsFailure>
   /** Reads a symbolic-link target as owned bytes. */
-  readonly readLinkBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsError>
+  readonly readLinkBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsFailure>
   /** Reads directory names as UTF-8, failing `UnrepresentableName` for other bytes. See `readDirectoryBytes`. */
-  readonly readDirectory: (path: PathInput, options?: RelativeOptions) => Effect.Effect<ReadonlyArray<string>, FsError>
+  readonly readDirectory: (
+    path: PathInput,
+    options?: RelativeOptions
+  ) => Effect.Effect<ReadonlyArray<string>, FsFailure>
   /** Reads directory names as owned byte arrays. */
   readonly readDirectoryBytes: (
     path: PathInput,
     options?: RelativeOptions
-  ) => Effect.Effect<ReadonlyArray<Uint8Array>, FsError>
+  ) => Effect.Effect<ReadonlyArray<Uint8Array>, FsFailure>
   /** Resolves links and normalizes a path as UTF-8, failing `UnrepresentableName` for other bytes. See `realPathBytes`. */
-  readonly realPath: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsError>
+  readonly realPath: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsFailure>
   /** Resolves links and normalizes a path without requiring UTF-8 names. */
-  readonly realPathBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<BytePath, FsError>
+  readonly realPathBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<BytePath, FsFailure>
   /** Opens a scoped regular-file handle. The surrounding scope closes it automatically. */
-  readonly open: (path: PathInput, options: OpenOptions) => Effect.Effect<FileHandle, FsError, Scope.Scope>
+  readonly open: (path: PathInput, options: OpenOptions) => Effect.Effect<FileHandle, FsFailure, Scope.Scope>
   /** Removes a non-directory entry. Open handles remain usable until closed. */
-  readonly unlink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  readonly unlink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsFailure>
   /** Removes an empty directory. */
-  readonly rmdir: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsError>
+  readonly rmdir: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsFailure>
   /** Creates one directory. Parent directories must already exist. */
   readonly mkdir: (
     path: PathInput,
     options?: RelativeOptions & {
       readonly mode?: number
     }
-  ) => Effect.Effect<void, FsError>
+  ) => Effect.Effect<void, FsFailure>
   /** Creates a scoped caller whose current directory is the resolved directory identity. */
-  readonly withDirectory: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Caller, FsError, Scope.Scope>
+  readonly withDirectory: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Caller, FsFailure, Scope.Scope>
   /** Opens a scoped directory handle for metadata and relative path resolution. */
   readonly openDirectory: (
     path: PathInput,
     options?: RelativeOptions
-  ) => Effect.Effect<DirectoryHandle, FsError, Scope.Scope>
+  ) => Effect.Effect<DirectoryHandle, FsFailure, Scope.Scope>
 }
 
 /**
@@ -1391,14 +1402,14 @@ export interface Volume {
   /** Effective static limits, where `undefined` means unlimited. */
   readonly limits: VolumeLimits
   /** Samples content bytes and directory entries together from the current committed state. */
-  readonly usage: Effect.Effect<VolumeUsage, FsError>
+  readonly usage: Effect.Effect<VolumeUsage, FsFailure>
   /** Opens a scoped stream of future changes. `Rescan` at `/` requires a full rescan; events are not replayed. */
-  readonly watch: Effect.Effect<Stream.Stream<Change>, FsError, Scope.Scope>
+  readonly watch: Effect.Effect<Stream.Stream<Change>, FsFailure, Scope.Scope>
   /** Captures an isolated snapshot of the reachable namespace and metadata. */
-  readonly snapshot: Effect.Effect<Snapshot, ImageError | FsError>
+  readonly snapshot: Effect.Effect<Snapshot, VfsError>
   readonly [VolumeId]: true
   /** Creates a caller rooted at `/` with independent credentials, umask, and current directory. */
-  readonly caller: (options?: RootCallerOptions) => Effect.Effect<Caller, ConfigurationError | FsError>
+  readonly caller: (options?: RootCallerOptions) => Effect.Effect<Caller, VfsError>
 }
 
 /**
@@ -1436,11 +1447,11 @@ export interface OverlayVolume extends Volume {
   /** Computes final differences from the immutable base when this reusable effect executes. */
   readonly changes: (
     options?: OverlayChangesOptions
-  ) => Effect.Effect<ReadonlyArray<OverlayChange>, ConfigurationError | ImageError | FsError>
+  ) => Effect.Effect<ReadonlyArray<OverlayChange>, VfsError>
   /** Captures one committed state when this reusable effect executes. */
   readonly capture: (
     options?: OverlayChangesOptions
-  ) => Effect.Effect<OverlayCapture, ConfigurationError | ImageError | FsError>
+  ) => Effect.Effect<OverlayCapture, VfsError>
 }
 
 /**
@@ -1524,7 +1535,8 @@ export interface CurrentFileSystem extends Caller {}
  * @category serialization
  * @since 0.1.0
  */
-export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, ImageError> = Image.encodeSnapshot
+export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, ImageFailure> = (snapshot) =>
+  Effect.mapError(Image.encodeSnapshot(snapshot), (error) => retargetFailure("encodeSnapshot", error))
 
 /**
  * Decodes version 1 snapshot bytes while enforcing explicit input and payload limits.
@@ -1547,7 +1559,7 @@ export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, I
  *     maxDecodedBytes: ByteSize.megabytes(16)
  *   }).pipe(
  *     Effect.as("accepted"),
- *     Effect.catchTag("ImageError", (error) => Effect.succeed([error.code, error.field]))
+ *     Effect.catchTag("VfsError", (error) => Effect.succeed([error.code, error.field]))
  *   )
  * })
  *
@@ -1562,14 +1574,15 @@ export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, I
 export const decodeSnapshot: (
   input: Uint8Array,
   limits: DecodeLimits
-) => Effect.Effect<Snapshot, ImageError> = Image.decodeSnapshot
+) => Effect.Effect<Snapshot, ImageFailure | VfsErrorModule.ArgumentFailure> = (input, limits) =>
+  Effect.mapError(Image.decodeSnapshot(input, limits), (error) => retargetFailure("decodeSnapshot", error))
 
-const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
-  return Effect.fromResult(decodeConfiguration(
+const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDeltaLimits) =>
+  Effect.fromResult(decodeConfiguration(
     SnapshotDeltaModel.SnapshotDeltaLimits,
-    limits ?? SnapshotDeltaModel.SnapshotDeltaLimits.default
+    limits ?? SnapshotDeltaModel.SnapshotDeltaLimits.default,
+    operation
   ))
-}
 
 /**
  * Computes an exact portable delta between two immutable snapshots.
@@ -1614,14 +1627,17 @@ export const diffSnapshots: (
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) => Effect.Effect<
   SnapshotDeltaModel.SnapshotDelta,
-  ConfigurationError | ImageError | PlatformError.PlatformError,
+  VfsError | PlatformError.PlatformError,
   Crypto.Crypto
 > = Effect.fn("VirtualFileSystem.diffSnapshots")(function*(
   base: Snapshot,
   target: Snapshot,
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) {
-  return yield* SnapshotDeltaInternal.diffSnapshots(base, target, yield* deltaLimits(limits))
+  // The delta codec fails under its own name; the public entry point names itself.
+  return yield* SnapshotDeltaInternal.diffSnapshots(base, target, yield* deltaLimits("diffSnapshots", limits)).pipe(
+    Effect.mapError((error) => retargetFailure("diffSnapshots", error))
+  )
 })
 
 /**
@@ -1665,7 +1681,7 @@ export const inspectSnapshotDelta: (
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) => Effect.Effect<
   ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
-  ConfigurationError | ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+  VfsError | PlatformError.PlatformError,
   Crypto.Crypto
 > = Effect.fn("VirtualFileSystem.inspectSnapshotDelta")(function*(
   base: Snapshot,
@@ -1674,10 +1690,15 @@ export const inspectSnapshotDelta: (
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) {
   const decoded = yield* Effect.fromResult(
-    decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {})
+    decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {}, "inspectSnapshotDelta")
   )
 
-  return yield* SnapshotDeltaInternal.inspectSnapshotDelta(base, delta, decoded, yield* deltaLimits(limits))
+  return yield* SnapshotDeltaInternal.inspectSnapshotDelta(
+    base,
+    delta,
+    decoded,
+    yield* deltaLimits("inspectSnapshotDelta", limits)
+  ).pipe(Effect.mapError((error) => retargetFailure("inspectSnapshotDelta", error)))
 })
 
 /**
@@ -1725,17 +1746,21 @@ export const applySnapshotDelta: (
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) => Effect.Effect<
   Snapshot,
-  ConfigurationError | ImageError | PlatformError.PlatformError | SnapshotDeltaModel.SnapshotDeltaError,
+  VfsError | PlatformError.PlatformError,
   Crypto.Crypto
 > = Effect.fn("VirtualFileSystem.applySnapshotDelta")(function*(
   base: Snapshot,
   delta: SnapshotDeltaModel.SnapshotDelta,
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) {
-  return yield* SnapshotDeltaInternal.applySnapshotDelta(base, delta, yield* deltaLimits(limits))
+  return yield* SnapshotDeltaInternal.applySnapshotDelta(
+    base,
+    delta,
+    yield* deltaLimits("applySnapshotDelta", limits)
+  ).pipe(Effect.mapError((error) => retargetFailure("applySnapshotDelta", error)))
 })
 
-const deltaSchemaIssue = (cause: ImageError, input: typeof Schema.Unknown.Type, options: SchemaAST.ParseOptions) =>
+const deltaSchemaIssue = (cause: VfsError, input: typeof Schema.Unknown.Type, options: SchemaAST.ParseOptions) =>
   new SchemaIssue.InvalidValue(
     { message: `Snapshot delta ${cause.code}${cause.field === undefined ? "" : ` at ${cause.field}`}` },
     input,
@@ -1822,7 +1847,7 @@ export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDelta
  *
  *   const rejected = yield* Vfs.pathFromBytes(new Uint8Array([47, 0])).pipe(
  *     Effect.as("accepted"),
- *     Effect.catchTag("FsError", (error) => Effect.succeed(error.code))
+ *     Effect.catchTag("VfsError", (error) => Effect.succeed(error.code))
  *   )
  *
  *   return [yield* Vfs.pathToBytes(path), rejected]
@@ -1835,7 +1860,7 @@ export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDelta
  * @category constructors
  * @since 0.1.0
  */
-export const pathFromBytes: (bytes: Uint8Array) => Effect.Effect<BytePath, FsError> = Path.pathFromBytes
+export const pathFromBytes: (bytes: Uint8Array) => Effect.Effect<BytePath, FsFailure> = Path.pathFromBytes
 
 /**
  * Copies the bytes held by an opaque byte path.
@@ -1843,7 +1868,7 @@ export const pathFromBytes: (bytes: Uint8Array) => Effect.Effect<BytePath, FsErr
  * @category getters
  * @since 0.1.0
  */
-export const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsError> = Path.pathToBytes
+export const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsFailure> = Path.pathToBytes
 
 /**
  * Schema for a complete fixture namespace with optional metadata and forward hard links.
@@ -1866,7 +1891,7 @@ export const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsError>
  * }).pipe(
  *   Effect.flatMap(Vfs.fromFixture),
  *   Effect.as("built"),
- *   Effect.catchTag("ImageError", (error) => Effect.succeed(`rejected: ${error.code}`))
+ *   Effect.catchTag("VfsError", (error) => Effect.succeed(`rejected: ${error.code}`))
  * )
  *
  * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
@@ -1920,7 +1945,7 @@ export type Fixture = typeof Fixture.Type
  */
 export const make: (
   options?: VolumeOptions
-) => Effect.Effect<Volume, ConfigurationError | PlatformError.PlatformError, Crypto.Crypto> = VfsModel.make
+) => Effect.Effect<Volume, VfsError | PlatformError.PlatformError, Crypto.Crypto> = VfsModel.make
 
 /**
  * Restores a fresh volume from an opaque snapshot under the supplied destination limits.
@@ -1968,7 +1993,7 @@ export const fromSnapshot: (
   options?: VolumeOptions
 ) => Effect.Effect<
   Volume,
-  ConfigurationError | ImageError | PlatformError.PlatformError,
+  VfsError | PlatformError.PlatformError,
   Crypto.Crypto
 > = VfsModel.fromSnapshot
 
@@ -1982,8 +2007,8 @@ export const fromSnapshot: (
  * storage. Metadata, namespace state, coordination, handles, and watches are
  * always private to the new workspace.
  *
- * Invalid base snapshots fail with `ImageError`; invalid volume limits fail
- * with `ConfigurationError`. Each execution creates a fresh workspace.
+ * Invalid base snapshots and invalid volume limits fail with `VfsError`. Each
+ * execution creates a fresh workspace.
  *
  * @example
  * ```ts
@@ -2027,7 +2052,7 @@ export const makeOverlay: (
   options?: VolumeOptions
 ) => Effect.Effect<
   OverlayVolume,
-  ConfigurationError | ImageError | PlatformError.PlatformError,
+  VfsError | PlatformError.PlatformError,
   Crypto.Crypto
 > = VfsModel.makeOverlay
 
@@ -2072,6 +2097,6 @@ export const fromFixture: (
   options?: VolumeOptions
 ) => Effect.Effect<
   Volume,
-  ConfigurationError | ImageError | PlatformError.PlatformError,
+  VfsError | PlatformError.PlatformError,
   Crypto.Crypto
 > = FixtureInternal.fromFixture

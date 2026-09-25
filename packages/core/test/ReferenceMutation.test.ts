@@ -51,7 +51,7 @@ describe("reference mutations", () => {
       const sticky = (yield* fs.mkdirReference(root, name("sticky"), { mode: 0o1777 })).reference
       const file = yield* fs.openChildReference(sticky, name("file"), { access: "write", create: "exclusive" })
       yield* file.handle.close
-      const code = <A>(effect: Effect.Effect<A, Vfs.FsError>) => Effect.map(Effect.flip(effect), (error) => error.code)
+      const code = <A>(effect: Effect.Effect<A, Vfs.VfsError>) => Effect.map(Effect.flip(effect), (error) => error.code)
 
       assert.strictEqual(yield* code(guest.removeReference(sticky, name("file"))), "AccessDenied")
       assert.strictEqual(yield* code(fs.removeReference(sticky, name("missing"))), "NotFound")
@@ -368,7 +368,7 @@ describe("reference mutations", () => {
       const cases: ReadonlyArray<{
         readonly label: string
         readonly bumps: boolean
-        readonly run: Effect.Effect<Vfs.DirectoryChange, Vfs.FsError, Scope.Scope>
+        readonly run: Effect.Effect<Vfs.DirectoryChange, Vfs.VfsError, Scope.Scope>
       }> = [
         {
           label: "mkdirReference",

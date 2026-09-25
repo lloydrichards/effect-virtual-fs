@@ -10,7 +10,7 @@ const text = (value: Uint8Array) => new TextDecoder().decode(value)
 const pathText = (path: Vfs.BytePath) => Vfs.pathToBytes(path).pipe(Effect.map(text))
 
 const changePaths = (changes: ReadonlyArray<Vfs.OverlayChange>) =>
-  Effect.forEach(changes, (change): Effect.Effect<string, Vfs.FsError> => {
+  Effect.forEach(changes, (change): Effect.Effect<string, Vfs.VfsError> => {
     if (Predicate.isTagged("Renamed")(change)) {
       return Effect.all({ from: pathText(change.from), to: pathText(change.to) }).pipe(
         Effect.map(({ from, to }) => `${change._tag}:${from}->${to}`)
@@ -57,7 +57,7 @@ describe("overlay volumes", () => {
       const source = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: bytes("abcd") }] })
       const base = yield* source.snapshot
       const tooSmall = yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: ByteSize.bytes(3) }))
-      assert.instanceOf(tooSmall, Vfs.ImageError)
+      assert.instanceOf(tooSmall, Vfs.VfsError)
       assert.strictEqual(tooSmall.code, "LimitExceeded")
 
       const overlay = yield* Vfs.makeOverlay(base, { maxBytes: ByteSize.bytes(5) })
@@ -84,7 +84,7 @@ describe("overlay volumes", () => {
         })).snapshot
 
         const cases: ReadonlyArray<
-          readonly [string, (fs: Vfs.Caller) => Effect.Effect<void, Vfs.FsError, Scope.Scope>]
+          readonly [string, (fs: Vfs.Caller) => Effect.Effect<void, Vfs.VfsError, Scope.Scope>]
         > = [
           ["handle write", (fs) =>
             Effect.gen(function*() {
@@ -317,8 +317,8 @@ describe("overlay volumes", () => {
       ]
 
       for (const options of invalid) {
-        assert.instanceOf(yield* Effect.flip(overlay.changes(options)), Vfs.ConfigurationError)
-        assert.instanceOf(yield* Effect.flip(overlay.capture(options)), Vfs.ConfigurationError)
+        assert.instanceOf(yield* Effect.flip(overlay.changes(options)), Vfs.VfsError)
+        assert.instanceOf(yield* Effect.flip(overlay.capture(options)), Vfs.VfsError)
       }
 
       assert.deepStrictEqual(yield* overlay.changes(), [])
@@ -593,7 +593,7 @@ describe("overlay volumes", () => {
 
       const before = yield* Vfs.encodeSnapshot(base)
       // @ts-expect-error exercises runtime rejection of a value outside the public ByteSize contract
-      assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: -1 })), Vfs.ConfigurationError)
+      assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: -1 })), Vfs.VfsError)
       assert.deepStrictEqual(yield* Vfs.encodeSnapshot(base), before)
     }))
 

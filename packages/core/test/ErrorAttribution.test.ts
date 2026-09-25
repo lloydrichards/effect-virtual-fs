@@ -1,22 +1,27 @@
 import { assert, describe } from "@effect/vitest"
 import { ByteSize, Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
+import * as InternalBytePath from "../src/internal/bytePath.js"
 import { openImageVolume, prepareEmptyLiveImage } from "../src/internal/virtualFileSystem.js"
 import { it } from "./TestEffect.js"
+
+// The path an error names, as text; errors carry paths as bytes.
+const pathText = (path: Vfs.BytePath | undefined): string | undefined =>
+  path === undefined ? undefined : new TextDecoder().decode(InternalBytePath.getBytes(path))
 
 const encoder = new TextEncoder()
 
 // Which operation and which argument an error names, with an absent path kept distinct from undefined.
 interface Attribution {
-  readonly code: Vfs.FsCode
+  readonly code: Vfs.VfsCode
   readonly operation: string
   readonly path: unknown
 }
 
-const attribution = (error: Vfs.FsError): Attribution => ({
+const attribution = (error: Vfs.VfsError): Attribution => ({
   code: error.code,
   operation: error.operation,
-  path: "path" in error ? error.path : "<absent>"
+  path: "path" in error ? pathText(error.path) : "<absent>"
 })
 
 describe("filesystem error attribution", () => {
@@ -47,7 +52,8 @@ describe("filesystem error attribution", () => {
       assert.deepEqual(attribution(yield* Effect.flip(fs.symlink("bad\0target", "/link"))), {
         code: "InvalidArgument",
         operation: "symlink",
-        path: "bad\0target"
+        // No BytePath holds a NUL, so the error names no path.
+        path: "<absent>"
       })
     }))
 
@@ -101,13 +107,13 @@ describe("filesystem error attribution", () => {
       })
     })))
 
-  it.effect("keeps the path key an untyped caller left undefined", () =>
+  it.effect("names no path for an input an untyped caller left undefined", () =>
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
       // SAFETY: deliberately violates PathInput to pin the error shape an untyped caller sees.
       const error = yield* Effect.flip(fs.symlink(undefined as never, "/link"))
 
-      assert.deepEqual(attribution(error), { code: "InvalidArgument", operation: "symlink", path: undefined })
+      assert.deepEqual(attribution(error), { code: "InvalidArgument", operation: "symlink", path: "<absent>" })
     }))
 
   it.effect("attributes an oversized live image to the commit", () =>

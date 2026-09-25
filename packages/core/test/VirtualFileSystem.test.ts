@@ -14,7 +14,12 @@ import {
   Scope
 } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
+import * as InternalBytePath from "../src/internal/bytePath.js"
 import { it } from "./TestEffect.js"
+
+// The path an error names, as text; errors carry paths as bytes.
+const pathText = (path: Vfs.BytePath | undefined): string | undefined =>
+  path === undefined ? undefined : new TextDecoder().decode(InternalBytePath.getBytes(path))
 
 const identity = (uid: number, privileged = false, groups: ReadonlyArray<number> = []) => ({
   uid,
@@ -226,12 +231,12 @@ describe("input and mutation boundaries", () => {
         const umaskError = yield* Effect.flip(volume.caller({ umask: 0o1000 }))
         const identityError = yield* Effect.flip(volume.caller({ identity: identity(-1) }))
 
-        assert.strictEqual(umaskError._tag, "ConfigurationError")
-        assert.strictEqual(identityError._tag, "ConfigurationError")
+        assert.strictEqual(umaskError._tag, "VfsError")
+        assert.strictEqual(identityError._tag, "VfsError")
 
         if (
-          Predicate.isTagged("ConfigurationError")(umaskError) &&
-          Predicate.isTagged("ConfigurationError")(identityError)
+          Predicate.isTagged("VfsError")(umaskError) &&
+          Predicate.isTagged("VfsError")(identityError)
         ) {
           assert.strictEqual(umaskError.field, "umask")
           assert.strictEqual(identityError.field, "identity")
@@ -253,7 +258,12 @@ describe("input and mutation boundaries", () => {
         const error = yield* Effect.flip(caller.mkdir(path))
         assert.strictEqual(error.code, code)
         assert.strictEqual(error.operation, "mkdir")
-        assert.strictEqual(error.path, path)
+        // An unencodable string names its replacement encoding; an empty path or one holding a NUL names none,
+        // since no BytePath could hold it.
+        assert.strictEqual(
+          error.path === undefined ? undefined : pathText(error.path),
+          path === "" || path.includes("\0") ? undefined : new TextDecoder().decode(new TextEncoder().encode(path))
+        )
       }
 
       for (const mode of [-1, 0o10000, 0.5, Infinity]) {

@@ -18,7 +18,7 @@ export * as VirtualFileSystem from "./VirtualFileSystem.js"
  * @category re-exports
  * @since 0.4.0
  */
-export * as VirtualFileSystemError from "./VirtualFileSystemError.js"
+export * as VfsError from "./VfsError.js"
 
 /**
  * Live volume image boundary for storage adapters.

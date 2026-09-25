@@ -74,7 +74,7 @@ const busyWithUnlinkedOpen = Effect.fnUntraced(function*(scope: Scope.Scope) {
   return { ...paused, handle, finish: Effect.andThen(finish, Fiber.join(waiter)) }
 })
 
-type Opener = (caller: Vfs.Caller) => Effect.Effect<unknown, Vfs.FsError, Scope.Scope>
+type Opener = (caller: Vfs.Caller) => Effect.Effect<unknown, Vfs.VfsError, Scope.Scope>
 
 const fileOpeners: ReadonlyArray<readonly [string, Opener]> = [
   ["open", (caller) => caller.open("/file", { access: "read" })],

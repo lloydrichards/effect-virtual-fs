@@ -5,9 +5,10 @@ import * as Encoding from "effect/Encoding"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import type { BytePath } from "../BytePath.js"
+import type { FsFailure } from "../VfsError.js"
 import type { PathInput } from "../VirtualFileSystem.js"
 import { getBytes as getBytePathBytes, make as makeBytePath } from "./bytePath.js"
-import { FsError } from "./errors.js"
+import { fsFailure } from "./errors.js"
 
 // Components are hex-encoded bytes so names compare as bytes, not text: 2f is "/", 2e is ".", 2e2e is "..".
 /** @internal */
@@ -40,7 +41,7 @@ export const ownedPath = (bytes: Uint8Array): BytePath => makeBytePath(bytes)
 export const strictString = (bytes: Uint8Array, operation: string) =>
   Effect.try({
     try: () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
-    catch: () => new FsError({ code: "UnrepresentableName", operation })
+    catch: () => fsFailure("UnrepresentableName", operation)
   })
 
 /** @internal */
@@ -66,11 +67,11 @@ export const isAttachedBytes = (bytes: Uint8Array): boolean =>
 
 /** @internal */
 export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(function*(bytes: Uint8Array) {
-  if (!isAttachedBytes(bytes)) return yield* new FsError({ code: "InvalidArgument", operation: "pathFromBytes" })
+  if (!isAttachedBytes(bytes)) return yield* fsFailure("InvalidArgument", "pathFromBytes")
   const owned = new Uint8Array(bytes)
 
   if (owned.length === 0 || owned.includes(0)) {
-    return yield* new FsError({ code: "InvalidArgument", operation: "pathFromBytes" })
+    return yield* fsFailure("InvalidArgument", "pathFromBytes")
   }
 
   return makeBytePath(owned)
@@ -80,7 +81,7 @@ export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(functi
 export const pathToBytes = Effect.fn("VirtualFileSystem.pathToBytes")(function*(path: BytePath) {
   const bytes = getBytePathBytes(path)
 
-  if (bytes === undefined) return yield* new FsError({ code: "InvalidArgument", operation: "pathToBytes" })
+  if (bytes === undefined) return yield* fsFailure("InvalidArgument", "pathToBytes")
 
   return new Uint8Array(bytes)
 })
@@ -124,25 +125,25 @@ export const preparePath = (
   input: PathInput,
   operation: string,
   maxPathBytes: ByteSize.ByteSize | undefined
-): Result.Result<PreparedPath, FsError> => {
+): Result.Result<PreparedPath, FsFailure> => {
   const encoded = inputBytes(input)
 
   if (Result.isFailure(encoded)) {
     return Result.fail(
       encoded.failure === "InvalidPathEncoding"
-        ? new FsError({ code: "InvalidPathEncoding", operation, path: input })
-        : new FsError({ code: "InvalidArgument", operation })
+        ? fsFailure("InvalidPathEncoding", operation, { path: input })
+        : fsFailure("InvalidArgument", operation)
     )
   }
 
   const bytes = encoded.success
 
-  if (bytes.length === 0) return Result.fail(new FsError({ code: "NotFound", operation, path: input }))
+  if (bytes.length === 0) return Result.fail(fsFailure("NotFound", operation, { path: input }))
 
-  if (bytes.includes(0)) return Result.fail(new FsError({ code: "InvalidArgument", operation, path: input }))
+  if (bytes.includes(0)) return Result.fail(fsFailure("InvalidArgument", operation, { path: input }))
 
   if (maxPathBytes !== undefined && ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxPathBytes)) {
-    return Result.fail(new FsError({ code: "PathTooLong", operation, path: input }))
+    return Result.fail(fsFailure("PathTooLong", operation, { path: input }))
   }
 
   const components: Array<string> = []
@@ -154,7 +155,7 @@ export const preparePath = (
 
     if (index > start) {
       if (index - start > MAX_NAME_BYTES) {
-        return Result.fail(new FsError({ code: "PathTooLong", operation, path: input }))
+        return Result.fail(fsFailure("PathTooLong", operation, { path: input }))
       }
 
       components.push(Encoding.encodeHex(bytes.subarray(start, index)))
