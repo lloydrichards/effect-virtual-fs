@@ -745,8 +745,10 @@ Streams the tree at `root` through a live caller.
 **Details**
 
 Reads use the caller's permissions. Each entry's metadata is read before its
-contents, so entries carry the source's original access time, but the reads
-themselves update source access times and commit on durable volumes. Use
+contents, so entries carry the source's original access time. The reads
+themselves refresh source access times under relatime, so only a read whose
+access time is due changes the source, and on a durable volume only such a
+read commits. Use
 `fromSnapshot` for a point-in-time read that never changes the source.
 Hard links within the tree become `hardLink` entries naming the first alias.
 

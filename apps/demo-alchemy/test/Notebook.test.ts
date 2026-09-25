@@ -6,6 +6,7 @@ import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
+import * as TestClock from "effect/testing/TestClock"
 import { keyFor, NotebookR2, type NotebookR2Client, NotebookService } from "../src/notebook.js"
 
 const remote = () => {
@@ -197,6 +198,8 @@ describe("R2 notebook", () => {
 
       const writes = r2.writes()
       r2.deleteAfterNextRead()
+      // A second on, the reader's access times are due, so the read tries to commit their refresh.
+      yield* TestClock.adjust("1 second")
 
       const reopened = yield* notebooks.read(id)
 
