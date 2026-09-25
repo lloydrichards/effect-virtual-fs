@@ -134,10 +134,10 @@ const load = Effect.gen(function* () {
 }).pipe(Effect.catchTag("CheckpointError", handleCheckpointError))
 ```
 
-The error also records the `operation` (`save`, `load`, or `migrate`) and, when applicable, the checkpoint `name`.
+The error also records the `operation` (`CheckpointStore.save`, `CheckpointStore.load`, or `CheckpointStore.migrate`) and, when applicable, the checkpoint `name`.
 `Storage` preserves the underlying failure in `cause`.
 
-Snapshot validation failures remain [`VfsError`](/api/core/vfs-error) values with the image codes. They include invalid limits, corrupt or
+Snapshot validation failures remain [`VfsError`](/api/core/vfs-error) values with the image codes, and name the same entry point as their `operation`. They include invalid limits, corrupt or
 unsupported stored images, and images that exceed the configured budgets.
 
 While snapshot version 1 is being solidified, a checkpoint written by an earlier schema revision may fail core

@@ -8,7 +8,8 @@ import { VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Crypto, Effect } from "effect"
 
 /**
- * The two failure constructors of one store, both naming the store as the operation.
+ * The two failure constructors of one store entry point, both naming that entry point, such as
+ * `SqliteLiveImageStore.layer`, as the operation.
  *
  * @internal
  */
@@ -17,6 +18,13 @@ export const storeFailures = (operation: string) => ({
   // A rejected option names the option; the store cannot open until the caller fixes it.
   invalid: (field: string): Vfs.ArgumentFailure => VfsError.make({ code: "InvalidArgument", operation, field })
 })
+
+/**
+ * The failure constructors `storeFailures` returns for one entry point.
+ *
+ * @internal
+ */
+export type StoreFailures = ReturnType<typeof storeFailures>
 
 const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
 

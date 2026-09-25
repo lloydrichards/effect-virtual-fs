@@ -6,7 +6,7 @@
 import { LiveVolume, type VfsError } from "@effect-vfs/core"
 import { ByteSize, type Crypto, Effect, Exit, FileSystem, Layer, Path, Ref, Schema } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
-import { makeDigest, storeFailures } from "./internal/storeSupport.js"
+import { makeDigest, type StoreFailures, storeFailures } from "./internal/storeSupport.js"
 
 /**
  * Limits and the local database path used to verify the supplied SQL client.
@@ -47,7 +47,9 @@ const StoreRow = Schema.Struct({
   digest: Schema.String
 })
 
-const { fail, invalid } = storeFailures("SqliteLiveImageStore")
+const opening = storeFailures("SqliteLiveImageStore.layer")
+
+const loading = storeFailures("SqliteLiveImageStore.loadOrCreate")
 
 // The generation this owner last read or wrote, and whether an unconfirmed commit has frozen it.
 interface Ownership {
@@ -89,43 +91,49 @@ export const layer = (options: Options): Layer.Layer<
       const maxDatabase = ByteSize.toBigInt(options.maxDatabaseBytes)
       const timeout = options.busyTimeoutMs ?? 0
 
-      if (!path.isAbsolute(options.filename)) return yield* invalid("filename")
+      if (!path.isAbsolute(options.filename)) return yield* opening.invalid("filename")
 
-      if (maxImage <= 0n || maxImage > BigInt(Number.MAX_SAFE_INTEGER)) return yield* invalid("maxImageBytes")
+      if (maxImage <= 0n || maxImage > BigInt(Number.MAX_SAFE_INTEGER)) return yield* opening.invalid("maxImageBytes")
 
-      if (maxDatabase <= 0n) return yield* invalid("maxDatabaseBytes")
+      if (maxDatabase <= 0n) return yield* opening.invalid("maxDatabaseBytes")
 
-      if (!Number.isSafeInteger(timeout) || timeout < 0) return yield* invalid("busyTimeoutMs")
+      if (!Number.isSafeInteger(timeout) || timeout < 0) return yield* opening.invalid("busyTimeoutMs")
 
-      const connection = yield* sql.reserve.pipe(Effect.mapError((cause) => fail("Storage", cause)))
+      const connection = yield* sql.reserve.pipe(Effect.mapError((cause) => opening.fail("Storage", cause)))
       const run = (statement: string, params: ReadonlyArray<unknown> = []) => connection.executeRaw(statement, params)
 
-      const query = Effect.fnUntraced(function*<A>(
-        schema: Schema.ConstraintDecoder<A>,
-        statement: string,
-        params: ReadonlyArray<unknown> = []
-      ) {
-        const rows = yield* run(statement, params).pipe(Effect.mapError((cause) => fail("Storage", cause)))
+      // Queries while opening name the layer; the row reads after it name loadOrCreate, since commit reports
+      // outcomes rather than failures.
+      const queryAs = (failures: StoreFailures) =>
+        Effect.fnUntraced(function*<A>(
+          schema: Schema.ConstraintDecoder<A>,
+          statement: string,
+          params: ReadonlyArray<unknown> = []
+        ) {
+          const rows = yield* run(statement, params).pipe(Effect.mapError((cause) => failures.fail("Storage", cause)))
 
-        return yield* Schema.decodeUnknownEffect(Schema.Array(schema))(rows).pipe(
-          Effect.mapError((cause) => fail("CorruptStore", cause))
-        )
-      })
+          return yield* Schema.decodeUnknownEffect(Schema.Array(schema))(rows).pipe(
+            Effect.mapError((cause) => failures.fail("CorruptStore", cause))
+          )
+        })
 
-      yield* run(`PRAGMA busy_timeout=${timeout}`).pipe(Effect.mapError((cause) => fail("Storage", cause)))
-      yield* run("PRAGMA journal_mode=DELETE").pipe(Effect.mapError((cause) => fail("Ownership", cause)))
-      yield* run("PRAGMA synchronous=EXTRA").pipe(Effect.mapError((cause) => fail("Storage", cause)))
-      yield* run("PRAGMA fullfsync=ON").pipe(Effect.mapError((cause) => fail("Storage", cause)))
-      yield* run("PRAGMA locking_mode=EXCLUSIVE").pipe(Effect.mapError((cause) => fail("Storage", cause)))
+      const query = queryAs(opening)
+      const queryRow = queryAs(loading)
+
+      yield* run(`PRAGMA busy_timeout=${timeout}`).pipe(Effect.mapError((cause) => opening.fail("Storage", cause)))
+      yield* run("PRAGMA journal_mode=DELETE").pipe(Effect.mapError((cause) => opening.fail("Ownership", cause)))
+      yield* run("PRAGMA synchronous=EXTRA").pipe(Effect.mapError((cause) => opening.fail("Storage", cause)))
+      yield* run("PRAGMA fullfsync=ON").pipe(Effect.mapError((cause) => opening.fail("Storage", cause)))
+      yield* run("PRAGMA locking_mode=EXCLUSIVE").pipe(Effect.mapError((cause) => opening.fail("Storage", cause)))
       // Keep statement journals in memory and prevent mid-transaction cache spills.
       // The rollback journal remains on disk beside the database.
-      yield* run("PRAGMA temp_store=MEMORY").pipe(Effect.mapError((cause) => fail("Storage", cause)))
-      yield* run("PRAGMA cache_spill=OFF").pipe(Effect.mapError((cause) => fail("Storage", cause)))
-      yield* run("PRAGMA journal_size_limit=0").pipe(Effect.mapError((cause) => fail("Storage", cause)))
+      yield* run("PRAGMA temp_store=MEMORY").pipe(Effect.mapError((cause) => opening.fail("Storage", cause)))
+      yield* run("PRAGMA cache_spill=OFF").pipe(Effect.mapError((cause) => opening.fail("Storage", cause)))
+      yield* run("PRAGMA journal_size_limit=0").pipe(Effect.mapError((cause) => opening.fail("Storage", cause)))
 
       const lock = yield* Effect.exit(run("SELECT count(*) AS count FROM sqlite_schema"))
 
-      if (Exit.isFailure(lock)) return yield* fail("Ownership", lock.cause)
+      if (Exit.isFailure(lock)) return yield* opening.fail("Ownership", lock.cause)
 
       const journal = (yield* query(Schema.Struct({ journal_mode: Schema.String }), "PRAGMA journal_mode"))[0]
       const synchronous = (yield* query(Schema.Struct({ synchronous: Schema.Finite }), "PRAGMA synchronous"))[0]
@@ -156,21 +164,24 @@ export const layer = (options: Options): Layer.Layer<
 
       // ATTACH could create a super-journal outside the single-database budget.
       if (databases.length !== 1 || main === undefined || main.file === "") {
-        return yield* invalid("filename")
+        return yield* opening.invalid("filename")
       }
 
       const expectedParent = yield* filesystem.realPath(path.dirname(options.filename)).pipe(
-        Effect.mapError((cause) => fail("Storage", cause))
+        Effect.mapError((cause) => opening.fail("Storage", cause))
       )
 
       const expectedPath = path.join(expectedParent, path.basename(options.filename))
-      const actualPath = yield* filesystem.realPath(main.file).pipe(Effect.mapError((cause) => fail("Storage", cause)))
+
+      const actualPath = yield* filesystem.realPath(main.file).pipe(
+        Effect.mapError((cause) => opening.fail("Storage", cause))
+      )
 
       // The client opened a different database file than the one named.
-      if (expectedPath !== actualPath) return yield* invalid("filename")
+      if (expectedPath !== actualPath) return yield* opening.invalid("filename")
 
       // A schema version this store did not write belongs to something else, or to a newer release.
-      if (version?.user_version !== 0 && version?.user_version !== 1) return yield* fail("IncompatibleStore")
+      if (version?.user_version !== 0 && version?.user_version !== 1) return yield* opening.fail("IncompatibleStore")
 
       // The SQLite build or connection refused a setting the durability guarantees depend on.
       if (
@@ -181,32 +192,34 @@ export const layer = (options: Options): Layer.Layer<
         journalSizeLimit?.journal_size_limit !== 0 ||
         compileOptions.some((option) => option.compile_options === "TEMP_STORE=0") ||
         !Number.isSafeInteger(page.page_size) || page.page_size <= 0
-      ) return yield* fail("IncompatibleStore")
+      ) return yield* opening.fail("IncompatibleStore")
 
       // SqlClient may have created the file before this Layer starts. Sync the
       // verified parent before any schema write or store becomes available.
       if (options.syncDatabaseDirectory !== undefined) {
         yield* options.syncDatabaseDirectory(expectedParent).pipe(
-          Effect.mapError((cause) => fail("Storage", cause))
+          Effect.mapError((cause) => opening.fail("Storage", cause))
         )
       }
 
       const maxPages = maxDatabase / BigInt(page.page_size)
 
-      if (maxPages < 1n || maxPages > BigInt(2_147_483_647)) return yield* invalid("maxDatabaseBytes")
-      yield* run(`PRAGMA max_page_count=${maxPages}`).pipe(Effect.mapError((cause) => fail("Storage", cause)))
+      if (maxPages < 1n || maxPages > BigInt(2_147_483_647)) return yield* opening.invalid("maxDatabaseBytes")
+      yield* run(`PRAGMA max_page_count=${maxPages}`).pipe(Effect.mapError((cause) => opening.fail("Storage", cause)))
 
       const pageLimit = (yield* query(Schema.Struct({ max_page_count: Schema.Finite }), "PRAGMA max_page_count"))[0]
 
-      if (pageLimit?.max_page_count !== Number(maxPages)) return yield* fail("IncompatibleStore")
+      if (pageLimit?.max_page_count !== Number(maxPages)) return yield* opening.fail("IncompatibleStore")
 
       const pageCount = (yield* query(Schema.Struct({ page_count: Schema.Finite }), "PRAGMA page_count"))[0]
 
-      if (pageCount === undefined || pageCount.page_count > Number(maxPages)) return yield* fail("IncompatibleStore")
+      if (pageCount === undefined || pageCount.page_count > Number(maxPages)) {
+        return yield* opening.fail("IncompatibleStore")
+      }
 
       const integrity = (yield* query(Schema.Struct({ quick_check: Schema.String }), "PRAGMA quick_check"))[0]
 
-      if (integrity?.quick_check !== "ok") return yield* fail("CorruptStore")
+      if (integrity?.quick_check !== "ok") return yield* opening.fail("CorruptStore")
 
       const count =
         (yield* query(Schema.Struct({ count: Schema.Finite }), "SELECT count(*) AS count FROM sqlite_schema"))[0]
@@ -221,13 +234,13 @@ export const layer = (options: Options): Layer.Layer<
         (table !== undefined && count?.count !== 1) ||
         (version.user_version === 1 && table === undefined)
       ) {
-        return yield* fail("CorruptStore")
+        return yield* opening.fail("CorruptStore")
       }
 
       yield* run(
         "CREATE TABLE IF NOT EXISTS effect_vfs_live_image (id INTEGER PRIMARY KEY CHECK (id = 1), generation INTEGER NOT NULL, image BLOB NOT NULL, digest TEXT NOT NULL)"
       ).pipe(
-        Effect.mapError((cause) => fail("Storage", cause))
+        Effect.mapError((cause) => opening.fail("Storage", cause))
       )
 
       const ownership = yield* Ref.make<Ownership>({ generation: undefined, available: true })
@@ -240,16 +253,19 @@ export const layer = (options: Options): Layer.Layer<
         loadOrCreate: Effect.fnUntraced(function*(initial: Uint8Array) {
           const { available, generation } = yield* Ref.get(ownership)
 
-          if (!available) return yield* fail("Storage")
+          if (!available) return yield* loading.fail("Storage")
 
-          if (generation !== undefined) return yield* fail("Ownership")
+          if (generation !== undefined) return yield* loading.fail("Ownership")
 
-          let decoded = yield* query(StoreRow, select, [Number(maxImage)])
+          let decoded = yield* queryRow(StoreRow, select, [Number(maxImage)])
 
           if (decoded.length === 0) {
-            if (version.user_version === 1 || BigInt(initial.length) > maxImage) return yield* fail("CorruptStore")
-            const hash = yield* digest(initial).pipe(Effect.mapError((cause) => fail("Storage", cause)))
-            yield* run("BEGIN IMMEDIATE").pipe(Effect.mapError((cause) => fail("Storage", cause)))
+            if (version.user_version === 1 || BigInt(initial.length) > maxImage) {
+              return yield* loading.fail("CorruptStore")
+            }
+
+            const hash = yield* digest(initial).pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
+            yield* run("BEGIN IMMEDIATE").pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
 
             const initialized = yield* Effect.exit(Effect.gen(function*() {
               yield* run("INSERT INTO effect_vfs_live_image (id, generation, image, digest) VALUES (1, 0, ?, ?)", [
@@ -263,10 +279,10 @@ export const layer = (options: Options): Layer.Layer<
             if (Exit.isFailure(initialized)) {
               yield* Effect.exit(run("ROLLBACK"))
 
-              return yield* fail("Storage", initialized.cause)
+              return yield* loading.fail("Storage", initialized.cause)
             }
 
-            decoded = yield* query(StoreRow, select, [Number(maxImage)])
+            decoded = yield* queryRow(StoreRow, select, [Number(maxImage)])
           }
 
           const row = decoded[0]
@@ -275,11 +291,11 @@ export const layer = (options: Options): Layer.Layer<
             row === undefined || !Number.isSafeInteger(row.generation) || row.generation < 0 ||
             row.kind !== "blob" || !Number.isSafeInteger(row.size) || BigInt(row.size) > maxImage ||
             row.image === null || !/^[0-9a-f]{64}$/.test(row.digest)
-          ) return yield* fail("CorruptStore")
+          ) return yield* loading.fail("CorruptStore")
 
-          const actual = yield* digest(row.image).pipe(Effect.mapError((cause) => fail("Storage", cause)))
+          const actual = yield* digest(row.image).pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
 
-          if (actual !== row.digest) return yield* fail("CorruptStore")
+          if (actual !== row.digest) return yield* loading.fail("CorruptStore")
 
           yield* Ref.update(ownership, (state) => ({ ...state, generation: row.generation }))
 
@@ -302,7 +318,7 @@ export const layer = (options: Options): Layer.Layer<
 
           if (Exit.isFailure(began)) return "unknown" as const
 
-          const updated = yield* Effect.exit(query(
+          const updated = yield* Effect.exit(queryRow(
             Schema.Struct({ generation: Schema.Finite }),
             "UPDATE effect_vfs_live_image SET generation = ?, image = ?, digest = ? WHERE id = 1 AND generation = ? RETURNING generation",
             [generation + 1, image, hash, generation]

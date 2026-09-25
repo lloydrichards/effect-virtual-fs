@@ -133,7 +133,9 @@ for setup and recovery, [power-loss testing](POWER_LOSS_TESTING.md) for qualific
   validation. Regenerate those checkpoints; the persistence package does not migrate snapshot bytes.
 - Capturing remains the caller's responsibility. Subsequent volume edits require another snapshot and a new name.
 
-`CheckpointError` has `code`, `operation`, and optional `name` and `cause` fields:
+`CheckpointError` has `code`, `operation`, and optional `name` and `cause` fields. The operation names the entry
+point that failed, `CheckpointStore.save`, `CheckpointStore.load` or `CheckpointStore.migrate`, as every `VfsError`
+from the store does:
 
 | Code            | Meaning                                                            |
 | --------------- | ------------------------------------------------------------------ |

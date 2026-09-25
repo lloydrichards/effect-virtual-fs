@@ -4,14 +4,16 @@
  *
  * @since 0.1.0
  */
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { VfsError, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { ByteSize, Context, Data, Effect, Layer, Schema } from "effect"
 import * as Migrator from "effect/unstable/sql/Migrator"
 import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
 
 /**
- * Checkpoint lookup, naming, or storage failure. An image that fails to encode or decode is reported as core's
- * `VfsError` with its image code, such as `InvalidStructure` or `LimitExceeded`.
+ * Checkpoint lookup, naming, or storage failure. Rejected limits and unusable images fail with core's `VfsError`
+ * instead, reporting the image code, such as `InvalidStructure` or `LimitExceeded`. Every failure names the
+ * entry point that raised it as its operation: `CheckpointStore.make`, `CheckpointStore.save`,
+ * `CheckpointStore.load` or `CheckpointStore.migrate`.
  *
  * @example
  * ```ts
@@ -42,12 +44,12 @@ import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
  */
 export class CheckpointError extends Data.TaggedError("CheckpointError")<{
   readonly code: "InvalidName" | "NotFound" | "AlreadyExists" | "Storage"
-  readonly operation: "save" | "load" | "migrate"
+  readonly operation: "CheckpointStore.save" | "CheckpointStore.load" | "CheckpointStore.migrate"
   readonly name?: string
   readonly cause?: unknown
 }> {}
 
-const checkName = (name: string, operation: "save" | "load") =>
+const checkName = (name: string, operation: "CheckpointStore.save" | "CheckpointStore.load") =>
   Effect.suspend(() => {
     if (name.length === 0 || name.length > 255 || name.includes("\0")) {
       return Effect.fail(new CheckpointError({ code: "InvalidName", operation }))
@@ -67,13 +69,21 @@ const StoredRow = Schema.Struct({
   image: Schema.NullOr(Schema.Uint8Array)
 })
 
+// A stored row that cannot be a checkpoint image, reported against the load entry point.
+const loadFailure = (code: "InvalidStructure" | "LimitExceeded", field: string) =>
+  VfsError.make({ code, operation: "CheckpointStore.load", field })
+
+// Core's codecs name themselves as the operation; a checkpoint failure names the store's entry point instead.
+const asEntryPoint = (operation: "CheckpointStore.save" | "CheckpointStore.load") => (error: Vfs.VfsError) =>
+  VfsError.make({ code: error.code, operation, field: error.field, path: error.path, cause: error.cause })
+
 // Implemented at module scope so `make` and `layer` can be real static methods:
 // docgen only documents class members declared as methods, and silently skips
 // static properties, which left these entry points off the API page entirely.
 const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.DecodeLimits) {
   const ownedLimits = yield* Schema.decodeEffect(Vfs.DecodeLimits, { onExcessProperty: "error" })(limits).pipe(
     Effect.mapError(() =>
-      new Vfs.VfsError({ code: "InvalidArgument", operation: "CheckpointStore.make", field: "limits" })
+      VfsError.make({ code: "InvalidArgument", operation: "CheckpointStore.make", field: "limits" })
     )
   )
 
@@ -81,23 +91,25 @@ const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.Decode
   const maxEncodedBytes = ByteSize.toBigInt(ownedLimits.maxEncodedBytes)
 
   const save = Effect.fn("CheckpointStore.save")(function*(name: string, snapshot: Vfs.Snapshot) {
-    yield* checkName(name, "save")
-    const image = yield* Vfs.encodeSnapshot(snapshot)
+    yield* checkName(name, "CheckpointStore.save")
+    const image = yield* Vfs.encodeSnapshot(snapshot).pipe(Effect.mapError(asEntryPoint("CheckpointStore.save")))
 
-    yield* Vfs.decodeSnapshot(image, ownedLimits)
+    yield* Vfs.decodeSnapshot(image, ownedLimits).pipe(Effect.mapError(asEntryPoint("CheckpointStore.save")))
 
     const inserted = yield* sql`
       INSERT INTO effect_vfs_checkpoints (name, image) VALUES (${name}, ${image})
       ON CONFLICT(name) DO NOTHING RETURNING name
     `.pipe(Effect.mapError(
-      (cause) => new CheckpointError({ code: "Storage", operation: "save", name, cause })
+      (cause) => new CheckpointError({ code: "Storage", operation: "CheckpointStore.save", name, cause })
     ))
 
-    if (inserted.length === 0) return yield* new CheckpointError({ code: "AlreadyExists", operation: "save", name })
+    if (inserted.length === 0) {
+      return yield* new CheckpointError({ code: "AlreadyExists", operation: "CheckpointStore.save", name })
+    }
   })
 
   const load = Effect.fn("CheckpointStore.load")(function*(name: string) {
-    yield* checkName(name, "load")
+    yield* checkName(name, "CheckpointStore.load")
 
     const rows = yield* sql`
       SELECT typeof(image) AS kind,
@@ -106,28 +118,30 @@ const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.Decode
           THEN image ELSE NULL END AS image
       FROM effect_vfs_checkpoints WHERE name = ${name}
     `.pipe(Effect.mapError(
-      (cause) => new CheckpointError({ code: "Storage", operation: "load", name, cause })
+      (cause) => new CheckpointError({ code: "Storage", operation: "CheckpointStore.load", name, cause })
     ))
 
-    if (rows.length === 0) return yield* new CheckpointError({ code: "NotFound", operation: "load", name })
+    if (rows.length === 0) {
+      return yield* new CheckpointError({ code: "NotFound", operation: "CheckpointStore.load", name })
+    }
 
     const row = yield* Schema.decodeUnknownEffect(StoredRow)(rows[0]).pipe(
-      Effect.mapError(() => new Vfs.VfsError({ code: "InvalidStructure", operation: "load", field: "row" }))
+      Effect.mapError(() => loadFailure("InvalidStructure", "row"))
     )
 
     if (row.kind !== "blob" || row.size === null) {
-      return yield* new Vfs.VfsError({ code: "InvalidStructure", operation: "load", field: "image" })
+      return yield* loadFailure("InvalidStructure", "image")
     }
 
     if (BigInt(row.size) > maxEncodedBytes) {
-      return yield* new Vfs.VfsError({ code: "LimitExceeded", operation: "load", field: "encodedBytes" })
+      return yield* loadFailure("LimitExceeded", "encodedBytes")
     }
 
     if (row.image === null) {
-      return yield* new Vfs.VfsError({ code: "InvalidStructure", operation: "load", field: "image" })
+      return yield* loadFailure("InvalidStructure", "image")
     }
 
-    return yield* Vfs.decodeSnapshot(row.image, ownedLimits)
+    return yield* Vfs.decodeSnapshot(row.image, ownedLimits).pipe(Effect.mapError(asEntryPoint("CheckpointStore.load")))
   })
 
   return CheckpointStore.of({ save, load })
@@ -276,7 +290,7 @@ export class CheckpointStore extends Context.Service<CheckpointStore, {
   }).pipe(
     Effect.catchDefect((cause) => cause instanceof Migrator.MigrationError ? Effect.fail(cause) : Effect.die(cause)),
     Effect.asVoid,
-    Effect.mapError((cause) => new CheckpointError({ code: "Storage", operation: "migrate", cause })),
+    Effect.mapError((cause) => new CheckpointError({ code: "Storage", operation: "CheckpointStore.migrate", cause })),
     Effect.withSpan("CheckpointStore.migrate")
   )
 }

@@ -288,7 +288,7 @@ describe("SQLite live image store", () => {
       yield* Effect.scoped(Effect.gen(function*() {
         yield* LiveVolume.open(options)
         const competing = yield* Effect.flip(LiveVolume.open(options).pipe(Effect.provide(store(filename))))
-        assert.strictEqual(competing.code, "Ownership")
+        assert.deepStrictEqual([competing.code, competing.operation], ["Ownership", "SqliteLiveImageStore.layer"])
       })).pipe(Effect.provide(store(filename)))
     })).pipe(Effect.provide(files)), 15_000)
 
@@ -390,10 +390,21 @@ describe("SQLite live image store", () => {
           )
         )
 
-      assert.strictEqual((yield* opened({ filename: "relative.sqlite" })).field, "filename")
-      assert.strictEqual((yield* opened({ maxImageBytes: ByteSize.bytes(0) })).field, "maxImageBytes")
-      assert.strictEqual((yield* opened({ maxDatabaseBytes: ByteSize.bytes(0) })).field, "maxDatabaseBytes")
-      assert.strictEqual((yield* opened({ busyTimeoutMs: -1 })).field, "busyTimeoutMs")
+      for (
+        const [field, settings] of [
+          ["filename", { filename: "relative.sqlite" }],
+          ["maxImageBytes", { maxImageBytes: ByteSize.bytes(0) }],
+          ["maxDatabaseBytes", { maxDatabaseBytes: ByteSize.bytes(0) }],
+          ["busyTimeoutMs", { busyTimeoutMs: -1 }]
+        ] as const
+      ) {
+        const error = yield* opened(settings)
+        assert.deepStrictEqual([error.code, error.operation, error.field], [
+          "InvalidArgument",
+          "SqliteLiveImageStore.layer",
+          field
+        ])
+      }
     }).pipe(Effect.provide(files)))
 
   it.effect("rejects a full-database write without publishing it", () =>
