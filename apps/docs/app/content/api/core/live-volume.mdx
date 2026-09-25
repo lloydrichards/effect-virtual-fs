@@ -21,9 +21,7 @@ the volume shuts down before that Layer releases its storage resource.
 **Signature**
 
 ```ts
-export declare const open: (
-  options: Options
-) => Effect.Effect<Volume, VfsError, LiveImageStore | Crypto.Crypto | Scope.Scope>
+export declare const open: (options: Options) => Effect.Effect<Volume, VfsError, LiveImageStore | Scope.Scope>
 ```
 
 Added in v0.4.0
@@ -43,7 +41,7 @@ export declare const openImage: (
   maxImageBytes: ByteSize.ByteSize,
   commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>,
   durability?: VolumeDurability
-) => Effect.Effect<ImageSession, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+) => Effect.Effect<ImageSession, VfsError>
 ```
 
 Added in v0.4.0
@@ -56,9 +54,7 @@ Store this image before opening it for mutation.
 **Signature**
 
 ```ts
-export declare const prepareEmptyImage: (
-  options?: VolumeOptions
-) => Effect.Effect<Uint8Array, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+export declare const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<Uint8Array, VfsError>
 ```
 
 Added in v0.4.0

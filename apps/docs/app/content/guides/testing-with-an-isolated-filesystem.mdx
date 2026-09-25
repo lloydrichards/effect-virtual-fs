@@ -1,6 +1,6 @@
 # Test with an isolated filesystem
 
-Use `@effect/vitest` with `MemoryFileSystem.layerCrypto` when each test should receive disposable filesystem state without
+Use `@effect/vitest` with `MemoryFileSystem.layer` when each test should receive disposable filesystem state without
 reading or writing the host disk.
 
 ## Install the test dependencies
@@ -54,7 +54,7 @@ describe("writeManifest", () => {
         const result = yield* writeManifest("1.2.3")
 
         assert.deepStrictEqual(JSON.parse(result), { version: "1.2.3" })
-      }).pipe(Effect.provide(MemoryFileSystem.layerCrypto))
+      }).pipe(Effect.provide(MemoryFileSystem.layer))
   )
 
   it.effect(
@@ -64,7 +64,7 @@ describe("writeManifest", () => {
         const fs = yield* FileSystem.FileSystem
 
         assert.isFalse(yield* fs.exists("/dist/manifest.json"))
-      }).pipe(Effect.provide(MemoryFileSystem.layerCrypto))
+      }).pipe(Effect.provide(MemoryFileSystem.layer))
   )
 })
 ```

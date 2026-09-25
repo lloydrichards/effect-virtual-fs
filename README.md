@@ -20,14 +20,13 @@ const program = Effect.gen(function*() {
 })
 
 const settings = await Effect.runPromise(
-  program.pipe(Effect.provide(MemoryFileSystem.layerCrypto))
+  program.pipe(Effect.provide(MemoryFileSystem.layer))
 )
 
 console.log(settings) // {"mode":"preview"}
 ```
 
-The program uses Effect's `FileSystem` service. `layerCrypto` provides a fresh virtual volume and the `Crypto` service
-it needs. Use `MemoryFileSystem.layer` when your application already provides `Crypto`.
+The program uses Effect's `FileSystem` service. `layer` provides a fresh virtual volume and needs no platform service.
 
 ## Choose a package
 

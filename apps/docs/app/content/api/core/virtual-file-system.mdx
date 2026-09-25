@@ -20,10 +20,7 @@ Builds a fresh volume from a validated final-state fixture.
 **Signature**
 
 ```ts
-export declare const fromFixture: (
-  fixture: Fixture,
-  options?: VolumeOptions
-) => Effect.Effect<Volume, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+export declare const fromFixture: (fixture: Fixture, options?: VolumeOptions) => Effect.Effect<Volume, VfsError>
 ```
 
 **Example**
@@ -65,10 +62,7 @@ Restores a fresh volume from an opaque snapshot under the supplied destination l
 **Signature**
 
 ```ts
-export declare const fromSnapshot: (
-  snapshot: Snapshot,
-  options?: VolumeOptions
-) => Effect.Effect<Volume, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+export declare const fromSnapshot: (snapshot: Snapshot, options?: VolumeOptions) => Effect.Effect<Volume, VfsError>
 ```
 
 **Example**
@@ -120,9 +114,7 @@ arise because this constructor does not accept persisted input.
 **Signature**
 
 ```ts
-export declare const make: (
-  options?: VolumeOptions
-) => Effect.Effect<Volume, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+export declare const make: (options?: VolumeOptions) => Effect.Effect<Volume, VfsError>
 ```
 
 **Example**
@@ -165,10 +157,7 @@ execution creates a fresh workspace.
 **Signature**
 
 ```ts
-export declare const makeOverlay: (
-  base: Snapshot,
-  options?: VolumeOptions
-) => Effect.Effect<OverlayVolume, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+export declare const makeOverlay: (base: Snapshot, options?: VolumeOptions) => Effect.Effect<OverlayVolume, VfsError>
 ```
 
 **Example**

@@ -23,7 +23,7 @@ const program = Effect.gen(function* () {
 })
 
 const settings = await Effect.runPromise(
-  program.pipe(Effect.provide(MemoryFileSystem.layerCrypto))
+  program.pipe(Effect.provide(MemoryFileSystem.layer))
 )
 
 console.log(settings)

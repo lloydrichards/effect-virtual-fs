@@ -46,16 +46,15 @@ const buildManifest = Effect.gen(function*() {
 })
 
 const manifest = await Effect.runPromise(
-  buildManifest.pipe(Effect.provide(MemoryFileSystem.layerCrypto))
+  buildManifest.pipe(Effect.provide(MemoryFileSystem.layer))
 )
 
 console.log(manifest)
 // { "files": ["index.js", "index.css"] }
 ```
 
-`layerCrypto` creates a fresh volume containing `/tmp` and supplies its own `Crypto` service. Use
-`MemoryFileSystem.layer` when your application already provides `Crypto`; use `MemoryFileSystem.make` when you need the
-service directly.
+`layer` creates a fresh volume containing `/tmp` and needs no platform service; use `MemoryFileSystem.make` when you
+need the service directly.
 
 ## Choose isolated or shared state
 
