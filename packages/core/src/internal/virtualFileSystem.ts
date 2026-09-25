@@ -652,7 +652,12 @@ const isFileHandle = (value: PathInput | FileHandle | DirectoryHandle): value is
 const isDirectoryHandle = (value: PathInput | FileHandle | DirectoryHandle): value is DirectoryHandle =>
   Predicate.hasProperty(DirectoryHandleId)(value)
 
-interface FileReference {
+// The handle's own scope, forked from its acquiring scope; explicit close closes it too.
+interface HandleScope {
+  scope: Scope.Closeable | undefined
+}
+
+interface FileReference extends HandleScope {
   readonly volume: symbol
   file: RegularFile | undefined
   closed: boolean
@@ -663,7 +668,7 @@ interface FileReference {
 
 const files = new WeakMap<FileHandle, FileReference>()
 
-interface DirectoryReference {
+interface DirectoryReference extends HandleScope {
   readonly volume: symbol
   directory: Directory | undefined
   closed: boolean
@@ -832,6 +837,7 @@ export const makeVolume = Effect.fnUntraced(
 
       reference = {
         volume: volumeIdentity,
+        scope: undefined,
         get file() {
           const node = record().cell?.node
 
@@ -888,6 +894,7 @@ export const makeVolume = Effect.fnUntraced(
 
       reference = {
         volume: volumeIdentity,
+        scope: undefined,
         get directory() {
           const node = record().cell?.node
 
@@ -1477,7 +1484,12 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const release = (reference: DirectoryReference) =>
-      coordinatedCleanup(Effect.sync(() => releaseDirectory(reference)))
+      Effect.suspend(() =>
+        reference.closed ? Effect.void : coordinatedCleanup(Effect.sync(() => releaseDirectory(reference)))
+      )
+
+    const closeScope = (reference: HandleScope) =>
+      Effect.suspend(() => reference.scope === undefined ? Effect.void : Scope.close(reference.scope, Exit.void))
 
     const authorize = (node: Node, identity: Identity, bits: number, op: OpContext) => {
       if (identity.privileged) return Effect.void
@@ -1562,8 +1574,17 @@ export const makeVolume = Effect.fnUntraced(
       ref.closed = true
     }
 
-    // A scope finalizer cannot fail, so a failed close falls back to cleanup and drops its error.
-    // TODO(#180): acquireRelease makes explicit close and scope cleanup one finalizer, removing this fallback.
+    // Explicit close and scope cleanup share one release. A release whose commit fails still completes as
+    // cleanup, so the handle never stays open; only an explicit close reports the failure.
+    const closeFile = (ref: FileReference, op: OpContext, check: Effect.Effect<unknown, FsError>) =>
+      coordinated(op, Effect.andThen(check, Effect.sync(() => releaseFile(ref))), () => releaseFile(ref)).pipe(
+        Effect.tapError(() =>
+          coordinatedCleanup(Effect.sync(() => {
+            if (!ref.closed) releaseFile(ref)
+          }))
+        )
+      )
+
     const finalizeFile = (ref: FileReference) =>
       Effect.suspend(() =>
         ref.closed
@@ -1572,46 +1593,41 @@ export const makeVolume = Effect.fnUntraced(
           ? Effect.sync(() => {
             ref.closed = true
           })
-          : coordinated(OpContext.make("close"), Effect.sync(() => releaseFile(ref)), () => releaseFile(ref)).pipe(
-            Effect.catch(() =>
-              coordinatedCleanup(Effect.sync(() => {
-                if (!ref.closed) releaseFile(ref)
-              }))
-            )
-          )
+          : Effect.ignore(closeFile(ref, OpContext.make("close"), Effect.void))
       )
 
     // Acquires a handle into its own scope, forked from the caller's. The finalizer is registered before waiting,
     // since a closed scope runs a new finalizer at once and the permit is not reentrant. A scope that closes
     // before or during acquisition interrupts it, and releasing here, under the permit, keeps the acquisition
     // from outliving a finalizer that already ran.
-    const acquireHandle = <A, E, R>(
+    const acquireHandle = Effect.fnUntraced(function*<A, E, R>(
+      reference: HandleScope,
       coordinate: (acquire: Effect.Effect<A, E, R>) => Effect.Effect<A, E | FsError, R>,
       acquire: Effect.Effect<A, E, R>,
       releaseAcquired: () => void,
       finalize: Effect.Effect<void>
-    ) =>
-      Effect.gen(function*() {
-        const scope = yield* Scope.fork(yield* Effect.scope)
-        yield* Scope.addFinalizer(scope, finalize)
-        const closed = () => Predicate.isTagged(scope.state, "Closed")
+    ) {
+      const scope = yield* Scope.fork(yield* Effect.scope)
+      reference.scope = scope
+      yield* Scope.addFinalizer(scope, finalize)
+      const closed = () => Predicate.isTagged(scope.state, "Closed")
 
-        return yield* coordinate(
-          Effect.suspend(() => closed() ? Effect.interrupt : acquire).pipe(
-            Effect.tap(() =>
-              Effect.suspend(() => {
-                if (!closed()) return Effect.void
-                releaseAcquired()
+      return yield* coordinate(
+        Effect.suspend(() => closed() ? Effect.interrupt : acquire).pipe(
+          Effect.tap(() =>
+            Effect.suspend(() => {
+              if (!closed()) return Effect.void
+              releaseAcquired()
 
-                return Effect.interrupt
-              })
-            )
+              return Effect.interrupt
+            })
           )
-        ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)))
-      })
+        )
+      ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)))
+    })
 
     const acquireFile = <A, E, R>(ref: FileReference, op: OpContext, acquire: Effect.Effect<A, E, R>) =>
-      acquireHandle((effect) => coordinated(op, effect), acquire, () => releaseFile(ref), finalizeFile(ref))
+      acquireHandle(ref, (effect) => coordinated(op, effect), acquire, () => releaseFile(ref), finalizeFile(ref))
 
     // Replacing a payload clears setuid and setgid, and charges the volume for the size delta.
     const replaceContent = (file: RegularFile, data: Uint8Array, now: bigint, publish = true) => {
@@ -1805,19 +1821,8 @@ export const makeVolume = Effect.fnUntraced(
         sync: coordinatedRead(syncOp, Effect.suspend(() => Effect.asVoid(get(syncOp)))).pipe(
           Effect.withSpan("FileHandle.sync")
         ),
-        close: coordinated(
-          closeOp,
-          Effect.gen(function*() {
-            yield* get(closeOp)
-            releaseFile(ref)
-          }),
-          () => releaseFile(ref)
-        ).pipe(
-          Effect.catch((error) =>
-            coordinatedCleanup(Effect.sync(() => {
-              if (!ref.closed) releaseFile(ref)
-            })).pipe(Effect.andThen(Effect.fail(error)))
-          ),
+        close: closeFile(ref, closeOp, Effect.suspend(() => get(closeOp))).pipe(
+          Effect.ensuring(closeScope(ref)),
           Effect.withSpan("FileHandle.close")
         )
       })
@@ -2126,6 +2131,7 @@ export const makeVolume = Effect.fnUntraced(
           const acquired = makeDirectoryReference()
 
           return yield* acquireHandle(
+            acquired,
             (acquire) => coordinatedRead(op, Effect.uninterruptible(acquire)),
             Effect.gen(function*() {
               const path = yield* Effect.fromResult(prepared)
@@ -3732,11 +3738,10 @@ export const makeVolume = Effect.fnUntraced(
                 return Effect.fail(OpContext.make("close").fail("InvalidHandle"))
               }
 
-              acquired.directory = undefined
-              acquired.closed = true
+              releaseDirectory(acquired)
 
               return Effect.void
-            })).pipe(Effect.withSpan("DirectoryHandle.close"))
+            })).pipe(Effect.ensuring(closeScope(acquired)), Effect.withSpan("DirectoryHandle.close"))
           })
 
           handles.set(handle, acquired)
