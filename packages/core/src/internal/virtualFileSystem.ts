@@ -1488,8 +1488,11 @@ export const makeVolume = Effect.fnUntraced(
         reference.closed ? Effect.void : coordinatedCleanup(Effect.sync(() => releaseDirectory(reference)))
       )
 
-    const closeScope = (reference: HandleScope) =>
-      Effect.suspend(() => reference.scope === undefined ? Effect.void : Scope.close(reference.scope, Exit.void))
+    // Only a close that released the handle closes its scope; an interrupted close leaves both open.
+    const closeScope = (reference: HandleScope & { readonly closed: boolean }) =>
+      Effect.suspend(() =>
+        !reference.closed || reference.scope === undefined ? Effect.void : Scope.close(reference.scope, Exit.void)
+      )
 
     const authorize = (node: Node, identity: Identity, bits: number, op: OpContext) => {
       if (identity.privileged) return Effect.void
@@ -1585,11 +1588,10 @@ export const makeVolume = Effect.fnUntraced(
         )
       )
 
+    // Keyed on the file rather than the closed flag, so a rerun releases an open that published after a first run.
     const finalizeFile = (ref: FileReference) =>
       Effect.suspend(() =>
-        ref.closed
-          ? Effect.void
-          : ref.file === undefined
+        ref.file === undefined
           ? Effect.sync(() => {
             ref.closed = true
           })
@@ -1599,7 +1601,9 @@ export const makeVolume = Effect.fnUntraced(
     // Acquires a handle into its own scope, forked from the caller's. The finalizer is registered before waiting,
     // since a closed scope runs a new finalizer at once and the permit is not reentrant. A scope that closes
     // before or during acquisition interrupts it, and releasing here, under the permit, keeps the acquisition
-    // from outliving a finalizer that already ran.
+    // from outliving a finalizer that already ran. A scope that closes while the acquisition commits interrupts it
+    // too. Every exit without a handle reruns the finalizer, which may have run before the commit published and
+    // which closing an already closed scope would not run again.
     const acquireHandle = Effect.fnUntraced(function*<A, E, R>(
       reference: HandleScope,
       coordinate: (acquire: Effect.Effect<A, E, R>) => Effect.Effect<A, E | FsError, R>,
@@ -1623,7 +1627,10 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         )
-      ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)))
+      ).pipe(
+        Effect.tap(() => Effect.suspend(() => closed() ? Effect.interrupt : Effect.void)),
+        Effect.onError(() => Effect.andThen(finalize, Scope.close(scope, Exit.void)))
+      )
     })
 
     const acquireFile = <A, E, R>(ref: FileReference, op: OpContext, acquire: Effect.Effect<A, E, R>) =>
