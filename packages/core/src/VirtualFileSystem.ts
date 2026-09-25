@@ -1080,7 +1080,7 @@ export interface Caller {
  *   const volume = yield* Vfs.make()
  *   const caller = yield* volume.caller()
  *
- *   const watcher = yield* volume.watch.pipe(
+ *   const watcher = yield* volume.watch().pipe(
  *     Effect.flatMap((stream) => Stream.runCollect(Stream.take(stream, 2))),
  *     Effect.forkChild({ startImmediately: true })
  *   )
@@ -1108,13 +1108,66 @@ export interface Caller {
 export const Change: typeof WatchModule.Change = WatchModule.Change
 
 /**
- * One committed change observed through a watch subscription. `Rescan` at `/`
- * means the subscriber lost events.
+ * One committed change observed through a watch subscription. `Rescan` means
+ * the subscriber lost events; it names `/` for a volume-wide watch and the
+ * scope's current path for a scoped one.
  *
  * @category models
  * @since 0.1.0
  */
 export type Change = typeof Change.Type
+
+/**
+ * Schema for the options of `Volume.watch`: an object reference to narrow the
+ * watch to, and whether its whole subtree is reported.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect, Fiber, Stream } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const caller = yield* volume.caller()
+ *   yield* caller.mkdir("/work")
+ *   const work = yield* caller.lookup("/work")
+ *
+ *   const watcher = yield* volume.watch({ scope: work }).pipe(
+ *     Effect.flatMap((stream) => Stream.runCollect(Stream.take(stream, 3))),
+ *     Effect.forkChild({ startImmediately: true })
+ *   )
+ *
+ *   // Outside the scope, so not reported.
+ *   yield* caller.mkdir("/elsewhere")
+ *   // The scope is the directory, not its path: the rename is reported and the watch goes on.
+ *   yield* caller.rename("/work", "/renamed")
+ *   yield* caller.mkdir("/renamed/out")
+ *
+ *   const events = yield* Fiber.join(watcher)
+ *
+ *   return yield* Effect.forEach(events, (change) =>
+ *     Effect.map(
+ *       Vfs.pathToBytes(change.path),
+ *       (bytes) => `${change._tag} ${new TextDecoder().decode(bytes)}`
+ *     ))
+ * }).pipe(Effect.scoped)
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 'Remove /work', 'Create /renamed', 'Create /renamed/out' ]
+ * ```
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const WatchOptions: typeof WatchModule.WatchOptions = WatchModule.WatchOptions
+
+/**
+ * Options of `Volume.watch`.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type WatchOptions = typeof WatchOptions.Type
 
 /**
  * Schema for the filesystem entry kinds reported by overlay summaries.
@@ -1263,7 +1316,7 @@ export interface OverlayCapture {
  *   const caller = yield* volume.caller()
  *
  *   // `watch` reports future changes only; nothing is replayed.
- *   const watcher = yield* volume.watch.pipe(
+ *   const watcher = yield* volume.watch().pipe(
  *     Effect.flatMap(Stream.runHead),
  *     Effect.forkChild({ startImmediately: true })
  *   )
@@ -1293,8 +1346,13 @@ export interface Volume {
   readonly limits: VolumeLimits
   /** Samples content bytes and directory entries together from the current committed state. */
   readonly usage: Effect.Effect<VolumeUsage, FsFailure>
-  /** Opens a scoped stream of future changes. `Rescan` at `/` requires a full rescan; events are not replayed. */
-  readonly watch: Effect.Effect<Stream.Stream<Change>, FsFailure, Scope.Scope>
+  /**
+   * Opens a scoped stream of future changes, registered before it returns; events are not replayed. Without a
+   * scope it covers the volume and `Rescan` at `/` requires a full rescan; with one it covers that object (and its
+   * subtree unless `recursive` is `false`), `Rescan` names the object's current path, and the stream ends after
+   * `Remove` for the object once its last name is gone.
+   */
+  readonly watch: (options?: WatchOptions) => Effect.Effect<Stream.Stream<Change>, FsFailure, Scope.Scope>
   /** Captures an isolated snapshot of the reachable namespace and metadata. */
   readonly snapshot: Effect.Effect<Snapshot, VfsError>
   readonly [VolumeId]: true

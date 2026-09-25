@@ -11,7 +11,7 @@ import { Effect } from "effect"
 
 const test = Effect.gen(function*() {
   const volume = yield* Vfs.Volume
-  const changes = yield* Testing.collectChanges(yield* volume.watch, 1)
+  const changes = yield* Testing.collectChanges(yield* volume.watch(), 1)
 
   yield* (yield* Vfs.Caller).mkdir("/work")
 

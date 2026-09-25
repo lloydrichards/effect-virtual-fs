@@ -155,7 +155,7 @@ describe("setattr", () => {
       yield* ownedFile
       const volume = yield* Vfs.Volume
       const fs = yield* Vfs.Caller
-      const changes = yield* Testing.collectChanges(yield* volume.watch, 2)
+      const changes = yield* Testing.collectChanges(yield* volume.watch(), 2)
 
       yield* fs.setattr("/f", { size: 2n, mode: 0o600, owner: { uid: 0 }, times: EXPLICIT_TIMES })
       yield* fs.mkdir("/done")

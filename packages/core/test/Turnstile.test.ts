@@ -41,7 +41,7 @@ describe("the change turnstile", () => {
   it.effect("keeps a queued change ahead of a watcher reacting to the change before it", () =>
     Effect.gen(function*() {
       const { caller, pauseNext, volume } = yield* pausable
-      const events = yield* volume.watch
+      const events = yield* volume.watch()
 
       // The watcher wakes while the first change still holds every permit, and stats what the second creates.
       const watcher = yield* events.pipe(

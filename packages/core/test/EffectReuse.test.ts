@@ -52,7 +52,7 @@ describe("reusable capability effects", () => {
       Effect.gen(function*() {
         const volume = yield* Vfs.Volume
         const caller = yield* Vfs.Caller
-        const watch = volume.watch
+        const watch = volume.watch()
         const firstScope = yield* Scope.make()
         const secondScope = yield* Scope.make()
         yield* Effect.addFinalizer(() => Scope.close(firstScope, Exit.void))

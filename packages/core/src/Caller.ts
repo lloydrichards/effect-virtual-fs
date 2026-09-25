@@ -234,7 +234,13 @@ export const SetattrOptions = Schema.Struct({
  */
 export type SetattrOptions = typeof SetattrOptions.Type
 
-const ObjectReferenceSchema = Schema.declare<ObjectReference>((input): input is ObjectReference =>
+/**
+ * Schema for an object reference: any value carrying the reference brand. Whether the volume issued it is checked
+ * where it is used.
+ *
+ * @internal
+ */
+export const ObjectReferenceSchema = Schema.declare<ObjectReference>((input): input is ObjectReference =>
   Predicate.hasProperty(ObjectReferenceId)(input) && input[ObjectReferenceId] === true
 )
 

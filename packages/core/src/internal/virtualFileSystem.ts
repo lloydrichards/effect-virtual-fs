@@ -14,6 +14,7 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
+import * as Stream from "effect/Stream"
 import { BytePath } from "../BytePath.js"
 import {
   CallerId,
@@ -53,6 +54,7 @@ import {
   VolumeIncarnation,
   VolumeOptions
 } from "../Volume.js"
+import { WatchOptions } from "../Watch.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import {
   argumentFailure,
@@ -407,7 +409,7 @@ class Draft {
   entries: number
   usedBytes: bigint
   // Watch events, computed against the installed value once a watcher takes them.
-  readonly events: Array<(installed: VolumeState) => Iterable<Change>> = []
+  readonly events: Array<(installed: VolumeState) => Iterable<WatchEvent>> = []
   // Handle record writes, applied once the value is installed.
   readonly after: Array<() => void> = []
   readonly removed: Array<Ino> = []
@@ -606,6 +608,22 @@ export const VolumeSource = Data.taggedEnum<VolumeSource>()
 const UpdateChange = Schema.TaggedStruct("Update", { path: BytePath })
 
 const RescanChange = Schema.TaggedStruct("Rescan", { path: BytePath })
+
+const RemoveChange = Schema.TaggedStruct("Remove", { path: BytePath })
+
+// A change and where it happened: the directory holding the entry it names and the object behind that entry. A
+// scoped watch tests these against the installed tree, so renaming its scope or an ancestor does not lose it.
+interface WatchEvent {
+  readonly change: Change
+  readonly parent: Ino
+  readonly ino: Ino
+}
+
+// The volume's values either side of one installation.
+interface Installation {
+  readonly before: VolumeState
+  readonly after: VolumeState
+}
 
 // A fresh directory root for a volume whose image names none; a restored image always carries its own.
 const emptyRoot = (lineage: string | undefined, now: bigint): Directory => ({
@@ -1136,22 +1154,23 @@ export const makeVolume = Effect.fnUntraced(
 
     const watchCoordinate: WatchHub.Coordinator = (effect) => changing(effect)
 
-    const watchHub = yield* WatchHub.make<Change, FsFailure>(
+    const watchHub = yield* WatchHub.make<WatchEvent, Installation, FsFailure>(
       watchCoordinate,
-      settings.maxWatchEvents ?? 256,
-      () => RescanChange.make({ path: ownedPath(new Uint8Array([47])) }),
-      checkAvailable("watch")
+      settings.maxWatchEvents ?? 256
     )
 
     // Installs a finished draft: the only place the volume's value changes, and where its events publish.
     const install = (finished: Draft) => {
+      const before = state
       state = finished.finish()
 
       for (const ino of finished.removed) tokens.delete(ino)
 
       for (const apply of finished.after) apply()
 
-      for (const events of finished.events) watchHub.publishManyUnsafe(() => events(state))
+      const after = state
+
+      watchHub.publishUnsafe(() => finished.events.flatMap((events) => Array.from(events(after))), { before, after })
     }
 
     // Runs a change against a fresh draft and returns the finished draft with the change's value. A failure or
@@ -1298,12 +1317,13 @@ export const makeVolume = Effect.fnUntraced(
     const entryPath = (prefix: string, name: string) =>
       ownedPath(nameBytes(prefix + (prefix === SLASH_HEX ? "" : SLASH_HEX) + name))
 
-    // Events name their paths against the installed value, and only once a watcher takes them.
-    const publishEntry = (_tag: Change["_tag"], parent: Ino, name: string) => {
+    // Events name their paths against the installed value, and only once a watcher takes them. `ino` is the object
+    // the entry names, or named until this change removed it.
+    const publishEntry = (_tag: Exclude<Change["_tag"], "Rescan">, parent: Ino, name: string, ino: Ino) => {
       current().events.push((installed) => {
-        const prefix = pathOf((ino) => getNode(installed, ino), parent)
+        const prefix = pathOf((at) => getNode(installed, at), parent)
 
-        return prefix === undefined ? [] : [{ _tag, path: entryPath(prefix, name) }]
+        return prefix === undefined ? [] : [{ change: { _tag, path: entryPath(prefix, name) }, parent, ino }]
       })
     }
 
@@ -1314,9 +1334,12 @@ export const makeVolume = Effect.fnUntraced(
 
       if (target.kind === "directory") {
         current().events.push((installed) => {
+          const directory = getNode(installed, ino)
           const path = pathOf((at) => getNode(installed, at), ino)
 
-          return path === undefined ? [] : [UpdateChange.make({ path: ownedPath(nameBytes(path)) })]
+          return path === undefined || directory?.kind !== "directory"
+            ? []
+            : [{ change: UpdateChange.make({ path: ownedPath(nameBytes(path)) }), parent: directory.parent, ino }]
         })
 
         return
@@ -1326,16 +1349,110 @@ export const makeVolume = Effect.fnUntraced(
       const links = target.links
 
       current().events.push((installed) => {
-        const changes: Array<Change> = []
+        const events: Array<WatchEvent> = []
 
         for (const link of links) {
           const prefix = pathOf((at) => getNode(installed, at), link.parent)
 
-          if (prefix !== undefined) changes.push(UpdateChange.make({ path: entryPath(prefix, link.name) }))
+          if (prefix !== undefined) {
+            events.push({
+              change: UpdateChange.make({ path: entryPath(prefix, link.name) }),
+              parent: link.parent,
+              ino
+            })
+          }
         }
 
-        return changes
+        return events
       })
+    }
+
+    // The paths that reach an object: a directory's one path, or every name of anything else.
+    const pathsOf = (installed: VolumeState, ino: Ino): Array<BytePath> => {
+      const node = getNode(installed, ino)
+
+      if (node === undefined) return []
+
+      if (node.kind === "directory") {
+        const path = pathOf((at) => getNode(installed, at), ino)
+
+        return path === undefined ? [] : [ownedPath(nameBytes(path))]
+      }
+
+      const paths: Array<BytePath> = []
+
+      for (const link of node.links) {
+        const prefix = pathOf((at) => getNode(installed, at), link.parent)
+
+        if (prefix !== undefined) paths.push(entryPath(prefix, link.name))
+      }
+
+      return paths
+    }
+
+    // Whether a directory is `ancestor` or lies below it. Directories have one name each, so the walk up is the
+    // directory's only path.
+    const descends = (installed: VolumeState, directory: Ino, ancestor: Ino): boolean => {
+      for (let at = directory;;) {
+        if (at === ancestor) return true
+
+        if (at === ROOT_INO) return false
+        const node = getNode(installed, at)
+
+        if (node?.kind !== "directory") return false
+        at = node.parent
+      }
+    }
+
+    const rootPath = () => ownedPath(new Uint8Array([SLASH_BYTE]))
+
+    const volumeSelection: WatchHub.Selection<WatchEvent, Installation> = {
+      includes: () => true,
+      rescan: () => ({ change: RescanChange.make({ path: rootPath() }), parent: ROOT_INO, ino: ROOT_INO })
+    }
+
+    // The inode a watch scope names. An object whose last name is gone has nothing left to watch.
+    const scopeRoot = (scope: ObjectReference, op: OpContext) =>
+      Effect.suspend(() => {
+        const known = objectReferences.get(scope)
+
+        if (known === undefined) return Effect.fail(op.fail("InvalidReference"))
+
+        if (known.volume !== volumeIdentity) return Effect.fail(op.fail("ForeignReference"))
+        const node = getNode(state, known.ino)
+
+        return node === undefined || node.metadata.nlink === 0
+          ? Effect.fail(op.fail("StaleReference"))
+          : Effect.succeed(known.ino)
+      })
+
+    // A watch of one object, and of its subtree when recursive. Membership is read from the installed tree when
+    // each event is offered, so it follows renames of the scope and its ancestors. When the object's last name is
+    // gone the watch reports its removal from the names it had and ends; that Remove is held back for the end of
+    // the publication, so it is reported even where the queue would have given its slot to a Rescan.
+    const scopedSelection = (root: Ino, recursive: boolean): WatchHub.Selection<WatchEvent, Installation> => {
+      const gone = (installed: VolumeState) => {
+        const node = getNode(installed, root)
+
+        return node === undefined || node.metadata.nlink === 0
+      }
+
+      return {
+        includes: (event, { after }) => {
+          if (event.ino === root) return !(Predicate.isTagged(event.change, "Remove") && gone(after))
+
+          return recursive ? descends(after, event.parent, root) : event.parent === root
+        },
+        rescan: ({ before, after }) => ({
+          change: RescanChange.make({ path: pathsOf(after, root)[0] ?? pathsOf(before, root)[0] ?? rootPath() }),
+          parent: root,
+          ino: root
+        }),
+        settle: ({ before, after }) =>
+          gone(after)
+            ? pathsOf(before, root).map((path) => ({ change: RemoveChange.make({ path }), parent: root, ino: root }))
+            : undefined
+      }
     }
 
     const captureState = Effect.fnUntraced(function*() {
@@ -2278,7 +2395,7 @@ export const makeVolume = Effect.fnUntraced(
         // No Effect yield or expected failure between these publication writes.
         attach(parent, name, child, now)
         current().entries += 1
-        publishEntry("Create", parent.ino, name)
+        publishEntry("Create", parent.ino, name, child.ino)
 
         return { child: child.ino, directory: { before, after: current().revision } }
       })
@@ -2292,7 +2409,7 @@ export const makeVolume = Effect.fnUntraced(
           const now = yield* timestamp(op)
           attach(parent, name, node, now)
           current().entries += 1
-          publishEntry("Create", parent.ino, name)
+          publishEntry("Create", parent.ino, name, node.ino)
 
           return { before, after: current().revision }
         }
@@ -2316,7 +2433,7 @@ export const makeVolume = Effect.fnUntraced(
         attach(parent, name, child, now)
         current().entries += 1
         current().usedBytes += BigInt(target.length)
-        publishEntry("Create", parent.ino, name)
+        publishEntry("Create", parent.ino, name, child.ino)
 
         return { child: child.ino, directory: { before, after: current().revision } }
       })
@@ -2340,7 +2457,7 @@ export const makeVolume = Effect.fnUntraced(
           (entries) => entries.delete(name)
         ))
         // The event names the entry before the child loses its link, since a symlink's bytes go with it.
-        publishEntry("Remove", parent.ino, name)
+        publishEntry("Remove", parent.ino, name, child.ino)
         detach(child, parent.ino, name, now)
         d.entries -= 1
 
@@ -2493,7 +2610,7 @@ export const makeVolume = Effect.fnUntraced(
 
           // Every rejection above precedes the namespace and metadata writes below, and the old name is
           // published before the namespace changes.
-          publishEntry("Remove", sourceDirectory.ino, sourceName)
+          publishEntry("Remove", sourceDirectory.ino, sourceName, child.ino)
 
           d.put(withEntries(
             {
@@ -2548,7 +2665,7 @@ export const makeVolume = Effect.fnUntraced(
             d.entries -= 1
           }
 
-          publishEntry("Create", destination.parent, destinationName)
+          publishEntry("Create", destination.parent, destinationName, child.ino)
 
           return result()
         }
@@ -2628,7 +2745,7 @@ export const makeVolume = Effect.fnUntraced(
           current().entries += 1
           current().usedBytes += size
           created = true
-          publishEntry("Create", parent.ino, name)
+          publishEntry("Create", parent.ino, name, file.ino)
         } else {
           if (file.kind === "symlink") return yield* entry.op.fail("SymlinkLoop")
 
@@ -3392,7 +3509,7 @@ export const makeVolume = Effect.fnUntraced(
                 attach(directoryNow(parent.ino), name, written, now)
 
                 if (replaced === undefined) d.entries += 1
-                publishEntry(replaced === undefined ? "Create" : "Update", parent.ino, name)
+                publishEntry(replaced === undefined ? "Create" : "Update", parent.ino, name, written.ino)
               } else {
                 d.put(written)
                 publishNode(written.ino)
@@ -3624,11 +3741,31 @@ export const makeVolume = Effect.fnUntraced(
         .pipe(
           Effect.withSpan("Volume.usage")
         ),
-      watch: Effect.gen(function*() {
+      watch: Effect.fn("Volume.watch")(function*(options?: WatchOptions) {
+        const op = OpContext.make("watch")
+
+        const decoded = yield* Effect.fromResult(
+          decodeConfiguration(WatchOptions, options === undefined ? {} : options, "watch")
+        )
+
+        const recursive = decoded.recursive ?? true
+        const scope = decoded.scope
+
         const seams = yield* VolumeTestSeams
 
-        return yield* admit(OpContext.make("watch"), watchHub.subscribe(seams.afterSubscribe))
-      }).pipe(Effect.withSpan("Volume.watch")),
+        // The scope is resolved while the registration holds the volume, so no change lands between the check and
+        // the subscription.
+        const select = Effect.andThen(
+          checkAvailable("watch"),
+          scope === undefined
+            ? Effect.succeed(recursive ? volumeSelection : scopedSelection(ROOT_INO, false))
+            : Effect.map(scopeRoot(scope, op), (root) => scopedSelection(root, recursive))
+        )
+
+        const stream = yield* admit(op, watchHub.subscribe(select, seams.afterSubscribe))
+
+        return Stream.map(stream, (event) => event.change)
+      }),
       snapshot: coordinatedRead(OpContext.make("snapshot"), Effect.suspend(() => captureSnapshot(state))).pipe(
         Effect.withSpan("Volume.snapshot")
       ),
