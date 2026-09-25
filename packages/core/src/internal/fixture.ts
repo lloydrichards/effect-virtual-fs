@@ -25,13 +25,11 @@ const EPOCH_NS = 0n
 /** @internal */
 export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
   function*(fixture: Fixture, options?: VolumeOptions) {
-    const config = decodeConfiguration(VolumeOptionsSchema, options ?? {})
+    const config = yield* Effect.fromResult(decodeConfiguration(VolumeOptionsSchema, options ?? {}))
 
-    if (Result.isFailure(config)) return yield* config.failure
-    const decoded = Schema.decodeResult(FixtureSchema, { onExcessProperty: "error" })(fixture)
-
-    if (Result.isFailure(decoded)) return yield* new ImageError({ code: "InvalidStructure", field: "fixture" })
-    const source = decoded.success
+    const source = yield* Schema.decodeEffect(FixtureSchema, { onExcessProperty: "error" })(fixture).pipe(
+      Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "fixture", cause }))
+    )
 
     if (
       source.entries.some((entry) =>
@@ -72,7 +70,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
     declarations.set("", root)
 
     const fixturePath = (input: PathInput) =>
-      preparePath(input, "fixture", config.success.maxPathBytes).pipe(
+      preparePath(input, "fixture", config.maxPathBytes).pipe(
         Result.flatMap((path) =>
           !path.absolute || path.components.length === 0 ||
             path.components.some(isDotComponent)
@@ -84,13 +82,10 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
     // Encode caller-owned byte buffers now: nothing below yields until Image.capture, so a caller
     // cannot mutate them first.
     for (const entry of source.entries) {
-      const parsed = fixturePath(entry.path)
+      const components = yield* Effect.fromResult(fixturePath(entry.path)).pipe(
+        Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "path", cause }))
+      )
 
-      if (Result.isFailure(parsed)) {
-        return yield* new ImageError({ code: "InvalidStructure", field: "path" })
-      }
-
-      const components = parsed.success
       const key = components.join("/")
 
       if (paths.has(key)) return yield* new ImageError({ code: "InvalidStructure", field: "duplicate" })
@@ -100,7 +95,10 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
         hardLink: ({ target }) => {
           const parsedTarget = fixturePath(target)
 
-          if (Result.isFailure(parsedTarget)) return new ImageError({ code: "InvalidStructure", field: "target" })
+          if (Result.isFailure(parsedTarget)) {
+            return new ImageError({ code: "InvalidStructure", field: "target", cause: parsedTarget.failure })
+          }
+
           aliases.set(key, parsedTarget.success.join("/"))
         },
         directory: (entry) => {
@@ -198,7 +196,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
     const snapshot = yield* Image.capture({ format: "effect-vfs", version: 1, root: "root", records }, undefined, true)
     const image = yield* Image.inspect(snapshot)
 
-    const { identity, ...volumeOptions } = config.success
+    const { identity, ...volumeOptions } = config
 
     if (identity === undefined) return yield* makeVolume(VolumeSource.Snapshot({ image }), volumeOptions)
 

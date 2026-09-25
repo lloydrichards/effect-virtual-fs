@@ -2,7 +2,6 @@
 // retains inode numbers, revisions, allocator state, and open unlinked files.
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
-import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as SchemaTransformation from "effect/SchemaTransformation"
 import { ImageError } from "../Snapshot.js"
@@ -215,9 +214,9 @@ export const decode = Effect.fnUntraced(function*(bytes: Uint8Array, maxEncodedB
     Effect.mapError((cause) => new ImageError({ code: "InvalidEncoding", field: "liveImage", cause }))
   )
 
-  const document = Schema.decodeUnknownResult(Document, { onExcessProperty: "error" })(parsed)
+  const document = yield* Schema.decodeUnknownEffect(Document, { onExcessProperty: "error" })(parsed).pipe(
+    Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "liveImage", cause }))
+  )
 
-  if (Result.isFailure(document)) return yield* new ImageError({ code: "InvalidStructure", field: "liveImage" })
-
-  return yield* validate(document.success)
+  return yield* validate(document)
 })

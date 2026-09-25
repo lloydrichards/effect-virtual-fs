@@ -46,6 +46,8 @@ export declare class FsError extends Data.TaggedError("FsError")<{
   readonly code: FsCode
   readonly operation: string
   readonly path?: PathInput
+  /** Underlying failure that this error classifies, when one exists. */
+  readonly cause?: Schema.SchemaError | FsError | ImageError | TypeError
 }> {}
 ```
 

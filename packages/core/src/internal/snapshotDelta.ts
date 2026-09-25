@@ -897,16 +897,17 @@ export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array
     return yield* new ImageError({ code: "UnsupportedVersion" })
   }
 
-  const wire = Schema.decodeUnknownResult(WireDocument, { onExcessProperty: "error" })(value)
+  const wire = yield* Schema.decodeUnknownEffect(WireDocument, { onExcessProperty: "error" })(value).pipe(
+    Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", cause }))
+  )
 
-  if (Result.isFailure(wire)) return yield* new ImageError({ code: "InvalidStructure" })
-  yield* validate(wire.success, limits)
+  yield* validate(wire, limits)
 
-  const parsed = Schema.decodeUnknownResult(Document, { onExcessProperty: "error" })(value)
+  const parsed = yield* Schema.decodeUnknownEffect(Document, { onExcessProperty: "error" })(value).pipe(
+    Effect.mapError((cause) => new ImageError({ code: "InvalidEncoding", cause }))
+  )
 
-  if (Result.isFailure(parsed)) return yield* new ImageError({ code: "InvalidEncoding" })
-
-  return SnapshotDeltaModel.make(parsed.success)
+  return SnapshotDeltaModel.make(parsed)
 })
 
 /** @internal */
