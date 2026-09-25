@@ -67,7 +67,7 @@ describe("core-backed memory bindings", () => {
       yield* core.mkdir("/sub")
       const adapter = yield* Memory.bind(volume)
       const scope = yield* Scope.make()
-      const stream = yield* volume.watch.pipe(Scope.provide(scope))
+      const stream = yield* volume.watch().pipe(Scope.provide(scope))
       yield* core.mkdir("/sub/a")
       yield* core.mkdir("/sub/b")
       const marker = yield* Stream.runCollect(Stream.take(stream, 2))
@@ -155,6 +155,119 @@ describe("core-backed memory bindings", () => {
       assert.deepStrictEqual(yield* changes, [{ _tag: "Create", path: "/watched/child" }])
       const invalid = yield* Effect.flip(adapter.readDirectory("/"))
       assert.strictEqual(invalid.reason._tag, "InvalidData")
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should keep delivering a watched directory's changes after an ancestor is renamed", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* Memory.bind(yield* Vfs.Volume)
+      yield* core.mkdir("/project")
+      yield* core.mkdir("/project/watched")
+      const changes = yield* Testing.collectChanges(adapter.watch("/project/watched"), 1)
+
+      yield* core.rename("/project", "/renamed")
+      yield* core.mkdir("/renamed/watched/child")
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Create", path: "/renamed/watched/child" }])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should keep delivering a watched file's updates at its new name after it is renamed", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* Memory.bind(yield* Vfs.Volume)
+      yield* core.writeFile("/a", bytes.encode("one"), { access: "write", create: "exclusive" })
+      const changes = yield* Testing.collectChanges(adapter.watch("/a"), 3)
+
+      yield* core.rename("/a", "/b")
+      yield* core.writeFile("/b", bytes.encode("two"), { access: "write" })
+      assert.deepStrictEqual(yield* changes, [
+        { _tag: "Remove", path: "/a" },
+        { _tag: "Create", path: "/b" },
+        { _tag: "Update", path: "/b" }
+      ])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should keep delivering a watched file's updates after an ancestor is renamed", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* Memory.bind(yield* Vfs.Volume)
+      yield* core.mkdir("/d")
+      yield* core.writeFile("/d/a", bytes.encode("one"), { access: "write", create: "exclusive" })
+      const changes = yield* Testing.collectChanges(adapter.watch("/d/a"), 1)
+
+      yield* core.rename("/d", "/e")
+      yield* core.writeFile("/e/a", bytes.encode("two"), { access: "write" })
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Update", path: "/e/a" }])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should not deliver a watched file's updates made through another hard link", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* Memory.bind(yield* Vfs.Volume)
+      yield* core.writeFile("/a", bytes.encode("one"), { access: "write", create: "exclusive" })
+      yield* core.link("/a", "/alias")
+      const changes = yield* Testing.collectChanges(adapter.watch("/a"), 1)
+
+      yield* core.writeFile("/alias", bytes.encode("two"), { access: "write" })
+      yield* core.writeFile("/a", bytes.encode("three"), { access: "write" })
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Update", path: "/a" }])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should end a watch after reporting the watched directory's removal", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* Memory.bind(yield* Vfs.Volume)
+      yield* core.mkdir("/watched")
+      // Asks for more changes than arrive, so it completes only because the stream ends.
+      const changes = yield* Testing.collectChanges(adapter.watch("/watched"), 2)
+
+      yield* core.rmdir("/watched")
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Remove", path: "/watched" }])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  // A volume whose first watch registration runs `change` first, as a change queued ahead of it would.
+  const changedBeforeFirstWatch = (volume: Vfs.Volume, change: Effect.Effect<unknown, Vfs.FsFailure>): Vfs.Volume => {
+    let pending = true
+
+    return {
+      ...volume,
+      watch: (options) =>
+        Effect.suspend(() => {
+          if (!pending) return volume.watch(options)
+          pending = false
+
+          return Effect.andThen(Effect.orDie(change), volume.watch(options))
+        })
+    }
+  }
+
+  it.effect("should watch the object a path names once the watch is active when a rename lands as it opens", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      yield* core.mkdir("/w")
+      yield* core.mkdir("/x")
+
+      const volume = changedBeforeFirstWatch(
+        yield* Vfs.Volume,
+        Effect.andThen(core.rename("/w", "/x/w"), core.mkdir("/w"))
+      )
+
+      const adapter = yield* Memory.bind(volume)
+      const changes = yield* Testing.collectChanges(adapter.watch("/w"), 1)
+
+      yield* core.mkdir("/x/w/other")
+      yield* core.mkdir("/w/child")
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Create", path: "/w/child" }])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should fail a watch with NotFound when its path is removed as the watch opens", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      yield* core.mkdir("/w")
+      const adapter = yield* Memory.bind(changedBeforeFirstWatch(yield* Vfs.Volume, core.rmdir("/w")))
+
+      const error = yield* Effect.flip(Stream.runCollect(adapter.watch("/w")))
+      assert.strictEqual(error._tag, "PlatformError")
+      assert.strictEqual(error.reason._tag, "NotFound")
     }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("should preserve hard-link topology when copying a directory", () =>
