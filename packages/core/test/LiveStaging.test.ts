@@ -23,7 +23,7 @@ describe("live volume staging", () => {
     Effect.gen(function*() {
       let commits = 0
 
-      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, {
+      const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
         commit: () =>
           Effect.sync(() => {
             commits++
@@ -43,7 +43,7 @@ describe("live volume staging", () => {
   it.effect("keeps rejected path and handle changes invisible", () =>
     Effect.scoped(Effect.gen(function*() {
       let outcome: "committed" | "rejected" = "committed"
-      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, { commit: () => Effect.succeed(outcome) })
+      const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, { commit: () => Effect.succeed(outcome) })
       const caller = yield* volume.caller()
       const handle = yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
       yield* handle.write(new Uint8Array([1]))
@@ -74,7 +74,7 @@ describe("live volume staging", () => {
 
   it.effect("stops paths, observations, and watch registration after an unknown outcome", () =>
     Effect.gen(function*() {
-      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, {
+      const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
         commit: () => Effect.succeed("unknown" as const)
       })
 
@@ -97,7 +97,7 @@ describe("live volume staging", () => {
   it.effect("preserves a reference after rejected unlink and retains its open file after committed unlink", () =>
     Effect.scoped(Effect.gen(function*() {
       let outcome: "committed" | "rejected" = "committed"
-      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, { commit: () => Effect.succeed(outcome) })
+      const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, { commit: () => Effect.succeed(outcome) })
       const caller = yield* volume.caller()
       const handle = yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
       yield* handle.write(new Uint8Array([1]))
@@ -123,7 +123,7 @@ describe("live volume staging", () => {
     Effect.scoped(Effect.gen(function*() {
       const retained = new Array<ReadonlyArray<bigint>>()
 
-      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, {
+      const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
         commit: (candidate) => {
           retained.push([...candidate.retainedFiles.keys()])
 
@@ -157,7 +157,7 @@ describe("live volume staging", () => {
         maxWatchEvents: 256
       }
 
-      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, {
+      const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
         commit: (candidate) =>
           captureLiveImage(candidate, identity, limits).pipe(
             Effect.tap((bytes) => Effect.sync(() => images.push(bytes))),
@@ -175,7 +175,7 @@ describe("live volume staging", () => {
 
       assert.deepEqual(retained.retainedFiles, [inode])
       assert.deepEqual(retained.records.map((record) => record.ino), [1n, inode])
-      const recovered = yield* makeVolume(VolumeSource.Live({ document: retained }))
+      const { volume: recovered } = yield* makeVolume(VolumeSource.Live({ document: retained }))
       assert.strictEqual(recovered.identity, identity)
       assert.notStrictEqual(recovered.incarnation, volume.incarnation)
       assert.deepEqual(yield* recovered.usage, { usedBytes: 0n, entries: 0 })
@@ -219,7 +219,7 @@ describe("live volume staging", () => {
   it.effect("keeps hard-link identity and directory revisions across a rejected rename", () =>
     Effect.gen(function*() {
       let outcome: "committed" | "rejected" = "committed"
-      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, { commit: () => Effect.succeed(outcome) })
+      const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, { commit: () => Effect.succeed(outcome) })
       const caller = yield* volume.caller()
       yield* caller.mkdir("/from")
       yield* caller.mkdir("/to")
@@ -251,7 +251,7 @@ describe("live volume staging", () => {
       const release = yield* Deferred.make<void>()
       let pause = false
 
-      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, {
+      const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
         commit: () =>
           pause
             ? Deferred.succeed(entered, undefined).pipe(
@@ -283,7 +283,7 @@ describe("live volume staging", () => {
   it.effect("closes a handle and stops service when final cleanup is rejected", () =>
     Effect.scoped(Effect.gen(function*() {
       let outcome: "committed" | "rejected" = "committed"
-      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, { commit: () => Effect.succeed(outcome) })
+      const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, { commit: () => Effect.succeed(outcome) })
       const caller = yield* volume.caller()
       const handle = yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
       yield* handle.write(new Uint8Array([1]))
@@ -298,7 +298,7 @@ describe("live volume staging", () => {
     Effect.gen(function*() {
       let commits = 0
 
-      const volume = yield* makeVolume(VolumeSource.Empty(), undefined, {
+      const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
         commit: () =>
           Effect.sync(() => {
             commits++
