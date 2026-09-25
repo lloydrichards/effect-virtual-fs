@@ -2,7 +2,7 @@ import { assert, describe } from "@effect/vitest"
 import { Effect, Exit, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
-import { it } from "./TestEffect.js"
+import { entryNames, it } from "./TestEffect.js"
 
 describe("reusable capability effects", () => {
   it.effect("reads current metadata and rejects operations after explicit close", () =>
@@ -43,8 +43,8 @@ describe("reusable capability effects", () => {
       const after = yield* capture
       const original = yield* (yield* Vfs.fromSnapshot(before)).caller()
       const updated = yield* (yield* Vfs.fromSnapshot(after)).caller()
-      assert.deepStrictEqual(yield* original.readDirectory("/"), [])
-      assert.deepStrictEqual(yield* updated.readDirectory("/"), ["later"])
+      assert.deepStrictEqual(entryNames(yield* original.readDirectory("/")), [])
+      assert.deepStrictEqual(entryNames(yield* updated.readDirectory("/")), ["later"])
     }))
 
   it.effect(

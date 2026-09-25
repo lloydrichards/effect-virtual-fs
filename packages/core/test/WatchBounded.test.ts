@@ -2,7 +2,7 @@ import { assert, describe } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber, Option, PubSub, Queue, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { withVolumeTestSeams } from "../src/internal/testSeams.js"
-import { it } from "./TestEffect.js"
+import { entryNames, it } from "./TestEffect.js"
 
 const paths = (events: Iterable<Vfs.Change>) =>
   Effect.forEach(events, (event) =>
@@ -37,7 +37,7 @@ describe("bounded watches", () => {
       const registeredWatch = yield* Fiber.join(watching)
       assert.isDefined(registeredWatch)
       yield* Fiber.join(accepted)
-      assert.deepEqual(Array.from(yield* caller.readDirectory("/")), ["accepted"])
+      assert.deepEqual(entryNames(yield* caller.readDirectory("/")), ["accepted"])
     }))
 
   it.effect("releases admission when a watch is cancelled while waiting for the permit", () =>
@@ -65,7 +65,7 @@ describe("bounded watches", () => {
       const activeWatch = yield* Fiber.join(holding)
       assert.isDefined(activeWatch)
       yield* Fiber.join(mutation)
-      assert.deepEqual(Array.from(yield* caller.readDirectory("/")), ["after-cancel"])
+      assert.deepEqual(entryNames(yield* caller.readDirectory("/")), ["after-cancel"])
     }))
 
   it.effect("probes unsafe PubSub publication with a stalled and an active subscriber", () =>
@@ -111,7 +111,7 @@ describe("bounded watches", () => {
       assert.deepEqual(Array.from(fastEvents, (event) => event._tag), ["Create", "Create", "Create", "Create"])
       const rescanScope = yield* Scope.make()
       const rescanWatch = yield* volume.watch.pipe(Scope.provide(rescanScope))
-      const before = Array.from(yield* caller.readDirectory("/"))
+      const before = entryNames(yield* caller.readDirectory("/"))
       yield* caller.mkdir("/during-rescan")
       const during = yield* Stream.runHead(rescanWatch)
 
@@ -120,9 +120,9 @@ describe("bounded watches", () => {
       assert.deepEqual(yield* Vfs.pathToBytes(event.path), new TextEncoder().encode("/during-rescan"))
 
       assert.isFalse(before.includes("during-rescan"))
-      assert.isTrue(Array.from(yield* caller.readDirectory("/")).includes("during-rescan"))
+      assert.isTrue((entryNames(yield* caller.readDirectory("/"))).includes("during-rescan"))
       yield* caller.mkdir("/after")
-      assert.deepEqual(Array.from(yield* caller.readDirectory("/")), ["a", "b", "c", "d", "during-rescan", "after"])
+      assert.deepEqual(entryNames(yield* caller.readDirectory("/")), ["a", "b", "c", "d", "during-rescan", "after"])
       yield* Scope.close(slowScope, Exit.void)
       yield* Scope.close(fastScope, Exit.void)
       yield* Scope.close(rescanScope, Exit.void)

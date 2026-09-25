@@ -2,7 +2,7 @@ import { assert, describe } from "@effect/vitest"
 import { ByteSize, Effect, Fiber, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 
-import { it } from "./TestEffect.js"
+import { entryNames, it, text } from "./TestEffect.js"
 
 describe("whole-file symlink replacement", () => {
   it.effect(
@@ -26,7 +26,7 @@ describe("whole-file symlink replacement", () => {
           truncate: true,
           replaceFinalSymlink: true
         })
-        assert.strictEqual((yield* fs.lstat("/link")).kind, "file")
+        assert.strictEqual((yield* fs.stat(Vfs.Target.Path({ path: "/link", followFinalSymlink: false }))).kind, "file")
         assert.deepStrictEqual(yield* fs.readFile("/target"), new Uint8Array([42]))
         const events = yield* Fiber.join(watcher)
         assert.strictEqual(events.length, 1)
@@ -34,7 +34,7 @@ describe("whole-file symlink replacement", () => {
         assert.isDefined(event)
         assert.strictEqual(event._tag, "Update")
         assert.deepStrictEqual(yield* Vfs.pathToBytes(event.path), new TextEncoder().encode("/link"))
-        assert.deepStrictEqual([...(yield* fs.readDirectory("/"))].sort(), ["link", "target"])
+        assert.deepStrictEqual([...(entryNames(yield* fs.readDirectory("/")))].sort(), ["link", "target"])
       })
   )
 
@@ -44,7 +44,7 @@ describe("whole-file symlink replacement", () => {
       const fs = yield* volume.caller()
       yield* fs.symlink("/", "/a")
       yield* fs.link("/a", "/b")
-      const before = yield* fs.lstat("/a")
+      const before = yield* fs.stat(Vfs.Target.Path({ path: "/a", followFinalSymlink: false }))
       const root = yield* fs.stat("/")
 
       const failure = yield* Effect.flip(fs.writeFile("/a", new Uint8Array([1]), {
@@ -55,9 +55,9 @@ describe("whole-file symlink replacement", () => {
       }))
 
       assert.strictEqual(failure.code, "NoSpace")
-      assert.deepStrictEqual(yield* fs.lstat("/a"), before)
+      assert.deepStrictEqual(yield* fs.stat(Vfs.Target.Path({ path: "/a", followFinalSymlink: false })), before)
       assert.deepStrictEqual(yield* fs.stat("/"), root)
-      assert.strictEqual(yield* fs.readLink("/b"), "/")
+      assert.strictEqual(text(yield* fs.readLink("/b")), "/")
       yield* fs.unlink("/b")
       yield* fs.writeFile("/a", new Uint8Array([1]), {
         access: "write",
@@ -91,7 +91,7 @@ describe("whole-file symlink replacement", () => {
         }))).code,
         "SymlinkLoop"
       )
-      assert.strictEqual(yield* root.readLink("/sticky/link"), "missing")
+      assert.strictEqual(text(yield* root.readLink("/sticky/link")), "missing")
     }))
   it.effect("rejects unauthorized final-mode changes before overwriting bytes", () =>
     Effect.gen(function*() {
@@ -125,7 +125,7 @@ describe("whole-file symlink replacement", () => {
         replaceFinalSymlink: true,
         followFinalSymlink: false
       })
-      assert.deepStrictEqual(yield* fs.readDirectory("/"), ["link", "z"])
-      assert.strictEqual((yield* fs.lstat("/link")).kind, "file")
+      assert.deepStrictEqual(entryNames(yield* fs.readDirectory("/")), ["link", "z"])
+      assert.strictEqual((yield* fs.stat(Vfs.Target.Path({ path: "/link", followFinalSymlink: false }))).kind, "file")
     }))
 })

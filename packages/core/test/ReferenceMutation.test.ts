@@ -11,14 +11,14 @@ describe("reference mutations", () => {
   it.effect("applies umask to ordinary directories but preserves an explicit exact mode", () =>
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller({ umask: 0o077 })
-      const root = yield* fs.rootReference
-      const ordinary = yield* fs.mkdirReference(root, name("ordinary"), { mode: 0o777 })
-      const exact = yield* fs.mkdirReference(root, name("exact"), { mode: 0o6777, exactMode: true })
+      const root = yield* fs.root
+      const ordinary = yield* fs.mkdir(Vfs.Entry(root, name("ordinary")), { mode: 0o777 })
+      const exact = yield* fs.mkdir(Vfs.Entry(root, name("exact")), { mode: 0o6777, exactMode: true })
 
-      assert.strictEqual((yield* fs.observeMetadata(ordinary.reference)).value.mode, 0o700)
-      assert.strictEqual((yield* fs.observeMetadata(exact.reference)).value.mode, 0o6777)
+      assert.strictEqual((yield* fs.stat(ordinary.reference)).mode, 0o700)
+      assert.strictEqual((yield* fs.stat(exact.reference)).mode, 0o6777)
       assert.strictEqual(
-        (yield* Effect.flip(fs.mkdirReference(root, name("invalid"), { exactMode: true }))).code,
+        (yield* Effect.flip(fs.mkdir(Vfs.Entry(root, name("invalid")), { exactMode: true }))).code,
         "InvalidArgument"
       )
     }))
@@ -26,20 +26,20 @@ describe("reference mutations", () => {
   it.effect("removes files and empty directories in one operation", () =>
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
-      const root = yield* fs.rootReference
-      const file = yield* fs.openChildReference(root, name("file"), { access: "write", create: "exclusive" })
+      const root = yield* fs.root
+      const file = yield* fs.open(Vfs.Entry(root, name("file")), { access: "write", create: "exclusive" })
       yield* file.handle.close
-      const directory = yield* fs.mkdirReference(root, name("directory"))
-      const nested = yield* fs.mkdirReference(root, name("nested"))
-      yield* fs.mkdirReference(nested.reference, name("child"))
+      const directory = yield* fs.mkdir(Vfs.Entry(root, name("directory")))
+      const nested = yield* fs.mkdir(Vfs.Entry(root, name("nested")))
+      yield* fs.mkdir(Vfs.Entry(nested.reference, name("child")))
 
-      assert.strictEqual((yield* Effect.flip(fs.removeReference(root, name("nested")))).code, "NotEmpty")
-      const fileChange = yield* fs.removeReference(root, name("file"))
-      const directoryChange = yield* fs.removeReference(root, name("directory"))
+      assert.strictEqual((yield* Effect.flip(fs.remove(Vfs.Entry(root, name("nested"))))).code, "NotEmpty")
+      const fileChange = yield* fs.remove(Vfs.Entry(root, name("file")))
+      const directoryChange = yield* fs.remove(Vfs.Entry(root, name("directory")))
       assert.isTrue(fileChange.after > fileChange.before)
       assert.isTrue(directoryChange.after > directoryChange.before)
-      assert.strictEqual((yield* Effect.flip(fs.lookupReference(root, name("file")))).code, "NotFound")
-      assert.strictEqual((yield* Effect.flip(fs.observeMetadata(directory.reference))).code, "StaleReference")
+      assert.strictEqual((yield* Effect.flip(fs.lookup(Vfs.Entry(root, name("file"))))).code, "NotFound")
+      assert.strictEqual((yield* Effect.flip(fs.stat(directory.reference))).code, "StaleReference")
     }))
 
   it.effect("checks a removal like rmdir and unlink before removing either kind", () =>
@@ -47,22 +47,22 @@ describe("reference mutations", () => {
       const volume = yield* Vfs.make()
       const fs = yield* volume.caller({ umask: 0 })
       const guest = yield* volume.caller({ identity: { uid: 9, gid: 9, groups: [], privileged: false } })
-      const root = yield* fs.rootReference
-      const sticky = (yield* fs.mkdirReference(root, name("sticky"), { mode: 0o1777 })).reference
-      const file = yield* fs.openChildReference(sticky, name("file"), { access: "write", create: "exclusive" })
+      const root = yield* fs.root
+      const sticky = (yield* fs.mkdir(Vfs.Entry(root, name("sticky")), { mode: 0o1777 })).reference
+      const file = yield* fs.open(Vfs.Entry(sticky, name("file")), { access: "write", create: "exclusive" })
       yield* file.handle.close
       const code = <A>(effect: Effect.Effect<A, Vfs.VfsError>) => Effect.map(Effect.flip(effect), (error) => error.code)
 
-      assert.strictEqual(yield* code(guest.removeReference(sticky, name("file"))), "AccessDenied")
-      assert.strictEqual(yield* code(fs.removeReference(sticky, name("missing"))), "NotFound")
-      assert.strictEqual(yield* code(fs.removeReference(sticky, name("."))), "InvalidArgument")
-      assert.strictEqual(yield* code(fs.removeReference(root, name("sticky"))), "NotEmpty")
+      assert.strictEqual(yield* code(guest.remove(Vfs.Entry(sticky, name("file")))), "AccessDenied")
+      assert.strictEqual(yield* code(fs.remove(Vfs.Entry(sticky, name("missing")))), "NotFound")
+      assert.strictEqual(yield* code(fs.remove(Vfs.Entry(sticky, name(".")))), "InvalidArgument")
+      assert.strictEqual(yield* code(fs.remove(Vfs.Entry(root, name("sticky")))), "NotEmpty")
 
-      yield* fs.removeReference(sticky, name("file"))
-      const links = (yield* fs.observeMetadata(root)).value.nlink
-      yield* fs.removeReference(root, name("sticky"))
-      assert.strictEqual((yield* fs.observeMetadata(root)).value.nlink, links - 1)
-      assert.strictEqual(yield* code(fs.observeMetadata(sticky)), "StaleReference")
+      yield* fs.remove(Vfs.Entry(sticky, name("file")))
+      const links = (yield* fs.stat(root)).nlink
+      yield* fs.remove(Vfs.Entry(root, name("sticky")))
+      assert.strictEqual((yield* fs.stat(root)).nlink, links - 1)
+      assert.strictEqual(yield* code(fs.stat(sticky)), "StaleReference")
     }))
 
   it.effect(
@@ -70,9 +70,9 @@ describe("reference mutations", () => {
     () =>
       Effect.gen(function*() {
         const fs = yield* (yield* Vfs.make()).caller({ umask: 0 })
-        const root = yield* fs.rootReference
+        const root = yield* fs.root
 
-        const directory = yield* fs.mkdirReference(root, name("directory"), {
+        const directory = yield* fs.mkdir(Vfs.Entry(root, name("directory")), {
           mode: 0o750,
           times: {
             access: { kind: "value", nanoseconds: 11n },
@@ -80,28 +80,28 @@ describe("reference mutations", () => {
           }
         })
 
-        assert.strictEqual(yield* fs.lookupReference(root, name("directory")), directory.reference)
+        assert.strictEqual(yield* fs.lookup(Vfs.Entry(root, name("directory"))), directory.reference)
         assert.isTrue(directory.directory.after > directory.directory.before)
-        assert.deepInclude((yield* fs.observeMetadata(directory.reference)).value, {
+        assert.deepInclude(yield* fs.stat(directory.reference), {
           mode: 0o750,
           atimeNs: 11n,
           mtimeNs: 12n
         })
 
-        const link = yield* fs.symlinkReference("target", root, name("link"), {
+        const link = yield* fs.symlink("target", Vfs.Entry(root, name("link")), {
           times: {
             access: { kind: "value", nanoseconds: 21n },
             modification: { kind: "value", nanoseconds: 22n }
           }
         })
 
-        assert.deepStrictEqual(yield* fs.readLinkReference(link.reference), name("target"))
-        assert.deepInclude((yield* fs.observeMetadata(link.reference)).value, { atimeNs: 21n, mtimeNs: 22n })
+        assert.deepStrictEqual(yield* fs.readLink(link.reference), name("target"))
+        assert.deepInclude(yield* fs.stat(link.reference), { atimeNs: 21n, mtimeNs: 22n })
 
         const invalid = [new Uint8Array(), name("."), name(".."), name("a/b"), new Uint8Array([0])]
 
         for (const component of invalid) {
-          assert.strictEqual((yield* Effect.flip(fs.mkdirReference(root, component))).code, "InvalidArgument")
+          assert.strictEqual((yield* Effect.flip(fs.mkdir(Vfs.Entry(root, component)))).code, "InvalidArgument")
         }
       })
   )
@@ -111,9 +111,9 @@ describe("reference mutations", () => {
     () =>
       Effect.gen(function*() {
         const fs = yield* (yield* Vfs.make()).caller({ umask: 0 })
-        const root = yield* fs.rootReference
+        const root = yield* fs.root
 
-        const created = yield* fs.openChildReference(root, name("file"), {
+        const created = yield* fs.open(Vfs.Entry(root, name("file")), {
           access: "readWrite",
           create: "exclusive",
           mode: 0o640,
@@ -127,7 +127,7 @@ describe("reference mutations", () => {
         assert.isTrue(created.directory.after > created.directory.before)
         assert.deepInclude(yield* created.handle.stat, { mode: 0o640, atimeNs: 31n, mtimeNs: 32n })
 
-        const sized = yield* fs.openChildReference(root, name("sized"), {
+        const sized = yield* fs.open(Vfs.Entry(root, name("sized")), {
           access: "read",
           create: "exclusive",
           initialSize: 3n
@@ -137,9 +137,9 @@ describe("reference mutations", () => {
         yield* sized.handle.close
         yield* created.handle.write(new Uint8Array([1, 2]))
         yield* created.handle.close
-        const beforeExisting = (yield* fs.observeMetadata(created.reference)).value
+        const beforeExisting = yield* fs.stat(created.reference)
 
-        const existing = yield* fs.openChildReference(root, name("file"), {
+        const existing = yield* fs.open(Vfs.Entry(root, name("file")), {
           access: "readWrite",
           create: "ifMissing",
           mode: 0o777,
@@ -159,44 +159,44 @@ describe("reference mutations", () => {
         })
         yield* existing.handle.close
         assert.strictEqual(
-          (yield* Effect.flip(fs.openChildReference(root, name("file"), {
+          (yield* Effect.flip(fs.open(Vfs.Entry(root, name("file")), {
             access: "read",
             create: "exclusive"
           }))).code,
           "AlreadyExists"
         )
 
-        const writer = yield* fs.openReference(created.reference, { access: "write", append: true })
+        const writer = yield* fs.open(created.reference, { access: "write", append: true })
         yield* writer.write(new Uint8Array([3]))
         assert.deepStrictEqual(yield* fs.readFile("/file"), new Uint8Array([1, 2, 3]))
-        yield* fs.unlinkReference(root, name("file"))
+        yield* fs.unlink(Vfs.Entry(root, name("file")))
         yield* writer.write(new Uint8Array([4]))
-        assert.strictEqual((yield* Effect.flip(fs.openReference(created.reference))).code, "StaleReference")
+        assert.strictEqual((yield* Effect.flip(fs.open(created.reference, { access: "read" }))).code, "StaleReference")
         assert.strictEqual(
-          (yield* Effect.flip(fs.linkReference(created.reference, root, name("resurrected")))).code,
+          (yield* Effect.flip(fs.link(created.reference, Vfs.Entry(root, name("resurrected"))))).code,
           "StaleReference"
         )
         yield* writer.close
-        assert.strictEqual((yield* Effect.flip(fs.observeMetadata(created.reference))).code, "StaleReference")
+        assert.strictEqual((yield* Effect.flip(fs.stat(created.reference))).code, "StaleReference")
       })
   )
 
   it.effect("links, renames, and removes by exact object identity", () =>
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
-      const root = yield* fs.rootReference
-      const left = yield* fs.mkdirReference(root, name("left"))
-      const right = yield* fs.mkdirReference(root, name("right"))
+      const root = yield* fs.root
+      const left = yield* fs.mkdir(Vfs.Entry(root, name("left")))
+      const right = yield* fs.mkdir(Vfs.Entry(root, name("right")))
 
-      const file = yield* fs.openChildReference(left.reference, name("file"), {
+      const file = yield* fs.open(Vfs.Entry(left.reference, name("file")), {
         access: "readWrite",
         create: "exclusive"
       })
 
       yield* file.handle.close
-      const linked = yield* fs.linkReference(file.reference, right.reference, name("alias"))
+      const linked = yield* fs.link(file.reference, Vfs.Entry(right.reference, name("alias")))
       assert.strictEqual(linked.reference, file.reference)
-      const noOp = yield* fs.renameReference(left.reference, name("file"), right.reference, name("alias"))
+      const noOp = yield* fs.rename(Vfs.Entry(left.reference, name("file")), Vfs.Entry(right.reference, name("alias")))
       assert.strictEqual(noOp._tag, "DifferentDirectories")
 
       if (Vfs.RenameReferenceResult.guards.DifferentDirectories(noOp)) {
@@ -204,32 +204,32 @@ describe("reference mutations", () => {
         assert.strictEqual(noOp.destinationDirectory.before, noOp.destinationDirectory.after)
       }
 
-      const moved = yield* fs.renameReference(left.reference, name("file"), right.reference, name("moved"))
+      const moved = yield* fs.rename(Vfs.Entry(left.reference, name("file")), Vfs.Entry(right.reference, name("moved")))
       assert.strictEqual(moved._tag, "DifferentDirectories")
-      assert.strictEqual(yield* fs.lookupReference(right.reference, name("moved")), file.reference)
-      yield* fs.unlinkReference(right.reference, name("alias"))
-      yield* fs.unlinkReference(right.reference, name("moved"))
-      const removed = yield* fs.rmdirReference(root, name("left"))
+      assert.strictEqual(yield* fs.lookup(Vfs.Entry(right.reference, name("moved"))), file.reference)
+      yield* fs.unlink(Vfs.Entry(right.reference, name("alias")))
+      yield* fs.unlink(Vfs.Entry(right.reference, name("moved")))
+      const removed = yield* fs.rmdir(Vfs.Entry(root, name("left")))
       assert.isTrue(removed.after > removed.before)
-      yield* fs.rmdirReference(root, name("right"))
+      yield* fs.rmdir(Vfs.Entry(root, name("right")))
     }))
 
   it.effect("reports one directory change when a rename stays in its directory", () =>
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
-      const root = yield* fs.rootReference
-      const file = yield* fs.openChildReference(root, name("file"), { access: "write", create: "exclusive" })
+      const root = yield* fs.root
+      const file = yield* fs.open(Vfs.Entry(root, name("file")), { access: "write", create: "exclusive" })
       yield* file.handle.close
-      yield* fs.linkReference(file.reference, root, name("alias"))
+      yield* fs.link(file.reference, Vfs.Entry(root, name("alias")))
 
-      const noOp = yield* fs.renameReference(root, name("file"), root, name("alias"))
+      const noOp = yield* fs.rename(Vfs.Entry(root, name("file")), Vfs.Entry(root, name("alias")))
       assert.strictEqual(noOp._tag, "SameDirectory")
 
       if (Vfs.RenameReferenceResult.guards.SameDirectory(noOp)) {
         assert.strictEqual(noOp.directory.before, noOp.directory.after)
       }
 
-      const moved = yield* fs.renameReference(root, name("file"), root, name("moved"))
+      const moved = yield* fs.rename(Vfs.Entry(root, name("file")), Vfs.Entry(root, name("moved")))
       assert.strictEqual(moved._tag, "SameDirectory")
 
       if (Vfs.RenameReferenceResult.guards.SameDirectory(moved)) {
@@ -242,9 +242,9 @@ describe("reference mutations", () => {
       yield* TestClock.setTime(0)
       const volume = yield* Vfs.make()
       const admin = yield* volume.caller({ umask: 0 })
-      const root = yield* admin.rootReference
+      const root = yield* admin.root
 
-      const opened = yield* admin.openChildReference(root, name("file"), {
+      const opened = yield* admin.open(Vfs.Entry(root, name("file")), {
         access: "readWrite",
         create: "exclusive",
         mode: 0o600
@@ -252,15 +252,15 @@ describe("reference mutations", () => {
 
       yield* opened.handle.write(new Uint8Array([1, 2, 3]))
       yield* opened.handle.close
-      yield* admin.chmodReference(opened.reference, 0o640)
-      yield* admin.chownReference(opened.reference, { uid: 7, gid: 8 })
-      yield* admin.utimesReference(opened.reference, {
+      yield* admin.chmod(opened.reference, 0o640)
+      yield* admin.chown(opened.reference, { uid: 7, gid: 8 })
+      yield* admin.utimes(opened.reference, {
         access: { kind: "value", nanoseconds: 41n },
         modification: { kind: "value", nanoseconds: 42n }
       })
-      assert.deepInclude((yield* admin.observeMetadata(opened.reference)).value, { atimeNs: 41n, mtimeNs: 42n })
-      yield* admin.truncateReference(opened.reference, 1n)
-      assert.deepInclude((yield* admin.observeMetadata(opened.reference)).value, {
+      assert.deepInclude(yield* admin.stat(opened.reference), { atimeNs: 41n, mtimeNs: 42n })
+      yield* admin.truncate(opened.reference, 1n)
+      assert.deepInclude(yield* admin.stat(opened.reference), {
         uid: 7,
         gid: 8,
         mode: 0o640,
@@ -269,37 +269,38 @@ describe("reference mutations", () => {
       })
 
       const guest = yield* volume.caller({ identity: { uid: 9, gid: 9, groups: [], privileged: false } })
-      assert.strictEqual((yield* Effect.flip(guest.chmodReference(opened.reference, 0o600))).code, "AccessDenied")
-      assert.strictEqual((yield* Effect.flip(guest.chownReference(opened.reference, { uid: 9 }))).code, "AccessDenied")
+      assert.strictEqual((yield* Effect.flip(guest.chmod(opened.reference, 0o600))).code, "AccessDenied")
+      assert.strictEqual((yield* Effect.flip(guest.chown(opened.reference, { uid: 9 }))).code, "AccessDenied")
       assert.strictEqual(
-        (yield* Effect.flip(guest.utimesReference(opened.reference, {
+        (yield* Effect.flip(guest.utimes(opened.reference, {
           access: { kind: "value", nanoseconds: 1n },
           modification: { kind: "value", nanoseconds: 1n }
         }))).code,
         "AccessDenied"
       )
-      assert.strictEqual((yield* Effect.flip(guest.truncateReference(opened.reference, 0n))).code, "AccessDenied")
+      assert.strictEqual((yield* Effect.flip(guest.truncate(opened.reference, 0n))).code, "AccessDenied")
       assert.strictEqual(
-        (yield* Effect.flip(guest.openReference(opened.reference, { access: "write" }))).code,
+        (yield* Effect.flip(guest.open(opened.reference, { access: "write" }))).code,
         "AccessDenied"
       )
-      assert.strictEqual((yield* Effect.flip(guest.mkdirReference(root, name("blocked")))).code, "AccessDenied")
+      assert.strictEqual((yield* Effect.flip(guest.mkdir(Vfs.Entry(root, name("blocked"))))).code, "AccessDenied")
       assert.strictEqual(
-        (yield* Effect.flip(guest.symlinkReference("target", root, name("blocked")))).code,
-        "AccessDenied"
-      )
-      assert.strictEqual(
-        (yield* Effect.flip(guest.linkReference(opened.reference, root, name("blocked")))).code,
-        "AccessDenied"
-      )
-      assert.strictEqual((yield* Effect.flip(guest.unlinkReference(root, name("file")))).code, "AccessDenied")
-      assert.strictEqual((yield* Effect.flip(guest.rmdirReference(root, name("missing")))).code, "AccessDenied")
-      assert.strictEqual(
-        (yield* Effect.flip(guest.renameReference(root, name("file"), root, name("moved")))).code,
+        (yield* Effect.flip(guest.symlink("target", Vfs.Entry(root, name("blocked"))))).code,
         "AccessDenied"
       )
       assert.strictEqual(
-        (yield* Effect.flip(guest.openChildReference(root, name("other"), {
+        (yield* Effect.flip(guest.link(opened.reference, Vfs.Entry(root, name("blocked"))))).code,
+        "AccessDenied"
+      )
+      assert.strictEqual((yield* Effect.flip(guest.unlink(Vfs.Entry(root, name("file"))))).code, "AccessDenied")
+      // A missing name is reported before write permission (#186 decision 5).
+      assert.strictEqual((yield* Effect.flip(guest.rmdir(Vfs.Entry(root, name("missing"))))).code, "NotFound")
+      assert.strictEqual(
+        (yield* Effect.flip(guest.rename(Vfs.Entry(root, name("file")), Vfs.Entry(root, name("moved"))))).code,
+        "AccessDenied"
+      )
+      assert.strictEqual(
+        (yield* Effect.flip(guest.open(Vfs.Entry(root, name("other")), {
           access: "write",
           create: "ifMissing"
         }))).code,
@@ -310,35 +311,38 @@ describe("reference mutations", () => {
   it.effect("checks an expected child before changing an open target", () =>
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
-      const root = yield* fs.rootReference
-      const first = yield* fs.openChildReference(root, name("guarded"), { access: "write", create: "exclusive" })
+      const root = yield* fs.root
+      const first = yield* fs.open(Vfs.Entry(root, name("guarded")), { access: "write", create: "exclusive" })
 
       assert.strictEqual(
-        (yield* Effect.flip(fs.openChildReference(root, name("guarded"), {
+        (yield* Effect.flip(fs.open(Vfs.Entry(root, name("guarded")), {
           access: "write",
           create: "ifMissing",
-          truncate: true
-        }, null))).code,
+          truncate: true,
+          expected: null
+        }))).code,
         "VolumeBusy"
       )
 
-      const same = yield* fs.openChildReference(root, name("guarded"), {
+      const same = yield* fs.open(Vfs.Entry(root, name("guarded")), {
         access: "read",
-        create: "ifMissing"
-      }, first.reference)
+        create: "ifMissing",
+        expected: first.reference
+      })
 
       assert.strictEqual(same.reference, first.reference)
       yield* same.handle.close
 
-      yield* fs.unlinkReference(root, name("guarded"))
+      yield* fs.unlink(Vfs.Entry(root, name("guarded")))
       yield* fs.writeFile("/guarded", new Uint8Array([7]), { access: "write", create: "exclusive" })
 
       assert.strictEqual(
-        (yield* Effect.flip(fs.openChildReference(root, name("guarded"), {
+        (yield* Effect.flip(fs.open(Vfs.Entry(root, name("guarded")), {
           access: "write",
           create: "ifMissing",
-          truncate: true
-        }, first.reference))).code,
+          truncate: true,
+          expected: first.reference
+        }))).code,
         "VolumeBusy"
       )
       assert.deepStrictEqual(yield* fs.readFile("/guarded"), new Uint8Array([7]))
@@ -348,17 +352,17 @@ describe("reference mutations", () => {
   it.effect("reports the parent's revision before and after every entry mutation", () =>
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
-      const root = yield* fs.rootReference
-      const parent = (yield* fs.mkdirReference(root, name("parent"))).reference
-      const other = (yield* fs.mkdirReference(root, name("other"))).reference
-      const seed = yield* fs.openChildReference(parent, name("seed"), { access: "write", create: "exclusive" })
+      const root = yield* fs.root
+      const parent = (yield* fs.mkdir(Vfs.Entry(root, name("parent")))).reference
+      const other = (yield* fs.mkdir(Vfs.Entry(root, name("other")))).reference
+      const seed = yield* fs.open(Vfs.Entry(parent, name("seed")), { access: "write", create: "exclusive" })
       yield* seed.handle.close
 
       const revision = (reference: Vfs.ObjectReference) =>
-        Effect.map(fs.observeDirectory(reference), (observation) => observation.revision)
+        Effect.map(fs.readDirectory(reference), (observation) => observation.revision)
 
       const openChild = Effect.fnUntraced(function*(create: "exclusive" | "ifMissing") {
-        const opened = yield* fs.openChildReference(parent, name("file"), { access: "write", create })
+        const opened = yield* fs.open(Vfs.Entry(parent, name("file")), { access: "write", create })
 
         yield* opened.handle.close
 
@@ -373,37 +377,40 @@ describe("reference mutations", () => {
         {
           label: "mkdirReference",
           bumps: true,
-          run: Effect.map(fs.mkdirReference(parent, name("dir")), (r) => r.directory)
+          run: Effect.map(fs.mkdir(Vfs.Entry(parent, name("dir"))), (r) => r.directory)
         },
         {
           label: "symlinkReference",
           bumps: true,
-          run: Effect.map(fs.symlinkReference("target", parent, name("link")), (r) => r.directory)
+          run: Effect.map(fs.symlink("target", Vfs.Entry(parent, name("link"))), (r) => r.directory)
         },
         {
           label: "linkReference",
           bumps: true,
-          run: Effect.map(fs.linkReference(seed.reference, parent, name("alias")), (r) => r.directory)
+          run: Effect.map(fs.link(seed.reference, Vfs.Entry(parent, name("alias"))), (r) => r.directory)
         },
-        { label: "unlinkReference", bumps: true, run: fs.unlinkReference(parent, name("alias")) },
-        { label: "rmdirReference", bumps: true, run: fs.rmdirReference(parent, name("dir")) },
+        { label: "unlinkReference", bumps: true, run: fs.unlink(Vfs.Entry(parent, name("alias"))) },
+        { label: "rmdirReference", bumps: true, run: fs.rmdir(Vfs.Entry(parent, name("dir"))) },
         { label: "openChildReference exclusive", bumps: true, run: openChild("exclusive") },
         { label: "openChildReference existing", bumps: false, run: openChild("ifMissing") },
-        { label: "removeReference file", bumps: true, run: fs.removeReference(parent, name("file")) },
+        { label: "removeReference file", bumps: true, run: fs.remove(Vfs.Entry(parent, name("file"))) },
         {
           label: "mkdirReference again",
           bumps: true,
-          run: Effect.map(fs.mkdirReference(parent, name("dir")), (r) => r.directory)
+          run: Effect.map(fs.mkdir(Vfs.Entry(parent, name("dir"))), (r) => r.directory)
         },
-        { label: "removeReference directory", bumps: true, run: fs.removeReference(parent, name("dir")) },
-        { label: "removeReference symlink", bumps: true, run: fs.removeReference(parent, name("link")) },
+        { label: "removeReference directory", bumps: true, run: fs.remove(Vfs.Entry(parent, name("dir"))) },
+        { label: "removeReference symlink", bumps: true, run: fs.remove(Vfs.Entry(parent, name("link"))) },
         {
           label: "renameReference same directory",
           bumps: true,
-          run: Effect.flatMap(fs.renameReference(parent, name("seed"), parent, name("renamed")), (result) =>
-            Vfs.RenameReferenceResult.guards.SameDirectory(result)
-              ? Effect.succeed(result.directory)
-              : Effect.die(`expected SameDirectory, got ${result._tag}`))
+          run: Effect.flatMap(
+            fs.rename(Vfs.Entry(parent, name("seed")), Vfs.Entry(parent, name("renamed"))),
+            (result) =>
+              Vfs.RenameReferenceResult.guards.SameDirectory(result)
+                ? Effect.succeed(result.directory)
+                : Effect.die(`expected SameDirectory, got ${result._tag}`)
+          )
         }
       ]
 
@@ -424,7 +431,7 @@ describe("reference mutations", () => {
       const rootBefore = yield* revision(root)
       const parentBefore = yield* revision(parent)
       const otherBefore = yield* revision(other)
-      const moved = yield* fs.renameReference(parent, name("renamed"), other, name("moved"))
+      const moved = yield* fs.rename(Vfs.Entry(parent, name("renamed")), Vfs.Entry(other, name("moved")))
       const parentAfter = yield* revision(parent)
       const otherAfter = yield* revision(other)
       assert.strictEqual(moved._tag, "DifferentDirectories")
@@ -440,9 +447,9 @@ describe("reference mutations", () => {
 
       const otherUntouched = yield* revision(other)
       const beforeFailure = yield* revision(parent)
-      yield* fs.mkdirReference(parent, name("existing"))
+      yield* fs.mkdir(Vfs.Entry(parent, name("existing")))
       const beforeRepeat = yield* revision(parent)
-      assert.strictEqual((yield* Effect.flip(fs.mkdirReference(parent, name("existing")))).code, "AlreadyExists")
+      assert.strictEqual((yield* Effect.flip(fs.mkdir(Vfs.Entry(parent, name("existing"))))).code, "AlreadyExists")
       assert.isTrue(beforeRepeat > beforeFailure)
       assert.strictEqual(yield* revision(parent), beforeRepeat)
       assert.strictEqual(yield* revision(other), otherUntouched)
@@ -451,11 +458,11 @@ describe("reference mutations", () => {
   it.effect("returns non-overlapping revision pairs under concurrent creation", () =>
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
-      const root = yield* fs.rootReference
+      const root = yield* fs.root
 
       const results = yield* Effect.forEach(
         Array.from({ length: 16 }, (_, index) => index),
-        (index) => fs.mkdirReference(root, name(`d-${index}`)),
+        (index) => fs.mkdir(Vfs.Entry(root, name(`d-${index}`))),
         { concurrency: "unbounded" }
       )
 

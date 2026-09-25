@@ -97,7 +97,8 @@ export interface PreparedPath {
 }
 
 // Hand-rolled because String.prototype.isWellFormed is ES2024 and the package targets ES2023.
-const wellFormed = (value: string): boolean => {
+/** @internal */
+export const isWellFormed = (value: string): boolean => {
   for (let index = 0; index < value.length; index++) {
     const code = value.charCodeAt(index)
 
@@ -117,7 +118,7 @@ const UTF8_ENCODER = new TextEncoder()
 /** @internal */
 export const inputBytes = (input: PathInput): Result.Result<Uint8Array, "InvalidPathEncoding" | "InvalidArgument"> =>
   Predicate.isString(input)
-    ? wellFormed(input) ? Result.succeed(UTF8_ENCODER.encode(input)) : Result.fail("InvalidPathEncoding")
+    ? isWellFormed(input) ? Result.succeed(UTF8_ENCODER.encode(input)) : Result.fail("InvalidPathEncoding")
     : Result.fromNullishOr(getBytePathBytes(input), () => "InvalidArgument" as const)
 
 /** @internal */

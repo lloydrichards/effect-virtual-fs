@@ -19,7 +19,10 @@ describe("directory namespace", () => {
       yield* fs.mkdir("/old/work")
       yield* cwd.mkdir("child")
       assert.strictEqual((yield* fs.stat("/new/work")).ino, before.ino)
-      assert.strictEqual((yield* fs.stat("child", { relativeTo: base })).ino, (yield* cwd.stat("child")).ino)
+      assert.strictEqual(
+        (yield* fs.stat(Vfs.Target.Path({ path: "child", relativeTo: base }))).ino,
+        (yield* cwd.stat("child")).ino
+      )
       assert.strictEqual((yield* cwd.stat("..")).ino, (yield* fs.stat("/new")).ino)
       assert.strictEqual((yield* Effect.flip(fs.stat("/old/work/child"))).code, "NotFound")
       assert.strictEqual((yield* fs.stat("/old")).nlink, 3)
@@ -83,7 +86,7 @@ describe("directory namespace", () => {
     }))
 
   it.effect(
-    "validates dot components, roots, and missing trailing-slash destinations without mutation",
+    "validates dot components and roots without mutation and moves a directory to a slashed name",
     () =>
       Effect.gen(function*() {
         const fs = yield* (yield* Vfs.make()).caller()
@@ -95,8 +98,9 @@ describe("directory namespace", () => {
           assert.strictEqual((yield* Effect.flip(fs.rmdir(path))).code, "InvalidArgument")
         }
 
-        assert.strictEqual((yield* Effect.flip(fs.rename("/a", "/b/"))).code, "NotFound")
-        yield* fs.stat("/a")
+        // A directory may move to a missing name with a trailing slash, as on Linux.
+        yield* fs.rename("/a", "/b/")
+        assert.strictEqual((yield* fs.stat("/b")).kind, "directory")
       })
   )
 
@@ -111,7 +115,10 @@ describe("directory namespace", () => {
         assert.strictEqual((yield* Effect.flip(fs.rmdir("/a"))).code, "NotEmpty")
         yield* fs.rmdir("/a/b")
         assert.strictEqual((yield* base.stat).nlink, 0)
-        assert.strictEqual((yield* Effect.flip(fs.mkdir("child", { relativeTo: base }))).code, "NotFound")
+        assert.strictEqual(
+          (yield* Effect.flip(fs.mkdir(Vfs.Target.Path({ path: "child", relativeTo: base })))).code,
+          "NotFound"
+        )
         assert.strictEqual((yield* fs.stat("/a")).nlink, 2)
         yield* fs.mkdir("/reuse")
         yield* base.close
@@ -151,17 +158,23 @@ describe("directory namespace", () => {
         yield* fs.mkdir("/a/work")
         const a = yield* fs.openDirectory("/a")
         const b = yield* fs.openDirectory("/b")
-        yield* fs.rename("work", "moved", { sourceRelativeTo: a, destinationRelativeTo: b })
+        yield* fs.rename(
+          Vfs.Target.Path({ path: "work", relativeTo: a }),
+          Vfs.Target.Path({ path: "moved", relativeTo: b })
+        )
         yield* fs.stat("/b/moved")
         const foreign = yield* (yield* (yield* Vfs.make()).caller()).openDirectory("/")
         assert.strictEqual(
-          (yield* Effect.flip(fs.rename("moved", "/a/work", { sourceRelativeTo: foreign }))).code,
+          (yield* Effect.flip(fs.rename(Vfs.Target.Path({ path: "moved", relativeTo: foreign }), "/a/work"))).code,
           "ForeignHandle"
         )
-        yield* fs.rename("/b/moved", "/a/work", { sourceRelativeTo: foreign, destinationRelativeTo: foreign })
+        yield* fs.rename(
+          Vfs.Target.Path({ path: "/b/moved", relativeTo: foreign }),
+          Vfs.Target.Path({ path: "/a/work", relativeTo: foreign })
+        )
         yield* a.close
         assert.strictEqual(
-          (yield* Effect.flip(fs.rename("/a/work", "work", { destinationRelativeTo: a }))).code,
+          (yield* Effect.flip(fs.rename("/a/work", Vfs.Target.Path({ path: "work", relativeTo: a })))).code,
           "InvalidHandle"
         )
       })

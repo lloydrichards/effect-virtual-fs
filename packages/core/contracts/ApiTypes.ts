@@ -14,8 +14,8 @@ export const publicCodeIdentity: typeof Vfs.VfsCode = VfsErrorModule.VfsCode
 
 export const conditionalChildOpen = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
   Effect.gen(function*() {
-    const observation = yield* caller.observeMetadata(reference)
-    const settings: Vfs.OpenChildReferenceSettings = {
+    const observation = yield* caller.stat(reference)
+    const options: Vfs.OpenEntryOptions = {
       access: "readWrite",
       create: "ifMissing",
       initialSize: 3n,
@@ -23,74 +23,75 @@ export const conditionalChildOpen = (caller: Vfs.Caller, reference: Vfs.ObjectRe
       expectedChild: {
         reference,
         revision: observation.revision,
-        atimeNs: observation.value.atimeNs,
-        mtimeNs: observation.value.mtimeNs
+        atimeNs: observation.atimeNs,
+        mtimeNs: observation.mtimeNs
       }
     }
-    yield* caller.openChildReference(reference, new Uint8Array([102]), settings)
-    return yield* caller.openChildReference(reference, new Uint8Array([103]), { ...settings, expectedChild: null })
-  }) satisfies Effect.Effect<Vfs.OpenChildReferenceResult, Vfs.FsFailure, Scope.Scope>
+    yield* caller.open(Vfs.Entry(reference, new Uint8Array([102])), options)
+    return yield* caller.open(Vfs.Entry(reference, "g"), { ...options, expectedChild: null, expected: null })
+  }) satisfies Effect.Effect<Vfs.OpenEntryResult, Vfs.FsFailure, Scope.Scope>
 
 export const references = (caller: Vfs.Caller) =>
   Effect.gen(function*() {
-    const root: Vfs.ObjectReference = yield* caller.rootReference
-    const child: Vfs.ObjectReference = yield* caller.lookupReference(root, new Uint8Array([102]))
-    const parent: Vfs.ObjectReference = yield* caller.parentReference(root)
-    const metadata: Vfs.ObjectObservation<Vfs.Metadata> = yield* caller.observeMetadata(child)
-    const access = caller.accessReference(child, 0o4) satisfies Effect.Effect<void, Vfs.FsFailure>
-    yield* access
-    const directory: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>> = yield* caller.observeDirectory(parent)
-    const target: Uint8Array = yield* caller.readLinkReference(child)
-    return { root, child, metadata, directory, target }
+    const root: Vfs.ObjectReference = yield* caller.root
+    const child: Vfs.ObjectReference = yield* caller.lookup(Vfs.Entry(root, new Uint8Array([102])))
+    const parent: Vfs.ObjectReference = yield* caller.parent(root)
+    const metadata: Vfs.Metadata = yield* caller.stat(child)
+    const granted: number = yield* caller.access(child, 0o4)
+    const directory: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>> = yield* caller.readDirectory(parent)
+    const target: Uint8Array = yield* caller.readLink(child)
+    return { root, child, metadata, granted, directory, target }
   }) satisfies Effect.Effect<{
     readonly root: Vfs.ObjectReference
     readonly child: Vfs.ObjectReference
-    readonly metadata: Vfs.ObjectObservation<Vfs.Metadata>
+    readonly metadata: Vfs.Metadata
+    readonly granted: number
     readonly directory: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>>
     readonly target: Uint8Array
   }, Vfs.FsFailure>
 
-export const referencedFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
-  caller.openReference(reference) satisfies Effect.Effect<Vfs.FileHandle, Vfs.FsFailure, Scope.Scope>
-
-export const referenceMutations = (
-  caller: Vfs.Caller,
-  source: Vfs.ObjectReference,
-  destination: Vfs.ObjectReference
-) =>
+export const targets = (caller: Vfs.Caller, reference: Vfs.ObjectReference, handle: Vfs.DirectoryHandle) =>
   Effect.gen(function*() {
-    const directory: Vfs.ReferenceEntryResult = yield* caller.mkdirReference(
-      destination,
-      new TextEncoder().encode("directory"),
-      { mode: 0o750 }
+    const byPath: Vfs.Metadata = yield* caller.stat(Vfs.Target.Path({ path: "file", relativeTo: handle }))
+    const noFollow: Vfs.Metadata = yield* caller.stat(Vfs.Target.Path({ path: "/link", followFinalSymlink: false }))
+    const byReference: Vfs.Metadata = yield* caller.stat(Vfs.Target.Reference({ reference }))
+    const byHandle: Vfs.Metadata = yield* caller.stat(Vfs.Target.Handle({ handle }))
+    const bare: Vfs.Metadata = yield* caller.stat(handle)
+    const path: Vfs.BytePath = yield* caller.realPath(reference)
+    return [byPath, noFollow, byReference, byHandle, bare, path] as const
+  }) satisfies Effect.Effect<unknown, Vfs.FsFailure>
+
+export const referencedFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
+  caller.open(reference, { access: "read" }) satisfies Effect.Effect<Vfs.FileHandle, Vfs.FsFailure, Scope.Scope>
+
+export const entryMutations = (caller: Vfs.Caller, source: Vfs.ObjectReference, destination: Vfs.ObjectReference) =>
+  Effect.gen(function*() {
+    const directory: Vfs.ReferenceEntryResult = yield* caller.mkdir(Vfs.Entry(destination, "directory"), {
+      mode: 0o750
+    })
+    const linked: Vfs.ReferenceEntryResult = yield* caller.link(source, Vfs.Entry(destination, "alias"))
+    const renamed: Vfs.RenameReferenceResult = yield* caller.rename(
+      Vfs.Entry(destination, "alias"),
+      Vfs.Entry(directory.reference, "moved")
     )
-    const linked: Vfs.ReferenceEntryResult = yield* caller.linkReference(
-      source,
-      destination,
-      new TextEncoder().encode("alias")
-    )
-    const renamed: Vfs.RenameReferenceResult = yield* caller.renameReference(
-      destination,
-      new TextEncoder().encode("alias"),
-      directory.reference,
-      new TextEncoder().encode("moved")
-    )
-    yield* caller.chmodReference(linked.reference, 0o600)
-    yield* caller.truncateReference(linked.reference, 0n)
-    return renamed
-  }) satisfies Effect.Effect<Vfs.RenameReferenceResult, Vfs.FsFailure>
+    const byPath: Vfs.ReferenceEntryResult = yield* caller.mkdir("/by-path")
+    const removed: Vfs.DirectoryChange = yield* caller.remove("/by-path")
+    yield* caller.chmod(linked.reference, 0o600)
+    yield* caller.truncate(linked.reference, 0n)
+    return { renamed, byPath, removed }
+  }) satisfies Effect.Effect<unknown, Vfs.FsFailure>
 
 export const referencedWritableFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
-  caller.openReference(reference, {
+  caller.open(reference, {
     access: "readWrite",
     append: true
   }) satisfies Effect.Effect<Vfs.FileHandle, Vfs.FsFailure, Scope.Scope>
 
 export const referencedChildFile = (caller: Vfs.Caller, directory: Vfs.ObjectReference) =>
-  caller.openChildReference(directory, new TextEncoder().encode("file"), {
+  caller.open(Vfs.Entry(directory, "file"), {
     access: "readWrite",
     create: "ifMissing"
-  }) satisfies Effect.Effect<Vfs.OpenChildReferenceResult, Vfs.FsFailure, Scope.Scope>
+  }) satisfies Effect.Effect<Vfs.OpenEntryResult, Vfs.FsFailure, Scope.Scope>
 
 export const rootCaller = Effect.gen(function*() {
   const volume = yield* Vfs.make({ maxEntries: 10, maxPathBytes: ByteSize.kibibytes(1) })
@@ -118,13 +119,13 @@ export const scopedDirectory = (caller: Vfs.Caller) =>
 
 export const service = Layer.effect(Vfs.CurrentFileSystem, rootCaller)
 export const moveDirectory = (caller: Vfs.Caller, source: Vfs.DirectoryHandle, destination: Vfs.DirectoryHandle) =>
-  caller.rename("old", "new", { sourceRelativeTo: source, destinationRelativeTo: destination }) satisfies Effect.Effect<
-    void,
-    Vfs.FsFailure
-  >
+  caller.rename(
+    Vfs.Target.Path({ path: "old", relativeTo: source }),
+    Vfs.Target.Path({ path: "new", relativeTo: destination })
+  ) satisfies Effect.Effect<Vfs.RenameReferenceResult, Vfs.FsFailure>
 
 export const removeDirectory = (caller: Vfs.Caller) =>
-  caller.rmdir("empty") satisfies Effect.Effect<void, Vfs.FsFailure>
+  caller.rmdir("empty") satisfies Effect.Effect<Vfs.DirectoryChange, Vfs.FsFailure>
 
 export const acquired = (caller: Vfs.Caller) =>
   caller.openDirectory(".") satisfies Effect.Effect<Vfs.DirectoryHandle, Vfs.FsFailure, Scope.Scope>
@@ -135,7 +136,7 @@ export const rejected = (caller: Vfs.Caller) => {
   // @ts-expect-error Raw bytes require the owning BytePath constructor.
   caller.stat(new Uint8Array([47]))
   // @ts-expect-error Numeric descriptors are not directory identities.
-  caller.stat(".", { relativeTo: 1 })
+  caller.stat(Vfs.Target.Path({ path: ".", relativeTo: 1 }))
   // @ts-expect-error Root callers have no public close method.
   caller.close()
   // @ts-expect-error Object references cannot be structurally constructed.
@@ -154,9 +155,9 @@ export const scopedFile = (caller: Vfs.Caller) =>
 
 export const rejectedReferenceFile = (caller: Vfs.Caller, reference: Vfs.ObjectReference) => {
   // @ts-expect-error Reference-based file acquisition still requires Scope.
-  const unscoped: Effect.Effect<Vfs.FileHandle, Vfs.FsFailure> = caller.openReference(reference)
+  const unscoped: Effect.Effect<Vfs.FileHandle, Vfs.FsFailure> = caller.open(reference, { access: "read" })
   // @ts-expect-error Creation mode does not apply to an already identified object.
-  caller.openReference(reference, { access: "write", mode: 0o600 })
+  caller.open(reference, { access: "write", mode: 0o600, unknownOption: true })
   return unscoped
 }
 

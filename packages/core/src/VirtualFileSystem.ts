@@ -28,11 +28,24 @@ import type { DirectoryHandleId, FileHandleId } from "./FileHandle.js"
 import * as FileHandleModule from "./FileHandle.js"
 import * as FixtureModule from "./Fixture.js"
 import * as MetadataModule from "./Metadata.js"
-import type { FsFailure, ImageFailure, VfsError } from "./VfsError.js"
+import type { Entry, EntryInput, Target, TargetInput } from "./Target.js"
+import type { ArgumentFailure, FsFailure, ImageFailure, VfsError } from "./VfsError.js"
 import * as VfsErrorModule from "./VfsError.js"
 import type { VolumeId } from "./Volume.js"
 import * as VolumeModule from "./Volume.js"
 import * as WatchModule from "./Watch.js"
+
+export {
+  Entry,
+  type EntryInput,
+  isEntry,
+  isTarget,
+  Name,
+  type NameInput,
+  type PathTarget,
+  Target,
+  type TargetInput
+} from "./Target.js"
 
 export { BytePath } from "./BytePath.js"
 
@@ -449,20 +462,20 @@ export interface ObjectReference {
  *
  *   yield* caller.mkdir("/work")
  *
- *   const root = yield* caller.rootReference
- *   const work = yield* caller.lookupReference(root, new TextEncoder().encode("work"))
+ *   const root = yield* caller.root
+ *   const work = yield* caller.lookup(Vfs.Entry(root, "work"))
  *
- *   const before = yield* caller.observeMetadata(work)
+ *   const before = yield* caller.stat(work)
  *
  *   yield* caller.rename("/work", "/moved")
  *
- *   const after = yield* caller.observeMetadata(work)
+ *   const after = yield* caller.stat(work)
  *
- *   return [before.value.kind, after.value.kind]
+ *   return [before.kind, after.kind, after.revision > before.revision]
  * })
  *
  * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
- * // [ 'directory', 'directory' ]
+ * // [ 'directory', 'directory', true ]
  * ```
  *
  * @category models
@@ -526,59 +539,6 @@ export const RenameReferenceResult: typeof CallerModule.RenameReferenceResult = 
  * @since 0.4.0
  */
 export type RenameReferenceResult = typeof RenameReferenceResult.Type
-
-/**
- * Resolves a relative path from a live directory handle instead of the caller's directory.
- *
- * @category models
- * @since 0.1.0
- */
-export interface RelativeOptions {
-  /** Resolve relative paths from this live, same-volume handle instead of the caller's current directory. */
-  readonly relativeTo?: DirectoryHandle
-}
-
-/**
- * Controls the base directory and whether metadata operations follow the final symbolic link.
- *
- * @example
- * ```ts
- * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
- * import { Effect } from "effect"
- *
- * const program = Effect.gen(function*() {
- *   const caller = yield* (yield* Vfs.make()).caller()
- *
- *   yield* caller.writeFile("/target", new Uint8Array([1]), {
- *     access: "write",
- *     create: "exclusive",
- *     mode: 0o644
- *   })
- *   yield* caller.symlink("/target", "/link")
- *
- *   // Metadata operations follow the final link by default, so this reaches the
- *   // target; opting out changes the link itself and leaves the target alone.
- *   yield* caller.chmod("/link", 0o600)
- *   const followed = (yield* caller.stat("/target")).mode & 0o777
- *
- *   yield* caller.chmod("/link", 0o777, { followFinalSymlink: false })
- *   const unchanged = (yield* caller.stat("/target")).mode & 0o777
- *
- *   return [followed.toString(8), unchanged.toString(8)]
- * })
- *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
- * // [ '600', '600' ]
- * ```
- *
- * @category models
- * @since 0.1.0
- */
-export interface MetadataOptions extends RelativeOptions {
-  /** Follow the final symbolic link. Defaults to `true`. */
-  readonly followFinalSymlink?: boolean
-}
 
 /**
  * Schema for an owner update. Omitted fields retain their existing values.
@@ -668,13 +628,12 @@ export type Times = typeof Times.Type
  *   const directory = yield* caller.openDirectory("/project")
  *
  *   yield* caller.rename("/project", "/renamed")
- *   yield* caller.writeFile("notes.txt", new TextEncoder().encode("kept"), {
+ *   yield* caller.writeFile(Vfs.Target.Path({ path: "notes.txt", relativeTo: directory }), new TextEncoder().encode("kept"), {
  *     access: "write",
- *     create: "exclusive",
- *     relativeTo: directory
+ *     create: "exclusive"
  *   })
  *
- *   return yield* caller.readDirectory("/renamed")
+ *   return (yield* caller.readDirectory("/renamed")).value.map((entry) => new TextDecoder().decode(entry.name))
  * }).pipe(Effect.scoped)
  *
  * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
@@ -737,15 +696,15 @@ export type SeekMode = typeof SeekMode.Type
  * @category schemas
  * @since 0.1.0
  */
-export const OpenSettings: typeof CallerModule.OpenSettings = CallerModule.OpenSettings
+export const OpenOptions: typeof CallerModule.OpenOptions = CallerModule.OpenOptions
 
 /**
- * Options for acquiring a scoped file handle.
+ * Options of `open` on a target.
  *
  * @category models
  * @since 0.1.0
  */
-export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
+export type OpenOptions = typeof OpenOptions.Type
 
 /**
  * Settings for creating a directory through a parent object reference.
@@ -754,7 +713,7 @@ export type OpenOptions = typeof OpenSettings.Type & RelativeOptions
  * @category schemas
  * @since 0.4.0
  */
-export const MkdirReferenceSettings: typeof CallerModule.MkdirReferenceSettings = CallerModule.MkdirReferenceSettings
+export const MkdirOptions: typeof CallerModule.MkdirOptions = CallerModule.MkdirOptions
 
 /**
  * Settings for creating a directory through a parent object reference.
@@ -763,7 +722,7 @@ export const MkdirReferenceSettings: typeof CallerModule.MkdirReferenceSettings 
  * @category models
  * @since 0.4.0
  */
-export type MkdirReferenceSettings = typeof MkdirReferenceSettings.Type
+export type MkdirOptions = typeof MkdirOptions.Type
 
 /**
  * Settings for creating a symbolic link through a parent object reference.
@@ -771,8 +730,7 @@ export type MkdirReferenceSettings = typeof MkdirReferenceSettings.Type
  * @category schemas
  * @since 0.4.0
  */
-export const SymlinkReferenceSettings: typeof CallerModule.SymlinkReferenceSettings =
-  CallerModule.SymlinkReferenceSettings
+export const SymlinkOptions: typeof CallerModule.SymlinkOptions = CallerModule.SymlinkOptions
 
 /**
  * Settings for creating a symbolic link through a parent object reference.
@@ -780,23 +738,7 @@ export const SymlinkReferenceSettings: typeof CallerModule.SymlinkReferenceSetti
  * @category models
  * @since 0.4.0
  */
-export type SymlinkReferenceSettings = typeof SymlinkReferenceSettings.Type
-
-/**
- * Settings for opening an existing regular-file reference.
- *
- * @category schemas
- * @since 0.4.0
- */
-export const OpenReferenceSettings: typeof CallerModule.OpenReferenceSettings = CallerModule.OpenReferenceSettings
-
-/**
- * Settings for opening an existing regular-file reference.
- *
- * @category models
- * @since 0.4.0
- */
-export type OpenReferenceSettings = typeof OpenReferenceSettings.Type
+export type SymlinkOptions = typeof SymlinkOptions.Type
 
 /**
  * Settings for atomically looking up or creating and opening one referenced child.
@@ -805,8 +747,7 @@ export type OpenReferenceSettings = typeof OpenReferenceSettings.Type
  * @category schemas
  * @since 0.4.0
  */
-export const OpenChildReferenceSettings: typeof CallerModule.OpenChildReferenceSettings =
-  CallerModule.OpenChildReferenceSettings
+export const OpenEntryOptions: typeof CallerModule.OpenEntryOptions = CallerModule.OpenEntryOptions
 
 /**
  * Settings for atomically looking up or creating and opening one referenced child.
@@ -820,7 +761,7 @@ export const OpenChildReferenceSettings: typeof CallerModule.OpenChildReferenceS
  * @category models
  * @since 0.4.0
  */
-export type OpenChildReferenceSettings = typeof OpenChildReferenceSettings.Type
+export type OpenEntryOptions = typeof OpenEntryOptions.Type
 
 /**
  * A scoped child-open result captured inside one coordinated operation.
@@ -828,7 +769,7 @@ export type OpenChildReferenceSettings = typeof OpenChildReferenceSettings.Type
  * @category models
  * @since 0.4.0
  */
-export interface OpenChildReferenceResult {
+export interface OpenEntryResult {
   readonly handle: FileHandle
   readonly reference: ObjectReference
   readonly created: boolean
@@ -876,7 +817,26 @@ export interface OpenChildReferenceResult {
  * @category models
  * @since 0.1.0
  */
-export type WriteFileOptions = CallerModule.WriteFileSettings & RelativeOptions
+export const WriteFileOptions: typeof CallerModule.WriteFileOptions = CallerModule.WriteFileOptions
+
+/**
+ * Options of `writeFile`.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type WriteFileOptions = typeof WriteFileOptions.Type
+
+/**
+ * The bytes a positional read returned and whether they reach the end of the file.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export interface ReadResult {
+  readonly bytes: Uint8Array
+  readonly eof: boolean
+}
 
 /**
  * A scoped regular-file capability with an independent bigint cursor.
@@ -900,11 +860,11 @@ export type WriteFileOptions = CallerModule.WriteFileSettings & RelativeOptions
  *   // `pread` reads at an offset and leaves the cursor where writing left it.
  *   const slice = yield* handle.pread(2, 1n)
  *
- *   return [slice, yield* handle.seek(0n, "current")]
+ *   return [slice.bytes, slice.eof, yield* handle.seek(0n, "current")]
  * }).pipe(Effect.scoped)
  *
  * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
- * // [ Uint8Array(2) [ 2, 3 ], 4n ]
+ * // [ Uint8Array(2) [ 2, 3 ], false, 4n ]
  * ```
  *
  * @category models
@@ -915,7 +875,7 @@ export interface FileHandle {
   /** Reads up to `maximumBytes` from the cursor and advances it by the returned length. */
   readonly read: (maximumBytes: number) => Effect.Effect<Uint8Array, FsFailure>
   /** Reads at `offset` without changing the cursor. */
-  readonly pread: (maximumBytes: number, offset: bigint) => Effect.Effect<Uint8Array, FsFailure>
+  readonly pread: (maximumBytes: number, offset: bigint) => Effect.Effect<ReadResult, FsFailure>
   /** Writes at the cursor and advances it, or writes at end of file when opened for append. */
   readonly write: (bytes: Uint8Array) => Effect.Effect<number, FsFailure>
   /** Writes at `offset` without changing the cursor. Append mode does not affect positional writes. */
@@ -953,7 +913,7 @@ export interface FileHandle {
  *     create: "exclusive"
  *   })
  *
- *   return yield* caller.readDirectory("/work")
+ *   return (yield* caller.readDirectory("/work")).value.map((entry) => new TextDecoder().decode(entry.name))
  * })
  *
  * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
@@ -1008,7 +968,7 @@ export interface FileHandle {
  *     create: "exclusive"
  *   })
  *
- *   return yield* caller.readDirectory("/dist")
+ *   return (yield* caller.readDirectory("/dist")).value.map((entry) => new TextDecoder().decode(entry.name))
  * }).pipe(Effect.scoped)
  *
  * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
@@ -1021,157 +981,74 @@ export interface FileHandle {
  */
 export interface Caller {
   readonly [CallerId]: true
-  /** Returns the stable reference for this volume's root directory. */
-  readonly rootReference: Effect.Effect<ObjectReference, FsFailure>
-  /** Looks up one byte-preserving child name from a referenced directory. */
-  readonly lookupReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<ObjectReference, FsFailure>
-  /** Returns a referenced directory's current parent. The root is its own parent. */
-  readonly parentReference: (directory: ObjectReference) => Effect.Effect<ObjectReference, FsFailure>
-  /** Reads metadata and its matching live revision. Requires no permission on the object, as `stat` does not. */
-  readonly observeMetadata: (reference: ObjectReference) => Effect.Effect<ObjectObservation<Metadata>, FsFailure>
-  /** Checks permission bits on the exact referenced object without resolving a path. */
-  readonly accessReference: (reference: ObjectReference, bits?: number) => Effect.Effect<void, FsFailure>
-  /** Reads owned directory entries and their matching directory revision. */
-  readonly observeDirectory: (
-    reference: ObjectReference
-  ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsFailure>
-  /** Reads an owned symbolic-link target through a stable reference. Requires no permission on the link. */
-  readonly readLinkReference: (reference: ObjectReference) => Effect.Effect<Uint8Array, FsFailure>
-  /** Creates one directory from a referenced parent and returns its exact identity and directory transition. */
-  readonly mkdirReference: (
-    directory: ObjectReference,
-    name: Uint8Array,
-    settings?: MkdirReferenceSettings
-  ) => Effect.Effect<ReferenceEntryResult, FsFailure>
-  /** Creates one symbolic link from a referenced parent and returns its exact identity and directory transition. */
-  readonly symlinkReference: (
-    target: PathInput,
-    directory: ObjectReference,
-    name: Uint8Array,
-    settings?: SymlinkReferenceSettings
-  ) => Effect.Effect<ReferenceEntryResult, FsFailure>
-  /** Creates another name for the exact source object; symbolic links are not followed. */
-  readonly linkReference: (
-    source: ObjectReference,
-    destinationDirectory: ObjectReference,
-    destinationName: Uint8Array
-  ) => Effect.Effect<ReferenceEntryResult, FsFailure>
-  /** Removes a non-directory child and returns the parent directory transition. */
-  readonly unlinkReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsFailure>
-  /** Removes an empty directory child and returns the parent directory transition. */
-  readonly rmdirReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsFailure>
-  /** Removes a child of either type in one coordinated mutation and returns the parent directory transition. */
-  readonly removeReference: (directory: ObjectReference, name: Uint8Array) => Effect.Effect<DirectoryChange, FsFailure>
-  /** Renames one referenced child and returns one transition per distinct parent directory. */
-  readonly renameReference: (
-    sourceDirectory: ObjectReference,
-    sourceName: Uint8Array,
-    destinationDirectory: ObjectReference,
-    destinationName: Uint8Array
-  ) => Effect.Effect<RenameReferenceResult, FsFailure>
-  /** Changes permission bits on the exact referenced object. */
-  readonly chmodReference: (reference: ObjectReference, mode: number) => Effect.Effect<void, FsFailure>
-  /** Changes ownership on the exact referenced object. */
-  readonly chownReference: (reference: ObjectReference, owner: OwnerUpdate) => Effect.Effect<void, FsFailure>
-  /** Changes timestamps on the exact referenced object. */
-  readonly utimesReference: (reference: ObjectReference, times: Times) => Effect.Effect<void, FsFailure>
-  /** Changes the length of the exact referenced regular file. */
-  readonly truncateReference: (reference: ObjectReference, length: bigint) => Effect.Effect<void, FsFailure>
-  /** Opens an existing referenced regular file. Omitted settings preserve read-only behavior. */
-  readonly openReference: (
-    reference: ObjectReference,
-    settings?: OpenReferenceSettings
-  ) => Effect.Effect<FileHandle, FsFailure, Scope.Scope>
-  /** Atomically looks up or creates and opens one child; `expected` guards its current identity, with `null` meaning absent. */
-  readonly openChildReference: (
-    directory: ObjectReference,
-    name: Uint8Array,
-    settings: OpenChildReferenceSettings,
-    expected?: ObjectReference | null
-  ) => Effect.Effect<OpenChildReferenceResult, FsFailure, Scope.Scope>
-  /** Reads metadata, following the final symbolic link by default. */
-  readonly stat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsFailure>
-  /** Atomically moves an entry within this volume without replacing a non-empty directory. */
-  readonly rename: (
-    source: PathInput,
-    destination: PathInput,
-    options?: {
-      readonly sourceRelativeTo?: DirectoryHandle
-      readonly destinationRelativeTo?: DirectoryHandle
-    }
-  ) => Effect.Effect<void, FsFailure>
-  /** Reads and returns an owned copy of a regular file's complete contents. */
-  readonly readFile: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsFailure>
-  /** Atomically writes a complete regular file according to the replacement options. */
-  readonly writeFile: (path: PathInput, bytes: Uint8Array, options: WriteFileOptions) => Effect.Effect<void, FsFailure>
-  /** Checks the requested permission bits without opening the entry. */
-  readonly access: (path: PathInput, bits?: number, options?: RelativeOptions) => Effect.Effect<void, FsFailure>
-  /** Sets a regular file's length. Extending creates a zero-filled region. */
-  readonly truncate: (path: PathInput, length: bigint, options?: RelativeOptions) => Effect.Effect<void, FsFailure>
-  /** Changes permission bits, following the final symbolic link by default. */
-  readonly chmod: (path: PathInput, mode: number, options?: MetadataOptions) => Effect.Effect<void, FsFailure>
-  /** Changes uid, gid, or both, following the final symbolic link by default. */
-  readonly chown: (path: PathInput, owner: OwnerUpdate, options?: MetadataOptions) => Effect.Effect<void, FsFailure>
-  /** Updates access and modification times, following the final symbolic link by default. */
-  readonly utimes: (path: PathInput, times: Times, options?: MetadataOptions) => Effect.Effect<void, FsFailure>
-  /** Changes permission bits through a live, same-volume handle. */
-  readonly chmodHandle: (handle: FileHandle | DirectoryHandle, mode: number) => Effect.Effect<void, FsFailure>
-  /** Changes uid, gid, or both through a live, same-volume handle. */
-  readonly chownHandle: (handle: FileHandle | DirectoryHandle, owner: OwnerUpdate) => Effect.Effect<void, FsFailure>
-  /** Updates access and modification times through a live, same-volume handle. */
-  readonly utimesHandle: (handle: FileHandle | DirectoryHandle, times: Times) => Effect.Effect<void, FsFailure>
-  /** Reads metadata without following the final symbolic link. */
-  readonly lstat: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Metadata, FsFailure>
-  /** Creates a hard link to an existing non-directory entry. */
-  readonly link: (
-    source: PathInput,
-    destination: PathInput,
-    options?: {
-      readonly sourceRelativeTo?: DirectoryHandle
-      readonly destinationRelativeTo?: DirectoryHandle
-      readonly followSourceSymlink?: boolean
-    }
-  ) => Effect.Effect<void, FsFailure>
-  /** Creates a symbolic link. The target bytes are stored without resolving them. */
-  readonly symlink: (target: PathInput, path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsFailure>
-  /** Reads a symbolic-link target as UTF-8, failing `UnrepresentableName` for other bytes. See `readLinkBytes`. */
-  readonly readLink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsFailure>
-  /** Reads a symbolic-link target as owned bytes. */
-  readonly readLinkBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Uint8Array, FsFailure>
-  /** Reads directory names as UTF-8, failing `UnrepresentableName` for other bytes. See `readDirectoryBytes`. */
+  /** The reference of the volume's root directory. */
+  readonly root: Effect.Effect<ObjectReference, FsFailure>
+  /** The reference of a child of a directory, without following it. */
+  readonly lookup: (entry: EntryInput) => Effect.Effect<ObjectReference, FsFailure>
+  /** The reference of a directory's parent; the root is its own parent. */
+  readonly parent: (directory: TargetInput) => Effect.Effect<ObjectReference, FsFailure>
+  /** Metadata and revision of a target. A path follows a final symbolic link unless its target says otherwise. */
+  readonly stat: (target: TargetInput) => Effect.Effect<Metadata, FsFailure>
+  /** The entries of a directory with their references, and the directory's revision. */
   readonly readDirectory: (
-    path: PathInput,
-    options?: RelativeOptions
-  ) => Effect.Effect<ReadonlyArray<string>, FsFailure>
-  /** Reads directory names as owned byte arrays. */
-  readonly readDirectoryBytes: (
-    path: PathInput,
-    options?: RelativeOptions
-  ) => Effect.Effect<ReadonlyArray<Uint8Array>, FsFailure>
-  /** Resolves links and normalizes a path as UTF-8, failing `UnrepresentableName` for other bytes. See `realPathBytes`. */
-  readonly realPath: (path: PathInput, options?: RelativeOptions) => Effect.Effect<string, FsFailure>
-  /** Resolves links and normalizes a path without requiring UTF-8 names. */
-  readonly realPathBytes: (path: PathInput, options?: RelativeOptions) => Effect.Effect<BytePath, FsFailure>
-  /** Opens a scoped regular-file handle. The surrounding scope closes it automatically. */
-  readonly open: (path: PathInput, options: OpenOptions) => Effect.Effect<FileHandle, FsFailure, Scope.Scope>
-  /** Removes a non-directory entry. Open handles remain usable until closed. */
-  readonly unlink: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsFailure>
-  /** Removes an empty directory. */
-  readonly rmdir: (path: PathInput, options?: RelativeOptions) => Effect.Effect<void, FsFailure>
-  /** Creates one directory. Parent directories must already exist. */
-  readonly mkdir: (
-    path: PathInput,
-    options?: RelativeOptions & {
-      readonly mode?: number
-    }
+    directory: TargetInput
+  ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsFailure>
+  /** The bytes a symbolic link points at. A path never follows the final link. */
+  readonly readLink: (target: TargetInput) => Effect.Effect<Uint8Array, FsFailure>
+  /** The canonical absolute path of a target. */
+  readonly realPath: (target: TargetInput) => Effect.Effect<BytePath, FsFailure>
+  /** The bits of `bits` the caller may exercise on the target: READ, WRITE, EXECUTE as 4, 2, 1. */
+  readonly access: (target: TargetInput, bits?: number) => Effect.Effect<number, FsFailure>
+  /** The whole content of a regular file. */
+  readonly readFile: (target: TargetInput) => Effect.Effect<Uint8Array, FsFailure>
+  /** Writes a whole file in one operation, creating or replacing it as the options say. */
+  readonly writeFile: (
+    entry: EntryInput,
+    bytes: Uint8Array,
+    options: WriteFileOptions
   ) => Effect.Effect<void, FsFailure>
-  /** Creates a scoped caller whose current directory is the resolved directory identity. */
-  readonly withDirectory: (path: PathInput, options?: RelativeOptions) => Effect.Effect<Caller, FsFailure, Scope.Scope>
-  /** Opens a scoped directory handle for metadata and relative path resolution. */
-  readonly openDirectory: (
-    path: PathInput,
-    options?: RelativeOptions
-  ) => Effect.Effect<DirectoryHandle, FsFailure, Scope.Scope>
+  /**
+   * Opens a file. On a target, the file must exist and `create` is rejected. On an entry, the name is looked up
+   * and created in one gate hold, and the result reports whether it was created.
+   */
+  readonly open: {
+    (target: Target | PathInput | ObjectReference | FileHandle, options: OpenOptions): Effect.Effect<
+      FileHandle,
+      FsFailure,
+      Scope.Scope
+    >
+    (entry: Entry, options: OpenEntryOptions): Effect.Effect<OpenEntryResult, FsFailure, Scope.Scope>
+  }
+  /** Creates a directory. */
+  readonly mkdir: (entry: EntryInput, options?: MkdirOptions) => Effect.Effect<ReferenceEntryResult, FsFailure>
+  /** Creates a symbolic link to `target`, stored as given. */
+  readonly symlink: (
+    target: PathInput,
+    entry: EntryInput,
+    options?: SymlinkOptions
+  ) => Effect.Effect<ReferenceEntryResult, FsFailure>
+  /** Adds a name for an existing file or symbolic link. A path source follows a final symbolic link only when its target says so. */
+  readonly link: (source: TargetInput, entry: EntryInput) => Effect.Effect<ReferenceEntryResult, FsFailure>
+  /** Removes a file or symbolic link. */
+  readonly unlink: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
+  /** Removes an empty directory. */
+  readonly rmdir: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
+  /** Removes a file, a symbolic link, or an empty directory. */
+  readonly remove: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
+  /** Moves an entry, replacing a compatible destination. */
+  readonly rename: (from: EntryInput, to: EntryInput) => Effect.Effect<RenameReferenceResult, FsFailure>
+  /** Sets the permission bits of a target. */
+  readonly chmod: (target: TargetInput, mode: number) => Effect.Effect<void, FsFailure>
+  /** Changes the owner or group of a target. */
+  readonly chown: (target: TargetInput, owner: OwnerUpdate) => Effect.Effect<void, FsFailure>
+  /** Sets the access and modification times of a target. */
+  readonly utimes: (target: TargetInput, times: Times) => Effect.Effect<void, FsFailure>
+  /** Sets the size of a regular file. */
+  readonly truncate: (target: TargetInput, length: bigint) => Effect.Effect<void, FsFailure>
+  /** A caller whose working directory is the target, released with the scope. */
+  readonly withDirectory: (directory: TargetInput) => Effect.Effect<Caller, FsFailure, Scope.Scope>
+  /** A handle on a directory, released with the scope. */
+  readonly openDirectory: (directory: TargetInput) => Effect.Effect<DirectoryHandle, FsFailure, Scope.Scope>
 }
 
 /**
@@ -1574,7 +1451,7 @@ export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, I
 export const decodeSnapshot: (
   input: Uint8Array,
   limits: DecodeLimits
-) => Effect.Effect<Snapshot, ImageFailure | VfsErrorModule.ArgumentFailure> = (input, limits) =>
+) => Effect.Effect<Snapshot, ImageFailure | ArgumentFailure> = (input, limits) =>
   Effect.mapError(Image.decodeSnapshot(input, limits), (error) => retargetFailure("decodeSnapshot", error))
 
 const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDeltaLimits) =>
@@ -2079,7 +1956,9 @@ export const makeOverlay: (
  *     ]
  *   })
  *
- *   return yield* (yield* volume.caller()).readDirectory("/project")
+ *   const listing = yield* (yield* volume.caller()).readDirectory("/project")
+ *
+ *   return listing.value.map((entry) => new TextDecoder().decode(entry.name))
  * })
  *
  * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)

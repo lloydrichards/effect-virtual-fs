@@ -107,11 +107,17 @@ describe("directory volumes", () => {
         const b = yield* (yield* Vfs.make()).caller()
         const base = yield* b.openDirectory("/")
         yield* base.close
-        yield* a.mkdir("/ok", { relativeTo: base })
-        assert.strictEqual((yield* Effect.flip(a.stat("ok", { relativeTo: base }))).code, "ForeignHandle")
+        yield* a.mkdir(Vfs.Target.Path({ path: "/ok", relativeTo: base }))
+        assert.strictEqual(
+          (yield* Effect.flip(a.stat(Vfs.Target.Path({ path: "ok", relativeTo: base })))).code,
+          "ForeignHandle"
+        )
         const own = yield* a.openDirectory("/")
         yield* own.close
-        assert.strictEqual((yield* Effect.flip(a.stat("ok", { relativeTo: own }))).code, "InvalidHandle")
+        assert.strictEqual(
+          (yield* Effect.flip(a.stat(Vfs.Target.Path({ path: "ok", relativeTo: own })))).code,
+          "InvalidHandle"
+        )
         assert.strictEqual((yield* Effect.flip(own.close)).code, "InvalidHandle")
       })
   )
@@ -123,7 +129,10 @@ describe("directory volumes", () => {
       yield* admin.mkdir("/private", { mode: 0o700 })
       const base = yield* admin.openDirectory("/private")
       const guest = yield* volume.caller({ identity: identity(123) })
-      assert.strictEqual((yield* Effect.flip(guest.stat(".", { relativeTo: base }))).code, "AccessDenied")
+      assert.strictEqual(
+        (yield* Effect.flip(guest.stat(Vfs.Target.Path({ path: ".", relativeTo: base })))).code,
+        "AccessDenied"
+      )
       assert.strictEqual((yield* guest.stat("/private")).mode, 0o700)
       assert.strictEqual((yield* Effect.flip(guest.openDirectory("/private"))).code, "AccessDenied")
     }))
@@ -445,7 +454,10 @@ describe("authority, time, and resource lifetime", () => {
         const handle = yield* caller.openDirectory(".")
         yield* Scope.close(scope, Exit.void)
         assert.strictEqual((yield* handle.stat).ino, (yield* root.stat("/work")).ino)
-        assert.strictEqual((yield* Effect.flip(caller.stat("/work", { relativeTo: handle }))).code, "ClosedCaller")
+        assert.strictEqual(
+          (yield* Effect.flip(caller.stat(Vfs.Target.Path({ path: "/work", relativeTo: handle })))).code,
+          "ClosedCaller"
+        )
       })
   )
 

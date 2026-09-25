@@ -35,17 +35,17 @@ const arrange = Effect.gen(function*() {
   const volume = yield* Vfs.make()
   const admin = yield* volume.caller({ umask: 0 })
   const guest = yield* volume.caller({ identity: GUEST })
-  const root = yield* admin.rootReference
-  const dir = (yield* admin.mkdirReference(root, name("dir"))).reference
-  yield* admin.mkdirReference(dir, name("existing"))
-  const file = yield* admin.openChildReference(root, name("file"), { access: "write", create: "exclusive" })
+  const root = yield* admin.root
+  const dir = (yield* admin.mkdir(Vfs.Entry(root, name("dir")))).reference
+  yield* admin.mkdir(Vfs.Entry(dir, name("existing")))
+  const file = yield* admin.open(Vfs.Entry(root, name("file")), { access: "write", create: "exclusive" })
   yield* file.handle.close
-  const gone = (yield* admin.mkdirReference(root, name("gone"))).reference
-  yield* admin.rmdirReference(root, name("gone"))
-  const sticky = (yield* admin.mkdirReference(root, name("sticky"), { mode: 0o1777 })).reference
-  const owned = yield* admin.openChildReference(sticky, name("file"), { access: "write", create: "exclusive" })
+  const gone = (yield* admin.mkdir(Vfs.Entry(root, name("gone")))).reference
+  yield* admin.rmdir(Vfs.Entry(root, name("gone")))
+  const sticky = (yield* admin.mkdir(Vfs.Entry(root, name("sticky")), { mode: 0o1777 })).reference
+  const owned = yield* admin.open(Vfs.Entry(sticky, name("file")), { access: "write", create: "exclusive" })
   yield* owned.handle.close
-  yield* admin.mkdirReference(sticky, name("subdir"))
+  yield* admin.mkdir(Vfs.Entry(sticky, name("subdir")))
 
   return { admin, guest, root, dir, file: file.reference, gone, sticky } satisfies Fixture
 })
@@ -73,17 +73,23 @@ const report = (error: FsError) => "path" in error ? `${error.code} at ${printab
 
 // Checks for rows that succeed, each reading the entry the operation should have changed.
 const kindAt = (path: string, kind: Vfs.Metadata["kind"]) => ({ admin }: Fixture) =>
-  Effect.map(admin.lstat(path), (metadata) => assert.strictEqual(metadata.kind, kind))
+  Effect.map(
+    admin.stat(Vfs.Target.Path({ path: path, followFinalSymlink: false })),
+    (metadata) => assert.strictEqual(metadata.kind, kind)
+  )
 
 const linksAt = (path: string, nlink: number) => ({ admin }: Fixture) =>
-  Effect.map(admin.lstat(path), (metadata) => assert.strictEqual(metadata.nlink, nlink))
+  Effect.map(
+    admin.stat(Vfs.Target.Path({ path: path, followFinalSymlink: false })),
+    (metadata) => assert.strictEqual(metadata.nlink, nlink)
+  )
 
 const targetAt = (path: string, target: string) => ({ admin }: Fixture) =>
-  Effect.map(admin.readLink(path), (actual) => assert.strictEqual(actual, target))
+  Effect.map(admin.readLink(path), (actual) => assert.strictEqual(new TextDecoder().decode(actual), target))
 
 const missingAt = (path: string) => ({ admin }: Fixture) =>
   Effect.map(
-    Effect.result(admin.lstat(path)),
+    Effect.result(admin.stat(Vfs.Target.Path({ path: path, followFinalSymlink: false }))),
     (found) => assert.strictEqual(Result.isFailure(found) ? found.failure.code : "present", "NotFound")
   )
 
@@ -103,69 +109,72 @@ const mkdirRows: ReadonlyArray<Row> = [
   {
     scenario: "creates a new entry",
     path: ({ admin }) => admin.mkdir("/dir/new"),
-    reference: ({ admin, dir }) => admin.mkdirReference(dir, name("new")),
+    reference: ({ admin, dir }) => admin.mkdir(Vfs.Entry(dir, name("new"))),
     check: kindAt("/dir/new", "directory"),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "rejects an existing name",
     path: ({ admin }) => admin.mkdir("/dir/existing"),
-    reference: ({ admin, dir }) => admin.mkdirReference(dir, name("existing")),
+    reference: ({ admin, dir }) => admin.mkdir(Vfs.Entry(dir, name("existing"))),
     expected: { path: "AlreadyExists at /dir/existing", reference: "AlreadyExists" }
   },
   {
     scenario: "treats a dot name as existing on paths but invalid on references",
     path: ({ admin }) => admin.mkdir("/dir/."),
-    reference: ({ admin, dir }) => admin.mkdirReference(dir, name(".")),
+    reference: ({ admin, dir }) => admin.mkdir(Vfs.Entry(dir, name("."))),
     expected: { path: "AlreadyExists at /dir/.", reference: "InvalidArgument" }
   },
   {
     scenario: "treats a dot-dot name as existing on paths but invalid on references",
     path: ({ admin }) => admin.mkdir("/dir/.."),
-    reference: ({ admin, dir }) => admin.mkdirReference(dir, name("..")),
+    reference: ({ admin, dir }) => admin.mkdir(Vfs.Entry(dir, name(".."))),
     expected: { path: "AlreadyExists at /dir/..", reference: "InvalidArgument" }
   },
   {
     scenario: "accepts a trailing slash on paths, where a reference name cannot hold one",
     path: ({ admin }) => admin.mkdir("/dir/new/"),
-    reference: ({ admin, dir }) => admin.mkdirReference(dir, name("new/")),
+    reference: ({ admin, dir }) => admin.mkdir(Vfs.Entry(dir, name("new/"))),
     check: kindAt("/dir/new", "directory"),
     expected: { path: "ok", reference: "InvalidArgument" }
   },
   {
     scenario: "rejects a parent that is a file",
     path: ({ admin }) => admin.mkdir("/file/new"),
-    reference: ({ admin, file }) => admin.mkdirReference(file, name("new")),
+    reference: ({ admin, file }) => admin.mkdir(Vfs.Entry(file, name("new"))),
     expected: { path: "NotDirectory at /file/new", reference: "NotDirectory" }
   },
   {
     scenario: "reports a removed parent as missing on paths and stale on references",
     path: ({ admin }) => admin.mkdir("/gone/new"),
-    reference: ({ admin, gone }) => admin.mkdirReference(gone, name("new")),
+    reference: ({ admin, gone }) => admin.mkdir(Vfs.Entry(gone, name("new"))),
     expected: { path: "NotFound at /gone/new", reference: "StaleReference" }
   },
   {
-    scenario: "checks a reference name before the parent reference",
+    // #186 decision 8: the directory resolves before a reserved name is reported, on both families.
+    scenario: "resolves the directory before a reserved name on both families",
     path: ({ admin }) => admin.mkdir("/gone/."),
-    reference: ({ admin, gone }) => admin.mkdirReference(gone, name(".")),
-    expected: { path: "NotFound at /gone/.", reference: "InvalidArgument" }
+    reference: ({ admin, gone }) => admin.mkdir(Vfs.Entry(gone, name("."))),
+    expected: { path: "NotFound at /gone/.", reference: "StaleReference" }
   },
   {
-    scenario: "denies an unwritable parent before checking an existing name",
+    // #186 decision 5: an existing name is reported before write permission, as Linux does.
+    scenario: "reports an existing name before an unwritable parent",
     path: ({ guest }) => guest.mkdir("/dir"),
-    reference: ({ guest, root }) => guest.mkdirReference(root, name("dir")),
-    expected: { path: "AccessDenied at /dir", reference: "AccessDenied" }
+    reference: ({ guest, root }) => guest.mkdir(Vfs.Entry(root, name("dir"))),
+    expected: { path: "AlreadyExists at /dir", reference: "AlreadyExists" }
   },
   {
-    scenario: "denies an unwritable parent before a path dot name but after a reference dot name",
+    // #186 decisions 5 and 7: a reserved name is reported before write permission, with each family's code.
+    scenario: "reports a reserved name before an unwritable parent, as existing on paths and invalid on entries",
     path: ({ guest }) => guest.mkdir("/."),
-    reference: ({ guest, root }) => guest.mkdirReference(root, name(".")),
-    expected: { path: "AccessDenied at /.", reference: "InvalidArgument" }
+    reference: ({ guest, root }) => guest.mkdir(Vfs.Entry(root, name("."))),
+    expected: { path: "AlreadyExists at /.", reference: "InvalidArgument" }
   },
   {
     scenario: "rejects an invalid mode before an existing name",
     path: ({ admin }) => admin.mkdir("/dir/existing", { mode: -1 }),
-    reference: ({ admin, dir }) => admin.mkdirReference(dir, name("existing"), { mode: -1 }),
+    reference: ({ admin, dir }) => admin.mkdir(Vfs.Entry(dir, name("existing")), { mode: -1 }),
     expected: { path: "InvalidArgument at /dir/existing", reference: "InvalidArgument" }
   }
 ]
@@ -174,33 +183,34 @@ const linkRows: ReadonlyArray<Row> = [
   {
     scenario: "links a file under a new name",
     path: ({ admin }) => admin.link("/file", "/dir/new"),
-    reference: ({ admin, file, dir }) => admin.linkReference(file, dir, name("new")),
+    reference: ({ admin, file, dir }) => admin.link(file, Vfs.Entry(dir, name("new"))),
     check: linksAt("/file", 2),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "rejects a directory source",
     path: ({ admin }) => admin.link("/dir", "/new"),
-    reference: ({ admin, dir, root }) => admin.linkReference(dir, root, name("new")),
+    reference: ({ admin, dir, root }) => admin.link(dir, Vfs.Entry(root, name("new"))),
     expected: { path: "IsDirectory at /dir", reference: "IsDirectory" }
   },
   {
     scenario: "rejects an existing destination",
     path: ({ admin }) => admin.link("/file", "/dir/existing"),
-    reference: ({ admin, file, dir }) => admin.linkReference(file, dir, name("existing")),
+    reference: ({ admin, file, dir }) => admin.link(file, Vfs.Entry(dir, name("existing"))),
     expected: { path: "AlreadyExists at /dir/existing", reference: "AlreadyExists" }
   },
   {
     scenario: "treats a dot destination as existing on paths but invalid on references",
     path: ({ admin }) => admin.link("/file", "/dir/."),
-    reference: ({ admin, file, dir }) => admin.linkReference(file, dir, name(".")),
+    reference: ({ admin, file, dir }) => admin.link(file, Vfs.Entry(dir, name("."))),
     expected: { path: "AlreadyExists at /dir/.", reference: "InvalidArgument" }
   },
   {
-    scenario: "rejects a trailing slash on a path destination",
+    // #186 decision 9: a trailing slash on a missing destination asks for a directory that does not exist.
+    scenario: "reports a slashed missing destination as missing on paths and invalid on entries",
     path: ({ admin }) => admin.link("/file", "/dir/new/"),
-    reference: ({ admin, file, dir }) => admin.linkReference(file, dir, name("new/")),
-    expected: { path: "NotDirectory at /dir/new/", reference: "InvalidArgument" }
+    reference: ({ admin, file, dir }) => admin.link(file, Vfs.Entry(dir, name("new/"))),
+    expected: { path: "NotFound at /dir/new/", reference: "InvalidArgument" }
   },
   {
     scenario: "reports an unlinked source as missing on paths and stale on references",
@@ -211,22 +221,23 @@ const linkRows: ReadonlyArray<Row> = [
     reference: ({ admin, root, file, dir }) =>
       Effect.scoped(Effect.gen(function*() {
         // An open handle keeps the unlinked file alive, so only the link count says it is gone.
-        yield* admin.openReference(file, { access: "read" })
-        yield* admin.unlinkReference(root, name("file"))
-        yield* admin.linkReference(file, dir, name("new"))
+        yield* admin.open(file, { access: "read" })
+        yield* admin.unlink(Vfs.Entry(root, name("file")))
+        yield* admin.link(file, Vfs.Entry(dir, name("new")))
       })),
     expected: { path: "NotFound at /file", reference: "StaleReference" }
   },
   {
-    scenario: "checks a reference destination name before the source",
+    // #186 decision 8: the source resolves before the destination name on both families.
+    scenario: "checks the source before the destination name on both families",
     path: ({ admin }) => admin.link("/dir", "/dir/."),
-    reference: ({ admin, dir }) => admin.linkReference(dir, dir, name(".")),
-    expected: { path: "IsDirectory at /dir", reference: "InvalidArgument" }
+    reference: ({ admin, dir }) => admin.link(dir, Vfs.Entry(dir, name("."))),
+    expected: { path: "IsDirectory at /dir", reference: "IsDirectory" }
   },
   {
     scenario: "denies an unwritable destination directory",
     path: ({ guest }) => guest.link("/file", "/new"),
-    reference: ({ guest, file, root }) => guest.linkReference(file, root, name("new")),
+    reference: ({ guest, file, root }) => guest.link(file, Vfs.Entry(root, name("new"))),
     expected: { path: "AccessDenied at /new", reference: "AccessDenied" }
   }
 ]
@@ -241,58 +252,63 @@ const symlinkRows: ReadonlyArray<Row> = [
   {
     scenario: "creates a link to any target",
     path: ({ admin }) => admin.symlink("/missing", "/dir/new"),
-    reference: ({ admin, dir }) => admin.symlinkReference("/missing", dir, name("new")),
+    reference: ({ admin, dir }) => admin.symlink("/missing", Vfs.Entry(dir, name("new"))),
     check: targetAt("/dir/new", "/missing"),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "rejects an existing name",
     path: ({ admin }) => admin.symlink("/missing", "/dir/existing"),
-    reference: ({ admin, dir }) => admin.symlinkReference("/missing", dir, name("existing")),
+    reference: ({ admin, dir }) => admin.symlink("/missing", Vfs.Entry(dir, name("existing"))),
     expected: { path: "AlreadyExists at /dir/existing", reference: "AlreadyExists" }
   },
   {
     scenario: "treats a dot name as existing on paths but invalid on references",
     path: ({ admin }) => admin.symlink("/missing", "/dir/."),
-    reference: ({ admin, dir }) => admin.symlinkReference("/missing", dir, name(".")),
+    reference: ({ admin, dir }) => admin.symlink("/missing", Vfs.Entry(dir, name("."))),
     expected: { path: "AlreadyExists at /dir/.", reference: "InvalidArgument" }
   },
   {
-    scenario: "rejects a trailing slash on a path",
+    // #186 decision 9: a trailing slash on a missing name asks for a directory that does not exist.
+    scenario: "reports a slashed missing name as missing on paths and invalid on entries",
     path: ({ admin }) => admin.symlink("/missing", "/dir/new/"),
-    reference: ({ admin, dir }) => admin.symlinkReference("/missing", dir, name("new/")),
-    expected: { path: "NotDirectory at /dir/new/", reference: "InvalidArgument" }
+    reference: ({ admin, dir }) => admin.symlink("/missing", Vfs.Entry(dir, name("new/"))),
+    expected: { path: "NotFound at /dir/new/", reference: "InvalidArgument" }
   },
   {
+    // #186 decision 6: a bad symbolic link target is named on both families, since the target is the argument that failed.
     // An error names only a path a BytePath can hold, and none holds a NUL.
-    scenario: "rejects a target holding a NUL byte",
+    scenario: "rejects a target holding a NUL byte, naming no path on either family",
     path: ({ admin }) => admin.symlink("a\0", "/dir/new"),
-    reference: ({ admin, dir }) => admin.symlinkReference("a\0", dir, name("new")),
+    reference: ({ admin, dir }) => admin.symlink("a\0", Vfs.Entry(dir, name("new"))),
     expected: { path: "InvalidArgument", reference: "InvalidArgument" }
   },
   {
-    scenario: "checks the target before a path's parent but after a reference's name",
+    // #186 decision 8: the target is checked before coordination on both families, so it outranks a reserved name
+    // and a stale directory alike.
+    scenario: "checks the target before the directory and the name on both families",
     // A lone surrogate cannot be encoded, which only the target check reports.
     path: ({ admin }) => admin.symlink("\uD800", "/gone/new"),
-    reference: ({ admin, gone }) => admin.symlinkReference("\uD800", gone, name(".")),
-    expected: { path: "InvalidPathEncoding at \uFFFD", reference: "InvalidArgument" }
+    reference: ({ admin, gone }) => admin.symlink("\uD800", Vfs.Entry(gone, name("."))),
+    expected: { path: "InvalidPathEncoding at \uFFFD", reference: "InvalidPathEncoding at \uFFFD" }
   },
   {
-    scenario: "denies an unwritable parent before a path dot name but after a reference dot name",
+    // #186 decisions 5 and 7: a reserved name is reported before write permission, with each family's code.
+    scenario: "reports a reserved name before an unwritable parent, as existing on paths and invalid on entries",
     path: ({ guest }) => guest.symlink("/missing", "/."),
-    reference: ({ guest, root }) => guest.symlinkReference("/missing", root, name(".")),
-    expected: { path: "AccessDenied at /.", reference: "InvalidArgument" }
+    reference: ({ guest, root }) => guest.symlink("/missing", Vfs.Entry(root, name("."))),
+    expected: { path: "AlreadyExists at /.", reference: "InvalidArgument" }
   },
   {
     scenario: "reports a removed parent as missing on paths and stale on references",
     path: ({ admin }) => admin.symlink("/missing", "/gone/new"),
-    reference: ({ admin, gone }) => admin.symlinkReference("/missing", gone, name("new")),
+    reference: ({ admin, gone }) => admin.symlink("/missing", Vfs.Entry(gone, name("new"))),
     expected: { path: "NotFound at /gone/new", reference: "StaleReference" }
   },
   {
     scenario: "reports an existing name before a path's trailing slash",
     path: ({ admin }) => admin.symlink("/missing", "/dir/existing/"),
-    reference: ({ admin, dir }) => admin.symlinkReference("/missing", dir, name("existing/")),
+    reference: ({ admin, dir }) => admin.symlink("/missing", Vfs.Entry(dir, name("existing/"))),
     expected: { path: "AlreadyExists at /dir/existing/", reference: "InvalidArgument" }
   },
   {
@@ -301,7 +317,7 @@ const symlinkRows: ReadonlyArray<Row> = [
     reference: () =>
       Effect.flatMap(
         smallVolume,
-        (fs) => Effect.flatMap(fs.rootReference, (root) => fs.symlinkReference("/missing", root, name("new")))
+        (fs) => Effect.flatMap(fs.root, (root) => fs.symlink("/missing", Vfs.Entry(root, name("new"))))
       ),
     expected: { path: "NoSpace at /new", reference: "NoSpace" }
   }
@@ -311,56 +327,57 @@ const unlinkRows: ReadonlyArray<Row> = [
   {
     scenario: "removes a file",
     path: ({ admin }) => admin.unlink("/file"),
-    reference: ({ admin, root }) => admin.unlinkReference(root, name("file")),
+    reference: ({ admin, root }) => admin.unlink(Vfs.Entry(root, name("file"))),
     check: missingAt("/file"),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "rejects a missing name",
     path: ({ admin }) => admin.unlink("/dir/missing"),
-    reference: ({ admin, dir }) => admin.unlinkReference(dir, name("missing")),
+    reference: ({ admin, dir }) => admin.unlink(Vfs.Entry(dir, name("missing"))),
     expected: { path: "NotFound at /dir/missing", reference: "NotFound" }
   },
   {
     scenario: "rejects a directory",
     path: ({ admin }) => admin.unlink("/dir/existing"),
-    reference: ({ admin, dir }) => admin.unlinkReference(dir, name("existing")),
+    reference: ({ admin, dir }) => admin.unlink(Vfs.Entry(dir, name("existing"))),
     expected: { path: "IsDirectory at /dir/existing", reference: "IsDirectory" }
   },
   {
     scenario: "treats a dot name as a directory on paths but invalid on references",
     path: ({ admin }) => admin.unlink("/dir/."),
-    reference: ({ admin, dir }) => admin.unlinkReference(dir, name(".")),
+    reference: ({ admin, dir }) => admin.unlink(Vfs.Entry(dir, name("."))),
     expected: { path: "IsDirectory at /dir/.", reference: "InvalidArgument" }
   },
   {
     scenario: "rejects a trailing slash on a path to a file",
     path: ({ admin }) => admin.unlink("/file/"),
-    reference: ({ admin, root }) => admin.unlinkReference(root, name("file/")),
+    reference: ({ admin, root }) => admin.unlink(Vfs.Entry(root, name("file/"))),
     expected: { path: "NotDirectory at /file/", reference: "InvalidArgument" }
   },
   {
-    scenario: "denies an unwritable parent before a path dot name but after a reference dot name",
+    // #186 decisions 5 and 7: a reserved name is reported before write permission, with each family's code.
+    scenario: "reports a reserved name before an unwritable parent, as a directory on paths and invalid on entries",
     path: ({ guest }) => guest.unlink("/."),
-    reference: ({ guest, root }) => guest.unlinkReference(root, name(".")),
-    expected: { path: "AccessDenied at /.", reference: "InvalidArgument" }
+    reference: ({ guest, root }) => guest.unlink(Vfs.Entry(root, name("."))),
+    expected: { path: "IsDirectory at /.", reference: "InvalidArgument" }
   },
   {
     scenario: "denies removing another owner's file from a sticky directory",
     path: ({ guest }) => guest.unlink("/sticky/file"),
-    reference: ({ guest, sticky }) => guest.unlinkReference(sticky, name("file")),
+    reference: ({ guest, sticky }) => guest.unlink(Vfs.Entry(sticky, name("file"))),
     expected: { path: "AccessDenied at /sticky/file", reference: "AccessDenied" }
   },
   {
     scenario: "reports a directory before the sticky-directory check",
     path: ({ guest }) => guest.unlink("/sticky/subdir"),
-    reference: ({ guest, sticky }) => guest.unlinkReference(sticky, name("subdir")),
+    reference: ({ guest, sticky }) => guest.unlink(Vfs.Entry(sticky, name("subdir"))),
     expected: { path: "IsDirectory at /sticky/subdir", reference: "IsDirectory" }
   },
   {
     scenario: "reports a directory before a path's trailing slash",
     path: ({ admin }) => admin.unlink("/dir/existing/"),
-    reference: ({ admin, dir }) => admin.unlinkReference(dir, name("existing/")),
+    reference: ({ admin, dir }) => admin.unlink(Vfs.Entry(dir, name("existing/"))),
     expected: { path: "IsDirectory at /dir/existing/", reference: "InvalidArgument" }
   }
 ]
@@ -369,51 +386,52 @@ const rmdirRows: ReadonlyArray<Row> = [
   {
     scenario: "removes an empty directory",
     path: ({ admin }) => admin.rmdir("/dir/existing"),
-    reference: ({ admin, dir }) => admin.rmdirReference(dir, name("existing")),
+    reference: ({ admin, dir }) => admin.rmdir(Vfs.Entry(dir, name("existing"))),
     check: missingAt("/dir/existing"),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "rejects a missing name",
     path: ({ admin }) => admin.rmdir("/dir/missing"),
-    reference: ({ admin, dir }) => admin.rmdirReference(dir, name("missing")),
+    reference: ({ admin, dir }) => admin.rmdir(Vfs.Entry(dir, name("missing"))),
     expected: { path: "NotFound at /dir/missing", reference: "NotFound" }
   },
   {
     scenario: "rejects a directory with entries",
     path: ({ admin }) => admin.rmdir("/dir"),
-    reference: ({ admin, root }) => admin.rmdirReference(root, name("dir")),
+    reference: ({ admin, root }) => admin.rmdir(Vfs.Entry(root, name("dir"))),
     expected: { path: "NotEmpty at /dir", reference: "NotEmpty" }
   },
   {
     scenario: "rejects a file",
     path: ({ admin }) => admin.rmdir("/file"),
-    reference: ({ admin, root }) => admin.rmdirReference(root, name("file")),
+    reference: ({ admin, root }) => admin.rmdir(Vfs.Entry(root, name("file"))),
     expected: { path: "NotDirectory at /file", reference: "NotDirectory" }
   },
   {
     scenario: "rejects a dot name on both families",
     path: ({ admin }) => admin.rmdir("/dir/."),
-    reference: ({ admin, dir }) => admin.rmdirReference(dir, name(".")),
+    reference: ({ admin, dir }) => admin.rmdir(Vfs.Entry(dir, name("."))),
     expected: { path: "InvalidArgument at /dir/.", reference: "InvalidArgument" }
   },
   {
     scenario: "ignores a trailing slash on paths, where a reference name cannot hold one",
     path: ({ admin }) => admin.rmdir("/dir/existing/"),
-    reference: ({ admin, dir }) => admin.rmdirReference(dir, name("existing/")),
+    reference: ({ admin, dir }) => admin.rmdir(Vfs.Entry(dir, name("existing/"))),
     check: missingAt("/dir/existing"),
     expected: { path: "ok", reference: "InvalidArgument" }
   },
   {
-    scenario: "denies an unwritable parent before looking up the name",
+    // #186 decision 5: a missing name is reported before write permission, as Linux does.
+    scenario: "reports a missing name before an unwritable parent",
     path: ({ guest }) => guest.rmdir("/missing"),
-    reference: ({ guest, root }) => guest.rmdirReference(root, name("missing")),
-    expected: { path: "AccessDenied at /missing", reference: "AccessDenied" }
+    reference: ({ guest, root }) => guest.rmdir(Vfs.Entry(root, name("missing"))),
+    expected: { path: "NotFound at /missing", reference: "NotFound" }
   },
   {
     scenario: "applies the sticky-directory check before the kind check",
     path: ({ guest }) => guest.rmdir("/sticky/file"),
-    reference: ({ guest, sticky }) => guest.rmdirReference(sticky, name("file")),
+    reference: ({ guest, sticky }) => guest.rmdir(Vfs.Entry(sticky, name("file"))),
     expected: { path: "AccessDenied at /sticky/file", reference: "AccessDenied" }
   }
 ]
@@ -422,103 +440,108 @@ const renameRows: ReadonlyArray<Row> = [
   {
     scenario: "moves an entry to a new name",
     path: ({ admin }) => admin.rename("/file", "/dir/moved"),
-    reference: ({ admin, root, dir }) => admin.renameReference(root, name("file"), dir, name("moved")),
+    reference: ({ admin, root, dir }) => admin.rename(Vfs.Entry(root, name("file")), Vfs.Entry(dir, name("moved"))),
     check: kindAt("/dir/moved", "file"),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "rejects a missing source",
     path: ({ admin }) => admin.rename("/missing", "/moved"),
-    reference: ({ admin, root }) => admin.renameReference(root, name("missing"), root, name("moved")),
+    reference: ({ admin, root }) => admin.rename(Vfs.Entry(root, name("missing")), Vfs.Entry(root, name("moved"))),
     expected: { path: "NotFound at /missing", reference: "NotFound" }
   },
   {
     scenario: "accepts a rename onto the same entry",
     path: ({ admin }) => admin.rename("/file", "/file"),
-    reference: ({ admin, root }) => admin.renameReference(root, name("file"), root, name("file")),
+    reference: ({ admin, root }) => admin.rename(Vfs.Entry(root, name("file")), Vfs.Entry(root, name("file"))),
     check: kindAt("/file", "file"),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "skips the sticky-directory check for a rename onto the same entry",
     path: ({ guest }) => guest.rename("/sticky/file", "/sticky/file"),
-    reference: ({ guest, sticky }) => guest.renameReference(sticky, name("file"), sticky, name("file")),
+    reference: ({ guest, sticky }) => guest.rename(Vfs.Entry(sticky, name("file")), Vfs.Entry(sticky, name("file"))),
     check: kindAt("/sticky/file", "file"),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "denies moving another owner's entry out of a sticky directory",
     path: ({ guest }) => guest.rename("/sticky/file", "/sticky/moved"),
-    reference: ({ guest, sticky }) => guest.renameReference(sticky, name("file"), sticky, name("moved")),
+    reference: ({ guest, sticky }) => guest.rename(Vfs.Entry(sticky, name("file")), Vfs.Entry(sticky, name("moved"))),
     expected: { path: "AccessDenied at /sticky/file", reference: "AccessDenied" }
   },
   {
     scenario: "rejects a dot source name",
     path: ({ admin }) => admin.rename("/dir/.", "/moved"),
-    reference: ({ admin, dir, root }) => admin.renameReference(dir, name("."), root, name("moved")),
+    reference: ({ admin, dir, root }) => admin.rename(Vfs.Entry(dir, name(".")), Vfs.Entry(root, name("moved"))),
     expected: { path: "InvalidArgument at /dir/.", reference: "InvalidArgument" }
   },
   {
     scenario: "rejects a dot destination name",
     path: ({ admin }) => admin.rename("/file", "/dir/.."),
-    reference: ({ admin, root, dir }) => admin.renameReference(root, name("file"), dir, name("..")),
+    reference: ({ admin, root, dir }) => admin.rename(Vfs.Entry(root, name("file")), Vfs.Entry(dir, name(".."))),
     expected: { path: "InvalidArgument at /file", reference: "InvalidArgument" }
   },
   {
     scenario: "rejects replacing a directory with a file",
     path: ({ admin }) => admin.rename("/file", "/dir/existing"),
-    reference: ({ admin, root, dir }) => admin.renameReference(root, name("file"), dir, name("existing")),
+    reference: ({ admin, root, dir }) => admin.rename(Vfs.Entry(root, name("file")), Vfs.Entry(dir, name("existing"))),
     expected: { path: "IsDirectory at /dir/existing", reference: "IsDirectory" }
   },
   {
     scenario: "rejects replacing a file with a directory",
     path: ({ admin }) => admin.rename("/dir/existing", "/file"),
-    reference: ({ admin, dir, root }) => admin.renameReference(dir, name("existing"), root, name("file")),
+    reference: ({ admin, dir, root }) => admin.rename(Vfs.Entry(dir, name("existing")), Vfs.Entry(root, name("file"))),
     expected: { path: "NotDirectory at /file", reference: "NotDirectory" }
   },
   {
     scenario: "rejects replacing a directory that has entries",
     path: ({ admin }) => admin.rename("/sticky/subdir", "/dir"),
-    reference: ({ admin, sticky, root }) => admin.renameReference(sticky, name("subdir"), root, name("dir")),
+    reference: ({ admin, sticky, root }) =>
+      admin.rename(Vfs.Entry(sticky, name("subdir")), Vfs.Entry(root, name("dir"))),
     expected: { path: "NotEmpty at /dir", reference: "NotEmpty" }
   },
   {
     scenario: "rejects moving a directory into itself",
     path: ({ admin }) => admin.rename("/dir", "/dir/existing/inner"),
     reference: Effect.fnUntraced(function*({ admin, root, dir }) {
-      const existing = yield* admin.lookupReference(dir, name("existing"))
-      yield* admin.renameReference(root, name("dir"), existing, name("inner"))
+      const existing = yield* admin.lookup(Vfs.Entry(dir, name("existing")))
+      yield* admin.rename(Vfs.Entry(root, name("dir")), Vfs.Entry(existing, name("inner")))
     }),
     expected: { path: "InvalidArgument at /dir/existing/inner", reference: "InvalidArgument" }
   },
   {
-    scenario: "requires a path destination with a trailing slash to exist",
+    // #186 decision 9: a directory may move to a missing name with a trailing slash, as on Linux.
+    scenario: "moves a directory to a missing path destination with a trailing slash",
     path: ({ admin }) => admin.rename("/dir/existing", "/moved/"),
-    reference: ({ admin, dir, root }) => admin.renameReference(dir, name("existing"), root, name("moved/")),
-    expected: { path: "NotFound at /moved/", reference: "InvalidArgument" }
+    reference: ({ admin, dir, root }) =>
+      admin.rename(Vfs.Entry(dir, name("existing")), Vfs.Entry(root, name("moved/"))),
+    check: kindAt("/moved", "directory"),
+    expected: { path: "ok", reference: "InvalidArgument" }
   },
   {
     scenario: "rejects a trailing slash on a path source that is a file",
     path: ({ admin }) => admin.rename("/file/", "/moved"),
-    reference: ({ admin, root }) => admin.renameReference(root, name("file/"), root, name("moved")),
+    reference: ({ admin, root }) => admin.rename(Vfs.Entry(root, name("file/")), Vfs.Entry(root, name("moved"))),
     expected: { path: "NotDirectory at /file/", reference: "InvalidArgument" }
   },
   {
     scenario: "reports a removed source parent as missing on paths and stale on references",
     path: ({ admin }) => admin.rename("/gone/entry", "/moved"),
-    reference: ({ admin, gone, root }) => admin.renameReference(gone, name("entry"), root, name("moved")),
+    reference: ({ admin, gone, root }) => admin.rename(Vfs.Entry(gone, name("entry")), Vfs.Entry(root, name("moved"))),
     expected: { path: "NotFound at /gone/entry", reference: "StaleReference" }
   },
   {
-    scenario: "checks reference names before either directory",
+    // #186 decision 8: the source directory resolves before a reserved destination name on both families.
+    scenario: "resolves the source directory before a reserved destination name",
     path: ({ admin }) => admin.rename("/gone/entry", "/dir/."),
-    reference: ({ admin, gone, dir }) => admin.renameReference(gone, name("entry"), dir, name(".")),
-    expected: { path: "NotFound at /gone/entry", reference: "InvalidArgument" }
+    reference: ({ admin, gone, dir }) => admin.rename(Vfs.Entry(gone, name("entry")), Vfs.Entry(dir, name("."))),
+    expected: { path: "NotFound at /gone/entry", reference: "StaleReference" }
   },
   {
     scenario: "prepares both paths before locating either parent",
     path: ({ admin }) => admin.rename("/gone/entry", "\uD800"),
-    reference: ({ admin, gone, root }) => admin.renameReference(gone, name("entry"), root, name("moved")),
+    reference: ({ admin, gone, root }) => admin.rename(Vfs.Entry(gone, name("entry")), Vfs.Entry(root, name("moved"))),
     expected: { path: "InvalidPathEncoding at \uFFFD", reference: "StaleReference" }
   }
 ]
@@ -528,27 +551,27 @@ const openRows: ReadonlyArray<Row> = [
     scenario: "creates a missing file",
     path: ({ admin }) => Effect.scoped(admin.open("/dir/new", { access: "write", create: "ifMissing" })),
     reference: ({ admin, dir }) =>
-      Effect.scoped(admin.openChildReference(dir, name("new"), { access: "write", create: "ifMissing" })),
+      Effect.scoped(admin.open(Vfs.Entry(dir, name("new")), { access: "write", create: "ifMissing" })),
     check: kindAt("/dir/new", "file"),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "opens an existing file",
     path: ({ admin }) => Effect.scoped(admin.open("/file", { access: "read" })),
-    reference: ({ admin, root }) => Effect.scoped(admin.openChildReference(root, name("file"), { access: "read" })),
+    reference: ({ admin, root }) => Effect.scoped(admin.open(Vfs.Entry(root, name("file")), { access: "read" })),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "rejects a missing file without create",
     path: ({ admin }) => Effect.scoped(admin.open("/dir/missing", { access: "read" })),
-    reference: ({ admin, dir }) => Effect.scoped(admin.openChildReference(dir, name("missing"), { access: "read" })),
+    reference: ({ admin, dir }) => Effect.scoped(admin.open(Vfs.Entry(dir, name("missing")), { access: "read" })),
     expected: { path: "NotFound at /dir/missing", reference: "NotFound" }
   },
   {
     scenario: "rejects an existing file for an exclusive create",
     path: ({ admin }) => Effect.scoped(admin.open("/file", { access: "write", create: "exclusive" })),
     reference: ({ admin, root }) =>
-      Effect.scoped(admin.openChildReference(root, name("file"), { access: "write", create: "exclusive" })),
+      Effect.scoped(admin.open(Vfs.Entry(root, name("file")), { access: "write", create: "exclusive" })),
     expected: { path: "AlreadyExists at /file", reference: "AlreadyExists" }
   },
   {
@@ -560,7 +583,7 @@ const openRows: ReadonlyArray<Row> = [
     reference: Effect.fnUntraced(function*({ admin, root }) {
       yield* admin.symlink("/missing", "/dangling")
       yield* Effect.scoped(
-        admin.openChildReference(root, name("dangling"), { access: "write", create: "exclusive" })
+        admin.open(Vfs.Entry(root, name("dangling")), { access: "write", create: "exclusive" })
       )
     }),
     expected: { path: "AlreadyExists at /dangling", reference: "AlreadyExists" }
@@ -573,7 +596,7 @@ const openRows: ReadonlyArray<Row> = [
     }),
     reference: Effect.fnUntraced(function*({ admin, root }) {
       yield* admin.symlink("/dir/target", "/link")
-      yield* Effect.scoped(admin.openChildReference(root, name("link"), { access: "write", create: "ifMissing" }))
+      yield* Effect.scoped(admin.open(Vfs.Entry(root, name("link")), { access: "write", create: "ifMissing" }))
     }),
     check: kindAt("/dir/target", "file"),
     expected: { path: "ok", reference: "ok" }
@@ -586,61 +609,62 @@ const openRows: ReadonlyArray<Row> = [
     }),
     reference: Effect.fnUntraced(function*({ admin, root }) {
       yield* admin.symlink("/loop", "/loop")
-      yield* Effect.scoped(admin.openChildReference(root, name("loop"), { access: "read" }))
+      yield* Effect.scoped(admin.open(Vfs.Entry(root, name("loop")), { access: "read" }))
     }),
     expected: { path: "SymlinkLoop at /loop", reference: "SymlinkLoop at loop" }
   },
   {
     scenario: "rejects a directory",
     path: ({ admin }) => Effect.scoped(admin.open("/dir", { access: "read" })),
-    reference: ({ admin, root }) => Effect.scoped(admin.openChildReference(root, name("dir"), { access: "read" })),
+    reference: ({ admin, root }) => Effect.scoped(admin.open(Vfs.Entry(root, name("dir")), { access: "read" })),
     expected: { path: "IsDirectory at /dir", reference: "IsDirectory" }
   },
   {
     scenario: "treats a dot name as a directory on paths but invalid on references",
     path: ({ admin }) => Effect.scoped(admin.open("/dir/.", { access: "read" })),
-    reference: ({ admin, dir }) => Effect.scoped(admin.openChildReference(dir, name("."), { access: "read" })),
+    reference: ({ admin, dir }) => Effect.scoped(admin.open(Vfs.Entry(dir, name(".")), { access: "read" })),
     expected: { path: "IsDirectory at /dir/.", reference: "InvalidArgument" }
   },
   {
+    // #186 decision 9: a create through a trailing slash asks for a directory, as Linux reports.
     scenario: "will not create through a trailing slash",
     path: ({ admin }) => Effect.scoped(admin.open("/dir/new/", { access: "write", create: "ifMissing" })),
     reference: ({ admin, dir }) =>
-      Effect.scoped(admin.openChildReference(dir, name("new/"), { access: "write", create: "ifMissing" })),
-    expected: { path: "NotFound at /dir/new/", reference: "InvalidArgument" }
+      Effect.scoped(admin.open(Vfs.Entry(dir, name("new/")), { access: "write", create: "ifMissing" })),
+    expected: { path: "IsDirectory at /dir/new/", reference: "InvalidArgument" }
   },
   {
     scenario: "rejects a trailing slash on an existing file",
     path: ({ admin }) => Effect.scoped(admin.open("/file/", { access: "read" })),
-    reference: ({ admin, root }) => Effect.scoped(admin.openChildReference(root, name("file/"), { access: "read" })),
+    reference: ({ admin, root }) => Effect.scoped(admin.open(Vfs.Entry(root, name("file/")), { access: "read" })),
     expected: { path: "NotDirectory at /file/", reference: "InvalidArgument" }
   },
   {
     scenario: "rejects truncating a read-only open",
     path: ({ admin }) => Effect.scoped(admin.open("/file", { access: "read", truncate: true })),
     reference: ({ admin, root }) =>
-      Effect.scoped(admin.openChildReference(root, name("file"), { access: "read", truncate: true })),
+      Effect.scoped(admin.open(Vfs.Entry(root, name("file")), { access: "read", truncate: true })),
     expected: { path: "InvalidArgument at /file", reference: "InvalidArgument" }
   },
   {
     scenario: "rejects a mode without create",
     path: ({ admin }) => Effect.scoped(admin.open("/file", { access: "read", mode: 0o600 })),
     reference: ({ admin, root }) =>
-      Effect.scoped(admin.openChildReference(root, name("file"), { access: "read", mode: 0o600 })),
+      Effect.scoped(admin.open(Vfs.Entry(root, name("file")), { access: "read", mode: 0o600 })),
     expected: { path: "InvalidArgument at /file", reference: "InvalidArgument" }
   },
   {
     scenario: "denies creating in an unwritable directory",
     path: ({ guest }) => Effect.scoped(guest.open("/new", { access: "write", create: "ifMissing" })),
     reference: ({ guest, root }) =>
-      Effect.scoped(guest.openChildReference(root, name("new"), { access: "write", create: "ifMissing" })),
+      Effect.scoped(guest.open(Vfs.Entry(root, name("new")), { access: "write", create: "ifMissing" })),
     expected: { path: "AccessDenied at /new", reference: "AccessDenied" }
   },
   {
     scenario: "reports a removed parent as missing on paths and stale on references",
     path: ({ admin }) => Effect.scoped(admin.open("/gone/new", { access: "write", create: "ifMissing" })),
     reference: ({ admin, gone }) =>
-      Effect.scoped(admin.openChildReference(gone, name("new"), { access: "write", create: "ifMissing" })),
+      Effect.scoped(admin.open(Vfs.Entry(gone, name("new")), { access: "write", create: "ifMissing" })),
     expected: { path: "NotFound at /gone/new", reference: "StaleReference" }
   }
 ]
@@ -656,32 +680,36 @@ const chmodRows: ReadonlyArray<Row> = [
   {
     scenario: "changes the mode",
     path: ({ admin }) => admin.chmod("/file", 0o600),
-    reference: ({ admin, file }) => admin.chmodReference(file, 0o600),
-    check: ({ admin }) => Effect.map(admin.lstat("/file"), (metadata) => assert.strictEqual(metadata.mode, 0o600)),
+    reference: ({ admin, file }) => admin.chmod(file, 0o600),
+    check: ({ admin }) =>
+      Effect.map(
+        admin.stat(Vfs.Target.Path({ path: "/file", followFinalSymlink: false })),
+        (metadata) => assert.strictEqual(metadata.mode, 0o600)
+      ),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "rejects an invalid mode",
     path: ({ admin }) => admin.chmod("/file", -1),
-    reference: ({ admin, file }) => admin.chmodReference(file, -1),
+    reference: ({ admin, file }) => admin.chmod(file, -1),
     expected: { path: "InvalidArgument", reference: "InvalidArgument" }
   },
   {
     scenario: "rejects an invalid mode before resolving the target",
     path: ({ admin }) => admin.chmod("/gone", -1),
-    reference: ({ admin, gone }) => admin.chmodReference(gone, -1),
+    reference: ({ admin, gone }) => admin.chmod(gone, -1),
     expected: { path: "InvalidArgument", reference: "InvalidArgument" }
   },
   {
     scenario: "denies a caller that does not own the target",
     path: ({ guest }) => guest.chmod("/file", 0o600),
-    reference: ({ guest, file }) => guest.chmodReference(file, 0o600),
+    reference: ({ guest, file }) => guest.chmod(file, 0o600),
     expected: { path: "AccessDenied", reference: "AccessDenied" }
   },
   {
     scenario: "reports a removed target as missing on paths and stale on references",
     path: ({ admin }) => admin.chmod("/gone", 0o700),
-    reference: ({ admin, gone }) => admin.chmodReference(gone, 0o700),
+    reference: ({ admin, gone }) => admin.chmod(gone, 0o700),
     expected: { path: "NotFound at /gone", reference: "StaleReference" }
   }
 ]
@@ -690,26 +718,30 @@ const chownRows: ReadonlyArray<Row> = [
   {
     scenario: "changes the owner",
     path: ({ admin }) => admin.chown("/file", { uid: 9 }),
-    reference: ({ admin, file }) => admin.chownReference(file, { uid: 9 }),
-    check: ({ admin }) => Effect.map(admin.lstat("/file"), (metadata) => assert.strictEqual(metadata.uid, 9)),
+    reference: ({ admin, file }) => admin.chown(file, { uid: 9 }),
+    check: ({ admin }) =>
+      Effect.map(
+        admin.stat(Vfs.Target.Path({ path: "/file", followFinalSymlink: false })),
+        (metadata) => assert.strictEqual(metadata.uid, 9)
+      ),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "rejects an invalid owner",
     path: ({ admin }) => admin.chown("/file", { uid: -1 }),
-    reference: ({ admin, file }) => admin.chownReference(file, { uid: -1 }),
+    reference: ({ admin, file }) => admin.chown(file, { uid: -1 }),
     expected: { path: "InvalidArgument", reference: "InvalidArgument" }
   },
   {
     scenario: "denies a caller that does not own the target",
     path: ({ guest }) => guest.chown("/file", { gid: 9 }),
-    reference: ({ guest, file }) => guest.chownReference(file, { gid: 9 }),
+    reference: ({ guest, file }) => guest.chown(file, { gid: 9 }),
     expected: { path: "AccessDenied", reference: "AccessDenied" }
   },
   {
     scenario: "reports a removed target as missing on paths and stale on references",
     path: ({ admin }) => admin.chown("/gone", { uid: 9 }),
-    reference: ({ admin, gone }) => admin.chownReference(gone, { uid: 9 }),
+    reference: ({ admin, gone }) => admin.chown(gone, { uid: 9 }),
     expected: { path: "NotFound at /gone", reference: "StaleReference" }
   }
 ]
@@ -718,32 +750,36 @@ const utimesRows: ReadonlyArray<Row> = [
   {
     scenario: "sets explicit times",
     path: ({ admin }) => admin.utimes("/file", EXPLICIT_TIMES),
-    reference: ({ admin, file }) => admin.utimesReference(file, EXPLICIT_TIMES),
-    check: ({ admin }) => Effect.map(admin.lstat("/file"), (metadata) => assert.strictEqual(metadata.mtimeNs, 1n)),
+    reference: ({ admin, file }) => admin.utimes(file, EXPLICIT_TIMES),
+    check: ({ admin }) =>
+      Effect.map(
+        admin.stat(Vfs.Target.Path({ path: "/file", followFinalSymlink: false })),
+        (metadata) => assert.strictEqual(metadata.mtimeNs, 1n)
+      ),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "denies explicit times to a caller that does not own the target",
     path: ({ guest }) => guest.utimes("/file", EXPLICIT_TIMES),
-    reference: ({ guest, file }) => guest.utimesReference(file, EXPLICIT_TIMES),
+    reference: ({ guest, file }) => guest.utimes(file, EXPLICIT_TIMES),
     expected: { path: "AccessDenied at /file", reference: "AccessDenied" }
   },
   {
     scenario: "lets a caller with write access set both times to now",
     path: ({ guest }) => guest.utimes("/file", NOW_TIMES),
-    reference: ({ guest, file }) => guest.utimesReference(file, NOW_TIMES),
+    reference: ({ guest, file }) => guest.utimes(file, NOW_TIMES),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "denies setting times to now without write access",
     path: ({ guest }) => guest.utimes("/", NOW_TIMES),
-    reference: ({ guest, root }) => guest.utimesReference(root, NOW_TIMES),
+    reference: ({ guest, root }) => guest.utimes(root, NOW_TIMES),
     expected: { path: "AccessDenied at /", reference: "AccessDenied" }
   },
   {
     scenario: "reports a removed target as missing on paths and stale on references",
     path: ({ admin }) => admin.utimes("/gone", EXPLICIT_TIMES),
-    reference: ({ admin, gone }) => admin.utimesReference(gone, EXPLICIT_TIMES),
+    reference: ({ admin, gone }) => admin.utimes(gone, EXPLICIT_TIMES),
     expected: { path: "NotFound at /gone", reference: "StaleReference" }
   }
 ]
@@ -752,31 +788,35 @@ const accessRows: ReadonlyArray<Row> = [
   {
     scenario: "grants a permitted check",
     path: ({ guest }) => guest.access("/file", 4),
-    reference: ({ guest, file }) => guest.accessReference(file, 4),
+    reference: ({ guest, file }) => guest.access(file, 4),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "rejects invalid bits",
     path: ({ admin }) => admin.access("/file", 8),
-    reference: ({ admin, file }) => admin.accessReference(file, 8),
+    reference: ({ admin, file }) => admin.access(file, 8),
     expected: { path: "InvalidArgument at /file", reference: "InvalidArgument" }
   },
   {
-    scenario: "denies execute on a file without any execute bit, even to an administrator",
+    // #186 decision 16: access answers with the granted bits instead of failing.
+    scenario: "grants no execute on a file without any execute bit, even to an administrator",
     path: ({ admin }) => admin.access("/file", 1),
-    reference: ({ admin, file }) => admin.accessReference(file, 1),
-    expected: { path: "AccessDenied at /file", reference: "AccessDenied" }
+    reference: ({ admin, file }) => admin.access(file, 1),
+    check: ({ admin }) => Effect.map(admin.access("/file", 1), (granted) => assert.strictEqual(granted, 0)),
+    expected: { path: "ok", reference: "ok" }
   },
   {
-    scenario: "denies a missing permission",
+    // #186 decision 16: access answers with the granted bits instead of failing.
+    scenario: "grants nothing for a missing permission",
     path: ({ guest }) => guest.access("/", 2),
-    reference: ({ guest, root }) => guest.accessReference(root, 2),
-    expected: { path: "AccessDenied at /", reference: "AccessDenied" }
+    reference: ({ guest, root }) => guest.access(root, 2),
+    check: ({ guest }) => Effect.map(guest.access("/", 2), (granted) => assert.strictEqual(granted, 0)),
+    expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "reports a removed target as missing on paths and stale on references",
     path: ({ admin }) => admin.access("/gone"),
-    reference: ({ admin, gone }) => admin.accessReference(gone),
+    reference: ({ admin, gone }) => admin.access(gone),
     expected: { path: "NotFound at /gone", reference: "StaleReference" }
   }
 ]
@@ -785,32 +825,36 @@ const truncateRows: ReadonlyArray<Row> = [
   {
     scenario: "resizes a file",
     path: ({ admin }) => admin.truncate("/file", 4n),
-    reference: ({ admin, file }) => admin.truncateReference(file, 4n),
-    check: ({ admin }) => Effect.map(admin.lstat("/file"), (metadata) => assert.strictEqual(metadata.size, 4n)),
+    reference: ({ admin, file }) => admin.truncate(file, 4n),
+    check: ({ admin }) =>
+      Effect.map(
+        admin.stat(Vfs.Target.Path({ path: "/file", followFinalSymlink: false })),
+        (metadata) => assert.strictEqual(metadata.size, 4n)
+      ),
     expected: { path: "ok", reference: "ok" }
   },
   {
     scenario: "rejects a directory",
     path: ({ admin }) => admin.truncate("/dir", 0n),
-    reference: ({ admin, dir }) => admin.truncateReference(dir, 0n),
+    reference: ({ admin, dir }) => admin.truncate(dir, 0n),
     expected: { path: "IsDirectory at /dir", reference: "IsDirectory" }
   },
   {
     scenario: "rejects a directory before checking write access",
     path: ({ guest }) => guest.truncate("/", 0n),
-    reference: ({ guest, root }) => guest.truncateReference(root, 0n),
+    reference: ({ guest, root }) => guest.truncate(root, 0n),
     expected: { path: "IsDirectory at /", reference: "IsDirectory" }
   },
   {
     scenario: "rejects a negative length",
     path: ({ admin }) => admin.truncate("/file", -1n),
-    reference: ({ admin, file }) => admin.truncateReference(file, -1n),
+    reference: ({ admin, file }) => admin.truncate(file, -1n),
     expected: { path: "InvalidArgument", reference: "InvalidArgument" }
   },
   {
     scenario: "reports a removed target as missing on paths and stale on references",
     path: ({ admin }) => admin.truncate("/gone", 0n),
-    reference: ({ admin, gone }) => admin.truncateReference(gone, 0n),
+    reference: ({ admin, gone }) => admin.truncate(gone, 0n),
     expected: { path: "NotFound at /gone", reference: "StaleReference" }
   }
 ]

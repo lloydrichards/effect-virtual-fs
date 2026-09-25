@@ -3,7 +3,7 @@ import { ByteSize, Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import * as InternalBytePath from "../src/internal/bytePath.js"
 
-import { it } from "./TestEffect.js"
+import { entryNames, it, rawEntryNames, text } from "./TestEffect.js"
 
 // The path an error names, as text; errors carry paths as bytes.
 const pathText = (path: Vfs.BytePath | undefined): string | undefined =>
@@ -43,14 +43,19 @@ describe("links and byte namespace", () => {
         yield* fs.mkdir("/b")
         yield* fs.mkdir("/b/deep")
         yield* fs.symlink("../b/deep", "/a/link")
-        assert.strictEqual(yield* fs.realPath("/a/link/.."), "/b")
+        assert.strictEqual(pathText(yield* fs.realPath("/a/link/..")), "/b")
         yield* fs.symlink("missing", "/b/dangling")
         const f = yield* fs.open("/b/dangling", { access: "write", create: "ifMissing" })
         yield* f.write(new Uint8Array([9]))
         assert.strictEqual((yield* fs.stat("/b/missing")).ino, (yield* f.stat).ino)
-        assert.strictEqual((yield* fs.lstat("/b/dangling")).kind, "symlink")
         assert.strictEqual(
-          (yield* Effect.flip(fs.open("/b/dangling", { access: "read", followFinalSymlink: false }))).code,
+          (yield* fs.stat(Vfs.Target.Path({ path: "/b/dangling", followFinalSymlink: false }))).kind,
+          "symlink"
+        )
+        assert.strictEqual(
+          (yield* Effect.flip(
+            fs.open(Vfs.Target.Path({ path: "/b/dangling", followFinalSymlink: false }), { access: "read" })
+          )).code,
           "SymlinkLoop"
         )
         assert.strictEqual(
@@ -66,13 +71,27 @@ describe("links and byte namespace", () => {
       yield* fs.mkdir("/target")
       yield* fs.symlink("/target", "/alias")
       yield* fs.rename("/alias", "/renamed")
-      assert.strictEqual(yield* fs.readLink("/renamed"), "/target")
+      assert.strictEqual(text(yield* fs.readLink("/renamed")), "/target")
       assert.strictEqual((yield* Effect.flip(fs.rmdir("/renamed"))).code, "NotDirectory")
       yield* fs.link("/renamed", "/alias")
-      assert.strictEqual((yield* fs.lstat("/alias")).ino, (yield* fs.lstat("/renamed")).ino)
+      assert.strictEqual(
+        (yield* fs.stat(Vfs.Target.Path({ path: "/alias", followFinalSymlink: false }))).ino,
+        (yield* fs.stat(Vfs.Target.Path({ path: "/renamed", followFinalSymlink: false }))).ino
+      )
       yield* fs.unlink("/renamed")
       yield* fs.unlink("/alias")
       yield* fs.stat("/target")
+    }))
+
+  it.effect("reads a link without following it, even when the target asks to follow", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      yield* fs.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      yield* fs.symlink("/file", "/link")
+
+      const following = Vfs.Target.Path({ path: "/link", followFinalSymlink: true })
+
+      assert.strictEqual(text(yield* fs.readLink(following)), "/file")
     }))
 
   it.effect(
@@ -90,7 +109,7 @@ describe("links and byte namespace", () => {
           (yield* Effect.flip(fs.open("/loop", { access: "write", create: "ifMissing" }))).code,
           "SymlinkLoop"
         )
-        assert.deepStrictEqual([...(yield* fs.readDirectory("/"))].sort(), ["a", "longname", "loop"])
+        assert.deepStrictEqual([...(entryNames(yield* fs.readDirectory("/")))].sort(), ["a", "longname", "loop"])
       })
   )
 
@@ -99,32 +118,29 @@ describe("links and byte namespace", () => {
       const fs = yield* (yield* Vfs.make({ maxPathBytes: ByteSize.bytes(12) })).caller()
       const target = "x".repeat(300)
       yield* fs.symlink(target, "/raw")
-      assert.strictEqual(yield* fs.readLink("/raw"), target)
+      assert.strictEqual(text(yield* fs.readLink("/raw")), target)
       assert.strictEqual((yield* Effect.flip(fs.stat("/raw"))).code, "PathTooLong")
       yield* fs.symlink("", "/empty")
-      assert.strictEqual(yield* fs.readLink("/empty"), "")
+      assert.strictEqual(text(yield* fs.readLink("/empty")), "")
       assert.strictEqual((yield* Effect.flip(fs.stat("/empty"))).code, "NotFound")
       yield* fs.mkdir("/x")
       assert.strictEqual((yield* Effect.flip(fs.stat("/empty/x"))).code, "NotFound")
     }))
 
-  it.effect("returns independently owned byte names and rejects lossy string results", () =>
+  it.effect("returns independently owned byte names", () =>
     Effect.gen(function*() {
       const fs = yield* (yield* Vfs.make()).caller()
       const path = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))
       yield* fs.mkdir(path)
-      const names = yield* fs.readDirectoryBytes("/")
+      const names = rawEntryNames(yield* fs.readDirectory("/"))
       assert.deepStrictEqual(names, [new Uint8Array([255])])
       const first = names[0]
       assert.isDefined(first)
       first[0] = 1
-      assert.deepStrictEqual(yield* fs.readDirectoryBytes("/"), [new Uint8Array([255])])
-      assert.strictEqual((yield* Effect.flip(fs.readDirectory("/"))).code, "UnrepresentableName")
-      assert.strictEqual((yield* Effect.flip(fs.realPath(path))).code, "UnrepresentableName")
-      assert.deepStrictEqual(yield* Vfs.pathToBytes(yield* fs.realPathBytes(path)), new Uint8Array([47, 255]))
+      assert.deepStrictEqual(rawEntryNames(yield* fs.readDirectory("/")), [new Uint8Array([255])])
+      assert.deepStrictEqual(yield* Vfs.pathToBytes(yield* fs.realPath(path)), new Uint8Array([47, 255]))
       yield* fs.symlink(path, "/alias")
-      assert.strictEqual((yield* Effect.flip(fs.readLink("/alias"))).code, "UnrepresentableName")
-      assert.deepStrictEqual(yield* fs.readLinkBytes("/alias"), new Uint8Array([47, 255]))
+      assert.deepStrictEqual(yield* fs.readLink("/alias"), new Uint8Array([47, 255]))
     }))
 
   it.effect(
@@ -146,11 +162,11 @@ describe("links and byte namespace", () => {
       const fs = yield* (yield* Vfs.make()).caller()
       yield* fs.writeFile("/f", new Uint8Array([1]), { access: "write", create: "ifMissing" })
       yield* fs.link("/f", "/alias")
-      assert.strictEqual(yield* fs.realPath("/alias"), "/alias")
-      assert.strictEqual(yield* fs.realPath("/f"), "/f")
+      assert.strictEqual(pathText(yield* fs.realPath("/alias")), "/alias")
+      assert.strictEqual(pathText(yield* fs.realPath("/f")), "/f")
       yield* fs.rename("/f", "/g")
-      assert.strictEqual(yield* fs.realPath("/alias"), "/alias")
-      assert.strictEqual(yield* fs.realPath("/g"), "/g")
+      assert.strictEqual(pathText(yield* fs.realPath("/alias")), "/alias")
+      assert.strictEqual(pathText(yield* fs.realPath("/g")), "/g")
       assert.strictEqual((yield* Effect.flip(fs.realPath("/f"))).code, "NotFound")
     }))
 
@@ -160,11 +176,17 @@ describe("links and byte namespace", () => {
       yield* fs.mkdir("/old")
       yield* fs.mkdir("/old/work")
       const handle = yield* fs.openDirectory("/old/work")
-      assert.strictEqual(yield* fs.realPath(".", { relativeTo: handle }), "/old/work")
+      assert.strictEqual(pathText(yield* fs.realPath(Vfs.Target.Path({ path: ".", relativeTo: handle }))), "/old/work")
       yield* fs.rename("/old", "/new")
-      assert.strictEqual(yield* fs.realPath(".", { relativeTo: handle }), "/new/work")
-      yield* fs.writeFile("x", new Uint8Array([1]), { access: "write", create: "ifMissing", relativeTo: handle })
-      assert.strictEqual(yield* fs.realPath("x", { relativeTo: handle }), "/new/work/x")
+      assert.strictEqual(pathText(yield* fs.realPath(Vfs.Target.Path({ path: ".", relativeTo: handle }))), "/new/work")
+      yield* fs.writeFile(Vfs.Target.Path({ path: "x", relativeTo: handle }), new Uint8Array([1]), {
+        access: "write",
+        create: "ifMissing"
+      })
+      assert.strictEqual(
+        pathText(yield* fs.realPath(Vfs.Target.Path({ path: "x", relativeTo: handle }))),
+        "/new/work/x"
+      )
       assert.strictEqual((yield* fs.stat("/new/work/x")).kind, "file")
     }))
 
@@ -173,8 +195,11 @@ describe("links and byte namespace", () => {
       const fs = yield* (yield* Vfs.make()).caller()
       yield* fs.mkdir("/gone")
       const handle = yield* fs.openDirectory("/gone")
-      assert.strictEqual(yield* fs.realPath(".", { relativeTo: handle }), "/gone")
+      assert.strictEqual(pathText(yield* fs.realPath(Vfs.Target.Path({ path: ".", relativeTo: handle }))), "/gone")
       yield* fs.rmdir("/gone")
-      assert.strictEqual((yield* Effect.flip(fs.realPath(".", { relativeTo: handle }))).code, "NotFound")
+      assert.strictEqual(
+        (yield* Effect.flip(fs.realPath(Vfs.Target.Path({ path: ".", relativeTo: handle })))).code,
+        "NotFound"
+      )
     }))
 })

@@ -74,6 +74,12 @@ export * as SnapshotDelta from "./SnapshotDelta.js"
  * @since 0.6.0
  * @category re-exports
  */
+export * as Target from "./Target.js"
+
+/**
+ * @since 0.6.0
+ * @category re-exports
+ */
 export * as Volume from "./Volume.js"
 
 /**
