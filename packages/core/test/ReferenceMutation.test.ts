@@ -42,6 +42,29 @@ describe("reference mutations", () => {
       assert.strictEqual((yield* Effect.flip(fs.observeMetadata(directory.reference))).code, "StaleReference")
     }))
 
+  it.effect("checks a removal like rmdir and unlink before removing either kind", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const fs = yield* volume.caller({ umask: 0 })
+      const guest = yield* volume.caller({ identity: { uid: 9, gid: 9, groups: [], privileged: false } })
+      const root = yield* fs.rootReference
+      const sticky = (yield* fs.mkdirReference(root, name("sticky"), { mode: 0o1777 })).reference
+      const file = yield* fs.openChildReference(sticky, name("file"), { access: "write", create: "exclusive" })
+      yield* file.handle.close
+      const code = <A>(effect: Effect.Effect<A, Vfs.FsError>) => Effect.map(Effect.flip(effect), (error) => error.code)
+
+      assert.strictEqual(yield* code(guest.removeReference(sticky, name("file"))), "AccessDenied")
+      assert.strictEqual(yield* code(fs.removeReference(sticky, name("missing"))), "NotFound")
+      assert.strictEqual(yield* code(fs.removeReference(sticky, name("."))), "InvalidArgument")
+      assert.strictEqual(yield* code(fs.removeReference(root, name("sticky"))), "NotEmpty")
+
+      yield* fs.removeReference(sticky, name("file"))
+      const links = (yield* fs.observeMetadata(root)).value.nlink
+      yield* fs.removeReference(root, name("sticky"))
+      assert.strictEqual((yield* fs.observeMetadata(root)).value.nlink, links - 1)
+      assert.strictEqual(yield* code(fs.observeMetadata(sticky)), "StaleReference")
+    }))
+
   it.effect(
     "creates entries with exact identities, initial times, and coordinated directory changes",
     () =>

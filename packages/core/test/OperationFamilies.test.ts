@@ -24,10 +24,12 @@ interface Fixture {
   readonly file: Vfs.ObjectReference
   // A directory that was removed after its reference was taken.
   readonly gone: Vfs.ObjectReference
+  // World-writable and sticky, holding a file and an empty directory the guest does not own.
+  readonly sticky: Vfs.ObjectReference
 }
 
-// Builds /dir, /dir/existing, /file and a removed /gone. The root stays 0o755 and owned by uid 0, so the
-// guest can search it but not write it.
+// Builds /dir, /dir/existing, /file, a removed /gone, and /sticky holding file and subdir. The root stays
+// 0o755 and owned by uid 0, so the guest can search it but not write it.
 const arrange = Effect.gen(function*() {
   const volume = yield* Vfs.make()
   const admin = yield* volume.caller({ umask: 0 })
@@ -39,8 +41,12 @@ const arrange = Effect.gen(function*() {
   yield* file.handle.close
   const gone = (yield* admin.mkdirReference(root, name("gone"))).reference
   yield* admin.rmdirReference(root, name("gone"))
+  const sticky = (yield* admin.mkdirReference(root, name("sticky"), { mode: 0o1777 })).reference
+  const owned = yield* admin.openChildReference(sticky, name("file"), { access: "write", create: "exclusive" })
+  yield* owned.handle.close
+  yield* admin.mkdirReference(sticky, name("subdir"))
 
-  return { admin, guest, root, dir, file: file.reference, gone } satisfies Fixture
+  return { admin, guest, root, dir, file: file.reference, gone, sticky } satisfies Fixture
 })
 
 interface Row {
@@ -299,10 +305,123 @@ const symlinkRows: ReadonlyArray<Row> = [
   }
 ]
 
+const unlinkRows: ReadonlyArray<Row> = [
+  {
+    scenario: "removes a file",
+    path: ({ admin }) => admin.unlink("/file"),
+    reference: ({ admin, root }) => admin.unlinkReference(root, name("file")),
+    check: missingAt("/file"),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects a missing name",
+    path: ({ admin }) => admin.unlink("/dir/missing"),
+    reference: ({ admin, dir }) => admin.unlinkReference(dir, name("missing")),
+    expected: { path: "NotFound at /dir/missing", reference: "NotFound" }
+  },
+  {
+    scenario: "rejects a directory",
+    path: ({ admin }) => admin.unlink("/dir/existing"),
+    reference: ({ admin, dir }) => admin.unlinkReference(dir, name("existing")),
+    expected: { path: "IsDirectory at /dir/existing", reference: "IsDirectory" }
+  },
+  {
+    scenario: "treats a dot name as a directory on paths but invalid on references",
+    path: ({ admin }) => admin.unlink("/dir/."),
+    reference: ({ admin, dir }) => admin.unlinkReference(dir, name(".")),
+    expected: { path: "IsDirectory at /dir/.", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects a trailing slash on a path to a file",
+    path: ({ admin }) => admin.unlink("/file/"),
+    reference: ({ admin, root }) => admin.unlinkReference(root, name("file/")),
+    expected: { path: "NotDirectory at /file/", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "denies an unwritable parent before a path dot name but after a reference dot name",
+    path: ({ guest }) => guest.unlink("/."),
+    reference: ({ guest, root }) => guest.unlinkReference(root, name(".")),
+    expected: { path: "AccessDenied at /.", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "denies removing another owner's file from a sticky directory",
+    path: ({ guest }) => guest.unlink("/sticky/file"),
+    reference: ({ guest, sticky }) => guest.unlinkReference(sticky, name("file")),
+    expected: { path: "AccessDenied at /sticky/file", reference: "AccessDenied" }
+  },
+  {
+    scenario: "reports a directory before the sticky-directory check",
+    path: ({ guest }) => guest.unlink("/sticky/subdir"),
+    reference: ({ guest, sticky }) => guest.unlinkReference(sticky, name("subdir")),
+    expected: { path: "IsDirectory at /sticky/subdir", reference: "IsDirectory" }
+  },
+  {
+    scenario: "reports a directory before a path's trailing slash",
+    path: ({ admin }) => admin.unlink("/dir/existing/"),
+    reference: ({ admin, dir }) => admin.unlinkReference(dir, name("existing/")),
+    expected: { path: "IsDirectory at /dir/existing/", reference: "InvalidArgument" }
+  }
+]
+
+const rmdirRows: ReadonlyArray<Row> = [
+  {
+    scenario: "removes an empty directory",
+    path: ({ admin }) => admin.rmdir("/dir/existing"),
+    reference: ({ admin, dir }) => admin.rmdirReference(dir, name("existing")),
+    check: missingAt("/dir/existing"),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects a missing name",
+    path: ({ admin }) => admin.rmdir("/dir/missing"),
+    reference: ({ admin, dir }) => admin.rmdirReference(dir, name("missing")),
+    expected: { path: "NotFound at /dir/missing", reference: "NotFound" }
+  },
+  {
+    scenario: "rejects a directory with entries",
+    path: ({ admin }) => admin.rmdir("/dir"),
+    reference: ({ admin, root }) => admin.rmdirReference(root, name("dir")),
+    expected: { path: "NotEmpty at /dir", reference: "NotEmpty" }
+  },
+  {
+    scenario: "rejects a file",
+    path: ({ admin }) => admin.rmdir("/file"),
+    reference: ({ admin, root }) => admin.rmdirReference(root, name("file")),
+    expected: { path: "NotDirectory at /file", reference: "NotDirectory" }
+  },
+  {
+    scenario: "rejects a dot name on both families",
+    path: ({ admin }) => admin.rmdir("/dir/."),
+    reference: ({ admin, dir }) => admin.rmdirReference(dir, name(".")),
+    expected: { path: "InvalidArgument at /dir/.", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "ignores a trailing slash on paths, where a reference name cannot hold one",
+    path: ({ admin }) => admin.rmdir("/dir/existing/"),
+    reference: ({ admin, dir }) => admin.rmdirReference(dir, name("existing/")),
+    check: missingAt("/dir/existing"),
+    expected: { path: "ok", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "denies an unwritable parent before looking up the name",
+    path: ({ guest }) => guest.rmdir("/missing"),
+    reference: ({ guest, root }) => guest.rmdirReference(root, name("missing")),
+    expected: { path: "AccessDenied at /missing", reference: "AccessDenied" }
+  },
+  {
+    scenario: "applies the sticky-directory check before the kind check",
+    path: ({ guest }) => guest.rmdir("/sticky/file"),
+    reference: ({ guest, sticky }) => guest.rmdirReference(sticky, name("file")),
+    expected: { path: "AccessDenied at /sticky/file", reference: "AccessDenied" }
+  }
+]
+
 const TABLE: ReadonlyArray<readonly [verb: string, rows: ReadonlyArray<Row>]> = [
   ["mkdir", mkdirRows],
   ["link", linkRows],
-  ["symlink", symlinkRows]
+  ["symlink", symlinkRows],
+  ["unlink", unlinkRows],
+  ["rmdir", rmdirRows]
 ]
 
 describe("operation families", () => {
