@@ -8,6 +8,86 @@ Added in v0.6.0
 
 ---
 
+## constants
+
+### S_IFDIR
+
+File-type bits of a directory in a POSIX `st_mode`.
+
+**Signature**
+
+```ts
+export declare const S_IFDIR: 16384
+```
+
+Added in v0.6.0
+
+### S_IFLNK
+
+File-type bits of a symbolic link in a POSIX `st_mode`.
+
+**Signature**
+
+```ts
+export declare const S_IFLNK: 40960
+```
+
+Added in v0.6.0
+
+### S_IFMT
+
+Mask of the file-type bits in a POSIX `st_mode`.
+
+**Signature**
+
+```ts
+export declare const S_IFMT: 61440
+```
+
+Added in v0.6.0
+
+### S_IFREG
+
+File-type bits of a regular file in a POSIX `st_mode`.
+
+**Signature**
+
+```ts
+export declare const S_IFREG: 32768
+```
+
+Added in v0.6.0
+
+## getters
+
+### typedMode
+
+The POSIX `st_mode` of an object: the file-type bits of its `kind` joined
+with its permission `mode`. `mode` itself never carries type bits, so the
+kind has a single source.
+
+A volume has no device nodes, so a `stat` built from metadata reports `dev`
+and `rdev` as 0, and `(dev, ino)` identifies an object only within one volume.
+
+**Signature**
+
+```ts
+export declare const typedMode: (metadata: Pick<Metadata, "kind" | "mode">) => number
+```
+
+**Example**
+
+```ts
+import { S_IFDIR, S_IFMT, typedMode } from "@effect-vfs/core/Metadata"
+
+const stMode = typedMode({ kind: "directory", mode: 0o755 })
+
+console.log(stMode.toString(8)) // "40755"
+console.log((stMode & S_IFMT) === S_IFDIR) // true
+```
+
+Added in v0.6.0
+
 ## models
 
 ### Metadata (type alias)
