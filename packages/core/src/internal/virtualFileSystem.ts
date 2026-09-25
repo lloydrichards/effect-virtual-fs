@@ -467,6 +467,17 @@ interface SymbolicLink {
 
 type Node = Directory | RegularFile | SymbolicLink
 
+// The namespace entry a path or a directory reference plus name resolves to, so each verb has one body. A
+// path's final component can be absent or a dot and can carry a trailing slash; a reference name never does,
+// so a body's checks for those cases never fire on references.
+interface ResolvedEntry {
+  readonly parent: Directory
+  readonly name: string | undefined
+  readonly trailingSlash: boolean
+  // Names the path on path-addressed entries; the method's own context on reference-addressed ones.
+  readonly op: OpContext
+}
+
 interface EngineState {
   root: Directory
   retainedFiles: Map<bigint, RegularFile>
@@ -1479,8 +1490,10 @@ export const makeVolume = Effect.fnUntraced(
       }
     }
 
-    // Whether the volume's entry quota leaves room for one more name.
+    // Whether the volume's entry quota is already full.
     const atEntryLimit = () => settings.maxEntries !== undefined && state.entries >= settings.maxEntries
+
+    const reserveEntry = (op: OpContext) => atEntryLimit() ? Effect.fail(op.fail("NoSpace")) : Effect.void
 
     // A new subdirectory's ".." entry is a second link to the parent; other node kinds add none.
     const attach = (parent: Directory, name: string, node: Node, now: bigint) => {
@@ -1811,6 +1824,19 @@ export const makeVolume = Effect.fnUntraced(
         mtimeNs: times?.modification.kind === "value" ? times.modification.nanoseconds : now
       })
 
+      const newDirectory = (parent: Directory, mode: number, now: bigint, times?: Times): Directory => ({
+        kind: "directory",
+        lineage: undefined,
+        parent,
+        entries: new Map(),
+        metadata: {
+          ...directoryMetadata(state.nextInode, identity.uid, parent.metadata.gid, mode, now),
+          ...creationTimes(times, now)
+        },
+        revision: nextRevision(),
+        objectReference: undefined
+      })
+
       const lookup = Effect.fnUntraced(function*(
         path: PreparedPath,
         base: DirectoryHandle | undefined,
@@ -1975,6 +2001,31 @@ export const makeVolume = Effect.fnUntraced(
           return node
         }
       )
+
+      const ResolvedEntry = {
+        // Runs inside coordination, after the caller prepared the path outside it.
+        fromPath: Effect.fnUntraced(function*(
+          prepared: Result.Result<PreparedPath, FsError>,
+          base: DirectoryHandle | undefined,
+          op: OpContext
+        ) {
+          const path = yield* Effect.fromResult(prepared)
+          const parent = yield* locate(path, base, op, { parentOnly: true })
+
+          return {
+            parent,
+            name: path.components.at(-1),
+            trailingSlash: path.trailingSlash,
+            op: op.at(path.input)
+          } satisfies ResolvedEntry
+        }),
+        // Takes a name the caller validated before coordination, so a bad name outranks the reference.
+        fromReference: Effect.fnUntraced(function*(directoryReference: ObjectReference, name: string, op: OpContext) {
+          const parent = yield* referencedDirectory(directoryReference, op)
+
+          return { parent, name, trailingSlash: false, op } satisfies ResolvedEntry
+        })
+      }
 
       const acquireDirectory = Effect.fnUntraced(
         function*(input: PathInput, options: RelativeOptions | undefined, op: OpContext) {
@@ -2242,6 +2293,49 @@ export const makeVolume = Effect.fnUntraced(
           ? Effect.fail(op.fail("AccessDenied"))
           : Effect.void
 
+      // Authorizes creating the entry and returns its name. Only a path can name a dot entry, and one always
+      // exists, so it fails as AlreadyExists.
+      const claimName = Effect.fnUntraced(function*(entry: ResolvedEntry) {
+        yield* authorize(entry.parent, identity, WRITE | EXECUTE, entry.op)
+
+        if (isDotComponent(entry.name) || entry.parent.entries.has(entry.name)) {
+          return yield* entry.op.fail("AlreadyExists")
+        }
+
+        return entry.name
+      })
+
+      const makeDirectory = Effect.fnUntraced(function*(
+        entry: ResolvedEntry,
+        request: {
+          readonly mode: number
+          readonly exactMode?: boolean | undefined
+          readonly times?: Times | undefined
+        },
+        op: OpContext
+      ) {
+        const parent = entry.parent
+        const name = yield* claimName(entry)
+
+        yield* reserveEntry(entry.op)
+        const before = parent.revision
+        const now = yield* timestamp(op)
+
+        const mode = request.exactMode
+          ? yield* permittedMode({ kind: "directory", uid: identity.uid, gid: parent.metadata.gid }, request.mode, op)
+          : (request.mode & 0o777 & ~umask) | (request.mode & STICKY_BIT)
+
+        const child = newDirectory(parent, mode, now, request.times)
+
+        // No Effect yield or expected failure between these publication writes.
+        attach(parent, name, child, now)
+        state.nextInode += 1n
+        state.entries += 1
+        publishEntry("Create", parent, name)
+
+        return { child, directory: { before, after: parent.revision } }
+      })
+
       const rootReferenceOp = OpContext.make("rootReference")
 
       return Object.freeze({
@@ -2276,8 +2370,8 @@ export const makeVolume = Effect.fnUntraced(
                 return yield* op.fail("NotDirectory")
               }
 
-              // TODO(#179): a reference has no caller path, so this and parentReference and observeDirectory pass "/"
-              // to authorize; settle what path a reference error carries when the operation families merge.
+              // TODO(#186): a reference has no caller path, so this and parentReference and observeDirectory pass "/"
+              // to authorize, while reference mutations name no path; settle one rule with the public error family.
               yield* authorize(directory, identity, EXECUTE, op.at("/"))
               const child = directory.entries.get(key)
 
@@ -2391,56 +2485,18 @@ export const makeVolume = Effect.fnUntraced(
             return yield* op.fail("InvalidArgument")
           }
 
-          const mode = chosen.mode ?? 0o777
-
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const parent = yield* referencedDirectory(directoryReference, op)
-              yield* authorize(parent, identity, WRITE | EXECUTE, op)
+              const entry = yield* ResolvedEntry.fromReference(directoryReference, name, op)
 
-              if (parent.entries.has(name)) {
-                return yield* op.fail("AlreadyExists")
-              }
+              const { child, directory } = yield* makeDirectory(
+                entry,
+                { mode: chosen.mode ?? 0o777, exactMode: chosen.exactMode, times: chosen.times },
+                op
+              )
 
-              if (atEntryLimit()) return yield* op.fail("NoSpace")
-              const before = parent.revision
-              const now = yield* timestamp(op)
-              const initial = creationTimes(chosen.times, now)
-
-              const creationMode = chosen.exactMode
-                ? yield* permittedMode(
-                  { kind: "directory", uid: identity.uid, gid: parent.metadata.gid },
-                  mode,
-                  op
-                )
-                : (mode & 0o777 & ~umask) | (mode & STICKY_BIT)
-
-              const child: Directory = {
-                kind: "directory",
-                lineage: undefined,
-                parent,
-                entries: new Map(),
-                metadata: {
-                  ...directoryMetadata(
-                    state.nextInode,
-                    identity.uid,
-                    parent.metadata.gid,
-                    creationMode,
-                    now
-                  ),
-                  ...initial
-                },
-                revision: nextRevision(),
-                objectReference: undefined
-              }
-
-              attach(parent, name, child, now)
-              state.nextInode += 1n
-              state.entries += 1
-              publishEntry("Create", parent, name)
-
-              return { reference: referenceFor(child), directory: { before, after: parent.revision } }
+              return { reference: referenceFor(child), directory }
             })
           )
         }),
@@ -3931,42 +3987,8 @@ export const makeVolume = Effect.fnUntraced(
             return yield* coordinated(
               op,
               Effect.gen(function*() {
-                const path = yield* Effect.fromResult(prepared)
-                const parent = yield* locate(path, base, op, { parentOnly: true })
-                yield* authorize(parent, identity, WRITE | EXECUTE, pathOp)
-                const name = path.components.at(-1)
-
-                if (isDotComponent(name) || parent.entries.has(name)) {
-                  return yield* pathOp.fail("AlreadyExists")
-                }
-
-                if (atEntryLimit()) {
-                  return yield* pathOp.fail("NoSpace")
-                }
-
-                const now = yield* timestamp(op)
-
-                const child: Directory = {
-                  kind: "directory",
-                  lineage: undefined,
-                  parent,
-                  entries: new Map(),
-                  metadata: directoryMetadata(
-                    state.nextInode,
-                    identity.uid,
-                    parent.metadata.gid,
-                    (mode & 0o777 & ~umask) | (mode & STICKY_BIT),
-                    now
-                  ),
-                  revision: nextRevision(),
-                  objectReference: undefined
-                }
-
-                // No Effect yield or expected failure between these publication writes.
-                attach(parent, name, child, now)
-                state.nextInode += 1n
-                state.entries += 1
-                publishEntry("Create", parent, name)
+                const entry = yield* ResolvedEntry.fromPath(prepared, base, op)
+                yield* makeDirectory(entry, { mode }, op)
               })
             )
           }
