@@ -2023,13 +2023,9 @@ export const makeVolume = Effect.fnUntraced(
       )
 
       const ResolvedEntry = {
-        // Runs inside coordination, after the caller prepared the path outside it.
-        fromPath: Effect.fnUntraced(function*(
-          prepared: Result.Result<PreparedPath, FsError>,
-          base: DirectoryHandle | undefined,
-          op: OpContext
-        ) {
-          const path = yield* Effect.fromResult(prepared)
+        // Takes a path whose preparation already succeeded, so a verb with two paths reports either one's
+        // preparation failure before locating any parent.
+        fromPath: Effect.fnUntraced(function*(path: PreparedPath, base: DirectoryHandle | undefined, op: OpContext) {
           const parent = yield* locate(path, base, op, { parentOnly: true })
 
           return {
@@ -2472,6 +2468,122 @@ export const makeVolume = Effect.fnUntraced(
         return yield* removeChild(parent, name, child, op)
       })
 
+      const renameEntry = Effect.fnUntraced(
+        function*(source: ResolvedEntry, destination: ResolvedEntry, op: OpContext) {
+          const sourceDirectory = source.parent
+          const destinationDirectory = destination.parent
+          const sourceName = source.name
+          const destinationName = destination.name
+          yield* authorize(sourceDirectory, identity, WRITE | EXECUTE, source.op)
+          yield* authorize(destinationDirectory, identity, WRITE | EXECUTE, destination.op)
+
+          // Both dot names report against the source path.
+          if (isDotComponent(sourceName) || isDotComponent(destinationName)) {
+            return yield* source.op.fail("InvalidArgument")
+          }
+
+          const sourceBefore = sourceDirectory.revision
+          const destinationBefore = destinationDirectory.revision
+          const child = sourceDirectory.entries.get(sourceName)
+
+          if (child === undefined) return yield* source.op.fail("NotFound")
+          const replaced = destinationDirectory.entries.get(destinationName)
+
+          if (destination.trailingSlash && replaced === undefined) {
+            return yield* destination.op.fail("NotFound")
+          }
+
+          if (source.trailingSlash && child.kind !== "directory") {
+            return yield* source.op.fail("NotDirectory")
+          }
+
+          if (destination.trailingSlash && replaced?.kind !== "directory") {
+            return yield* destination.op.fail("NotDirectory")
+          }
+
+          const result = () =>
+            sourceDirectory === destinationDirectory
+              ? {
+                _tag: "SameDirectory" as const,
+                directory: { before: sourceBefore, after: sourceDirectory.revision }
+              }
+              : {
+                _tag: "DifferentDirectories" as const,
+                sourceDirectory: { before: sourceBefore, after: sourceDirectory.revision },
+                destinationDirectory: { before: destinationBefore, after: destinationDirectory.revision }
+              }
+
+          if (child === replaced) return result()
+          yield* authorizeRemoval(sourceDirectory, child, source.op)
+
+          if (replaced !== undefined) {
+            yield* authorizeRemoval(destinationDirectory, replaced, destination.op)
+
+            if (child.kind === "directory" && replaced.kind !== "directory") {
+              return yield* destination.op.fail("NotDirectory")
+            }
+
+            if (child.kind !== "directory" && replaced.kind === "directory") {
+              return yield* destination.op.fail("IsDirectory")
+            }
+
+            if (replaced.kind === "directory" && replaced.entries.size > 0) {
+              return yield* destination.op.fail("NotEmpty")
+            }
+          }
+
+          for (
+            let ancestor: Directory | undefined = destinationDirectory;
+            ancestor !== undefined;
+            ancestor = ancestor.parent
+          ) {
+            if (ancestor === child) return yield* destination.op.fail("InvalidArgument")
+          }
+
+          const now = yield* timestamp(op)
+
+          // Every rejection above precedes the namespace and metadata writes below.
+          const oldEvent = () =>
+            ownedPath(
+              nameBytes(
+                directoryHex(sourceDirectory) + (sourceDirectory === state.root ? "" : SLASH_HEX) + sourceName
+              )
+            )
+
+          sourceDirectory.entries.delete(sourceName)
+          destinationDirectory.entries.set(destinationName, child)
+
+          if (child.kind === "directory") child.parent = destinationDirectory
+          sourceDirectory.metadata = {
+            ...sourceDirectory.metadata,
+            nlink: sourceDirectory.metadata.nlink - (child.kind === "directory" ? 1 : 0),
+            mtimeNs: now,
+            ctimeNs: now
+          }
+          destinationDirectory.metadata = {
+            ...destinationDirectory.metadata,
+            nlink: destinationDirectory.metadata.nlink + (child.kind === "directory" && replaced === undefined ? 1 : 0),
+            mtimeNs: now,
+            ctimeNs: now
+          }
+          child.metadata = { ...child.metadata, ctimeNs: now }
+          advanceRevision(sourceDirectory)
+
+          if (destinationDirectory !== sourceDirectory) advanceRevision(destinationDirectory)
+          advanceRevision(child)
+
+          if (replaced !== undefined) {
+            detach(replaced, now)
+            state.entries -= 1
+          }
+
+          queuePublish(() => watchHub.publishUnsafe(() => ({ _tag: "Remove" as const, path: oldEvent() })))
+          publishEntry("Create", destinationDirectory, destinationName)
+
+          return result()
+        }
+      )
+
       const rootReferenceOp = OpContext.make("rootReference")
 
       return Object.freeze({
@@ -2743,113 +2855,15 @@ export const makeVolume = Effect.fnUntraced(
             return yield* coordinated(
               op,
               Effect.gen(function*() {
-                const sourceDirectory = yield* referencedDirectory(sourceDirectoryReference, op)
+                const source = yield* ResolvedEntry.fromReference(sourceDirectoryReference, sourceName, op)
 
-                const destinationDirectory = yield* referencedDirectory(
+                const destination = yield* ResolvedEntry.fromReference(
                   destinationDirectoryReference,
+                  destinationName,
                   op
                 )
 
-                yield* authorize(sourceDirectory, identity, WRITE | EXECUTE, op)
-                yield* authorize(destinationDirectory, identity, WRITE | EXECUTE, op)
-                const sourceBefore = sourceDirectory.revision
-                const destinationBefore = destinationDirectory.revision
-                const child = sourceDirectory.entries.get(sourceName)
-
-                if (child === undefined) {
-                  return yield* op.fail("NotFound")
-                }
-
-                const replaced = destinationDirectory.entries.get(destinationName)
-
-                if (child === replaced) {
-                  return sourceDirectory === destinationDirectory
-                    ? { _tag: "SameDirectory" as const, directory: { before: sourceBefore, after: sourceBefore } }
-                    : {
-                      _tag: "DifferentDirectories" as const,
-                      sourceDirectory: { before: sourceBefore, after: sourceBefore },
-                      destinationDirectory: { before: destinationBefore, after: destinationBefore }
-                    }
-                }
-
-                yield* authorizeRemoval(sourceDirectory, child, op)
-
-                if (replaced !== undefined) {
-                  yield* authorizeRemoval(destinationDirectory, replaced, op)
-
-                  if (child.kind === "directory" && replaced.kind !== "directory") {
-                    return yield* op.fail("NotDirectory")
-                  }
-
-                  if (child.kind !== "directory" && replaced.kind === "directory") {
-                    return yield* op.fail("IsDirectory")
-                  }
-
-                  if (replaced.kind === "directory" && replaced.entries.size > 0) {
-                    return yield* op.fail("NotEmpty")
-                  }
-                }
-
-                for (
-                  let ancestor: Directory | undefined = destinationDirectory;
-                  ancestor !== undefined;
-                  ancestor = ancestor.parent
-                ) {
-                  if (ancestor === child) {
-                    return yield* op.fail("InvalidArgument")
-                  }
-                }
-
-                const now = yield* timestamp(op)
-
-                const oldEvent = () =>
-                  ownedPath(
-                    nameBytes(
-                      directoryHex(sourceDirectory) + (sourceDirectory === state.root ? "" : SLASH_HEX) + sourceName
-                    )
-                  )
-
-                sourceDirectory.entries.delete(sourceName)
-                destinationDirectory.entries.set(destinationName, child)
-
-                if (child.kind === "directory") child.parent = destinationDirectory
-                sourceDirectory.metadata = {
-                  ...sourceDirectory.metadata,
-                  nlink: sourceDirectory.metadata.nlink - (child.kind === "directory" ? 1 : 0),
-                  mtimeNs: now,
-                  ctimeNs: now
-                }
-                destinationDirectory.metadata = {
-                  ...destinationDirectory.metadata,
-                  nlink: destinationDirectory.metadata.nlink +
-                    (child.kind === "directory" && replaced === undefined ? 1 : 0),
-                  mtimeNs: now,
-                  ctimeNs: now
-                }
-                child.metadata = { ...child.metadata, ctimeNs: now }
-                advanceRevision(sourceDirectory)
-
-                if (destinationDirectory !== sourceDirectory) advanceRevision(destinationDirectory)
-                advanceRevision(child)
-
-                if (replaced !== undefined) {
-                  detach(replaced, now)
-                  state.entries -= 1
-                }
-
-                queuePublish(() => watchHub.publishUnsafe(() => ({ _tag: "Remove" as const, path: oldEvent() })))
-                publishEntry("Create", destinationDirectory, destinationName)
-
-                return sourceDirectory === destinationDirectory
-                  ? {
-                    _tag: "SameDirectory" as const,
-                    directory: { before: sourceBefore, after: sourceDirectory.revision }
-                  }
-                  : {
-                    _tag: "DifferentDirectories" as const,
-                    sourceDirectory: { before: sourceBefore, after: sourceDirectory.revision },
-                    destinationDirectory: { before: destinationBefore, after: destinationDirectory.revision }
-                  }
+                return yield* renameEntry(source, destination, op)
               })
             )
           }
@@ -3522,7 +3536,7 @@ export const makeVolume = Effect.fnUntraced(
                   return yield* sourceOp.fail("IsDirectory")
                 }
 
-                const entry = yield* ResolvedEntry.fromPath(b, destinationBase, op)
+                const entry = yield* ResolvedEntry.fromPath(yield* Effect.fromResult(b), destinationBase, op)
                 yield* linkNode(node, entry, op)
               })
             )
@@ -3549,7 +3563,7 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const entry = yield* ResolvedEntry.fromPath(prepared, base, op)
+              const entry = yield* ResolvedEntry.fromPath(yield* Effect.fromResult(prepared), base, op)
               yield* makeSymlink(entry, targetBytes, undefined, op)
             })
           )
@@ -3716,7 +3730,7 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const entry = yield* ResolvedEntry.fromPath(prepared, base, op)
+              const entry = yield* ResolvedEntry.fromPath(yield* Effect.fromResult(prepared), base, op)
               yield* unlinkEntry(entry, op)
             })
           )
@@ -3727,115 +3741,23 @@ export const makeVolume = Effect.fnUntraced(
           options?: { readonly sourceRelativeTo?: DirectoryHandle; readonly destinationRelativeTo?: DirectoryHandle }
         ) {
           const op = OpContext.make("rename")
-          const sourceOp = op.at(source)
-          const destinationOp = op.at(destination)
-          const oldPrepared = preparePath(source, op.operation, settings.maxPathBytes)
-          const newPrepared = preparePath(destination, op.operation, settings.maxPathBytes)
-          const oldBase = options?.sourceRelativeTo
-          const newBase = options?.destinationRelativeTo
+          const sourcePrepared = preparePath(source, op.operation, settings.maxPathBytes)
+          const destinationPrepared = preparePath(destination, op.operation, settings.maxPathBytes)
 
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const oldPath = yield* Effect.fromResult(oldPrepared)
-              const newPath = yield* Effect.fromResult(newPrepared)
-              const oldParent = yield* locate(oldPath, oldBase, op, { parentOnly: true })
-              const newParent = yield* locate(newPath, newBase, op, { parentOnly: true })
-              yield* authorize(oldParent, identity, WRITE | EXECUTE, sourceOp)
-              yield* authorize(newParent, identity, WRITE | EXECUTE, destinationOp)
-              const oldName = oldPath.components.at(-1)
-              const newName = newPath.components.at(-1)
+              const sourcePath = yield* Effect.fromResult(sourcePrepared)
+              const destinationPath = yield* Effect.fromResult(destinationPrepared)
+              const sourceEntry = yield* ResolvedEntry.fromPath(sourcePath, options?.sourceRelativeTo, op)
 
-              if (
-                isDotComponent(oldName) || isDotComponent(newName)
-              ) {
-                return yield* sourceOp.fail("InvalidArgument")
-              }
+              const destinationEntry = yield* ResolvedEntry.fromPath(
+                destinationPath,
+                options?.destinationRelativeTo,
+                op
+              )
 
-              const child = oldParent.entries.get(oldName)
-
-              if (child === undefined) {
-                return yield* sourceOp.fail("NotFound")
-              }
-
-              const replaced = newParent.entries.get(newName)
-
-              if (newPath.trailingSlash && replaced === undefined) {
-                return yield* destinationOp.fail("NotFound")
-              }
-
-              if (oldPath.trailingSlash && child.kind !== "directory") {
-                return yield* sourceOp.fail("NotDirectory")
-              }
-
-              if (newPath.trailingSlash && replaced?.kind !== "directory") {
-                return yield* destinationOp.fail("NotDirectory")
-              }
-
-              if (child === replaced) return
-              yield* authorizeRemoval(oldParent, child, sourceOp)
-
-              if (replaced !== undefined) {
-                yield* authorizeRemoval(newParent, replaced, destinationOp)
-
-                if (child.kind === "directory" && replaced.kind !== "directory") {
-                  return yield* destinationOp.fail("NotDirectory")
-                }
-
-                if (child.kind !== "directory" && replaced.kind === "directory") {
-                  return yield* destinationOp.fail("IsDirectory")
-                }
-
-                if (replaced.kind === "directory" && replaced.entries.size > 0) {
-                  return yield* destinationOp.fail("NotEmpty")
-                }
-              }
-
-              for (
-                let ancestor: Directory | undefined = newParent;
-                ancestor !== undefined;
-                ancestor = ancestor.parent
-              ) {
-                if (ancestor === child) {
-                  return yield* destinationOp.fail("InvalidArgument")
-                }
-              }
-
-              const now = yield* timestamp(op)
-
-              // All rejection checks precede namespace, ancestry, quota, and metadata publication.
-              const oldEvent = () =>
-                ownedPath(nameBytes(directoryHex(oldParent) + (oldParent === state.root ? "" : SLASH_HEX) + oldName))
-
-              oldParent.entries.delete(oldName)
-              newParent.entries.set(newName, child)
-
-              if (child.kind === "directory") child.parent = newParent
-              oldParent.metadata = {
-                ...oldParent.metadata,
-                nlink: oldParent.metadata.nlink - (child.kind === "directory" ? 1 : 0),
-                mtimeNs: now,
-                ctimeNs: now
-              }
-              newParent.metadata = {
-                ...newParent.metadata,
-                nlink: newParent.metadata.nlink + (child.kind === "directory" && replaced === undefined ? 1 : 0),
-                mtimeNs: now,
-                ctimeNs: now
-              }
-              child.metadata = { ...child.metadata, ctimeNs: now }
-              advanceRevision(oldParent)
-
-              if (newParent !== oldParent) advanceRevision(newParent)
-              advanceRevision(child)
-
-              if (replaced !== undefined) {
-                detach(replaced, now)
-                state.entries -= 1
-              }
-
-              queuePublish(() => watchHub.publishUnsafe(() => ({ _tag: "Remove" as const, path: oldEvent() })))
-              publishEntry("Create", newParent, newName)
+              yield* renameEntry(sourceEntry, destinationEntry, op)
             })
           )
         }),
@@ -3847,7 +3769,7 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              const entry = yield* ResolvedEntry.fromPath(prepared, base, op)
+              const entry = yield* ResolvedEntry.fromPath(yield* Effect.fromResult(prepared), base, op)
               yield* rmdirEntry(entry, op)
             })
           )
@@ -3880,7 +3802,7 @@ export const makeVolume = Effect.fnUntraced(
             return yield* coordinated(
               op,
               Effect.gen(function*() {
-                const entry = yield* ResolvedEntry.fromPath(prepared, base, op)
+                const entry = yield* ResolvedEntry.fromPath(yield* Effect.fromResult(prepared), base, op)
                 yield* makeDirectory(entry, { mode }, op)
               })
             )
