@@ -190,6 +190,32 @@ export const MkdirOptions = Schema.Struct({
 export type MkdirOptions = typeof MkdirOptions.Type
 
 /**
+ * Schema for the options of `walk`: the order entries arrive in and the
+ * optional bounds on how deep, how many, and how many bytes the walk may
+ * reach. `order` defaults to `"pre"`, each directory before its entries; a
+ * `"post"` walk reports each directory after them. Every bound defaults to
+ * unbounded, and a walk that would pass one fails with `LimitExceeded` naming
+ * the bound in `field`.
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const WalkOptions = Schema.Struct({
+  order: Schema.optionalKey(Schema.Literals(["pre", "post"])),
+  maxDepth: Schema.optionalKey(Schema.Natural),
+  maxEntries: Schema.optionalKey(Schema.Natural),
+  maxBytes: Schema.optionalKey(Schema.ByteSize)
+})
+
+/**
+ * Options of `walk`.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type WalkOptions = typeof WalkOptions.Type
+
+/**
  * Schema for the options of `symlink`.
  *
  * @category schemas

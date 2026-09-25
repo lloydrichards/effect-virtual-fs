@@ -26,13 +26,14 @@ import {
   RootCallerOptions,
   SetattrOptions,
   SymlinkOptions,
+  WalkOptions,
   WriteFileOptions
 } from "../Caller.js"
 import { DirectoryHandleId, FileHandleId, SeekMode } from "../FileHandle.js"
 import { type Metadata, Mode, OwnerUpdate, Times, type TimeUpdate } from "../Metadata.js"
 import type { Snapshot } from "../Snapshot.js"
 import { type Entry, type EntryInput, isEntry, isTarget, type NameInput, Target, type TargetInput } from "../Target.js"
-import type { FsFailure, ImageFailure } from "../VfsError.js"
+import { type FsFailure, type ImageFailure, make as makeError } from "../VfsError.js"
 import type {
   Caller,
   Change,
@@ -43,7 +44,9 @@ import type {
   PathInput,
   Volume,
   VolumeLimits,
-  VolumeUsage
+  VolumeUsage,
+  WalkEntry,
+  WalkFailure
 } from "../VirtualFileSystem.js"
 import {
   OverlayChange,
@@ -59,6 +62,7 @@ import { CanonicalBase64 } from "./canonicalBase64.js"
 import {
   argumentFailure,
   decodeConfiguration,
+  errorPath,
   fsFailure,
   imageFailure,
   OpContext,
@@ -111,8 +115,6 @@ const STICKY_BIT = 0o1000
 // relatime, as Linux mounts by default: a read refreshes an access time at least this old, 24 hours.
 const RELATIME_INTERVAL_NS = 86_400_000_000_000n
 
-// Nodes walked between yields. Whole-tree reads are one synchronous tick otherwise, which
-// starves the event loop and leaves nothing for interruption to act on.
 // Options for a single path walk; `lookup` is defined per volume, so this lives at module level.
 interface LookupOptions {
   readonly followFinalSymlink?: boolean
@@ -120,7 +122,13 @@ interface LookupOptions {
   readonly parentOnly?: boolean
 }
 
+// Nodes walked between yields. Whole-tree reads are one synchronous tick otherwise, which
+// starves the event loop and leaves nothing for interruption to act on.
 const WALK_YIELD_INTERVAL = 128
+
+// Entries a caller's walk hands on per pull. Reading a directory ends a pull early, so each pull holds at most one
+// permit once.
+const WALK_CHUNK_ENTRIES = 128
 
 // Largest signed 64-bit file offset, as POSIX off_t.
 const MAX_FILE_OFFSET = 0x7fffffffffffffffn
@@ -162,6 +170,8 @@ const decodeOpenOptions = Schema.decodeEffect(OpenOptions, { onExcessProperty: "
 const decodeMkdirOptions = Schema.decodeEffect(MkdirOptions, { onExcessProperty: "error" })
 
 const decodeSymlinkOptions = Schema.decodeEffect(SymlinkOptions, { onExcessProperty: "error" })
+
+const decodeWalkOptions = Schema.decodeEffect(WalkOptions, { onExcessProperty: "error" })
 
 const decodeOpenEntryOptions = Schema.decodeEffect(OpenEntryOptions, { onExcessProperty: "error" })
 
@@ -258,6 +268,45 @@ interface VolumeState {
 export type EngineState = VolumeState
 
 const getNode = (state: VolumeState, ino: Ino): Node | undefined => InodeTable.get(state.inodes, ino)
+
+// An entry a caller's walk has reached. `path` is relative to the walk's root; `listed` marks a directory a
+// post-order walk has read and still has to report.
+interface WalkFrame {
+  readonly ino: Ino
+  readonly kind: Node["kind"]
+  readonly name: Uint8Array
+  readonly path: Uint8Array
+  readonly parent: Ino
+  // The frame of the directory it was listed in: the root's anchor for a child of a root reached by name, and
+  // absent for a child of a root held by what it resolved to.
+  readonly up: WalkFrame | undefined
+  readonly depth: number
+  // What the entry counts toward a walk's byte bound: a file's size or a link's target length.
+  readonly bytes: bigint
+  readonly reference: ObjectReference
+  readonly directory: ObjectReference
+  readonly listed: boolean
+}
+
+// The bounds and order of a walk, decoded.
+interface WalkPlan {
+  readonly order: "pre" | "post"
+  readonly maxDepth: number | undefined
+  readonly maxEntries: number | undefined
+  readonly maxBytes: bigint | undefined
+}
+
+// `name` under `prefix`, in a new buffer; an empty prefix is the walk's root.
+const joinPath = (prefix: Uint8Array, name: Uint8Array): Uint8Array => {
+  const separator = prefix.length === 0 || prefix[prefix.length - 1] === SLASH_BYTE ? 0 : 1
+  const joined = new Uint8Array(prefix.length + separator + name.length)
+  joined.set(prefix)
+
+  if (separator === 1) joined[prefix.length] = SLASH_BYTE
+  joined.set(name, prefix.length + separator)
+
+  return joined
+}
 
 // The namespace entry a path or a directory reference plus name resolves to, so each verb has one body. A
 // path's final component can be absent or a dot and can carry a trailing slash; a reference name never does,
@@ -3157,6 +3206,210 @@ export const makeVolume = Effect.fnUntraced(
         )
       })
 
+      // A directory's children as walk frames, in the byte order of their names, which hex names keep. It runs in
+      // the observation that read the directory, so every reference is minted while its object is in the table.
+      const walkChildren = (
+        directory: Directory,
+        path: Uint8Array,
+        depth: number,
+        up: WalkFrame | undefined
+      ): Array<WalkFrame> => {
+        const listed = referenceFor(directory.ino)
+        const frames: Array<WalkFrame> = []
+
+        for (const name of [...directory.entries.keys()].sort()) {
+          const childIno = directory.entries.get(name)
+          const child = childIno === undefined ? undefined : view(childIno)
+
+          if (child === undefined) continue
+          const bytes = nameBytes(name)
+
+          frames.push({
+            ino: child.ino,
+            kind: child.kind,
+            name: bytes,
+            path: joinPath(path, bytes),
+            parent: directory.ino,
+            up,
+            depth: depth + 1,
+            bytes: child.kind === "directory" ? 0n : child.metadata.size,
+            reference: referenceFor(child.ino),
+            directory: listed,
+            listed: false
+          })
+        }
+
+        return frames
+      }
+
+      // The frame that anchors a walk's root by the name its directory holds it under, so the root is reached by
+      // name like every directory below it. It is never reported.
+      const anchorFrame = (parent: Directory, key: string, root: Directory): WalkFrame => ({
+        ino: root.ino,
+        kind: root.kind,
+        name: nameBytes(key),
+        key,
+        path: new Uint8Array(0),
+        parent: parent.ino,
+        up: undefined,
+        depth: 0,
+        bytes: 0n,
+        reference: referenceFor(root.ino),
+        directory: referenceFor(parent.ino),
+        listed: false
+      })
+
+      // The anchor of a walk rooted at a path: the path's final name in its directory, when that name holds the
+      // root itself. A root reached through a final symbolic link, named by a dot, or held by a reference or a
+      // handle has none.
+      const pathAnchor = (target: Target, root: Directory, op: OpContext): Effect.Effect<WalkFrame | undefined> => {
+        if (!Target.$is("Path")(target)) return Effect.undefined
+        const prepared = prepare(target.path, op)
+
+        if (Result.isFailure(prepared)) return Effect.undefined
+
+        return ResolvedEntry.fromPath(prepared.success, target.relativeTo, op).pipe(
+          Effect.map((entry) => {
+            const parent = view(entry.parent)
+
+            return entry.name !== undefined && parent?.kind === "directory" &&
+                parent.entries.get(entry.name) === root.ino
+              ? anchorFrame(parent, entry.name, root)
+              : undefined
+          }),
+          Effect.catch(() => Effect.undefined)
+        )
+      }
+
+      // Whether a directory still holds a frame's name for the object the walk listed under it.
+      const holds = (parent: Node | undefined, frame: WalkFrame): parent is Directory =>
+        parent?.kind === "directory" && parent.metadata.nlink > 0 && parent.entries.get(frame.key) === frame.ino
+
+      // The node a frame names, reached by name from the walk's root as a path lookup reaches it: every directory on
+      // the way must be searchable and must still hold the name the walk listed for the object it listed. A frame
+      // whose chain no longer holds it, such as a directory renamed out of the tree, reaches nothing. A root the
+      // walk reached by name is anchored by that name, so a root moved away reaches nothing too; a root reached
+      // through a reference or a handle is held by the object it resolved to, as a descriptor holds it.
+      // It steps down the chain in a loop, so a tree of any depth reaches its frames without deepening the stack.
+      const reachFrame = (frame: WalkFrame, at: OpContext): Effect.Effect<Node | undefined, FsFailure> =>
+        Effect.gen(function*() {
+          const chain: Array<WalkFrame> = []
+
+          for (let link: WalkFrame | undefined = frame; link !== undefined; link = link.up) chain.push(link)
+          let node: Node | undefined = view((chain.at(-1) ?? frame).parent)
+
+          for (let index = chain.length - 1; index >= 0; index--) {
+            const link = chain[index]
+
+            if (link === undefined || node?.kind !== "directory" || node.metadata.nlink === 0) return undefined
+            yield* authorize(node, identity, EXECUTE, at)
+            node = node.entries.get(link.key) === link.ino ? view(link.ino) : undefined
+          }
+
+          return node
+        })
+
+      // Walks the tree below the directory `first` lists, depth first. Every later directory is read in its own
+      // observation, so a walk holds one permit at a time and never a handle; it writes nothing, so it refreshes no
+      // access time. Each directory is reached by name, so it needs search permission on the directories above it,
+      // and one that left the tree after it was listed has nothing to walk. A directory past `maxDepth` is never
+      // read. `locate` names an entry's path in a failure, and `listable` authorizes reading a directory. Entries
+      // gathered before a failure are handed on before the failure is.
+      const walkFrames = (
+        op: OpContext,
+        first: Effect.Effect<Array<WalkFrame>, FsFailure>,
+        plan: WalkPlan,
+        locate: (path: Uint8Array) => PathInput,
+        listable: (directory: Directory, at: OpContext) => Effect.Effect<void, FsFailure>
+      ): Stream.Stream<WalkFrame, WalkFailure> =>
+        Stream.suspend(() => {
+          let pending: Array<WalkFrame> | undefined
+          let entries = 0
+          let bytes = 0n
+          let failure: WalkFailure | undefined
+
+          const list = (frame: WalkFrame) =>
+            coordinatedRead(
+              op,
+              Effect.suspend(() => {
+                if (reference.ino === undefined) return Effect.fail(op.fail("ClosedCaller"))
+                const at = op.at(locate(frame.path))
+
+                return Effect.flatMap(reachFrame(frame, at), (node) =>
+                  node?.kind !== "directory" || node.metadata.nlink === 0
+                    ? Effect.succeed([])
+                    : Effect.as(listable(node, at), walkChildren(node, frame.path, frame.depth, frame)))
+              })
+            )
+
+          const exceeded = (frame: WalkFrame, field: keyof WalkOptions): WalkFailure =>
+            makeError({ code: "LimitExceeded", operation: op.operation, field, path: errorPath(locate(frame.path)) })
+
+          const admit = (frame: WalkFrame): WalkFailure | undefined => {
+            if (plan.maxDepth !== undefined && frame.depth > plan.maxDepth) return exceeded(frame, "maxDepth")
+
+            if (plan.maxEntries !== undefined && ++entries > plan.maxEntries) return exceeded(frame, "maxEntries")
+            bytes += frame.bytes
+
+            if (plan.maxBytes !== undefined && bytes > plan.maxBytes) return exceeded(frame, "maxBytes")
+
+            return undefined
+          }
+
+          const step = Effect.gen(function*() {
+            if (failure !== undefined) return yield* failure
+
+            if (pending === undefined) pending = (yield* first).reverse()
+            const out: Array<WalkFrame> = []
+
+            const stop = (error: WalkFailure) => {
+              if (out.length === 0) return Effect.fail(error)
+              failure = error
+
+              return Effect.succeed([out, Option.some(undefined)] as const)
+            }
+
+            while (out.length < WALK_CHUNK_ENTRIES) {
+              const frame = pending.pop()
+
+              if (frame === undefined) return [out, Option.none()] as const
+              const unlisted = frame.kind === "directory" && !frame.listed
+
+              if (!unlisted || plan.order === "pre") {
+                const rejected = admit(frame)
+
+                if (rejected !== undefined) return yield* stop(rejected)
+                out.push(frame)
+              }
+
+              if (unlisted) {
+                // A post-order walk reports a directory after its entries, so it judges the depth before reading.
+                if (plan.maxDepth !== undefined && frame.depth > plan.maxDepth) {
+                  return yield* stop(exceeded(frame, "maxDepth"))
+                }
+
+                const listed = yield* Effect.result(list(frame))
+
+                if (Result.isFailure(listed)) return yield* stop(listed.failure)
+
+                if (plan.order === "post") pending.push({ ...frame, listed: true })
+
+                for (let index = listed.success.length - 1; index >= 0; index--) {
+                  const child = listed.success[index]
+
+                  if (child !== undefined) pending.push(child)
+                }
+
+                return [out, Option.some(undefined)] as const
+              }
+            }
+
+            return [out, Option.some(undefined)] as const
+          })
+
+          return Stream.paginate(undefined, () => step)
+        })
+
       const rootOp = OpContext.make("root")
 
       const entryVerb = Effect.fnUntraced(function*<A>(
@@ -3248,6 +3501,50 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
+        walk: (input: TargetInput, options?: WalkOptions): Stream.Stream<WalkEntry, WalkFailure> => {
+          const op = OpContext.make("walk")
+          const target = asTarget(input)
+          // A path root names each entry's path under it; a reference or handle root names the path below it.
+          const prefix = Target.$is("Path")(target) ? Result.getOrUndefined(inputBytes(target.path)) : undefined
+
+          const locate = (path: Uint8Array): PathInput =>
+            ownedPath(prefix === undefined ? path : joinPath(prefix, path))
+
+          const readable = (directory: Directory, at: OpContext) => authorize(directory, identity, READ, at)
+
+          return Stream.unwrap(Effect.gen(function*() {
+            const chosen = yield* decodeWalkOptions(options ?? {}).pipe(
+              Effect.mapError((cause) => fail(Target.$is("Path")(target) ? op.at(target.path) : op, cause))
+            )
+
+            const first = coordinatedRead(
+              op,
+              Effect.gen(function*() {
+                const directory = yield* resolveDirectory(target, op)
+                yield* authorize(directory.node, identity, READ, directory.op)
+
+                return walkChildren(directory.node, new Uint8Array(0), 0, yield* pathAnchor(target, directory.node, op))
+              })
+            )
+
+            const plan: WalkPlan = {
+              order: chosen.order ?? "pre",
+              maxDepth: chosen.maxDepth,
+              maxEntries: chosen.maxEntries,
+              maxBytes: chosen.maxBytes === undefined ? undefined : ByteSize.toBigInt(chosen.maxBytes)
+            }
+
+            return Stream.map(walkFrames(op, first, plan, locate, readable), (frame): WalkEntry =>
+              Object.freeze({
+                path: ownedPath(frame.path),
+                name: frame.name,
+                reference: frame.reference,
+                directory: frame.directory,
+                kind: frame.kind,
+                depth: frame.depth
+              }))
+          })).pipe(Stream.withSpan("Caller.walk"))
+        },
         readLink: Effect.fn("Caller.readLink")(function*(input) {
           const op = OpContext.make("readLink")
           const target = asTarget(input)
