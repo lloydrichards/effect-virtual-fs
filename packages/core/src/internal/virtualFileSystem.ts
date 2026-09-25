@@ -318,21 +318,21 @@ const WriteFileSettings = Schema.Struct({
 /** @internal */
 export type WriteFileOptions = typeof WriteFileSettings.Type & RelativeOptions
 
-const decodeOwnerUpdate = Schema.decodeResult(OwnerUpdate, { onExcessProperty: "error" })
+const decodeOwnerUpdate = Schema.decodeEffect(OwnerUpdate, { onExcessProperty: "error" })
 
-const decodeTimes = Schema.decodeResult(Times, { onExcessProperty: "error" })
+const decodeTimes = Schema.decodeEffect(Times, { onExcessProperty: "error" })
 
-const decodeWriteFileSettings = Schema.decodeResult(WriteFileSettings, { onExcessProperty: "error" })
+const decodeWriteFileSettings = Schema.decodeEffect(WriteFileSettings, { onExcessProperty: "error" })
 
-const decodeOpenSettings = Schema.decodeResult(OpenSettings, { onExcessProperty: "error" })
+const decodeOpenSettings = Schema.decodeEffect(OpenSettings, { onExcessProperty: "error" })
 
-const decodeMkdirReferenceSettings = Schema.decodeResult(MkdirReferenceSettings, { onExcessProperty: "error" })
+const decodeMkdirReferenceSettings = Schema.decodeEffect(MkdirReferenceSettings, { onExcessProperty: "error" })
 
-const decodeSymlinkReferenceSettings = Schema.decodeResult(SymlinkReferenceSettings, { onExcessProperty: "error" })
+const decodeSymlinkReferenceSettings = Schema.decodeEffect(SymlinkReferenceSettings, { onExcessProperty: "error" })
 
-const decodeOpenReferenceSettings = Schema.decodeResult(OpenReferenceSettings, { onExcessProperty: "error" })
+const decodeOpenReferenceSettings = Schema.decodeEffect(OpenReferenceSettings, { onExcessProperty: "error" })
 
-const decodeOpenChildReferenceSettings = Schema.decodeResult(OpenChildReferenceSettings, { onExcessProperty: "error" })
+const decodeOpenChildReferenceSettings = Schema.decodeEffect(OpenChildReferenceSettings, { onExcessProperty: "error" })
 
 /** @internal */
 export const OverlayNodeKind = Schema.Literals(["directory", "file", "symlink"])
@@ -707,10 +707,11 @@ export const makeVolume = Effect.fnUntraced(
       restoredOptions = recovered
     }
 
-    const decoded = decodeConfiguration(VolumeOptions, restoredOptions === undefined ? {} : restoredOptions)
+    const decoded = yield* Effect.fromResult(
+      decodeConfiguration(VolumeOptions, restoredOptions === undefined ? {} : restoredOptions)
+    )
 
-    if (Result.isFailure(decoded)) return yield* decoded.failure
-    const settings = { ...decoded.success }
+    const settings = { ...decoded }
     const crypto = yield* Crypto.Crypto
 
     const identity = settings.identity === undefined
@@ -2121,10 +2122,11 @@ export const makeVolume = Effect.fnUntraced(
 
       const changeOwner = Effect.fnUntraced(
         function*(target: PathInput | FileHandle | DirectoryHandle, owner: OwnerUpdate, options?: MetadataOptions) {
-          const decoded = decodeOwnerUpdate(owner)
+          const decoded = yield* decodeOwnerUpdate(owner).pipe(
+            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "chown", cause }))
+          )
 
-          if (Result.isFailure(decoded)) return yield* new FsError({ code: "InvalidArgument", operation: "chown" })
-          const update = { ...decoded.success }
+          const update = { ...decoded }
           const chosen = options === undefined ? undefined : { ...options }
 
           return yield* coordinated(
@@ -2157,11 +2159,12 @@ export const makeVolume = Effect.fnUntraced(
 
       const changeTimes = Effect.fnUntraced(
         function*(target: PathInput | FileHandle | DirectoryHandle, times: Times, options?: MetadataOptions) {
-          const decoded = decodeTimes(times)
+          const decoded = yield* decodeTimes(times).pipe(
+            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "utimes", cause }))
+          )
 
-          if (Result.isFailure(decoded)) return yield* new FsError({ code: "InvalidArgument", operation: "utimes" })
-          const access = { ...decoded.success.access }
-          const modification = { ...decoded.success.modification }
+          const access = { ...decoded.access }
+          const modification = { ...decoded.modification }
           const chosen = options === undefined ? undefined : { ...options }
 
           return yield* coordinated(
@@ -2338,13 +2341,12 @@ export const makeVolume = Effect.fnUntraced(
         }),
         mkdirReference: Effect.fn("Caller.mkdirReference")(function*(directoryReference, input, raw = {}) {
           const name = yield* referencedName(input, "mkdirReference")
-          const decoded = decodeMkdirReferenceSettings(raw)
 
-          if (Result.isFailure(decoded)) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "mkdirReference" })
-          }
+          const decoded = yield* decodeMkdirReferenceSettings(raw).pipe(
+            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "mkdirReference", cause }))
+          )
 
-          const chosen = { ...decoded.success }
+          const chosen = { ...decoded }
 
           if (chosen.exactMode && chosen.mode === undefined) {
             return yield* new FsError({ code: "InvalidArgument", operation: "mkdirReference" })
@@ -2406,11 +2408,10 @@ export const makeVolume = Effect.fnUntraced(
         symlinkReference: Effect.fn("Caller.symlinkReference")(
           function*(target, directoryReference, input, raw = {}) {
             const name = yield* referencedName(input, "symlinkReference")
-            const decoded = decodeSymlinkReferenceSettings(raw)
 
-            if (Result.isFailure(decoded)) {
-              return yield* new FsError({ code: "InvalidArgument", operation: "symlinkReference" })
-            }
+            const decoded = yield* decodeSymlinkReferenceSettings(raw).pipe(
+              Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "symlinkReference", cause }))
+            )
 
             const rawTarget = inputBytes(target)
 
@@ -2423,7 +2424,7 @@ export const makeVolume = Effect.fnUntraced(
             }
 
             const targetBytes = new Uint8Array(rawTarget.success)
-            const chosen = { ...decoded.success }
+            const chosen = { ...decoded }
 
             return yield* coordinated(
               "symlinkReference",
@@ -2754,13 +2755,11 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         chownReference: Effect.fn("Caller.chownReference")(function*(objectReference, owner) {
-          const decoded = decodeOwnerUpdate(owner)
+          const decoded = yield* decodeOwnerUpdate(owner).pipe(
+            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "chownReference", cause }))
+          )
 
-          if (Result.isFailure(decoded)) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "chownReference" })
-          }
-
-          const update = { ...decoded.success }
+          const update = { ...decoded }
 
           return yield* coordinated(
             "chownReference",
@@ -2787,14 +2786,12 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         utimesReference: Effect.fn("Caller.utimesReference")(function*(objectReference, times) {
-          const decoded = decodeTimes(times)
+          const decoded = yield* decodeTimes(times).pipe(
+            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "utimesReference", cause }))
+          )
 
-          if (Result.isFailure(decoded)) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "utimesReference" })
-          }
-
-          const access = { ...decoded.success.access }
-          const modification = { ...decoded.success.modification }
+          const access = { ...decoded.access }
+          const modification = { ...decoded.modification }
 
           return yield* coordinated(
             "utimesReference",
@@ -2847,13 +2844,11 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         openReference: Effect.fn("Caller.openReference")(function*(objectReference, raw = { access: "read" }) {
-          const decoded = decodeOpenReferenceSettings(raw)
+          const decoded = yield* decodeOpenReferenceSettings(raw).pipe(
+            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "openReference", cause }))
+          )
 
-          if (Result.isFailure(decoded)) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "openReference" })
-          }
-
-          const chosen = { ...decoded.success }
+          const chosen = { ...decoded }
 
           if (chosen.access === "read" && (chosen.append || chosen.truncate)) {
             return yield* new FsError({ code: "InvalidArgument", operation: "openReference" })
@@ -2893,13 +2888,14 @@ export const makeVolume = Effect.fnUntraced(
         openChildReference: Effect.fn("Caller.openChildReference")(
           function*(directoryReference, input, raw, expected) {
             const name = yield* referencedName(input, "openChildReference")
-            const decoded = decodeOpenChildReferenceSettings(raw)
 
-            if (Result.isFailure(decoded)) {
-              return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
-            }
+            const decoded = yield* decodeOpenChildReferenceSettings(raw).pipe(
+              Effect.mapError((cause) =>
+                new FsError({ code: "InvalidArgument", operation: "openChildReference", cause })
+              )
+            )
 
-            const chosen = { ...decoded.success }
+            const chosen = { ...decoded }
 
             if (chosen.access === "read" && (chosen.append || chosen.truncate)) {
               return yield* new FsError({ code: "InvalidArgument", operation: "openChildReference" })
@@ -3147,13 +3143,12 @@ export const makeVolume = Effect.fnUntraced(
 
             const captured = new Uint8Array(bytes)
             const { relativeTo: base, ...raw } = options
-            const decoded = decodeWriteFileSettings(raw)
 
-            if (Result.isFailure(decoded)) {
-              return yield* new FsError({ code: "InvalidArgument", operation: "writeFile", path: input })
-            }
-
-            const chosen = decoded.success
+            const chosen = yield* decodeWriteFileSettings(raw).pipe(
+              Effect.mapError((cause) =>
+                new FsError({ code: "InvalidArgument", operation: "writeFile", path: input, cause })
+              )
+            )
 
             return yield* coordinated(
               "writeFile",
@@ -3513,13 +3508,12 @@ export const makeVolume = Effect.fnUntraced(
         open: Effect.fn("Caller.open")(function*(input: PathInput, options: OpenOptions) {
           const prepared = preparePath(input, "open", settings.maxPathBytes)
           const { relativeTo: base, ...raw } = options
-          const decoded = decodeOpenSettings(raw)
 
-          if (Result.isFailure(decoded)) {
-            return yield* new FsError({ code: "InvalidArgument", operation: "open", path: input })
-          }
+          const decoded = yield* decodeOpenSettings(raw).pipe(
+            Effect.mapError((cause) => new FsError({ code: "InvalidArgument", operation: "open", path: input, cause }))
+          )
 
-          const chosen = { ...decoded.success }
+          const chosen = { ...decoded }
 
           if (chosen.access === "read" && (chosen.append || chosen.truncate)) {
             return yield* new FsError({ code: "InvalidArgument", operation: "open", path: input })
@@ -3953,9 +3947,7 @@ export const makeVolume = Effect.fnUntraced(
       Object.freeze(changes.map(publicChange))
 
     const changeOptions = (options?: OverlayChangesOptions) => {
-      const decoded = decodeConfiguration(OverlayChangesOptions, options === undefined ? {} : options)
-
-      return Result.isFailure(decoded) ? Effect.fail(decoded.failure) : Effect.succeed(decoded.success)
+      return Effect.fromResult(decodeConfiguration(OverlayChangesOptions, options === undefined ? {} : options))
     }
 
     // An overlay is a spread copy of `volume`, so the object the caller holds is not always the one
@@ -3983,10 +3975,11 @@ export const makeVolume = Effect.fnUntraced(
       snapshot: coordinatedRead("snapshot", captureSnapshot()).pipe(Effect.withSpan("Volume.snapshot")),
 
       caller: Effect.fn("Volume.caller")(function*(options?: RootCallerOptions) {
-        const decoded = decodeConfiguration(RootCallerOptions, options === undefined ? {} : options)
+        const decoded = yield* Effect.fromResult(
+          decodeConfiguration(RootCallerOptions, options === undefined ? {} : options)
+        )
 
-        if (Result.isFailure(decoded)) return yield* decoded.failure
-        const chosen = decoded.success.identity ?? { uid: 0, gid: 0, groups: [], privileged: true }
+        const chosen = decoded.identity ?? { uid: 0, gid: 0, groups: [], privileged: true }
         const identity = Object.freeze({ ...chosen, groups: Object.freeze([...chosen.groups]) })
 
         return yield* coordinatedRead(
@@ -3995,7 +3988,7 @@ export const makeVolume = Effect.fnUntraced(
             createCaller(
               makeDirectoryReference(state.root),
               identity,
-              decoded.success.umask ?? 0o022
+              decoded.umask ?? 0o022
             )
           )
         )

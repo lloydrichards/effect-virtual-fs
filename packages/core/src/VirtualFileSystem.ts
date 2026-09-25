@@ -1560,12 +1560,10 @@ export const decodeSnapshot: (
 ) => Effect.Effect<Snapshot, ImageError> = Image.decodeSnapshot
 
 const deltaLimits = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
-  const decoded = decodeConfiguration(
+  return Effect.fromResult(decodeConfiguration(
     SnapshotDeltaModel.SnapshotDeltaLimits,
     limits ?? SnapshotDeltaModel.SnapshotDeltaLimits.default
-  )
-
-  return Result.isFailure(decoded) ? Effect.fail(decoded.failure) : Effect.succeed(decoded.success)
+  ))
 }
 
 /**
@@ -1670,11 +1668,11 @@ export const inspectSnapshotDelta: (
   options?: SnapshotDeltaModel.SnapshotChangesOptions,
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
 ) {
-  const decoded = decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {})
+  const decoded = yield* Effect.fromResult(
+    decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {})
+  )
 
-  if (Result.isFailure(decoded)) return yield* decoded.failure
-
-  return yield* SnapshotDeltaInternal.inspectSnapshotDelta(base, delta, decoded.success, yield* deltaLimits(limits))
+  return yield* SnapshotDeltaInternal.inspectSnapshotDelta(base, delta, decoded, yield* deltaLimits(limits))
 })
 
 /**

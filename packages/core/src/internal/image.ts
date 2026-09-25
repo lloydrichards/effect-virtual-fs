@@ -82,20 +82,20 @@ export const capture = Effect.fnUntraced(function*(
   limits?: DecodeLimits,
   trusted = false
 ) {
-  const wire = trusted ? undefined : Schema.decodeUnknownResult(WireDocument, { onExcessProperty: "error" })(input)
-
-  if (wire !== undefined && Result.isFailure(wire)) {
-    return yield* new ImageError({ code: "InvalidStructure", field: "document" })
+  if (!trusted) {
+    yield* Schema.decodeUnknownEffect(WireDocument, { onExcessProperty: "error" })(input).pipe(
+      Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "document", cause }))
+    )
   }
 
-  const decoded = trusted ? undefined : Schema.decodeUnknownResult(Document, { onExcessProperty: "error" })(input)
+  // SAFETY: a trusted caller passes a Document it built; an untrusted one is decoded here.
+  const document = trusted ? input as Document : yield* Schema.decodeUnknownEffect(
+    Document,
+    { onExcessProperty: "error" }
+  )(input).pipe(
+    Effect.mapError((cause) => new ImageError({ code: "InvalidEncoding", field: "document", cause }))
+  )
 
-  if (decoded !== undefined && Result.isFailure(decoded)) {
-    return yield* new ImageError({ code: "InvalidEncoding", field: "document" })
-  }
-
-  // SAFETY: a trusted caller passes a Document it built; an untrusted one has just been decoded.
-  const document = decoded === undefined ? input as Document : decoded.success
   const records = new Map<string, Record>()
   let entries = 0
   let payload = ByteSize.zero
@@ -236,15 +236,15 @@ export const encodeSnapshot = Effect.fn("VirtualFileSystem.encodeSnapshot")(func
 /** @internal */
 export const decodeSnapshot = Effect.fn("VirtualFileSystem.decodeSnapshot")(
   function*(input: Uint8Array, limits: DecodeLimits) {
-    const checked = Schema.decodeResult(DecodeLimits, { onExcessProperty: "error" })(limits)
-
-    if (Result.isFailure(checked)) return yield* new ImageError({ code: "InvalidStructure", field: "limits" })
+    const checked = yield* Schema.decodeEffect(DecodeLimits, { onExcessProperty: "error" })(limits).pipe(
+      Effect.mapError((cause) => new ImageError({ code: "InvalidStructure", field: "limits", cause }))
+    )
 
     if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) {
       return yield* new ImageError({ code: "InvalidEncoding", field: "input" })
     }
 
-    if (ByteSize.isGreaterThan(ByteSize.bytes(input.byteLength), checked.success.maxEncodedBytes)) {
+    if (ByteSize.isGreaterThan(ByteSize.bytes(input.byteLength), checked.maxEncodedBytes)) {
       return yield* new ImageError({ code: "LimitExceeded", field: "encodedBytes" })
     }
 
@@ -264,6 +264,6 @@ export const decodeSnapshot = Effect.fn("VirtualFileSystem.decodeSnapshot")(
       return yield* new ImageError({ code: "UnsupportedVersion", field: "version" })
     }
 
-    return yield* capture(value, checked.success)
+    return yield* capture(value, checked)
   }
 )
