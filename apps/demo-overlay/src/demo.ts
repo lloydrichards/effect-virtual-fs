@@ -87,7 +87,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   const reviewer = yield* sharedWorkspace.caller()
   // The watch belongs to the shared overlay, so it reports both callers' file changes.
   const watchQueue = yield* Queue.unbounded<Vfs.Change>()
-  const watch = yield* sharedWorkspace.watch
+  const watch = yield* sharedWorkspace.watch()
   yield* watch.pipe(
     Stream.runForEach((event) => showWatchEvent(event).pipe(Effect.andThen(Queue.offer(watchQueue, event)))),
     Effect.forkScoped
