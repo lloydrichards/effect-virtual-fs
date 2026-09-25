@@ -35,7 +35,7 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       const empty = yield* (yield* Vfs.make()).snapshot
       const error = yield* Effect.flip(store.save("run", empty))
       assert.instanceOf(error, CheckpointError)
-      assert.strictEqual(error.code, "AlreadyExists")
+      assert.deepStrictEqual([error.code, error.operation], ["AlreadyExists", "CheckpointStore.save"])
       const restored = yield* (yield* Vfs.fromSnapshot(yield* store.load("run"))).caller()
       assert.deepStrictEqual(yield* restored.readFile("/f"), new Uint8Array([0, 255, 1]))
     })))
@@ -69,11 +69,11 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       const store = yield* CheckpointStore.make(limits)
       const missing = yield* Effect.flip(store.load("absent"))
       assert.instanceOf(missing, CheckpointError)
-      assert.strictEqual(missing.code, "NotFound")
+      assert.deepStrictEqual([missing.code, missing.operation], ["NotFound", "CheckpointStore.load"])
       yield* sql`DROP TABLE effect_vfs_checkpoints`
       const failure = yield* Effect.flip(store.load("absent"))
       assert.instanceOf(failure, CheckpointError)
-      assert.strictEqual(failure.code, "Storage")
+      assert.deepStrictEqual([failure.code, failure.operation], ["Storage", "CheckpointStore.load"])
       assert.isDefined(failure.cause)
     })))
 
@@ -84,10 +84,15 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       const image = yield* snapshot
 
       for (const name of ["", "a".repeat(256), "é".repeat(128), "nul\0name", "\ud800"]) {
-        for (const operation of [store.save(name, image), store.load(name)]) {
+        for (
+          const [entry, operation] of [
+            ["CheckpointStore.save", store.save(name, image)],
+            ["CheckpointStore.load", store.load(name)]
+          ] as const
+        ) {
           const error = yield* Effect.flip(operation)
           assert.instanceOf(error, CheckpointError)
-          assert.strictEqual(error.code, "InvalidName")
+          assert.deepStrictEqual([error.code, error.operation], ["InvalidName", entry])
         }
       }
 
@@ -120,6 +125,7 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       for (const invalid of [{ ...limits, maxRecords: -1 }, { ...limits, extra: true }]) {
         const error = yield* Effect.flip(CheckpointStore.make(invalid))
         assert.strictEqual(error.code, "InvalidArgument")
+        assert.strictEqual(error.operation, "CheckpointStore.make")
         assert.strictEqual(error.field, "limits")
       }
     })))
@@ -137,12 +143,12 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       const image = yield* snapshot
       const saveError = yield* Effect.flip(narrow.save("rejected", image))
       assert.instanceOf(saveError, Vfs.VfsError)
-      assert.strictEqual(saveError.code, "LimitExceeded")
+      assert.deepStrictEqual([saveError.code, saveError.operation], ["LimitExceeded", "CheckpointStore.save"])
       assert.strictEqual((yield* Effect.flip(broad.load("rejected"))).code, "NotFound")
       yield* broad.save("stored", image)
       const loadError = yield* Effect.flip(narrow.load("stored"))
       assert.instanceOf(loadError, Vfs.VfsError)
-      assert.strictEqual(loadError.code, "LimitExceeded")
+      assert.deepStrictEqual([loadError.code, loadError.operation], ["LimitExceeded", "CheckpointStore.load"])
     })))
 
   it.effect("rejects corrupt, unsupported and oversized stored images", () =>
@@ -162,7 +168,7 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
         yield* sql`INSERT INTO effect_vfs_checkpoints (name, image) VALUES (${name}, ${bytes})`
         const error = yield* Effect.flip(store.load(name))
         assert.instanceOf(error, Vfs.VfsError)
-        assert.strictEqual(error.code, code)
+        assert.deepStrictEqual([error.code, error.operation], [code, "CheckpointStore.load"])
       }
 
       const oversized = ByteSize.toBigInt(limits.maxEncodedBytes) + 1n
@@ -170,7 +176,25 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       const error = yield* Effect.flip(store.load("oversized"))
       assert.instanceOf(error, Vfs.VfsError)
       assert.strictEqual(error.code, "LimitExceeded")
+      assert.strictEqual(error.operation, "CheckpointStore.load")
       assert.strictEqual(error.field, "encodedBytes")
+    })))
+
+  // The table's CHECK constraint keeps a non-blob image out, so only a foreign or legacy writer stores one.
+  it.effect("reports a stored image that is not a blob as an invalid structure", () =>
+    database(Effect.gen(function*() {
+      yield* CheckpointStore.migrate
+      const sql = yield* SqlClient
+      const store = yield* CheckpointStore.make(limits)
+      yield* sql`PRAGMA ignore_check_constraints = ON`
+      yield* sql`INSERT INTO effect_vfs_checkpoints (name, image) VALUES ('text', 'x')`
+      const error = yield* Effect.flip(store.load("text"))
+      assert.instanceOf(error, Vfs.VfsError)
+      assert.deepStrictEqual([error.code, error.operation, error.field], [
+        "InvalidStructure",
+        "CheckpointStore.load",
+        "image"
+      ])
     })))
 
   it.effect("reports a failed insert without damaging existing checkpoints", () =>
@@ -184,7 +208,7 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
         BEGIN SELECT RAISE(ABORT, 'injected write failure'); END`
       const error = yield* Effect.flip(store.save("new", image))
       assert.instanceOf(error, CheckpointError)
-      assert.strictEqual(error.code, "Storage")
+      assert.deepStrictEqual([error.code, error.operation], ["Storage", "CheckpointStore.save"])
       assert.strictEqual((yield* Effect.flip(store.load("new"))).code, "NotFound")
       assert.deepStrictEqual(yield* Vfs.encodeSnapshot(yield* store.load("kept")), yield* Vfs.encodeSnapshot(image))
     })))
@@ -211,7 +235,7 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       yield* sql`CREATE TABLE effect_vfs_checkpoints (unrelated TEXT)`
       const error = yield* Effect.flip(CheckpointStore.migrate)
       assert.strictEqual(error.code, "Storage")
-      assert.strictEqual(error.operation, "migrate")
+      assert.strictEqual(error.operation, "CheckpointStore.migrate")
       assert.isDefined(error.cause)
     })))
 

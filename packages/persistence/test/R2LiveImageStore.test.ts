@@ -155,7 +155,27 @@ describe("R2 live image store", () => {
         }).pipe(Effect.provide(layer(remote.client)))
       ))
 
-      assert.strictEqual(error.code, "CorruptStore")
+      assert.deepStrictEqual([error.code, error.operation], ["CorruptStore", "R2LiveImageStore.loadOrCreate"])
+    }))
+
+  it.effect("names the layer as the operation of a rejected option", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(
+        LiveVolume.LiveImageStore.pipe(
+          Effect.provide(
+            R2LiveImageStore.layer({ client: makeClient().client, key: "", maxImageBytes: ByteSize.kilobytes(64) })
+              .pipe(
+                Layer.provide(NodeCrypto.layer)
+              )
+          )
+        )
+      )
+
+      assert.deepStrictEqual([error.code, error.operation, error.field], [
+        "InvalidArgument",
+        "R2LiveImageStore.layer",
+        "options"
+      ])
     }))
 
   // A commit that was already writing when another one froze the store must not unfreeze it when it lands.
@@ -265,6 +285,7 @@ describe("R2 live image store", () => {
       )
       const error = yield* Effect.flip(R2LiveImageStore.fromS3(fake, "bucket").read("key"))
       assert.strictEqual(error.cause instanceof S3ServiceException && error.cause.name, "NoSuchBucket")
+      assert.strictEqual(error.operation, "R2LiveImageStore.fromS3")
       fake.destroy()
     }))
 })

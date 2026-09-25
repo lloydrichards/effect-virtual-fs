@@ -62,6 +62,12 @@ export interface R2Client {
   ) => Effect.Effect<{ readonly etag: string } | null, Vfs.VfsError>
 }
 
+const transport = storeFailures("R2LiveImageStore.fromS3")
+
+const opening = storeFailures("R2LiveImageStore.layer")
+
+const loading = storeFailures("R2LiveImageStore.loadOrCreate")
+
 /** Use R2's S3-compatible API from a Bun or Node NFS server.
  *
  * @example
@@ -100,7 +106,7 @@ export const fromS3 = (client: S3Client, bucket: string): R2Client => ({
           throw error
         }
       },
-      catch: (cause) => fail("Storage", cause)
+      catch: (cause) => transport.fail("Storage", cause)
     }),
   write: (key, bytes, generation, digest, condition) =>
     Effect.tryPromise({
@@ -125,7 +131,7 @@ export const fromS3 = (client: S3Client, bucket: string): R2Client => ({
           throw error
         }
       },
-      catch: (cause) => fail("Storage", cause)
+      catch: (cause) => transport.fail("Storage", cause)
     })
 })
 
@@ -156,8 +162,6 @@ export interface Options {
   /** Assert R2's documented synchronous durable-write contract for a verified R2 endpoint and single owner. */
   readonly durability?: "survives-power-loss"
 }
-
-const { fail, invalid } = storeFailures("R2LiveImageStore")
 
 // The generation and ETag this owner last read or wrote, and whether a lost reply has frozen it.
 interface Ownership {
@@ -197,7 +201,7 @@ export const layer = (
       const digest = yield* makeDigest
       const maxImage = ByteSize.toBigInt(options.maxImageBytes)
 
-      if (options.key.length === 0 || maxImage <= 0n) return yield* invalid("options")
+      if (options.key.length === 0 || maxImage <= 0n) return yield* opening.invalid("options")
 
       const ownership = yield* Ref.make<Ownership>({ generation: undefined, etag: undefined, available: true })
       const freeze = Ref.update(ownership, (state) => ({ ...state, available: false }))
@@ -207,14 +211,14 @@ export const layer = (
           record.etag === "" || BigInt(record.bytes.length) > maxImage ||
           record.generation === undefined || !/^(0|[1-9][0-9]*)$/.test(record.generation) ||
           record.digest === undefined || !/^[0-9a-f]{64}$/.test(record.digest)
-        ) return yield* fail("CorruptStore")
+        ) return yield* loading.fail("CorruptStore")
 
         const parsed = Number(record.generation)
 
-        if (!Number.isSafeInteger(parsed)) return yield* fail("CorruptStore")
-        const actual = yield* digest(record.bytes).pipe(Effect.mapError((cause) => fail("Storage", cause)))
+        if (!Number.isSafeInteger(parsed)) return yield* loading.fail("CorruptStore")
+        const actual = yield* digest(record.bytes).pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
 
-        if (actual !== record.digest) return yield* fail("CorruptStore")
+        if (actual !== record.digest) return yield* loading.fail("CorruptStore")
         yield* Ref.update(ownership, (state) => ({ ...state, generation: parsed, etag: record.etag }))
 
         return new Uint8Array(record.bytes)
@@ -225,35 +229,35 @@ export const layer = (
         loadOrCreate: Effect.fnUntraced(function*(initial: Uint8Array) {
           const { available, generation } = yield* Ref.get(ownership)
 
-          if (!available) return yield* fail("Storage")
+          if (!available) return yield* loading.fail("Storage")
 
-          if (generation !== undefined) return yield* fail("Ownership")
+          if (generation !== undefined) return yield* loading.fail("Ownership")
 
           const existing = yield* options.client.read(options.key).pipe(
-            Effect.mapError((cause) => fail("Storage", cause))
+            Effect.mapError((cause) => loading.fail("Storage", cause))
           )
 
           if (existing !== null) return yield* validate(existing)
 
-          if (BigInt(initial.length) > maxImage) return yield* invalid("maxImageBytes")
+          if (BigInt(initial.length) > maxImage) return yield* loading.invalid("maxImageBytes")
 
-          const hash = yield* digest(initial).pipe(Effect.mapError((cause) => fail("Storage", cause)))
+          const hash = yield* digest(initial).pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
 
           const created = yield* options.client.write(options.key, initial, "0", hash, { ifNoneMatch: "*" }).pipe(
-            Effect.mapError((cause) => fail("Storage", cause))
+            Effect.mapError((cause) => loading.fail("Storage", cause))
           )
 
           if (created === null) {
             const winner = yield* options.client.read(options.key).pipe(
-              Effect.mapError((cause) => fail("Storage", cause))
+              Effect.mapError((cause) => loading.fail("Storage", cause))
             )
 
-            if (winner === null) return yield* fail("Storage")
+            if (winner === null) return yield* loading.fail("Storage")
 
             return yield* validate(winner)
           }
 
-          if (created.etag === "") return yield* fail("Storage")
+          if (created.etag === "") return yield* loading.fail("Storage")
           yield* Ref.update(ownership, (state) => ({ ...state, generation: 0, etag: created.etag }))
 
           return new Uint8Array(initial)
