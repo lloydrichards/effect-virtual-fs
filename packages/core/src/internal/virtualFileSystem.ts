@@ -456,7 +456,6 @@ interface RegularFile {
   readonly kind: "file"
   readonly lineage: string | undefined
   data: Content.Content
-  openCount: number
   metadata: Metadata
   revision: bigint
   objectReference: ObjectReference | undefined
@@ -497,9 +496,15 @@ interface ResolvedNode {
 const ownedOptions = <A extends object>(options: A | undefined): A | undefined =>
   options === undefined ? undefined : { ...options }
 
+// How many handles hold a file open. A file stays in the table, and keeps its content, while any handle does.
+interface OpenFile {
+  readonly file: RegularFile
+  count: number
+}
+
 interface EngineState {
   root: Directory
-  retainedFiles: Map<bigint, RegularFile>
+  openFiles: Map<bigint, OpenFile>
   revisionCounter: bigint
   nextInode: bigint
   entries: number
@@ -528,6 +533,11 @@ interface RestoredVolumeOptions {
   maxPathBytes?: ByteSize.ByteSize
 }
 
+// Open files that no name reaches any more; the live image keeps them until their final close.
+/** @internal */
+export const retainedFiles = (state: EngineState): Array<RegularFile> =>
+  [...state.openFiles.values()].flatMap(({ file }) => file.metadata.nlink === 0 ? [file] : [])
+
 /** @internal */
 export const captureLiveImage = Effect.fnUntraced(function*(
   state: EngineState,
@@ -536,7 +546,8 @@ export const captureLiveImage = Effect.fnUntraced(function*(
 ) {
   const records: Array<LiveImage.Record> = []
   const visited = new Set<bigint>()
-  const pending: Array<Node> = [state.root, ...state.retainedFiles.values()]
+  const retained = retainedFiles(state)
+  const pending: Array<Node> = [state.root, ...retained]
 
   for (let index = 0; index < pending.length; index++) {
     if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
@@ -593,7 +604,7 @@ export const captureLiveImage = Effect.fnUntraced(function*(
     entries: state.entries,
     usedBytes: state.usedBytes,
     limits: storedLimits,
-    retainedFiles: [...state.retainedFiles.keys()],
+    retainedFiles: retained.map((file) => file.metadata.ino),
     records
   }
 
@@ -763,7 +774,6 @@ export const makeVolume = Effect.fnUntraced(
 
     const volumeIdentity = Symbol()
     let activeStage: CandidateContext | undefined
-    const fileReferences = new Set<FileReference>()
     const directoryReferences = new Set<DirectoryReference>()
     // A capability holds a cell instead of a particular node object. Publication can replace
     // the node behind the cell without replacing the capability held by a caller.
@@ -812,9 +822,6 @@ export const makeVolume = Effect.fnUntraced(
           const pending = staged
           activeStage.apply.push(() => {
             Object.assign(live, pending)
-
-            if (live.cell === undefined) fileReferences.delete(reference)
-            else fileReferences.add(reference)
           })
         }
 
@@ -830,11 +837,6 @@ export const makeVolume = Effect.fnUntraced(
         },
         set file(file) {
           record().cell = file === undefined ? undefined : cellFor(file)
-
-          if (activeStage === undefined) {
-            if (file === undefined) fileReferences.delete(reference)
-            else fileReferences.add(reference)
-          }
         },
         get closed() {
           return record().closed
@@ -934,7 +936,7 @@ export const makeVolume = Effect.fnUntraced(
         revision: 1n,
         objectReference: undefined
       },
-      retainedFiles: new Map(),
+      openFiles: new Map(),
       revisionCounter: 1n,
       nextInode: 2n,
       entries: 0,
@@ -1018,7 +1020,6 @@ export const makeVolume = Effect.fnUntraced(
             kind: "file",
             lineage: record.id,
             data,
-            openCount: 0,
             metadata: { ...metadata, size: BigInt(data.bytes.length) },
             revision: nextRevision(),
             objectReference: undefined
@@ -1084,7 +1085,6 @@ export const makeVolume = Effect.fnUntraced(
             kind: "file",
             lineage: record.lineage,
             data: Content.make(yield* CanonicalBase64.decode(record.data)),
-            openCount: 0,
             metadata,
             revision: record.revision,
             objectReference: undefined
@@ -1168,19 +1168,13 @@ export const makeVolume = Effect.fnUntraced(
           return copy
         }
 
-        const candidate: EngineState = { ...current, root: copyDirectory(current.root), retainedFiles: new Map() }
+        const candidate: EngineState = { ...current, root: copyDirectory(current.root), openFiles: new Map() }
 
-        for (const [ino, file] of current.retainedFiles) {
+        // Open files stay alive after the namespace stops reaching them.
+        for (const [ino, { file, count }] of current.openFiles) {
           const copy = copyNode(file)
 
-          if (copy.kind === "file") candidate.retainedFiles.set(ino, copy)
-        }
-
-        // Open resources keep zero-link objects alive after the namespace stops reaching them.
-        for (const reference of fileReferences) {
-          const file = reference.file
-
-          if (file !== undefined) copyNode(file)
+          if (copy.kind === "file") candidate.openFiles.set(ino, { file: copy, count })
         }
 
         for (const reference of directoryReferences) {
@@ -1497,12 +1491,18 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const reclaim = (file: RegularFile) => {
-      if (file.metadata.nlink === 0 && file.openCount === 0) {
+      if (file.metadata.nlink === 0 && !state.openFiles.has(file.metadata.ino)) {
         state.usedBytes -= BigInt(file.data.bytes.length)
         file.data = Content.empty()
-        state.retainedFiles.delete(file.metadata.ino)
         invalidateReference(file)
       }
+    }
+
+    const retain = (file: RegularFile) => {
+      const open = state.openFiles.get(file.metadata.ino)
+
+      if (open === undefined) state.openFiles.set(file.metadata.ino, { file, count: 1 })
+      else open.count += 1
     }
 
     // Whether the volume's entry quota is already full.
@@ -1537,10 +1537,8 @@ export const makeVolume = Effect.fnUntraced(
         node.metadata = { ...node.metadata, nlink: node.metadata.nlink - 1, ctimeNs: now }
         advanceRevision(node)
 
-        if (node.kind === "file") {
-          if (node.metadata.nlink === 0 && node.openCount > 0) state.retainedFiles.set(node.metadata.ino, node)
-          reclaim(node)
-        } else if (node.metadata.nlink === 0) {
+        if (node.kind === "file") reclaim(node)
+        else if (node.metadata.nlink === 0) {
           state.usedBytes -= BigInt(node.target.length)
           invalidateReference(node)
         }
@@ -1549,7 +1547,10 @@ export const makeVolume = Effect.fnUntraced(
 
     const releaseFile = (ref: FileReference) => {
       if (ref.file !== undefined) {
-        ref.file.openCount -= 1
+        const ino = ref.file.metadata.ino
+        const open = state.openFiles.get(ino)
+
+        if (open !== undefined && --open.count === 0) state.openFiles.delete(ino)
         reclaim(ref.file)
         ref.file = undefined
       }
@@ -1863,7 +1864,6 @@ export const makeVolume = Effect.fnUntraced(
         kind: "file",
         lineage: undefined,
         data,
-        openCount: 0,
         metadata: {
           ...directoryMetadata(
             state.nextInode,
@@ -2746,7 +2746,7 @@ export const makeVolume = Effect.fnUntraced(
           yield* openExisting(file, request, entry.op, op)
         }
 
-        file.openCount += 1
+        retain(file)
         acquired.file = file
 
         return { file, created, directory: { before, after: parent.revision } }
@@ -3075,7 +3075,7 @@ export const makeVolume = Effect.fnUntraced(
               }
 
               yield* openExisting(node, chosen, op, op)
-              node.openCount += 1
+              retain(node)
               acquired.file = node
 
               return fileHandle(acquired)

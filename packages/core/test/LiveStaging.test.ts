@@ -7,6 +7,7 @@ import {
   makeVolume,
   openImageVolume,
   prepareEmptyLiveImage,
+  retainedFiles,
   VolumeIdentity,
   VolumeSource
 } from "../src/internal/virtualFileSystem.js"
@@ -125,7 +126,7 @@ describe("live volume staging", () => {
 
       const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
         commit: (candidate) => {
-          retained.push([...candidate.retainedFiles.keys()])
+          retained.push(retainedFiles(candidate).map((file) => file.metadata.ino))
 
           return Effect.succeed("committed" as const)
         }
