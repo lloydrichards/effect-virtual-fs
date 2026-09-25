@@ -51,6 +51,42 @@
       "types": "./dist/LiveVolume.d.ts",
       "import": "./dist/LiveVolume.js"
     },
+    "./Caller": {
+      "types": "./dist/Caller.d.ts",
+      "import": "./dist/Caller.js"
+    },
+    "./FileHandle": {
+      "types": "./dist/FileHandle.d.ts",
+      "import": "./dist/FileHandle.js"
+    },
+    "./Fixture": {
+      "types": "./dist/Fixture.d.ts",
+      "import": "./dist/Fixture.js"
+    },
+    "./Metadata": {
+      "types": "./dist/Metadata.d.ts",
+      "import": "./dist/Metadata.js"
+    },
+    "./Volume": {
+      "types": "./dist/Volume.d.ts",
+      "import": "./dist/Volume.js"
+    },
+    "./Watch": {
+      "types": "./dist/Watch.d.ts",
+      "import": "./dist/Watch.js"
+    },
+    "./BytePath": {
+      "types": "./dist/BytePath.d.ts",
+      "import": "./dist/BytePath.js"
+    },
+    "./Snapshot": {
+      "types": "./dist/Snapshot.d.ts",
+      "import": "./dist/Snapshot.js"
+    },
+    "./SnapshotDelta": {
+      "types": "./dist/SnapshotDelta.d.ts",
+      "import": "./dist/SnapshotDelta.js"
+    },
     "./internal/*": null,
     "./index": null,
     "./*/index": null,

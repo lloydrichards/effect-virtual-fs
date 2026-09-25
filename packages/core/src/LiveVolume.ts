@@ -19,6 +19,7 @@ import type { ConfigurationError, ImageError, Volume, VolumeDurability, VolumeOp
 /**
  * A storage commit's observed outcome.
  *
+ * @category models
  * @since 0.4.0
  */
 export type CommitOutcome = "committed" | "rejected" | "unknown"
@@ -39,6 +40,7 @@ export class LiveVolumeError extends Data.TaggedError("LiveVolumeError")<{
  * volume has shut down. Providers must atomically replace each image and
  * classify ambiguous commits as `unknown`.
  *
+ * @category services
  * @since 0.4.0
  */
 export class LiveImageStore extends Context.Service<LiveImageStore, {
@@ -63,6 +65,7 @@ export interface Options {
  * Open a live volume using the supplied store Layer. The caller owns a Scope;
  * the volume shuts down before that Layer releases its storage resource.
  *
+ * @category constructors
  * @since 0.4.0
  */
 export const open: (options: Options) => Effect.Effect<
@@ -127,6 +130,7 @@ export interface ImageSession {
  * Construct a versioned image for a new, empty volume.
  * Store this image before opening it for mutation.
  *
+ * @category constructors
  * @since 0.4.0
  */
 export const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<
@@ -141,6 +145,7 @@ export const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<
  * Run shutdown before releasing the storage connection. An uncertain commit
  * makes the volume unavailable until it is reopened.
  *
+ * @category constructors
  * @since 0.4.0
  */
 export const openImage: (
