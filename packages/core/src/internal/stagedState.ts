@@ -8,8 +8,6 @@ export type CommitOutcome = "committed" | "rejected" | "unknown"
 
 /** @internal */
 export interface CommitProvider<State> {
-  /** Provides a gate-coordinated shutdown effect once staging is ready. */
-  readonly onReady?: (shutdown: Effect.Effect<void>) => void
   /** Checks and encodes a candidate before the commit boundary. Failure leaves the volume available. */
   readonly prepare?: (candidate: State) => Effect.Effect<void, FsError>
   /** Classifies a candidate as committed, definitely rejected, or uncertain. */

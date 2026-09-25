@@ -687,7 +687,7 @@ export const makeVolume = Effect.fnUntraced(
       state: EngineState,
       identity: VolumeIdentity,
       limits: VolumeLimits
-    ) => Effect.Effect<void, ImageError>,
+    ) => Effect.Effect<Uint8Array, ImageError>,
     durability: VolumeDurability = "memory-only"
   ) {
     const image = "image" in source ? source.image : undefined
@@ -1110,7 +1110,7 @@ export const makeVolume = Effect.fnUntraced(
       }
     }
 
-    if (captureInitial !== undefined) yield* captureInitial(state, identity, limits)
+    const initialImage = captureInitial === undefined ? undefined : yield* captureInitial(state, identity, limits)
 
     const contexts = new WeakMap<EngineState, CandidateContext>()
 
@@ -1183,7 +1183,10 @@ export const makeVolume = Effect.fnUntraced(
       (candidate, events) => {
         const context = contexts.get(candidate)
 
-        if (context === undefined) throw new Error("Missing staged engine state")
+        // copyState registers every candidate, so a miss is a broken invariant; stagedState reports the throw
+        // as OutcomeUnknown and stops the volume.
+        // TODO(#184): the candidate context disappears once staging is a commit decorator over a tree value.
+        if (context === undefined) throw new Error("Staged candidate was published without its engine context")
         state = candidate
 
         for (const [previous, next] of context.nodes) {
@@ -1205,8 +1208,6 @@ export const makeVolume = Effect.fnUntraced(
         for (const event of events) event()
       }
     )
-
-    if (staged !== undefined) commitProvider?.onReady?.(staged.shutdown)
 
     // Permit waits stay interruptible. Changes and their publication run under one permit.
     const coordinated = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>, onStorageFailure?: () => void) =>
@@ -4063,7 +4064,7 @@ export const makeVolume = Effect.fnUntraced(
 
     if (!Predicate.isTagged("Overlay")(source) || baseObservation === undefined) {
       // SAFETY: Overlay sources return below, so S is non-Overlay here and VolumeFor<S> is Volume.
-      return volume as VolumeFor<S>
+      return Object.freeze({ volume: volume as VolumeFor<S>, shutdown: staged?.shutdown, initialImage })
     }
 
     const hook = TestHooks.getObservationHook(source.base)
@@ -4091,37 +4092,22 @@ export const makeVolume = Effect.fnUntraced(
 
     surface = overlay
 
-    return overlay
+    return Object.freeze({ volume: overlay, shutdown: staged?.shutdown, initialImage })
   }
 )
 
 /** @internal */
 export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: VolumeOptions) {
-  return yield* makeVolume(VolumeSource.Empty(), options).pipe(Effect.catchTag("ImageError", Effect.die))
+  return (yield* makeVolume(VolumeSource.Empty(), options).pipe(Effect.catchTag("ImageError", Effect.die))).volume
 })
 
 /** @internal */
 export const prepareEmptyLiveImage = Effect.fnUntraced(function*(options?: VolumeOptions) {
-  let bytes: Uint8Array | undefined
+  const { initialImage } = yield* makeVolume(VolumeSource.Empty(), options, undefined, captureLiveImage)
 
-  yield* makeVolume(
-    VolumeSource.Empty(),
-    options,
-    undefined,
-    (initial, identity, limits) =>
-      captureLiveImage(initial, identity, limits).pipe(
-        Effect.tap((image) =>
-          Effect.sync(() => {
-            bytes = image
-          })
-        ),
-        Effect.asVoid
-      )
-  )
+  if (initialImage === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "liveImage" })
 
-  if (bytes === undefined) return yield* new ImageError({ code: "InvalidStructure", field: "liveImage" })
-
-  return bytes
+  return initialImage
 })
 
 /** @internal */
@@ -4134,7 +4120,6 @@ export const openImageVolume = Effect.fnUntraced(function*(
   const document = yield* LiveImage.decode(image, maxImageBytes)
   const prepared = new WeakMap<EngineState, Uint8Array>()
   const identity = VolumeIdentity.make(document.identity)
-  let shutdown: Effect.Effect<void> | undefined
   const commitOp = OpContext.make("commit")
 
   const limits: VolumeLimits = {
@@ -4148,13 +4133,10 @@ export const openImageVolume = Effect.fnUntraced(function*(
     maxWatchEvents: 256
   }
 
-  const volume = yield* makeVolume(
+  const { volume, shutdown } = yield* makeVolume(
     VolumeSource.Live({ document }),
     undefined,
     {
-      onReady: (effect) => {
-        shutdown = effect
-      },
       prepare: (candidate) =>
         captureLiveImage(candidate, identity, limits).pipe(
           Effect.mapError((cause) => commitOp.fail("StorageRejected", { cause })),
@@ -4190,7 +4172,7 @@ export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
   function*(snapshot: Snapshot, options?: VolumeOptions) {
     const image = yield* Image.inspect(snapshot)
 
-    return yield* makeVolume(VolumeSource.Snapshot({ image }), options)
+    return (yield* makeVolume(VolumeSource.Snapshot({ image }), options)).volume
   }
 )
 
@@ -4199,6 +4181,6 @@ export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
   function*(base: Snapshot, options?: VolumeOptions) {
     const image = yield* Image.inspect(base)
 
-    return yield* makeVolume(VolumeSource.Overlay({ base, image }), options)
+    return (yield* makeVolume(VolumeSource.Overlay({ base, image }), options)).volume
   }
 )

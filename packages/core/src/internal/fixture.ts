@@ -200,11 +200,13 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
 
     const { identity, ...volumeOptions } = config
 
-    if (identity === undefined) return yield* makeVolume(VolumeSource.Snapshot({ image }), volumeOptions)
+    if (identity === undefined) return (yield* makeVolume(VolumeSource.Snapshot({ image }), volumeOptions)).volume
 
-    return yield* makeVolume(VolumeSource.Snapshot({ image }), {
+    const { volume } = yield* makeVolume(VolumeSource.Snapshot({ image }), {
       ...volumeOptions,
       identity: VolumeIdentity.make(identity)
     })
+
+    return volume
   }
 )
