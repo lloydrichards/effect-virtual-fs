@@ -1,15 +1,13 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
-
-import { it } from "./TestEffect.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
 describe("whole-file byte ownership", () => {
   it.effect(
     "should capture independent bytes on each execution when a write effect is reused",
     () =>
       Effect.gen(function*() {
-        const fs = yield* (yield* Vfs.make()).caller()
+        const fs = yield* Vfs.Caller
         const input = new Uint8Array([0, 1, 2, 0])
         const write = fs.writeFile("/f", input.subarray(1, 3), { access: "write", create: "ifMissing" })
         input[1] = 3
@@ -25,6 +23,6 @@ describe("whole-file byte ownership", () => {
         assert.deepStrictEqual(output, new Uint8Array([4, 2]))
         output.fill(8)
         assert.deepStrictEqual(yield* fs.readFile("/f"), new Uint8Array([4, 2]))
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 })

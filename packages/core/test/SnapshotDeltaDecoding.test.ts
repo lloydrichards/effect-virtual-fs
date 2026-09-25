@@ -1,8 +1,8 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
-import { assert, describe, it } from "@effect/vitest"
+import { assert, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
 import * as ByteSize from "effect/ByteSize"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
 const encoder = new TextEncoder()
 
@@ -31,14 +31,14 @@ interface StoredDocument {
 }
 
 const snapshots = Effect.gen(function*() {
-  const volume = yield* Vfs.make()
-  const caller = yield* volume.caller()
+  const volume = yield* Vfs.Volume
+  const caller = yield* Vfs.Caller
   const base = yield* volume.snapshot
   yield* caller.writeFile("/f", new Uint8Array([1, 2, 3]), { access: "write", create: "ifMissing" })
   const target = yield* volume.snapshot
 
   return { base, target }
-})
+}).pipe(Effect.provide(Testing.layer()))
 
 const encodedDelta = Effect.gen(function*() {
   const pair = yield* snapshots
@@ -63,7 +63,7 @@ const customLimits = (overrides: Partial<Vfs.SnapshotDeltaLimits>): Vfs.Snapshot
 const reject = (input: Uint8Array, limits = Vfs.SnapshotDeltaLimits.default) =>
   Effect.flip(Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes(limits))(input))
 
-describe("snapshot delta Schema codec", () => {
+it.layer(BunCrypto.layer)("snapshot delta Schema codec", (it) => {
   it.effect("round trips through the public Schema and owns decoded input and encoded output", () =>
     Effect.gen(function*() {
       const { base, encoded } = yield* encodedDelta
@@ -80,7 +80,7 @@ describe("snapshot delta Schema codec", () => {
       const restored = yield* Vfs.applySnapshotDelta(base, delta)
       const caller = yield* (yield* Vfs.fromSnapshot(restored)).caller()
       assert.deepStrictEqual(yield* caller.readFile("/f"), new Uint8Array([1, 2, 3]))
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("rejects malformed UTF-8, JSON, unknown fields, and unsupported versions", () =>
     Effect.gen(function*() {
@@ -96,7 +96,7 @@ describe("snapshot delta Schema codec", () => {
       ]
 
       for (const input of cases) assert.isDefined(yield* reject(input))
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("rejects noncanonical base64, invalid digests, paths, and payloads", () =>
     Effect.gen(function*() {
@@ -131,7 +131,7 @@ describe("snapshot delta Schema codec", () => {
       ]
 
       for (const value of structuralCases) assert.isDefined(yield* reject(encodeDocument(value)))
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("rejects unordered, duplicate, and semantically inconsistent summaries", () =>
     Effect.gen(function*() {
@@ -161,7 +161,7 @@ describe("snapshot delta Schema codec", () => {
       assert.instanceOf(error, Vfs.VfsError)
       assert.strictEqual(error.code, "InvalidStructure")
       assert.strictEqual(error.field, "changes")
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("accepts a semantically identical summary with reordered object keys", () =>
     Effect.gen(function*() {
@@ -175,7 +175,7 @@ describe("snapshot delta Schema codec", () => {
       )
 
       yield* Vfs.applySnapshotDelta(base, delta)
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("accepts exact codec boundaries and rejects the next smaller budget", () =>
     Effect.gen(function*() {
@@ -210,7 +210,7 @@ describe("snapshot delta Schema codec", () => {
         )
         assert.isDefined(yield* reject(encoded, rejected))
       }
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("preserves byte limits above Number.MAX_SAFE_INTEGER without narrowing", () =>
     Effect.gen(function*() {
@@ -231,12 +231,12 @@ describe("snapshot delta Schema codec", () => {
       const restored = yield* Vfs.applySnapshotDelta(base, decoded, limits)
       const caller = yield* (yield* Vfs.fromSnapshot(restored)).caller()
       assert.deepStrictEqual(yield* caller.readFile("/f"), new Uint8Array([1, 2, 3]))
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("enforces inherited-record limits and rejects an unresolved base reference on apply", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       yield* caller.writeFile("/f", new Uint8Array([1]), { access: "write", create: "ifMissing" })
       const base = yield* volume.snapshot
       const delta = yield* Vfs.diffSnapshots(base, base)
@@ -275,7 +275,7 @@ describe("snapshot delta Schema codec", () => {
       assert.instanceOf(error, Vfs.VfsError)
       assert.strictEqual(error.code, "InvalidStructure")
       assert.strictEqual(error.field, "baseReference")
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("rejects an inherited payload redirected to another base path", () =>
     Effect.gen(function*() {
@@ -297,5 +297,5 @@ describe("snapshot delta Schema codec", () => {
 
       const error = yield* reject(encodeDocument(source))
       assert.instanceOf(error, Schema.SchemaError)
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 })

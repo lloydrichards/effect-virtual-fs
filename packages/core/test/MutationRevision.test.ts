@@ -1,20 +1,16 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import * as TestClock from "effect/testing/TestClock"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
+import { entryNames } from "./support/text.js"
 
 const name = (value: string) => new TextEncoder().encode(value)
-
-import { entryNames, it } from "./TestEffect.js"
 
 describe("mutation revisions", () => {
   it.effect("keeps references and revisions out of snapshot version 1", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.fromFixture({
-        entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([1]) }]
-      })
-
-      const fs = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const fs = yield* Vfs.Caller
       const before = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
       const root = yield* fs.root
       entryNames(yield* fs.readDirectory(root))
@@ -31,12 +27,16 @@ describe("mutation revisions", () => {
       assert.notStrictEqual(restoredRoot, root)
       assert.strictEqual((yield* Effect.flip(fs.stat(restoredRoot))).code, "ForeignReference")
       assert.strictEqual((yield* Effect.flip(restoredFs.stat(root))).code, "ForeignReference")
-    }))
+    }).pipe(
+      Effect.provide(
+        Testing.layer({ fixture: { entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([1]) }] } })
+      )
+    ))
 
   it.effect("distinguishes content and metadata mutations under a fixed clock", () =>
     Effect.gen(function*() {
       yield* TestClock.setTime(0)
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       const root = yield* fs.root
       const rootBefore = yield* fs.readDirectory(root)
       const file = yield* fs.open("/f", { access: "readWrite", create: "exclusive" })
@@ -70,14 +70,14 @@ describe("mutation revisions", () => {
       assert.strictEqual(alias, reference)
       assert.isTrue((yield* fs.stat(alias)).revision > changedTimes.revision)
       yield* file.close
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect(
     "keeps revisions stable for reads, rejected mutations, and existing no-op branches",
     () =>
       Effect.gen(function*() {
         yield* TestClock.setTime(0)
-        const fs = yield* (yield* Vfs.make()).caller()
+        const fs = yield* Vfs.Caller
         yield* fs.writeFile("/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
         const root = yield* fs.root
         const file = yield* fs.lookup(Vfs.Entry(root, name("f")))
@@ -95,7 +95,7 @@ describe("mutation revisions", () => {
         const directoryBefore = yield* fs.readDirectory(root)
         entryNames(yield* fs.readDirectory(root))
         assert.strictEqual((yield* fs.readDirectory(root)).revision, directoryBefore.revision)
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect(
@@ -103,7 +103,7 @@ describe("mutation revisions", () => {
     () =>
       Effect.gen(function*() {
         yield* TestClock.setTime(0)
-        const fs = yield* (yield* Vfs.make()).caller()
+        const fs = yield* Vfs.Caller
         yield* fs.mkdir("/a")
         yield* fs.mkdir("/b")
         yield* fs.writeFile("/a/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
@@ -118,13 +118,13 @@ describe("mutation revisions", () => {
         assert.isTrue((yield* fs.readDirectory(a)).revision > beforeA.revision)
         assert.isTrue((yield* fs.readDirectory(b)).revision > beforeB.revision)
         assert.isTrue((yield* fs.stat(file)).revision > beforeFile.revision)
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect("advances directory revisions for create, remove, and replacement", () =>
     Effect.gen(function*() {
       yield* TestClock.setTime(0)
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       const root = yield* fs.root
       const initial = yield* fs.readDirectory(root)
       yield* fs.symlink("old", "/entry")
@@ -141,12 +141,12 @@ describe("mutation revisions", () => {
       assert.strictEqual((yield* Effect.flip(fs.stat(oldReference))).code, "StaleReference")
       yield* fs.unlink("/entry")
       assert.isTrue((yield* fs.readDirectory(root)).revision > replaced.revision)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("advances parents and surviving objects for mkdir, link, and unlink", () =>
     Effect.gen(function*() {
       yield* TestClock.setTime(0)
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       const root = yield* fs.root
       const beforeMkdir = yield* fs.readDirectory(root)
       yield* fs.mkdir("/directory")
@@ -169,14 +169,14 @@ describe("mutation revisions", () => {
       const surviving = yield* fs.stat(file)
       assert.isTrue(surviving.revision > beforeUnlinkFile.revision)
       assert.strictEqual(surviving.nlink, 1)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect(
     "advances the parent for rmdir, same-directory rename, rename over an existing entry, exclusive open, and writeFile create",
     () =>
       Effect.gen(function*() {
         yield* TestClock.setTime(0)
-        const fs = yield* (yield* Vfs.make()).caller()
+        const fs = yield* Vfs.Caller
         yield* fs.mkdir("/p")
         yield* fs.mkdir("/p/d")
         yield* fs.writeFile("/p/sibling", new Uint8Array([1]), { access: "write", create: "exclusive" })
@@ -216,13 +216,13 @@ describe("mutation revisions", () => {
         assert.isTrue((yield* fs.stat(moved)).revision > movedAfterRename)
         assert.strictEqual((yield* Effect.flip(fs.stat(displaced))).code, "StaleReference")
         assert.strictEqual((yield* fs.stat(sibling)).revision, siblingRevision)
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect("keeps the revision of a hard link's target when its other name is unlinked", () =>
     Effect.gen(function*() {
       yield* TestClock.setTime(0)
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       yield* fs.writeFile("/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
       yield* fs.link("/f", "/alias")
       const root = yield* fs.root
@@ -240,12 +240,12 @@ describe("mutation revisions", () => {
       assert.deepStrictEqual(yield* fs.readFile("/f"), new Uint8Array([1]))
       assert.strictEqual((yield* fs.stat(reference)).revision, unlinked.revision)
       assert.strictEqual((yield* fs.stat(reference)).revision, unlinked.revision)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("keeps revisions after a failed mutation", () =>
     Effect.gen(function*() {
       yield* TestClock.setTime(0)
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       yield* fs.mkdir("/p")
       yield* fs.mkdir("/p/existing")
       yield* fs.writeFile("/p/sibling", new Uint8Array([1]), { access: "write", create: "exclusive" })
@@ -264,5 +264,5 @@ describe("mutation revisions", () => {
       assert.strictEqual((yield* fs.stat(sibling)).revision, siblingBefore)
       assert.strictEqual((yield* fs.readDirectory(root)).revision, rootBefore)
       assert.strictEqual((yield* Effect.flip(fs.lookup(Vfs.Entry(parent, name("moved"))))).code, "NotFound")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 })

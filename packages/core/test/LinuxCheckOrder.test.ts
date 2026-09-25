@@ -1,7 +1,6 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { Effect, Exit } from "effect"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { it } from "./TestEffect.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
 // Pins the check order the public API decision fixed for every verb: search permission on a directory before
 // any name in it is looked up, then the name, trailing slashes and the structural rules, then write
@@ -14,8 +13,8 @@ const encode = (value: string) => new TextEncoder().encode(value)
 // /ro (0o555, root) holds file x and directory d; /noexec (0o644, root) can be read but not searched and holds
 // file f; /gfile and /gdir belong to the guest; /hard1 and /hard2 are one file.
 const arrange = Effect.gen(function*() {
-  const volume = yield* Vfs.make()
-  const admin = yield* volume.caller({ umask: 0 })
+  const volume = yield* Vfs.Volume
+  const admin = yield* Vfs.Caller
 
   const write = (path: string) =>
     admin.writeFile(path, encode(path), { access: "write", create: "exclusive", mode: 0o644 })
@@ -33,7 +32,7 @@ const arrange = Effect.gen(function*() {
   yield* admin.mkdir("/gdir", { mode: 0o755 })
   yield* admin.chown("/gfile", { uid: GUEST.uid, gid: GUEST.gid })
   yield* admin.chown("/gdir", { uid: GUEST.uid, gid: GUEST.gid })
-  const guest = yield* volume.caller({ identity: GUEST })
+  const guest = yield* Testing.callerAs(GUEST)
 
   return { admin, guest, volume }
 })
@@ -62,7 +61,7 @@ describe("a directory the caller cannot search reveals none of its names", () =>
         unlinkMissing: "AccessDenied",
         renameMissing: "AccessDenied"
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
 
   it.effect("through entries of a reference", () =>
     Effect.gen(function*() {
@@ -81,7 +80,7 @@ describe("a directory the caller cannot search reveals none of its names", () =>
         rmdirMissing: "AccessDenied",
         unlinkMissing: "AccessDenied"
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
 })
 
 describe("trailing slashes are judged before write permission", () => {
@@ -104,7 +103,7 @@ describe("trailing slashes are judged before write permission", () => {
         renameFileOntoSlash: "NotDirectory",
         renameOntoItselfSlash: "NotDirectory"
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
 })
 
 describe("rename's structural outcomes precede write permission", () => {
@@ -121,14 +120,14 @@ describe("rename's structural outcomes precede write permission", () => {
         acrossHardLinks: "OK",
         intoOwnSubtree: "InvalidArgument"
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
 })
 
 describe("a removed directory held by a handle", () => {
   it.effect("takes no new children through the handle, and leaves no usage behind", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const fs = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const fs = yield* Vfs.Caller
       yield* fs.mkdir("/a")
       const handle = yield* fs.openDirectory("/a")
       yield* fs.rmdir("/a")
@@ -155,14 +154,13 @@ describe("a removed directory held by a handle", () => {
       })
       assert.deepStrictEqual(yield* volume.usage, { entries: 1, usedBytes: 2n })
       assert.isTrue(Exit.isSuccess(yield* Effect.exit(fs.stat("/moved"))))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 })
 
 describe("entry names and no-follow targets", () => {
   it.effect("a string entry name with a lone surrogate fails as a string path does", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const fs = yield* volume.caller()
+      const fs = yield* Vfs.Caller
 
       assert.deepStrictEqual({
         viaPath: yield* outcome(fs.mkdir("/\uD800")),
@@ -173,12 +171,11 @@ describe("entry names and no-follow targets", () => {
         viaEntry: "InvalidPathEncoding",
         otherSurrogate: "InvalidPathEncoding"
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("readFile and truncate refuse a symlink they do not follow, as open does", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const fs = yield* volume.caller()
+      const fs = yield* Vfs.Caller
       yield* fs.writeFile("/f", encode("x"), { access: "write", create: "exclusive" })
       yield* fs.symlink("f", "/fl")
       const target = Vfs.Target.Path({ path: "/fl", followFinalSymlink: false })
@@ -188,5 +185,5 @@ describe("entry names and no-follow targets", () => {
         readFile: yield* outcome(fs.readFile(target)),
         truncate: yield* outcome(fs.truncate(target, 0n))
       }, { open: "SymlinkLoop", readFile: "SymlinkLoop", truncate: "SymlinkLoop" })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 })

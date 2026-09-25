@@ -1,8 +1,7 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { Cause, Deferred, Effect, Exit, Fiber, Scheduler, Scope } from "effect"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import { makeVolume, VolumeSource } from "../src/internal/virtualFileSystem.js"
-import { it } from "./TestEffect.js"
 
 const bytes = (...values: Array<number>) => new Uint8Array(values)
 
@@ -136,8 +135,8 @@ describe("handle lifecycles", () => {
   for (const [label, opener] of fileOpeners) {
     it.effect(`${label} releases what it acquired when its scope closes during acquisition`, () =>
       Effect.gen(function*() {
-        const volume = yield* Vfs.make()
-        const caller = yield* volume.caller()
+        const volume = yield* Vfs.Volume
+        const caller = yield* Vfs.Caller
         yield* caller.writeFile("/file", bytes(1, 2), { access: "write", create: "exclusive" })
 
         // Each attempt closes the scope a few more yields in, sweeping the close across the acquisition.
@@ -152,7 +151,7 @@ describe("handle lifecycles", () => {
 
         yield* caller.unlink("/file")
         assert.deepStrictEqual(yield* volume.usage, { usedBytes: 0n, entries: 0 })
-      }).pipe(Effect.provideService(Scheduler.MaxOpsBeforeYield, 3)))
+      }).pipe(Effect.provide(Testing.layer()), Effect.provideService(Scheduler.MaxOpsBeforeYield, 3)))
   }
 
   for (const [label, opener] of fileOpeners) {

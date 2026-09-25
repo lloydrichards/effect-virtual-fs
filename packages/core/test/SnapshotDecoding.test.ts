@@ -1,4 +1,4 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Schema } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { CanonicalBase64 } from "../src/internal/canonicalBase64.js"
@@ -23,8 +23,6 @@ const limits = {
   maxEntries: 1,
   maxDecodedBytes: ByteSize.bytes(12_000_001)
 }
-
-import { it } from "./TestEffect.js"
 
 describe("snapshot decoding", () => {
   it.effect("encodes bytes as canonical base64 and decodes that representation", () =>

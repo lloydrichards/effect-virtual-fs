@@ -1,8 +1,8 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber, Option, PubSub, Queue, Scope, Stream } from "effect"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import { withVolumeTestSeams } from "../src/internal/testSeams.js"
-import { entryNames, it } from "./TestEffect.js"
+import { entryNames } from "./support/text.js"
 
 const paths = (events: Iterable<Vfs.Change>) =>
   Effect.forEach(events, (event) =>
@@ -13,8 +13,8 @@ const paths = (events: Iterable<Vfs.Change>) =>
 describe("bounded watches", () => {
   it.effect("rejects excess admission before mutation and releases cancelled waits", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxPendingOperations: 1 })
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       const registered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
 
@@ -38,12 +38,12 @@ describe("bounded watches", () => {
       assert.isDefined(registeredWatch)
       yield* Fiber.join(accepted)
       assert.deepEqual(entryNames(yield* caller.readDirectory("/")), ["accepted"])
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxPendingOperations: 1 } }))))
 
   it.effect("releases admission when a watch is cancelled while waiting for the permit", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxPendingOperations: 1 })
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       const registered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
 
@@ -66,7 +66,7 @@ describe("bounded watches", () => {
       assert.isDefined(activeWatch)
       yield* Fiber.join(mutation)
       assert.deepEqual(entryNames(yield* caller.readDirectory("/")), ["after-cancel"])
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxPendingOperations: 1 } }))))
 
   it.effect("probes unsafe PubSub publication with a stalled and an active subscriber", () =>
     Effect.gen(function*() {
@@ -83,19 +83,15 @@ describe("bounded watches", () => {
 
   it.effect("signals overflow independently for each subscriber and permits more writes", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxWatchEvents: 3 })
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       const slowScope = yield* Scope.make()
       const fastScope = yield* Scope.make()
       const slow = yield* volume.watch.pipe(Scope.provide(slowScope))
       const fast = yield* volume.watch.pipe(Scope.provide(fastScope))
       const received = yield* Queue.bounded<void>(4)
 
-      const fastConsumer = yield* Stream.runCollect(
-        Stream.take(Stream.tap(fast, () => Queue.offer(received, undefined)), 4)
-      ).pipe(
-        Effect.forkChild({ startImmediately: true })
-      )
+      const fastConsumer = yield* Testing.collectChanges(Stream.tap(fast, () => Queue.offer(received, undefined)), 4)
 
       yield* caller.mkdir("/a")
       yield* Queue.take(received)
@@ -107,7 +103,7 @@ describe("bounded watches", () => {
       yield* Queue.take(received)
       const slowEvents = yield* Stream.runCollect(Stream.take(slow, 3))
       assert.deepEqual(Array.from(slowEvents, (event) => event._tag), ["Create", "Create", "Rescan"])
-      const fastEvents = yield* Fiber.join(fastConsumer)
+      const fastEvents = yield* fastConsumer
       assert.deepEqual(Array.from(fastEvents, (event) => event._tag), ["Create", "Create", "Create", "Create"])
       const rescanScope = yield* Scope.make()
       const rescanWatch = yield* volume.watch.pipe(Scope.provide(rescanScope))
@@ -126,12 +122,12 @@ describe("bounded watches", () => {
       yield* Scope.close(slowScope, Exit.void)
       yield* Scope.close(fastScope, Exit.void)
       yield* Scope.close(rescanScope, Exit.void)
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxWatchEvents: 3 } }))))
 
   it.effect("drops changes after the overflow marker until the consumer takes it, then resumes", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make({ maxWatchEvents: 3 })
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       const stream = yield* volume.watch
 
       yield* caller.mkdir("/a")
@@ -143,5 +139,5 @@ describe("bounded watches", () => {
       assert.deepEqual(yield* paths(yield* Stream.runCollect(Stream.take(stream, 2))), ["Create /b", "Rescan /"])
       yield* caller.mkdir("/f")
       assert.deepEqual(yield* paths(yield* Stream.runCollect(Stream.take(stream, 1))), ["Create /f"])
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxWatchEvents: 3 } }))))
 })

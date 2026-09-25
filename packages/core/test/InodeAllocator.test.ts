@@ -1,7 +1,6 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Exit, Layer } from "effect"
 import { LiveVolume } from "../src/index.js"
-import { it } from "./TestEffect.js"
 
 const OPTIONS = {
   maxImageBytes: ByteSize.kilobytes(64),

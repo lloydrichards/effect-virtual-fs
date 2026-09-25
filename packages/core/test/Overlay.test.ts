@@ -1,4 +1,4 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { withVolumeTestSeams } from "../src/internal/testSeams.js"
@@ -20,7 +20,7 @@ const changePaths = (changes: ReadonlyArray<Vfs.OverlayChange>) =>
     return pathText(change.path).pipe(Effect.map((path) => `${change._tag}:${path}`))
   })
 
-import { entryNames, it } from "./TestEffect.js"
+import { entryNames } from "./support/text.js"
 
 describe("overlay volumes", () => {
   it.effect("is an ordinary Volume with an isolated base and sibling namespace", () =>

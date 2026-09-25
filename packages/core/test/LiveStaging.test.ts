@@ -1,4 +1,4 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scheduler, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import * as LiveImage from "../src/internal/liveImage.js"
@@ -11,7 +11,7 @@ import {
   VolumeSource
 } from "../src/internal/virtualFileSystem.js"
 import { VolumeIdentity } from "../src/Volume.js"
-import { entryNames, it } from "./TestEffect.js"
+import { entryNames } from "./support/text.js"
 
 // Smaller budgets livelock the runtime: it counts an op before checking whether to yield.
 const MIN_OP_BUDGET = 3

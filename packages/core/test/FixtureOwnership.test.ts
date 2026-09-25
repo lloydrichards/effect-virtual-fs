@@ -1,8 +1,6 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-
-import { it } from "./TestEffect.js"
 
 describe("fixture byte ownership", () => {
   it.effect(

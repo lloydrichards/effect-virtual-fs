@@ -1,4 +1,4 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import {
   ByteSize,
   Cause,
@@ -13,19 +13,25 @@ import {
   Scheduler,
   Scope
 } from "effect"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
-import * as InternalBytePath from "../src/internal/bytePath.js"
-import { it } from "./TestEffect.js"
-
-// The path an error names, as text; errors carry paths as bytes.
-const pathText = (path: Vfs.BytePath | undefined): string | undefined =>
-  path === undefined ? undefined : new TextDecoder().decode(InternalBytePath.getBytes(path))
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
+import { pathText } from "./support/text.js"
 
 const identity = (uid: number, privileged = false, groups: ReadonlyArray<number> = []) => ({
   uid,
   gid: uid,
   groups,
   privileged
+})
+
+// A clock whose wall time is `now`; monotonic time and sleeping stay with `original`.
+const wallClock = (original: Clock.Clock, now: () => bigint): Clock.Clock => ({
+  currentTimeMillisUnsafe: () => Number(now() / 1_000_000n),
+  currentTimeMillis: Effect.sync(() => Number(now() / 1_000_000n)),
+  currentTimeNanosUnsafe: now,
+  currentTimeNanos: Effect.sync(now),
+  monotonicTimeNanosUnsafe: () => original.monotonicTimeNanosUnsafe(),
+  monotonicTimeNanos: original.monotonicTimeNanos,
+  sleep: (duration) => original.sleep(duration)
 })
 
 describe("directory volumes", () => {
@@ -44,35 +50,33 @@ describe("directory volumes", () => {
 
   it.effect("initializes directory metadata and updates the parent link count", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller({ identity: identity(12, true), umask: 0o027 })
+      const caller = yield* Vfs.Caller
       const root = yield* caller.stat("/")
       assert.deepStrictEqual([root.uid, root.gid, root.mode, root.size, root.nlink], [0, 0, 0o755, 0n, 2])
       yield* caller.mkdir("/work", { mode: 0o7777 })
       const work = yield* caller.stat("/work")
       assert.deepStrictEqual([work.uid, work.gid, work.mode, work.size, work.nlink], [12, 0, 0o1750, 0n, 2])
       assert.strictEqual((yield* caller.stat("/")).nlink, 3)
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { identity: identity(12, true), umask: 0o027 } }))))
 
   it.effect(
     "checks owner permissions without falling through and keeps privilege explicit",
     () =>
       Effect.gen(function*() {
-        const volume = yield* Vfs.make()
-        const admin = yield* volume.caller()
+        const admin = yield* Vfs.Caller
         yield* admin.mkdir("/locked", { mode: 0o007 })
-        const unprivilegedRoot = yield* volume.caller({ identity: identity(0) })
+        const unprivilegedRoot = yield* Testing.callerAs(identity(0))
         assert.strictEqual((yield* Effect.flip(unprivilegedRoot.mkdir("/locked/child"))).code, "AccessDenied")
-        const privileged = yield* volume.caller({ identity: identity(91, true) })
+        const privileged = yield* Testing.callerAs(identity(91, true))
         yield* privileged.mkdir("/locked/child")
         assert.strictEqual((yield* privileged.stat("/locked/child")).uid, 91)
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect("uses supplementary groups captured separately on each caller execution", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const admin = yield* volume.caller({ umask: 0 })
+      const volume = yield* Vfs.Volume
+      const admin = yield* Vfs.Caller
       yield* admin.mkdir("/shared", { mode: 0o070 })
       const groups = [99]
       const construct = volume.caller({ identity: identity(42, false, groups) })
@@ -82,12 +86,11 @@ describe("directory volumes", () => {
       const denied = yield* construct
       yield* allowed.mkdir("/shared/child")
       assert.strictEqual((yield* Effect.flip(denied.stat("/shared/child"))).code, "AccessDenied")
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
 
   it.effect("keeps root and child callers alive after a parent derived scope closes", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const root = yield* volume.caller()
+      const root = yield* Vfs.Caller
       yield* root.mkdir("/work")
       const parentScope = yield* Scope.make()
       const parent = yield* root.withDirectory("/work").pipe(Scope.provide(parentScope))
@@ -97,13 +100,13 @@ describe("directory volumes", () => {
       assert.strictEqual((yield* Effect.flip(pending)).code, "ClosedCaller")
       assert.strictEqual((yield* child.stat(".")).ino, (yield* root.stat("/work")).ino)
       assert.strictEqual((yield* root.stat(".")).ino, (yield* root.stat("/")).ino)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect(
     "ignores unused absolute bases but rejects relevant foreign and closed bases",
     () =>
       Effect.gen(function*() {
-        const a = yield* (yield* Vfs.make()).caller()
+        const a = yield* Vfs.Caller
         const b = yield* (yield* Vfs.make()).caller()
         const base = yield* b.openDirectory("/")
         yield* base.close
@@ -119,27 +122,26 @@ describe("directory volumes", () => {
           "InvalidHandle"
         )
         assert.strictEqual((yield* Effect.flip(own.close)).code, "InvalidHandle")
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect("does not transfer opener privilege through a directory base", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const admin = yield* volume.caller()
+      const admin = yield* Vfs.Caller
       yield* admin.mkdir("/private", { mode: 0o700 })
       const base = yield* admin.openDirectory("/private")
-      const guest = yield* volume.caller({ identity: identity(123) })
+      const guest = yield* Testing.callerAs(identity(123))
       assert.strictEqual(
         (yield* Effect.flip(guest.stat(Vfs.Target.Path({ path: ".", relativeTo: base })))).code,
         "AccessDenied"
       )
       assert.strictEqual((yield* guest.stat("/private")).mode, 0o700)
       assert.strictEqual((yield* Effect.flip(guest.openDirectory("/private"))).code, "AccessDenied")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("retains exact byte names and owns each exported buffer", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const input = new Uint8Array([47, 254])
       const capture = Vfs.pathFromBytes(input)
       input[1] = 255
@@ -155,11 +157,11 @@ describe("directory volumes", () => {
         (yield* caller.stat(path)).ino,
         (yield* caller.stat(yield* Vfs.pathFromBytes(new Uint8Array([47, 254])))).ino
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("applies optional byte limits at volume use before normalizing separators", () =>
     Effect.gen(function*() {
-      const limited = yield* (yield* Vfs.make({ maxPathBytes: ByteSize.bytes(3) })).caller()
+      const limited = yield* Vfs.Caller
       const unlimited = yield* (yield* Vfs.make()).caller()
       const path = yield* Vfs.pathFromBytes(new TextEncoder().encode("/é"))
       yield* limited.mkdir(path)
@@ -168,16 +170,16 @@ describe("directory volumes", () => {
       const longer = yield* Vfs.pathFromBytes(new TextEncoder().encode("longer"))
       yield* unlimited.stat(longer)
       assert.strictEqual((yield* Effect.flip(limited.stat(longer))).code, "PathTooLong")
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxPathBytes: ByteSize.bytes(3) } }))))
 
   it.effect("does not charge root or change parent metadata on quota rejection", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make({ maxEntries: 0 })).caller()
+      const caller = yield* Vfs.Caller
       const before = yield* caller.stat("/")
       assert.strictEqual((yield* Effect.flip(caller.mkdir("/child"))).code, "NoSpace")
       assert.deepStrictEqual(yield* caller.stat("/"), before)
       assert.strictEqual((yield* Effect.flip(caller.stat("/child"))).code, "NotFound")
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxEntries: 0 } }))))
 
   it.effect("provides a volume and a root caller through the services and their layers", () =>
     Effect.gen(function*() {
@@ -265,7 +267,7 @@ describe("input and mutation boundaries", () => {
 
   it.effect("rejects malformed paths and mode arguments without changing the namespace", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const before = yield* caller.stat("/")
 
       for (
@@ -280,7 +282,7 @@ describe("input and mutation boundaries", () => {
         // An unencodable string names its replacement encoding; an empty path or one holding a NUL names none,
         // since no BytePath could hold it.
         assert.strictEqual(
-          error.path === undefined ? undefined : pathText(error.path),
+          yield* pathText(error.path),
           path === "" || path.includes("\0") ? undefined : new TextDecoder().decode(new TextEncoder().encode(path))
         )
       }
@@ -290,7 +292,7 @@ describe("input and mutation boundaries", () => {
       }
 
       assert.deepStrictEqual(yield* caller.stat("/"), before)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("rejects shared and detached views while copying ordinary subarrays", () =>
     Effect.gen(function*() {
@@ -315,7 +317,7 @@ describe("input and mutation boundaries", () => {
     "preserves literal names and resolves dot components through existing directories",
     () =>
       Effect.gen(function*() {
-        const caller = yield* (yield* Vfs.make()).caller()
+        const caller = yield* Vfs.Caller
 
         for (const name of ["work", "back\\slash", "%2f", "é", "e\u0301", "line\nfeed", "😀"]) yield* caller.mkdir(name)
         const work = yield* caller.stat("work")
@@ -333,14 +335,14 @@ describe("input and mutation boundaries", () => {
         for (const path of ["/", ".", "/work/..", "/work/.", "/work/"]) {
           assert.strictEqual((yield* Effect.flip(caller.mkdir(path))).code, "AlreadyExists")
         }
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect(
     "uses byte component boundaries and accepts long paths when no total bound is configured",
     () =>
       Effect.gen(function*() {
-        const caller = yield* (yield* Vfs.make()).caller()
+        const caller = yield* Vfs.Caller
         yield* caller.mkdir("a".repeat(255))
         yield* caller.mkdir("é".repeat(127))
 
@@ -358,12 +360,12 @@ describe("input and mutation boundaries", () => {
         assert.isAbove(new TextEncoder().encode(path).length, 4096)
         const base = yield* caller.withDirectory(path)
         assert.strictEqual((yield* base.stat(".")).ino, (yield* caller.stat(path)).ino)
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect("does not create missing parents or change metadata on duplicate creation", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const before = yield* caller.stat("/")
       assert.strictEqual((yield* Effect.flip(caller.mkdir("/missing/child"))).code, "NotFound")
       assert.deepStrictEqual(yield* caller.stat("/"), before)
@@ -371,11 +373,11 @@ describe("input and mutation boundaries", () => {
       const after = yield* caller.stat("/")
       assert.strictEqual((yield* Effect.flip(caller.mkdir("/one"))).code, "AlreadyExists")
       assert.deepStrictEqual(yield* caller.stat("/"), after)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("serializes competing creates and quota accounting", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make({ maxEntries: 1 })).caller()
+      const caller = yield* Vfs.Caller
 
       const results = yield* Effect.forEach([caller.mkdir("/same"), caller.mkdir("/same")], Effect.result, {
         concurrency: "unbounded"
@@ -385,7 +387,7 @@ describe("input and mutation boundaries", () => {
       assert.deepStrictEqual(results.filter(Result.isFailure).map((result) => result.failure.code), ["AlreadyExists"])
       assert.strictEqual((yield* caller.stat("/")).nlink, 3)
       assert.strictEqual((yield* Effect.flip(caller.mkdir("/another"))).code, "NoSpace")
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxEntries: 1 } }))))
 })
 
 describe("authority, time, and resource lifetime", () => {
@@ -393,16 +395,15 @@ describe("authority, time, and resource lifetime", () => {
     "requires parent write/search but not read, and checks inaccessible prefixes",
     () =>
       Effect.gen(function*() {
-        const volume = yield* Vfs.make()
-        const owner = yield* volume.caller({ identity: identity(7, true), umask: 0 })
+        const owner = yield* Vfs.Caller
         yield* owner.mkdir("/work", { mode: 0o300 })
         yield* owner.mkdir("/work/public", { mode: 0o777 })
-        const sameUser = yield* volume.caller({ identity: identity(7) })
+        const sameUser = yield* Testing.callerAs(identity(7))
         yield* sameUser.mkdir("/work/new")
-        const guest = yield* volume.caller({ identity: identity(9) })
+        const guest = yield* Testing.callerAs(identity(9))
         assert.strictEqual((yield* Effect.flip(guest.stat("/work/public"))).code, "AccessDenied")
         assert.strictEqual((yield* Effect.flip(guest.mkdir("/new-root-entry"))).code, "AccessDenied")
-      })
+      }).pipe(Effect.provide(Testing.layer({ caller: { identity: identity(7, true), umask: 0 } })))
   )
 
   it.effect("captures the volume clock and publishes related timestamps together", () =>
@@ -411,19 +412,11 @@ describe("authority, time, and resource lifetime", () => {
       let time = 10n
       let samples = 0
 
-      const clock: Clock.Clock = {
-        currentTimeMillisUnsafe: () => Number(time / 1_000_000n),
-        currentTimeMillis: Effect.sync(() => Number(time / 1_000_000n)),
-        currentTimeNanosUnsafe: () => {
-          samples += 1
+      const clock = wallClock(original, () => {
+        samples += 1
 
-          return time
-        },
-        currentTimeNanos: Effect.sync(() => time),
-        monotonicTimeNanosUnsafe: () => original.monotonicTimeNanosUnsafe(),
-        monotonicTimeNanos: original.monotonicTimeNanos,
-        sleep: (duration) => original.sleep(duration)
-      }
+        return time
+      })
 
       const volume = yield* Vfs.make().pipe(Effect.provideService(Clock.Clock, clock))
       const caller = yield* volume.caller()
@@ -457,7 +450,7 @@ describe("authority, time, and resource lifetime", () => {
     "keeps separately scoped handles alive after their originating caller closes",
     () =>
       Effect.gen(function*() {
-        const root = yield* (yield* Vfs.make()).caller()
+        const root = yield* Vfs.Caller
         yield* root.mkdir("/work")
         const scope = yield* Scope.make()
         const caller = yield* root.withDirectory("/work").pipe(Scope.provide(scope))
@@ -468,12 +461,12 @@ describe("authority, time, and resource lifetime", () => {
           (yield* Effect.flip(caller.stat(Vfs.Target.Path({ path: "/work", relativeTo: handle })))).code,
           "ClosedCaller"
         )
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect("releases on scope exit and tolerates prior explicit close", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const scope = yield* Scope.make()
       const handle = yield* caller.openDirectory("/").pipe(Scope.provide(scope))
       yield* Scope.close(scope, Exit.void)
@@ -487,11 +480,11 @@ describe("authority, time, and resource lifetime", () => {
       }))
 
       assert.strictEqual((yield* Effect.flip(early.close)).code, "InvalidHandle")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("interruption before starting a mutation leaves no entry", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const ready = yield* Deferred.make<void>()
       const proceed = yield* Deferred.make<void>()
 
@@ -504,13 +497,13 @@ describe("authority, time, and resource lifetime", () => {
       yield* Deferred.await(ready)
       yield* Fiber.interrupt(worker)
       assert.strictEqual((yield* Effect.flip(caller.stat("/cancelled"))).code, "NotFound")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect(
     "interruption releases acquired resources without rolling back committed directories",
     () =>
       Effect.gen(function*() {
-        const caller = yield* (yield* Vfs.make()).caller()
+        const caller = yield* Vfs.Caller
         const acquired = yield* Deferred.make<Vfs.DirectoryHandle>()
 
         const worker = yield* Effect.scoped(Effect.gen(function*() {
@@ -525,7 +518,7 @@ describe("authority, time, and resource lifetime", () => {
         yield* Fiber.interrupt(worker)
         yield* caller.stat("/committed")
         assert.strictEqual((yield* Effect.flip(handle.stat)).code, "InvalidHandle")
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 })
 
@@ -534,7 +527,7 @@ describe("scope and close races", () => {
     "does not retain a directory or deadlock when the acquisition scope is already closed",
     () =>
       Effect.gen(function*() {
-        const caller = yield* (yield* Vfs.make()).caller()
+        const caller = yield* Vfs.Caller
         const scope = yield* Scope.make()
         yield* Scope.close(scope, Exit.void)
         const result = yield* caller.openDirectory("/").pipe(Scope.provide(scope), Effect.exit)
@@ -543,14 +536,14 @@ describe("scope and close races", () => {
         if (Exit.isFailure(result)) assert.isTrue(Cause.hasInterruptsOnly(result.cause))
         yield* caller.mkdir("/after")
         assert.strictEqual((yield* caller.stat("/")).nlink, 3)
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect(
     "coordinates scope closure with acquisition without returning a live escaped reference",
     () =>
       Effect.gen(function*() {
-        const caller = yield* (yield* Vfs.make()).caller()
+        const caller = yield* Vfs.Caller
 
         for (let attempt = 0; attempt < 10; attempt++) {
           const scope = yield* Scope.make()
@@ -568,12 +561,12 @@ describe("scope and close races", () => {
         }
 
         yield* caller.mkdir("/still-usable")
-      }).pipe(Effect.provideService(Scheduler.MaxOpsBeforeYield, 64))
+      }).pipe(Effect.provideService(Scheduler.MaxOpsBeforeYield, 64), Effect.provide(Testing.layer()))
   )
 
   it.effect("orders handle observation against explicit close", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const handle = yield* caller.openDirectory("/")
 
       const [observation] = yield* Effect.all([
@@ -584,5 +577,5 @@ describe("scope and close races", () => {
       if (Result.isFailure(observation)) assert.strictEqual(observation.failure.code, "InvalidHandle")
       else assert.strictEqual(observation.success.ino, (yield* caller.stat("/")).ino)
       assert.strictEqual((yield* Effect.flip(handle.stat)).code, "InvalidHandle")
-    }).pipe(Effect.provideService(Scheduler.MaxOpsBeforeYield, 64)))
+    }).pipe(Effect.provideService(Scheduler.MaxOpsBeforeYield, 64), Effect.provide(Testing.layer())))
 })

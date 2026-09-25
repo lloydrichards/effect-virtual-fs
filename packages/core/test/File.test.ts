@@ -1,15 +1,13 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Exit, Scope } from "effect"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
 const bytes = (...values: Array<number>) => new Uint8Array(values)
-
-import { it } from "./TestEffect.js"
 
 describe("regular files", () => {
   it.effect("shares content but keeps independent offsets and owns transfer buffers", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       const a = yield* fs.open("/f", { access: "readWrite", create: "exclusive" })
       const input = bytes(1, 2, 3)
       const write = a.write(input)
@@ -24,13 +22,13 @@ describe("regular files", () => {
       assert.strictEqual(yield* a.seek(0n, "current"), 3n)
       assert.deepStrictEqual(yield* b.read(5), bytes(3))
       assert.deepStrictEqual(yield* b.read(1), bytes())
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect(
     "preserves offsets across truncate and positional I/O and fills gaps with zero",
     () =>
       Effect.gen(function*() {
-        const fs = yield* (yield* Vfs.make()).caller()
+        const fs = yield* Vfs.Caller
         const f = yield* fs.open("/f", { access: "readWrite", create: "exclusive" })
         yield* f.write(bytes(1, 2, 3))
         yield* f.seek(8n, "start")
@@ -48,14 +46,14 @@ describe("regular files", () => {
         assert.strictEqual(yield* f.seek(1n, "hole"), 9n)
         assert.strictEqual((yield* Effect.flip(f.seek(9n, "data"))).code, "NoData")
         assert.strictEqual(yield* f.seek(0n, "current"), 9n)
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect(
     "appends atomically while positional writes ignore append and preserve offset",
     () =>
       Effect.gen(function*() {
-        const fs = yield* (yield* Vfs.make()).caller()
+        const fs = yield* Vfs.Caller
         const a = yield* fs.open("/f", { access: "readWrite", append: true, create: "ifMissing" })
         const b = yield* fs.open("/f", { access: "write", append: true })
         yield* Effect.all([a.write(bytes(1, 1)), b.write(bytes(2, 2))], { concurrency: "unbounded" })
@@ -68,14 +66,14 @@ describe("regular files", () => {
         yield* a.seek(0n, "start")
         yield* a.write(bytes())
         assert.strictEqual(yield* a.seek(0n, "current"), 0n)
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect(
     "returns capacity-limited prefixes and preserves bytes and metadata on failed growth",
     () =>
       Effect.gen(function*() {
-        const fs = yield* (yield* Vfs.make({ maxBytes: ByteSize.bytes(6) })).caller()
+        const fs = yield* Vfs.Caller
         const f = yield* fs.open("/f", { access: "readWrite", create: "exclusive" })
         yield* f.write(bytes(1, 2, 3, 4))
         assert.strictEqual(yield* f.write(bytes(5, 6, 7)), 2)
@@ -88,12 +86,12 @@ describe("regular files", () => {
         assert.strictEqual((yield* Effect.flip(f.pwrite(bytes(8), 6n))).code, "NoSpace")
         assert.strictEqual(yield* f.pwrite(bytes(8, 9), 5n), 1)
         assert.deepStrictEqual((yield* f.pread(9, 0n)).bytes, bytes(1, 9, 3, 4, 0, 8))
-      })
+      }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(6) } })))
   )
 
   it.effect("retains unlinked content charge until the final independent handle closes", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make({ maxBytes: ByteSize.bytes(2), maxEntries: 1 })).caller()
+      const fs = yield* Vfs.Caller
       const a = yield* fs.open("/f", { access: "readWrite", create: "exclusive" })
       const b = yield* fs.open("/f", { access: "read" })
       yield* a.write(bytes(1, 2))
@@ -107,11 +105,11 @@ describe("regular files", () => {
       assert.strictEqual(yield* replacement.write(bytes(3, 4)), 2)
       assert.strictEqual((yield* Effect.flip(a.close)).code, "InvalidHandle")
       assert.strictEqual((yield* Effect.flip(a.read(0))).code, "InvalidHandle")
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(2), maxEntries: 1 } }))))
 
   it.effect("does not create files when scoped acquisition cannot retain a handle", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       const scope = yield* Scope.make()
       yield* Scope.close(scope, Exit.void)
 
@@ -125,18 +123,17 @@ describe("regular files", () => {
       const f = yield* fs.open("/f", { access: "write", create: "exclusive" }).pipe(Scope.provide(liveScope))
       yield* Scope.close(liveScope, Exit.void)
       assert.strictEqual((yield* Effect.flip(f.write(bytes()))).code, "InvalidHandle")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect(
     "checks kind, access, exclusive creation and file bounds before changing content",
     () =>
       Effect.gen(function*() {
-        const volume = yield* Vfs.make({ maxFileBytes: ByteSize.bytes(2) })
-        const fs = yield* volume.caller()
+        const fs = yield* Vfs.Caller
         const f = yield* fs.open("/f", { access: "readWrite", create: "exclusive", mode: 0o400 })
         yield* f.write(bytes(1, 2, 3))
         assert.strictEqual((yield* Effect.flip(f.write(bytes(3)))).code, "FileTooLarge")
-        const guest = yield* volume.caller({ identity: { uid: 0, gid: 0, groups: [], privileged: false } })
+        const guest = yield* Testing.callerAs({ uid: 0, gid: 0, groups: [], privileged: false })
         assert.strictEqual(
           (yield* Effect.flip(guest.open("/f", { access: "write", truncate: true }))).code,
           "AccessDenied"
@@ -152,6 +149,6 @@ describe("regular files", () => {
         const read = yield* fs.open("/f", { access: "read" })
         assert.strictEqual((yield* Effect.flip(read.write(bytes()))).code, "InvalidHandle")
         assert.strictEqual((yield* Effect.flip(read.truncate(0n))).code, "InvalidHandle")
-      })
+      }).pipe(Effect.provide(Testing.layer({ volume: { maxFileBytes: ByteSize.bytes(2) } })))
   )
 })

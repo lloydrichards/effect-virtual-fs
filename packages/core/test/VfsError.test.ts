@@ -1,7 +1,6 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Exit, Layer, Schema } from "effect"
-import { LiveVolume, VfsError, VirtualFileSystem as Vfs } from "../src/index.js"
-import { it } from "./TestEffect.js"
+import { LiveVolume, Testing, VfsError, VirtualFileSystem as Vfs } from "../src/index.js"
 
 const LIMITS = {
   maxEncodedBytes: ByteSize.kilobytes(64),
@@ -20,14 +19,14 @@ const RawWireError = Schema.fromJsonString(
 describe("VfsError", () => {
   it.effect("an error names no path that a BytePath could not hold", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
 
       for (const input of ["", "/a\u0000b"]) {
         const error = yield* Effect.flip(fs.readFile(input))
 
         assert.isUndefined(error.path, `input ${input.length} characters`)
       }
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("decoding an error from the wire rejects an empty path or one holding a NUL", () =>
     Effect.gen(function*() {
@@ -68,14 +67,14 @@ describe("VfsError", () => {
 describe("option decoding names the offending field", () => {
   it.effect("decodeSnapshot rejects malformed limits as InvalidArgument at the key", () =>
     Effect.gen(function*() {
-      const bytes = yield* Vfs.encodeSnapshot(yield* (yield* Vfs.make()).snapshot)
+      const bytes = yield* Vfs.encodeSnapshot(yield* (yield* Vfs.Volume).snapshot)
       const error = yield* Effect.flip(Vfs.decodeSnapshot(bytes, { ...LIMITS, maxRecords: -1 }))
 
       assert.deepStrictEqual(
         { code: error.code, operation: error.operation, field: error.field },
         { code: "InvalidArgument", operation: "decodeSnapshot", field: "maxRecords" }
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("LiveVolume.open names the nested volume option that failed", () =>
     Effect.gen(function*() {
