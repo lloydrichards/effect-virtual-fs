@@ -2469,59 +2469,60 @@ Added in v0.1.0
 
 ## services
 
-### CurrentFileSystem
+### Caller
 
-Optional Effect service for providing an existing filesystem caller.
+The caller an application operates through, as an Effect service. A caller
+supplied through the service keeps its own volume, credentials, umask and
+working directory; `layer` makes a root caller on the `Volume` in context.
 
 **Signature**
 
 ```ts
-export declare const CurrentFileSystem: Context.Service<CurrentFileSystem, Caller>
+export declare const Caller: Context.Service<Caller, Caller> & {
+  readonly layer: (options?: RootCallerOptions) => Layer.Layer<Caller, VfsError, Volume>
+}
+```
+
+Added in v0.6.0
+
+### Volume
+
+The volume an application runs against, as an Effect service. The static
+layers wrap the explicit constructors; each call builds a fresh layer, so
+share one layer value to share one volume.
+
+**Signature**
+
+```ts
+export declare const Volume: Context.Service<Volume, Volume> & {
+  readonly layer: (options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  readonly layerFromSnapshot: (snapshot: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  readonly layerFromFixture: (fixture: Fixture, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  readonly layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  readonly layerLive: (options: LiveVolumeOptions) => Layer.Layer<Volume, VfsError, LiveImageStore>
+}
 ```
 
 **Example**
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
-// Code depending on the service does not choose the volume it runs against.
-const readVersion = Effect.gen(function* () {
-  const caller = yield* Vfs.CurrentFileSystem
-
-  return yield* caller.readFile("/version")
-})
-
 const program = Effect.gen(function* () {
-  const volume = yield* Vfs.make()
-  const caller = yield* volume.caller()
+  const fs = yield* Vfs.Caller
+  yield* fs.mkdir("/work")
 
-  yield* caller.writeFile("/version", new Uint8Array([49]), {
-    access: "write",
-    create: "exclusive"
-  })
-
-  return yield* readVersion.pipe(Effect.provideService(Vfs.CurrentFileSystem, caller))
+  return (yield* fs.readDirectory("/")).value.map((entry) => new TextDecoder().decode(entry.name))
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
-// Uint8Array(1) [ 49 ]
+Effect.runPromise(program.pipe(Effect.provide(Vfs.Caller.layer()), Effect.provide(Vfs.Volume.layer()))).then(
+  console.log
+)
+// [ 'work' ]
 ```
 
-Added in v0.1.0
-
-### CurrentFileSystem (interface)
-
-The caller supplied by the optional filesystem service.
-
-**Signature**
-
-```ts
-export interface CurrentFileSystem extends Caller {}
-```
-
-Added in v0.1.0
+Added in v0.6.0
 
 ## snapshots
 
