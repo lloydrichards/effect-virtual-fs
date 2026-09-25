@@ -1,0 +1,45 @@
+# Watch overview
+
+Change events published by a volume's watch stream.
+
+Added in v0.6.0
+
+---
+
+## models
+
+### Change (type alias)
+
+One committed change observed through a watch subscription.
+
+**Signature**
+
+```ts
+export type Change =
+  | { readonly _tag: "Create"; readonly path: BytePath }
+  | { readonly _tag: "Update"; readonly path: BytePath }
+  | { readonly _tag: "Remove"; readonly path: BytePath }
+  | { readonly _tag: "Rescan"; readonly path: BytePath }
+```
+
+Added in v0.6.0
+
+## schemas
+
+### Change
+
+Schema for one committed change. `Rescan` at `/` means the subscriber lost
+events and must rescan; events are never replayed.
+
+**Signature**
+
+```ts
+export declare const Change: Schema.TaggedUnion<{
+  readonly Create: Schema.TaggedStruct<"Create", { readonly path: Schema.declare<BytePath, BytePath> }>
+  readonly Update: Schema.TaggedStruct<"Update", { readonly path: Schema.declare<BytePath, BytePath> }>
+  readonly Remove: Schema.TaggedStruct<"Remove", { readonly path: Schema.declare<BytePath, BytePath> }>
+  readonly Rescan: Schema.TaggedStruct<"Rescan", { readonly path: Schema.declare<BytePath, BytePath> }>
+}>
+```
+
+Added in v0.6.0

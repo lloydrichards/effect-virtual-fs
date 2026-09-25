@@ -62,3 +62,82 @@ console.log(error.code, error.message)
 ```
 
 Added in v0.1.0
+
+## models
+
+### FsCode (type alias)
+
+A portable virtual filesystem error code.
+
+**Signature**
+
+```ts
+export type FsCode =
+  | "NotFound"
+  | "AlreadyExists"
+  | "NotEmpty"
+  | "NotDirectory"
+  | "AccessDenied"
+  | "InvalidHandle"
+  | "ForeignHandle"
+  | "InvalidReference"
+  | "ForeignReference"
+  | "StaleReference"
+  | "ClosedCaller"
+  | "InvalidArgument"
+  | "InvalidPathEncoding"
+  | "PathTooLong"
+  | "NoSpace"
+  | "IsDirectory"
+  | "FileTooLarge"
+  | "NoData"
+  | "SymlinkLoop"
+  | "UnrepresentableName"
+  | "StorageRejected"
+  | "OutcomeUnknown"
+  | "VolumeUnavailable"
+  | "VolumeBusy"
+```
+
+Added in v0.6.0
+
+## schemas
+
+### FsCode
+
+Schema for the portable virtual filesystem error codes.
+
+**Signature**
+
+```ts
+export declare const FsCode: Schema.Literals<
+  readonly [
+    "NotFound",
+    "AlreadyExists",
+    "NotEmpty",
+    "NotDirectory",
+    "AccessDenied",
+    "InvalidHandle",
+    "ForeignHandle",
+    "InvalidReference",
+    "ForeignReference",
+    "StaleReference",
+    "ClosedCaller",
+    "InvalidArgument",
+    "InvalidPathEncoding",
+    "PathTooLong",
+    "NoSpace",
+    "IsDirectory",
+    "FileTooLarge",
+    "NoData",
+    "SymlinkLoop",
+    "UnrepresentableName",
+    "StorageRejected",
+    "OutcomeUnknown",
+    "VolumeUnavailable",
+    "VolumeBusy"
+  ]
+>
+```
+
+Added in v0.6.0

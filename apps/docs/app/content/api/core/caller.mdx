@@ -1,0 +1,525 @@
+# Caller overview
+
+Caller identity brands and schemas: credentials, root caller options, and
+the settings and results of the operations a caller performs.
+
+Added in v0.6.0
+
+---
+
+## models
+
+### DirectoryChange (type alias)
+
+A directory's revision before and after a change.
+
+**Signature**
+
+```ts
+export type DirectoryChange = { readonly before: bigint; readonly after: bigint }
+```
+
+Added in v0.6.0
+
+### Identity (type alias)
+
+A caller's credentials.
+
+**Signature**
+
+```ts
+export type Identity = {
+  readonly uid: number
+  readonly gid: number
+  readonly groups: readonly number[]
+  readonly privileged: boolean
+}
+```
+
+Added in v0.6.0
+
+### MkdirReferenceSettings (type alias)
+
+Settings of a reference-addressed directory creation.
+
+**Signature**
+
+```ts
+export type MkdirReferenceSettings = {
+  readonly mode?: number
+  readonly exactMode?: boolean
+  readonly times?: {
+    readonly access:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+    readonly modification:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+  }
+}
+```
+
+Added in v0.6.0
+
+### OpenChildReferenceSettings (type alias)
+
+Settings of a lookup-or-create-and-open through a parent reference.
+
+**Signature**
+
+```ts
+export type OpenChildReferenceSettings = {
+  readonly access: "read" | "write" | "readWrite"
+  readonly mode?: number
+  readonly create?: "never" | "ifMissing" | "exclusive"
+  readonly append?: boolean
+  readonly truncate?: boolean
+  readonly followFinalSymlink?: boolean
+  readonly exactMode?: boolean
+  readonly times?: {
+    readonly access:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+    readonly modification:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+  }
+  readonly initialSize?: bigint
+  readonly owner?: { readonly uid?: number; readonly gid?: number }
+  readonly expectedChild?: {
+    readonly reference: ObjectReference
+    readonly revision: bigint
+    readonly atimeNs: bigint
+    readonly mtimeNs: bigint
+  } | null
+}
+```
+
+Added in v0.6.0
+
+### OpenReferenceSettings (type alias)
+
+Settings of opening an existing file by reference.
+
+**Signature**
+
+```ts
+export type OpenReferenceSettings = {
+  readonly access: "read" | "write" | "readWrite"
+  readonly append?: boolean
+  readonly truncate?: boolean
+}
+```
+
+Added in v0.6.0
+
+### OpenSettings (type alias)
+
+Settings of a path-addressed open.
+
+**Signature**
+
+```ts
+export type OpenSettings = {
+  readonly access: "read" | "write" | "readWrite"
+  readonly mode?: number
+  readonly create?: "never" | "ifMissing" | "exclusive"
+  readonly append?: boolean
+  readonly truncate?: boolean
+  readonly followFinalSymlink?: boolean
+}
+```
+
+Added in v0.6.0
+
+### RenameReferenceResult (type alias)
+
+The result of a reference-addressed rename.
+
+**Signature**
+
+```ts
+export type RenameReferenceResult =
+  | {
+      readonly _tag: "SameDirectory"
+      readonly directory: { readonly before: bigint; readonly after: bigint }
+    }
+  | {
+      readonly _tag: "DifferentDirectories"
+      readonly sourceDirectory: { readonly before: bigint; readonly after: bigint }
+      readonly destinationDirectory: { readonly before: bigint; readonly after: bigint }
+    }
+```
+
+Added in v0.6.0
+
+### RootCallerOptions (type alias)
+
+Options of a root caller.
+
+**Signature**
+
+```ts
+export type RootCallerOptions = {
+  readonly identity?: {
+    readonly uid: number
+    readonly gid: number
+    readonly groups: readonly number[]
+    readonly privileged: boolean
+  }
+  readonly umask?: number
+}
+```
+
+Added in v0.6.0
+
+### SymlinkReferenceSettings (type alias)
+
+Settings of a reference-addressed symbolic link creation.
+
+**Signature**
+
+```ts
+export type SymlinkReferenceSettings = {
+  readonly times?: {
+    readonly access:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+    readonly modification:
+      | { readonly kind: "now" }
+      | { readonly kind: "omit" }
+      | { readonly kind: "value"; readonly nanoseconds: bigint }
+  }
+}
+```
+
+Added in v0.6.0
+
+### WriteFileSettings (type alias)
+
+Settings of a whole-file write.
+
+**Signature**
+
+```ts
+export type WriteFileSettings = {
+  readonly access: "read" | "write" | "readWrite"
+  readonly mode?: number
+  readonly create?: "never" | "ifMissing" | "exclusive"
+  readonly append?: boolean
+  readonly truncate?: boolean
+  readonly followFinalSymlink?: boolean
+  readonly replaceFinalSymlink?: boolean
+  readonly finalMode?: number
+}
+```
+
+Added in v0.6.0
+
+## schemas
+
+### DirectoryChange
+
+Schema for a directory's revision before and after a change.
+
+**Signature**
+
+```ts
+export declare const DirectoryChange: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }>
+```
+
+Added in v0.6.0
+
+### Identity
+
+Schema for a caller's credentials. `privileged` is explicit; uid zero alone
+grants nothing.
+
+**Signature**
+
+```ts
+export declare const Identity: Schema.Struct<{
+  readonly uid: Schema.Natural
+  readonly gid: Schema.Natural
+  readonly groups: Schema.$Array<Schema.Natural>
+  readonly privileged: Schema.Boolean
+}>
+```
+
+Added in v0.6.0
+
+### MkdirReferenceSettings
+
+Schema for the settings of a reference-addressed directory creation.
+
+**Signature**
+
+```ts
+export declare const MkdirReferenceSettings: Schema.Struct<{
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly exactMode: Schema.optionalKey<Schema.Boolean>
+  readonly times: Schema.optionalKey<
+    Schema.Struct<{
+      readonly access: Schema.Union<
+        readonly [
+          Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
+        ]
+      >
+      readonly modification: Schema.Union<
+        readonly [
+          Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
+        ]
+      >
+    }>
+  >
+}>
+```
+
+Added in v0.6.0
+
+### OpenChildReferenceSettings
+
+Schema for the settings of a lookup-or-create-and-open through a parent reference.
+
+**Signature**
+
+```ts
+export declare const OpenChildReferenceSettings: Schema.Struct<{
+  readonly times: Schema.optionalKey<
+    Schema.Struct<{
+      readonly access: Schema.Union<
+        readonly [
+          Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
+        ]
+      >
+      readonly modification: Schema.Union<
+        readonly [
+          Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
+        ]
+      >
+    }>
+  >
+  readonly initialSize: Schema.optionalKey<Schema.BigInt>
+  readonly exactMode: Schema.optionalKey<Schema.Boolean>
+  readonly owner: Schema.optionalKey<
+    Schema.Struct<{
+      readonly uid: Schema.optionalKey<Schema.Natural>
+      readonly gid: Schema.optionalKey<Schema.Natural>
+    }>
+  >
+  readonly expectedChild: Schema.optionalKey<
+    Schema.NullOr<
+      Schema.Struct<{
+        readonly reference: Schema.declare<ObjectReference, ObjectReference>
+        readonly revision: Schema.BigInt
+        readonly atimeNs: Schema.BigInt
+        readonly mtimeNs: Schema.BigInt
+      }>
+    >
+  >
+  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
+  readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly append: Schema.optionalKey<Schema.Boolean>
+  readonly truncate: Schema.optionalKey<Schema.Boolean>
+  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
+}>
+```
+
+Added in v0.6.0
+
+### OpenReferenceSettings
+
+Schema for the settings of opening an existing file by reference.
+
+**Signature**
+
+```ts
+export declare const OpenReferenceSettings: Schema.Struct<{
+  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
+  readonly append: Schema.optionalKey<Schema.Boolean>
+  readonly truncate: Schema.optionalKey<Schema.Boolean>
+}>
+```
+
+Added in v0.6.0
+
+### OpenSettings
+
+Schema for the settings of a path-addressed open.
+
+**Signature**
+
+```ts
+export declare const OpenSettings: Schema.Struct<{
+  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
+  readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly append: Schema.optionalKey<Schema.Boolean>
+  readonly truncate: Schema.optionalKey<Schema.Boolean>
+  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
+}>
+```
+
+Added in v0.6.0
+
+### RenameReferenceResult
+
+Schema for the result of a reference-addressed rename.
+
+**Signature**
+
+```ts
+export declare const RenameReferenceResult: Schema.TaggedUnion<{
+  readonly SameDirectory: Schema.TaggedStruct<
+    "SameDirectory",
+    { readonly directory: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }> }
+  >
+  readonly DifferentDirectories: Schema.TaggedStruct<
+    "DifferentDirectories",
+    {
+      readonly sourceDirectory: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }>
+      readonly destinationDirectory: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }>
+    }
+  >
+}>
+```
+
+Added in v0.6.0
+
+### RootCallerOptions
+
+Schema for the options of a root caller.
+
+**Signature**
+
+```ts
+export declare const RootCallerOptions: Schema.Struct<{
+  readonly identity: Schema.optionalKey<
+    Schema.Struct<{
+      readonly uid: Schema.Natural
+      readonly gid: Schema.Natural
+      readonly groups: Schema.$Array<Schema.Natural>
+      readonly privileged: Schema.Boolean
+    }>
+  >
+  readonly umask: Schema.optionalKey<Schema.Natural>
+}>
+```
+
+Added in v0.6.0
+
+### SymlinkReferenceSettings
+
+Schema for the settings of a reference-addressed symbolic link creation.
+
+**Signature**
+
+```ts
+export declare const SymlinkReferenceSettings: Schema.Struct<{
+  readonly times: Schema.optionalKey<
+    Schema.Struct<{
+      readonly access: Schema.Union<
+        readonly [
+          Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
+        ]
+      >
+      readonly modification: Schema.Union<
+        readonly [
+          Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
+          Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
+        ]
+      >
+    }>
+  >
+}>
+```
+
+Added in v0.6.0
+
+### WriteFileSettings
+
+Schema for the settings of a whole-file write.
+
+**Signature**
+
+```ts
+export declare const WriteFileSettings: Schema.Struct<{
+  readonly replaceFinalSymlink: Schema.optionalKey<Schema.Boolean>
+  readonly finalMode: Schema.optionalKey<Schema.Natural>
+  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
+  readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly append: Schema.optionalKey<Schema.Boolean>
+  readonly truncate: Schema.optionalKey<Schema.Boolean>
+  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
+}>
+```
+
+Added in v0.6.0
+
+## type IDs
+
+### CallerId
+
+Brand key that marks a caller.
+
+**Signature**
+
+```ts
+export declare const CallerId: typeof CallerId
+```
+
+Added in v0.6.0
+
+### CallerId (type alias)
+
+Brand key that marks a caller.
+
+**Signature**
+
+```ts
+export type CallerId = typeof CallerId
+```
+
+Added in v0.6.0
+
+### ObjectReferenceId
+
+Brand key that marks an object reference.
+
+**Signature**
+
+```ts
+export declare const ObjectReferenceId: typeof ObjectReferenceId
+```
+
+Added in v0.6.0
+
+### ObjectReferenceId (type alias)
+
+Brand key that marks an object reference.
+
+**Signature**
+
+```ts
+export type ObjectReferenceId = typeof ObjectReferenceId
+```
+
+Added in v0.6.0

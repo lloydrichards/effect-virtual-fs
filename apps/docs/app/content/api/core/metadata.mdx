@@ -1,0 +1,219 @@
+# Metadata overview
+
+Metadata schemas for virtual filesystem objects: timestamps, permission modes,
+the metadata record every observation returns, and the owner and time updates
+that mutations accept.
+
+Added in v0.6.0
+
+---
+
+## models
+
+### Metadata (type alias)
+
+Metadata of a filesystem object.
+
+**Signature**
+
+```ts
+export type Metadata = {
+  readonly kind: "directory" | "file" | "symlink"
+  readonly ino: bigint
+  readonly nlink: number
+  readonly size: bigint
+  readonly uid: number
+  readonly gid: number
+  readonly mode: number
+  readonly atimeNs: bigint
+  readonly mtimeNs: bigint
+  readonly ctimeNs: bigint
+  readonly birthtimeNs: bigint
+}
+```
+
+Added in v0.6.0
+
+### Mode (type alias)
+
+A POSIX permission mode.
+
+**Signature**
+
+```ts
+export type Mode = number
+```
+
+Added in v0.6.0
+
+### OwnerUpdate (type alias)
+
+An ownership update.
+
+**Signature**
+
+```ts
+export type OwnerUpdate = { readonly uid?: number; readonly gid?: number }
+```
+
+Added in v0.6.0
+
+### TimeUpdate (type alias)
+
+One timestamp update.
+
+**Signature**
+
+```ts
+export type TimeUpdate =
+  | { readonly kind: "now" }
+  | { readonly kind: "omit" }
+  | { readonly kind: "value"; readonly nanoseconds: bigint }
+```
+
+Added in v0.6.0
+
+### Times (type alias)
+
+Access and modification time updates.
+
+**Signature**
+
+```ts
+export type Times = {
+  readonly access:
+    | { readonly kind: "now" }
+    | { readonly kind: "omit" }
+    | { readonly kind: "value"; readonly nanoseconds: bigint }
+  readonly modification:
+    | { readonly kind: "now" }
+    | { readonly kind: "omit" }
+    | { readonly kind: "value"; readonly nanoseconds: bigint }
+}
+```
+
+Added in v0.6.0
+
+### Timestamp (type alias)
+
+A timestamp in nanoseconds since the Unix epoch.
+
+**Signature**
+
+```ts
+export type Timestamp = bigint
+```
+
+Added in v0.6.0
+
+## schemas
+
+### Metadata
+
+Schema for the metadata of a filesystem object.
+
+**Signature**
+
+```ts
+export declare const Metadata: Schema.Struct<{
+  readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+  readonly ino: Schema.BigInt
+  readonly nlink: Schema.Natural
+  readonly size: Schema.BigInt
+  readonly uid: Schema.Natural
+  readonly gid: Schema.Natural
+  readonly mode: Schema.Natural
+  readonly atimeNs: Schema.BigInt
+  readonly mtimeNs: Schema.BigInt
+  readonly ctimeNs: Schema.BigInt
+  readonly birthtimeNs: Schema.BigInt
+}>
+```
+
+Added in v0.6.0
+
+### Mode
+
+Schema for a POSIX permission mode: the permission, setuid, setgid and sticky
+bits without any file-type bits.
+
+**Signature**
+
+```ts
+export declare const Mode: Schema.Natural
+```
+
+Added in v0.6.0
+
+### OwnerUpdate
+
+Schema for an ownership update; an omitted field keeps its current value.
+
+**Signature**
+
+```ts
+export declare const OwnerUpdate: Schema.Struct<{
+  readonly uid: Schema.optionalKey<Schema.Natural>
+  readonly gid: Schema.optionalKey<Schema.Natural>
+}>
+```
+
+Added in v0.6.0
+
+### TimeUpdate
+
+Schema for one timestamp update: the current time, no change, or an explicit value.
+
+**Signature**
+
+```ts
+export declare const TimeUpdate: Schema.Union<
+  readonly [
+    Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
+    Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
+    Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
+  ]
+>
+```
+
+Added in v0.6.0
+
+### Times
+
+Schema for the access and modification time updates a mutation applies together.
+
+**Signature**
+
+```ts
+export declare const Times: Schema.Struct<{
+  readonly access: Schema.Union<
+    readonly [
+      Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
+      Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
+      Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
+    ]
+  >
+  readonly modification: Schema.Union<
+    readonly [
+      Schema.Struct<{ readonly kind: Schema.Literal<"now"> }>,
+      Schema.Struct<{ readonly kind: Schema.Literal<"omit"> }>,
+      Schema.Struct<{ readonly kind: Schema.Literal<"value">; readonly nanoseconds: Schema.BigInt }>
+    ]
+  >
+}>
+```
+
+Added in v0.6.0
+
+### Timestamp
+
+Schema for a timestamp in nanoseconds since the Unix epoch. Values stay
+within 128 decimal digits so they round-trip through snapshot encodings.
+
+**Signature**
+
+```ts
+export declare const Timestamp: Schema.BigInt
+```
+
+Added in v0.6.0

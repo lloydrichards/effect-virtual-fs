@@ -59,6 +59,54 @@ export const apiPages = [
   },
   {
     packageDir: "packages/core",
+    moduleName: "Volume",
+    label: "Core · Volume",
+    href: "/api/core/volume",
+    routePath: "core/volume",
+    contentPath: "content/api/core/volume.mdx"
+  },
+  {
+    packageDir: "packages/core",
+    moduleName: "Caller",
+    label: "Core · Caller",
+    href: "/api/core/caller",
+    routePath: "core/caller",
+    contentPath: "content/api/core/caller.mdx"
+  },
+  {
+    packageDir: "packages/core",
+    moduleName: "FileHandle",
+    label: "Core · FileHandle",
+    href: "/api/core/file-handle",
+    routePath: "core/file-handle",
+    contentPath: "content/api/core/file-handle.mdx"
+  },
+  {
+    packageDir: "packages/core",
+    moduleName: "Metadata",
+    label: "Core · Metadata",
+    href: "/api/core/metadata",
+    routePath: "core/metadata",
+    contentPath: "content/api/core/metadata.mdx"
+  },
+  {
+    packageDir: "packages/core",
+    moduleName: "Fixture",
+    label: "Core · Fixture",
+    href: "/api/core/fixture",
+    routePath: "core/fixture",
+    contentPath: "content/api/core/fixture.mdx"
+  },
+  {
+    packageDir: "packages/core",
+    moduleName: "Watch",
+    label: "Core · Watch",
+    href: "/api/core/watch",
+    routePath: "core/watch",
+    contentPath: "content/api/core/watch.mdx"
+  },
+  {
+    packageDir: "packages/core",
     moduleName: "LiveVolume",
     label: "Core · LiveVolume",
     href: "/api/core/live-volume",
