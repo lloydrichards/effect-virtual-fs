@@ -13,7 +13,13 @@ sources:
     title: Adapter timestamp boundary tests
   - resource: ../../packages/core/src/VfsError.ts
     title: AccessDenied and NotPermitted codes
-generated: { by: codex/okf, at: 2026-09-26T10:00:00Z }
+  - resource: ../../packages/core/src/Metadata.ts
+    title: Mode schema and typedMode
+  - resource: ../../packages/memory/src/internal/memoryFileSystem.ts
+    title: Memory chmod masks its input to 0o7777
+  - resource: ../../packages/nfs/src/internal/nfs4.ts
+    title: NFS mode4 above 0o7777 rejected with INVAL
+generated: { by: claude-code, at: "2026-09-26T10:05:00+02:00" }
 ---
 
 # Permissions and metadata
@@ -26,6 +32,10 @@ A denial reports one of two codes, as Linux does. `AccessDenied` (EACCES) means 
 
 Metadata includes file kind, identity, link count, size, ownership, mode, and bigint nanosecond timestamps. Returned metadata is copied. Core timestamps use the Effect clock without promising physical nanosecond precision.
 
+`mode` holds the permission, setuid, setgid and sticky bits only, at most `0o7777`, and never the file-type bits; the kind is the one source of the type. `Metadata.typedMode` joins the kind's `S_IFREG`, `S_IFDIR` or `S_IFLNK` bits with `mode` to give the POSIX `st_mode`, and every adapter that reports an `st_mode` builds it that way. Snapshots, live images and the tree schema store the permission bits only. A volume has no device nodes, so `dev` and `rdev` are 0 by contract and `(dev, ino)` is unique only within one volume.
+
+`chmod` input differs by layer. Core rejects a mode above `0o7777` with `InvalidArgument`. The memory adapter masks its input with `0o7777`, so a stat-style mode such as `0o100644` sets `0o644`, as Node does. NFS rejects a `mode4` above `0o7777` with `INVAL`, since RFC 8881 defines only the 12 permission bits.
+
 The memory adapter converts timestamps to JavaScript `Date` values and reports typed `InvalidData` when a core timestamp cannot be represented.
 
-This contract [depends on the resource and authority model](resources-and-authority.md "depends on") and implements [explicit caller privilege](../decisions/core/explicit-caller-privilege.md "implements") and [adapter timestamp overflow](../decisions/adapter-timestamp-overflow.md "implements").
+This contract [depends on the resource and authority model](resources-and-authority.md "depends on") and implements [explicit caller privilege](../decisions/core/explicit-caller-privilege.md "implements") and [adapter timestamp overflow](../decisions/adapter-timestamp-overflow.md "implements"), and the [permission mode and typed mode](../decisions/core/permission-mode-and-typed-mode.md "implements") decision.
