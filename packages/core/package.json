@@ -91,6 +91,10 @@
       "types": "./dist/SnapshotDelta.d.ts",
       "import": "./dist/SnapshotDelta.js"
     },
+    "./Testing": {
+      "types": "./dist/Testing.d.ts",
+      "import": "./dist/Testing.js"
+    },
     "./internal/*": null,
     "./index": null,
     "./*/index": null,
