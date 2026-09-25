@@ -43,7 +43,6 @@ export type BytePathId = typeof BytePathId
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
  * // A name that is not valid UTF-8 still round-trips exactly.
@@ -60,7 +59,7 @@ export type BytePathId = typeof BytePathId
  *   return (yield* caller.readDirectory("/")).value.map((entry) => entry.name)
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * Effect.runPromise(program).then(console.log)
  * // [ Uint8Array(2) [ 255, 254 ] ]
  * ```
  *

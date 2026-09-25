@@ -70,7 +70,6 @@ This small program creates a scope-free root caller, then uses a scoped caller w
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -87,9 +86,7 @@ const program = Effect.gen(function* () {
   return yield* root.readFile("/work/result.txt")
 }).pipe(Effect.scoped)
 
-console.log(
-  await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer)))
-)
+console.log(await Effect.runPromise(program))
 ```
 
 The ownership pattern is:

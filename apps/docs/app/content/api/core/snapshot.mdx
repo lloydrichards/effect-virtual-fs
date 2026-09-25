@@ -64,7 +64,6 @@ export declare const DecodeLimits: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Effect } from "effect"
 
 // All four are required: each bounds a different resource. `maxEncodedBytes`
@@ -85,7 +84,7 @@ const program = Effect.gen(function* () {
   return "accepted"
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // accepted
 ```
 

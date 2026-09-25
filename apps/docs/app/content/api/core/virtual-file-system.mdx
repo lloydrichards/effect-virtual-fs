@@ -27,7 +27,6 @@ export declare const fromFixture: (fixture: Fixture, options?: VolumeOptions) =>
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const encoder = new TextEncoder()
@@ -51,7 +50,7 @@ const program = Effect.gen(function* () {
   return listing.value.map((entry) => new TextDecoder().decode(entry.name))
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 'package.json', 'latest' ]
 ```
 
@@ -71,7 +70,6 @@ export declare const fromSnapshot: (snapshot: Snapshot, options?: VolumeOptions)
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -98,7 +96,7 @@ const program = Effect.gen(function* () {
   ]
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 'one', 'two' ]
 ```
 
@@ -123,7 +121,6 @@ export declare const make: (options?: VolumeOptions) => Effect.Effect<Volume, Vf
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -136,7 +133,7 @@ const program = Effect.gen(function* () {
   return yield* caller.readFile("/work/notes.txt")
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // Uint8Array(2) [ 104, 105 ]
 ```
 
@@ -166,7 +163,6 @@ export declare const makeOverlay: (base: Snapshot, options?: VolumeOptions) => E
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -192,7 +188,7 @@ const program = Effect.gen(function* () {
   ]
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ '{}', [ 'Updated' ] ]
 ```
 
@@ -336,7 +332,6 @@ export interface Caller {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // Whole-file reads and writes need no scope. `writeFile` always takes an
@@ -354,7 +349,7 @@ const program = Effect.gen(function* () {
   return (yield* caller.readDirectory("/work")).value.map((entry) => new TextDecoder().decode(entry.name))
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 'notes.txt' ]
 ```
 
@@ -362,7 +357,6 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // Reach for a handle when a whole-file write will not do. A handle carries a
@@ -382,7 +376,7 @@ const program = Effect.gen(function* () {
   return new TextDecoder().decode(yield* handle.read(64))
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // first second
 ```
 
@@ -390,7 +384,6 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // A derived caller holds the directory's identity, not its path, so renaming
@@ -411,7 +404,7 @@ const program = Effect.gen(function* () {
   return (yield* caller.readDirectory("/dist")).value.map((entry) => new TextDecoder().decode(entry.name))
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 'out.txt' ]
 ```
 
@@ -479,7 +472,6 @@ export interface DirectoryHandle {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // The handle anchors relative paths to the directory itself, so a rename in
@@ -504,7 +496,7 @@ const program = Effect.gen(function* () {
   return (yield* caller.readDirectory("/renamed")).value.map((entry) => new TextDecoder().decode(entry.name))
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 'notes.txt' ]
 ```
 
@@ -544,7 +536,6 @@ export interface FileHandle {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -563,7 +554,7 @@ const program = Effect.gen(function* () {
   return [slice.bytes, slice.eof, yield* handle.seek(0n, "current")]
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ Uint8Array(2) [ 2, 3 ], false, 4n ]
 ```
 
@@ -760,7 +751,6 @@ export interface ObjectObservation<A> {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // References survive renames, and each observation carries the revision it
@@ -782,7 +772,7 @@ const program = Effect.gen(function* () {
   return [before.kind, after.kind, after.revision > before.revision]
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 'directory', 'directory', true ]
 ```
 
@@ -901,7 +891,6 @@ export interface OverlayCapture {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -922,7 +911,7 @@ const program = Effect.gen(function* () {
   return [captured.changes.map((change) => change._tag), new TextDecoder().decode(yield* reader.readFile("/out.txt"))]
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ [ 'Added' ], 'built' ]
 ```
 
@@ -1032,7 +1021,6 @@ export interface OverlayVolume extends Volume {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -1050,7 +1038,7 @@ const program = Effect.gen(function* () {
   return captured.changes.map((change) => change._tag)
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 'Added' ]
 ```
 
@@ -1244,7 +1232,6 @@ export interface Volume {
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, Fiber, Option, Stream } from "effect"
 
 const program = Effect.gen(function* () {
@@ -1264,7 +1251,7 @@ const program = Effect.gen(function* () {
   )
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // Create
 ```
 
@@ -1392,7 +1379,6 @@ export declare const WriteFileOptions: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -1422,7 +1408,7 @@ const program = Effect.gen(function* () {
   return [refused, new TextDecoder().decode(yield* caller.readFile("/app.conf"))]
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 'AlreadyExists', 'v2' ]
 ```
 
@@ -1500,7 +1486,6 @@ export declare const Change: Schema.TaggedUnion<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, Fiber, Stream } from "effect"
 
 const program = Effect.gen(function* () {
@@ -1523,7 +1508,7 @@ const program = Effect.gen(function* () {
   )
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 'Create /logs', 'Remove /logs' ]
 ```
 
@@ -1630,7 +1615,6 @@ export declare const Fixture: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, Schema } from "effect"
 
 // Fixtures must list every parent directory before its children.
@@ -1642,7 +1626,7 @@ const program = Schema.decodeUnknownEffect(Vfs.Fixture)({
   Effect.catchTag("VfsError", (error) => Effect.succeed(`rejected: ${error.code}`))
 )
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // rejected: InvalidStructure
 ```
 
@@ -1754,7 +1738,6 @@ export declare const Metadata: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // Sizes and inode numbers are bigint; times are nanosecond timestamps.
@@ -1771,7 +1754,7 @@ const program = Effect.gen(function* () {
   return [metadata.kind, metadata.size, metadata.nlink]
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 'file', 3n, 1 ]
 ```
 
@@ -1888,7 +1871,6 @@ export declare const OpenOptions: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // `access` is required; `create` decides whether a missing file is an error.
@@ -1906,7 +1888,7 @@ const program = Effect.gen(function* () {
   return (yield* handle.stat).size
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // 2n
 ```
 
@@ -1994,7 +1976,6 @@ export declare const OverlayChangesOptions: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -2010,7 +1991,7 @@ const program = Effect.gen(function* () {
   return [plain.length, timed.length]
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 1, 2 ]
 ```
 
@@ -2105,7 +2086,6 @@ export declare const RootCallerOptions: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -2126,7 +2106,7 @@ const program = Effect.gen(function* () {
   return ((yield* user.stat("/home/user")).mode & 0o777).toString(8)
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // 755
 ```
 
@@ -2271,7 +2251,6 @@ export declare const Times: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
@@ -2293,7 +2272,7 @@ const program = Effect.gen(function* () {
   return [metadata.atimeNs, metadata.mtimeNs === 1_000n]
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 1000n, false ]
 ```
 
@@ -2359,7 +2338,6 @@ export declare const VolumeOptions: Schema.Struct<{
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Effect } from "effect"
 
 // Every limit is optional, and each one is enforced once set.
@@ -2378,7 +2356,7 @@ const program = Effect.gen(function* () {
     )
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // FileTooLarge
 ```
 
@@ -2403,7 +2381,6 @@ export declare const decodeSnapshot: (
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Effect } from "effect"
 
 // Limits are mandatory: decoding is the boundary where untrusted input arrives.
@@ -2422,7 +2399,7 @@ const program = Effect.gen(function* () {
   )
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // [ 'LimitExceeded', 'encodedBytes' ]
 ```
 
@@ -2442,7 +2419,6 @@ export declare const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 // Bytes are portable: store or transmit them, then decode under explicit limits.
@@ -2461,7 +2437,7 @@ const program = Effect.gen(function* () {
   return JSON.parse(new TextDecoder().decode(bytes)).version
 })
 
-Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+Effect.runPromise(program).then(console.log)
 // 1
 ```
 
