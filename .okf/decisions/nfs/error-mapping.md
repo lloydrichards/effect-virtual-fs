@@ -12,7 +12,7 @@ sources:
     resource: https://www.rfc-editor.org/rfc/rfc8881.html
     title: RFC 8881 NFSv4.1
   - id: core-errors
-    resource: ../../../packages/core/src/internal/virtualFileSystem/errors.ts
+    resource: ../../../packages/core/src/VfsError.ts
     title: Core filesystem error codes
   - id: nfs-map
     resource: ../../../packages/nfs/src/internal/nfs4.ts
@@ -20,7 +20,7 @@ sources:
   - id: tests
     resource: ../../../packages/nfs/test/ErrorMapping.test.ts
     title: Exhaustive error mapping test
-generated: { by: codex/okf, at: 2026-09-20T00:00:00Z }
+generated: { by: codex/okf, at: 2026-09-26T10:00:00Z }
 ---
 
 # NFS filesystem error mapping
@@ -33,7 +33,7 @@ The durable-provider error vocabulary now includes `StorageRejected`, `OutcomeUn
 
 `VolumeBusy` is a retryable admission rejection before the volume mutates. It maps to `DELAY`. This mapping does not enable public writable NFS.[^nfs-map][^tests]
 
-Core's existing `FsError` shape stays unchanged. Its `AccessDenied` maps to `ACCESS` by default because core also uses that code for ownership restrictions. Writable `SETATTR` must identify ownership failures in its operation context and return `PERM` where RFC 8881 permits it. [The operations ledger](../../research/nfs/nfs-operations-ledger.md "refined by") records the rules for CREATE, LINK, OPEN, REMOVE, RENAME, SETATTR, and WRITE. In particular, RENAME returns `EXIST` for an incompatible or nonempty target, even when core reports `IsDirectory`, `NotDirectory`, or `NotEmpty`; a non-directory source or target directory handle still returns `NOTDIR`.[^rfc8881]
+Core reports mode-bit denials as `AccessDenied`, which maps to `ACCESS`, and ownership or privilege denials as `NotPermitted`, the POSIX EPERM case. The split came from [issue #207](https://github.com/lloydrichards/effect-virtual-fs/issues/207 "amended by"). `NotPermitted` maps to `PERM` only for CREATE, OPEN, and SETATTR, the operations whose Section 15.2 lists include it (Section 15.4 names exactly these three); every other operation answers `ACCESS`. So a non-owner mode, owner, or explicit-times `SETATTR` and an unprivileged OPEN create that names another owner answer `PERM`, while a sticky-directory `REMOVE` or `RENAME` answers `ACCESS`. Linux knfsd answers `PERM` there too, but the RFC list wins: EPERM is a core concept, and the adapter keeps to the protocol's per-operation lists. `failureForFs` takes the operation so the rule lives in one place, and the former `SETATTR` owner-only special case is gone. [The operations ledger](../../research/nfs/nfs-operations-ledger.md "refined by") records the rules for CREATE, LINK, OPEN, REMOVE, RENAME, SETATTR, and WRITE. In particular, RENAME returns `EXIST` for an incompatible or nonempty target, even when core reports `IsDirectory`, `NotDirectory`, or `NotEmpty`; a non-directory source or target directory handle still returns `NOTDIR`.[^rfc8881]
 
 Issue #99 does not add writable NFS dispatch or a core hard-link limit. `MLINK` becomes relevant when core can report a link-count failure. Each writable operation must check its emitted statuses against RFC 8881 Section 15.2. That section lists valid statuses but gives no general precedence order when several failures coexist, so validation order is an adapter decision.[^rfc8881]
 
