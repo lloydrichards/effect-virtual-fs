@@ -1,6 +1,6 @@
 # Decisions
 
-Accepted architectural and behavioral decisions, grouped by domain. Deprecated decisions are retained for their rationale; the linked contracts own their rules.
+Architectural and behavioral decisions, grouped by domain. Accepted decisions are stable; a draft entry is a proposal awaiting acceptance on its tracking issue. Deprecated decisions are retained for their rationale; the linked contracts own their rules.
 
 ## Core filesystem
 
