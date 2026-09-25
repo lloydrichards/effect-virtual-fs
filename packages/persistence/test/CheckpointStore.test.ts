@@ -1,8 +1,7 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, type Crypto, Effect, Layer, Result } from "effect"
+import { ByteSize, Effect, Layer, Result } from "effect"
 import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
 import { CheckpointError, CheckpointStore } from "../src/index.js"
 
@@ -19,16 +18,22 @@ const snapshot = Effect.gen(function*() {
   return yield* volume.snapshot
 })
 
-const database = <A, E>(effect: Effect.Effect<A, E, SqlClient | Crypto.Crypto>) =>
-  effect.pipe(Effect.provide(Layer.merge(
-    SqliteClient.layer({ filename: ":memory:" }),
-    NodeCrypto.layer
-  )))
+// A migrated in-memory database. The suite shares one.
+const migrated = Layer.effectDiscard(CheckpointStore.migrate).pipe(
+  Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))
+)
 
-it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
+// A test that alters the table or its migration state takes a database of its own. `Layer.fresh` keeps it from
+// reusing the suite's database through the shared memo map.
+const freshDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient>) =>
+  effect.pipe(Effect.provide(Layer.fresh(migrated)))
+
+const unmigratedDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient>) =>
+  effect.pipe(Effect.provide(Layer.fresh(SqliteClient.layer({ filename: ":memory:" }))))
+
+it.layer(migrated)("SQLite checkpoints", (it) => {
   it.effect("preserves a checkpoint when another save uses the same name", () =>
-    database(Effect.gen(function*() {
-      yield* CheckpointStore.migrate
+    Effect.gen(function*() {
       const store = yield* CheckpointStore.make(limits)
       const original = yield* snapshot
       yield* store.save("run", original)
@@ -38,11 +43,10 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       assert.deepStrictEqual([error.code, error.operation], ["AlreadyExists", "CheckpointStore.save"])
       const restored = yield* (yield* Vfs.fromSnapshot(yield* store.load("run"))).caller()
       assert.deepStrictEqual(yield* restored.readFile("/f"), new Uint8Array([0, 255, 1]))
-    })))
+    }))
 
   it.effect("allows exactly one of two competing saves to claim a name", () =>
-    database(Effect.gen(function*() {
-      yield* CheckpointStore.migrate
+    Effect.gen(function*() {
       const store = yield* CheckpointStore.make(limits)
       const a = yield* snapshot
       const b = yield* (yield* Vfs.make()).snapshot
@@ -60,11 +64,10 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       const first = results[0]
       assert.isDefined(first)
       assert.deepStrictEqual(saved, yield* Vfs.encodeSnapshot(Result.isSuccess(first) ? a : b))
-    })))
+    }))
 
   it.effect("distinguishes missing checkpoints from database failures", () =>
-    database(Effect.gen(function*() {
-      yield* CheckpointStore.migrate
+    freshDatabase(Effect.gen(function*() {
       const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
       const missing = yield* Effect.flip(store.load("absent"))
@@ -77,9 +80,10 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       assert.isDefined(failure.cause)
     })))
 
+  // Takes its own database: the Bun SQLite driver drops a leading U+FEFF from bound text, so "\ufeffrun" would
+  // collide with the "run" checkpoint another test saves in the suite's database (#218).
   it.effect("keeps names literal and rejects empty, oversized, NUL and lossy names", () =>
-    database(Effect.gen(function*() {
-      yield* CheckpointStore.migrate
+    freshDatabase(Effect.gen(function*() {
       const store = yield* CheckpointStore.make(limits)
       const image = yield* snapshot
 
@@ -103,8 +107,7 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
     })))
 
   it.effect("owns validated limits and permits repeated startup migrations", () =>
-    database(Effect.gen(function*() {
-      yield* CheckpointStore.migrate
+    Effect.gen(function*() {
       const mutableLimits = { ...limits }
       const store = yield* CheckpointStore.make(mutableLimits)
       mutableLimits.maxEncodedBytes = ByteSize.zero
@@ -128,32 +131,31 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
         assert.strictEqual(error.operation, "CheckpointStore.make")
         assert.strictEqual(error.field, "limits")
       }
-    })))
+    }))
 
+  // Each case names its checkpoints, since the cases share the suite's database.
   it.effect.each([
-    { ...limits, maxEncodedBytes: ByteSize.bytes(1) },
-    { ...limits, maxRecords: 1 },
-    { ...limits, maxEntries: 0 },
-    { ...limits, maxDecodedBytes: ByteSize.bytes(2) }
-  ])("enforces the same save and load budgets", (bounded) =>
-    database(Effect.gen(function*() {
-      yield* CheckpointStore.migrate
+    { budget: "maxEncodedBytes", bounded: { ...limits, maxEncodedBytes: ByteSize.bytes(1) } },
+    { budget: "maxRecords", bounded: { ...limits, maxRecords: 1 } },
+    { budget: "maxEntries", bounded: { ...limits, maxEntries: 0 } },
+    { budget: "maxDecodedBytes", bounded: { ...limits, maxDecodedBytes: ByteSize.bytes(2) } }
+  ])("enforces the same save and load budgets for $budget", ({ budget, bounded }) =>
+    Effect.gen(function*() {
       const broad = yield* CheckpointStore.make(limits)
       const narrow = yield* CheckpointStore.make(bounded)
       const image = yield* snapshot
-      const saveError = yield* Effect.flip(narrow.save("rejected", image))
+      const saveError = yield* Effect.flip(narrow.save(`rejected-${budget}`, image))
       assert.instanceOf(saveError, Vfs.VfsError)
       assert.deepStrictEqual([saveError.code, saveError.operation], ["LimitExceeded", "CheckpointStore.save"])
-      assert.strictEqual((yield* Effect.flip(broad.load("rejected"))).code, "NotFound")
-      yield* broad.save("stored", image)
-      const loadError = yield* Effect.flip(narrow.load("stored"))
+      assert.strictEqual((yield* Effect.flip(broad.load(`rejected-${budget}`))).code, "NotFound")
+      yield* broad.save(`stored-${budget}`, image)
+      const loadError = yield* Effect.flip(narrow.load(`stored-${budget}`))
       assert.instanceOf(loadError, Vfs.VfsError)
       assert.deepStrictEqual([loadError.code, loadError.operation], ["LimitExceeded", "CheckpointStore.load"])
-    })))
+    }))
 
   it.effect("rejects corrupt, unsupported and oversized stored images", () =>
-    database(Effect.gen(function*() {
-      yield* CheckpointStore.migrate
+    Effect.gen(function*() {
       const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
 
@@ -178,12 +180,11 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       assert.strictEqual(error.code, "LimitExceeded")
       assert.strictEqual(error.operation, "CheckpointStore.load")
       assert.strictEqual(error.field, "encodedBytes")
-    })))
+    }))
 
   // The table's CHECK constraint keeps a non-blob image out, so only a foreign or legacy writer stores one.
   it.effect("reports a stored image that is not a blob as an invalid structure", () =>
-    database(Effect.gen(function*() {
-      yield* CheckpointStore.migrate
+    freshDatabase(Effect.gen(function*() {
       const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
       yield* sql`PRAGMA ignore_check_constraints = ON`
@@ -198,8 +199,7 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
     })))
 
   it.effect("reports a failed insert without damaging existing checkpoints", () =>
-    database(Effect.gen(function*() {
-      yield* CheckpointStore.migrate
+    freshDatabase(Effect.gen(function*() {
       const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
       const image = yield* snapshot
@@ -230,7 +230,7 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
     ))
 
   it.effect("returns a typed migration error when the checkpoint table conflicts", () =>
-    database(Effect.gen(function*() {
+    unmigratedDatabase(Effect.gen(function*() {
       const sql = yield* SqlClient
       yield* sql`CREATE TABLE effect_vfs_checkpoints (unrelated TEXT)`
       const error = yield* Effect.flip(CheckpointStore.migrate)
@@ -253,8 +253,7 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
     )))
 
   it.effect("rolls back checkpoints with the application's enclosing transaction", () =>
-    database(Effect.gen(function*() {
-      yield* CheckpointStore.migrate
+    Effect.gen(function*() {
       const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
       const image = yield* snapshot
@@ -268,5 +267,5 @@ it.layer(NodeCrypto.layer)("SQLite checkpoints", (it) => {
       assert.strictEqual(error, "abort")
       assert.strictEqual((yield* Effect.flip(store.load("rolled-back"))).code, "NotFound")
       yield* store.save("rolled-back", image)
-    })))
+    }))
 })

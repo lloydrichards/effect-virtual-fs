@@ -1,9 +1,7 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, type Crypto, Effect, Layer } from "effect"
-import type { SqlClient } from "effect/unstable/sql/SqlClient"
+import { ByteSize, Effect, Layer } from "effect"
 import { CheckpointStore } from "../src/index.js"
 
 const limits = {
@@ -13,16 +11,14 @@ const limits = {
   maxDecodedBytes: ByteSize.kilobytes(10)
 }
 
-const database = <A, E>(effect: Effect.Effect<A, E, SqlClient | Crypto.Crypto>) =>
-  effect.pipe(Effect.provide(Layer.merge(
-    SqliteClient.layer({ filename: ":memory:" }),
-    NodeCrypto.layer
-  )))
+// A migrated in-memory database. The suite shares one.
+const migrated = Layer.effectDiscard(CheckpointStore.migrate).pipe(
+  Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))
+)
 
-it.layer(NodeCrypto.layer)("overlay checkpoints", (it) => {
+it.layer(migrated)("overlay checkpoints", (it) => {
   it.effect("should round trip a complete capture and give restoration a new empty baseline", () =>
-    database(Effect.gen(function*() {
-      yield* CheckpointStore.migrate
+    Effect.gen(function*() {
       const store = yield* CheckpointStore.make(limits)
       const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))
 
@@ -65,5 +61,5 @@ it.layer(NodeCrypto.layer)("overlay checkpoints", (it) => {
       assert.deepStrictEqual(yield* next.changes(), [])
       assert.deepStrictEqual(yield* (yield* next.caller()).readFile("/alias"), new Uint8Array([9, 8, 7]))
       assert.deepStrictEqual(yield* (yield* next.caller()).readLink("/link-alias"), new Uint8Array([47, 255]))
-    })))
+    }))
 })
