@@ -31,13 +31,13 @@ sources:
   - id: overlay-binding
     resource: ../../packages/memory/test/OverlayBinding.test.ts
     title: Overlay volume binding tests
-generated: { by: codex/okf, at: 2026-09-20T16:11:30Z }
+generated: { by: claude-code, at: "2026-09-26T12:00:00+02:00" }
 ---
 
 # Memory adapter compatibility
 
 `@effect-vfs/memory` exposes Effect's path-based `FileSystem` service while `@effect-vfs/core` owns filesystem behavior. A fresh adapter creates a volume containing `/tmp`; `bind` attaches to an existing volume without modifying it.
-The binding composes file handles, recursive traversal, and copy operations from separate internal modules; core retains namespace, content, and watch ownership.
+The binding composes file handles, recursive traversal, and copy operations from separate internal modules; core retains namespace, content, and watch ownership. `watch` follows the object its path resolves to when the watch starts, not the path: it keeps reporting after the object or an ancestor is renamed and ends after reporting the object's removal. A watched file reports only changes under the watched name, not under its other hard links; that name follows the file across renames of the file and its ancestors. A registration is kept only when the path still names its object once the watch is active, so a change landing as the watch opens cannot leave it following another object; a path removed in that window fails `NotFound`.
 
 Bindings share namespace and contents while retaining independent callers, descriptor tables, file cursors, and lifetimes. The adapter preserves Effect cursor and convenience behavior where it intentionally differs from the POSIX-oriented core, and maps expected core failures to `PlatformError`.
 It translates `FsError` only when an operation crosses into Effect's `FileSystem` service. The translation preserves the core error as the cause and records the public method and path or descriptor. It maps volume admission pressure to `Busy`; failures without a matching Effect system-error tag, including capacity rejection, use `Unknown` with the core code in the description.

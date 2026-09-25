@@ -29,7 +29,7 @@ sources:
   - id: pubsub
     resource: ../../../node_modules/effect/src/PubSub.ts
     title: Effect PubSub publishUnsafe implementation
-generated: { by: codex/okf, at: 2026-09-25T00:00:00Z }
+generated: { by: claude-code, at: "2026-09-26T12:00:00+02:00" }
 ---
 
 # Watch event overflow
@@ -40,9 +40,9 @@ generated: { by: codex/okf, at: 2026-09-25T00:00:00Z }
 
 ## Watch retention and recovery
 
-Every subscriber has an independent queue. `maxWatchEvents` defaults to 256 and must be at least 2. The last slot is reserved for `Rescan`, the fourth `Change._tag`. When a queue fills, its subscriber receives buffered changes in order, followed by `Rescan` at `/`; further changes to that subscriber are dropped until it consumes the marker. Nothing is queued behind the marker, so the publisher treats an empty queue as the marker having been taken and delivers again from the next change. A stalled subscriber cannot block a mutation or stop another subscriber's progress. Core watches cover the volume, so `/` calls for a full rescan. No path coalescing is part of this decision.[^api][^hub][^tests]
+Every subscriber has an independent queue. `maxWatchEvents` defaults to 256 and must be at least 2. The last slot is reserved for `Rescan`, the fourth `Change._tag`. When a queue fills, its subscriber receives buffered changes in order, followed by `Rescan`; further changes to that subscriber are dropped until it consumes the marker. Nothing is queued behind the marker, so the publisher treats an empty queue as the marker having been taken and delivers again from the next change. A stalled subscriber cannot block a mutation or stop another subscriber's progress. A volume-wide watch receives `Rescan` at `/`, which calls for a full rescan; a [scoped watch](scoped-watch.md "amended by") receives it at its scope's current path, changes outside its scope never count toward its queue, and the `Remove` that ends it takes one slot kept past the capacity, so the marker never replaces it. No path coalescing is part of this decision.[^api][^hub][^tests]
 
-`Volume.watch` stays an effect that returns the stream only after the subscriber is registered while holding every permit. A change committed after it returns is never missed, so a caller can subscribe and then write. A lazy `Stream` member would register only when first pulled and lose that guarantee, so none is offered; the memory adapter wraps the effect with `Stream.unwrap` at its own boundary. The stream takes one event per pull, so a partially consumed stream can be run again without losing buffered changes.[^hub][^adapter]
+`Volume.watch()` stays an effect that returns the stream only after the subscriber is registered while holding every permit. A change committed after it returns is never missed, so a caller can subscribe and then write. A lazy `Stream` member would register only when first pulled and lose that guarantee, so none is offered; the memory adapter wraps the effect with `Stream.unwrap` at its own boundary. The stream takes one event per pull, so a partially consumed stream can be run again without losing buffered changes.[^hub][^adapter]
 
 A core consumer rescans after `Rescan` and repeats if another marker arrives. Effect's `FileSystem.WatchEvent` cannot represent the marker. `@effect-vfs/memory` ends its watch stream with a platform error identified by `MemoryFileSystem.isWatchOverflow`. Its caller opens a new watch before rescanning the watched path, then repeats if that watch overflows. Opening the watch first avoids a gap between the scan and registration.[^adapter][^adapter-api][^adapter-tests]
 
