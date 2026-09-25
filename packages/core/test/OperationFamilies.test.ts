@@ -163,8 +163,70 @@ const mkdirRows: ReadonlyArray<Row> = [
   }
 ]
 
+const linkRows: ReadonlyArray<Row> = [
+  {
+    scenario: "links a file under a new name",
+    path: ({ admin }) => admin.link("/file", "/dir/new"),
+    reference: ({ admin, file, dir }) => admin.linkReference(file, dir, name("new")),
+    check: linksAt("/file", 2),
+    expected: { path: "ok", reference: "ok" }
+  },
+  {
+    scenario: "rejects a directory source",
+    path: ({ admin }) => admin.link("/dir", "/new"),
+    reference: ({ admin, dir, root }) => admin.linkReference(dir, root, name("new")),
+    expected: { path: "IsDirectory at /dir", reference: "IsDirectory" }
+  },
+  {
+    scenario: "rejects an existing destination",
+    path: ({ admin }) => admin.link("/file", "/dir/existing"),
+    reference: ({ admin, file, dir }) => admin.linkReference(file, dir, name("existing")),
+    expected: { path: "AlreadyExists at /dir/existing", reference: "AlreadyExists" }
+  },
+  {
+    scenario: "treats a dot destination as existing on paths but invalid on references",
+    path: ({ admin }) => admin.link("/file", "/dir/."),
+    reference: ({ admin, file, dir }) => admin.linkReference(file, dir, name(".")),
+    expected: { path: "AlreadyExists at /dir/.", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "rejects a trailing slash on a path destination",
+    path: ({ admin }) => admin.link("/file", "/dir/new/"),
+    reference: ({ admin, file, dir }) => admin.linkReference(file, dir, name("new/")),
+    expected: { path: "NotDirectory at /dir/new/", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "reports an unlinked source as missing on paths and stale on references",
+    path: Effect.fnUntraced(function*({ admin }) {
+      yield* admin.unlink("/file")
+      yield* admin.link("/file", "/dir/new")
+    }),
+    reference: ({ admin, root, file, dir }) =>
+      Effect.scoped(Effect.gen(function*() {
+        // An open handle keeps the unlinked file alive, so only the link count says it is gone.
+        yield* admin.openReference(file, { access: "read" })
+        yield* admin.unlinkReference(root, name("file"))
+        yield* admin.linkReference(file, dir, name("new"))
+      })),
+    expected: { path: "NotFound at /file", reference: "StaleReference" }
+  },
+  {
+    scenario: "checks a reference destination name before the source",
+    path: ({ admin }) => admin.link("/dir", "/dir/."),
+    reference: ({ admin, dir }) => admin.linkReference(dir, dir, name(".")),
+    expected: { path: "IsDirectory at /dir", reference: "InvalidArgument" }
+  },
+  {
+    scenario: "denies an unwritable destination directory",
+    path: ({ guest }) => guest.link("/file", "/new"),
+    reference: ({ guest, file, root }) => guest.linkReference(file, root, name("new")),
+    expected: { path: "AccessDenied at /new", reference: "AccessDenied" }
+  }
+]
+
 const TABLE: ReadonlyArray<readonly [verb: string, rows: ReadonlyArray<Row>]> = [
-  ["mkdir", mkdirRows]
+  ["mkdir", mkdirRows],
+  ["link", linkRows]
 ]
 
 describe("operation families", () => {
