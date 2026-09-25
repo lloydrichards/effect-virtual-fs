@@ -30,7 +30,7 @@ This extends the [mutation and observation contract](mutation-and-observation.md
 
 ## Advancement rules
 
-Content writes, truncation, permission changes, ownership changes, explicit timestamp changes, and link-count changes advance the affected object. Namespace creation, removal, linking, and rename advance every affected parent directory; rename also advances the moved object. Cross-directory rename therefore changes both directory revisions.
+Content writes, truncation, permission changes, ownership changes, explicit timestamp changes, and link-count changes advance the affected object. A `setattr` that changes several attributes advances it once and publishes one `Update`. Namespace creation, removal, linking, and rename advance every affected parent directory; rename also advances the moved object. Cross-directory rename therefore changes both directory revisions.
 
 Read-only access-time updates do not advance revisions. Rejected operations and existing explicit no-op branches do not advance them.[^replacement-tests] Directory observation is materialized in core; adapters own paging and invalidation. Revisions support equality and ordering only within one live volume. Callers cannot depend on the initial value, increment size, persistence, or continuity across restore.
 

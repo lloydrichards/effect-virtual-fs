@@ -29,6 +29,7 @@ Architectural and behavioral decisions, grouped by domain. Accepted decisions ar
 - [Public API on targets, services, and one error family](core/public-api-targets-services-and-errors.md) addresses every verb by a Target or an Entry, provides Volume and Caller as services with layers, replaces the five error classes with one VfsError, and drops Crypto from construction.
 - [Permission mode and typed mode](core/permission-mode-and-typed-mode.md) keeps `Metadata.mode` as permission bits and derives the POSIX `st_mode` from the kind through `Metadata.typedMode`.
 - [Layer-based test volume](core/layer-based-test-volume.md) gives tests a public `Testing` module over the Volume and Caller layers, a fresh volume per test by default, and one NFS harness with a single lease-options constant.
+- [Atomic setattr](core/atomic-setattr.md) adds a `setattr` that changes size, owner, mode and times as one change with a fixed check order, makes NFS SETATTR all or nothing with knfsd set-ID sanitising and unchanged-owner handling, and declines the unscoped open.
 - [Consolidated first-core contracts](core/consolidated-first-core-contracts.md) is deprecated; the focused contracts own its rules.
 - [Remaining implementation profile](core/remaining-implementation-profile.md) is deprecated; the focused contracts own its rules.
 
