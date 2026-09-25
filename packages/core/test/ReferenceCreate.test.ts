@@ -1,7 +1,7 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect } from "effect"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { entryNames, it } from "./TestEffect.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
+import { entryNames } from "./support/text.js"
 
 const name = (value: string) => new TextEncoder().encode(value)
 
@@ -19,7 +19,7 @@ const observeChild = Effect.fnUntraced(function*(caller: Vfs.Caller, reference: 
 describe("conditional child creation", () => {
   it.effect("rejects a newly present or replaced child before truncating it", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const root = yield* caller.root
 
       const first = yield* caller.open(Vfs.Entry(root, name("file")), {
@@ -51,11 +51,11 @@ describe("conditional child creation", () => {
 
       assert.strictEqual(replaced.code, "StaleReference")
       assert.deepStrictEqual(yield* caller.readFile("file"), new Uint8Array([2, 3]))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("checks both mutation revisions and access times before opening", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const root = yield* caller.root
 
       const first = yield* caller.open(Vfs.Entry(root, name("file")), {
@@ -87,12 +87,12 @@ describe("conditional child creation", () => {
         "StaleReference"
       )
       assert.strictEqual((yield* first.handle.stat).size, 1n)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("creates initial size and ownership without changing initial timestamps", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller({ umask: 0o027 })
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       const root = yield* caller.root
 
       const opened = yield* caller.open(Vfs.Entry(root, name("file")), {
@@ -126,7 +126,7 @@ describe("conditional child creation", () => {
       yield* existing.handle.close
       yield* caller.unlink(Vfs.Entry(root, name("file")))
       assert.strictEqual((yield* volume.usage).usedBytes, 0n)
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0o027 } }))))
 
   it.effect("leaves no entry when initial size exceeds file or volume capacity", () =>
     Effect.gen(function*() {
@@ -136,30 +136,31 @@ describe("conditional child creation", () => {
           [{ maxBytes: ByteSize.bytes(2) }, "NoSpace"]
         ] as const
       ) {
-        const volume = yield* Vfs.make(limits)
-        const caller = yield* volume.caller()
-        const root = yield* caller.root
-        const before = entryNames(yield* caller.readDirectory(root))
+        yield* Effect.gen(function*() {
+          const volume = yield* Vfs.Volume
+          const caller = yield* Vfs.Caller
+          const root = yield* caller.root
+          const before = entryNames(yield* caller.readDirectory(root))
 
-        const error = yield* Effect.flip(caller.open(Vfs.Entry(root, name("file")), {
-          access: "write",
-          create: "exclusive",
-          initialSize: 3n
-        }))
+          const error = yield* Effect.flip(caller.open(Vfs.Entry(root, name("file")), {
+            access: "write",
+            create: "exclusive",
+            initialSize: 3n
+          }))
 
-        assert.strictEqual(error.code, code)
-        assert.deepStrictEqual(entryNames(yield* caller.readDirectory(root)), before)
-        assert.strictEqual((yield* volume.usage).usedBytes, 0n)
+          assert.strictEqual(error.code, code)
+          assert.deepStrictEqual(entryNames(yield* caller.readDirectory(root)), before)
+          assert.strictEqual((yield* volume.usage).usedBytes, 0n)
+        }).pipe(Effect.provide(Testing.layer({ volume: limits })))
       }
     }))
 
   it.effect("checks initial ownership before publishing and accepts a caller group", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const admin = yield* volume.caller()
+      const admin = yield* Vfs.Caller
       const root = yield* admin.root
       yield* admin.chmod(root, 0o777)
-      const caller = yield* volume.caller({ identity: { uid: 7, gid: 8, groups: [9], privileged: false } })
+      const caller = yield* Testing.callerAs({ uid: 7, gid: 8, groups: [9], privileged: false })
 
       for (const owner of [{ uid: 10 }, { gid: 10 }]) {
         const error = yield* Effect.flip(caller.open(Vfs.Entry(root, name("file")), {
@@ -190,5 +191,5 @@ describe("conditional child creation", () => {
         atimeNs: 11n,
         mtimeNs: 12n
       })
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 })

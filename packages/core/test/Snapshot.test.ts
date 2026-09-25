@@ -1,8 +1,8 @@
-import { assert, describe, it as syncIt } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Fiber, Predicate, Schema } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { BytePathId } from "../src/BytePath.js"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
 const limits = {
   maxEncodedBytes: ByteSize.megabytes(1),
@@ -46,10 +46,10 @@ const SnapshotJson = Schema.fromJsonString(Schema.Struct({
   extra: Schema.mutableKey(Schema.optionalKey(Schema.Boolean))
 }))
 
-import { entryNames, it, text } from "./TestEffect.js"
+import { entryNames, text } from "./support/text.js"
 
 describe("fixtures and snapshots", () => {
-  syncIt("rejects objects that forge the public BytePath symbol", () => {
+  it("rejects objects that forge the public BytePath symbol", () => {
     const forged = Object.freeze({ [BytePathId]: BytePathId })
 
     const decoded = Schema.decodeUnknownResult(Vfs.Fixture)({
@@ -112,11 +112,8 @@ describe("fixtures and snapshots", () => {
     "isolates capture, encoded bytes and independent restores from subsequent overwrites",
     () =>
       Effect.gen(function*() {
-        const volume = yield* Vfs.fromFixture({
-          entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([1, 2]) }]
-        })
-
-        const fs = yield* volume.caller()
+        const volume = yield* Vfs.Volume
+        const fs = yield* Vfs.Caller
         const snapshot = yield* volume.snapshot
         const f = yield* fs.open("/f", { access: "write" })
         yield* f.pwrite(new Uint8Array([9]), 0n)
@@ -135,15 +132,19 @@ describe("fixtures and snapshots", () => {
         const entryLimit = yield* Effect.flip(Vfs.fromSnapshot(snapshot, { maxEntries: 0 }))
         assert.instanceOf(entryLimit, Vfs.VfsError)
         assert.strictEqual(entryLimit.code, "LimitExceeded")
-      })
+      }).pipe(
+        Effect.provide(
+          Testing.layer({ fixture: { entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([1, 2]) }] } })
+        )
+      )
   )
 
   it.effect(
     "preserves byte names and symlink aliases but excludes unlinked-open contents",
     () =>
       Effect.gen(function*() {
-        const volume = yield* Vfs.make()
-        const fs = yield* volume.caller()
+        const volume = yield* Vfs.Volume
+        const fs = yield* Vfs.Caller
         const path = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))
         yield* fs.symlink("", path)
         yield* fs.link(path, "/alias")
@@ -157,7 +158,7 @@ describe("fixtures and snapshots", () => {
         )
         assert.strictEqual((yield* Effect.flip(restored.stat("/removed"))).code, "NotFound")
         assert.strictEqual(text(yield* restored.readLink(path)), "")
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect("rejects malformed graphs, unknown fields and noncanonical encodings", () =>
@@ -258,7 +259,7 @@ describe("fixtures and snapshots", () => {
 
   it.effect("keeps byte limits exact above the safe-integer range", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
+      const volume = yield* Vfs.Volume
       const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
       const exactLimit = ByteSize.bytes(BigInt(Number.MAX_SAFE_INTEGER) + 1n)
 
@@ -270,17 +271,14 @@ describe("fixtures and snapshots", () => {
 
       const restored = yield* Vfs.fromSnapshot(decoded)
       assert.deepStrictEqual(entryNames(yield* (yield* restored.caller()).readDirectory("/")), [])
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect(
     "captures a complete serial namespace when rename races and enforces decoded budgets",
     () =>
       Effect.gen(function*() {
-        const volume = yield* Vfs.fromFixture({
-          entries: [{ kind: "file", path: "/before", bytes: new Uint8Array([1, 2, 3]) }]
-        })
-
-        const fs = yield* volume.caller()
+        const volume = yield* Vfs.Volume
+        const fs = yield* Vfs.Caller
 
         const [snapshot] = yield* Effect.all([volume.snapshot, fs.rename("/before", "/after")], {
           concurrency: "unbounded"
@@ -300,7 +298,11 @@ describe("fixtures and snapshots", () => {
         ) {
           assert.strictEqual((yield* Effect.flip(Vfs.decodeSnapshot(encoded, bound))).code, "LimitExceeded")
         }
-      })
+      }).pipe(
+        Effect.provide(
+          Testing.layer({ fixture: { entries: [{ kind: "file", path: "/before", bytes: new Uint8Array([1, 2, 3]) }] } })
+        )
+      )
   )
 
   it.effect(

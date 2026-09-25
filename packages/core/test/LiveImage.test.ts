@@ -1,8 +1,7 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect } from "effect"
 import { CanonicalBase64 } from "../src/internal/canonicalBase64.js"
 import * as LiveImage from "../src/internal/liveImage.js"
-import { it } from "./TestEffect.js"
 
 const empty = (): LiveImage.Document => ({
   format: "effect-vfs-live",

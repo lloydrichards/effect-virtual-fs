@@ -41,5 +41,5 @@ describe("public tracing boundaries", () => {
       const result = yield* traced(Vfs.make())
 
       assert.deepStrictEqual(result.names, ["VirtualFileSystem.make"])
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 })

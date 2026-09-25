@@ -1,8 +1,8 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
-import { assert, describe, it } from "@effect/vitest"
+import { assert, it } from "@effect/vitest"
 import { ByteSize, Effect, Predicate, Schema } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { entryNames, rawEntryNames } from "./TestEffect.js"
+import { entryNames, rawEntryNames } from "./support/text.js"
 
 const encoder = new TextEncoder()
 
@@ -41,7 +41,7 @@ const DirectoryRecord = Schema.TaggedStruct("directory", {
 
 const FileRecord = Schema.TaggedStruct("file", { data: Schema.String })
 
-describe("snapshot deltas", () => {
+it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
   it.effect("keeps the empty snapshot semantic identity stable", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.fromFixture({
@@ -54,7 +54,7 @@ describe("snapshot deltas", () => {
       const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
       const document = yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))
       assert.strictEqual(document.base.digest, "rZYY/SonfmsCbsGkLQjVSfHecxzy6kiNba2QGEmixg0=")
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   // The empty fixture above pins the domain prefix, the algorithm identifier and the object count,
   // but nothing else. This fixture exists to pin the rest of the encoding, one element per feature:
@@ -127,7 +127,7 @@ describe("snapshot deltas", () => {
       const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
       const document = yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))
       assert.strictEqual(document.base.digest, "/Ay2nkhDZycpUnDrUSQzNhSctWHakQaN5xYAgA42SZU=")
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("reconstructs node kinds, raw paths, payloads, and every retained metadata field", () =>
     Effect.gen(function*() {
@@ -198,7 +198,7 @@ describe("snapshot deltas", () => {
       assert.deepStrictEqual(yield* fs.readFile(raw), new Uint8Array([255, 0]))
       assert.deepStrictEqual(yield* fs.readLink("/link"), new Uint8Array([47, 255]))
       assert.strictEqual((yield* Effect.flip(fs.stat("/removed"))).code, "NotFound")
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("orders applied directory entries by raw name bytes rather than locale", () =>
     Effect.gen(function*() {
@@ -248,7 +248,7 @@ describe("snapshot deltas", () => {
         encoder.encode("b"),
         encoder.encode("z-alias")
       ])
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("reports path evidence without rename inference and preserves hard-link split and join topology", () =>
     Effect.gen(function*() {
@@ -307,7 +307,7 @@ describe("snapshot deltas", () => {
       const fs = yield* (yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(baseSnapshot, delta))).caller()
       assert.notStrictEqual((yield* fs.stat("/split-a")).ino, (yield* fs.stat("/split-b")).ino)
       assert.strictEqual((yield* fs.stat("/join-a")).ino, (yield* fs.stat("/join-b")).ino)
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("accepts semantically equivalent reordered and renumbered bases but rejects a semantic mutation", () =>
     Effect.gen(function*() {
@@ -354,7 +354,7 @@ describe("snapshot deltas", () => {
       const error = yield* Effect.flip(Vfs.applySnapshotDelta(yield* snapshotFromDocument(changed), delta))
       assert.instanceOf(error, Vfs.VfsError)
       assert.deepStrictEqual([error.code, error.operation], ["BaseMismatch", "applySnapshotDelta"])
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("includes every retained semantic component in base identity", () =>
     Effect.gen(function*() {
@@ -449,7 +449,7 @@ describe("snapshot deltas", () => {
         assert.instanceOf(error, Vfs.VfsError, label)
         assert.strictEqual(error.code, "BaseMismatch", label)
       }
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("applies the output payload budget only to the target", () =>
     Effect.gen(function*() {
@@ -471,7 +471,7 @@ describe("snapshot deltas", () => {
         ),
         []
       )
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("rejects snapshot path and payload work at the configured boundaries", () =>
     Effect.gen(function*() {
@@ -511,7 +511,7 @@ describe("snapshot deltas", () => {
       assert.instanceOf(targetPayloadError, Vfs.VfsError)
       assert.strictEqual(targetPayloadError.code, "LimitExceeded")
       assert.strictEqual(targetPayloadError.field, "outputBytes")
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 
   it.effect("orders raw paths deterministically, filters timestamps, and returns fresh frozen owned results", () =>
     Effect.gen(function*() {
@@ -557,5 +557,5 @@ describe("snapshot deltas", () => {
       const b = yield* (yield* Vfs.fromSnapshot(yield* applied)).caller()
       yield* a.unlink(p80)
       assert.strictEqual((yield* b.stat(p80)).kind, "file")
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }))
 })

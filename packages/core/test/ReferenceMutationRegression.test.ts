@@ -1,24 +1,23 @@
-import { BunCrypto } from "@effect/platform-bun"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect } from "effect"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
 const name = (value: string) => new TextEncoder().encode(value)
 
 describe("reference mutation regressions", () => {
   it.effect("preserves invalid path encoding for symbolic-link targets", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const root = yield* caller.root
 
       const error = yield* Effect.flip(caller.symlink("\ud800", Vfs.Entry(root, name("link"))))
 
       assert.strictEqual(error.code, "InvalidPathEncoding")
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("rejects initial timestamps when child creation is disabled", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const root = yield* caller.root
 
       const times = {
@@ -39,11 +38,11 @@ describe("reference mutation regressions", () => {
 
       assert.strictEqual(omitted.code, "InvalidArgument")
       assert.strictEqual(never.code, "InvalidArgument")
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("applies the total-path limit to symlink expansion, not the reference name", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make({ maxPathBytes: ByteSize.bytes(1) })).caller()
+      const caller = yield* Vfs.Caller
       const root = yield* caller.root
 
       const target = yield* caller.open(Vfs.Entry(root, name("x")), {
@@ -58,11 +57,11 @@ describe("reference mutation regressions", () => {
 
       assert.strictEqual(opened.reference, target.reference)
       yield* opened.handle.close
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxPathBytes: ByteSize.bytes(1) } }))))
 
   it.effect("creates through a dangling final symlink and reports the target directory change", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const root = yield* caller.root
       const target = yield* caller.mkdir(Vfs.Entry(root, name("target")))
       yield* caller.symlink("/target/new", Vfs.Entry(root, name("link")))
@@ -80,5 +79,5 @@ describe("reference mutation regressions", () => {
       assert.strictEqual((yield* caller.readDirectory(root)).revision, rootBefore)
       assert.strictEqual(yield* caller.lookup(Vfs.Entry(target.reference, name("new"))), opened.reference)
       yield* opened.handle.close
-    }).pipe(Effect.provide(BunCrypto.layer)))
+    }).pipe(Effect.provide(Testing.layer())))
 })

@@ -1,16 +1,14 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { Effect, type Scope } from "effect"
 import * as TestClock from "effect/testing/TestClock"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
 const name = (value: string) => new TextEncoder().encode(value)
-
-import { it } from "./TestEffect.js"
 
 describe("reference mutations", () => {
   it.effect("applies umask to ordinary directories but preserves an explicit exact mode", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller({ umask: 0o077 })
+      const fs = yield* Vfs.Caller
       const root = yield* fs.root
       const ordinary = yield* fs.mkdir(Vfs.Entry(root, name("ordinary")), { mode: 0o777 })
       const exact = yield* fs.mkdir(Vfs.Entry(root, name("exact")), { mode: 0o6777, exactMode: true })
@@ -21,11 +19,11 @@ describe("reference mutations", () => {
         (yield* Effect.flip(fs.mkdir(Vfs.Entry(root, name("invalid")), { exactMode: true }))).code,
         "InvalidArgument"
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0o077 } }))))
 
   it.effect("removes files and empty directories in one operation", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       const root = yield* fs.root
       const file = yield* fs.open(Vfs.Entry(root, name("file")), { access: "write", create: "exclusive" })
       yield* file.handle.close
@@ -40,13 +38,12 @@ describe("reference mutations", () => {
       assert.isTrue(directoryChange.after > directoryChange.before)
       assert.strictEqual((yield* Effect.flip(fs.lookup(Vfs.Entry(root, name("file"))))).code, "NotFound")
       assert.strictEqual((yield* Effect.flip(fs.stat(directory.reference))).code, "StaleReference")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("checks a removal like rmdir and unlink before removing either kind", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const fs = yield* volume.caller({ umask: 0 })
-      const guest = yield* volume.caller({ identity: { uid: 9, gid: 9, groups: [], privileged: false } })
+      const fs = yield* Vfs.Caller
+      const guest = yield* Testing.callerAs({ uid: 9, gid: 9, groups: [], privileged: false })
       const root = yield* fs.root
       const sticky = (yield* fs.mkdir(Vfs.Entry(root, name("sticky")), { mode: 0o1777 })).reference
       const file = yield* fs.open(Vfs.Entry(sticky, name("file")), { access: "write", create: "exclusive" })
@@ -63,13 +60,13 @@ describe("reference mutations", () => {
       yield* fs.remove(Vfs.Entry(root, name("sticky")))
       assert.strictEqual((yield* fs.stat(root)).nlink, links - 1)
       assert.strictEqual(yield* code(fs.stat(sticky)), "StaleReference")
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
 
   it.effect(
     "creates entries with exact identities, initial times, and coordinated directory changes",
     () =>
       Effect.gen(function*() {
-        const fs = yield* (yield* Vfs.make()).caller({ umask: 0 })
+        const fs = yield* Vfs.Caller
         const root = yield* fs.root
 
         const directory = yield* fs.mkdir(Vfs.Entry(root, name("directory")), {
@@ -103,14 +100,14 @@ describe("reference mutations", () => {
         for (const component of invalid) {
           assert.strictEqual((yield* Effect.flip(fs.mkdir(Vfs.Entry(root, component)))).code, "InvalidArgument")
         }
-      })
+      }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } })))
   )
 
   it.effect(
     "opens or creates one child atomically and supports writable reference handles",
     () =>
       Effect.gen(function*() {
-        const fs = yield* (yield* Vfs.make()).caller({ umask: 0 })
+        const fs = yield* Vfs.Caller
         const root = yield* fs.root
 
         const created = yield* fs.open(Vfs.Entry(root, name("file")), {
@@ -178,12 +175,12 @@ describe("reference mutations", () => {
         )
         yield* writer.close
         assert.strictEqual((yield* Effect.flip(fs.stat(created.reference))).code, "StaleReference")
-      })
+      }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } })))
   )
 
   it.effect("links, renames, and removes by exact object identity", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       const root = yield* fs.root
       const left = yield* fs.mkdir(Vfs.Entry(root, name("left")))
       const right = yield* fs.mkdir(Vfs.Entry(root, name("right")))
@@ -212,11 +209,11 @@ describe("reference mutations", () => {
       const removed = yield* fs.rmdir(Vfs.Entry(root, name("left")))
       assert.isTrue(removed.after > removed.before)
       yield* fs.rmdir(Vfs.Entry(root, name("right")))
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("reports one directory change when a rename stays in its directory", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       const root = yield* fs.root
       const file = yield* fs.open(Vfs.Entry(root, name("file")), { access: "write", create: "exclusive" })
       yield* file.handle.close
@@ -235,13 +232,12 @@ describe("reference mutations", () => {
       if (Vfs.RenameReferenceResult.guards.SameDirectory(moved)) {
         assert.isTrue(moved.directory.after > moved.directory.before)
       }
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("applies metadata and truncation authority to the invoking caller", () =>
     Effect.gen(function*() {
       yield* TestClock.setTime(0)
-      const volume = yield* Vfs.make()
-      const admin = yield* volume.caller({ umask: 0 })
+      const admin = yield* Vfs.Caller
       const root = yield* admin.root
 
       const opened = yield* admin.open(Vfs.Entry(root, name("file")), {
@@ -268,7 +264,7 @@ describe("reference mutations", () => {
         size: 1n
       })
 
-      const guest = yield* volume.caller({ identity: { uid: 9, gid: 9, groups: [], privileged: false } })
+      const guest = yield* Testing.callerAs({ uid: 9, gid: 9, groups: [], privileged: false })
       assert.strictEqual((yield* Effect.flip(guest.chmod(opened.reference, 0o600))).code, "NotPermitted")
       assert.strictEqual((yield* Effect.flip(guest.chown(opened.reference, { uid: 9 }))).code, "NotPermitted")
       assert.strictEqual(
@@ -306,11 +302,11 @@ describe("reference mutations", () => {
         }))).code,
         "AccessDenied"
       )
-    }))
+    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
 
   it.effect("checks an expected child before changing an open target", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       const root = yield* fs.root
       const first = yield* fs.open(Vfs.Entry(root, name("guarded")), { access: "write", create: "exclusive" })
 
@@ -347,11 +343,11 @@ describe("reference mutations", () => {
       )
       assert.deepStrictEqual(yield* fs.readFile("/guarded"), new Uint8Array([7]))
       yield* first.handle.close
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("reports the parent's revision before and after every entry mutation", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       const root = yield* fs.root
       const parent = (yield* fs.mkdir(Vfs.Entry(root, name("parent")))).reference
       const other = (yield* fs.mkdir(Vfs.Entry(root, name("other")))).reference
@@ -453,11 +449,11 @@ describe("reference mutations", () => {
       assert.isTrue(beforeRepeat > beforeFailure)
       assert.strictEqual(yield* revision(parent), beforeRepeat)
       assert.strictEqual(yield* revision(other), otherUntouched)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("returns non-overlapping revision pairs under concurrent creation", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       const root = yield* fs.root
 
       const results = yield* Effect.forEach(
@@ -471,5 +467,5 @@ describe("reference mutations", () => {
       for (let index = 1; index < ordered.length; index++) {
         assert.strictEqual(ordered[index - 1]!.directory.after, ordered[index]!.directory.before)
       }
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 })

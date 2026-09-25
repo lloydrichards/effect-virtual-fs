@@ -1,13 +1,12 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { Effect, Exit, Scope, Stream } from "effect"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
-
-import { entryNames, it } from "./TestEffect.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
+import { entryNames } from "./support/text.js"
 
 describe("reusable capability effects", () => {
   it.effect("reads current metadata and rejects operations after explicit close", () =>
     Effect.gen(function*() {
-      const caller = yield* (yield* Vfs.make()).caller()
+      const caller = yield* Vfs.Caller
       const directory = yield* caller.openDirectory("/")
       const file = yield* caller.open("/f", { access: "readWrite", create: "exclusive" })
       const stat = file.stat
@@ -31,12 +30,12 @@ describe("reusable capability effects", () => {
       yield* directoryClose
       assert.strictEqual((yield* Effect.flip(directoryStat)).code, "InvalidHandle")
       assert.strictEqual((yield* Effect.flip(directoryClose)).code, "InvalidHandle")
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("captures fresh isolated state each time the same snapshot effect runs", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.make()
-      const caller = yield* volume.caller()
+      const volume = yield* Vfs.Volume
+      const caller = yield* Vfs.Caller
       const capture = volume.snapshot
       const before = yield* capture
       yield* caller.mkdir("/later")
@@ -45,14 +44,14 @@ describe("reusable capability effects", () => {
       const updated = yield* (yield* Vfs.fromSnapshot(after)).caller()
       assert.deepStrictEqual(entryNames(yield* original.readDirectory("/")), [])
       assert.deepStrictEqual(entryNames(yield* updated.readDirectory("/")), ["later"])
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect(
     "subscribes independently on each execution and closes only the owning subscription",
     () =>
       Effect.gen(function*() {
-        const volume = yield* Vfs.make()
-        const caller = yield* volume.caller()
+        const volume = yield* Vfs.Volume
+        const caller = yield* Vfs.Caller
         const watch = volume.watch
         const firstScope = yield* Scope.make()
         const secondScope = yield* Scope.make()
@@ -72,6 +71,6 @@ describe("reusable capability effects", () => {
         const event = remaining[0]
         assert.isDefined(event)
         assert.deepStrictEqual(yield* Vfs.pathToBytes(event.path), new TextEncoder().encode("/second"))
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 })

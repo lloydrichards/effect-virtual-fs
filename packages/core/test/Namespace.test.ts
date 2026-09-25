@@ -1,14 +1,12 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { Effect, Predicate } from "effect"
 import * as TestClock from "effect/testing/TestClock"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
-
-import { it } from "./TestEffect.js"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
 describe("directory namespace", () => {
   it.effect("keeps caller and base identity across moves and follows the new parent", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       yield* fs.mkdir("/old")
       yield* fs.mkdir("/new")
       yield* fs.mkdir("/old/work")
@@ -27,13 +25,13 @@ describe("directory namespace", () => {
       assert.strictEqual((yield* Effect.flip(fs.stat("/old/work/child"))).code, "NotFound")
       assert.strictEqual((yield* fs.stat("/old")).nlink, 3)
       assert.strictEqual((yield* fs.stat("/new")).nlink, 3)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 
   it.effect(
     "replaces empty directories atomically and releases only the displaced entry charge",
     () =>
       Effect.gen(function*() {
-        const fs = yield* (yield* Vfs.make({ maxEntries: 2 })).caller()
+        const fs = yield* Vfs.Caller
         yield* fs.mkdir("/source")
         yield* fs.mkdir("/target")
         const displaced = yield* fs.openDirectory("/target")
@@ -47,14 +45,14 @@ describe("directory namespace", () => {
         assert.strictEqual((yield* removedCaller.stat("/target")).ino, source.ino)
         yield* fs.mkdir("/reclaimed")
         assert.strictEqual((yield* fs.stat("/")).nlink, 4)
-      })
+      }).pipe(Effect.provide(Testing.layer({ volume: { maxEntries: 2 } })))
   )
 
   it.effect(
     "preserves both trees and metadata when rename rejects a cycle or nonempty replacement",
     () =>
       Effect.gen(function*() {
-        const fs = yield* (yield* Vfs.make()).caller()
+        const fs = yield* Vfs.Caller
         yield* fs.mkdir("/a")
         yield* fs.mkdir("/a/child")
         yield* fs.mkdir("/b")
@@ -68,12 +66,12 @@ describe("directory namespace", () => {
         assert.deepStrictEqual(yield* fs.stat("/b"), b)
         yield* fs.stat("/a/child")
         yield* fs.stat("/b/child")
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect("treats a same-entry rename as a metadata-preserving no-op at full quota", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make({ maxEntries: 1 })).caller()
+      const fs = yield* Vfs.Caller
       yield* fs.mkdir("/a")
       const root = yield* fs.stat("/")
       const a = yield* fs.stat("/a")
@@ -83,13 +81,13 @@ describe("directory namespace", () => {
       assert.deepStrictEqual(yield* fs.stat("/"), root)
       yield* fs.rename("/a", "/b")
       assert.strictEqual((yield* fs.stat("/b")).ino, a.ino)
-    }))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxEntries: 1 } }))))
 
   it.effect(
     "validates dot components and roots without mutation and moves a directory to a slashed name",
     () =>
       Effect.gen(function*() {
-        const fs = yield* (yield* Vfs.make()).caller()
+        const fs = yield* Vfs.Caller
         yield* fs.mkdir("/a")
 
         for (const path of ["/a/.", "/a/..", "/"]) {
@@ -101,14 +99,14 @@ describe("directory namespace", () => {
         // A directory may move to a missing name with a trailing slash, as on Linux.
         yield* fs.rename("/a", "/b/")
         assert.strictEqual((yield* fs.stat("/b")).kind, "directory")
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect(
     "removes only empty directories and retains live handle metadata until close",
     () =>
       Effect.gen(function*() {
-        const fs = yield* (yield* Vfs.make({ maxEntries: 2 })).caller()
+        const fs = yield* Vfs.Caller
         yield* fs.mkdir("/a")
         yield* fs.mkdir("/a/b")
         const base = yield* fs.openDirectory("/a/b")
@@ -123,19 +121,18 @@ describe("directory namespace", () => {
         yield* fs.mkdir("/reuse")
         yield* base.close
         assert.strictEqual((yield* Effect.flip(base.stat)).code, "InvalidHandle")
-      })
+      }).pipe(Effect.provide(Testing.layer({ volume: { maxEntries: 2 } })))
   )
 
   it.effect(
     "checks both parent permissions and sticky ownership using the invoking caller",
     () =>
       Effect.gen(function*() {
-        const volume = yield* Vfs.make()
-        const admin = yield* volume.caller({ umask: 0 })
+        const admin = yield* Vfs.Caller
         yield* admin.mkdir("/shared", { mode: 0o1777 })
         yield* admin.mkdir("/locked", { mode: 0o755 })
-        const alice = yield* volume.caller({ identity: { uid: 1, gid: 1, groups: [], privileged: false } })
-        const bob = yield* volume.caller({ identity: { uid: 2, gid: 2, groups: [], privileged: false } })
+        const alice = yield* Testing.callerAs({ uid: 1, gid: 1, groups: [], privileged: false })
+        const bob = yield* Testing.callerAs({ uid: 2, gid: 2, groups: [], privileged: false })
         yield* alice.mkdir("/shared/alice")
         yield* bob.mkdir("/shared/bob")
         assert.strictEqual((yield* Effect.flip(bob.rmdir("/shared/alice"))).code, "NotPermitted")
@@ -145,14 +142,14 @@ describe("directory namespace", () => {
         yield* alice.rename("/shared/alice", "/shared/renamed")
         yield* alice.rmdir("/shared/renamed")
         yield* admin.rmdir("/shared/bob")
-      })
+      }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } })))
   )
 
   it.effect(
     "resolves independent source and destination bases and ignores them for absolute paths",
     () =>
       Effect.gen(function*() {
-        const fs = yield* (yield* Vfs.make()).caller()
+        const fs = yield* Vfs.Caller
         yield* fs.mkdir("/a")
         yield* fs.mkdir("/b")
         yield* fs.mkdir("/a/work")
@@ -177,12 +174,12 @@ describe("directory namespace", () => {
           (yield* Effect.flip(fs.rename("/a/work", Vfs.Target.Path({ path: "work", relativeTo: a })))).code,
           "InvalidHandle"
         )
-      })
+      }).pipe(Effect.provide(Testing.layer()))
   )
 
   it.effect("publishes parent timestamps together and serializes competing renames", () =>
     Effect.gen(function*() {
-      const fs = yield* (yield* Vfs.make()).caller()
+      const fs = yield* Vfs.Caller
       yield* fs.mkdir("/a")
       yield* fs.mkdir("/b")
       yield* fs.mkdir("/a/work")
@@ -201,5 +198,5 @@ describe("directory namespace", () => {
       assert.strictEqual(a.mtimeNs, b.mtimeNs)
       assert.strictEqual(a.ctimeNs, b.ctimeNs)
       assert.strictEqual(a.mtimeNs, 1_000_000_000n)
-    }))
+    }).pipe(Effect.provide(Testing.layer())))
 })

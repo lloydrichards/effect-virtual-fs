@@ -1,9 +1,7 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Result } from "effect"
-import type * as Crypto from "effect/Crypto"
-import { type VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../src/index.js"
-import * as InternalBytePath from "../src/internal/bytePath.js"
-import { it } from "./TestEffect.js"
+import { Testing, type VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../src/index.js"
+import { pathText } from "./support/text.js"
 
 // Path-addressed and reference-addressed verbs share one mutation body, but each family keeps its own
 // validation order and error codes. Each row pins what both families report for the same situation, so a
@@ -32,9 +30,8 @@ interface Fixture {
 // Builds /dir, /dir/existing, /file, a removed /gone, and /sticky holding file and subdir. The root stays
 // 0o755 and owned by uid 0, so the guest can search it but not write it.
 const arrange = Effect.gen(function*() {
-  const volume = yield* Vfs.make()
-  const admin = yield* volume.caller({ umask: 0 })
-  const guest = yield* volume.caller({ identity: GUEST })
+  const admin = yield* Vfs.Caller
+  const guest = yield* Testing.callerAs(GUEST)
   const root = yield* admin.root
   const dir = (yield* admin.mkdir(Vfs.Entry(root, name("dir")))).reference
   yield* admin.mkdir(Vfs.Entry(dir, name("existing")))
@@ -48,28 +45,22 @@ const arrange = Effect.gen(function*() {
   yield* admin.mkdir(Vfs.Entry(sticky, name("subdir")))
 
   return { admin, guest, root, dir, file: file.reference, gone, sticky } satisfies Fixture
-})
+}).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } })))
 
 interface Row {
   readonly scenario: string
   // A row may build its own volume when the fixture's cannot express the situation.
-  readonly path: (fixture: Fixture) => Effect.Effect<unknown, FsError, Crypto.Crypto>
-  readonly reference: (fixture: Fixture) => Effect.Effect<unknown, FsError, Crypto.Crypto>
+  readonly path: (fixture: Fixture) => Effect.Effect<unknown, FsError>
+  readonly reference: (fixture: Fixture) => Effect.Effect<unknown, FsError>
   // Confirms a successful operation took effect, on the fixture it ran against.
   readonly check?: (fixture: Fixture) => Effect.Effect<unknown, FsError>
   readonly expected: { readonly path: string; readonly reference: string }
 }
 
-const printable = (path: Vfs.PathInput | undefined): string => {
-  if (path === undefined) return "<undefined>"
-
-  if (!InternalBytePath.isBytePath(path)) return path
-  const bytes = InternalBytePath.getBytes(path)
-
-  return bytes === undefined ? "<detached>" : new TextDecoder().decode(bytes)
-}
-
-const report = (error: FsError) => "path" in error ? `${error.code} at ${printable(error.path)}` : error.code
+const report = (error: FsError): Effect.Effect<string> =>
+  "path" in error
+    ? Effect.map(pathText(error.path), (path) => `${error.code} at ${path ?? "<undefined>"}`)
+    : Effect.succeed(error.code)
 
 // Checks for rows that succeed, each reading the entry the operation should have changed.
 const kindAt = (path: string, kind: Vfs.Metadata["kind"]) => ({ admin }: Fixture) =>
@@ -97,12 +88,12 @@ const outcome = Effect.fnUntraced(function*(row: Row, family: "path" | "referenc
   const fixture = yield* arrange
   const acted = yield* Effect.result(row[family](fixture))
 
-  if (Result.isFailure(acted)) return report(acted.failure)
+  if (Result.isFailure(acted)) return yield* report(acted.failure)
 
   if (row.check === undefined) return "ok"
   const checked = yield* Effect.result(row.check(fixture))
 
-  return Result.isFailure(checked) ? `ok, but the check failed with ${report(checked.failure)}` : "ok"
+  return Result.isFailure(checked) ? `ok, but the check failed with ${yield* report(checked.failure)}` : "ok"
 })
 
 const mkdirRows: ReadonlyArray<Row> = [
@@ -243,8 +234,8 @@ const linkRows: ReadonlyArray<Row> = [
 ]
 
 // Its byte limit sits below an eight-byte link target.
-const smallVolume = Vfs.make({ maxBytes: ByteSize.bytes(4) }).pipe(
-  Effect.flatMap((volume) => volume.caller()),
+const smallVolume = Vfs.Caller.pipe(
+  Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(4) } })),
   Effect.orDie
 )
 

@@ -1,7 +1,6 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Fiber } from "effect"
 import { LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
-import { it } from "./TestEffect.js"
 
 const bytes = (...values: Array<number>) => new Uint8Array(values)
 

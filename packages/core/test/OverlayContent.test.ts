@@ -1,11 +1,9 @@
-import { assert, describe } from "@effect/vitest"
+import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Encoding } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import * as Image from "../src/internal/image.js"
 import * as InodeTable from "../src/internal/inodeTable.js"
 import { baseStateFor, hasBaseState } from "../src/internal/virtualFileSystem.js"
-
-import { it } from "./TestEffect.js"
 
 describe("overlay base sharing", () => {
   it.effect(
