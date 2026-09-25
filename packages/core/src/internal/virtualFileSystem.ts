@@ -334,6 +334,9 @@ const decodeOpenReferenceSettings = Schema.decodeEffect(OpenReferenceSettings, {
 
 const decodeOpenChildReferenceSettings = Schema.decodeEffect(OpenChildReferenceSettings, { onExcessProperty: "error" })
 
+// What opening or creating a resolved entry needs; a path open supplies only the OpenSettings fields.
+type OpenRequest = Omit<typeof OpenChildReferenceSettings.Type, "append" | "followFinalSymlink" | "expectedChild">
+
 /** @internal */
 export const OverlayNodeKind = Schema.Literals(["directory", "file", "symlink"])
 
@@ -1842,6 +1845,35 @@ export const makeVolume = Effect.fnUntraced(
         objectReference: undefined
       })
 
+      const newFile = (
+        parent: Directory,
+        data: Content.Content,
+        mode: number,
+        now: bigint,
+        owner?: OwnerUpdate,
+        times?: Times
+      ): RegularFile => ({
+        kind: "file",
+        lineage: undefined,
+        data,
+        openCount: 0,
+        metadata: {
+          ...directoryMetadata(
+            state.nextInode,
+            owner?.uid ?? identity.uid,
+            owner?.gid ?? parent.metadata.gid,
+            mode,
+            now
+          ),
+          ...creationTimes(times, now),
+          kind: "file",
+          size: BigInt(data.bytes.length),
+          nlink: 1
+        },
+        revision: nextRevision(),
+        objectReference: undefined
+      })
+
       const newSymlink = (parent: Directory, target: Uint8Array, now: bigint, times?: Times): SymbolicLink => ({
         kind: "symlink",
         lineage: undefined,
@@ -2584,6 +2616,94 @@ export const makeVolume = Effect.fnUntraced(
         }
       )
 
+      // Opens an existing regular file for the requested access, truncating it when asked.
+      const openExisting = Effect.fnUntraced(function*(
+        file: RegularFile,
+        request: Pick<OpenRequest, "access" | "truncate">,
+        at: OpContext,
+        op: OpContext
+      ) {
+        yield* authorize(
+          file,
+          identity,
+          request.access === "read" ? READ : request.access === "write" ? WRITE : READ | WRITE,
+          at
+        )
+
+        if (request.truncate) yield* resize(file, 0n, op)
+      })
+
+      // An entry whose name the front end already checked, since creating one needs a real name.
+      type NamedEntry = ResolvedEntry & { readonly name: string }
+
+      // Needs no trailing-slash checks: a path's lookup already rejects a trailing slash on anything but a
+      // directory, and a reference name cannot hold one.
+      const openFile = Effect.fnUntraced(function*(
+        entry: NamedEntry,
+        found: Node | undefined,
+        request: OpenRequest,
+        acquired: FileReference,
+        op: OpContext
+      ) {
+        const { parent, name } = entry
+        const before = parent.revision
+        let file = found
+        let created = false
+
+        if (file === undefined) {
+          if (request.create === undefined || request.create === "never") return yield* entry.op.fail("NotFound")
+
+          yield* authorize(parent, identity, WRITE | EXECUTE, entry.op)
+          yield* reserveEntry(entry.op)
+          const size = request.initialSize ?? 0n
+
+          if (request.initialSize !== undefined) {
+            if (size < 0n) return yield* entry.op.fail("InvalidArgument")
+
+            if (size > BigInt(maxFileBytes)) return yield* entry.op.fail("FileTooLarge")
+            yield* reserveBytes(entry.op, size)
+          }
+
+          const owner = request.owner
+
+          if (
+            !identity.privileged &&
+            ((owner?.uid !== undefined && owner.uid !== identity.uid) ||
+              (owner?.gid !== undefined && owner.gid !== identity.gid && !identity.groups.includes(owner.gid)))
+          ) {
+            return yield* entry.op.fail("AccessDenied")
+          }
+
+          const now = yield* timestamp(op)
+
+          const mode = request.exactMode
+            ? yield* permittedMode(
+              { kind: "file", uid: owner?.uid ?? identity.uid, gid: owner?.gid ?? parent.metadata.gid },
+              request.mode!,
+              op
+            )
+            : (request.mode ?? 0o666) & 0o777 & ~umask
+
+          file = newFile(parent, Content.make(new Uint8Array(Number(size))), mode, now, owner, request.times)
+          attach(parent, name, file, now)
+          state.entries += 1
+          state.usedBytes += size
+          state.nextInode += 1n
+          created = true
+          publishEntry("Create", parent, name)
+        } else {
+          if (file.kind === "symlink") return yield* entry.op.fail("SymlinkLoop")
+
+          if (file.kind !== "file") return yield* entry.op.fail("IsDirectory")
+          yield* openExisting(file, request, entry.op, op)
+        }
+
+        file.openCount += 1
+        acquired.file = file
+
+        return { file, created, directory: { before, after: parent.revision } }
+      })
+
       const rootReferenceOp = OpContext.make("rootReference")
 
       return Object.freeze({
@@ -3008,14 +3128,7 @@ export const makeVolume = Effect.fnUntraced(
                 return yield* op.fail("StaleReference")
               }
 
-              yield* authorize(
-                node,
-                identity,
-                chosen.access === "read" ? READ : chosen.access === "write" ? WRITE : READ | WRITE,
-                op
-              )
-
-              if (chosen.truncate) yield* resize(node, 0n, op)
+              yield* openExisting(node, chosen, op, op)
               node.openCount += 1
               acquired.file = node
 
@@ -3130,116 +3243,20 @@ export const makeVolume = Effect.fnUntraced(
                   }
                 }
 
-                const before = mutationParent.revision
-                let created = false
-
-                if (file === undefined) {
-                  if (chosen.create === undefined || chosen.create === "never") {
-                    return yield* op.fail("NotFound")
-                  }
-
-                  yield* authorize(mutationParent, identity, WRITE | EXECUTE, op)
-
-                  if (atEntryLimit()) {
-                    return yield* op.fail("NoSpace")
-                  }
-
-                  const size = chosen.initialSize ?? 0n
-
-                  if (size < 0n) {
-                    return yield* op.fail("InvalidArgument")
-                  }
-
-                  if (size > BigInt(maxFileBytes)) {
-                    return yield* op.fail("FileTooLarge")
-                  }
-
-                  if (
-                    settings.maxBytes !== undefined && size > ByteSize.toBigInt(settings.maxBytes) - state.usedBytes
-                  ) {
-                    return yield* op.fail("NoSpace")
-                  }
-
-                  if (
-                    !identity.privileged &&
-                    ((chosen.owner?.uid !== undefined && chosen.owner.uid !== identity.uid) ||
-                      (chosen.owner?.gid !== undefined && chosen.owner.gid !== identity.gid &&
-                        !identity.groups.includes(chosen.owner.gid)))
-                  ) {
-                    return yield* op.fail("AccessDenied")
-                  }
-
-                  const now = yield* timestamp(op)
-                  const initial = creationTimes(chosen.times, now)
-
-                  const creationMode = chosen.exactMode
-                    ? yield* permittedMode(
-                      {
-                        kind: "file",
-                        uid: chosen.owner?.uid ?? identity.uid,
-                        gid: chosen.owner?.gid ?? mutationParent.metadata.gid
-                      },
-                      chosen.mode!,
-                      op
-                    )
-                    : (chosen.mode ?? 0o666) & 0o777 & ~umask
-
-                  const createdFile: RegularFile = {
-                    kind: "file",
-                    lineage: undefined,
-                    data: Content.make(new Uint8Array(Number(size))),
-                    openCount: 0,
-                    metadata: {
-                      ...directoryMetadata(
-                        state.nextInode,
-                        chosen.owner?.uid ?? identity.uid,
-                        chosen.owner?.gid ?? mutationParent.metadata.gid,
-                        creationMode,
-                        now
-                      ),
-                      ...initial,
-                      kind: "file",
-                      size,
-                      nlink: 1
-                    },
-                    revision: nextRevision(),
-                    objectReference: undefined
-                  }
-
-                  file = createdFile
-                  attach(mutationParent, mutationName, createdFile, now)
-                  state.entries += 1
-                  state.usedBytes += size
-                  state.nextInode += 1n
-                  created = true
-                  publishEntry("Create", mutationParent, mutationName)
-                } else {
-                  if (file.kind === "symlink") {
-                    return yield* op.fail("SymlinkLoop")
-                  }
-
-                  if (file.kind !== "file") {
-                    return yield* op.fail("IsDirectory")
-                  }
-
-                  yield* authorize(
-                    file,
-                    identity,
-                    chosen.access === "read" ? READ : chosen.access === "write" ? WRITE : READ | WRITE,
-                    op
-                  )
-
-                  if (chosen.truncate) yield* resize(file, 0n, op)
-                }
-
-                file.openCount += 1
-                acquired.file = file
+                const opened = yield* openFile(
+                  { parent: mutationParent, name: mutationName, trailingSlash: false, op },
+                  file,
+                  // A reference create always checks its size, even when none was given.
+                  { ...chosen, initialSize: chosen.initialSize ?? 0n },
+                  acquired,
+                  op
+                )
 
                 return {
                   handle: fileHandle(acquired),
-                  reference: referenceFor(file),
-                  created,
-                  directory: { before, after: mutationParent.revision }
+                  reference: referenceFor(opened.file),
+                  created: opened.created,
+                  directory: opened.directory
                 }
               })
             )
@@ -3651,72 +3668,19 @@ export const makeVolume = Effect.fnUntraced(
               }
 
               yield* authorize(parent, identity, EXECUTE, pathOp)
-              let file = resolved.node
+              const file = resolved.node
 
               if (file !== undefined && chosen.create === "exclusive") {
                 return yield* pathOp.fail("AlreadyExists")
               }
 
-              if (file === undefined) {
-                if (chosen.create === undefined || chosen.create === "never" || path.trailingSlash) {
-                  return yield* pathOp.fail("NotFound")
-                }
-
-                yield* authorize(parent, identity, WRITE | EXECUTE, pathOp)
-
-                if (atEntryLimit()) {
-                  return yield* pathOp.fail("NoSpace")
-                }
-
-                const now = yield* timestamp(op)
-                file = {
-                  kind: "file",
-                  lineage: undefined,
-                  data: Content.empty(),
-                  openCount: 0,
-                  metadata: {
-                    ...directoryMetadata(
-                      state.nextInode,
-                      identity.uid,
-                      parent.metadata.gid,
-                      (chosen.mode ?? 0o666) & 0o777 & ~umask,
-                      now
-                    ),
-                    kind: "file",
-                    nlink: 1
-                  },
-                  revision: nextRevision(),
-                  objectReference: undefined
-                }
-                attach(parent, name, file, now)
-                state.entries += 1
-                state.nextInode += 1n
-                publishEntry("Create", parent, name)
-              } else {
-                if (file.kind === "symlink") {
-                  return yield* pathOp.fail("SymlinkLoop")
-                }
-
-                if (file.kind !== "file") {
-                  return yield* pathOp.fail("IsDirectory")
-                }
-
-                if (path.trailingSlash) {
-                  return yield* pathOp.fail("NotDirectory")
-                }
-
-                yield* authorize(
-                  file,
-                  identity,
-                  chosen.access === "read" ? READ : chosen.access === "write" ? WRITE : READ | WRITE,
-                  pathOp
-                )
-
-                if (chosen.truncate) yield* resize(file, 0n, op)
-              }
-
-              file.openCount += 1
-              acquired.file = file
+              yield* openFile(
+                { parent, name, trailingSlash: path.trailingSlash, op: pathOp },
+                file,
+                chosen,
+                acquired,
+                op
+              )
 
               return fileHandle(acquired)
             })
