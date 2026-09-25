@@ -201,4 +201,30 @@ describe("memory adapter compatibility", () => {
       assert.strictEqual(error.reason._tag, "BadArgument")
       assert.strictEqual(yield* fs.readFileString("/alias"), "keep")
     }))
+
+  it.effect("should create no directory when a recursive makeDirectory fails partway", () =>
+    Effect.gen(function*() {
+      const fs = yield* Memory.bind(yield* Vfs.Volume)
+
+      // The third directory is past the volume's entry limit, so the first two are not created either.
+      const error = yield* Effect.flip(fs.makeDirectory("/a/b/c", { recursive: true }))
+
+      assert.deepStrictEqual([error.reason._tag, error.reason.description], ["Unknown", "NoSpace"])
+      assert.isFalse(yield* fs.exists("/a"))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxEntries: 2 } }))))
+
+  // As Node does, a recursive listing reads a directory it may read but not search and fails below it.
+  it.effect("should fail a recursive listing below a directory it may read but not search", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
+      const owner = yield* Memory.bind(volume)
+      yield* owner.makeDirectory("/listed/inner", { recursive: true })
+      yield* owner.writeFileString("/listed/inner/file", "x")
+      yield* owner.chmod("/listed", 0o444)
+      const guest = yield* Memory.bind(volume, { identity: { uid: 1, gid: 1, groups: [], privileged: false } })
+
+      assert.deepStrictEqual(yield* guest.readDirectory("/listed"), ["inner"])
+      const error = yield* Effect.flip(guest.readDirectory("/listed", { recursive: true }))
+      assert.strictEqual(error.reason._tag, "PermissionDenied")
+    }).pipe(Effect.provide(Testing.layer())))
 })

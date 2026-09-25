@@ -46,37 +46,11 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       yield* validateMode(options?.mode, "makeDirectory")
       const mode = (options?.mode ?? 0o755) & 0o7777
 
-      if (!options?.recursive) {
-        return yield* caller.mkdir(path, { mode }).pipe(
-          Effect.mapError((error) => toPlatformError(error, "makeDirectory", path))
-        )
-      }
-
-      return yield* Effect.scoped(Effect.gen(function*() {
-        if (path === "") return yield* new Vfs.VfsError({ code: "NotFound", operation: "makeDirectory" })
-        let base = yield* caller.openDirectory("/")
-        const components = path.split("/").filter((part) => part.length > 0)
-
-        for (const [index, name] of components.entries()) {
-          const result = yield* Effect.result(caller.mkdir(at(name, base), { mode }))
-
-          if (Result.isFailure(result) && result.failure.code !== "AlreadyExists") return yield* result.failure
-
-          // The new leaf is never opened, so a mode without owner search does not fail the call, as in Node; an
-          // existing leaf must be a directory.
-          if (index === components.length - 1) {
-            if (Result.isFailure(result) && (yield* caller.stat(at(name, base))).kind !== "directory") {
-              return yield* new Vfs.VfsError({ code: "AlreadyExists", operation: "makeDirectory" })
-            }
-
-            break
-          }
-
-          const next = yield* caller.openDirectory(at(name, base))
-          yield* base.close
-          base = next
-        }
-      })).pipe(Effect.mapError((error) => toPlatformError(error, "makeDirectory", path)))
+      // A recursive mkdir creates the path's missing directories in one change, each with the mode, as Node gives
+      // each the mode; the final directory is never searched, so a mode without owner search does not fail it.
+      yield* caller.mkdir(path, { mode, recursive: options?.recursive === true }).pipe(
+        Effect.mapError((error) => toPlatformError(error, "makeDirectory", path))
+      )
     }
   )
 
@@ -317,7 +291,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       const exclude = (yield* Effect.forEach(options?.exclude ?? [], (pattern) => compileGlobPatterns("glob", pattern)))
         .flat()
 
-      return yield* Effect.scoped(Effect.gen(function*() {
+      return yield* Effect.gen(function*() {
         const entries = yield* walk(options?.root ?? "/")
 
         if (exclude.some((pattern) => matchesGlob(pattern, [], true))) return []
@@ -326,7 +300,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
 
         for (const entry of entries) {
           const parts = entry.relative.split("/")
-          const directory = entry.metadata.kind === "directory"
+          const directory = entry.kind === "directory"
 
           const excluded = excludedDirectories.some((prefix) => entry.relative.startsWith(`${prefix}/`)) ||
             exclude.some((pattern) => matchesGlob(pattern, parts, directory))
@@ -340,7 +314,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
         }
 
         return output.sort()
-      })).pipe(Effect.mapError((error) => toPlatformError(error, "glob", options?.root ?? "/")))
+      }).pipe(Effect.mapError((error) => toPlatformError(error, "glob", options?.root ?? "/")))
     })
   })
 })

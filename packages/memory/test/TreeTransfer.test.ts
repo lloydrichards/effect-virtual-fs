@@ -280,6 +280,29 @@ describe("TreeTransfer", () => {
       )
     }).pipe(Effect.provide(Testing.layer({ fixture: ACCESSED_FILE_FIXTURE }))))
 
+  it.effect("should fail below a directory the caller may read but not search", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
+      const owner = yield* Vfs.Caller
+      yield* owner.mkdir("/src/inner", { recursive: true })
+      yield* owner.writeFile("/src/inner/file", text.encode("x"), { access: "write", create: "ifMissing" })
+      yield* owner.chmod("/src", 0o444)
+      const guest = yield* volume.caller({ identity: { uid: 1, gid: 1, groups: [], privileged: false } })
+      const seen: Array<string> = []
+
+      // Every entry is reached by its path and no directory is opened, so the root is read without searching it and
+      // reaching /src/inner needs search permission on /src.
+      const error = yield* Effect.flip(
+        Stream.runForEach(TreeTransfer.fromCaller(guest, "/src"), (entry) =>
+          Effect.sync(() => {
+            seen.push(`${entry.kind} ${Predicate.isString(entry.path) ? entry.path : "<bytes>"}`)
+          }))
+      )
+
+      assert.deepStrictEqual(seen, ["directory /"])
+      assert.strictEqual(error.code, "AccessDenied")
+    }).pipe(Effect.provide(Testing.layer())))
+
   it.effect("should leave the source unchanged when streaming from a snapshot", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.Volume
