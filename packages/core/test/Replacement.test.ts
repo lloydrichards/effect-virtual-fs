@@ -112,4 +112,20 @@ describe("whole-file symlink replacement", () => {
       assert.deepStrictEqual(yield* root.stat("/file"), before)
       assert.deepStrictEqual(yield* root.readFile("/file"), new Uint8Array([42]))
     }))
+
+  it.effect("keeps the entry's position when a file replaces a symbolic link", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      yield* fs.symlink("missing", "/link")
+      yield* fs.mkdir("/z")
+      yield* fs.writeFile("/link", new Uint8Array([1]), {
+        access: "write",
+        create: "ifMissing",
+        truncate: true,
+        replaceFinalSymlink: true,
+        followFinalSymlink: false
+      })
+      assert.deepStrictEqual(yield* fs.readDirectory("/"), ["link", "z"])
+      assert.strictEqual((yield* fs.lstat("/link")).kind, "file")
+    }))
 })

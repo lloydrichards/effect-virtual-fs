@@ -658,6 +658,7 @@ class Draft {
   private opens: Map<Ino, number> | undefined
   private nextInode: Ino
   private changed = false
+  private finished: VolumeState | undefined
   // The revision every inode this transition replaces is stamped with.
   readonly revision: bigint
   entries: number
@@ -723,7 +724,9 @@ class Draft {
     return count
   }
 
+  // Builds the next value once; a staged commit offers the same object it later installs.
   finish(): VolumeState {
+    if (this.finished !== undefined) return this.finished
     const base = this.base
     let inodes = base.inodes
 
@@ -741,7 +744,7 @@ class Draft {
       open = next
     }
 
-    return {
+    this.finished = {
       inodes,
       open,
       nextInode: this.nextInode,
@@ -749,6 +752,8 @@ class Draft {
       entries: this.entries,
       usedBytes: this.usedBytes
     }
+
+    return this.finished
   }
 }
 
@@ -1958,7 +1963,10 @@ export const makeVolume = Effect.fnUntraced(
 
         const node = view(known.ino)
 
-        if (node === undefined) return yield* op.fail("StaleReference")
+        // A removed directory goes stale at once, even while a handle keeps its inode in the table.
+        if (node === undefined || (node.kind === "directory" && node.metadata.nlink === 0)) {
+          return yield* op.fail("StaleReference")
+        }
 
         return node
       })
@@ -3606,10 +3614,8 @@ export const makeVolume = Effect.fnUntraced(
                 d.usedBytes += BigInt(size - previous)
 
                 if (file === undefined) {
-                  if (replaced !== undefined) {
-                    d.put(withEntries(parent, (entries) => entries.delete(name)))
-                    detach(replaced, parent.ino, name, now)
-                  }
+                  // The replaced symlink loses its name; attaching under the same name keeps the entry's position.
+                  if (replaced !== undefined) detach(replaced, parent.ino, name, now)
 
                   attach(directoryNow(parent.ino), name, written, now)
 

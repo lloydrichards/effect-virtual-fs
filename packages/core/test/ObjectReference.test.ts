@@ -182,4 +182,23 @@ describe("object references", () => {
       const opaqueReference = yield* fs.lookupReference(root, opaque)
       assert.strictEqual((yield* fs.observeMetadata(opaqueReference)).value.size, 1n)
     }))
+
+  it.effect("keeps a removed directory stale for mutations while a handle still holds it", () =>
+    Effect.gen(function*() {
+      const fs = yield* (yield* Vfs.make()).caller()
+      yield* fs.mkdir("/a")
+      const root = yield* fs.rootReference
+      const a = yield* fs.lookupReference(root, name("a"))
+      const handle = yield* fs.openDirectory("/a")
+      yield* fs.rmdir("/a")
+      assert.strictEqual((yield* handle.stat).nlink, 0)
+      assert.strictEqual((yield* Effect.flip(fs.observeMetadata(a))).code, "StaleReference")
+      assert.strictEqual((yield* Effect.flip(fs.parentReference(a))).code, "StaleReference")
+      assert.strictEqual((yield* Effect.flip(fs.mkdirReference(a, name("orphan")))).code, "StaleReference")
+      yield* fs.writeFile("/f", bytes(1), { access: "write", create: "exclusive" })
+      assert.strictEqual((yield* Effect.flip(fs.renameReference(root, name("f"), a, name("g")))).code, "StaleReference")
+      yield* handle.close
+      assert.deepStrictEqual(yield* fs.readDirectory("/"), ["f"])
+      assert.deepStrictEqual(yield* (yield* Vfs.make()).usage, { usedBytes: 0n, entries: 0 })
+    }))
 })
