@@ -8,35 +8,48 @@ const bytes = (...values: Array<number>) => new Uint8Array(values)
 
 const name = (value: string) => new TextEncoder().encode(value)
 
-// A staged volume whose next commit holds the permit until released, so later operations queue behind it.
+interface Pause {
+  readonly entered: Deferred.Deferred<void>
+  readonly release: Deferred.Deferred<void>
+}
+
+// A staged volume whose paused commit holds the permit until released, so later operations queue behind it.
 const pausedVolume = Effect.gen(function*() {
-  const entered = yield* Deferred.make<void>()
-  const release = yield* Deferred.make<void>()
-  let pause = false
+  let pause: Pause | undefined
   let outcome: "committed" | "rejected" = "committed"
 
   const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
     commit: () =>
-      pause
-        ? Effect.sync(() => {
-          pause = false
-        }).pipe(
-          Effect.andThen(Deferred.succeed(entered, undefined)),
-          Effect.andThen(Deferred.await(release)),
+      Effect.suspend(() => {
+        const paused = pause
+
+        if (paused === undefined) return Effect.succeed(outcome)
+        pause = undefined
+
+        return Deferred.succeed(paused.entered, undefined).pipe(
+          Effect.andThen(Deferred.await(paused.release)),
           Effect.as("committed" as const)
         )
-        : Effect.succeed(outcome)
+      })
   })
 
   const caller = yield* volume.caller()
 
+  // Pauses the next commit, returning the effects that await its start and release it.
+  const pauseNext = Effect.gen(function*() {
+    const paused: Pause = { entered: yield* Deferred.make<void>(), release: yield* Deferred.make<void>() }
+    pause = paused
+
+    return { entered: Deferred.await(paused.entered), release: Deferred.succeed(paused.release, undefined) }
+  })
+
   // Starts a mutation that holds the permit and returns, once it does, the effect that lets it finish.
   const hold = Effect.gen(function*() {
-    pause = true
+    const { entered, release } = yield* pauseNext
     const holder = yield* caller.mkdir("/held").pipe(Effect.forkChild({ startImmediately: true }))
-    yield* Deferred.await(entered)
+    yield* entered
 
-    return { finish: Effect.andThen(Deferred.succeed(release, undefined), Fiber.join(holder)) }
+    return { finish: Effect.andThen(release, Fiber.join(holder)) }
   })
 
   const reject = (rejected: boolean) =>
@@ -44,7 +57,7 @@ const pausedVolume = Effect.gen(function*() {
       outcome = rejected ? "rejected" : "committed"
     })
 
-  return { volume, caller, hold, reject }
+  return { volume, caller, hold, pauseNext, reject }
 })
 
 type Opener = (caller: Vfs.Caller) => Effect.Effect<unknown, Vfs.FsError, Scope.Scope>
@@ -126,6 +139,62 @@ describe("handle lifecycles", () => {
         yield* caller.unlink("/file")
         assert.deepStrictEqual(yield* volume.usage, { usedBytes: 0n, entries: 0 })
       }).pipe(Effect.provideService(Scheduler.MaxOpsBeforeYield, 3)))
+  }
+
+  for (const [label, opener] of fileOpeners) {
+    it.effect(`${label} is interrupted and retains nothing when its scope closes while its own commit is pending`, () =>
+      Effect.gen(function*() {
+        const { volume, caller, pauseNext } = yield* pausedVolume
+        yield* caller.writeFile("/file", bytes(1, 2), { access: "write", create: "exclusive" })
+        const { entered, release } = yield* pauseNext
+        const scope = yield* Scope.make()
+        const opening = yield* opener(caller).pipe(Scope.provide(scope), Effect.forkChild({ startImmediately: true }))
+        yield* entered
+        yield* Scope.close(scope, Exit.void)
+        yield* release
+        const result = yield* Fiber.await(opening)
+        assert.isTrue(Exit.isFailure(result) && Cause.hasInterruptsOnly(result.cause))
+        yield* caller.unlink("/file")
+        assert.strictEqual((yield* volume.usage).usedBytes, 0n)
+      }))
+  }
+
+  for (const [label, opener] of fileOpeners) {
+    it.effect(`${label} retains nothing when its scope closes and its fiber is interrupted during its own commit`, () =>
+      Effect.gen(function*() {
+        const { volume, caller, pauseNext } = yield* pausedVolume
+        yield* caller.writeFile("/file", bytes(1, 2), { access: "write", create: "exclusive" })
+        const { entered, release } = yield* pauseNext
+        const scope = yield* Scope.make()
+        const opening = yield* opener(caller).pipe(Scope.provide(scope), Effect.forkChild({ startImmediately: true }))
+        yield* entered
+        yield* Scope.close(scope, Exit.void)
+        // The commit is uninterruptible, so the interrupt stays pending until it publishes.
+        const interrupting = yield* Fiber.interrupt(opening).pipe(Effect.forkChild({ startImmediately: true }))
+        yield* release
+        yield* Fiber.join(interrupting)
+        yield* caller.unlink("/file")
+        assert.strictEqual((yield* volume.usage).usedBytes, 0n)
+      }))
+  }
+
+  for (const kind of ["file", "directory"] as const) {
+    it.effect(`an interrupted explicit ${kind} close that waits leaves the handle open`, () =>
+      Effect.gen(function*() {
+        const { caller, hold } = yield* pausedVolume
+
+        const handle = kind === "file"
+          ? yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
+          : yield* caller.openDirectory("/")
+
+        const { finish } = yield* hold
+        const closing = yield* handle.close.pipe(Effect.forkChild({ startImmediately: true }))
+        // Returns only once the waiting close has stopped, which must not wait for the held commit.
+        yield* Fiber.interrupt(closing)
+        yield* finish
+        yield* handle.stat
+        yield* handle.close
+      }))
   }
 
   it.effect("does not create a file for an exclusive open whose scope closes while it waits", () =>
