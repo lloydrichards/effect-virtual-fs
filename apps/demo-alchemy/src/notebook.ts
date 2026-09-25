@@ -11,7 +11,7 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 
 export interface NotebookR2Client extends R2LiveImageStore.R2Client {
-  readonly remove: (key: string) => Effect.Effect<void, LiveVolume.LiveVolumeError>
+  readonly remove: (key: string) => Effect.Effect<void, Vfs.VfsError>
 }
 
 /** Request-bound image transport, including deletion. */
@@ -54,9 +54,9 @@ export interface NotebookOperations {
   readonly create: Effect.Effect<CreateResult, PlatformError.PlatformError>
   readonly read: (id: string) => Effect.Effect<
     typeof Notebook.Type | null,
-    LiveVolume.LiveVolumeError | Vfs.ConfigurationError | Vfs.FsError
+    Vfs.VfsError
   >
-  readonly remove: (id: string) => Effect.Effect<void, LiveVolume.LiveVolumeError>
+  readonly remove: (id: string) => Effect.Effect<void, Vfs.VfsError>
 }
 
 const make = Effect.gen(function*() {

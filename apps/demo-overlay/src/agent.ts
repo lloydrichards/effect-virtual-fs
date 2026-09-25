@@ -66,7 +66,7 @@ const projectPath = (input: string) => {
   return Effect.succeed(normalized === "" ? "." : normalized)
 }
 
-const fsFailure = (error: Vfs.FsError) => `${error.code}: ${error.operation}`
+const fsFailure = (error: Vfs.VfsError) => `${error.code}: ${error.operation}`
 
 export const makeWorkspaceToolkit = Effect.fn("Agent.makeWorkspaceToolkit")(function*(
   caller: Vfs.Caller,

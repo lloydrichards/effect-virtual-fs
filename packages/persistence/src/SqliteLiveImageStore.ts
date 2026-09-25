@@ -3,7 +3,7 @@
  *
  * @since 0.4.0
  */
-import { LiveVolume } from "@effect-vfs/core"
+import { LiveVolume, VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { ByteSize, Crypto, Effect, Exit, FileSystem, Layer, Path, Schema } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 
@@ -46,8 +46,12 @@ const StoreRow = Schema.Struct({
   digest: Schema.String
 })
 
-const fail = (code: LiveVolume.LiveVolumeError["code"], cause?: unknown) =>
-  new LiveVolume.LiveVolumeError({ code, cause })
+const fail = (code: Vfs.StoreCode, cause?: unknown): Vfs.StoreFailure =>
+  VfsError.make({ code, operation: "SqliteLiveImageStore", cause })
+
+// A rejected option names the option; the store cannot open until the caller fixes it.
+const invalid = (field: string): Vfs.ArgumentFailure =>
+  VfsError.make({ code: "InvalidArgument", operation: "SqliteLiveImageStore", field })
 
 const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
 
@@ -81,10 +85,13 @@ export const layer = (options: Options) =>
       const maxDatabase = ByteSize.toBigInt(options.maxDatabaseBytes)
       const timeout = options.busyTimeoutMs ?? 0
 
-      if (
-        !path.isAbsolute(options.filename) || maxImage <= 0n || maxImage > BigInt(Number.MAX_SAFE_INTEGER) ||
-        maxDatabase <= 0n || !Number.isSafeInteger(timeout) || timeout < 0
-      ) return yield* fail("InvalidConfiguration")
+      if (!path.isAbsolute(options.filename)) return yield* invalid("filename")
+
+      if (maxImage <= 0n || maxImage > BigInt(Number.MAX_SAFE_INTEGER)) return yield* invalid("maxImageBytes")
+
+      if (maxDatabase <= 0n) return yield* invalid("maxDatabaseBytes")
+
+      if (!Number.isSafeInteger(timeout) || timeout < 0) return yield* invalid("busyTimeoutMs")
 
       const connection = yield* sql.reserve.pipe(Effect.mapError((cause) => fail("Storage", cause)))
       const run = (statement: string, params: ReadonlyArray<unknown> = []) => connection.executeRaw(statement, params)
@@ -147,7 +154,7 @@ export const layer = (options: Options) =>
 
       // ATTACH could create a super-journal outside the single-database budget.
       if (databases.length !== 1 || main === undefined || main.file === "") {
-        return yield* fail("InvalidConfiguration")
+        return yield* invalid("filename")
       }
 
       const expectedParent = yield* filesystem.realPath(path.dirname(options.filename)).pipe(
@@ -157,6 +164,13 @@ export const layer = (options: Options) =>
       const expectedPath = path.join(expectedParent, path.basename(options.filename))
       const actualPath = yield* filesystem.realPath(main.file).pipe(Effect.mapError((cause) => fail("Storage", cause)))
 
+      // The client opened a different database file than the one named.
+      if (expectedPath !== actualPath) return yield* invalid("filename")
+
+      // A schema version this store did not write belongs to something else, or to a newer release.
+      if (version?.user_version !== 0 && version?.user_version !== 1) return yield* fail("IncompatibleStore")
+
+      // The SQLite build or connection refused a setting the durability guarantees depend on.
       if (
         journal?.journal_mode.toLowerCase() !== "delete" || synchronous?.synchronous !== 3 ||
         fullfsync?.fullfsync !== 1 ||
@@ -164,9 +178,8 @@ export const layer = (options: Options) =>
         tempStore?.temp_store !== 2 || cacheSpill?.cache_spill !== 0 ||
         journalSizeLimit?.journal_size_limit !== 0 ||
         compileOptions.some((option) => option.compile_options === "TEMP_STORE=0") ||
-        !Number.isSafeInteger(page.page_size) || page.page_size <= 0 ||
-        (version?.user_version !== 0 && version?.user_version !== 1) || expectedPath !== actualPath
-      ) return yield* fail("InvalidConfiguration")
+        !Number.isSafeInteger(page.page_size) || page.page_size <= 0
+      ) return yield* fail("IncompatibleStore")
 
       // SqlClient may have created the file before this Layer starts. Sync the
       // verified parent before any schema write or store becomes available.
@@ -178,7 +191,7 @@ export const layer = (options: Options) =>
 
       const maxPages = maxDatabase / BigInt(page.page_size)
 
-      if (maxPages < 1n || maxPages > BigInt(2_147_483_647)) return yield* fail("InvalidConfiguration")
+      if (maxPages < 1n || maxPages > BigInt(2_147_483_647)) return yield* invalid("maxDatabaseBytes")
       yield* run(`PRAGMA max_page_count=${maxPages}`).pipe(Effect.mapError((cause) => fail("Storage", cause)))
 
       const pageLimit = (yield* query(Schema.Struct({ max_page_count: Schema.Finite }), "PRAGMA max_page_count"))[0]

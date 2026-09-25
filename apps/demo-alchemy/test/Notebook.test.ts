@@ -1,4 +1,4 @@
-import { LiveVolume } from "@effect-vfs/core"
+import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
 import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto"
 import { assert, describe, it } from "@effect/vitest"
@@ -33,7 +33,7 @@ const remote = () => {
 
         writes++
 
-        if (writes === failAt) return Effect.fail(new LiveVolume.LiveVolumeError({ code: "Storage" }))
+        if (writes === failAt) return Effect.fail(new Vfs.VfsError({ code: "Storage", operation: "TestStore" }))
 
         const etag = `"${++version}"`
         record = { bytes: new Uint8Array(bytes), etag, generation, digest }
@@ -42,7 +42,7 @@ const remote = () => {
       }),
     remove: () =>
       Effect.suspend(() => {
-        if (failRemove) return Effect.fail(new LiveVolume.LiveVolumeError({ code: "Storage" }))
+        if (failRemove) return Effect.fail(new Vfs.VfsError({ code: "Storage", operation: "TestStore" }))
         record = null
 
         return Effect.void

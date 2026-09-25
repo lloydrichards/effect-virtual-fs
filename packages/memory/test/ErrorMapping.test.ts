@@ -10,7 +10,7 @@ const systemReason = (error: PlatformError.PlatformError): PlatformError.SystemE
   error.reason instanceof PlatformError.SystemError ? error.reason : assert.fail("Expected a system error")
 
 it("should map volume admission pressure to Busy when translating a core error", () => {
-  const coreError = new Vfs.FsError({ code: "VolumeBusy", operation: "writeFile" })
+  const coreError = new Vfs.VfsError({ code: "VolumeBusy", operation: "writeFile" })
   const error = toPlatformError(coreError, "writeFile", "/file")
 
   const reason = systemReason(error)

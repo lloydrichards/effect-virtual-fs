@@ -2,7 +2,7 @@ import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { CheckpointStore } from "@effect-vfs/persistence"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
-import { ByteSize, Effect, Layer } from "effect"
+import { ByteSize, Effect, Layer, Schema } from "effect"
 import * as assert from "node:assert/strict"
 
 const mode = process.argv[2]
@@ -75,7 +75,7 @@ const program = Effect.gen(function*() {
   const independent = yield* (yield* Vfs.fromSnapshot(yield* store.load("before"))).caller()
   assert.deepEqual(yield* independent.readFile("/alias"), content)
   const failure = yield* Effect.flip(Vfs.fromSnapshot(snapshot, { maxBytes: ByteSize.bytes(3) }))
-  assert.ok(failure instanceof Vfs.ImageError)
+  assert.ok(Schema.is(Vfs.VfsError)(failure))
   assert.equal(failure.code, "LimitExceeded")
   yield* Effect.log("restored")
 })

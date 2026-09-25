@@ -1623,7 +1623,7 @@ const encodeCompound = (
     return yield* writer.finish
   })
 
-const fsStatuses: Readonly<Record<Vfs.FsCode, number>> = {
+const fsStatuses: Readonly<Record<Vfs.VfsCode, number>> = {
   NotFound: Status.NOENT,
   AlreadyExists: Status.EXIST,
   NotEmpty: Status.NOTEMPTY,
@@ -1648,11 +1648,23 @@ const fsStatuses: Readonly<Record<Vfs.FsCode, number>> = {
   VolumeBusy: Status.DELAY,
   // NFSv4.1 has no LOOP status. The reference-based NFS read path never follows symbolic links.
   SymlinkLoop: Status.INVAL,
-  UnrepresentableName: Status.INVAL
+  UnrepresentableName: Status.INVAL,
+  // Codec and store failures never reach an NFS operation; a server fault says so if one does.
+  InvalidEncoding: Status.SERVERFAULT,
+  UnsupportedVersion: Status.SERVERFAULT,
+  InvalidStructure: Status.SERVERFAULT,
+  LimitExceeded: Status.SERVERFAULT,
+  BaseMismatch: Status.SERVERFAULT,
+  Storage: Status.IO,
+  Ownership: Status.IO,
+  IncompatibleStore: Status.IO,
+  CorruptStore: Status.IO
 }
 
+// The table is total over the codes this build knows. The guard is for a core release newer than this server,
+// whose errors can carry a code added since, which a client should see as a server fault.
 /** @internal */
-export const failureForFs = (error: Vfs.FsError): number =>
+export const failureForFs = (error: Vfs.VfsError): number =>
   Object.hasOwn(fsStatuses, error.code) ? fsStatuses[error.code] : Status.SERVERFAULT
 
 type WriteField = (writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>
@@ -2287,7 +2299,7 @@ export const makeNfs4Handler = (
   const encodeBody = <A>(value: A, codec: XdrCodec<A>): Effect.Effect<Uint8Array, XdrEncodeError> =>
     xdr.encode(value, codec, options.limits, ByteSize.toNumberUnsafe(options.limits.maxRecordBytes))
 
-  const sampleUsage = (requested: ReadonlyArray<number>): Effect.Effect<Vfs.VolumeUsage | null, Vfs.FsError> =>
+  const sampleUsage = (requested: ReadonlyArray<number>): Effect.Effect<Vfs.VolumeUsage | null, Vfs.VfsError> =>
     requested.some((attribute) => capacityAttributes.has(attribute))
       ? export_.capacity!.usage
       : Effect.succeed(null)
@@ -2829,7 +2841,7 @@ export const makeNfs4Handler = (
             function execute(operation: ParsedOperation): Effect.Effect<ResultPart, XdrEncodeError> {
               const noCurrent = (): ResultPart => ({ code: operation.code, status: Status.NOFILEHANDLE })
 
-              const mapFs = <A>(effect: Effect.Effect<A, Vfs.FsError>): Effect.Effect<A, number> =>
+              const mapFs = <A>(effect: Effect.Effect<A, Vfs.VfsError>): Effect.Effect<A, number> =>
                 effect.pipe(Effect.mapError(failureForFs))
 
               const withCurrent = <A>(
@@ -3895,7 +3907,7 @@ export const makeNfs4Handler = (
 
                           const allowed = yield* activeCaller.accessReference(reference, bit).pipe(
                             Effect.as(true),
-                            Effect.catchTag("FsError", (error) =>
+                            Effect.catchTag("VfsError", (error) =>
                               error.code === "AccessDenied"
                                 ? Effect.succeed(false)
                                 : Effect.fail(failureForFs(error)))
@@ -4554,7 +4566,7 @@ export const makeNfs4Handler = (
                           (body): ResultPart => ({ code: operation.code, status: Status.OK, body })
                         )
                       ),
-                      Effect.catchTag("FsError", (error) =>
+                      Effect.catchTag("VfsError", (error) =>
                         Effect.succeed({ code: operation.code, status: failureForFs(error) }))
                     )
                   }
@@ -5362,7 +5374,7 @@ export const makeNfs4Handler = (
               )
             }
 
-            function nameStatus(error: Vfs.FsError | InvalidNameError): number {
+            function nameStatus(error: Vfs.VfsError | InvalidNameError): number {
               if (error instanceof InvalidNameError) {
                 // RFC 8881 Section 14.5: reserved components are BADNAME, over-long names NAMETOOLONG,
                 // valid UTF-8 the file system cannot store (a slash or NUL) BADCHAR, and other

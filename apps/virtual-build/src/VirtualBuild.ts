@@ -20,14 +20,14 @@ export const buildVirtual = Effect.fn("VirtualBuild.build")(function*(caller: Vf
 
     return yield* Effect.try({
       try: () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
-      catch: () => new Vfs.FsError({ code: "InvalidPathEncoding", operation: "build", path })
+      catch: () => new Vfs.VfsError({ code: "InvalidPathEncoding", operation: "build", field: path })
     })
   })
 
   const runPromise = Effect.runPromiseWith(yield* Effect.context())
 
   // Vite invokes these callbacks outside the Effect fiber; preserve its service context.
-  const run = <A>(effect: Effect.Effect<A, Vfs.FsError>, path: string) =>
+  const run = <A>(effect: Effect.Effect<A, Vfs.VfsError>, path: string) =>
     runPromise(effect.pipe(
       Effect.mapError((error) => new VirtualModuleError({ message: `Virtual module ${path}: ${error.code}` }))
     ))

@@ -486,7 +486,7 @@ export const fromCaller: (
   caller: Vfs.Caller,
   root: Vfs.PathInput,
   options?: ReadOptions
-) => Stream.Stream<Entry, TransferError | Vfs.FsError> = (caller, root, options) =>
+) => Stream.Stream<Entry, TransferError | Vfs.VfsError> = (caller, root, options) =>
   internal.fromCaller(caller, root, options)
 
 /**
@@ -524,7 +524,7 @@ export const fromSnapshot: (
   options?: ReadOptions
 ) => Stream.Stream<
   Entry,
-  TransferError | Vfs.FsError | Vfs.ConfigurationError | Vfs.ImageError | PlatformError.PlatformError,
+  TransferError | Vfs.VfsError | PlatformError.PlatformError,
   Crypto.Crypto
 > = (snapshot, root, options) => internal.fromSnapshot(snapshot, root, options)
 
@@ -572,7 +572,7 @@ export const toCaller: (
   caller: Vfs.Caller,
   destination: Vfs.PathInput,
   options?: WriteOptions
-) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.FsError> = (caller, destination, options) =>
+) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError> = (caller, destination, options) =>
   internal.toCaller(caller, destination, options)
 
 /**
@@ -654,7 +654,7 @@ export const toVolume: <E, R>(
   options?: VolumeTransferOptions
 ) => Effect.Effect<
   Vfs.Volume,
-  E | TransferError | Vfs.FsError | Vfs.ConfigurationError | Vfs.ImageError | PlatformError.PlatformError,
+  E | TransferError | Vfs.VfsError | PlatformError.PlatformError,
   R | Crypto.Crypto
 > = (entries, options) => internal.toVolume(entries, options)
 
@@ -745,7 +745,7 @@ export const toFileSystem: (
   fs: FileSystem.FileSystem,
   destination: string,
   options?: FileSystemWriteOptions
-) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.FsError | PlatformError.PlatformError> = (
+) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError | PlatformError.PlatformError> = (
   fs,
   destination,
   options

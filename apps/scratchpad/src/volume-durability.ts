@@ -342,14 +342,14 @@ export namespace ProposedPublicApi {
 
   export declare const make: (
     options?: VolumeOptions
-  ) => Effect.Effect<Volume, Vfs.ConfigurationError | PlatformError.PlatformError, Crypto.Crypto>
+  ) => Effect.Effect<Volume, Vfs.VfsError | PlatformError.PlatformError, Crypto.Crypto>
 
   export declare const fromSnapshot: (
     snapshot: Vfs.Snapshot,
     options?: VolumeOptions
   ) => Effect.Effect<
     Volume,
-    Vfs.ConfigurationError | Vfs.ImageError | PlatformError.PlatformError,
+    Vfs.VfsError | PlatformError.PlatformError,
     Crypto.Crypto
   >
 }

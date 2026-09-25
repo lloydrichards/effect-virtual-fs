@@ -28,8 +28,17 @@ const systemTags = {
   StorageRejected: "Unknown",
   OutcomeUnknown: "Unknown",
   VolumeUnavailable: "Unknown",
-  VolumeBusy: "Busy"
-} satisfies Record<Exclude<Vfs.FsCode, "InvalidArgument">, SystemErrorTag>
+  VolumeBusy: "Busy",
+  InvalidEncoding: "InvalidData",
+  UnsupportedVersion: "InvalidData",
+  InvalidStructure: "InvalidData",
+  LimitExceeded: "Unknown",
+  BaseMismatch: "InvalidData",
+  Storage: "Unknown",
+  Ownership: "Unknown",
+  IncompatibleStore: "Unknown",
+  CorruptStore: "Unknown"
+} satisfies Record<Exclude<Vfs.VfsCode, "InvalidArgument">, SystemErrorTag>
 
 /** @internal */
 export const argumentError = (method: string, description: string) =>
@@ -43,7 +52,7 @@ export const resourceError = (method: string, pathOrDescriptor: string | number,
 
 /** @internal */
 export const toPlatformError = (
-  error: Vfs.FsError,
+  error: Vfs.VfsError,
   method: string,
   pathOrDescriptor: string | number
 ): PlatformError => {

@@ -1,6 +1,6 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Effect, Exit, Predicate, Stream } from "effect"
+import { ByteSize, Effect, Exit, Predicate, Schema, Stream } from "effect"
 import { layerDeterministicCrypto } from "../src/internal/crypto.js"
 import * as TreeTransfer from "../src/TreeTransfer.js"
 
@@ -133,7 +133,7 @@ it.layer(layerDeterministicCrypto)("TreeTransfer", (it) => {
         )
       )
 
-      assert.strictEqual(error instanceof Vfs.FsError && error.code, "AlreadyExists")
+      assert.strictEqual(Schema.is(Vfs.VfsError)(error) && error.code, "AlreadyExists")
       assert.deepStrictEqual(yield* destination.readDirectory("/copy"), ["keep"])
     }))
 
@@ -309,7 +309,7 @@ it.layer(layerDeterministicCrypto)("TreeTransfer", (it) => {
         Stream.run(TreeTransfer.fromCaller(caller, "/source"), TreeTransfer.toCaller(caller, "/existing"))
       )
 
-      assert.strictEqual(error instanceof Vfs.FsError && error.code, "AlreadyExists")
+      assert.strictEqual(Schema.is(Vfs.VfsError)(error) && error.code, "AlreadyExists")
       assert.strictEqual(new TextDecoder().decode(yield* caller.readFile("/existing")), "old")
     }))
 

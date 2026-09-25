@@ -10,11 +10,11 @@ const limits = {
   maxDecodedBytes: ByteSize.kilobytes(10)
 }
 
-export const live: Layer.Layer<CheckpointStore, Vfs.ImageError, SqlClient> = CheckpointStore.layer(limits)
+export const live: Layer.Layer<CheckpointStore, Vfs.VfsError, SqlClient> = CheckpointStore.layer(limits)
 
 export const program: Effect.Effect<
   Vfs.Volume,
-  CheckpointError | Vfs.ImageError | Vfs.ConfigurationError | PlatformError.PlatformError,
+  CheckpointError | Vfs.VfsError | PlatformError.PlatformError,
   CheckpointStore | Crypto.Crypto
 > = Effect.gen(function*() {
   const store = yield* CheckpointStore

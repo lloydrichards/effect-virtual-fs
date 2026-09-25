@@ -38,7 +38,7 @@ const textPath = Effect.fnUntraced(function*(path: Vfs.BytePath, method: string)
 
   return yield* Effect.try({
     try: () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
-    catch: () => new Vfs.FsError({ code: "UnrepresentableName", operation: method })
+    catch: () => new Vfs.VfsError({ code: "UnrepresentableName", operation: method })
   })
 })
 
@@ -59,7 +59,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       }
 
       return yield* Effect.scoped(Effect.gen(function*() {
-        if (path === "") return yield* new Vfs.FsError({ code: "NotFound", operation: "makeDirectory" })
+        if (path === "") return yield* new Vfs.VfsError({ code: "NotFound", operation: "makeDirectory" })
         let base = yield* caller.openDirectory("/")
         const components = path.split("/").filter((part) => part.length > 0)
 
@@ -71,7 +71,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
           const next = yield* caller.openDirectory(name, { relativeTo: base }).pipe(
             Effect.mapError((error) =>
               error.code === "NotDirectory" && index === components.length - 1
-                ? new Vfs.FsError({ code: "AlreadyExists", operation: "makeDirectory" })
+                ? new Vfs.VfsError({ code: "AlreadyExists", operation: "makeDirectory" })
                 : error
             )
           )

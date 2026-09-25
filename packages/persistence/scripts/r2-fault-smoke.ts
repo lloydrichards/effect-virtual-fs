@@ -1,6 +1,6 @@
 /* oxlint-disable effecttsgo/async-function, effecttsgo/crypto-random-uuid, effecttsgo/global-console, effecttsgo/global-timers, effecttsgo/new-promise, effecttsgo/process-env -- Standalone CLI fault harness uses SDK promises, runtime environment, timing, and terminal output. */
 import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3"
-import { LiveVolume } from "@effect-vfs/core"
+import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Effect, Layer } from "effect"
 import * as R2LiveImageStore from "../src/R2LiveImageStore.js"
@@ -65,8 +65,9 @@ try {
             dropped = true
 
             return Effect.fail(
-              new LiveVolume.LiveVolumeError({
+              new Vfs.VfsError({
                 code: "Storage",
+                operation: "R2Fault",
                 cause: new Error("injected lost response after R2 accepted the write")
               })
             )

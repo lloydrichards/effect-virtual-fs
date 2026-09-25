@@ -1,5 +1,5 @@
 import { S3Client } from "@aws-sdk/client-s3"
-import { LiveVolume } from "@effect-vfs/core"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
@@ -84,8 +84,9 @@ export const makeR2Client = Effect.fn("R2Demo.makeClient")(function*(config: R2D
             lostReply = true
 
             return Effect.fail(
-              new LiveVolume.LiveVolumeError({
+              new Vfs.VfsError({
                 code: "Storage",
+                operation: "R2Client",
                 cause: new Error("test fault: R2 accepted a write but its reply was lost")
               })
             )

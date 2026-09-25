@@ -37,11 +37,11 @@ export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits)
         if (Result.isFailure(existing) && existing.failure.code !== "NotFound") return yield* existing.failure
 
         if (Result.isSuccess(existing) && existing.success.ino === sourceNode.ino) {
-          return yield* new Vfs.FsError({ code: "InvalidArgument", operation: "copy" })
+          return yield* new Vfs.VfsError({ code: "InvalidArgument", operation: "copy" })
         }
 
         if (Result.isSuccess(existing) && !options?.overwrite) {
-          return yield* new Vfs.FsError({ code: "AlreadyExists", operation: "copy" })
+          return yield* new Vfs.VfsError({ code: "AlreadyExists", operation: "copy" })
         }
 
         if (sourceNode.kind === "directory") {
@@ -52,7 +52,7 @@ export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits)
           const parent = yield* caller.realPath(parentPath)
 
           if (canonicalSource === "/" || parent === canonicalSource || parent.startsWith(`${canonicalSource}/`)) {
-            return yield* new Vfs.FsError({ code: "InvalidArgument", operation: "copy" })
+            return yield* new Vfs.VfsError({ code: "InvalidArgument", operation: "copy" })
           }
         }
 
@@ -65,7 +65,7 @@ export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits)
           })
         ).pipe(Effect.catchTag("TransferError", (error) =>
           Effect.fail(
-            new Vfs.FsError({
+            new Vfs.VfsError({
               code: error.code === "LimitExceeded" ? "NoSpace" : "InvalidArgument",
               operation: "copy"
             })
@@ -79,7 +79,7 @@ export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits)
       return yield* Effect.gen(function*() {
         const metadata = yield* caller.stat(source)
 
-        if (metadata.kind !== "file") return yield* new Vfs.FsError({ code: "IsDirectory", operation: "copyFile" })
+        if (metadata.kind !== "file") return yield* new Vfs.VfsError({ code: "IsDirectory", operation: "copyFile" })
         const target = yield* Effect.result(caller.stat(destination))
 
         if (Result.isSuccess(target) && target.success.ino === metadata.ino) return

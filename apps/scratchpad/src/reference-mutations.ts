@@ -90,69 +90,69 @@ export interface ReferenceMutationApi {
     directory: Vfs.ObjectReference,
     name: Name,
     settings?: MkdirReferenceSettings
-  ) => Effect.Effect<ReferenceEntryResult, Vfs.FsError>
+  ) => Effect.Effect<ReferenceEntryResult, Vfs.VfsError>
 
   readonly symlinkReference: (
     target: Vfs.PathInput,
     directory: Vfs.ObjectReference,
     name: Name,
     settings?: SymlinkReferenceSettings
-  ) => Effect.Effect<ReferenceEntryResult, Vfs.FsError>
+  ) => Effect.Effect<ReferenceEntryResult, Vfs.VfsError>
 
   /** Creates another name for the exact source object; symbolic links are not followed. */
   readonly linkReference: (
     source: Vfs.ObjectReference,
     destinationDirectory: Vfs.ObjectReference,
     destinationName: Name
-  ) => Effect.Effect<ReferenceEntryResult, Vfs.FsError>
+  ) => Effect.Effect<ReferenceEntryResult, Vfs.VfsError>
 
   readonly unlinkReference: (
     directory: Vfs.ObjectReference,
     name: Name
-  ) => Effect.Effect<DirectoryChange, Vfs.FsError>
+  ) => Effect.Effect<DirectoryChange, Vfs.VfsError>
 
   readonly rmdirReference: (
     directory: Vfs.ObjectReference,
     name: Name
-  ) => Effect.Effect<DirectoryChange, Vfs.FsError>
+  ) => Effect.Effect<DirectoryChange, Vfs.VfsError>
 
   readonly renameReference: (
     sourceDirectory: Vfs.ObjectReference,
     sourceName: Name,
     destinationDirectory: Vfs.ObjectReference,
     destinationName: Name
-  ) => Effect.Effect<RenameReferenceResult, Vfs.FsError>
+  ) => Effect.Effect<RenameReferenceResult, Vfs.VfsError>
 
   readonly chmodReference: (
     reference: Vfs.ObjectReference,
     mode: number
-  ) => Effect.Effect<void, Vfs.FsError>
+  ) => Effect.Effect<void, Vfs.VfsError>
 
   readonly chownReference: (
     reference: Vfs.ObjectReference,
     owner: Vfs.OwnerUpdate
-  ) => Effect.Effect<void, Vfs.FsError>
+  ) => Effect.Effect<void, Vfs.VfsError>
 
   readonly utimesReference: (
     reference: Vfs.ObjectReference,
     times: Vfs.Times
-  ) => Effect.Effect<void, Vfs.FsError>
+  ) => Effect.Effect<void, Vfs.VfsError>
 
   readonly truncateReference: (
     reference: Vfs.ObjectReference,
     length: bigint
-  ) => Effect.Effect<void, Vfs.FsError>
+  ) => Effect.Effect<void, Vfs.VfsError>
 
   readonly openReference: (
     reference: Vfs.ObjectReference,
     settings?: OpenReferenceSettings
-  ) => Effect.Effect<Vfs.FileHandle, Vfs.FsError, Scope.Scope>
+  ) => Effect.Effect<Vfs.FileHandle, Vfs.VfsError, Scope.Scope>
 
   readonly openChildReference: (
     directory: Vfs.ObjectReference,
     name: Name,
     settings: OpenChildReferenceSettings
-  ) => Effect.Effect<OpenChildReferenceResult, Vfs.FsError, Scope.Scope>
+  ) => Effect.Effect<OpenChildReferenceResult, Vfs.VfsError, Scope.Scope>
 }
 
 declare const caller: ReferenceMutationApi

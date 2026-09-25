@@ -69,7 +69,7 @@ const decodeText = (bytes: Uint8Array): string | undefined => {
   }
 }
 
-const toPathInput = (bytes: Uint8Array): Effect.Effect<Vfs.PathInput, Vfs.FsError> => {
+const toPathInput = (bytes: Uint8Array): Effect.Effect<Vfs.PathInput, Vfs.VfsError> => {
   const text = decodeText(bytes)
 
   return text === undefined ? Vfs.pathFromBytes(bytes) : Effect.succeed(text)
@@ -145,7 +145,7 @@ export const fromCaller = (
   caller: Vfs.Caller,
   root: Vfs.PathInput,
   options?: ReadOptions
-): Stream.Stream<Entry, TransferError | Vfs.FsError> =>
+): Stream.Stream<Entry, TransferError | Vfs.VfsError> =>
   Stream.unwrap(Effect.gen(function*() {
     const limits = yield* resolveLimits(options?.limits)
     const scope = yield* Effect.scope
@@ -345,7 +345,7 @@ export const toCaller = (
   caller: Vfs.Caller,
   destination: Vfs.PathInput,
   options?: WriteOptions
-): Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.FsError> =>
+): Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError> =>
   Sink.unwrap(Effect.gen(function*() {
     // Handles live in their own scope so the cleanup finalizer below can still use them.
     const handles = yield* Scope.make()
@@ -408,7 +408,7 @@ export const toCaller = (
       }
 
       if (current.success.kind === "directory") {
-        return yield* new Vfs.FsError({ code: "IsDirectory", operation: "treeTransfer" })
+        return yield* new Vfs.VfsError({ code: "IsDirectory", operation: "treeTransfer" })
       }
 
       return yield* caller.unlink(name, relative)
@@ -424,7 +424,7 @@ export const toCaller = (
         if (existing === "reject" || made.failure.code !== "AlreadyExists") return yield* made.failure
 
         if ((yield* caller.lstat(name, relative)).kind !== "directory") {
-          return yield* new Vfs.FsError({ code: "NotDirectory", operation: "treeTransfer" })
+          return yield* new Vfs.VfsError({ code: "NotDirectory", operation: "treeTransfer" })
         }
 
         return false

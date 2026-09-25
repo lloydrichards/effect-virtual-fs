@@ -28,32 +28,32 @@ export interface NfsExport {
   readonly capacity: Pick<Vfs.Volume, "limits" | "usage"> | undefined
   /** Selects a caller for one compound while retaining the export's filehandle registry. */
   readonly withCaller: (caller: Vfs.Caller) => NfsExport
-  readonly root: Effect.Effect<Vfs.ObjectReference, Vfs.FsError>
+  readonly root: Effect.Effect<Vfs.ObjectReference, Vfs.VfsError>
   readonly handleFor: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, ExportCapacityError>
   readonly resolve: (handle: Uint8Array) => Effect.Effect<Vfs.ObjectReference, InvalidFilehandleError>
   readonly observeMetadata: (
     reference: Vfs.ObjectReference
-  ) => Effect.Effect<Vfs.ObjectObservation<Vfs.Metadata>, Vfs.FsError>
+  ) => Effect.Effect<Vfs.ObjectObservation<Vfs.Metadata>, Vfs.VfsError>
   readonly observeDirectory: (
     reference: Vfs.ObjectReference
-  ) => Effect.Effect<Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>>, Vfs.FsError>
+  ) => Effect.Effect<Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>>, Vfs.VfsError>
   readonly lookup: (
     directory: Vfs.ObjectReference,
     name: Uint8Array
-  ) => Effect.Effect<Vfs.ObjectReference, Vfs.FsError | InvalidNameError>
-  readonly parent: (directory: Vfs.ObjectReference) => Effect.Effect<Vfs.ObjectReference, Vfs.FsError>
-  readonly readLink: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, Vfs.FsError>
+  ) => Effect.Effect<Vfs.ObjectReference, Vfs.VfsError | InvalidNameError>
+  readonly parent: (directory: Vfs.ObjectReference) => Effect.Effect<Vfs.ObjectReference, Vfs.VfsError>
+  readonly readLink: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, Vfs.VfsError>
   readonly mkdir: (
     directory: Vfs.ObjectReference,
     name: Uint8Array,
     settings?: Vfs.MkdirReferenceSettings
-  ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.FsError | InvalidNameError | ExportCapacityError>
+  ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.VfsError | InvalidNameError | ExportCapacityError>
   readonly symlink: (
     target: Vfs.PathInput,
     directory: Vfs.ObjectReference,
     name: Uint8Array,
     settings?: Vfs.SymlinkReferenceSettings
-  ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.FsError | InvalidNameError | ExportCapacityError>
+  ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.VfsError | InvalidNameError | ExportCapacityError>
   readonly link: Vfs.Caller["linkReference"]
   readonly remove: Vfs.Caller["removeReference"]
   readonly rename: Vfs.Caller["renameReference"]
@@ -64,14 +64,14 @@ export interface NfsExport {
   readonly open: (
     reference: Vfs.ObjectReference,
     access?: Vfs.OpenReferenceSettings["access"]
-  ) => Effect.Effect<OpenedFile, Vfs.FsError>
+  ) => Effect.Effect<OpenedFile, Vfs.VfsError>
   readonly openChild: (
     directory: Vfs.ObjectReference,
     name: Uint8Array,
     settings: Vfs.OpenChildReferenceSettings
   ) => Effect.Effect<
     Vfs.OpenChildReferenceResult & { readonly close: Effect.Effect<void> },
-    Vfs.FsError | InvalidNameError | ExportCapacityError
+    Vfs.VfsError | InvalidNameError | ExportCapacityError
   >
   readonly fsid: readonly [bigint, bigint]
 }
@@ -249,7 +249,7 @@ export const makeExport = (
     activeCaller: Vfs.Caller,
     reference: Vfs.ObjectReference,
     access: Vfs.OpenReferenceSettings["access"] = "read"
-  ): Effect.Effect<OpenedFile, Vfs.FsError> =>
+  ): Effect.Effect<OpenedFile, Vfs.VfsError> =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function*() {
         const scope = yield* Scope.make()
@@ -280,7 +280,7 @@ export const makeExport = (
     observeMetadata: activeCaller.observeMetadata,
     observeDirectory: activeCaller.observeDirectory,
     lookup: (directory, name) =>
-      Effect.suspend<Vfs.ObjectReference, Vfs.FsError | InvalidNameError, never>(() => {
+      Effect.suspend<Vfs.ObjectReference, Vfs.VfsError | InvalidNameError, never>(() => {
         try {
           validateName(name, limits.maxNameBytes)
 
