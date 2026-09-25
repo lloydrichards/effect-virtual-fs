@@ -1,13 +1,9 @@
 import * as Schema from "effect/Schema"
 import * as SchemaTransformation from "effect/SchemaTransformation"
-
-const MAX_TIMESTAMP = 10n ** 128n - 1n
+import { Timestamp } from "../Metadata.js"
 
 /** @internal */
-export const Timestamp = Schema.BigInt.check(
-  Schema.isGreaterThanOrEqualToBigInt(-MAX_TIMESTAMP),
-  Schema.isLessThanOrEqualToBigInt(MAX_TIMESTAMP)
-)
+export { Timestamp }
 
 /** @internal */
 export const TimestampFromString = Schema.String

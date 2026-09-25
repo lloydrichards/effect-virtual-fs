@@ -4,9 +4,53 @@
  * @since 0.1.0
  */
 import * as Data from "effect/Data"
-import type * as Schema from "effect/Schema"
+import * as Schema from "effect/Schema"
 import type { ImageError } from "./Snapshot.js"
-import type { FsCode, PathInput } from "./VirtualFileSystem.js"
+import type { PathInput } from "./VirtualFileSystem.js"
+
+/**
+ * Schema for the portable virtual filesystem error codes.
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const FsCode = Schema.Literals([
+  "NotFound",
+  "AlreadyExists",
+  "NotEmpty",
+  "NotDirectory",
+  "AccessDenied",
+  "InvalidHandle",
+  "ForeignHandle",
+  "InvalidReference",
+  "ForeignReference",
+  "StaleReference",
+  "ClosedCaller",
+  "InvalidArgument",
+  "InvalidPathEncoding",
+  "PathTooLong",
+  "NoSpace",
+  "IsDirectory",
+  "FileTooLarge",
+  "NoData",
+  "SymlinkLoop",
+  "UnrepresentableName",
+  // A durable provider knows the mutation was not committed.
+  "StorageRejected",
+  // A commit or publication failed after its outcome ceased to be knowable to the caller.
+  "OutcomeUnknown",
+  // The provider stopped serving operations until recovery establishes its state.
+  "VolumeUnavailable",
+  "VolumeBusy"
+])
+
+/**
+ * A portable virtual filesystem error code.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type FsCode = typeof FsCode.Type
 
 /**
  * An expected filesystem operation failure.
