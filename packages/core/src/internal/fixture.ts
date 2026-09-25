@@ -76,7 +76,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
         Result.flatMap((path) =>
           !path.absolute || path.components.length === 0 ||
             path.components.some(isDotComponent)
-            ? Result.fail(op.fail("InvalidArgument", { path: input })) :
+            ? Result.fail(op.at(input).fail("InvalidArgument")) :
             Result.succeed(path.components)
         )
       )

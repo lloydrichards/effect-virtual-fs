@@ -61,18 +61,20 @@ export const decodeConfiguration = <A>(schema: Schema.Codec<A>, value: typeof Sc
 /** @internal */
 export interface OpContext {
   readonly operation: string
-  readonly fail: (
-    code: FsCode,
-    details?: { readonly path?: PathInput; readonly cause?: NonNullable<FsError["cause"]> }
-  ) => FsError
+  readonly fail: (code: FsCode, details?: { readonly cause?: NonNullable<FsError["cause"]> }) => FsError
+  // Failures from the returned context name `path`, so a helper takes one context rather than a context and a path.
+  readonly at: (path: PathInput) => OpContext
 }
+
+const makeOpContext = (operation: string, located?: { readonly path: PathInput }): OpContext => ({
+  operation,
+  // Spreading keeps exactly the keys the site names, as direct construction did, including a path an untyped
+  // caller left undefined. A site whose path is optional keeps the context it has instead of calling `at`.
+  fail: (code, details) => new FsError({ code, operation, ...located, ...details }),
+  at: (path) => makeOpContext(operation, { path })
+})
 
 /** @internal */
 export const OpContext = {
-  make: (operation: string): OpContext => ({
-    operation,
-    // Spreading keeps exactly the keys the call site names, as direct construction did, including one an
-    // untyped caller left undefined. Sites whose path is optional pass no details instead.
-    fail: (code, details) => new FsError({ code, operation, ...details })
-  })
+  make: (operation: string): OpContext => makeOpContext(operation)
 }
