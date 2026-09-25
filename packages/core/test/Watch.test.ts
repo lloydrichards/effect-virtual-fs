@@ -70,13 +70,18 @@ describe("volume watch", () => {
       )
     }))
 
-  it.effect("does not deadlock when registration uses an already-closed scope", () =>
+  it.effect("registers nothing and returns an ended stream when the scope is already closed", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
       const scope = yield* Scope.make()
       yield* Scope.close(scope, Exit.void)
-      const stream = yield* volume.watch.pipe(Scope.provide(scope))
-      assert.isDefined(stream)
+      const dead = yield* volume.watch.pipe(Scope.provide(scope))
+      const live = yield* volume.watch
+      yield* caller.mkdir("/after")
+      assert.strictEqual((yield* Stream.runHead(dead))._tag, "None")
+      const event = yield* Stream.runHead(live)
+      assert.strictEqual(event._tag, "Some")
     }))
 
   it.effect("reports every hard link path when a file's metadata changes", () =>

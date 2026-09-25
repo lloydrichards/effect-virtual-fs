@@ -596,4 +596,33 @@ describe("overlay volumes", () => {
       assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: -1 })), Vfs.ConfigurationError)
       assert.deepStrictEqual(yield* Vfs.encodeSnapshot(base), before)
     }))
+
+  it.effect("lets observations run beside a capture while a change waits for it", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/a", bytes: bytes("v") }] }))
+        .snapshot
+
+      const overlay = yield* Vfs.makeOverlay(base)
+      const fs = yield* overlay.caller()
+      const held = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+
+      const capturing = yield* overlay.capture().pipe(
+        withVolumeTestSeams({
+          betweenSnapshotAndSummary: Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release)))
+        }),
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Deferred.await(held)
+      assert.strictEqual((yield* fs.stat("/a")).kind, "file")
+      const changing = yield* fs.mkdir("/dir").pipe(Effect.forkChild({ startImmediately: true }))
+
+      for (let i = 0; i < 4; i++) yield* Effect.yieldNow
+      assert.isUndefined(changing.pollUnsafe())
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(changing)
+      assert.deepStrictEqual(yield* changePaths((yield* Fiber.join(capturing)).changes), [])
+      assert.deepStrictEqual(yield* changePaths(yield* overlay.changes()), ["Added:/dir"])
+    }))
 })
