@@ -25,9 +25,8 @@ const watchEvents = Effect.fnUntraced(function*(
   return Array.from(yield* Fiber.join(events))
 })
 
-// `layerCrypto` is self-contained: it mints its own volume identity without a
-// platform `Crypto` service.
-const memoryLayer = MemoryFileSystem.layerCrypto
+// The layer needs no platform service: the volume mints its own identity.
+const memoryLayer = MemoryFileSystem.layer
 
 FileSystemTest.suite("memory", memoryLayer)
 
@@ -237,7 +236,7 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
     "should complete filesystem operations when directory depth exceeds the call stack",
     () =>
       Effect.gen(function*() {
-        const fs = yield* MemoryFileSystem.makeCrypto
+        const fs = yield* MemoryFileSystem.make
         yield* fs.writeFileString("/file.txt", "before")
         const file = yield* fs.open("/file.txt", { flag: "r+" })
         // This depth exercises traversal beyond the JavaScript call stack through public operations.
@@ -298,7 +297,7 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
   for (const suffix of [".", ".."]) {
     it.effect(`should publish directory creation when recursive mkdir ends in ${suffix}`, () =>
       Effect.gen(function*() {
-        const fs = yield* MemoryFileSystem.makeCrypto
+        const fs = yield* MemoryFileSystem.make
 
         const events = yield* watchEvents(
           "/",

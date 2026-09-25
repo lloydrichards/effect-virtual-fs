@@ -1,8 +1,7 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Effect, FileSystem, Layer, Result, Stream } from "effect"
-import { layerDeterministicCrypto } from "../src/internal/crypto.js"
+import { ByteSize, Effect, FileSystem, Result, Stream } from "effect"
 import * as TreeTransfer from "../src/TreeTransfer.js"
 
 const text = new TextEncoder()
@@ -61,7 +60,7 @@ const withTemp = <A, E, R>(use: (fs: FileSystem.FileSystem, directory: string) =
     return yield* use(fs, yield* fs.makeTempDirectoryScoped({ prefix: "tree-transfer-" }))
   }))
 
-it.layer(Layer.mergeAll(NodeFileSystem.layer, layerDeterministicCrypto))("TreeTransfer host FileSystem", (it) => {
+it.layer(NodeFileSystem.layer)("TreeTransfer host FileSystem", (it) => {
   it.effect("should round-trip a representative tree through the host within the declared losses", () =>
     withTemp((fs, directory) =>
       Effect.gen(function*() {

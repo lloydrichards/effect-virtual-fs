@@ -10,7 +10,6 @@
  * @since 0.6.0
  */
 import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
-import type * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
@@ -524,8 +523,7 @@ export const fromSnapshot: (
   options?: ReadOptions
 ) => Stream.Stream<
   Entry,
-  TransferError | Vfs.VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
+  TransferError | Vfs.VfsError
 > = (snapshot, root, options) => internal.fromSnapshot(snapshot, root, options)
 
 /**
@@ -654,8 +652,8 @@ export const toVolume: <E, R>(
   options?: VolumeTransferOptions
 ) => Effect.Effect<
   Vfs.Volume,
-  E | TransferError | Vfs.VfsError | PlatformError.PlatformError,
-  R | Crypto.Crypto
+  E | TransferError | Vfs.VfsError,
+  R
 > = (entries, options) => internal.toVolume(entries, options)
 
 /**
@@ -677,7 +675,7 @@ export const toVolume: <E, R>(
  * import { Effect, Stream } from "effect"
  *
  * const program = Effect.gen(function*() {
- *   const fs = yield* MemoryFileSystem.makeCrypto
+ *   const fs = yield* MemoryFileSystem.make
  *   yield* fs.makeDirectory("/project")
  *   yield* fs.writeFileString("/project/a.txt", "a")
  *
@@ -721,7 +719,7 @@ export const fromFileSystem: (
  * import { Effect, Stream } from "effect"
  *
  * const program = Effect.gen(function*() {
- *   const fs = yield* MemoryFileSystem.makeCrypto
+ *   const fs = yield* MemoryFileSystem.make
  *   const source = yield* Vfs.fromFixture({
  *     entries: [
  *       { kind: "directory", path: "/dist" },

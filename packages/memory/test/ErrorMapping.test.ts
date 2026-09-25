@@ -1,8 +1,7 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Effect, Stream } from "effect"
+import { ByteSize, Effect, Layer, Stream } from "effect"
 import * as PlatformError from "effect/PlatformError"
-import { layerDeterministicCrypto } from "../src/internal/crypto.js"
 import { toPlatformError } from "../src/internal/platformError.js"
 import * as Memory from "../src/MemoryFileSystem.js"
 
@@ -20,7 +19,7 @@ it("should map volume admission pressure to Busy when translating a core error",
   assert.strictEqual(reason.cause, coreError)
 })
 
-it.layer(layerDeterministicCrypto)("memory adapter error mapping", (it) => {
+it.layer(Layer.empty)("memory adapter error mapping", (it) => {
   it.effect("should report NoSpace when a write exceeds capacity", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.make({ maxBytes: ByteSize.bytes(1) })

@@ -1,7 +1,6 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Effect, Exit, Predicate, Schema, Stream } from "effect"
-import { layerDeterministicCrypto } from "../src/internal/crypto.js"
+import { ByteSize, Effect, Exit, Layer, Predicate, Schema, Stream } from "effect"
 import * as TreeTransfer from "../src/TreeTransfer.js"
 
 const text = new TextEncoder()
@@ -44,7 +43,7 @@ const withoutChangeTimes = (entries: ReadonlyArray<TreeTransfer.Entry>) =>
     return { ...entry, metadata }
   })
 
-it.layer(layerDeterministicCrypto)("TreeTransfer", (it) => {
+it.layer(Layer.empty)("TreeTransfer", (it) => {
   it.effect("should round-trip a representative tree between callers when all metadata is requested", () =>
     Effect.gen(function*() {
       const source = yield* representativeTree

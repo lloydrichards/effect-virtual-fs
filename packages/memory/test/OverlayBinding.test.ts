@@ -1,12 +1,11 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, it } from "@effect/vitest"
-import { Effect, Fiber, Stream } from "effect"
-import { layerDeterministicCrypto } from "../src/internal/crypto.js"
+import { Effect, Fiber, Layer, Stream } from "effect"
 import * as Memory from "../src/MemoryFileSystem.js"
 
 const bytes = new TextEncoder()
 
-it.layer(layerDeterministicCrypto)("overlay memory binding", (it) => {
+it.layer(Layer.empty)("overlay memory binding", (it) => {
   it.effect("should expose direct and adapter writes when bound to an overlay volume", () =>
     Effect.gen(function*() {
       const base = yield* (yield* Vfs.fromFixture({
