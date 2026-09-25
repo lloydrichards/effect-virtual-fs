@@ -494,6 +494,55 @@ export interface DirectoryEntry {
 }
 
 /**
+ * One entry a walk reached: its path below the walk's root, its name, the
+ * object it names and the directory it was listed in, its kind, and its depth.
+ *
+ * **Details**
+ *
+ * `path` is relative to the walk's root, with no leading slash (`a/b` for
+ * `b` in the root's child `a`), so it reads the same whichever way the root
+ * was addressed; the root itself is not an entry. `depth` is 1 for a child of
+ * the root. A symbolic link is reported as a link and never followed.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export interface WalkEntry {
+  readonly path: BytePath
+  readonly name: Uint8Array
+  readonly reference: ObjectReference
+  readonly directory: ObjectReference
+  readonly kind: Metadata["kind"]
+  readonly depth: number
+}
+
+/**
+ * What a walk fails with: a failure of the directory it lists, or
+ * `LimitExceeded` when it would pass one of its bounds, which `field` names.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type WalkFailure = FsFailure | (VfsError & { readonly code: "LimitExceeded" })
+
+/**
+ * Settings for walking a directory tree: the order and the optional depth,
+ * entry, and byte bounds.
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const WalkOptions: typeof CallerModule.WalkOptions = CallerModule.WalkOptions
+
+/**
+ * Settings for walking a directory tree.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type WalkOptions = typeof WalkOptions.Type
+
+/**
  * A directory revision transition captured inside one coordinated operation.
  *
  * @category schemas
@@ -1001,6 +1050,16 @@ export interface Caller {
   readonly readDirectory: (
     directory: TargetInput
   ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsFailure>
+  /**
+   * Every entry below a directory, as a stream that reads one directory at a time and holds no handle. Entries
+   * arrive depth first, each directory's entries in the byte order of their names; symbolic links are reported,
+   * never followed. Each directory is read in one observation, so the walk sees each listing whole but no
+   * snapshot of the tree, and it refreshes no access time. Each directory below the root is reached by name, as a
+   * path lookup reaches it, so it needs search permission on every directory above it, and one that goes away or
+   * is renamed out of the tree before the walk reads it is skipped. A failure below the root names the entry's
+   * path under the path the root was given by, or under the root when it was given by reference or handle.
+   */
+  readonly walk: (directory: TargetInput, options?: WalkOptions) => Stream.Stream<WalkEntry, WalkFailure>
   /** The bytes a symbolic link points at. A path never follows the final link. */
   readonly readLink: (target: TargetInput) => Effect.Effect<Uint8Array, FsFailure>
   /** The canonical absolute path of a target. */
