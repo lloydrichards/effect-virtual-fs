@@ -117,7 +117,10 @@ export const scopedDirectory = (caller: Vfs.Caller) =>
     return yield* child.stat(".")
   })) satisfies Effect.Effect<Vfs.Metadata, Vfs.FsFailure>
 
-export const service = Layer.effect(Vfs.CurrentFileSystem, rootCaller)
+export const service = Layer.effect(Vfs.Caller, rootCaller)
+export const wired: Layer.Layer<Vfs.Caller, Vfs.VfsError> = Vfs.Caller.layer({ umask: 0o022 }).pipe(
+  Layer.provide(Vfs.Volume.layer({ maxEntries: 10 }))
+)
 export const moveDirectory = (caller: Vfs.Caller, source: Vfs.DirectoryHandle, destination: Vfs.DirectoryHandle) =>
   caller.rename(
     Vfs.Target.Path({ path: "old", relativeTo: source }),

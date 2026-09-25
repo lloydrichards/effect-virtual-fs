@@ -249,33 +249,36 @@ const bytes = await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.lay
 console.log(new TextDecoder().decode(bytes)) // {}
 ```
 
-## Provide a caller as an Effect service
+## Provide a volume and a caller as Effect services
 
-`CurrentFileSystem` is an optional service for application code that should receive an existing caller through its
-Effect environment. The service owns no storage; the provided caller keeps its original volume, identity, umask, and
-current directory.
+`Volume` and `Caller` are services with static layers. `Volume.layer()` builds a fresh empty volume,
+`Volume.layerFromSnapshot`, `Volume.layerFromFixture` and `Volume.layerOverlay` build one from existing state, and
+`Volume.layerLive` opens a durable one through the `LiveImageStore` in context. `Caller.layer(options)` makes a root
+caller on the volume in context. A caller supplied through the service keeps its original volume, identity, umask and
+working directory.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const loadConfig = Effect.gen(function*() {
-  const fs = yield* Vfs.CurrentFileSystem
+  const fs = yield* Vfs.Caller
   return yield* fs.readFile("/app/config.json")
 })
 
 const program = Effect.gen(function*() {
-  const fs = yield* (yield* Vfs.make()).caller()
+  const fs = yield* Vfs.Caller
   yield* fs.mkdir("/app")
   yield* fs.writeFile("/app/config.json", new TextEncoder().encode("{}"), {
     access: "write",
     create: "exclusive"
   })
-  return yield* loadConfig.pipe(Effect.provideService(Vfs.CurrentFileSystem, fs))
+  return yield* loadConfig
 })
 
-const bytes = await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))
+const bytes = await Effect.runPromise(
+  program.pipe(Effect.provide(Vfs.Caller.layer()), Effect.provide(Vfs.Volume.layer()))
+)
 console.log(new TextDecoder().decode(bytes)) // {}
 ```
 

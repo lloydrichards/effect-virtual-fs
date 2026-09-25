@@ -12,6 +12,7 @@ import type * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import type * as Order from "effect/Order"
 import type * as PlatformError from "effect/PlatformError"
 import * as Result from "effect/Result"
@@ -59,6 +60,7 @@ import * as Image from "./internal/image.js"
 import * as Path from "./internal/path.js"
 import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
 import * as VfsModel from "./internal/virtualFileSystem.js"
+import { type LiveImageStore, open as openLiveVolume, type Options as LiveVolumeOptions } from "./LiveVolume.js"
 import * as SnapshotDeltaModel from "./SnapshotDelta.js"
 
 export {
@@ -1332,52 +1334,66 @@ export interface OverlayVolume extends Volume {
 }
 
 /**
- * Optional Effect service for providing an existing filesystem caller.
+ * The volume an application runs against, as an Effect service. The static
+ * layers wrap the explicit constructors; each call builds a fresh layer, so
+ * share one layer value to share one volume.
  *
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
- * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
  *
- * // Code depending on the service does not choose the volume it runs against.
- * const readVersion = Effect.gen(function*() {
- *   const caller = yield* Vfs.CurrentFileSystem
- *
- *   return yield* caller.readFile("/version")
- * })
- *
  * const program = Effect.gen(function*() {
- *   const volume = yield* Vfs.make()
- *   const caller = yield* volume.caller()
+ *   const fs = yield* Vfs.Caller
+ *   yield* fs.mkdir("/work")
  *
- *   yield* caller.writeFile("/version", new Uint8Array([49]), {
- *     access: "write",
- *     create: "exclusive"
- *   })
- *
- *   return yield* readVersion.pipe(Effect.provideService(Vfs.CurrentFileSystem, caller))
+ *   return (yield* fs.readDirectory("/")).value.map((entry) => new TextDecoder().decode(entry.name))
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
- * // Uint8Array(1) [ 49 ]
+ * Effect.runPromise(program.pipe(Effect.provide(Vfs.Caller.layer()), Effect.provide(Vfs.Volume.layer())))
+ *   .then(console.log)
+ * // [ 'work' ]
  * ```
  *
- * @see The testing guide at `/guides/testing-with-an-isolated-filesystem`.
  * @category services
- * @since 0.1.0
+ * @since 0.6.0
  */
-export const CurrentFileSystem: Context.Service<CurrentFileSystem, Caller> = Context.Service<CurrentFileSystem, Caller>(
-  "@effect-vfs/core/CurrentFileSystem"
-)
+export const Volume: Context.Service<Volume, Volume> & {
+  /** A fresh empty volume. */
+  readonly layer: (options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  /** A fresh volume restored from a snapshot. */
+  readonly layerFromSnapshot: (snapshot: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  /** A fresh volume built from a fixture. */
+  readonly layerFromFixture: (fixture: Fixture, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  /** A writable overlay over a snapshot base. */
+  readonly layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  /** A durable volume opened through the `LiveImageStore` in context; it shuts down with the layer's scope. */
+  readonly layerLive: (options: LiveVolumeOptions) => Layer.Layer<Volume, VfsError, LiveImageStore>
+} = Object.assign(Context.Service<Volume, Volume>("@effect-vfs/core/Volume"), {
+  layer: (options?: VolumeOptions) => Layer.effect(Volume, VfsModel.make(options)),
+  layerFromSnapshot: (snapshot: Snapshot, options?: VolumeOptions) =>
+    Layer.effect(Volume, VfsModel.fromSnapshot(snapshot, options)),
+  layerFromFixture: (fixture: Fixture, options?: VolumeOptions) =>
+    Layer.effect(Volume, FixtureInternal.fromFixture(fixture, options)),
+  layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.effect(Volume, VfsModel.makeOverlay(base, options)),
+  layerLive: (options: LiveVolumeOptions) => Layer.effect(Volume, openLiveVolume(options))
+})
 
 /**
- * The caller supplied by the optional filesystem service.
+ * The caller an application operates through, as an Effect service. A caller
+ * supplied through the service keeps its own volume, credentials, umask and
+ * working directory; `layer` makes a root caller on the `Volume` in context.
  *
  * @category services
- * @since 0.1.0
+ * @since 0.6.0
  */
-export interface CurrentFileSystem extends Caller {}
+export const Caller: Context.Service<Caller, Caller> & {
+  /** A root caller on the volume in context; root callers need no scope. */
+  readonly layer: (options?: RootCallerOptions) => Layer.Layer<Caller, VfsError, Volume>
+} = Object.assign(Context.Service<Caller, Caller>("@effect-vfs/core/Caller"), {
+  layer: (options?: RootCallerOptions) =>
+    Layer.effect(Caller, Effect.flatMap(Volume, (volume) => volume.caller(options)))
+})
 
 /**
  * Encodes a snapshot as owned UTF-8 JSON bytes using the version 1 snapshot format.
