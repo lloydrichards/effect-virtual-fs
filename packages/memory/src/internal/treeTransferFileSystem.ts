@@ -11,6 +11,7 @@
  * @since 0.6.0
  */
 import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { BytePath } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -29,7 +30,7 @@ import {
   TransferError,
   type TransferReport
 } from "../TreeTransfer.js"
-import { compareBytes, exceeds, isRootPath, limitExceeded, resolveLimits } from "./treeTransfer.js"
+import { exceeds, isRootPath, limitExceeded, resolveLimits } from "./treeTransfer.js"
 
 type EntryMetadata = NonNullable<Extract<Entry, { readonly kind: "file" }>["metadata"]>
 
@@ -191,7 +192,7 @@ export const fromFileSystem = (
 
         const names = (yield* fs.readDirectory(next.host))
           .map((name) => ({ name, bytes: encoder.encode(name) }))
-          .sort((left, right) => compareBytes(left.bytes, right.bytes))
+          .sort((left, right) => BytePath.byteOrder(left.bytes, right.bytes))
 
         for (const child of names.reverse()) {
           pending.push({

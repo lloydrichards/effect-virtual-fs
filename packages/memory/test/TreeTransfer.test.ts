@@ -320,6 +320,15 @@ it.layer(Layer.empty)("TreeTransfer", (it) => {
       assert.deepStrictEqual(failure(error), ["InvalidEntry", "root"])
     }))
 
+  it.effect("should report a root entry whose path is not well-formed as a missing root", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(
+        TreeTransfer.toVolume(Stream.make({ kind: "directory", path: "\uD800" } as const))
+      )
+
+      assert.deepStrictEqual(failure(error), ["InvalidEntry", "root"])
+    }))
+
   it.effect("should leave an existing destination file untouched when a file root is rejected", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.fromFixture({

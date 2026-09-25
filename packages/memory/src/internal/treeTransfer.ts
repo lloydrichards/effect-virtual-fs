@@ -8,7 +8,7 @@
  * @internal
  * @since 0.6.0
  */
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { BytePath, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -58,35 +58,15 @@ const OWNER_ACCESS = 0o700
 const PERMISSION_BITS = 0o777
 const MODE_BITS = 0o7777
 
-const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
-
 const encoder = new TextEncoder()
 
-const decodeText = (bytes: Uint8Array): string | undefined => {
-  try {
-    return utf8.decode(bytes)
-  } catch {
-    return undefined
-  }
-}
+const decodeText = (bytes: Uint8Array): string | undefined => Option.getOrUndefined(BytePath.decodeOption(bytes))
 
+// A name stays a string while it is UTF-8, so consumers can filter entries without decoding.
 const toPathInput = (bytes: Uint8Array): Effect.Effect<Vfs.PathInput, Vfs.VfsError> => {
   const text = decodeText(bytes)
 
-  return text === undefined ? Vfs.pathFromBytes(bytes) : Effect.succeed(text)
-}
-
-/** @internal */
-export const compareBytes = (left: Uint8Array, right: Uint8Array) => {
-  const length = Math.min(left.length, right.length)
-
-  for (let index = 0; index < length; index++) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0)
-
-    if (difference !== 0) return difference
-  }
-
-  return left.length - right.length
+  return text === undefined ? BytePath.fromBytes(bytes) : Effect.succeed(text)
 }
 
 /** @internal */
@@ -174,7 +154,7 @@ export const fromCaller = (
 
       if (metadata.kind === "directory") {
         const handle = yield* Scope.provide(caller.openDirectory(at(next.name, base)), scope)
-        const names = (yield* caller.readDirectory(handle)).value.map((entry) => entry.name).sort(compareBytes)
+        const names = (yield* caller.readDirectory(handle)).value.map((entry) => entry.name).sort(BytePath.byteOrder)
 
         for (let index = names.length - 1; index >= 0; index--) {
           const name = names[index]
@@ -534,11 +514,10 @@ export const toCaller = (
     return Sink.forEach(write).pipe(Sink.mapEffect(() => Effect.uninterruptible(finish)))
   }))
 
+// Never fails: an entry whose path is malformed is not the root, so the sink reports it as InvalidEntry.
 /** @internal */
 export const isRootPath = (path: Vfs.PathInput) =>
-  Predicate.isString(path)
-    ? Effect.succeed(path === "/")
-    : Vfs.pathToBytes(path).pipe(Effect.map((bytes) => bytes.length === 1 && bytes[0] === SLASH))
+  Effect.succeed(Predicate.isString(path) ? path === "/" : BytePath.isRoot(path))
 
 const volumeMetadata = (metadata: EntryMetadata | undefined, options: VolumeTransferOptions | undefined) => {
   if (metadata === undefined) return undefined
