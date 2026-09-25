@@ -44,7 +44,7 @@ sources:
   - id: go-nfs
     resource: https://github.com/willscott/go-nfs
     title: Path-based NFS server and its documented limitations
-generated: { by: codex/okf, at: 2026-09-20T11:50:43Z }
+generated: { by: claude/okf, at: "2026-09-25T22:30:00+02:00" }
 ---
 
 # Reference-based mutations
@@ -69,6 +69,7 @@ Before reference mutations, path operations accepted a live `DirectoryHandle` ba
 ## Consequences
 
 - Reference mutations extend the [object references](../../contracts/object-references.md "extends") and [mutation revisions](../../contracts/mutation-revisions.md "extends") contracts, which record the per-operation authority and revision rules once the operations land. They preserve [explicit caller privilege](explicit-caller-privilege.md "constrained by") and the [mutation and observation contract](../../contracts/mutation-and-observation.md "constrained by"): compositions of several reference calls remain compositions, not transactions.
+- The `*Reference` vocabulary of decision 2 is superseded by the [public API decision](public-api-targets-services-and-errors.md "syntax superseded by"): each verb takes a `Target` or an `Entry`, and the authority, results, and atomic child open decided here survive unchanged.
 - Watch events stay path addressed, so a reference mutation on an object no name reaches publishes nothing, as the contract already states.
 - The NFS export wrapper grows the matching operations and the error map gains rows for `AlreadyExists`, `NotEmpty`, `SymlinkLoop`, `IsDirectory`, `NotDirectory`, and link-count failures before the writable profile (#48) depends on them.[^export] Revisions reduce to the 64-bit `changeid4` by truncation, never hashing, so inequality survives.
 - Issue #125 adds an optional expected-child condition to `openChildReference` so adapter share checks and exclusive-create verifier comparisons cannot race direct callers. It compares the direct object, revision, and both timestamps under the same gate; timestamp comparison is required because access-time changes do not always advance revision. Initial size through `initialSize` and ownership through `owner` join mode and times in the creation candidate, with existing quota and ownership authority rules. Conditional unlink and rename remain deferred.
