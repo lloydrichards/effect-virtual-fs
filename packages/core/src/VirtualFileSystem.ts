@@ -769,6 +769,23 @@ export const MkdirOptions: typeof CallerModule.MkdirOptions = CallerModule.Mkdir
 export type MkdirOptions = typeof MkdirOptions.Type
 
 /**
+ * Settings for removing an entry: whether a directory goes with everything
+ * under it, and whether a missing target is success.
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const RemoveOptions: typeof CallerModule.RemoveOptions = CallerModule.RemoveOptions
+
+/**
+ * Settings for removing an entry.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type RemoveOptions = typeof RemoveOptions.Type
+
+/**
  * Settings for creating a symbolic link through a parent object reference.
  *
  * @category schemas
@@ -1110,8 +1127,18 @@ export interface Caller {
   readonly unlink: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
   /** Removes an empty directory. */
   readonly rmdir: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
-  /** Removes a file, a symbolic link, or an empty directory. */
-  readonly remove: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
+  /**
+   * Removes a file, a symbolic link, or an empty directory. With `recursive`, a directory that has entries is
+   * emptied first, entries before their directories, each removal its own change; it stops at the first failure,
+   * whose path names the entry it stopped at, and leaves what it has not reached. Each entry is removed by its name
+   * in a directory reached by name, so a subtree renamed out of the target is left alone. A directory with entries
+   * must be readable, and no permission is changed to make it so. With `force`, a missing target is success and the
+   * result is `undefined`; a failure below the target is still a failure.
+   */
+  readonly remove: {
+    (entry: EntryInput, options?: RemoveOptions & { readonly force?: false }): Effect.Effect<DirectoryChange, FsFailure>
+    (entry: EntryInput, options: RemoveOptions): Effect.Effect<DirectoryChange | undefined, FsFailure>
+  }
   /** Moves an entry, replacing a compatible destination. */
   readonly rename: (from: EntryInput, to: EntryInput) => Effect.Effect<RenameReferenceResult, FsFailure>
   /** Sets the permission bits of a target. */

@@ -23,6 +23,7 @@ import {
   ObjectReferenceId,
   OpenEntryOptions,
   OpenOptions,
+  RemoveOptions,
   RootCallerOptions,
   SetattrOptions,
   SymlinkOptions,
@@ -175,6 +176,8 @@ const decodeSymlinkOptions = Schema.decodeEffect(SymlinkOptions, { onExcessPrope
 
 const decodeWalkOptions = Schema.decodeEffect(WalkOptions, { onExcessProperty: "error" })
 
+const decodeRemoveOptions = Schema.decodeEffect(RemoveOptions, { onExcessProperty: "error" })
+
 const decodeOpenEntryOptions = Schema.decodeEffect(OpenEntryOptions, { onExcessProperty: "error" })
 
 const encoder = new TextEncoder()
@@ -277,6 +280,8 @@ interface WalkFrame {
   readonly ino: Ino
   readonly kind: Node["kind"]
   readonly name: Uint8Array
+  // The name as the directory keys it.
+  readonly key: string
   readonly path: Uint8Array
   readonly parent: Ino
   // The frame of the directory it was listed in: the root's anchor for a child of a root reached by name, and
@@ -2608,9 +2613,15 @@ export const makeVolume = Effect.fnUntraced(
         return { parent, name: entry.name, child }
       })
 
-      // Removes a file or an empty directory; only references reach it, so a dot name never does.
+      // Removes a file, a symbolic link, or an empty directory. A dot name is invalid on either family, and a
+      // trailing slash asks for a directory, judged before write permission as unlink and rmdir judge it.
       const removeEntry = Effect.fnUntraced(function*(entry: ResolvedEntry, op: OpContext) {
-        const { child, name, parent } = yield* removalTarget(entry, "InvalidArgument")
+        const { child, name, parent } = yield* removalTarget(
+          entry,
+          "InvalidArgument",
+          (found) => entry.trailingSlash && found.kind !== "directory" ? entry.op.fail("NotDirectory") : undefined
+        )
+
         yield* authorizeRemoval(parent, child, entry.op)
 
         if (child.kind === "directory" && child.entries.size > 0) return yield* entry.op.fail("NotEmpty")
@@ -3296,6 +3307,7 @@ export const makeVolume = Effect.fnUntraced(
             ino: child.ino,
             kind: child.kind,
             name: bytes,
+            key: name,
             path: joinPath(path, bytes),
             parent: directory.ino,
             up,
@@ -3477,6 +3489,87 @@ export const makeVolume = Effect.fnUntraced(
 
           return Stream.paginate(undefined, () => step)
         })
+
+      // Empties the directory an entry names, entries before their directories, each removal its own change. Each
+      // entry is removed by its name in the directory the walk reached by name from the target's name, and only
+      // while that name still holds the object the walk listed, so a subtree renamed out of the target, the target
+      // renamed away, and a replacement created under a listed name are all left alone. It stops at the first
+      // failure, which names the entry's path under the one the caller gave. Removing an empty directory reveals nothing, so only a directory with entries must be readable, and
+      // no permission is changed to make one so. With `force`, the entry itself going missing leaves nothing to
+      // empty.
+      const emptyDirectory = Effect.fnUntraced(function*(prepared: PreparedEntry, op: OpContext, force: boolean) {
+        const prefix = prepared.kind === "path" ? prepared.path.bytes : nameBytes(prepared.name)
+        const locate = (path: Uint8Array): PathInput => ownedPath(joinPath(prefix, path))
+
+        const listable = (directory: Directory, at: OpContext) =>
+          directory.entries.size === 0 ? Effect.void : authorize(directory, identity, READ, at)
+
+        // The target's name and the object it held when the walk listed it, and the context its failures use.
+        let anchor: WalkFrame | undefined
+        let targetAt = preparedOp(prepared, op)
+
+        const first = coordinatedRead(
+          op,
+          Effect.gen(function*() {
+            const entry = yield* resolveEntry(prepared, op)
+            const parent = directoryNow(entry.parent)
+            yield* authorize(parent, identity, EXECUTE, entry.op)
+            const childIno = entry.name === undefined ? undefined : parent.entries.get(entry.name)
+            const child = childIno === undefined ? undefined : view(childIno)
+
+            if (entry.name === undefined || child === undefined) return yield* entry.op.fail("NotFound")
+
+            // Something else took the name since the removal found it full; removing the entry again judges it.
+            if (child.kind !== "directory") return []
+            yield* listable(child, entry.op)
+            anchor = anchorFrame(parent, entry.name, child)
+            targetAt = entry.op
+
+            return walkChildren(child, new Uint8Array(0), 0, anchor)
+          })
+        ).pipe(
+          Effect.catchIf((error) => force && error.code === "NotFound", () => Effect.succeed([]))
+        )
+
+        const seams = yield* VolumeTestSeams
+
+        const removeFrame = (frame: WalkFrame) => {
+          const at = op.at(locate(frame.path))
+
+          return Effect.andThen(
+            seams.beforeTreeRemoval,
+            coordinated(
+              op,
+              Effect.suspend(() => {
+                // A target moved out of its name leaves nothing to remove; `force` forgives that, as it does the
+                // target going missing.
+                if (anchor !== undefined && !holds(view(anchor.parent), anchor)) {
+                  return force ? Effect.void : Effect.fail(targetAt.fail("NotFound"))
+                }
+
+                // The name must still hold the object the walk listed, so a replacement created under it stays.
+                return Effect.flatMap(
+                  frame.up === undefined ? Effect.succeed(view(frame.parent)) : reachFrame(frame.up, at),
+                  (parent) =>
+                    !holds(parent, frame)
+                      ? Effect.fail(at.fail("NotFound"))
+                      : removeEntry({
+                        parent: parent.ino,
+                        name: frame.key,
+                        trailingSlash: false,
+                        addressing: "entry",
+                        op: at
+                      }, op)
+                )
+              })
+            )
+          )
+        }
+
+        const plan: WalkPlan = { order: "post", maxDepth: undefined, maxEntries: undefined, maxBytes: undefined }
+
+        return yield* Stream.runForEach(walkFrames(op, first, plan, locate, listable), removeFrame)
+      })
 
       const rootOp = OpContext.make("root")
 
@@ -3968,9 +4061,32 @@ export const makeVolume = Effect.fnUntraced(
         rmdir: Effect.fn("Caller.rmdir")(function*(input) {
           return yield* entryVerb("rmdir", input, rmdirEntry)
         }),
-        remove: Effect.fn("Caller.remove")(function*(input) {
-          return yield* entryVerb("remove", input, removeEntry)
-        }),
+        // SAFETY: the overloads differ only in whether `force` may leave nothing removed; one body serves both.
+        remove: Effect.fn("Caller.remove")(function*(input: EntryInput, options?: RemoveOptions) {
+          const op = OpContext.make("remove")
+          const prepared = yield* Effect.fromResult(prepareEntry(input, op))
+
+          const chosen = yield* decodeRemoveOptions(options ?? {}).pipe(
+            Effect.mapError((cause) => fail(preparedOp(prepared, op), cause))
+          )
+
+          const once = coordinated(op, Effect.flatMap(resolveEntry(prepared, op), (entry) => removeEntry(entry, op)))
+
+          // `force` forgives only the target itself going missing, never an entry below it.
+          const target = <A>(effect: Effect.Effect<A, FsFailure>) =>
+            chosen.force === true
+              ? Effect.catchIf(effect, (error) => error.code === "NotFound", () => Effect.undefined)
+              : effect
+
+          const removed = yield* Effect.result(target(once))
+
+          if (Result.isSuccess(removed)) return removed.success
+
+          if (chosen.recursive !== true || removed.failure.code !== "NotEmpty") return yield* removed.failure
+          yield* emptyDirectory(prepared, op, chosen.force === true)
+
+          return yield* target(once)
+        }) as Caller["remove"],
         rename: Effect.fn("Caller.rename")(function*(fromInput, toInput) {
           const op = OpContext.make("rename")
           // Both inputs prepare before either resolves, so a malformed destination outranks a missing source.
