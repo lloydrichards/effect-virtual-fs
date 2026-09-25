@@ -163,6 +163,32 @@ const readOwners = (bytes: Uint8Array) =>
     return owners
   })
 
+// A client whose every stat of the file lets another client chown it first, `races` times, so the chown lands
+// between the metadata SETATTR observes and the change it makes. Each racing chown moves the owner to a new uid.
+const racingSetup = Effect.fnUntraced(function*(races: number) {
+  const caller = yield* Vfs.Caller
+  yield* caller.writeFile("/file", new Uint8Array([1, 2]), { access: "write", create: "exclusive" })
+  yield* caller.chown("/file", { uid: 1000, gid: 1000 })
+  yield* caller.chmod("/file", 0o755)
+  let raced = 0
+
+  const racing: Vfs.Caller = {
+    ...caller,
+    stat: (target) =>
+      Effect.tap(caller.stat(target), (metadata) =>
+        metadata.kind === "file" && raced < races
+          ? caller.chown("/file", { uid: 2000 + raced++ })
+          : Effect.void)
+  }
+
+  const { handler, session } = yield* openSession(caller, "setattr-client", {
+    writable: true,
+    callerFor: () => Effect.succeed(racing)
+  })
+
+  return { caller, handler, session, raced: () => raced }
+})
+
 it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
   it.effect("distinguishes read-only attributes from unsupported attributes", () =>
     Effect.gen(function*() {
@@ -491,7 +517,152 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
       )
       assert.strictEqual((yield* caller.stat("/file")).size, 2n)
     }).pipe(Effect.provide(Testing.layer())))
-  it.effect("reports prior attributes when a later ownership change is denied", () =>
+  it.effect("applies no attribute and reports none when a later ownership change is denied", () =>
+    Effect.gen(function*() {
+      const {
+        caller,
+        handler,
+        session
+      } = yield* setup(true)
+
+      const before = yield* caller.stat("/file")
+
+      const changed = yield* result(
+        yield* run(handler, session, 1, [[33, (writer) => writer.write(XdrCodec.uint32, 0o640)], [
+          36,
+          (writer) => writer.write(XdrCodec.string(), "2000")
+        ]])
+      )
+
+      assert.deepStrictEqual(changed, {
+        status: Status.PERM,
+        attrsset: []
+      })
+      assert.deepInclude(yield* caller.stat("/file"), {
+        mode: before.mode,
+        uid: 1000
+      })
+    }).pipe(Effect.provide(Testing.layer())))
+  it.effect("clears setuid from a mode sent with an owner change, as knfsd does, under one change", () =>
+    Effect.gen(function*() {
+      const {
+        caller,
+        handler,
+        session
+      } = yield* setup()
+
+      const volume = yield* Vfs.Volume
+      const changes = yield* Testing.collectChanges(yield* volume.watch, 2)
+      const before = yield* caller.stat("/file")
+
+      const changed = yield* result(
+        yield* run(handler, session, 1, [[33, (writer) => writer.write(XdrCodec.uint32, 0o6745)], [
+          36,
+          (writer) => writer.write(XdrCodec.string(), "7")
+        ], [37, (writer) => writer.write(XdrCodec.string(), "7")]])
+      )
+
+      yield* caller.mkdir("/done")
+
+      assert.deepStrictEqual(changed, {
+        status: Status.OK,
+        attrsset: [33, 36, 37]
+      })
+      // Without group execute, setgid marks mandatory locking rather than privilege, and knfsd keeps it.
+      assert.deepInclude(yield* caller.stat("/file"), {
+        mode: 0o2745,
+        uid: 7,
+        gid: 7,
+        revision: before.revision + 1n
+      })
+      assert.deepStrictEqual((yield* changes).map((change) => change._tag), ["Update", "Create"])
+    }).pipe(Effect.scoped, Effect.provide(Testing.layer())))
+  it.effect("clears setgid too from a group-executable mode sent with a group change", () =>
+    Effect.gen(function*() {
+      const {
+        caller,
+        handler,
+        session
+      } = yield* setup()
+
+      const changed = yield* result(
+        yield* run(handler, session, 1, [[33, (writer) => writer.write(XdrCodec.uint32, 0o6755)], [37, (writer) =>
+          writer.write(XdrCodec.string(), "7")]])
+      )
+
+      assert.deepStrictEqual(changed, {
+        status: Status.OK,
+        attrsset: [33, 37]
+      })
+      assert.deepInclude(yield* caller.stat("/file"), { mode: 0o755, gid: 7 })
+    }).pipe(Effect.provide(Testing.layer())))
+  it.effect("keeps a set-ID mode sent with an owner change on a directory, as knfsd does", () =>
+    Effect.gen(function*() {
+      const {
+        caller,
+        handler,
+        session
+      } = yield* setup()
+
+      yield* caller.unlink("/file")
+      yield* caller.mkdir("/file")
+
+      const changed = yield* result(
+        yield* run(handler, session, 1, [[33, (writer) => writer.write(XdrCodec.uint32, 0o2755)], [
+          36,
+          (writer) => writer.write(XdrCodec.string(), "7")
+        ]])
+      )
+
+      assert.deepStrictEqual(changed, {
+        status: Status.OK,
+        attrsset: [33, 36]
+      })
+      assert.deepInclude(yield* caller.stat("/file"), { mode: 0o2755, uid: 7 })
+    }).pipe(Effect.provide(Testing.layer())))
+  it.effect("accepts an owner re-sending a group it is not a member of when the group is unchanged, as knfsd does", () =>
+    Effect.gen(function*() {
+      const {
+        caller,
+        handler,
+        session
+      } = yield* setup(true)
+
+      yield* caller.chown("/file", { gid: 2000 })
+      const before = yield* caller.stat("/file")
+
+      assert.deepStrictEqual(
+        yield* result(yield* run(handler, session, 1, [[37, (writer) => writer.write(XdrCodec.string(), "2000")]])),
+        {
+          status: Status.OK,
+          attrsset: [37]
+        }
+      )
+      assert.deepInclude(yield* caller.stat("/file"), { gid: 2000, revision: before.revision })
+    }).pipe(Effect.provide(Testing.layer())))
+  it.effect("still refuses an unchanged owner or group from a caller that does not own the file", () =>
+    Effect.gen(function*() {
+      const {
+        handler,
+        session
+      } = yield* setup(true, true, 1002)
+
+      assert.deepStrictEqual(
+        yield* result(yield* run(handler, session, 1, [[36, (writer) => writer.write(XdrCodec.string(), "1000")]])),
+        {
+          status: Status.PERM,
+          attrsset: []
+        }
+      )
+      assert.deepStrictEqual(
+        yield* result(yield* run(handler, session, 2, [[37, (writer) => writer.write(XdrCodec.string(), "1000")]])),
+        {
+          status: Status.PERM,
+          attrsset: []
+        }
+      )
+    }).pipe(Effect.provide(Testing.layer())))
+  it.effect("keeps a set-ID mode sent with the owner the file already has, as knfsd does", () =>
     Effect.gen(function*() {
       const {
         caller,
@@ -500,18 +671,39 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
       } = yield* setup(true)
 
       const changed = yield* result(
-        yield* run(handler, session, 1, [[33, (writer) => writer.write(XdrCodec.uint32, 0o640)], [36, (writer) =>
-          writer.write(XdrCodec.string(), "2000")]])
+        yield* run(handler, session, 1, [[33, (writer) => writer.write(XdrCodec.uint32, 0o4755)], [
+          36,
+          (writer) => writer.write(XdrCodec.string(), "1000")
+        ]])
       )
 
       assert.deepStrictEqual(changed, {
-        status: Status.PERM,
-        attrsset: [33]
+        status: Status.OK,
+        attrsset: [33, 36]
       })
-      assert.deepInclude(yield* caller.stat("/file"), {
-        mode: 0o640,
-        uid: 1000
+      assert.deepInclude(yield* caller.stat("/file"), { mode: 0o4755, uid: 1000 })
+    }).pipe(Effect.provide(Testing.layer())))
+  it.effect("clears set-ID bits when the group changes even though the owner sent is unchanged", () =>
+    Effect.gen(function*() {
+      const {
+        caller,
+        handler,
+        session
+      } = yield* setup(true)
+
+      const changed = yield* result(
+        yield* run(handler, session, 1, [
+          [33, (writer) => writer.write(XdrCodec.uint32, 0o6755)],
+          [36, (writer) => writer.write(XdrCodec.string(), "1000")],
+          [37, (writer) => writer.write(XdrCodec.string(), "1001")]
+        ])
+      )
+
+      assert.deepStrictEqual(changed, {
+        status: Status.OK,
+        attrsset: [33, 36, 37]
       })
+      assert.deepInclude(yield* caller.stat("/file"), { mode: 0o755, uid: 1000, gid: 1001 })
     }).pipe(Effect.provide(Testing.layer())))
   it.effect("lets an owner select a supplementary group but rejects another group", () =>
     Effect.gen(function*() {
@@ -623,5 +815,36 @@ it.layer(NodeCrypto.layer)("NFS SETATTR", (it) => {
         attrsset: []
       })
       assert.notStrictEqual((yield* caller.stat("/file")).mode, 0o600)
+    }).pipe(Effect.provide(Testing.layer())))
+  it.effect("re-observes an owner that another client changed mid-SETATTR, so setuid never survives the chown", () =>
+    Effect.gen(function*() {
+      const { caller, handler, session } = yield* racingSetup(1)
+
+      const changed = yield* result(
+        yield* run(handler, session, 1, [[33, (writer) => writer.write(XdrCodec.uint32, 0o4755)], [
+          36,
+          (writer) => writer.write(XdrCodec.string(), "1000")
+        ]])
+      )
+
+      assert.deepStrictEqual(changed, { status: Status.OK, attrsset: [33, 36] })
+      // The owner moved to 2000 after the first observation, so 1000 is a real change and knfsd clears setuid.
+      assert.deepInclude(yield* caller.stat("/file"), { uid: 1000, mode: 0o755 })
+    }).pipe(Effect.provide(Testing.layer())))
+  it.effect("answers DELAY and applies nothing when the owner keeps moving under SETATTR", () =>
+    Effect.gen(function*() {
+      const { caller, handler, session, raced } = yield* racingSetup(Number.POSITIVE_INFINITY)
+
+      const changed = yield* result(
+        yield* run(handler, session, 1, [[33, (writer) => writer.write(XdrCodec.uint32, 0o4755)], [
+          36,
+          (writer) => writer.write(XdrCodec.string(), "1000")
+        ]])
+      )
+
+      assert.deepStrictEqual(changed, { status: Status.DELAY, attrsset: [] })
+      // One observation and three re-observations, each overtaken by a chown.
+      assert.strictEqual(raced(), 4)
+      assert.deepInclude(yield* caller.stat("/file"), { uid: 2003, mode: 0o755 })
     }).pipe(Effect.provide(Testing.layer())))
 })

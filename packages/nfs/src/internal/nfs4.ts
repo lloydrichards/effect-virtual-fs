@@ -252,6 +252,13 @@ const MIN_FORE_RESPONSE_BYTES = 24 + 12 + 8 + 36
 /** PERSIST, CONN_BACK_CHAN, and CONN_RDMA are the only defined csa_flags bits. */
 const CREATE_SESSION4_KNOWN_FLAGS = 0x7
 
+// The mode bits knfsd's nfsd_sanitize_attrs strips from a SETATTR that also changes the owner.
+const SET_UID = 0o4000
+
+const SET_GID = 0o2000
+
+const GROUP_EXECUTE = 0o010
+
 const ACCESS4_READ = 0x01
 
 const ACCESS4_LOOKUP = 0x02
@@ -1024,6 +1031,98 @@ const setattrAttributes = Effect.fnUntraced(function*(
 
   return changes
 })
+
+// The one core change a SETATTR's decoded attributes make: owner and group join one owner update, and the two
+// times one times update that omits the one not given.
+const setattrOptions = (changes: ReadonlyArray<SetAttribute>): Vfs.SetattrOptions => {
+  const options: Types.Mutable<Vfs.SetattrOptions> = {}
+  const owner: Types.Mutable<Vfs.OwnerUpdate> = {}
+
+  let access: Vfs.Times["access"] | undefined
+  let modification: Vfs.Times["modification"] | undefined
+
+  for (const change of changes) {
+    if (change.kind === "size") options.size = change.value
+    else if (change.kind === "mode") options.mode = change.value
+    else if (change.kind === "owner" && change.attribute === 36) owner.uid = change.value
+    else if (change.kind === "owner") owner.gid = change.value
+    else if (change.attribute === 48) access = change.value
+    else modification = change.value
+  }
+
+  if (Object.keys(owner).length !== 0) options.owner = owner
+
+  if (access !== undefined || modification !== undefined) {
+    options.times = { access: access ?? { kind: "omit" }, modification: modification ?? { kind: "omit" } }
+  }
+
+  return options
+}
+
+// Linux knfsd's SETATTR (fs/nfsd/vfs.c) treats an owner or group equal to the object's current one as no change:
+// notify_change's chown_ok and chgrp_ok (fs/attr.c) let the owner re-send its own uid, and its own gid without
+// membership, and nfsd_sanitize_attrs revokes set-ID bits only when the uid or gid actually differs. Core's chown
+// is POSIX and refuses a gid outside the caller's groups even when it is the current one, so the unchanged ids
+// are dropped here. The owner update itself stays, possibly empty, so core still checks ownership as chown_ok does.
+// For a real change of the owner or group of a non-directory that sets its mode too, nfsd_sanitize_attrs clears
+// setuid from the requested mode, and setgid when the mode grants group execute (without it, setgid marks
+// mandatory locking, not privilege). Core applies a requested mode after the owner, as POSIX chown then chmod
+// does, so the sanitising happens here. An owner change without a mode needs nothing: core's chown already
+// clears both bits on a regular file. The result pins the revision it observed, so core refuses it if another
+// change lands before it applies.
+const sanitizeSetattr = (
+  export_: NfsExport,
+  reference: Vfs.ObjectReference,
+  options: Vfs.SetattrOptions
+): Effect.Effect<Vfs.SetattrOptions, Vfs.VfsError> => {
+  const { mode, owner } = options
+
+  if (owner === undefined) return Effect.succeed(options)
+
+  return Effect.map(
+    export_.observeMetadata(reference),
+    ({ value, revision }) => {
+      const changed: Types.Mutable<Vfs.OwnerUpdate> = {}
+
+      if (owner.uid !== undefined && owner.uid !== value.uid) changed.uid = owner.uid
+
+      if (owner.gid !== undefined && owner.gid !== value.gid) changed.gid = owner.gid
+      const chowned = changed.uid !== undefined || changed.gid !== undefined
+
+      return mode === undefined || !chowned || value.kind === "directory"
+        ? { ...options, owner: changed, expected: { revision } }
+        : {
+          ...options,
+          owner: changed,
+          mode: mode & ~(SET_UID | ((mode & GROUP_EXECUTE) === 0 ? 0 : SET_GID)),
+          expected: { revision }
+        }
+    }
+  )
+}
+
+// Re-observations a SETATTR makes when another change overtook the metadata its owner handling read, before
+// answering DELAY so the client retries later.
+const SETATTR_RETRIES = 3
+
+// Whether core refused a setattr because the target moved past the revision it was decided from.
+const isStaleObservation = (error: Vfs.VfsError) => error.code === "StaleReference" && error.field === "expected"
+
+// Sanitises and applies a SETATTR's attributes as one core change, re-observing when another change lands
+// between the observation and the change, and failing with DELAY once the retries run out.
+const applySetattr = (
+  export_: NfsExport,
+  reference: Vfs.ObjectReference,
+  options: Vfs.SetattrOptions
+): Effect.Effect<void, Vfs.VfsError | typeof Status.DELAY> => {
+  const attempt = (retries: number): Effect.Effect<void, Vfs.VfsError | typeof Status.DELAY> =>
+    sanitizeSetattr(export_, reference, options).pipe(
+      Effect.flatMap((attributes) => export_.setattr(reference, attributes)),
+      Effect.catchIf(isStaleObservation, () => retries === 0 ? Effect.fail(Status.DELAY) : attempt(retries - 1))
+    )
+
+  return attempt(SETATTR_RETRIES)
+}
 
 const readStateOwner = Effect.fnUntraced(function*(reader: DecoderSession, limits: Nfs4Limits) {
   yield* reader.read(XdrCodec.uint64)
@@ -5116,11 +5215,12 @@ export const makeNfs4Handler = (
                   const value = operation.value
 
                   return Effect.gen(function*() {
-                    const applied: Array<number> = []
-
-                    const reply = (status: number): Effect.Effect<ResultPart, XdrEncodeError> =>
+                    const reply = (
+                      status: number,
+                      attrsset: ReadonlyArray<number> = []
+                    ): Effect.Effect<ResultPart, XdrEncodeError> =>
                       Effect.map(
-                        encodeStatusBody(options.limits, [(writer) => writeBitmap(writer, wordsFor(applied))]),
+                        encodeStatusBody(options.limits, [(writer) => writeBitmap(writer, wordsFor(attrsset))]),
                         (body): ResultPart => ({ code: operation.code, status, body })
                       )
 
@@ -5160,39 +5260,21 @@ export const makeNfs4Handler = (
                       ) return yield* reply(Status.SHARE_DENIED)
                     }
 
-                    const accessTime = decoded.changes.find((change) => change.attribute === 48)
-                    const modificationTime = decoded.changes.find((change) => change.attribute === 54)
-
-                    for (const change of decoded.changes) {
-                      if (change.attribute === 54 && accessTime !== undefined) continue
-
-                      const mutation = change.kind === "size"
-                        ? export_.truncate(reference, change.value)
-                        : change.kind === "mode"
-                        ? export_.chmod(reference, change.value)
-                        : change.kind === "owner"
-                        ? export_.chown(
-                          reference,
-                          change.attribute === 36 ? { uid: change.value } : { gid: change.value }
-                        )
-                        : export_.utimes(reference, {
-                          access: change.attribute === 48 ? change.value : { kind: "omit" },
-                          modification: modificationTime?.kind === "time" ? modificationTime.value : { kind: "omit" }
-                        })
-
-                      const status = yield* mutation.pipe(
-                        Effect.as(Status.OK),
-                        Effect.catch((error) => Effect.succeed(failureForFs(error, operation.code)))
+                    // RFC 8881 lets a failed SETATTR report some attributes or none; one setattr applies all
+                    // of them or none, so attrsset is empty on failure and complete on success.
+                    const status = yield* applySetattr(export_, reference, setattrOptions(decoded.changes)).pipe(
+                      Effect.as(Status.OK),
+                      Effect.catch((error) =>
+                        Effect.succeed(error === Status.DELAY ? error : failureForFs(error, operation.code))
                       )
+                    )
 
-                      if (status !== Status.OK) return yield* reply(status)
-
-                      applied.push(change.attribute)
-
-                      if (change.attribute === 48 && modificationTime !== undefined) applied.push(54)
-                    }
-
-                    return yield* reply(Status.OK)
+                    return yield* reply(
+                      status,
+                      status === Status.OK
+                        ? decoded.changes.map((change) => change.attribute)
+                        : []
+                    )
                   })
                 }
 

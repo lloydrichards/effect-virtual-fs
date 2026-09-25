@@ -69,10 +69,10 @@ export interface NfsExport {
     destinationDirectory: Vfs.ObjectReference,
     destinationName: Uint8Array
   ) => Effect.Effect<Vfs.RenameReferenceResult, Vfs.VfsError>
-  readonly chmod: (reference: Vfs.ObjectReference, mode: number) => Effect.Effect<void, Vfs.VfsError>
-  readonly chown: (reference: Vfs.ObjectReference, owner: Vfs.OwnerUpdate) => Effect.Effect<void, Vfs.VfsError>
-  readonly utimes: (reference: Vfs.ObjectReference, times: Vfs.Times) => Effect.Effect<void, Vfs.VfsError>
-  readonly truncate: (reference: Vfs.ObjectReference, length: bigint) => Effect.Effect<void, Vfs.VfsError>
+  readonly setattr: (
+    reference: Vfs.ObjectReference,
+    attributes: Vfs.SetattrOptions
+  ) => Effect.Effect<void, Vfs.VfsError>
   /** The bits of `bits` the caller may exercise on the object. */
   readonly access: (reference: Vfs.ObjectReference, bits: number) => Effect.Effect<number, Vfs.VfsError>
   readonly open: (
@@ -341,10 +341,7 @@ export const makeExport = (
     remove: (directory, name) => activeCaller.remove(Vfs.Entry(directory, name)),
     rename: (sourceDirectory, sourceName, destinationDirectory, destinationName) =>
       activeCaller.rename(Vfs.Entry(sourceDirectory, sourceName), Vfs.Entry(destinationDirectory, destinationName)),
-    chmod: (reference, mode) => activeCaller.chmod(reference, mode),
-    chown: (reference, owner) => activeCaller.chown(reference, owner),
-    utimes: (reference, times) => activeCaller.utimes(reference, times),
-    truncate: (reference, length) => activeCaller.truncate(reference, length),
+    setattr: (reference, attributes) => activeCaller.setattr(reference, attributes),
     access: (reference, bits) => activeCaller.access(reference, bits),
     open: (reference, access) => open(activeCaller, reference, access),
     openChild: (directory, name, settings) =>
