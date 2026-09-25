@@ -122,6 +122,14 @@ export const apiPages = [
     contentPath: "content/api/core/live-volume.mdx"
   },
   {
+    packageDir: "packages/core",
+    moduleName: "Testing",
+    label: "Core · Testing",
+    href: "/api/core/testing",
+    routePath: "core/testing",
+    contentPath: "content/api/core/testing.mdx"
+  },
+  {
     packageDir: "packages/memory",
     moduleName: "MemoryFileSystem",
     label: "Memory · MemoryFileSystem",
