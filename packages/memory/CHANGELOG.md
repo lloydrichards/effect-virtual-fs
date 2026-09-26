@@ -1,5 +1,16 @@
 # @effect-vfs/memory
 
+## 0.7.0
+
+### Minor Changes
+
+- [#233](https://github.com/lloydrichards/effect-virtual-fs/pull/233) [`68613c2`](https://github.com/lloydrichards/effect-virtual-fs/commit/68613c2704de6b238bad4306088f7f0727e561e3) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Volume constructors and the memory filesystem layer now require an Effect Crypto service for secure volume identifiers and reference keys. Provide a platform Crypto layer when building these services, for example `Effect.provide(BunCrypto.layer)`.
+
+### Patch Changes
+
+- Updated dependencies [[`68613c2`](https://github.com/lloydrichards/effect-virtual-fs/commit/68613c2704de6b238bad4306088f7f0727e561e3)]:
+  - @effect-vfs/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes
