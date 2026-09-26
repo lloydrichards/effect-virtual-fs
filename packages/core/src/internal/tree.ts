@@ -1,9 +1,4 @@
-// The one tree codec: a volume value as a header line and then one line per node, the nodes in inode order, each
-// naming the directory entries that reach it. A snapshot is this tree; the live image's header adds the runtime
-// state a reopened volume resumes from. Names, payloads and targets are canonical base64 on the wire and become
-// bytes as each line is read. A reader checks every line as it arrives, against the rules one node can break and
-// against the budget, so input that breaks either is refused at that line; the rules that span nodes, such as a
-// name's parent being a directory or every directory reaching the root, are checked once the last line is read.
+// Validate each tree line as it arrives; check cross-node graph rules after the final line.
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Predicate from "effect/Predicate"
@@ -42,8 +37,7 @@ const NaturalBigInt = Schema.String.check(
 
 const TreeLink = Schema.Struct({ parent: TreeIno, name: CanonicalBase64.Encoded })
 
-// A file's bytes inline, or a reference to content stored elsewhere. The reference is reserved for
-// content-addressed storage: the schema knows its shape so a line holding one is refused by name.
+// Ref is reserved for future content-addressed storage and rejected by this reader.
 const TreeContent = Schema.TaggedUnion({
   Inline: { bytes: CanonicalBase64.Encoded },
   Ref: { hash: Schema.String, size: Schema.Natural }
@@ -63,21 +57,21 @@ const symlink = {
   metadata: StoredMetadata
 }
 
-// A snapshot holds no revisions: they are runtime state that restoring starts afresh.
+// Snapshots omit revisions; restoring starts them afresh.
 /** @internal */
 export const TreeNode = Schema.TaggedUnion({ directory, file, symlink })
 
 /** @internal */
 export type TreeNode = typeof TreeNode.Type
 
-// The tag alone tells the kinds apart: a schema guard would validate the whole node again, once per line.
+// Avoid validating each decoded node again.
 const isDirectory = Predicate.isTagged("directory")
 
 const isFile = Predicate.isTagged("file")
 
 const isSymlink = Predicate.isTagged("symlink")
 
-// A live image keeps each node's revision, so a reopened volume's references and caches stay valid.
+// Reopening must retain revisions for existing references and caches.
 const rev = { rev: NaturalBigInt }
 
 /** @internal */
@@ -93,14 +87,11 @@ export type LiveTreeNode = typeof LiveTreeNode.Type
 /** @internal */
 export const SnapshotHeader = Schema.Struct({ format: Schema.Literal("effect-vfs"), version: Schema.Literal(1) })
 
-// What a reopened volume resumes from besides its nodes: its identity, the epoch its inode numbers belong to, the
-// secret its reference-key tags are computed under, the allocator and revision counters, the limits it was opened
-// with, and the usage those limits were checked against.
 const Runtime = Schema.Struct({
   identity: VolumeIdentity,
   epoch: VolumeEpoch,
   keySecret: KeySecret,
-  // The allocator must stay exactly representable, since the engine keys its inode table by a number.
+  // Inodes are number keys, so the allocator must remain exactly representable.
   nextInode: Schema.Int.check(Schema.isBetween({ minimum: ROOT_INO + 1, maximum: Number.MAX_SAFE_INTEGER })),
   revision: NaturalBigInt,
   limits: Schema.Struct({
@@ -115,8 +106,6 @@ const Runtime = Schema.Struct({
 /** @internal */
 export type Runtime = typeof Runtime.Type
 
-// The live image's first line is its header and runtime block together, so a reader knows every runtime bound
-// before it reads a node.
 /** @internal */
 export const LiveHeader = Schema.Struct({
   format: Schema.Literal("effect-vfs-live"),
@@ -128,11 +117,9 @@ const VersionProbe = Schema.Struct({ format: Schema.Literal("effect-vfs"), versi
 
 const STRICT = { onExcessProperty: "error" } as const
 
-// The budget a tree's lines are charged against: the one enforcer both directions share, so an encoder that meters
-// what it writes refuses exactly what a reader under the same budget would.
+// Readers and writers use the same meter so they enforce identical bounds.
 /** @internal */
 export interface Meter extends FrameMeter {
-  // One node, counted from the base64 lengths of its names and payload before any of them is decoded.
   readonly node: (node: TreeNode) => Result.Result<void, ImageFailure>
 }
 
@@ -152,12 +139,9 @@ export const meter = (budget: Budget, operation: string): Meter => {
   }
 
   return {
-    // A line is refused at the byte where it first crosses a bound, its own or the input's, so how the input was
-    // chunked, and whether the line was written or read, does not change which bound it names. At the same byte the
-    // input's bound is named, so a line bound left to default to the input's is never the one named.
+    // At a shared threshold, report the input bound regardless of chunking or read/write direction.
     line: (bytes, ended) => {
       const read = encoded + bytes + (ended ? 1 : 0)
-      // The byte of the line, counted from 1 and its newline included, at which each bound is crossed.
       const pastLine = bytes > lineBytes ? lineBytes + 1 : Number.POSITIVE_INFINITY
       const pastInput = read > encodedBytes ? encodedBytes - encoded + 1 : Number.POSITIVE_INFINITY
 
@@ -191,14 +175,11 @@ export const meter = (budget: Budget, operation: string): Meter => {
   }
 }
 
-// A name a reader has read, kept until the last line for the rules that span nodes.
 interface Named {
   readonly parent: number
   readonly key: string
   readonly bytes: number
-  // Where the name sits among the nodes, for the issue.
   readonly path: ReadonlyArray<PropertyKey>
-  // The directory the name reaches, if it reaches one.
   readonly directory: number | undefined
 }
 
@@ -210,13 +191,11 @@ interface Issue {
 /** @internal */
 export interface ReaderOptions {
   readonly operation: string
-  // The field a line of the wrong shape or spelling names.
   readonly documentField: string
-  // Charges a snapshot's budget; a live image is bounded by its runtime block instead.
+  // Live images use runtime bounds instead of a snapshot meter.
   readonly meter?: Meter
 }
 
-// A read tree: its header, and the nodes to assemble into a value.
 /** @internal */
 export interface Read<H> {
   readonly header: H
@@ -227,19 +206,12 @@ const at = (path: ReadonlyArray<PropertyKey>, issue: string): Issue => ({ path: 
 
 const ROOT_RULE = "the first node is the root directory, its own parent with an empty name"
 
-// A line of the wrong shape or spelling names the codec's document field, as it always has.
 const malformedLine = (options: ReaderOptions) => (error: Schema.SchemaError) =>
   imageFailure(options.operation, isEncodingIssue(issueSite(error.issue)) ? "InvalidEncoding" : "InvalidStructure", {
     field: options.documentField,
     cause: error
   })
 
-// The rules every tree keeps, the first broken one reported at the node that broke it: the root directory comes
-// first as its own parent with an empty name; inode numbers ascend without repeats; every name is a valid name held
-// once by a directory in the tree; every directory reaches the root through its parents; every symbolic link, and
-// every file unless the tree is a live image retaining unlinked files, has a name; no symbolic link target holds a
-// NUL. A live image also keeps its runtime block: every inode lies below the allocator and every revision between
-// 1 and the counter; the stored usage matches the nodes; and the nodes fit the limits the volume was opened with.
 const makeReader = <H>(
   options: ReaderOptions,
   decodeHeader: (value: typeof Schema.Unknown.Type) => Result.Result<H, ImageFailure>,
@@ -252,7 +224,6 @@ const makeReader = <H>(
   const malformed = malformedLine(options)
   const specs: Array<NodeSpec> = []
   const names: Array<Named> = []
-  // Each directory's parent and position, by inode number.
   const parents = new Map<number, number>()
   const positions = new Map<number, number>()
   let header: H | undefined
@@ -267,7 +238,6 @@ const makeReader = <H>(
       imageFailure(operation, "InvalidStructure", { field: issue.path.map(String).join("."), cause: issue.issue })
     )
 
-  // A name's hex key, once it is known to be a valid name.
   const named = (
     parent: number,
     name: typeof CanonicalBase64.Encoded.Type,
@@ -275,7 +245,7 @@ const makeReader = <H>(
     directory?: number
   ): Result.Result<string, ImageFailure> => {
     const length = CanonicalBase64.decodedLength(name)
-    // The length is read from the base64 first, so an overlong name is refused without being decoded.
+    // Reject overlong names before decoding base64.
     const bytes = length < 1 || length > MAX_NAME_BYTES ? undefined : CanonicalBase64.toBytes(name)
 
     if (bytes === undefined || !isNameBytes(bytes)) {
@@ -327,7 +297,7 @@ const makeReader = <H>(
       })
     }
 
-    // A live image keeps an unlinked file a handle held; reopening reclaims it, so it is counted and dropped.
+    // Reopening reclaims unlinked files, but their bytes still count toward stored usage.
     const retained = runtime !== undefined && isFile(node) && node.links.length === 0
 
     if (node.links.length === 0 && !retained) {
@@ -371,8 +341,6 @@ const makeReader = <H>(
     return Result.void
   }
 
-  // The rules that span nodes: each name's parent is a directory, each directory holds a name once, and every
-  // directory reaches the root.
   const graphIssue = (): Issue | undefined => {
     const held = new Set<string>()
 
@@ -384,7 +352,6 @@ const makeReader = <H>(
       held.add(key)
     }
 
-    // Parent chains end at the root; one that comes back to a directory it passed is a cycle nothing reaches.
     const reachesRoot = new Set<number>([ROOT_INO])
 
     for (const ino of parents.keys()) {
@@ -401,8 +368,7 @@ const makeReader = <H>(
     }
   }
 
-  // Whether every path fits `maxPathBytes`, measured in one walk from the root: the root is "/", and each name below
-  // it adds a slash and itself. The graph rules have already made the directories a tree under the root.
+  // Graph validation makes this a tree, so one root walk can measure every path.
   const pathIssue = (maxPathBytes: bigint): Issue | undefined => {
     const below = new Map<number, Array<Named>>()
 
@@ -415,7 +381,6 @@ const makeReader = <H>(
 
     const pending: Array<readonly [number, bigint]> = [[ROOT_INO, 1n]]
 
-    // Index loop: `pending` grows while it is being walked.
     for (let index = 0; index < pending.length; index++) {
       const [parent, parentBytes] = pending[index]!
 
@@ -473,8 +438,7 @@ const makeReader = <H>(
   }
 }
 
-// A snapshot's header names its format and version. A header of this format with another version is refused as
-// unsupported before its shape is checked, so a later version fails the same way whatever else it adds.
+// Reject later snapshot versions before checking their shape, including fields this version does not know.
 /** @internal */
 export const snapshotReader = (options: ReaderOptions): LineFold<Read<typeof SnapshotHeader.Type>> =>
   makeReader(
@@ -492,7 +456,7 @@ export const snapshotReader = (options: ReaderOptions): LineFold<Read<typeof Sna
     () => undefined
   )
 
-// A live image is private, so any header but this version's is simply malformed.
+// Live images are private; a different version is malformed.
 /** @internal */
 export const liveReader = (options: ReaderOptions): LineFold<Read<typeof LiveHeader.Type>> =>
   makeReader(
@@ -511,7 +475,7 @@ export const liveReader = (options: ReaderOptions): LineFold<Read<typeof LiveHea
 
 const encodeName = (name: string) => CanonicalBase64.encode(nameBytes(name))
 
-// A node built from a value is valid by construction, so building it skips the schema's checks.
+// Value nodes have already passed validation.
 /** @internal */
 export const UNCHECKED = { disableChecks: true }
 
@@ -541,7 +505,6 @@ export const treeNode = (node: Node): TreeNode => {
     )
 }
 
-// Every node a name reaches, and any `extra` ones, in inode order.
 /** @internal */
 export const treeNodes = Effect.fnUntraced(function*(value: VolumeState, extra: ReadonlyArray<Node> = []) {
   return [...(yield* reachableNodes(value)), ...extra].sort(byIno)
@@ -550,7 +513,6 @@ export const treeNodes = Effect.fnUntraced(function*(value: VolumeState, extra: 
 /** @internal */
 export interface Writer<N extends TreeNode> {
   readonly operation: string
-  // The field an encoding failure names.
   readonly documentField: string
   readonly header: string
   readonly node: (node: Node) => N
@@ -558,29 +520,22 @@ export interface Writer<N extends TreeNode> {
   readonly meter: Meter | undefined
 }
 
-// The encoded bytes past which a chunk of lines is emitted before its node count is reached, so large files stream
-// a few at a time rather than a whole batch at once.
 /** @internal */
 export const ENCODED_CHUNK_BYTES = 64 * 1024
 
-// A value's nodes are valid by construction, so encoding one is never expected to fail.
 /** @internal */
 export const encodeFailure = (operation: string, field: string, cause: unknown) =>
   imageFailure(operation, "InvalidStructure", { field, cause })
 
-// A tree's lines: the header, then its nodes a chunk at a time, each node built and encoded only when its chunk is
-// pulled. A chunk ends at WALK_YIELD_INTERVAL lines, or before the line that would take it past ENCODED_CHUNK_BYTES,
-// so a pull holds at most the cap and one line; a line past the cap goes out alone. A meter charges every line as it
-// is written.
+// Encode on pull. A chunk may hold one line past the byte cap when that line alone exceeds it.
 /** @internal */
 export const writeTree = <N extends TreeNode>(
   writer: Writer<N>,
   nodes: ReadonlyArray<Node>
 ): Stream.Stream<Uint8Array, ImageFailure> => {
-  // A reader checks a line against its bound and the input's as it grows, and charges the input when it ends.
   const charge = (line: Uint8Array) => writer.meter === undefined ? Result.void : writer.meter.line(line.length, true)
 
-  // Charged in the order a reader checks: the line's length, then the node it holds.
+  // Match the reader's charge order: line, then node.
   const encode = (source: Node): Result.Result<Uint8Array, ImageFailure> => {
     const node = writer.node(source)
     const text = writer.text(node)
@@ -594,7 +549,6 @@ export const writeTree = <N extends TreeNode>(
     return Result.map(Result.flatMap(charge(line), () => writer.meter?.node(node) ?? Result.void), () => line)
   }
 
-  // The chunk from `index`, and the line after it already encoded and charged, which starts the next chunk.
   interface Next {
     readonly index: number
     readonly carried: Uint8Array | undefined

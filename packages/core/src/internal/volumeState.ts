@@ -1,5 +1,3 @@
-// The volume value: an immutable inode table and the counters a transition carries forward. Snapshots, overlays,
-// restored volumes and the codecs all read this one value, so none of them needs a copy of their own.
 import * as Brand from "effect/Brand"
 import * as Effect from "effect/Effect"
 import type { Metadata } from "../Metadata.js"
@@ -31,18 +29,15 @@ export const MAX_FILE_BYTES = 0xffffffff
 /** @internal */
 export const WALK_YIELD_INTERVAL = 128
 
-// One name that reaches an inode: the directory holding it and the hex-encoded name bytes.
 /** @internal */
 export interface Link {
   readonly parent: Ino
   readonly name: string
 }
 
-// What a node stores; the public Metadata adds the node's revision.
 /** @internal */
 export type NodeMetadata = Omit<Metadata, "revision">
 
-// Inodes are immutable values: every change replaces the value in the state's inode table.
 /** @internal */
 export interface Directory {
   readonly kind: "directory"
@@ -78,7 +73,6 @@ export interface SymbolicLink {
 /** @internal */
 export type Node = Directory | RegularFile | SymbolicLink
 
-// The whole volume as one value. A transition builds the next value; nothing is published until it is installed.
 /** @internal */
 export interface VolumeState {
   readonly inodes: InodeTable.InodeTable<Node>
@@ -96,7 +90,6 @@ export const getNode = (state: VolumeState, ino: Ino): Node | undefined => Inode
 /** @internal */
 export const byIno = (a: Node, b: Node) => a.ino - b.ino
 
-// Orders a directory's entries by the bytes of their names; the hex spelling keeps that order.
 /** @internal */
 export const byEntryName = ([a]: readonly [string, Ino], [b]: readonly [string, Ino]) => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -111,7 +104,6 @@ const inNameOrder = (entries: ReadonlyMap<string, Ino>) => {
   return true
 }
 
-// A directory listing its entries in the byte order of their names, as every restored or decoded volume lists them.
 const inEntryOrder = (directory: Directory): Directory =>
   inNameOrder(directory.entries)
     ? directory
@@ -164,7 +156,6 @@ export const storedMetadata = (metadata: NodeMetadata): StoredMetadata => ({
   birthtimeNs: metadata.birthtimeNs
 })
 
-// Every node a name reaches, the root first and each once. The value is immutable, so the walk needs no permit.
 /** @internal */
 export const reachableNodes = Effect.fnUntraced(function*(state: VolumeState) {
   const nodes: Array<Node> = []
@@ -236,8 +227,6 @@ export const reachableValue = Effect.fnUntraced(function*(source: VolumeState) {
   return { state, largestFile }
 })
 
-// One node of a value being built from nodes that name their parents: a tree being decoded, a fixture, or an
-// applied delta. Names are hex-encoded, as the value keys them.
 /** @internal */
 export type NodeSpec =
   | {

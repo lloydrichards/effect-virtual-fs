@@ -1,11 +1,5 @@
-// The semantic identity of a snapshot, as a Merkle tree over its namespace. A node's digest covers its kind, its
-// retained metadata and its payload; a directory's also covers each entry's name bytes and child digest, in the
-// byte order of the names. The snapshot's identity covers the root's digest and every hard-link group, listed as
-// the paths that name one node. Nothing in it depends on inode numbers or on the order nodes are stored in, so a
-// renumbered snapshot has the same identity, and two directories with the same digest hold the same subtree.
-//
-// This is the versioned identity encoding, not a generic byte builder: field framing, ordering and the domain
-// prefix are part of the persisted delta contract.
+// This versioned digest covers namespace content and hard-link groups, independent of inode numbers. Framing,
+// byte order, and domain prefix are part of the persisted delta contract.
 import * as ByteSize from "effect/ByteSize"
 import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
@@ -17,16 +11,13 @@ import { joinPath, nameBytes, ROOT_PATH } from "./path.js"
 import { byEntryName, getNode, type Ino, type Node, payloadOf, ROOT_INO, type VolumeState } from "./volumeState.js"
 
 const ALGORITHM = "effect-vfs-semantic-sha256-v1"
-
 /** @internal */
 export const DIGEST_BYTES = 32
-
 const U64_BYTES = 8
 
 const encoder = new TextEncoder()
 
 const IDENTITY_PREFIX = encoder.encode(`${ALGORITHM}\0`)
-
 const KIND_BYTE = { directory: 0, file: 1, symlink: 2 } as const
 
 /** @internal */
@@ -36,20 +27,17 @@ export interface WalkBudget {
   readonly recordsField: string
   readonly entries: number
   readonly identityBytes: ByteSize.ByteSize
-  // The payload bytes the snapshot may hold; a base's payloads are bounded by its identity bytes alone.
+  // Base snapshots use the identity byte bound for payloads too.
   readonly payloadBytes?: { readonly limit: ByteSize.ByteSize; readonly field: string }
 }
 
 /** @internal */
 export interface Identity {
   readonly digest: Uint8Array
-  // Every reachable node's digest.
   readonly digests: ReadonlyMap<Ino, Uint8Array>
-  // The paths of every node more than one name reaches, in byte order.
   readonly groups: ReadonlyMap<Ino, ReadonlyArray<Uint8Array>>
   readonly records: number
   readonly payloadBytes: number
-  // The bytes of every reachable node's preimage, which the walk charged before the identity frame.
   readonly nodeBytes: number
 }
 
@@ -78,8 +66,6 @@ interface Layout {
   readonly length: number
 }
 
-// The bytes a node's digest covers: its kind byte, uid, gid and mode, its four timestamps as framed decimal text,
-// then its framed payload, or for a directory its entry count and each framed name with the child's digest.
 const layout = (node: Node): Layout => {
   const times = stamps(node)
 
@@ -123,11 +109,9 @@ const preimage = (node: Node, { body, entries, length, times }: Layout, childDig
   return out
 }
 
-// Charges what a walk hashes against its budget.
 /** @internal */
 export interface Meter {
   readonly charge: (bytes: number) => Effect.Effect<void, ImageFailure>
-  // What has been charged so far.
   readonly spent: () => number
 }
 
@@ -152,14 +136,12 @@ export const meter = (budget: WalkBudget): Meter => {
 export const nodeDigest = Effect.fnUntraced(function*(node: Node, childDigest: (ino: Ino) => Uint8Array, meter: Meter) {
   const crypto = yield* Crypto.Crypto
   const planned = layout(node)
-  // Charged before the preimage is allocated, so an oversized payload is refused without a copy of it.
+  // Reject oversized nodes before allocating their preimage.
   yield* meter.charge(planned.length)
 
   return yield* crypto.digest("SHA-256", preimage(node, planned, childDigest))
 })
 
-// The identity over a root digest and the hard-link groups: the domain prefix, the root's digest, the group count,
-// then each group as its path count and framed paths, groups in the order of their first path.
 /** @internal */
 export const identityDigest = Effect.fnUntraced(
   function*(root: Uint8Array, groups: Iterable<ReadonlyArray<Uint8Array>>, meter: Meter) {
@@ -185,9 +167,7 @@ export const identityDigest = Effect.fnUntraced(
   }
 )
 
-// Walks what a name reaches from the root, the root first and each node once. Files and symbolic links are then
-// digested first, since a hard-linked one can sit under a directory the walk reached before it; directories follow
-// in reverse walk order, which puts every subdirectory before its parent.
+// Digest leaves first and directories in reverse walk order so every child digest exists before its parent.
 /** @internal */
 export const identify = Effect.fnUntraced(
   function*(
@@ -212,7 +192,6 @@ export const identify = Effect.fnUntraced(
     const named = new Map<Ino, Array<Uint8Array>>()
     let entries = 0
 
-    // Index loop: `order` grows while it is being walked.
     for (let index = 0; index < order.length; index++) {
       const node = order[index]!
 

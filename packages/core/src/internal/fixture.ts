@@ -1,4 +1,3 @@
-// Fixture construction: a fold of the declared final state into a volume value that starts from an empty root.
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -12,7 +11,6 @@ import { makeVolume, VolumeSource } from "./virtualFileSystem.js"
 import { assemble, Ino, type Link, type NodeSpec, ROOT_INO } from "./volumeState.js"
 
 const DEFAULT_MODE: Record<NodeSpec["kind"], number> = { directory: 0o755, file: 0o644, symlink: 0o777 }
-
 const EPOCH_NS = 0n
 
 interface Declared {
@@ -54,8 +52,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
       birthtimeNs: overrides?.birthtimeNs ?? EPOCH_NS
     })
 
-    // The object each declared path names; a hard link's path names its target's object once resolved. Objects
-    // take inode numbers in declaration order after the root.
+    // Assign inode numbers in declaration order, before resolving hard links.
     const declarations = new Map<string, Declared>()
     const aliases = new Map<string, string>()
     const paths = new Map<string, ReadonlyArray<string>>()
@@ -81,7 +78,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
         )
       )
 
-    // Copy caller-owned byte buffers as they are declared, so a caller mutating them later changes nothing here.
+    // Copy caller-owned bytes before storing them.
     for (const entry of source.entries) {
       const components = yield* Effect.fromResult(fixturePath(entry.path)).pipe(
         Effect.mapError((cause) => imageFailure("fromFixture", "InvalidStructure", { field: "path", cause }))
@@ -156,7 +153,6 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
       for (const alias of seen) declarations.set(alias, node)
     }
 
-    // Each declared path is one name of its object, held by the object its parent path declares.
     const names = new Map<Declared, Array<Link>>()
 
     for (const [key, components] of paths) {
@@ -176,7 +172,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
       const common = { ino: declared.ino, metadata: declared.metadata, revision: 1n }
 
       if (declared.kind === "directory") {
-        // The root has no path of its own; every other directory has exactly one, since no hard link names one.
+        // The root has no path; directories cannot have hard links.
         const [link = { parent: ROOT_INO, name: "" }] = links
 
         return { ...common, kind: "directory", parent: link.parent, name: link.name }

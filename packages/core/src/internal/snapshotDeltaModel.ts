@@ -1,4 +1,3 @@
-// Opaque snapshot-delta representation and authenticity checks.
 import * as Predicate from "effect/Predicate"
 import type { SnapshotDelta } from "../SnapshotDelta.js"
 

@@ -1,4 +1,3 @@
-// Byte-preserving path validation and conversion.
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
@@ -10,33 +9,22 @@ import type { PathInput } from "../VirtualFileSystem.js"
 import { getBytes as getBytePathBytes, make as makeBytePath } from "./bytePath.js"
 import { fsFailure } from "./errors.js"
 
-// Components are hex-encoded bytes so names compare as bytes, not text: 2f is "/", 2e is ".", 2e2e is "..".
 /** @internal */
 export const SLASH_HEX = "2f"
-
 /** @internal */
 export const DOT_HEX = "2e"
-
 /** @internal */
 export const DOT_DOT_HEX = "2e2e"
-
 /** @internal */
 export const SLASH_BYTE = 47
-
 const DOT_BYTE = 46
-
 /** @internal */
 export const NUL_BYTE = 0
-
-// Linux's MAXSYMLINKS: the symbolic links one resolution follows before it reports a loop.
 /** @internal */
 export const MAX_SYMLINK_TRAVERSALS = 40
-
-// POSIX NAME_MAX: the longest single path component.
 /** @internal */
 export const MAX_NAME_BYTES = 255
 
-// A name a directory can hold: 1 to 255 bytes without a NUL or a slash, and neither "." nor "..".
 /** @internal */
 export const isNameBytes = (name: Uint8Array): boolean =>
   name.length >= 1 && name.length <= MAX_NAME_BYTES && !name.includes(NUL_BYTE) && !name.includes(SLASH_BYTE) &&
@@ -45,8 +33,6 @@ export const isNameBytes = (name: Uint8Array): boolean =>
 /** @internal */
 export const ROOT_PATH = new Uint8Array([SLASH_BYTE])
 
-// `name` under `prefix`, in a new buffer. A prefix ending in a slash, such as the root, adds none of its own, and
-// an empty prefix is a relative walk's root.
 /** @internal */
 export const joinPath = (prefix: Uint8Array, name: Uint8Array): Uint8Array => {
   const separator = prefix.length === 0 || prefix[prefix.length - 1] === SLASH_BYTE ? 0 : 1
@@ -59,9 +45,7 @@ export const joinPath = (prefix: Uint8Array, name: Uint8Array): Uint8Array => {
   return joined
 }
 
-// A missing final component is rejected wherever "." and ".." are, so it counts as a dot component.
-// Callers pass the code POSIX gives their operation, so the codes differ on purpose: EEXIST for
-// create (link, symlink, mkdir), EISDIR for open and unlink, EINVAL for rename and rmdir.
+// A missing final component follows the same rejection path as "." and ".."; callers choose the POSIX error code.
 /** @internal */
 export const isDotComponent = (name: string | undefined): name is undefined | typeof DOT_HEX | typeof DOT_DOT_HEX =>
   name === undefined || name === DOT_HEX || name === DOT_DOT_HEX
@@ -79,7 +63,7 @@ export const strictString = (bytes: Uint8Array, operation: string) =>
 /** @internal */
 export const nameBytes = (name: string): Uint8Array => Result.getOrThrow(Encoding.decodeHex(name))
 
-// A zero-length view distinguishes a detached buffer from a valid empty buffer.
+// Constructing a view detects detached buffers, including empty ones.
 const attachedBuffer = (bytes: Uint8Array): boolean => {
   try {
     const probe = new Uint8Array(bytes.buffer, bytes.byteOffset, 0)
@@ -91,8 +75,7 @@ const attachedBuffer = (bytes: Uint8Array): boolean => {
   }
 }
 
-// Accepts any Uint8Array, subclasses such as Node's Buffer included; rejects views over a
-// SharedArrayBuffer or a detached buffer before the bytes are copied or relied on.
+// Reject shared or detached buffers before copying; Buffer subclasses remain valid.
 /** @internal */
 export const isAttachedBytes = (bytes: Uint8Array): boolean =>
   Predicate.isUint8Array(bytes) && bytes.buffer instanceof ArrayBuffer && attachedBuffer(bytes)
@@ -128,7 +111,7 @@ export interface PreparedPath {
   readonly components: ReadonlyArray<string>
 }
 
-// Hand-rolled because String.prototype.isWellFormed is ES2024 and the package targets ES2023.
+// String.prototype.isWellFormed requires ES2024; this package targets ES2023.
 /** @internal */
 export const isWellFormed = (value: string): boolean => {
   for (let index = 0; index < value.length; index++) {
@@ -146,7 +129,6 @@ export const isWellFormed = (value: string): boolean => {
 
 const UTF8_ENCODER = new TextEncoder()
 
-// Strings must be well-formed UTF-16 before encoding; BytePaths must belong to this package.
 /** @internal */
 export const inputBytes = (input: PathInput): Result.Result<Uint8Array, "InvalidPathEncoding" | "InvalidArgument"> =>
   Predicate.isString(input)

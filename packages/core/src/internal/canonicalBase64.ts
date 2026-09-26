@@ -14,8 +14,7 @@ const decodedLength = (value: string): number =>
   value.length / 4 * 3 - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0)
 
 const encode = (input: Uint8Array): Encoded => {
-  // Join bounded chunks to avoid the encoder's intermediate string chains. Three-byte
-  // boundaries keep padding in the final chunk, preserving the canonical representation.
+  // Chunk boundaries must be multiples of three to keep padding in the final chunk.
   const chunkBytes = 12_288
   const chunks: Array<string> = []
 
@@ -39,7 +38,6 @@ type Encoded = typeof Encoded.Type
 /** @internal */
 export const CanonicalBase64 = {
   Encoded,
-  // A canonical value always decodes, so a synchronous caller need not handle a failure.
   toBytes: (input: Encoded): Uint8Array => Result.getOrThrow(Encoding.decodeBase64(input)),
   encode: (input: Uint8Array): Encoded => encode(input),
   decodedLength: (value: Encoded): number => decodedLength(value)
