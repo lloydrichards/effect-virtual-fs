@@ -99,7 +99,8 @@ Added in v0.1.0
 #### make (static method)
 
 Creates a store with an owned copy of mandatory image limits.
-Saving validates against the same limits used by loading.
+Saving encodes under the same limits loading decodes under and fails where
+loading would, so a saved checkpoint is known to load without being decoded.
 
 **Signature**
 

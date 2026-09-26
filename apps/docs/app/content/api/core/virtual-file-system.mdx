@@ -2656,6 +2656,10 @@ Added in v0.6.0
 
 Decodes version 1 snapshot bytes while enforcing explicit input and payload limits.
 
+**Details**
+
+The same decoder as `decodeSnapshotSink`, run over one chunk.
+
 **Signature**
 
 ```ts
@@ -2693,14 +2697,85 @@ Effect.runPromise(program).then(console.log)
 
 Added in v0.1.0
 
-### encodeSnapshot
+### decodeSnapshotSink
 
-Encodes a snapshot as owned UTF-8 JSON bytes using the version 1 snapshot format.
+A sink that decodes a stream of version 1 snapshot chunks while enforcing
+explicit input and payload limits.
+
+**Details**
+
+Chunks may split lines, and UTF-8 sequences, anywhere. Each line is checked
+as it ends, so input that breaks a limit or a rule is refused before the
+sink holds more than one line of it: `maxLineBytes` bounds that line, and
+the other limits bound what the accepted lines add up to. A line is
+refused at the byte where it first crosses `maxLineBytes` or
+`maxEncodedBytes`, so the field a refusal names does not depend on how the
+input is chunked. Every line must end in a newline, the last included; a
+carriage return, an empty line, a byte-order mark and malformed UTF-8 are
+refused as `InvalidEncoding`.
 
 **Signature**
 
 ```ts
-export declare const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, ImageFailure>
+export declare const decodeSnapshotSink: (
+  limits: DecodeLimits
+) => Sink.Sink<Snapshot, Uint8Array, never, ImageFailure | ArgumentFailure>
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { ByteSize, Effect, Stream } from "effect"
+
+const limits: Vfs.DecodeLimits = {
+  maxEncodedBytes: ByteSize.megabytes(4),
+  maxRecords: 10_000,
+  maxEntries: 10_000,
+  maxDecodedBytes: ByteSize.megabytes(16),
+  maxLineBytes: ByteSize.megabytes(1)
+}
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.fromFixture({
+    entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([1, 2, 3]) }]
+  })
+
+  // Rechunked to single bytes: the sink joins lines across chunks.
+  const snapshot = yield* Vfs.encodeSnapshotStream(yield* volume.snapshot).pipe(
+    Stream.flattenIterable,
+    Stream.rechunk(1),
+    Stream.map((byte) => new Uint8Array([byte])),
+    Stream.run(Vfs.decodeSnapshotSink(limits))
+  )
+
+  return yield* (yield* (yield* Vfs.fromSnapshot(snapshot)).caller()).readFile("/f")
+})
+
+Effect.runPromise(program).then(console.log)
+// Uint8Array(3) [ 1, 2, 3 ]
+```
+
+Added in v0.6.0
+
+### encodeSnapshot
+
+Encodes a snapshot as owned UTF-8 bytes in the version 1 snapshot format.
+
+**Details**
+
+The bytes are the chunks of `encodeSnapshotStream` collected into one
+array: newline-delimited JSON, a header line and then one line per node.
+Given `limits`, encoding fails with `LimitExceeded` wherever `decodeSnapshot`
+would refuse the bytes under the same limits.
+
+**Signature**
+
+```ts
+export declare const encodeSnapshot: (
+  snapshot: Snapshot,
+  limits?: DecodeLimits
+) => Effect.Effect<Uint8Array, ImageFailure | ArgumentFailure>
 ```
 
 **Example**
@@ -2721,8 +2796,8 @@ const program = Effect.gen(function* () {
 
   const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
 
-  // The bytes are UTF-8 JSON carrying the version 1 snapshot format.
-  return JSON.parse(new TextDecoder().decode(bytes)).version
+  // The first line is the header carrying the version 1 snapshot format.
+  return JSON.parse(new TextDecoder().decode(bytes).split("\n")[0]!).version
 })
 
 Effect.runPromise(program).then(console.log)
@@ -2730,6 +2805,56 @@ Effect.runPromise(program).then(console.log)
 ```
 
 Added in v0.1.0
+
+### encodeSnapshotStream
+
+Streams a snapshot's version 1 encoding as owned UTF-8 chunks: a header line,
+then one line per node, each ending in a newline.
+
+**Details**
+
+The encoding is newline-delimited JSON. The first line names the format and
+version; each later line is one node in inode order, with names and payloads
+as canonical base64. Nodes are encoded as the stream is pulled, so writing a
+large snapshot to a file or a socket never holds its whole encoding. A chunk
+holds at most 128 lines and 64 KiB, so a pull holds at most that and the next
+line; a line longer than 64 KiB is a chunk of its own.
+
+Given `limits`, the stream fails with `LimitExceeded` at the first line that
+`decodeSnapshot` would refuse under the same limits, naming the same field,
+so bytes it completes are known to decode without decoding them.
+
+**Signature**
+
+```ts
+export declare const encodeSnapshotStream: (
+  snapshot: Snapshot,
+  limits?: DecodeLimits
+) => Stream.Stream<Uint8Array, ImageFailure | ArgumentFailure>
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect, Stream } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.fromFixture({
+    entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([1]) }]
+  })
+
+  const text = yield* Vfs.encodeSnapshotStream(yield* volume.snapshot).pipe(Stream.decodeText, Stream.mkString)
+
+  // A header line, then the root and the file, each line ending in a newline.
+  return text.split("\n").map((line) => (line === "" ? "end" : (JSON.parse(line)._tag ?? "header")))
+})
+
+Effect.runPromise(program).then(console.log)
+// [ 'header', 'directory', 'file', 'end' ]
+```
+
+Added in v0.6.0
 
 ## services
 
@@ -2933,6 +3058,60 @@ Effect.runPromise(program).then(console.log)
 ```
 
 Added in v0.1.0
+
+### snapshotEntries
+
+Streams the tree at `root` in a snapshot as fixture entries, read from the
+snapshot itself without restoring a volume.
+
+**Details**
+
+`root` resolves as a privileged caller at `/` of a volume restored from the
+snapshot with default options would resolve it, following intermediate
+symbolic links but not a final one and applying no path byte limit. Entries come in sorted
+pre-order, children in the byte order of their names, with paths rooted at
+`root`, so the root entry's path is `/`. A path stays a string while every
+name on it is UTF-8 and is a `BytePath` otherwise. A file or symbolic link
+that more than one name reaches is an entry at its first path and a
+`hardLink` to that path at the others. Each file's bytes are an owned copy,
+made when the stream pulls its entry. Every entry after the root's is a
+fixture entry for a volume holding the same tree.
+
+**Signature**
+
+```ts
+export declare const snapshotEntries: (
+  snapshot: Snapshot,
+  root: PathInput
+) => Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure>
+```
+
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect, Stream } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.fromFixture({
+    entries: [
+      { kind: "directory", path: "/src" },
+      { kind: "file", path: "/src/b.txt", bytes: new Uint8Array([2]) },
+      { kind: "file", path: "/src/a.txt", bytes: new Uint8Array([1]) },
+      { kind: "hardLink", path: "/src/c.txt", target: "/src/a.txt" }
+    ]
+  })
+
+  const entries = yield* Stream.runCollect(Vfs.snapshotEntries(yield* volume.snapshot, "/src"))
+
+  return entries.map((entry) => `${entry.kind} ${String(entry.path)}`)
+})
+
+Effect.runPromise(program).then(console.log)
+// [ 'directory /', 'file /a.txt', 'file /b.txt', 'hardLink /c.txt' ]
+```
+
+Added in v0.6.0
 
 ## Related documentation
 
