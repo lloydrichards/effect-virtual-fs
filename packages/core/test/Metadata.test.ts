@@ -1,7 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Clock, Effect, Predicate, Result } from "effect"
+import { ByteSize, Clock, Deferred, Duration, Effect, Fiber, Predicate, Result } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { Metadata, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
+import { withVolumeTestSeams } from "../src/internal/testSeams.js"
 import { pathText } from "./support/text.js"
 
 // A clock whose wall time is `now`; monotonic time and sleeping stay with `original`.
@@ -17,7 +18,7 @@ const wallClock = (original: Clock.Clock, now: () => bigint): Clock.Clock => ({
 
 describe("metadata authority", () => {
   it.effect(
-    "rejects timestamps outside the snapshot domain before changing path or handle metadata",
+    "should preserve metadata when a timestamp is outside the snapshot domain",
     () =>
       Effect.gen(function*() {
         const fs = yield* Vfs.Caller
@@ -38,7 +39,7 @@ describe("metadata authority", () => {
   )
 
   it.effect(
-    "round-trips timestamp boundaries and rejects out-of-domain fixture metadata",
+    "should round-trip boundary timestamps and reject values when fixture metadata is out of domain",
     () =>
       Effect.gen(function*() {
         const maximum = 10n ** 128n - 1n
@@ -91,7 +92,7 @@ describe("metadata authority", () => {
       })
   )
 
-  it.effect("validates a metadata change before resolving its target", () =>
+  it.effect("should validate metadata before resolving the target when input is invalid", () =>
     Effect.gen(function*() {
       const fs = yield* Vfs.Caller
 
@@ -106,7 +107,7 @@ describe("metadata authority", () => {
       ], ["InvalidArgument", "InvalidArgument", "InvalidArgument"])
     }).pipe(Effect.provide(Testing.layer())))
 
-  it.effect("rejects unsupported captured clock samples before creation or mutation", () =>
+  it.effect("should reject creation and mutation when captured clock samples are unsupported", () =>
     Effect.gen(function*() {
       const original = yield* Clock.clockWith(Effect.succeed)
       let now = 10n ** 128n
@@ -139,7 +140,7 @@ describe("metadata authority", () => {
     }))
 
   it.effect(
-    "keeps open-time access after chmod while metadata uses the invoking caller",
+    "should retain open-time access while checking caller authority when chmod follows open",
     () =>
       Effect.gen(function*() {
         const admin = yield* Vfs.Caller
@@ -161,7 +162,7 @@ describe("metadata authority", () => {
   )
 
   it.effect(
-    "restricts ownership changes and clears set-ID bits on writes and ownership changes",
+    "should enforce ownership rules and clear set-ID bits when files are written or reassigned",
     () =>
       Effect.gen(function*() {
         const admin = yield* Vfs.Caller
@@ -186,7 +187,7 @@ describe("metadata authority", () => {
   )
 
   it.effect(
-    "distinguishes owner timestamps from write-authorized now and preserves omitted fields",
+    "should preserve omitted timestamps while applying caller authority when times change",
     () =>
       Effect.gen(function*() {
         const admin = yield* Vfs.Caller
@@ -211,7 +212,7 @@ describe("metadata authority", () => {
   )
 
   it.effect(
-    "supports own-link metadata and validates foreign and closed handle authority",
+    "should update link metadata and reject foreign or closed handles when authority is checked",
     () =>
       Effect.gen(function*() {
         const fs = yield* Vfs.Caller
@@ -228,7 +229,7 @@ describe("metadata authority", () => {
   )
 
   it.effect(
-    "checks privileged execute bits and truncates paths without moving existing offsets",
+    "should preserve offsets and enforce privileged mode rules when truncating paths",
     () =>
       Effect.gen(function*() {
         const fs = yield* Vfs.Caller
@@ -245,7 +246,7 @@ describe("metadata authority", () => {
   )
 
   it.effect(
-    "treats only both-UTIME_NOW as a touch a write-authorized non-owner may perform",
+    "should allow a write-authorized non-owner to touch times when both values are UTIME_NOW",
     () =>
       Effect.gen(function*() {
         const admin = yield* Vfs.Caller
@@ -267,7 +268,7 @@ describe("metadata authority", () => {
       }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } })))
   )
 
-  it.effect("names the requested path when a timestamp change is denied", () =>
+  it.effect("should name the requested path when a timestamp update is denied", () =>
     Effect.gen(function*() {
       const admin = yield* Vfs.Caller
       yield* admin.mkdir("/deep")
@@ -291,7 +292,7 @@ describe("metadata authority", () => {
       assert.strictEqual(throughHandle.path, undefined)
     }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
 
-  it.effect("requires group membership even for the group a node already has", () =>
+  it.effect("should require group membership when chown repeats the existing group", () =>
     Effect.gen(function*() {
       const admin = yield* Vfs.Caller
       yield* admin.open("/f", { access: "write", create: "exclusive", mode: 0o666 })
@@ -309,7 +310,7 @@ describe("metadata authority", () => {
 })
 
 describe("typed mode", () => {
-  it.effect("joins each kind's file-type bits with the permission bits it reports", () =>
+  it.effect("should combine type and permission bits when reporting typed mode", () =>
     Effect.gen(function*() {
       const fs = yield* Vfs.Caller
       yield* fs.mkdir("/d", { mode: 0o1755 })
@@ -333,7 +334,7 @@ describe("typed mode", () => {
       )
     }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
 
-  it.effect("gives each kind its own type bits, apart from every permission bit", () =>
+  it.effect("should distinguish file kinds when reporting typed mode", () =>
     Effect.sync(() => {
       const typeBits = { directory: 0o040000, file: 0o100000, symlink: 0o120000 } as const
 
@@ -343,4 +344,148 @@ describe("typed mode", () => {
         assert.strictEqual(Metadata.typedMode({ kind, mode: 0o7777 }) & Metadata.S_IFMT, typeBits[kind])
       }
     }))
+})
+
+const DAY = Duration.hours(24)
+
+const bytes = (...values: Array<number>) => new Uint8Array(values)
+
+// Lets forked fibers make progress without waiting on any of them.
+const settle = Effect.gen(function*() {
+  for (let i = 0; i < 4; i++) yield* Effect.yieldNow
+})
+
+// Each read that relatime governs, as a function of the caller and a path to a file or directory.
+const READS = [
+  { name: "readFile", kind: "file", read: (fs: Vfs.Caller, path: string) => Effect.asVoid(fs.readFile(path)) },
+  {
+    name: "readDirectory",
+    kind: "directory",
+    read: (fs: Vfs.Caller, path: string) => Effect.asVoid(fs.readDirectory(path))
+  },
+  {
+    name: "pread",
+    kind: "file",
+    read: (fs: Vfs.Caller, path: string) =>
+      Effect.scoped(Effect.flatMap(fs.open(path, { access: "read" }), (file) => file.pread(1, 0n)))
+  },
+  {
+    name: "read",
+    kind: "file",
+    read: (fs: Vfs.Caller, path: string) =>
+      Effect.scoped(Effect.flatMap(fs.open(path, { access: "read" }), (file) => file.read(1)))
+  }
+] as const
+
+const create = (fs: Vfs.Caller, kind: "file" | "directory", path: string) =>
+  kind === "file"
+    ? fs.writeFile(path, bytes(1), { access: "write", create: "exclusive" })
+    : Effect.asVoid(fs.mkdir(path))
+
+// Changes what the path names: a file's contents, or a directory's entries.
+const modify = (fs: Vfs.Caller, kind: "file" | "directory", path: string) =>
+  kind === "file"
+    ? fs.writeFile(path, bytes(2), { access: "write", truncate: true })
+    : Effect.asVoid(fs.mkdir(`${path}/child`))
+
+const atime = (fs: Vfs.Caller, path: string) => Effect.map(fs.stat(path), (metadata) => metadata.atimeNs)
+
+describe("relatime", () => {
+  for (const { name, kind, read } of READS) {
+    it.effect(`should refresh access time when ${name} reads after content, status, or daily expiry`, () =>
+      Effect.gen(function*() {
+        const fs = yield* Vfs.Caller
+        yield* create(fs, kind, "/target")
+        yield* TestClock.adjust("1 second")
+        yield* read(fs, "/target")
+        assert.strictEqual(yield* atime(fs, "/target"), Duration.toNanosUnsafe(Duration.seconds(1)))
+
+        yield* TestClock.adjust("1 second")
+        yield* read(fs, "/target")
+        assert.strictEqual(yield* atime(fs, "/target"), Duration.toNanosUnsafe(Duration.seconds(1)))
+
+        yield* modify(fs, kind, "/target")
+        yield* TestClock.adjust("1 second")
+        yield* read(fs, "/target")
+        assert.strictEqual(yield* atime(fs, "/target"), Duration.toNanosUnsafe(Duration.seconds(3)))
+
+        yield* TestClock.adjust("1 second")
+        yield* fs.chmod("/target", 0o700)
+        const changed = yield* fs.stat("/target")
+        assert.strictEqual(changed.ctimeNs, Duration.toNanosUnsafe(Duration.seconds(4)))
+        assert.strictEqual(changed.mtimeNs, Duration.toNanosUnsafe(Duration.seconds(2)))
+        yield* TestClock.adjust("1 second")
+        yield* read(fs, "/target")
+        assert.strictEqual(yield* atime(fs, "/target"), Duration.toNanosUnsafe(Duration.seconds(5)))
+
+        yield* TestClock.adjust(Duration.subtract(DAY, Duration.nanos(1n)))
+        yield* read(fs, "/target")
+        assert.strictEqual(yield* atime(fs, "/target"), Duration.toNanosUnsafe(Duration.seconds(5)))
+        yield* TestClock.adjust(Duration.nanos(1n))
+        yield* read(fs, "/target")
+        assert.strictEqual(
+          yield* atime(fs, "/target"),
+          Duration.toNanosUnsafe(Duration.seconds(5)) + Duration.toNanosUnsafe(DAY)
+        )
+      }).pipe(Effect.provide(Testing.layer())))
+  }
+
+  it.effect("should leave the access time alone when a handle reads nothing", () =>
+    Effect.gen(function*() {
+      const fs = yield* Vfs.Caller
+      yield* fs.writeFile("/f", bytes(1), { access: "write", create: "exclusive" })
+      const file = yield* fs.open("/f", { access: "read" })
+      yield* TestClock.adjust("1 second")
+
+      assert.deepStrictEqual((yield* file.pread(0, 0n)).bytes, bytes())
+      assert.deepStrictEqual(yield* file.read(0), bytes())
+      assert.strictEqual(yield* atime(fs, "/f"), 0n)
+    }).pipe(Effect.scoped, Effect.provide(Testing.layer())))
+
+  it.effect("should allow recent reads beside observations and wait for stale reads when relatime is enabled", () =>
+    Effect.gen(function*() {
+      // Both entries were accessed after their last change, so reading them refreshes nothing.
+      const base = yield* (yield* Vfs.fromFixture({
+        entries: [
+          { kind: "file", path: "/recent", bytes: bytes(1, 2), metadata: { atimeNs: 5n } },
+          { kind: "directory", path: "/dir", metadata: { atimeNs: 5n } },
+          { kind: "file", path: "/stale", bytes: bytes(3) }
+        ]
+      })).snapshot
+
+      // A second on, so the unread entry's access time is due.
+      yield* TestClock.adjust("1 second")
+
+      const overlay = yield* Vfs.makeOverlay(base)
+      const fs = yield* overlay.caller()
+      const file = yield* fs.open("/recent", { access: "read" })
+      const held = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+
+      // A capture held between its two halves keeps one permit, which a change must wait for.
+      const capturing = yield* overlay.capture().pipe(
+        withVolumeTestSeams({
+          betweenSnapshotAndSummary: Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release)))
+        }),
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Deferred.await(held)
+      assert.deepStrictEqual(yield* fs.readFile("/recent"), bytes(1, 2))
+      assert.strictEqual((yield* fs.readDirectory("/dir")).value.length, 0)
+      assert.deepStrictEqual((yield* file.pread(2, 0n)).bytes, bytes(1, 2))
+
+      // A due access time and a cursor read each need a change, so both wait for the capture.
+      const stale = yield* fs.readFile("/stale").pipe(Effect.forkChild({ startImmediately: true }))
+      const cursor = yield* file.read(2).pipe(Effect.forkChild({ startImmediately: true }))
+      yield* settle
+      assert.isUndefined(stale.pollUnsafe())
+      assert.isUndefined(cursor.pollUnsafe())
+
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(capturing)
+      assert.deepStrictEqual(yield* Fiber.join(stale), bytes(3))
+      assert.deepStrictEqual(yield* Fiber.join(cursor), bytes(1, 2))
+      assert.strictEqual(yield* atime(fs, "/recent"), 5n)
+    }).pipe(Effect.scoped))
 })

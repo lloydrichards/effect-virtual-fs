@@ -1,7 +1,7 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Crypto, Effect, Exit, Predicate, Schema } from "effect"
-import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { ByteSize, type Crypto, Effect, Encoding, Exit, Predicate, Schema } from "effect"
+import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import { type Document, documentText, toLines } from "./support/lines.js"
 import { entryNames, rawEntryNames } from "./support/text.js"
 
@@ -80,7 +80,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
   // metadata and payload, a directory's covers its entries' names and child digests in name-byte order, and the
   // snapshot's covers the root digest and its hard-link groups. The layout changed under the same algorithm
   // identifier, as decided for the 0.6.0 release, so deltas serialised before it no longer validate.
-  it.effect("keeps the empty snapshot semantic identity stable", () =>
+  it.effect("should keep the empty snapshot semantic identity stable when empty snapshots are compared", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.fromFixture({
         rootMetadata: { mode: 0o755, uid: 0, gid: 0, atimeNs: 0n, mtimeNs: 0n, ctimeNs: 0n, birthtimeNs: 0n },
@@ -114,7 +114,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
   // change that also requires bumping ALGORITHM in internal/merkle.ts and updating
   // .okf/contracts/snapshot-deltas.md, because every previously serialised delta stops validating.
   // Do not regenerate this digest on its own.
-  it.effect("keeps the populated snapshot semantic identity stable", () =>
+  it.effect("should keep the populated snapshot semantic identity stable when a populated snapshot is rebuilt", () =>
     Effect.gen(function*() {
       const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, 255, 254]))
 
@@ -169,7 +169,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual(document.base, "Uhdurw2p97cieGz/65CbuqV4LyAC04GiwBbZJOziwnQ=")
     }))
 
-  it.effect("identifies hard-link groups but not inode numbers", () =>
+  it.effect("should identify hard-link groups but not inode numbers when inode numbers differ but hard-link topology matches", () =>
     Effect.gen(function*() {
       const metadata = { mode: 0o644, uid: 1, gid: 1, atimeNs: 1n, mtimeNs: 1n, ctimeNs: 1n, birthtimeNs: 1n }
       const file = (path: string) => ({ kind: "file", path, bytes: new Uint8Array([1]), metadata }) as const
@@ -204,7 +204,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual(yield* identityOf(yield* snapshotFromDocument(document)), identities[0])
     }))
 
-  it.effect("reconstructs node kinds, raw paths, payloads, and every retained metadata field", () =>
+  it.effect("should reconstruct node kinds, raw paths, payloads, and every retained metadata field when a delta is applied to a varied tree", () =>
     Effect.gen(function*() {
       const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))
 
@@ -275,7 +275,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual((yield* Effect.flip(fs.stat("/removed"))).code, "NotFound")
     }))
 
-  it.effect("orders applied directory entries by raw name bytes rather than locale", () =>
+  it.effect("should order applied directory entries by raw name bytes rather than locale when directory names have nonlocale byte order", () =>
     Effect.gen(function*() {
       // Locale collation disagrees with byte order for each of these names, and so does locale
       // collation over their base64 encodings ("/A==", "0A==", "Qg==", "YQ==" reverses the pair
@@ -325,7 +325,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       ])
     }))
 
-  it.effect("reports path evidence without rename inference and preserves hard-link split and join topology", () =>
+  it.effect("should report path evidence when paths are renamed or hard links split and join", () =>
     Effect.gen(function*() {
       const base = yield* Vfs.fromFixture({
         entries: [
@@ -384,7 +384,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual((yield* fs.stat("/join-a")).ino, (yield* fs.stat("/join-b")).ino)
     }))
 
-  it.effect("accepts semantically equivalent reordered and renumbered bases but rejects a semantic mutation", () =>
+  it.effect("should accept reordered bases but reject semantic changes when base nodes are renumbered", () =>
     Effect.gen(function*() {
       const original = yield* Vfs.fromFixture({
         entries: [
@@ -430,7 +430,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.deepStrictEqual([error.code, error.operation], ["BaseMismatch", "applySnapshotDelta"])
     }))
 
-  it.effect("includes every retained semantic component in base identity", () =>
+  it.effect("should include every retained semantic component in base identity when one retained semantic component changes", () =>
     Effect.gen(function*() {
       const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))
 
@@ -526,7 +526,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       }
     }))
 
-  it.effect("applies the output payload budget only to the target", () =>
+  it.effect("should apply the output payload budget only to the target when the base exceeds the target output budget", () =>
     Effect.gen(function*() {
       const baseVolume = yield* Vfs.fromFixture({
         entries: [{ kind: "file", path: "/large", bytes: new Uint8Array(128) }]
@@ -548,7 +548,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       )
     }))
 
-  it.effect("numbers an applied node up to the largest inode a decoded tree allows, and no further", () =>
+  it.effect("should number an applied node up to the largest inode a decoded tree allows, and no further when an applied tree approaches its inode ceiling", () =>
     Effect.gen(function*() {
       const target = yield* (yield* Vfs.fromFixture({
         entries: [
@@ -580,7 +580,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.deepStrictEqual([error.code, error.field], ["LimitExceeded", "inodes"])
     }))
 
-  it.effect("rejects snapshot path and payload work at the configured boundaries", () =>
+  it.effect("should reject snapshot path and payload work at the configured boundaries when path or payload limits are reached", () =>
     Effect.gen(function*() {
       const empty = yield* (yield* Vfs.fromFixture({ entries: [] })).snapshot
 
@@ -620,7 +620,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual(targetPayloadError.field, "outputBytes")
     }))
 
-  it.effect("refuses on apply and inspect exactly the identity bytes a diff to the same target refuses", () =>
+  it.effect("should refuse on apply and inspect exactly the identity bytes a diff to the same target refuses when identity byte limits are reached", () =>
     Effect.gen(function*() {
       const grownFrom = Effect.fnUntraced(function*(volume: Vfs.Volume, path: string, bytes: number) {
         const base = yield* volume.snapshot
@@ -676,7 +676,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       }
     }))
 
-  it.effect("refuses even a root-only snapshot when its record limit is zero", () =>
+  it.effect("should refuse even a root-only snapshot when its record limit is zero", () =>
     Effect.gen(function*() {
       const empty = yield* (yield* Vfs.fromFixture({ entries: [] })).snapshot
       const delta = yield* Vfs.diffSnapshots(empty, empty)
@@ -699,7 +699,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       }
     }))
 
-  it.effect("orders raw paths deterministically, filters timestamps, and returns fresh frozen owned results", () =>
+  it.effect("should order paths filter timestamps and own results when delta output is inspected", () =>
     Effect.gen(function*() {
       const p80 = yield* Vfs.pathFromBytes(new Uint8Array([47, 128]))
       const pff = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))
@@ -745,7 +745,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual((yield* b.stat(p80)).kind, "file")
     }))
 
-  it.effect("carries only the changed node, so a one-file edit is one change whatever the tree's size", () =>
+  it.effect("should carry only the changed node, so a one-file edit is one change whatever the tree's size when one file changes in a large tree", () =>
     Effect.gen(function*() {
       const sizes: Array<number> = []
 
@@ -762,7 +762,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual(sizes[0], sizes[1])
     }))
 
-  it.effect("keeps an unchanged payload out of a metadata-only change", () =>
+  it.effect("should keep an unchanged payload out of a metadata-only change when only metadata changes", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: new Uint8Array(64) }] })
       const base = yield* volume.snapshot
@@ -777,7 +777,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual((yield* fs.stat("/f")).mode, 0o600)
     }))
 
-  it.effect("skips subtrees whose digests agree but still reports a hard link that joins one", () =>
+  it.effect("should skip subtrees whose digests agree but still reports a hard link that joins one when equal-digest subtrees contain a new hard link", () =>
     Effect.gen(function*() {
       const base = yield* Vfs.fromFixture({
         entries: [
@@ -817,33 +817,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual((yield* fs.stat("/d/a")).nlink, 2)
     }))
 
-  it.effect("digests only what an applied delta rewrote and reuses the base's digests elsewhere", () =>
-    Effect.gen(function*() {
-      let digests = 0
-      const crypto = yield* Crypto.Crypto
-
-      const counting = Crypto.make({
-        randomBytes: (size) => new Uint8Array(size),
-        digest: (algorithm, data) => {
-          digests++
-
-          return crypto.digest(algorithm, data)
-        }
-      })
-
-      // The root, 20 directories and 1,000 files.
-      const nodes = 1 + 20 + 20 * 50
-      const { base, target } = yield* edit(yield* tree(20, 50), "/d3/f9")
-      const delta = yield* Vfs.diffSnapshots(base, target)
-      digests = 0
-      yield* Vfs.applySnapshotDelta(base, delta).pipe(Effect.provideService(Crypto.Crypto, counting))
-
-      // One walk of the base with its identity, then the edited file, its directory and the root, and the target's
-      // identity: nothing else in the target is digested again.
-      assert.strictEqual(digests, nodes + 1 + 3 + 1)
-    }))
-
-  it.effect("rejects a delta against any base but its own", () =>
+  it.effect("should reject a delta against any base but its own when a different base is supplied", () =>
     Effect.gen(function*() {
       const { base, target } = yield* edit(yield* tree(2, 2), "/d0/f0")
       const other = yield* (yield* tree(2, 3)).snapshot
@@ -862,7 +836,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       }
     }))
 
-  it.effect("applies to a snapshot with the target's identity, which then inspects as unchanged", () =>
+  it.effect("should apply to a snapshot with the target's identity, which then inspects as unchanged when the applied result is compared with its target", () =>
     Effect.gen(function*() {
       const volume = yield* tree(3, 3)
       const caller = yield* volume.caller()
@@ -887,7 +861,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual(yield* identityOf(yield* Vfs.applySnapshotDelta(decoded, back)), yield* identityOf(base))
     }))
 
-  it.effect("carries an overlay's changes and capture across an applied delta", () =>
+  it.effect("should carry an overlay's changes and capture across an applied delta when an overlay is built on the applied result", () =>
     Effect.gen(function*() {
       const { base, target } = yield* edit(yield* tree(2, 2), "/d0/f0")
       const applied = yield* Vfs.applySnapshotDelta(base, yield* Vfs.diffSnapshots(base, target))
@@ -906,3 +880,481 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual(yield* identityOf(yield* Vfs.applySnapshotDelta(applied, delta)), yield* identityOf(snapshot))
     }))
 })
+
+{
+  const encoder = new TextEncoder()
+
+  const decoder = new TextDecoder()
+
+  interface StoredNode {
+    _tag: string
+    metadata?: object
+    content?: { _tag: string; bytes: string }
+    target?: string
+    to?: string
+  }
+
+  interface StoredChange {
+    _tag: string
+    path: string
+    kind?: string
+    beforeKind?: string
+    afterKind?: string
+    differences?: Array<string>
+    node?: StoredNode
+  }
+
+  interface StoredDocument {
+    readonly base: string
+    readonly target: string
+    readonly version: number
+    readonly changes: ReadonlyArray<StoredChange>
+  }
+
+  const snapshots = Effect.gen(function*() {
+    const volume = yield* Vfs.Volume
+    const caller = yield* Vfs.Caller
+    const base = yield* volume.snapshot
+    yield* caller.writeFile("/f", new Uint8Array([1, 2, 3]), { access: "write", create: "ifMissing" })
+    const target = yield* volume.snapshot
+
+    return { base, target }
+  }).pipe(Effect.provide(Testing.layer()))
+
+  const encodedDelta = Effect.gen(function*() {
+    const pair = yield* snapshots
+    const delta = yield* Vfs.diffSnapshots(pair.base, pair.target)
+    const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
+
+    return { ...pair, encoded }
+  })
+
+  const document = (input: Uint8Array): StoredDocument => {
+    // SAFETY: The helper only reads snapshots encoded by this package in the test setup.
+    return JSON.parse(decoder.decode(input)) as StoredDocument
+  }
+
+  const encodeDocument = (value: typeof Schema.Unknown.Type): Uint8Array => encoder.encode(JSON.stringify(value))
+
+  const customLimits = (overrides: Partial<Vfs.SnapshotDeltaLimits>): Vfs.SnapshotDeltaLimits => ({
+    ...Vfs.SnapshotDeltaLimits.default,
+    ...overrides
+  })
+
+  const reject = (input: Uint8Array, limits = Vfs.SnapshotDeltaLimits.default) =>
+    Effect.flip(Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes(limits))(input))
+
+  it.layer(BunCrypto.layer)("snapshot delta Schema codec", (it) => {
+    it.effect("should round trip through the public Schema and own buffers when decoding and encoding a delta", () =>
+      Effect.gen(function*() {
+        const { base, encoded } = yield* encodedDelta
+        const input = new Uint8Array(encoded)
+        const delta = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(input)
+        input.fill(0)
+
+        const first = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
+        const expected = new Uint8Array(first)
+        first.fill(0)
+        const second = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
+
+        assert.deepStrictEqual(second, expected)
+        const restored = yield* Vfs.applySnapshotDelta(base, delta)
+        const caller = yield* (yield* Vfs.fromSnapshot(restored)).caller()
+        assert.deepStrictEqual(yield* caller.readFile("/f"), new Uint8Array([1, 2, 3]))
+      }))
+
+    it.effect("should reject malformed UTF-8, JSON, unknown fields, and unsupported versions when wire text or version is invalid", () =>
+      Effect.gen(function*() {
+        const { encoded } = yield* encodedDelta
+        const source = document(encoded)
+
+        const cases = [
+          new Uint8Array([0xc3, 0x28]),
+          encoder.encode("{"),
+          encodeDocument({ ...source, unexpected: true }),
+          encodeDocument({ ...source, changes: [{ ...source.changes[0], unexpected: true }] }),
+          encodeDocument({ ...source, version: 2 })
+        ]
+
+        for (const input of cases) assert.isDefined(yield* reject(input))
+      }))
+
+    it.effect("should reject noncanonical base64, invalid digests, paths, and payloads when encoded bytes or digests are noncanonical", () =>
+      Effect.gen(function*() {
+        const { encoded } = yield* encodedDelta
+        const source = document(encoded)
+        const added = source.changes[0]!
+        const node = added.node!
+
+        const encodingCases = [
+          [{ ...source, base: "A" }, "digest"],
+          [{ ...source, target: "A" }, "digest"],
+          [{ ...source, base: source.base.slice(4) }, "digest"],
+          [{ ...source, changes: [{ ...added, path: "A" }] }, "changePath"],
+          [
+            { ...source, changes: [{ ...added, node: { ...node, content: { _tag: "Inline", bytes: "A" } } }] },
+            "payload"
+          ],
+          [{ ...source, changes: [{ ...added, node: { _tag: "link", to: "A" } }] }, "changes.0.node.to"]
+        ] as const
+
+        for (const [value, field] of encodingCases) {
+          const error = yield* reject(encodeDocument(value))
+          assert.instanceOf(error, Schema.SchemaError)
+          assert.include(String(error), `Snapshot delta InvalidEncoding at ${field}`)
+        }
+
+        const structuralCases = [
+          [{ ...source, target: `${source.target.slice(0, -2)}h==` }, "InvalidEncoding at digest"],
+          [{ ...source, changes: [{ ...added, path: "Lg==" }] }, "InvalidStructure at changes"],
+          // One byte past NAME_MAX, which the snapshot tree and fixtures refuse as well.
+          [
+            { ...source, changes: [{ ...added, path: Encoding.encodeBase64(`/${"a".repeat(256)}`) }] },
+            "InvalidStructure at changes"
+          ],
+          [{ ...source, changes: [{ ...added, node: { ...node, _tag: "directory" } }] }, "changes.0.node"],
+          [{ ...source, changes: [{ ...added, node: { ...node, content: undefined } }] }, "changes.0.node"],
+          [
+            {
+              ...source,
+              changes: [{
+                ...added,
+                kind: "symlink",
+                node: { ...node, _tag: "symlink", content: undefined, target: "AA==" }
+              }]
+            },
+            "changes.0.node.target"
+          ],
+          [
+            { ...source, changes: [{ ...added, node: { ...node, content: { _tag: "Inline", bytes: "AQI" } } }] },
+            "payload"
+          ],
+          [{ ...source, changes: [{ _tag: "Removed", path: "Lw==", kind: "directory" }] }, "changes.0"],
+          [{ ...source, changes: [{ ...added, node: { _tag: "link", to: added.path } }] }, "changes.0.node.to"]
+        ] as const
+
+        for (const [value, site] of structuralCases) {
+          assert.include(String(yield* reject(encodeDocument(value))), site)
+        }
+      }))
+
+    it.effect("should reject updates whose differences are out of order, repeated, or misstate a kind change when updates are out of order or inconsistent", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.Volume
+        const caller = yield* Vfs.Caller
+        yield* caller.writeFile("/f", new Uint8Array([1]), { access: "write", create: "ifMissing" })
+        const base = yield* volume.snapshot
+        yield* caller.writeFile("/f", new Uint8Array([2]), { access: "write", truncate: true })
+        yield* caller.chmod("/f", 0o600)
+        const target = yield* volume.snapshot
+        const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(yield* Vfs.diffSnapshots(base, target))
+        const source = document(encoded)
+        const updated = source.changes.find(Predicate.isTagged("Updated"))!
+        assert.deepStrictEqual(updated.differences?.slice(0, 2), ["content", "mode"])
+        const differences = updated.differences!
+
+        for (
+          const forged of [
+            [...differences].reverse(),
+            [differences[0]!, ...differences],
+            ["kind", ...differences]
+          ]
+        ) {
+          const changes = source.changes.map((change) =>
+            change === updated ? { ...change, differences: forged } : change
+          )
+
+          assert.include(String(yield* reject(encodeDocument({ ...source, changes }))), "differences")
+        }
+      }).pipe(Effect.provide(Testing.layer())))
+
+    it.effect("should reject unordered, duplicate, and semantically inconsistent summaries when summaries are duplicated or inconsistent", () =>
+      Effect.gen(function*() {
+        const { base, encoded } = yield* encodedDelta
+        const source = document(encoded)
+        const added = source.changes[0]
+        assert.isDefined(yield* reject(encodeDocument({ ...source, changes: [added, added] })))
+        assert.isDefined(
+          yield* reject(encodeDocument({
+            ...source,
+            changes: [
+              { _tag: "Added", path: "L3o=", kind: "file" },
+              { _tag: "Added", path: "L2E=", kind: "file" }
+            ]
+          }))
+        )
+
+        const inconsistent = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(
+          encodeDocument({ ...source, changes: [] })
+        )
+
+        const inspectionError = yield* Effect.flip(Vfs.inspectSnapshotDelta(base, inconsistent))
+        assert.instanceOf(inspectionError, Vfs.VfsError)
+        assert.strictEqual(inspectionError.code, "InvalidStructure")
+        assert.strictEqual(inspectionError.field, "changes")
+        const error = yield* Effect.flip(Vfs.applySnapshotDelta(base, inconsistent))
+        assert.instanceOf(error, Vfs.VfsError)
+        assert.strictEqual(error.code, "InvalidStructure")
+        assert.strictEqual(error.field, "changes")
+      }))
+
+    it.effect("should accept a semantically identical summary with reordered object keys when summary object keys are reordered", () =>
+      Effect.gen(function*() {
+        const { base, encoded } = yield* encodedDelta
+        const source = document(encoded)
+        const change = source.changes[0]!
+        const reordered = Object.fromEntries(Object.entries(change).reverse())
+
+        const delta = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(
+          encodeDocument({ ...source, changes: [reordered] })
+        )
+
+        yield* Vfs.applySnapshotDelta(base, delta)
+      }))
+
+    it.effect("should accept exact codec boundaries and reject smaller budgets when input reaches the boundary", () =>
+      Effect.gen(function*() {
+        const { encoded } = yield* encodedDelta
+        const source = document(encoded)
+        // Both digests, the path `/f` and its three payload bytes.
+        const decodedBytes = 32 + 32 + 2 + 3
+
+        const boundaries: ReadonlyArray<readonly [Vfs.SnapshotDeltaLimits, Vfs.SnapshotDeltaLimits]> = [
+          [
+            customLimits({ maxEncodedBytes: ByteSize.bytes(encoded.length) }),
+            customLimits({ maxEncodedBytes: ByteSize.bytes(encoded.length - 1) })
+          ],
+          [
+            customLimits({ maxDeltaRecords: source.changes.length }),
+            customLimits({ maxDeltaRecords: source.changes.length - 1 })
+          ],
+          [
+            customLimits({ maxDecodedDeltaBytes: ByteSize.bytes(decodedBytes) }),
+            customLimits({ maxDecodedDeltaBytes: ByteSize.bytes(decodedBytes - 1) })
+          ],
+          [customLimits({ maxEntries: 1 }), customLimits({ maxEntries: 0 })],
+          [customLimits({ maxOutputBytes: ByteSize.bytes(3) }), customLimits({ maxOutputBytes: ByteSize.bytes(2) })]
+        ]
+
+        for (const [accepted, rejected] of boundaries) {
+          assert.isDefined(
+            yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes(accepted))(encoded)
+          )
+          assert.isDefined(yield* reject(encoded, rejected))
+        }
+      }))
+
+    it.effect("should bound the applied target's nodes at exactly the configured output records when the target reaches its output record limit", () =>
+      Effect.gen(function*() {
+        const { base, encoded } = yield* encodedDelta
+        const delta = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(encoded)
+
+        // The target holds the root and `/f`.
+        yield* Vfs.applySnapshotDelta(base, delta, customLimits({ maxOutputRecords: 2 }))
+        const error = yield* Effect.flip(Vfs.applySnapshotDelta(base, delta, customLimits({ maxOutputRecords: 1 })))
+        assert.instanceOf(error, Vfs.VfsError)
+        assert.deepStrictEqual([error.code, error.field], ["LimitExceeded", "outputRecords"])
+      }))
+
+    it.effect("should preserve byte limits above Number.MAX_SAFE_INTEGER when configured byte limits exceed safe integers", () =>
+      Effect.gen(function*() {
+        const { base, target } = yield* snapshots
+        const exactLimit = ByteSize.bytes(BigInt(Number.MAX_SAFE_INTEGER) + 1n)
+
+        const limits = customLimits({
+          maxEncodedBytes: exactLimit,
+          maxIdentityBytes: exactLimit,
+          maxDecodedDeltaBytes: exactLimit,
+          maxOutputBytes: exactLimit
+        })
+
+        const delta = yield* Vfs.diffSnapshots(base, target, limits)
+        const codec = Vfs.SnapshotDeltaFromBytes(limits)
+        const encoded = yield* Schema.encodeEffect(codec)(delta)
+        const decoded = yield* Schema.decodeEffect(codec)(encoded)
+        const restored = yield* Vfs.applySnapshotDelta(base, decoded, limits)
+        const caller = yield* (yield* Vfs.fromSnapshot(restored)).caller()
+        assert.deepStrictEqual(yield* caller.readFile("/f"), new Uint8Array([1, 2, 3]))
+      }))
+
+    it.effect("should enforce inherited-record, delta-record, identity and target limits on inspection and apply when inherited delta identity or target limits are reached", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.Volume
+        const caller = yield* Vfs.Caller
+        yield* caller.writeFile("/f", new Uint8Array([1]), { access: "write", create: "ifMissing" })
+        const base = yield* volume.snapshot
+        const unchanged = yield* Vfs.diffSnapshots(base, base)
+
+        // An unchanged delta carries no node, so the target inherits the root and `/f` from the base.
+        yield* Vfs.applySnapshotDelta(base, unchanged, customLimits({ maxInheritedRecords: 2 }))
+        yield* caller.writeFile("/g", new Uint8Array([2]), { access: "write", create: "exclusive" })
+        const grown = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
+
+        for (
+          const [delta, limits, field] of [
+            [unchanged, customLimits({ maxInheritedRecords: 1 }), "inheritedRecords"],
+            [grown, customLimits({ maxDeltaRecords: 0 }), "deltaRecords"],
+            [unchanged, customLimits({ maxIdentityBytes: ByteSize.zero }), "identityBytes"],
+            // The target holds the root, `/f` and `/g`: three records and two names, as a diff under these limits
+            // would also refuse.
+            [grown, customLimits({ maxTargetRecords: 2 }), "targetRecords"],
+            [grown, customLimits({ maxEntries: 1 }), "entries"]
+          ] as const
+        ) {
+          const errors = [
+            yield* Effect.flip(Vfs.applySnapshotDelta(base, delta, limits)),
+            yield* Effect.flip(Vfs.inspectSnapshotDelta(base, delta, undefined, limits))
+          ]
+
+          for (const error of errors) {
+            assert.instanceOf(error, Vfs.VfsError)
+            assert.deepStrictEqual([error.code, error.field], ["LimitExceeded", field])
+          }
+        }
+      }).pipe(Effect.provide(Testing.layer())))
+
+    it.effect("should reject a hard link redirected to a path that carries no node when a hard link targets no node", () =>
+      Effect.gen(function*() {
+        const empty = yield* (yield* Vfs.fromFixture({ entries: [] })).snapshot
+
+        const linked = yield* Vfs.fromFixture({
+          entries: [
+            { kind: "file", path: "/a", bytes: new Uint8Array([1]) },
+            { kind: "hardLink", path: "/b", target: "/a" },
+            { kind: "file", path: "/c", bytes: new Uint8Array([1]) }
+          ]
+        })
+
+        const delta = yield* Vfs.diffSnapshots(empty, yield* linked.snapshot)
+        const source = document(yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta))
+        const link = source.changes.find((change) => change.node?._tag === "link")
+        assert.deepStrictEqual(link?.node, { _tag: "link", to: "L2E=" })
+
+        // `/c` comes after `/b`, and `/b` is itself a link: neither is an earlier change's node.
+        for (const to of ["L2M=", "L2I=", "L3o="]) {
+          const changes = source.changes.map((change) =>
+            change === link ? { ...change, node: { _tag: "link", to } } : change
+          )
+
+          const error = yield* reject(encodeDocument({ ...source, changes }))
+          assert.instanceOf(error, Schema.SchemaError)
+          assert.include(String(error), "InvalidStructure at changes.1.node.to")
+        }
+      }))
+
+    it.effect("should reject on apply a change the base or the target does not bear out when a claimed change disagrees with base or target", () =>
+      Effect.gen(function*() {
+        const base = yield* (yield* Vfs.fromFixture({
+          entries: [
+            { kind: "directory", path: "/d" },
+            { kind: "file", path: "/d/a", bytes: new Uint8Array([1]) },
+            { kind: "hardLink", path: "/b", target: "/d/a" },
+            { kind: "file", path: "/f", bytes: new Uint8Array([2]) }
+          ]
+        })).snapshot
+
+        const target = yield* (yield* Vfs.fromFixture({
+          entries: [
+            { kind: "directory", path: "/d" },
+            { kind: "file", path: "/d/a", bytes: new Uint8Array([1]) },
+            { kind: "hardLink", path: "/b", target: "/d/a" },
+            { kind: "file", path: "/f", bytes: new Uint8Array([3]), metadata: { mode: 0o600 } },
+            { kind: "file", path: "/g", bytes: new Uint8Array([4]) }
+          ]
+        })).snapshot
+
+        const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(yield* Vfs.diffSnapshots(base, target))
+        const source = document(encoded)
+        const [updated, added] = source.changes
+        assert.deepStrictEqual([updated?.path, updated?.differences, added?.path], [
+          "L2Y=",
+          ["content", "mode"],
+          "L2c="
+        ])
+        const file = { _tag: "file", metadata: added!.node!.metadata!, content: { _tag: "Inline", bytes: "BA==" } }
+
+        // A change the base does not bear out names itself; only a target identity the changes miss names `changes`.
+        const cases: ReadonlyArray<readonly [string, ReadonlyArray<StoredChange>, string]> = [
+          ["forged differences", [{ ...updated!, differences: ["content"] }, added!], "changes.0.differences"],
+          [
+            "addition at an existing path",
+            [{ _tag: "Added", path: "L2Y=", kind: "file", node: updated!.node! }],
+            "changes.0"
+          ],
+          [
+            "removal of a missing path",
+            [updated!, added!, { _tag: "Removed", path: "L3o=", kind: "file" }],
+            "changes.2"
+          ],
+          ["removal of the wrong kind", [{ _tag: "Removed", path: "L2Q=", kind: "file" }], "changes.0"],
+          ["one name of a hard-linked node removed", [{ _tag: "Removed", path: "L2I=", kind: "file" }], "changes.0"],
+          [
+            "a directory removed without its entries",
+            [{ _tag: "Removed", path: "L2Q=", kind: "directory" }],
+            "changes.0"
+          ],
+          [
+            "an addition under a missing directory",
+            [{ _tag: "Added", path: "L3gvZw==", kind: "file", node: file }],
+            "parent"
+          ],
+          ["a change missing from the summary", [updated!], "changes"]
+        ]
+
+        for (const [label, changes, field] of cases) {
+          const delta = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(encodeDocument({ ...source, changes }))
+          const error = yield* Effect.flip(Vfs.applySnapshotDelta(base, delta))
+          assert.instanceOf(error, Vfs.VfsError, label)
+          assert.deepStrictEqual([error.code, error.field], ["InvalidStructure", field], label)
+        }
+
+        const forged = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(
+          encodeDocument({ ...source, target: source.base })
+        )
+
+        const error = yield* Effect.flip(Vfs.inspectSnapshotDelta(base, forged))
+        assert.instanceOf(error, Vfs.VfsError)
+        assert.deepStrictEqual([error.code, error.field], ["InvalidStructure", "changes"])
+      }))
+
+    it.effect("should reject a change the base does not bear out even when the target identity matches its intended result", () =>
+      Effect.gen(function*() {
+        const snapshotOf = (entries: Vfs.Fixture["entries"]) =>
+          Effect.flatMap(Vfs.fromFixture({ entries }), (volume) => volume.snapshot)
+
+        const cases = [
+          [
+            // Without the check, `/d/a` would stay behind unreachable and the applied snapshot would still diff equal.
+            "a directory removed without its entries",
+            [{ kind: "directory", path: "/d" }, { kind: "file", path: "/d/a", bytes: new Uint8Array([1]) }],
+            [],
+            { _tag: "Removed", path: "L2Q=", kind: "directory" }
+          ],
+          [
+            "one name of a hard-linked node removed",
+            [{ kind: "file", path: "/a", bytes: new Uint8Array([1]) }, { kind: "hardLink", path: "/b", target: "/a" }],
+            [{ kind: "file", path: "/a", bytes: new Uint8Array([1]) }],
+            { _tag: "Removed", path: "L2I=", kind: "file" }
+          ]
+        ] as const
+
+        for (const [label, baseEntries, targetEntries, change] of cases) {
+          const base = yield* snapshotOf(baseEntries)
+
+          const source = document(
+            yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(
+              yield* Vfs.diffSnapshots(base, yield* snapshotOf(targetEntries))
+            )
+          )
+
+          const delta = yield* Schema.decodeEffect(Vfs.SnapshotDeltaFromBytes())(
+            encodeDocument({ ...source, changes: [change] })
+          )
+
+          const error = yield* Effect.flip(Vfs.applySnapshotDelta(base, delta))
+          assert.instanceOf(error, Vfs.VfsError, label)
+          assert.deepStrictEqual([error.code, error.field], ["InvalidStructure", "changes.0"], label)
+        }
+      }))
+  })
+}

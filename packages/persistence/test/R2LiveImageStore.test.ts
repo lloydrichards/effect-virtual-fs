@@ -53,7 +53,7 @@ const layer = (client: R2LiveImageStore.R2Client) =>
 
 // The stores digest images with Crypto; LiveVolume.open itself needs none.
 it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
-  it.effect("reports power-loss durability only when the application qualifies the R2 transport", () =>
+  it.effect("should report power-loss durability when the application qualifies the R2 transport", () =>
     Effect.gen(function*() {
       const remote = makeClient()
 
@@ -83,7 +83,7 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       assert.strictEqual(qualified.durability, "survives-power-loss")
     }))
 
-  it.effect("reopens the last acknowledged complete image", () =>
+  it.effect("should reopen the last acknowledged image when the store is opened again", () =>
     Effect.gen(function*() {
       const remote = makeClient()
       yield* Effect.scoped(
@@ -102,7 +102,7 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       )
     }))
 
-  it.effect("freezes the old owner after a competing write", () =>
+  it.effect("should freeze a stale owner when another owner commits first", () =>
     Effect.scoped(Effect.gen(function*() {
       const remote = makeClient()
       const first = yield* LiveVolume.LiveImageStore.pipe(Effect.provide(layer(remote.client)))
@@ -114,7 +114,7 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       assert.strictEqual(yield* second.commit(bytes("retry")), "unknown")
     })))
 
-  it.effect("recovers a complete image after a lost commit reply", () =>
+  it.effect("should recover the complete committed image when its reply is lost", () =>
     Effect.gen(function*() {
       const remote = makeClient()
       yield* Effect.scoped(
@@ -135,7 +135,7 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       )
     }))
 
-  it.effect("rejects an image whose stored digest does not match", () =>
+  it.effect("should reject an image when its stored digest does not match", () =>
     Effect.gen(function*() {
       const remote = makeClient()
       yield* Effect.scoped(
@@ -154,7 +154,7 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       assert.deepStrictEqual([error.code, error.operation], ["CorruptStore", "R2LiveImageStore.loadOrCreate"])
     }))
 
-  it.effect("names the layer as the operation of a rejected option", () =>
+  it.effect("should name the layer in the error when an option is invalid", () =>
     Effect.gen(function*() {
       const error = yield* Effect.flip(
         LiveVolume.LiveImageStore.pipe(
@@ -172,7 +172,7 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
     }))
 
   // A commit that was already writing when another one froze the store must not unfreeze it when it lands.
-  it.effect("stays frozen when an earlier commit lands after a later one lost its reply", () =>
+  it.effect("should stay frozen when an earlier commit lands after a later reply is lost", () =>
     Effect.scoped(Effect.gen(function*() {
       const held = yield* Deferred.make<void>()
       const lost = yield* Deferred.make<void>()
@@ -209,7 +209,7 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       assert.strictEqual(yield* store.commit(bytes("after")), "unknown")
     })))
 
-  it.effect("sends an ETag condition through the S3 client", () =>
+  it.effect("should send an ETag condition when writing through the S3 client", () =>
     Effect.gen(function*() {
       const commands: Array<PutObjectCommand> = []
 
@@ -248,7 +248,7 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       fake.destroy()
     }))
 
-  it.effect("treats a missing key as absent but keeps a missing bucket as an error", () =>
+  it.effect("should return absence when S3 reports a missing key", () =>
     Effect.gen(function*() {
       const fake = new S3Client({
         region: "auto",
@@ -269,6 +269,21 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       )
       assert.strictEqual(yield* R2LiveImageStore.fromS3(fake, "bucket").read("key"), null)
 
+      fake.destroy()
+    }))
+
+  it.effect("should report an error when S3 reports a missing bucket", () =>
+    Effect.gen(function*() {
+      const fake = new S3Client({
+        region: "auto",
+        endpoint: "https://example.invalid",
+        credentials: {
+          accessKeyId: "test",
+          secretAccessKey: "test"
+        }
+      })
+
+      const send = vi.spyOn(fake, "send")
       send.mockRejectedValue(
         new S3ServiceException({
           name: "NoSuchBucket",

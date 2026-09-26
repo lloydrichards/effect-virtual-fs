@@ -44,7 +44,9 @@ const store = (filename: string, maxDatabaseBytes = ByteSize.megabytes(2)) =>
 it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it) => {
   for (const existing of [false, true]) {
     it.effect(
-      existing ? "syncs the verified parent of an existing database" : "syncs the verified parent after first creation",
+      existing
+        ? "should sync the verified parent when opening an existing database"
+        : "should sync the verified parent when creating a database",
       () =>
         Effect.scoped(Effect.gen(function*() {
           const filesystem = yield* FileSystem.FileSystem
@@ -76,7 +78,24 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
     )
   }
 
-  it.effect("fails startup when directory sync fails, then reopens the new database", () =>
+  it.effect("should fail startup when directory sync fails for a new database", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const filesystem = yield* FileSystem.FileSystem
+      const { filename } = yield* temporaryDatabase
+
+      const failed = SqliteLiveImageStore.layer({
+        filename,
+        maxImageBytes: options.maxImageBytes,
+        maxDatabaseBytes: ByteSize.megabytes(2),
+        syncDatabaseDirectory: () => Effect.fail(new DirectorySyncFailure())
+      }).pipe(Layer.provide(SqliteClient.layer({ filename, disableWAL: true })))
+
+      const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(failed)))
+      assert.strictEqual(error.code, "Storage")
+      assert.strictEqual(yield* filesystem.exists(filename), true)
+    })))
+
+  it.effect("should reopen a new database when directory sync previously failed during startup", () =>
     Effect.scoped(Effect.gen(function*() {
       const filesystem = yield* FileSystem.FileSystem
       const { filename } = yield* temporaryDatabase
@@ -112,7 +131,7 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
     })))
 
   it.effect(
-    "reopens after the SQLite creator is killed before directory sync",
+    "should reopen a database when its creator is killed before directory sync",
     () =>
       Effect.scoped(Effect.gen(function*() {
         const filesystem = yield* FileSystem.FileSystem
@@ -156,7 +175,7 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
     15_000
   )
 
-  it.effect("uses bounded temporary-file settings on the commit connection", () =>
+  it.effect("should use bounded temporary-file settings when opening the commit connection", () =>
     Effect.scoped(Effect.gen(function*() {
       const filesystem = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -177,50 +196,58 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       assert.match(settings, /^journal_size_limit=0$/m)
     })))
 
-  it.effect("preserves an acknowledged write across process exit", () =>
-    Effect.scoped(Effect.gen(function*() {
-      const path = yield* Path.Path
-      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const { filename } = yield* temporaryDatabase
-      const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
+  it.effect(
+    "should preserve an acknowledged write when the writer process exits",
+    () =>
+      Effect.scoped(Effect.gen(function*() {
+        const path = yield* Path.Path
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+        const { filename } = yield* temporaryDatabase
+        const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
 
-      const run = (mode: string) =>
-        spawner.string(ChildProcess.make("bun", [worker], {
-          env: { LIVE_STORE_MODE: mode, LIVE_STORE_FILE: filename },
-          extendEnv: true
-        }))
+        const run = (mode: string) =>
+          spawner.string(ChildProcess.make("bun", [worker], {
+            env: { LIVE_STORE_MODE: mode, LIVE_STORE_FILE: filename },
+            extendEnv: true
+          }))
 
-      const written = yield* run("write")
-      const reopened = yield* run("verify")
-      assert.strictEqual(reopened.trim(), written.trim())
-    })), 15_000)
-
-  it.effect("recovers an acknowledged write after the writer is killed", () =>
-    Effect.scoped(Effect.gen(function*() {
-      const path = yield* Path.Path
-      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const { filename } = yield* temporaryDatabase
-      const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
-
-      const command = (mode: string) =>
-        ChildProcess.make("bun", [worker], {
-          env: { LIVE_STORE_MODE: mode, LIVE_STORE_FILE: filename },
-          extendEnv: true
-        })
-
-      const writer = yield* spawner.spawn(command("write-hold"))
-      const acknowledged = yield* Stream.runHead(writer.stdout)
-
-      if (Option.isNone(acknowledged)) return yield* Effect.die("writer did not acknowledge the commit")
-
-      yield* writer.kill({ killSignal: "SIGKILL" })
-
-      const reopened = yield* spawner.string(command("verify"))
-      assert.strictEqual(reopened.trim(), new TextDecoder().decode(acknowledged.value).trim())
-    })), 15_000)
+        const written = yield* run("write")
+        const reopened = yield* run("verify")
+        assert.strictEqual(reopened.trim(), written.trim())
+      })),
+    15_000
+  )
 
   it.effect(
-    "rolls back an unacknowledged transaction when the writer is killed before COMMIT",
+    "should recover an acknowledged write when the writer is killed",
+    () =>
+      Effect.scoped(Effect.gen(function*() {
+        const path = yield* Path.Path
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+        const { filename } = yield* temporaryDatabase
+        const worker = yield* path.fromFileUrl(new URL("./fixtures/live-restart.ts", import.meta.url))
+
+        const command = (mode: string) =>
+          ChildProcess.make("bun", [worker], {
+            env: { LIVE_STORE_MODE: mode, LIVE_STORE_FILE: filename },
+            extendEnv: true
+          })
+
+        const writer = yield* spawner.spawn(command("write-hold"))
+        const acknowledged = yield* Stream.runHead(writer.stdout)
+
+        if (Option.isNone(acknowledged)) return yield* Effect.die("writer did not acknowledge the commit")
+
+        yield* writer.kill({ killSignal: "SIGKILL" })
+
+        const reopened = yield* spawner.string(command("verify"))
+        assert.strictEqual(reopened.trim(), new TextDecoder().decode(acknowledged.value).trim())
+      })),
+    15_000
+  )
+
+  it.effect(
+    "should roll back an unacknowledged transaction when the writer is killed before COMMIT",
     () =>
       Effect.scoped(Effect.gen(function*() {
         const filesystem = yield* FileSystem.FileSystem
@@ -253,7 +280,7 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
     15_000
   )
 
-  it.effect("reopens names, bytes, hard links and identity", () =>
+  it.effect("should restore names bytes links and identity when a database reopens", () =>
     Effect.scoped(Effect.gen(function*() {
       const path = yield* Path.Path
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -274,18 +301,22 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       assert.notStrictEqual(afterIncarnation, beforeIncarnation)
     })))
 
-  it.effect("rejects a competing owner", () =>
-    Effect.scoped(Effect.gen(function*() {
-      const { filename } = yield* temporaryDatabase
+  it.effect(
+    "should reject a competing owner when a database is already held",
+    () =>
+      Effect.scoped(Effect.gen(function*() {
+        const { filename } = yield* temporaryDatabase
 
-      yield* Effect.scoped(Effect.gen(function*() {
-        yield* LiveVolume.open(options)
-        const competing = yield* Effect.flip(LiveVolume.open(options).pipe(Effect.provide(store(filename))))
-        assert.deepStrictEqual([competing.code, competing.operation], ["Ownership", "SqliteLiveImageStore.layer"])
-      })).pipe(Effect.provide(store(filename)))
-    })), 15_000)
+        yield* Effect.scoped(Effect.gen(function*() {
+          yield* LiveVolume.open(options)
+          const competing = yield* Effect.flip(LiveVolume.open(options).pipe(Effect.provide(store(filename))))
+          assert.deepStrictEqual([competing.code, competing.operation], ["Ownership", "SqliteLiveImageStore.layer"])
+        })).pipe(Effect.provide(store(filename)))
+      })),
+    15_000
+  )
 
-  it.effect("rejects a damaged image", () =>
+  it.effect("should reject a damaged image when a database reopens", () =>
     Effect.scoped(Effect.gen(function*() {
       const path = yield* Path.Path
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -306,7 +337,7 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       assert.strictEqual(damaged.code, "CorruptStore")
     })))
 
-  it.effect("rejects extra schema objects that could create statement journals", () =>
+  it.effect("should reject extra schema objects when a database reopens", () =>
     Effect.scoped(Effect.gen(function*() {
       const path = yield* Path.Path
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -329,7 +360,7 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       assert.strictEqual(error.code, "CorruptStore")
     })))
 
-  it.effect("rejects a SQLite client bound to another database", () =>
+  it.effect("should reject a SQLite client when it is bound to another database", () =>
     Effect.scoped(Effect.gen(function*() {
       const path = yield* Path.Path
       const { directory } = yield* temporaryDatabase
@@ -346,7 +377,7 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       assert.deepStrictEqual([error.code, error.field], ["InvalidArgument", "filename"])
     })))
 
-  it.effect("reports a database with a schema version it did not write as an incompatible store", () =>
+  it.effect("should report IncompatibleStore when a database has an unknown schema version", () =>
     Effect.scoped(Effect.gen(function*() {
       const { filename } = yield* temporaryDatabase
 
@@ -359,7 +390,7 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       assert.strictEqual(error.code, "IncompatibleStore")
     })))
 
-  it.effect("names the option a malformed configuration got wrong", () =>
+  it.effect("should name the invalid option when store configuration is malformed", () =>
     Effect.gen(function*() {
       const opened = (settings: Partial<SqliteLiveImageStore.Options>) =>
         Effect.flip(
@@ -392,7 +423,7 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       }
     }))
 
-  it.effect("rejects a full-database write without publishing it", () =>
+  it.effect("should reject a write without publishing it when the database is full", () =>
     Effect.scoped(Effect.gen(function*() {
       const { filename } = yield* temporaryDatabase
 
@@ -410,7 +441,7 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       })).pipe(Effect.provide(store(filename, ByteSize.bytes(12_288))))
     })))
 
-  it.effect("freezes the volume when a SQLite commit succeeds but its acknowledgement is lost", () =>
+  it.effect("should freeze the volume when a committed write loses its acknowledgement", () =>
     Effect.scoped(Effect.gen(function*() {
       const { filename } = yield* temporaryDatabase
       let loseAcknowledgement = false
@@ -457,7 +488,7 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       })).pipe(Effect.provide(injected))
     })))
 
-  it.effect("freezes the volume when an update fails and rollback cannot be confirmed", () =>
+  it.effect("should freeze the volume when an update fails and rollback is unconfirmed", () =>
     Effect.scoped(Effect.gen(function*() {
       const { filename } = yield* temporaryDatabase
       let failTransaction = false
