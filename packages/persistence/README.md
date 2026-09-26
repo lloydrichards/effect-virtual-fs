@@ -172,7 +172,7 @@ or incremental snapshot storage. Snapshot diffs are a separate core feature.
 From the repository root:
 
 ```sh
-bun run test --filter=@effect-vfs/persistence
+bun run test --project persistence
 ```
 
 The package test task builds its exports, runs real SQLite tests under Bun, and launches separate save and restore

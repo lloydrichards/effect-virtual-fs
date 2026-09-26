@@ -7,23 +7,23 @@ tags: [concurrency, watches, snapshots]
 sources:
   - resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Mutation coordination and watch implementation
-  - resource: ../../packages/core/test/Replacement.test.ts
+  - resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Replacement and coordination tests
   - resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Watch and lifecycle tests
-  - resource: ../../packages/core/test/MutationRevision.test.ts
+  - resource: ../../packages/core/test/behaviour/mutationRevision.test.ts
     title: Revision and coordinated observation tests
   - resource: ../../packages/core/test/Watch.test.ts
     title: Watch registration and delivery tests
-  - resource: ../../packages/core/test/WatchBounded.test.ts
+  - resource: ../../packages/core/test/Watch.test.ts
     title: Bounded admission and watch overflow tests
-  - resource: ../../packages/core/test/ScopedWatch.test.ts
+  - resource: ../../packages/core/test/Watch.test.ts
     title: Scoped watch tests
   - id: tracing-tests
-    resource: ../../packages/core/test/Tracing.test.ts
+    resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Public tracing boundary tests
   - id: tree-tests
-    resource: ../../packages/core/test/RemoveRecursive.test.ts
+    resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Recursive removal as a composition of changes
 generated: { by: claude-code, at: "2026-09-26T12:00:00+02:00" }
 ---

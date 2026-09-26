@@ -12,16 +12,16 @@ sources:
     resource: ../../packages/core/src/internal/virtualFileSystem/overlayDiff.ts
     title: Identity-based final-state comparison
   - id: behavior
-    resource: ../../packages/core/test/Overlay.test.ts
+    resource: ../../packages/core/test/behaviour/overlay.test.ts
     title: Overlay behavior and integration tests
   - id: sharing
-    resource: ../../packages/core/test/OverlayContent.test.ts
+    resource: ../../packages/core/test/behaviour/overlay.test.ts
     title: Internal shared-content identity evidence
   - id: changes
-    resource: ../../packages/core/test/OverlayChanges.test.ts
+    resource: ../../packages/core/test/behaviour/overlay.test.ts
     title: Final-difference summary tests
   - id: checkpoint
-    resource: ../../packages/persistence/test/OverlayCheckpoint.test.ts
+    resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Captured snapshot checkpoint compatibility
 generated: { by: codex/okf, at: "2026-09-18T06:04:59Z" }
 ---

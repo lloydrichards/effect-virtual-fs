@@ -12,7 +12,7 @@ sources:
     resource: ../../../packages/core/src/internal/virtualFileSystem.ts
     title: Handle scopes, shared release, and cleanup finalizers
   - id: tests
-    resource: ../../../packages/core/test/HandleLifecycle.test.ts
+    resource: ../../../packages/core/test/FileHandle.test.ts
     title: Handle lifecycle races, busy closes, and interrupted cleanup
 generated: { by: codex/okf, at: "2026-09-25T00:00:00Z" }
 ---

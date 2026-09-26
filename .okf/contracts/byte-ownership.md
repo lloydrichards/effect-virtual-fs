@@ -7,9 +7,9 @@ tags: [bytes, ownership, isolation]
 sources:
   - resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Core byte APIs
-  - resource: ../../packages/core/test/FixtureOwnership.test.ts
+  - resource: ../../packages/core/test/Fixture.test.ts
     title: Fixture ownership tests
-  - resource: ../../packages/core/test/WholeFile.test.ts
+  - resource: ../../packages/core/test/FileHandle.test.ts
     title: Whole-file ownership tests
 generated: { by: codex/okf, at: 2026-09-10T00:00:00Z }
 ---

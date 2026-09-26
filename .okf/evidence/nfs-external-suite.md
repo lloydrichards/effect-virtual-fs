@@ -18,7 +18,7 @@ sources:
     resource: https://github.com/kofemann/pynfs
     title: pynfs NFSv4.1 server tester
   - id: profile-tests
-    resource: ../../packages/nfs/test/ReadOnlyProfile.test.ts
+    resource: ../../packages/nfs/test/internal/nfs4.test.ts
     title: Read-only profile protocol tests
   - id: linux-gate
     resource: ../../apps/nfs-preview/scripts/linux-mount-gate.sh

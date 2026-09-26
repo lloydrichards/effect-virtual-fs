@@ -33,7 +33,7 @@ sources:
     resource: ../../../packages/nfs/src/NfsServer.ts
     title: Public NFS export options
   - id: tests
-    resource: ../../../packages/nfs/test/NfsWrite.test.ts
+    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
     title: Internal WRITE and COMMIT wire tests
 generated: { by: codex/okf, at: 2026-09-20T12:11:27Z }
 ---

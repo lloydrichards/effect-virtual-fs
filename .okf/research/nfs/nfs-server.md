@@ -18,7 +18,7 @@ sources:
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/39
     title: Privileged Linux mount gate and retained macOS result
   - id: nfs-tests
-    resource: ../../../packages/nfs/test/Nfs4.test.ts
+    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
     title: NFSv4.1 protocol behavior tests
   - id: checkpoints
     resource: ../../../packages/persistence/src/CheckpointStore.ts

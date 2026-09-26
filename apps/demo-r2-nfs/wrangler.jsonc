@@ -5,7 +5,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "containers": [{
     "class_name": "R2NfsContainer",
-    "image": "../../Dockerfile.r2-nfs-container",
+    "image": "./Dockerfile",
+    "image_build_context": "../..",
     "max_instances": 1
   }],
   "durable_objects": {

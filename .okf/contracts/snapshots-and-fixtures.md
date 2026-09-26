@@ -17,11 +17,11 @@ sources:
     title: Newline framing and the bounded line reader
   - resource: ../../packages/core/test/Snapshot.test.ts
     title: Snapshot and restoration tests
-  - resource: ../../packages/core/test/SnapshotDecoding.test.ts
+  - resource: ../../packages/core/test/Snapshot.test.ts
     title: Hostile image decoding tests
-  - resource: ../../packages/core/test/SnapshotRoundTrip.test.ts
+  - resource: ../../packages/core/test/Snapshot.test.ts
     title: Round-trip, budget, hostile-input and inode-range pins through the public API
-  - resource: ../../packages/core/test/SnapshotLines.test.ts
+  - resource: ../../packages/core/test/Snapshot.test.ts
     title: Line framing, the one-line bound and encode-decode limit parity
 generated: { by: claude/okf, at: "2026-09-26T14:45:00+02:00" }
 ---

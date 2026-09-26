@@ -9,16 +9,16 @@ sources:
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Metadata, mutation gate and watch publication
   - id: metadata-tests
-    resource: ../../packages/core/test/MutationRevision.test.ts
+    resource: ../../packages/core/test/behaviour/mutationRevision.test.ts
     title: Fixed-clock revision and runtime-only snapshot tests
   - id: replacement-tests
-    resource: ../../packages/core/test/Replacement.test.ts
+    resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Mutation rejection and replacement behavior
   - id: reference-tests
-    resource: ../../packages/core/test/ReferenceMutation.test.ts
+    resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Atomic reference mutation result tests
   - id: restore-tests
-    resource: ../../packages/core/test/SnapshotRoundTrip.test.ts
+    resource: ../../packages/core/test/Snapshot.test.ts
     title: Restored revisions match across captured and decoded snapshots
 generated: { by: claude/okf, at: "2026-09-26T15:00:00+02:00" }
 ---

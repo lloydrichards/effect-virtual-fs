@@ -12,7 +12,7 @@ sources:
     resource: ../../packages/memory/test/FileSystemTest.ts
     title: Shared adapter contract suite
   - id: core-binding-tests
-    resource: ../../packages/memory/test/CoreBinding.test.ts
+    resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Core binding compatibility tests
 generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 ---

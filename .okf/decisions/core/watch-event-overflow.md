@@ -21,10 +21,10 @@ sources:
     resource: ../../../packages/memory/src/MemoryFileSystem.ts
     title: Public overflow guard
   - id: tests
-    resource: ../../../packages/core/test/WatchBounded.test.ts
+    resource: ../../../packages/core/test/Watch.test.ts
     title: PubSub probe, admission, and subscriber tests
   - id: adapter-tests
-    resource: ../../../packages/memory/test/CoreBinding.test.ts
+    resource: ../../../packages/memory/test/MemoryFileSystem.test.ts
     title: Adapter overflow test
   - id: pubsub
     resource: ../../../node_modules/effect/src/PubSub.ts

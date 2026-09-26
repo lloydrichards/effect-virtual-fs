@@ -7,7 +7,7 @@ tags: [resources, authority, scope]
 sources:
   - resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Core capability interfaces
-  - resource: ../../packages/core/test/EffectReuse.test.ts
+  - resource: ../../packages/core/test/Snapshot.test.ts
     title: Reusable Effect and capability tests
   - resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Volume and caller behavior tests

@@ -9,19 +9,19 @@ sources:
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Runtime node identity and public capabilities
   - id: file-tests
-    resource: ../../packages/core/test/ObjectReference.test.ts
+    resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Object-reference identity, authority, and lifetime tests
   - id: link-tests
-    resource: ../../packages/core/test/Links.test.ts
+    resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Hard-link and rename behavior
   - id: mutation-tests
-    resource: ../../packages/core/test/ReferenceMutation.test.ts
+    resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Reference mutation identity, authority, and lifetime tests
   - id: create-tests
-    resource: ../../packages/core/test/ReferenceCreate.test.ts
+    resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Conditional child creation and initial metadata tests
   - id: key-tests
-    resource: ../../packages/core/test/ReferenceKey.test.ts
+    resource: ../../packages/core/test/Volume.test.ts
     title: Reference key round trip, lifetime, refusals, forks, and live reopen
 generated: { by: claude-code, at: "2026-09-26T12:30:00+02:00" }
 ---

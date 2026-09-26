@@ -12,7 +12,7 @@ sources:
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Volume capabilities and overlay construction
   - id: overlay-tests
-    resource: ../../packages/core/test/Overlay.test.ts
+    resource: ../../packages/core/test/behaviour/overlay.test.ts
     title: Representative overlay behavior, summaries and capture races
   - id: linux
     resource: https://docs.kernel.org/filesystems/overlayfs.html

@@ -24,7 +24,7 @@ sources:
     resource: ../../packages/core/test/SnapshotDelta.test.ts
     title: Reconstruction, identity, inspection and ownership tests
   - id: decoding-tests
-    resource: ../../packages/core/test/SnapshotDeltaDecoding.test.ts
+    resource: ../../packages/core/test/SnapshotDelta.test.ts
     title: Hostile decoding and exact-boundary limit tests
   - id: effect-crypto
     resource: https://github.com/Effect-TS/effect/blob/main/packages/effect/src/Crypto.ts

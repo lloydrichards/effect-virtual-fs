@@ -18,7 +18,7 @@ sources:
     resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: NFS error map and dispatcher
   - id: tests
-    resource: ../../../packages/nfs/test/ErrorMapping.test.ts
+    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
     title: Exhaustive error mapping test
 generated: { by: claude-code, at: "2026-09-26T12:30:00+02:00" }
 ---
