@@ -31,7 +31,7 @@ Hide timestamp-only differences by default, with `includeTimestamps` to include 
 
 Report a rename when retained object identity makes pairing removed and added names unambiguous. Moving `/a.ts` to `/b.ts` gives one rename; editing it also adds a content difference. Removing `/a.ts` and creating unrelated `/b.ts` with identical bytes gives removal and addition. Equal bytes never prove a rename.
 
-For ambiguous hard-link pairings, report added and removed names without guessing. This describes final relationships, not the operations performed. Runtime inode numbers across restores and independently assigned snapshot IDs are insufficient; retain base-to-workspace lineage. Directory-move grouping and presentation of content changes through several hard links remain open.
+For ambiguous hard-link pairings, report added and removed names without guessing. This describes final relationships, not the operations performed. Runtime inode numbers across restores and independently assigned snapshot IDs are insufficient; retain base-to-workspace lineage. Since the tree schema landed, a workspace starts from its base's own value without renumbering and never reuses an inode number, so within one workspace the inode number is that lineage. Directory-move grouping and presentation of content changes through several hard links remain open.
 
 ## Consistent capture
 
