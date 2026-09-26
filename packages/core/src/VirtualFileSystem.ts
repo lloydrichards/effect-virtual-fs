@@ -1603,7 +1603,7 @@ export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, I
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { ByteSize, Effect } from "effect"
  *
- * // Limits are mandatory: decoding is the boundary where untrusted input arrives.
+ * // Limits are mandatory: decoding is the boundary where outside input arrives.
  * const program = Effect.gen(function*() {
  *   const volume = yield* Vfs.make()
  *   const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)

@@ -687,7 +687,7 @@ export const makeVolume = Effect.fnUntraced(
 
     const view = (ino: Ino): Node | undefined => draft === undefined ? getNode(state, ino) : draft.get(ino)
 
-    // False once storage's answer about a candidate cannot be trusted; every later operation is refused.
+    // False once storage's answer about a candidate cannot be relied on; every later operation is refused.
     let available = true
 
     const checkAvailable = (operation: string) =>

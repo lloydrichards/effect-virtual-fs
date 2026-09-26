@@ -2,6 +2,10 @@
 
 Opaque portable snapshot deltas and their public inspection models.
 
+A delta names its base and target snapshots by their semantic identities and
+holds one change per path that differs, each carrying only the node it
+leaves behind, so its size follows what changed rather than the tree.
+
 Added in v0.1.0
 
 ---

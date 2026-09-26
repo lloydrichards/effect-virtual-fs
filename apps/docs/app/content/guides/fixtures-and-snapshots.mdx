@@ -165,6 +165,11 @@ you pass `{ includeTimestamps: true }`.
 Applying a delta never mutates the base. It returns another immutable snapshot. A semantically different base fails
 with a `VfsError` carrying the `BaseMismatch` code.
 
+A delta holds one change per path that differs, and each change carries only the node it leaves behind, so an edit to
+one file in a large tree is one small change. The base and target are named by semantic identities that ignore inode
+numbers and storage order but include hard-link groups. Deltas encoded by releases before 0.6.0 no longer decode;
+compute them again from their snapshots.
+
 Delta creation, inspection, and application require Effect's `Crypto.Crypto` service. The example provides the Bun
 implementation at the program boundary. Use the corresponding official crypto layer for another runtime.
 

@@ -89,7 +89,7 @@ const attachedBuffer = (bytes: Uint8Array): boolean => {
 }
 
 // Accepts any Uint8Array, subclasses such as Node's Buffer included; rejects views over a
-// SharedArrayBuffer or a detached buffer before the bytes are copied or trusted.
+// SharedArrayBuffer or a detached buffer before the bytes are copied or relied on.
 /** @internal */
 export const isAttachedBytes = (bytes: Uint8Array): boolean =>
   Predicate.isUint8Array(bytes) && bytes.buffer instanceof ArrayBuffer && attachedBuffer(bytes)

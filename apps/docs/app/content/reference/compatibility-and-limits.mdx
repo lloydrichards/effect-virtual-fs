@@ -159,8 +159,9 @@ One complete `SnapshotDeltaLimits` policy applies to delta creation, inspection,
 Omitting it selects the frozen `SnapshotDeltaLimits.default` policy. `SnapshotDeltaLimits.constrained` is a smaller preset
 for memory-sensitive environments. A custom policy must provide every field.
 
-The policy bounds encoded and decoded delta bytes, canonical identity work, base and target records, delta and output
-records, namespace entries, output payload bytes, and inherited-record work. Byte budgets use `ByteSize.ByteSize`; record
+The policy bounds encoded and decoded delta bytes, the bytes hashed for each snapshot's identity, base and target
+records, the changes a delta holds, the records an applied delta produces, namespace entries, output payload bytes, and
+the target records carried over from the base. Byte budgets use `ByteSize.ByteSize`; record
 and entry budgets use numbers.
 
 See the [`Snapshot delta API reference`](/api/core/snapshot-delta) for the preset values and complete policy schema.
