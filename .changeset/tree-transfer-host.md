@@ -2,13 +2,11 @@
 "@effect-vfs/memory": minor
 ---
 
-Add `TreeTransfer.fromFileSystem` and `TreeTransfer.toFileSystem`, which copy directory trees to and from any Effect `FileSystem`, such as the host filesystem. `toFileSystem` rejects symbolic links that leave the copied tree unless `escaping: "allow"` is set. Both fail on entries they cannot carry, such as non-UTF-8 names or FIFOs, unless `unsupported: "skip"` is set; the sink lists its skipped entries in the report, and the source passes them to `onSkip`. `TreeTransfer.SinkCapabilities` lists what each destination preserves.
+`TreeTransfer` can copy trees to and from an Effect `FileSystem`, including the host filesystem. Unsupported entries fail by default; set `unsupported: "skip"` to omit them and inspect the transfer report.
 
 ```ts
-import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { TreeTransfer } from "@effect-vfs/memory"
-import { type FileSystem, Stream } from "effect"
-
-const exportDist = (fs: FileSystem.FileSystem, workspace: Vfs.Caller) =>
-  Stream.run(TreeTransfer.fromCaller(workspace, "/dist"), TreeTransfer.toFileSystem(fs, "./dist"))
+const source = TreeTransfer.fromCaller(workspace, "/dist")
+yield * Stream.run(source, TreeTransfer.toFileSystem(fs, "./dist"))
 ```
+
+`toFileSystem` rejects symbolic links that leave the copied tree unless `escaping: "allow"` is set.

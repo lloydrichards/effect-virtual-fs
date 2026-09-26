@@ -1,23 +1,21 @@
 ---
 "@effect-vfs/core": minor
+"@effect-vfs/memory": patch
+"@effect-vfs/persistence": patch
 ---
 
-Snapshot and live image bytes change shape, and bytes written by earlier releases no longer decode. A snapshot still encodes as `{ format: "effect-vfs", version: 1 }`, but its body is now one node per file, directory or symbolic link in inode order, each naming the directory entries that reach it, with file content as a tagged `Inline` value. `CheckpointStore` rows and `LiveImageStore` images saved before this release fail to load with `InvalidEncoding` at `text`; there is no migration helper.
-
-- **Capture copies nothing.** `volume.snapshot` and an overlay's `capture()` share the volume's immutable value instead of walking and encoding it, and `fromSnapshot` and `makeOverlay` start from that value, keeping only what a name reaches.
-- **Inode numbers survive a restore.** A volume restored from a captured or decoded snapshot reports the inode numbers the snapshot holds, and allocates new ones above them.
-- **Decode errors name the node.** A snapshot that breaks a graph rule fails `InvalidStructure` with the node's path as `field`, such as `nodes.1.links.0.parent`; a malformed document still names `document`. The decode budgets are checked first, so a snapshot over one fails `LimitExceeded` even when its graph is also broken.
-- **Restored volumes list in name order.** A fixture's volume, a volume restored from a snapshot, decoded or not, and a reopened live image list each directory's entries in the byte order of their names, whatever order they were declared or created in.
-
-### Migration
-
-Regenerate stored snapshots and live images from the volumes or fixtures that produced them:
+Snapshot and live image bytes now use newline-delimited JSON. Bytes saved by earlier releases no longer load, even though the format header still says `version: 1`. Regenerate stored checkpoints and live images from their source volumes or fixtures before upgrading:
 
 ```ts
-// before: bytes saved by an earlier release
-const restored = yield * Vfs.decodeSnapshot(stored, limits) // now fails with InvalidEncoding at "text"
-
-// after: rebuild the volume, then save its snapshot again
 const volume = yield * Vfs.fromFixture(fixture)
 yield * checkpoints.save("baseline", yield * volume.snapshot)
 ```
+
+`encodeSnapshotStream` and `decodeSnapshotSink` process snapshot bytes in chunks. Existing `encodeSnapshot` and `decodeSnapshot` calls still work with a single byte array:
+
+```ts
+const bytes = yield * Vfs.encodeSnapshot(snapshot, limits)
+const decoded = yield * Stream.run(Stream.succeed(bytes), Vfs.decodeSnapshotSink(limits))
+```
+
+`DecodeLimits` gains `maxLineBytes`, which defaults to `maxEncodedBytes`. `encodeSnapshot` now checks the same limits as decoding. Snapshot entries can also be read with `snapshotEntries(snapshot, root)` without restoring a volume.

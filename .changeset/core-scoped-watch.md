@@ -2,15 +2,12 @@
 "@effect-vfs/core": minor
 ---
 
-`Volume.watch` is now a function that takes `{ scope?, recursive? }`. `volume.watch()` is the volume-wide watch it was; `scope` narrows it to one object reference and, unless `recursive` is `false`, its subtree. Changes outside the scope never count toward the subscriber's queue, the scope follows renames of the object and its ancestors, a move out arrives as `Remove` and a move in as `Create`, `Rescan` names the scope's current path, and the stream ends after `Remove` for the object once its last name is gone, even when its queue is full.
+`Volume.watch({ scope })` watches one object and its subtree, following the object through renames. `Volume.watch` is now a function, so existing volume-wide watches must call `volume.watch()`.
 
 ```ts
-const program = Effect.gen(function*() {
-  const volume = yield* Vfs.Volume
-  const caller = yield* Vfs.Caller
-
-  // before: yield* volume.watch
-  const everything = yield* volume.watch()
-  const work = yield* volume.watch({ scope: yield* caller.lookup("/work") })
-})
+const allChanges = yield * volume.watch()
+const work = yield * caller.lookup("/work")
+const workChanges = yield * volume.watch({ scope: work })
 ```
+
+A scoped stream ends when its object loses its last name. Pass `recursive: false` to watch only the object itself.

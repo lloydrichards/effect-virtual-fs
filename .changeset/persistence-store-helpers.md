@@ -2,13 +2,14 @@
 "@effect-vfs/persistence": minor
 ---
 
-Every persistence failure names its entry point in `operation`. `CheckpointError.operation` is now `CheckpointStore.save`, `CheckpointStore.load` or `CheckpointStore.migrate` instead of `save`, `load` or `migrate`. The `VfsError`s `CheckpointStore` raises, including snapshot encode and decode failures, name `CheckpointStore.make`, `CheckpointStore.save` or `CheckpointStore.load` instead of `load`, `encodeSnapshot` or `decodeSnapshot`. The live stores report `SqliteLiveImageStore.layer`, `SqliteLiveImageStore.loadOrCreate`, `R2LiveImageStore.layer`, `R2LiveImageStore.loadOrCreate` or `R2LiveImageStore.fromS3` instead of the bare store name.
+Persistence errors now name the full entry point in `operation`, such as `CheckpointStore.load` instead of `load`. Update comparisons against `CheckpointError.operation` and `VfsError.operation`:
 
 ```ts
-// before
-if (error._tag === "CheckpointError" && error.operation === "load") {}
-// after
-if (error._tag === "CheckpointError" && error.operation === "CheckpointStore.load") {}
+// Before
+error.operation === "load"
+
+// After
+error.operation === "CheckpointStore.load"
 ```
 
-A live-store commit that lands after another commit froze the store no longer unfreezes it.
+The live stores use names such as `SqliteLiveImageStore.loadOrCreate` and `R2LiveImageStore.loadOrCreate` instead of a bare store name.

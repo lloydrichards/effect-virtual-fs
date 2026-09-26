@@ -2,7 +2,7 @@
 "@effect-vfs/core": minor
 ---
 
-Public schemas now live in per-concept modules, importable as subpaths: `Volume`, `Caller`, `FileHandle`, `Metadata`, `Fixture`, `Watch`, plus `Snapshot`, `SnapshotDelta` and `BytePath`, which had generated API pages but no subpath. `VirtualFileSystem` keeps re-exporting every schema, and its declaration file no longer imports from `internal/`. `Change` is a `Schema.TaggedUnion` instead of an interface, and `LiveVolume`'s exports carry categories in the API reference.
+Public schemas are now importable from their own modules, including `Metadata`, `Watch`, `Snapshot`, and `BytePath`. The main `VirtualFileSystem` export still re-exports them.
 
 ```ts
 import { Metadata } from "@effect-vfs/core/Metadata"
