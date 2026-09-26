@@ -40,6 +40,7 @@ export declare const bind: (
 **Example**
 
 ```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { Effect, FileSystem, Layer } from "effect"
@@ -71,7 +72,7 @@ const program = Effect.gen(function* () {
   return yield* fs.readFileString("/project/package.json")
 })
 
-Effect.runPromise(program.pipe(Effect.provide(seeded))).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(seeded), Effect.provide(NodeCrypto.layer))).then(console.log)
 // {"version":"1.2.3"}
 ```
 
@@ -89,12 +90,13 @@ starts with an empty `/tmp` directory and uses `/` as its working directory.
 **Signature**
 
 ```ts
-export declare const make: Effect.Effect<FileSystem.FileSystem, never, never>
+export declare const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { Effect } from "effect"
 
@@ -106,7 +108,7 @@ const program = Effect.gen(function* () {
   return yield* fs.readFileString("/tmp/greeting.txt")
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // hello
 ```
 
@@ -159,16 +161,18 @@ Use when you need to replace the host filesystem in an Effect program.
 Reusing this layer value within a single layer graph shares one volume through
 layer memoization. Wrap it with `Layer.fresh` when each use needs separate
 state. Separate graphs, such as one per test, already get separate volumes.
+Provide `Crypto.Crypto` to build the underlying volume.
 
 **Signature**
 
 ```ts
-export declare const layer: Layer.Layer<FileSystem.FileSystem, never, never>
+export declare const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { Effect, FileSystem } from "effect"
 
@@ -181,13 +185,16 @@ const writeManifest = Effect.gen(function* () {
   return yield* fs.readFileString("/dist/manifest.json")
 })
 
-Effect.runPromise(writeManifest.pipe(Effect.provide(MemoryFileSystem.layer))).then(console.log)
+Effect.runPromise(writeManifest.pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(NodeCrypto.layer))).then(
+  console.log
+)
 // {"version":"1.2.3"}
 ```
 
 **Example**
 
 ```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { Effect, FileSystem, Layer } from "effect"
 
@@ -216,7 +223,7 @@ const program = Effect.gen(function* () {
   return [shared, isolated]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ true, false ]
 ```
 

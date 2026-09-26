@@ -17,11 +17,14 @@ Added in v0.4.0
 
 Open a live volume using the supplied store Layer. The caller owns a Scope;
 the volume shuts down before that Layer releases its storage resource.
+Requires `Crypto.Crypto` to mint a new volume or incarnation.
 
 **Signature**
 
 ```ts
-export declare const open: (options: Options) => Effect.Effect<Volume, VfsError, LiveImageStore | Scope.Scope>
+export declare const open: (
+  options: Options
+) => Effect.Effect<Volume, VfsError, LiveImageStore | Scope.Scope | Crypto.Crypto>
 ```
 
 Added in v0.4.0
@@ -41,7 +44,7 @@ export declare const openImage: (
   maxImageBytes: ByteSize.ByteSize,
   commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>,
   durability?: VolumeDurability
-) => Effect.Effect<ImageSession, VfsError>
+) => Effect.Effect<ImageSession, VfsError, Crypto.Crypto>
 ```
 
 Added in v0.4.0
@@ -50,11 +53,12 @@ Added in v0.4.0
 
 Construct a versioned image for a new, empty volume.
 Store this image before opening it for mutation.
+Requires `Crypto.Crypto` for secure volume identifiers and reference keys.
 
 **Signature**
 
 ```ts
-export declare const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<Uint8Array, VfsError>
+export declare const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<Uint8Array, VfsError, Crypto.Crypto>
 ```
 
 Added in v0.4.0

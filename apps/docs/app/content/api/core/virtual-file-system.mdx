@@ -20,12 +20,16 @@ Builds a fresh volume from a validated final-state fixture.
 **Signature**
 
 ```ts
-export declare const fromFixture: (fixture: Fixture, options?: VolumeOptions) => Effect.Effect<Volume, VfsError>
+export declare const fromFixture: (
+  fixture: Fixture,
+  options?: VolumeOptions
+) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -51,7 +55,7 @@ const program = Effect.gen(function* () {
   return listing.value.map((entry) => new TextDecoder().decode(entry.name))
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'latest', 'package.json' ]
 ```
 
@@ -64,12 +68,16 @@ Restores a fresh volume from an opaque snapshot under the supplied destination l
 **Signature**
 
 ```ts
-export declare const fromSnapshot: (snapshot: Snapshot, options?: VolumeOptions) => Effect.Effect<Volume, VfsError>
+export declare const fromSnapshot: (
+  snapshot: Snapshot,
+  options?: VolumeOptions
+) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -97,7 +105,7 @@ const program = Effect.gen(function* () {
   ]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'one', 'two' ]
 ```
 
@@ -111,16 +119,18 @@ Creates a fresh empty volume and captures the current Effect `Clock`.
 
 Each execution creates independent storage. Snapshot image failures cannot
 arise because this constructor does not accept persisted input.
+Provide `Crypto.Crypto` to generate the volume identity and reference-key secret.
 
 **Signature**
 
 ```ts
-export declare const make: (options?: VolumeOptions) => Effect.Effect<Volume, VfsError>
+export declare const make: (options?: VolumeOptions) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -134,7 +144,7 @@ const program = Effect.gen(function* () {
   return yield* caller.readFile("/work/notes.txt")
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // Uint8Array(2) [ 104, 105 ]
 ```
 
@@ -157,12 +167,16 @@ execution creates a fresh workspace.
 **Signature**
 
 ```ts
-export declare const makeOverlay: (base: Snapshot, options?: VolumeOptions) => Effect.Effect<OverlayVolume, VfsError>
+export declare const makeOverlay: (
+  base: Snapshot,
+  options?: VolumeOptions
+) => Effect.Effect<OverlayVolume, VfsError, Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -189,7 +203,7 @@ const program = Effect.gen(function* () {
   ]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ '{}', [ 'Updated' ] ]
 ```
 
@@ -212,6 +226,7 @@ export declare const pathFromBytes: (bytes: Uint8Array) => Effect.Effect<BytePat
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -228,7 +243,7 @@ const program = Effect.gen(function* () {
   return [yield* Vfs.pathToBytes(path), rejected]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ Uint8Array(4) [ 47, 116, 109, 112 ], 'InvalidArgument' ]
 ```
 
@@ -369,6 +384,7 @@ export interface Caller {
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -387,13 +403,14 @@ const program = Effect.gen(function* () {
   return (yield* caller.readDirectory("/work")).value.map((entry) => new TextDecoder().decode(entry.name))
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'notes.txt' ]
 ```
 
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -414,13 +431,14 @@ const program = Effect.gen(function* () {
   return new TextDecoder().decode(yield* handle.read(64))
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // first second
 ```
 
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -442,7 +460,7 @@ const program = Effect.gen(function* () {
   return (yield* caller.readDirectory("/dist")).value.map((entry) => new TextDecoder().decode(entry.name))
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'out.txt' ]
 ```
 
@@ -510,6 +528,7 @@ export interface DirectoryHandle {
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -535,7 +554,7 @@ const program = Effect.gen(function* () {
   return (yield* caller.readDirectory("/renamed")).value.map((entry) => new TextDecoder().decode(entry.name))
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'notes.txt' ]
 ```
 
@@ -574,6 +593,7 @@ export interface FileHandle {
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -593,7 +613,7 @@ const program = Effect.gen(function* () {
   return [slice.bytes, slice.eof, yield* handle.seek(0n, "current")]
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ Uint8Array(2) [ 2, 3 ], false, 4n ]
 ```
 
@@ -792,6 +812,7 @@ export interface ObjectObservation<A> {
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -814,7 +835,7 @@ const program = Effect.gen(function* () {
   return [before.kind, after.kind, after.revision > before.revision]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'directory', 'directory', true ]
 ```
 
@@ -932,6 +953,7 @@ export interface OverlayCapture {
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -953,7 +975,7 @@ const program = Effect.gen(function* () {
   return [captured.changes.map((change) => change._tag), new TextDecoder().decode(yield* reader.readFile("/out.txt"))]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ [ 'Added' ], 'built' ]
 ```
 
@@ -1062,6 +1084,7 @@ export interface OverlayVolume extends Volume {
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -1080,7 +1103,7 @@ const program = Effect.gen(function* () {
   return captured.changes.map((change) => change._tag)
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'Added' ]
 ```
 
@@ -1346,6 +1369,7 @@ export interface Volume {
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect, Fiber, Option, Stream } from "effect"
 
@@ -1368,7 +1392,7 @@ const program = Effect.gen(function* () {
   )
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // Create
 ```
 
@@ -1564,6 +1588,7 @@ export declare const WriteFileOptions: Schema.Struct<{
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -1594,7 +1619,7 @@ const program = Effect.gen(function* () {
   return [refused, new TextDecoder().decode(yield* caller.readFile("/app.conf"))]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'AlreadyExists', 'v2' ]
 ```
 
@@ -1671,6 +1696,7 @@ export declare const Change: Schema.TaggedUnion<{
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect, Fiber, Stream } from "effect"
 
@@ -1694,7 +1720,7 @@ const program = Effect.gen(function* () {
   )
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'Create /logs', 'Remove /logs' ]
 ```
 
@@ -1800,6 +1826,7 @@ export declare const Fixture: Schema.Struct<{
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect, Schema } from "effect"
 
@@ -1812,7 +1839,7 @@ const program = Schema.decodeUnknownEffect(Vfs.Fixture)({
   Effect.catchTag("VfsError", (error) => Effect.succeed(`rejected: ${error.code}`))
 )
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // rejected: InvalidStructure
 ```
 
@@ -1859,6 +1886,7 @@ export declare const FsCode: Schema.Literals<
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect, Schema } from "effect"
 
@@ -1875,7 +1903,7 @@ const program = Effect.gen(function* () {
   return [known, unknown]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'NotFound', 'not a code' ]
 ```
 
@@ -1924,6 +1952,7 @@ export declare const Metadata: Schema.Struct<{
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -1941,7 +1970,7 @@ const program = Effect.gen(function* () {
   return [metadata.kind, metadata.size, metadata.nlink]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'file', 3n, 1 ]
 ```
 
@@ -2059,6 +2088,7 @@ export declare const OpenOptions: Schema.Struct<{
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -2077,7 +2107,7 @@ const program = Effect.gen(function* () {
   return (yield* handle.stat).size
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // 2n
 ```
 
@@ -2164,6 +2194,7 @@ export declare const OverlayChangesOptions: Schema.Struct<{
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -2180,7 +2211,7 @@ const program = Effect.gen(function* () {
   return [plain.length, timed.length]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 1, 2 ]
 ```
 
@@ -2247,6 +2278,7 @@ export declare const ReferenceKey: Schema.Struct<{
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect, Schema } from "effect"
 
@@ -2265,7 +2297,7 @@ const program = Effect.gen(function* () {
   return (yield* volume.resolveReferenceKey(key)) === reference
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // true
 ```
 
@@ -2334,6 +2366,7 @@ export declare const RootCallerOptions: Schema.Struct<{
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -2355,7 +2388,7 @@ const program = Effect.gen(function* () {
   return ((yield* user.stat("/home/user")).mode & 0o777).toString(8)
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // 755
 ```
 
@@ -2438,6 +2471,7 @@ export declare const SnapshotDeltaFromBytes: (
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, Schema } from "effect"
@@ -2460,7 +2494,7 @@ const program = Effect.gen(function* () {
   return (yield* Vfs.inspectSnapshotDelta(base, decoded)).map((change) => change._tag)
 }).pipe(Effect.provide(NodeCrypto.layer))
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'Added' ]
 ```
 
@@ -2543,6 +2577,7 @@ export declare const Times: Schema.Struct<{
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -2565,7 +2600,7 @@ const program = Effect.gen(function* () {
   return [metadata.atimeNs, metadata.mtimeNs === 1_000n]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 1000n, false ]
 ```
 
@@ -2630,6 +2665,7 @@ export declare const VolumeOptions: Schema.Struct<{
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { ByteSize, Effect } from "effect"
 
@@ -2649,7 +2685,7 @@ const program = Effect.gen(function* () {
     )
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // FileTooLarge
 ```
 
@@ -2690,6 +2726,7 @@ export declare const WatchOptions: Schema.Struct<{
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect, Fiber, Stream } from "effect"
 
@@ -2717,7 +2754,7 @@ const program = Effect.gen(function* () {
   )
 }).pipe(Effect.scoped)
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'Remove /work', 'Create /renamed', 'Create /renamed/out' ]
 ```
 
@@ -2745,6 +2782,7 @@ export declare const decodeSnapshot: (
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { ByteSize, Effect } from "effect"
 
@@ -2764,7 +2802,7 @@ const program = Effect.gen(function* () {
   )
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'LimitExceeded', 'encodedBytes' ]
 ```
 
@@ -2798,6 +2836,7 @@ export declare const decodeSnapshotSink: (
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { ByteSize, Effect, Stream } from "effect"
 
@@ -2825,7 +2864,7 @@ const program = Effect.gen(function* () {
   return yield* (yield* (yield* Vfs.fromSnapshot(snapshot)).caller()).readFile("/f")
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // Uint8Array(3) [ 1, 2, 3 ]
 ```
 
@@ -2854,6 +2893,7 @@ export declare const encodeSnapshot: (
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -2873,7 +2913,7 @@ const program = Effect.gen(function* () {
   return JSON.parse(new TextDecoder().decode(bytes).split("\n")[0]!).version
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // 1
 ```
 
@@ -2909,6 +2949,7 @@ export declare const encodeSnapshotStream: (
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect, Stream } from "effect"
 
@@ -2923,7 +2964,7 @@ const program = Effect.gen(function* () {
   return text.split("\n").map((line) => (line === "" ? "end" : (JSON.parse(line)._tag ?? "header")))
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'header', 'directory', 'file', 'end' ]
 ```
 
@@ -2957,17 +2998,21 @@ share one layer value to share one volume.
 
 ```ts
 export declare const Volume: Context.Service<Volume, Volume> & {
-  readonly layer: (options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
-  readonly layerFromSnapshot: (snapshot: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
-  readonly layerFromFixture: (fixture: Fixture, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
-  readonly layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
-  readonly layerLive: (options: LiveVolumeOptions) => Layer.Layer<Volume, VfsError, LiveImageStore>
+  readonly layer: (options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layerFromSnapshot: (
+    snapshot: Snapshot,
+    options?: VolumeOptions
+  ) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layerFromFixture: (fixture: Fixture, options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layerLive: (options: LiveVolumeOptions) => Layer.Layer<Volume, VfsError, LiveImageStore | Crypto.Crypto>
 }
 ```
 
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -2978,9 +3023,9 @@ const program = Effect.gen(function* () {
   return (yield* fs.readDirectory("/")).value.map((entry) => new TextDecoder().decode(entry.name))
 })
 
-Effect.runPromise(program.pipe(Effect.provide(Vfs.Caller.layer()), Effect.provide(Vfs.Volume.layer()))).then(
-  console.log
-)
+Effect.runPromise(
+  program.pipe(Effect.provide(Vfs.Caller.layer()), Effect.provide(Vfs.Volume.layer()), Effect.provide(BunCrypto.layer))
+).then(console.log)
 // [ 'work' ]
 ```
 
@@ -3007,6 +3052,7 @@ export declare const applySnapshotDelta: (
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
@@ -3031,7 +3077,7 @@ const program = Effect.gen(function* () {
   return yield* reader.readFile("/f")
 }).pipe(Effect.provide(NodeCrypto.layer))
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // Uint8Array(1) [ 7 ]
 ```
 
@@ -3056,6 +3102,7 @@ export declare const diffSnapshots: (
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
@@ -3078,7 +3125,7 @@ const program = Effect.gen(function* () {
   return new TextDecoder().decode(yield* Vfs.pathToBytes(changes[0]!.path))
 }).pipe(Effect.provide(NodeCrypto.layer))
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // /added.txt
 ```
 
@@ -3108,6 +3155,7 @@ export declare const inspectSnapshotDelta: (
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
@@ -3126,7 +3174,7 @@ const program = Effect.gen(function* () {
   return changes.map((change) => (change._tag === "Updated" ? change.afterKind : change.kind))
 }).pipe(Effect.provide(NodeCrypto.layer))
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'directory' ]
 ```
 
@@ -3162,6 +3210,7 @@ export declare const snapshotEntries: (
 **Example**
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect, Stream } from "effect"
 
@@ -3180,7 +3229,7 @@ const program = Effect.gen(function* () {
   return entries.map((entry) => `${entry.kind} ${String(entry.path)}`)
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
 // [ 'directory /', 'file /a.txt', 'file /b.txt', 'hardLink /c.txt' ]
 ```
 
