@@ -35,12 +35,12 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/205
     title: Recursive tree operations
-generated: { by: claude-code, at: "2026-09-26T13:00:00+02:00" }
+generated: { by: claude-code, at: "2026-09-26T13:30:00+02:00" }
 ---
 
 # Recursive tree operations
 
-Recursive traversal, `mkdir -p` and `rm -r` lived in the memory adapter as compositions over path verbs, with one directory handle held per directory and a `stat` per entry. The decisions were grilled on 2026-09-25 and recorded on [issue #205](https://github.com/lloydrichards/effect-virtual-fs/issues/205 "decided on").
+Recursive traversal, `mkdir -p` and `rm -r` lived in the memory adapter as compositions over path verbs, with one directory handle held per directory and a `stat` per entry. The decisions were grilled on 2026-09-25 and recorded on [issue #205](https://github.com/lloydrichards/effect-virtual-fs/issues/205 "decided on"). Amends the [public API decision](public-api-targets-services-and-errors.md "amends"), which had declined recursive tree operations for 0.6.0.
 
 ## Context
 

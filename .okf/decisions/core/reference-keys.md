@@ -29,12 +29,12 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/201
     title: Serialisable reference key for NFS filehandles
-generated: { by: claude-code, at: "2026-09-26T12:30:00+02:00" }
+generated: { by: claude-code, at: "2026-09-26T14:00:00+02:00" }
 ---
 
 # Reference keys
 
-Extends [object references](../../contracts/object-references.md "extends") with a durable name, and builds on [snapshot-local file identity](snapshot-local-file-identity.md "constrained by") and the [volume durability facts](volume-durability-and-usage-facts.md "depends on"). The decisions were grilled on 2026-09-25 and recorded on [issue #201](https://github.com/lloydrichards/effect-virtual-fs/issues/201 "decided on"); decisions 5 to 8 settle what the issue left to implementation. The adversarial review of 2026-09-26 found that a client could forge a handle by changing its inode number; the owner's review decision R1 added the tag (decisions 1, 3, 4 and 9) and the review settled the PUTFH statuses (decision 7).
+Extends [object references](../../contracts/object-references.md "extends") with a durable name, and amends the [public API decision](public-api-targets-services-and-errors.md "amends"), which had declined a serialisable reference key for 0.6.0, and builds on [snapshot-local file identity](snapshot-local-file-identity.md "constrained by") and the [volume durability facts](volume-durability-and-usage-facts.md "depends on"). The decisions were grilled on 2026-09-25 and recorded on [issue #201](https://github.com/lloydrichards/effect-virtual-fs/issues/201 "decided on"); decisions 5 to 8 settle what the issue left to implementation. The adversarial review of 2026-09-26 found that a client could forge a handle by changing its inode number; the owner's review decision R1 added the tag (decisions 1, 3, 4 and 9) and the review settled the PUTFH statuses (decision 7). A second review found the secret followed a seedable `Random`, and that the expire type had been written into `unique_handles` (attribute 9) while `fh_expire_type` (attribute 2) stayed 0x3 for every export; decision P3 moved the secret to the platform's secure generator (decisions 1, 5 and 9), and attribute 2 now carries decision 8's value.
 
 ## Context
 

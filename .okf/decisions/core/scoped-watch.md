@@ -35,12 +35,12 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/206
     title: Path-scoped watch
-generated: { by: claude-code, at: "2026-09-26T12:00:00+02:00" }
+generated: { by: claude-code, at: "2026-09-26T13:25:00+02:00" }
 ---
 
 # Scoped watch
 
-Amends the [watch event overflow decision](watch-event-overflow.md "amends"), whose `Rescan` at `/` assumed every watch covers the volume, and keeps its rule that `Volume.watch` is an effect registered before it returns. The decisions were grilled on 2026-09-25 and recorded on [issue #206](https://github.com/lloydrichards/effect-virtual-fs/issues/206 "decided on"); the review of 2026-09-26 amended decisions 6 and 7.
+Amends the [public API decision](public-api-targets-services-and-errors.md "amends"), which had declined a path-scoped watch for 0.6.0, and the [watch event overflow decision](watch-event-overflow.md "amends"), whose `Rescan` at `/` assumed every watch covers the volume, and keeps its rule that `Volume.watch` is an effect registered before it returns. The decisions were grilled on 2026-09-25 and recorded on [issue #206](https://github.com/lloydrichards/effect-virtual-fs/issues/206 "decided on"); the review of 2026-09-26 amended decisions 6 and 7.
 
 ## Context
 
