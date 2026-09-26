@@ -163,7 +163,9 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
         const [name, text, code] of [
           ["corrupt", "not json", "InvalidEncoding"],
           ["version", "{\"format\":\"effect-vfs\",\"version\":2}", "UnsupportedVersion"],
-          ["graph", "{\"format\":\"effect-vfs\",\"version\":1,\"root\":\"missing\",\"records\":[]}", "InvalidStructure"]
+          ["graph", "{\"format\":\"effect-vfs\",\"version\":1,\"nodes\":[]}", "InvalidStructure"],
+          // The record layout version 1 had before it became a tree no longer decodes.
+          ["records", "{\"format\":\"effect-vfs\",\"version\":1,\"root\":\"0\",\"records\":[]}", "InvalidStructure"]
         ] as const
       ) {
         const bytes = new TextEncoder().encode(text)
