@@ -19,7 +19,7 @@ const VolumeLive = Vfs.Volume.layerFromFixture({
   ]
 }, capacityGate ? { maxBytes: ByteSize.mebibytes(16), maxEntries: 100 } : undefined)
 
-const VfsLive = Vfs.Caller.layer().pipe(Layer.provideMerge(VolumeLive))
+const VfsLive = Vfs.Caller.layer().pipe(Layer.provideMerge(VolumeLive), Layer.provide(BunCrypto.layer))
 
 const program = Effect.scoped(
   Effect.gen(function*() {

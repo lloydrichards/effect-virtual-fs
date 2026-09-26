@@ -49,6 +49,7 @@ export interface Snapshot {
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { ByteSize, Effect } from "effect"
  *
@@ -72,7 +73,7 @@ export interface Snapshot {
  *   return "accepted"
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // accepted
  * ```
  *

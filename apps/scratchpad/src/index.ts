@@ -1,6 +1,6 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
-import { BunRuntime } from "@effect/platform-bun"
+import { BunCrypto, BunRuntime } from "@effect/platform-bun"
 import { Console, Effect, FileSystem, Layer, Schema } from "effect"
 
 const utf8 = new TextEncoder()
@@ -36,4 +36,4 @@ const program = Effect.gen(function*() {
   yield* Console.log(config)
 })
 
-BunRuntime.runMain(program.pipe(Effect.provide(SeededMemoryFileSystem)))
+BunRuntime.runMain(program.pipe(Effect.provide(SeededMemoryFileSystem.pipe(Layer.provide(BunCrypto.layer)))))

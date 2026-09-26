@@ -23,7 +23,7 @@ const VolumeLive = Vfs.Volume.layerFromFixture({
   ]
 })
 
-const VfsLive = Vfs.Caller.layer().pipe(Layer.provideMerge(VolumeLive))
+const VfsLive = Vfs.Caller.layer().pipe(Layer.provideMerge(VolumeLive), Layer.provide(BunCrypto.layer))
 
 const program = Effect.scoped(
   Effect.gen(function*() {

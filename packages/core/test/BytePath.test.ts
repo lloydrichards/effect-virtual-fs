@@ -1,3 +1,4 @@
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Equal, Hash, HashSet, Option } from "effect"
 import { BytePath, VirtualFileSystem as Vfs } from "../src/index.js"
@@ -5,64 +6,78 @@ import { BytePath, VirtualFileSystem as Vfs } from "../src/index.js"
 const path = (bytes: ReadonlyArray<number>) => Vfs.pathFromBytes(Uint8Array.from(bytes))
 
 describe("BytePath", () => {
-  it.effect("should compare and hash paths by value when their bytes match", () =>
-    Effect.gen(function*() {
-      const first = yield* path([47, 97])
-      const same = yield* path([47, 97])
-      const third = yield* path([47, 97])
-      const differentByte = yield* path([47, 98])
-      const differentLength = yield* path([47, 97, 99])
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect("should compare and hash paths by value when their bytes match", () =>
+      Effect.gen(function*() {
+        const first = yield* path([47, 97])
+        const same = yield* path([47, 97])
+        const third = yield* path([47, 97])
+        const differentByte = yield* path([47, 98])
+        const differentLength = yield* path([47, 97, 99])
 
-      assert.isTrue(Equal.equals(first, same))
-      assert.isTrue(Equal.equals(same, first))
-      assert.isTrue(Equal.equals(same, third))
-      assert.isTrue(Equal.equals(first, third))
-      assert.isFalse(Equal.equals(first, differentByte))
-      assert.isFalse(Equal.equals(first, differentLength))
-      assert.strictEqual(Hash.hash(first), Hash.hash(same))
-      assert.strictEqual(HashSet.size(HashSet.make(first, same, differentByte, differentLength)), 3)
-      assert.isFalse(Equal.equals({ path: first }, { path: differentByte }))
-      assert.deepEqual(yield* first.pipe(Vfs.pathToBytes), Uint8Array.from([47, 97]))
-    }))
+        assert.isTrue(Equal.equals(first, same))
+        assert.isTrue(Equal.equals(same, first))
+        assert.isTrue(Equal.equals(same, third))
+        assert.isTrue(Equal.equals(first, third))
+        assert.isFalse(Equal.equals(first, differentByte))
+        assert.isFalse(Equal.equals(first, differentLength))
+        assert.strictEqual(Hash.hash(first), Hash.hash(same))
+        assert.strictEqual(HashSet.size(HashSet.make(first, same, differentByte, differentLength)), 3)
+        assert.isFalse(Equal.equals({ path: first }, { path: differentByte }))
+        assert.deepEqual(yield* first.pipe(Vfs.pathToBytes), Uint8Array.from([47, 97]))
+      }))
+  })
 })
 
 describe("BytePath toolkit", () => {
-  it.effect("should name the failing toolkit function when path operations reject input", () =>
-    Effect.gen(function*() {
-      // SAFETY: a forged value stands in for a byte path from an untyped caller, which the toolkit must reject.
-      const forged = Object.freeze({}) as BytePath.BytePath
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should name the failing toolkit function when path operations reject input",
+      () =>
+        Effect.gen(function*() {
+          // SAFETY: a forged value stands in for a byte path from an untyped caller, which the toolkit must reject.
+          const forged = Object.freeze({}) as BytePath.BytePath
 
-      const operations = [
-        (yield* Effect.flip(BytePath.fromBytes(new Uint8Array()))).operation,
-        (yield* Effect.flip(BytePath.toBytes(forged))).operation,
-        (yield* Effect.flip(BytePath.toString(forged))).operation,
-        (yield* Effect.flip(BytePath.toString(yield* BytePath.fromBytes(Uint8Array.from([47, 0xff]))))).operation
-      ]
+          const operations = [
+            (yield* Effect.flip(BytePath.fromBytes(new Uint8Array()))).operation,
+            (yield* Effect.flip(BytePath.toBytes(forged))).operation,
+            (yield* Effect.flip(BytePath.toString(forged))).operation,
+            (yield* Effect.flip(BytePath.toString(yield* BytePath.fromBytes(Uint8Array.from([47, 0xff]))))).operation
+          ]
 
-      assert.deepStrictEqual(operations, [
-        "BytePath.fromBytes",
-        "BytePath.toBytes",
-        "BytePath.toString",
-        "BytePath.toString"
-      ])
-    }))
+          assert.deepStrictEqual(operations, [
+            "BytePath.fromBytes",
+            "BytePath.toBytes",
+            "BytePath.toString",
+            "BytePath.toString"
+          ])
+        })
+    )
+  })
 
-  it.effect("should name fromString when string path conversion fails", () =>
-    Effect.gen(function*() {
-      const empty = yield* Effect.flip(BytePath.fromString(""))
-      const unencodable = yield* Effect.flip(BytePath.fromString("\uD800"))
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect("should name fromString when string path conversion fails", () =>
+      Effect.gen(function*() {
+        const empty = yield* Effect.flip(BytePath.fromString(""))
+        const unencodable = yield* Effect.flip(BytePath.fromString("\uD800"))
 
-      assert.deepStrictEqual([empty.code, empty.operation], ["InvalidArgument", "BytePath.fromString"])
-      assert.deepStrictEqual([unencodable.code, unencodable.operation], ["InvalidPathEncoding", "BytePath.fromString"])
-    }))
+        assert.deepStrictEqual([empty.code, empty.operation], ["InvalidArgument", "BytePath.fromString"])
+        assert.deepStrictEqual([unencodable.code, unencodable.operation], [
+          "InvalidPathEncoding",
+          "BytePath.fromString"
+        ])
+      }))
+  })
 
-  it.effect("should add path components when a joined name contains a slash", () =>
-    Effect.gen(function*() {
-      const joined = BytePath.join(yield* BytePath.fromString("/a"), "b/c")
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect("should add path components when a joined name contains a slash", () =>
+      Effect.gen(function*() {
+        const joined = BytePath.join(yield* BytePath.fromString("/a"), "b/c")
 
-      assert.strictEqual(yield* BytePath.toString(joined), "/a/b/c")
-      assert.strictEqual(yield* BytePath.toString(BytePath.parent(joined)), "/a/b")
-    }))
+        assert.strictEqual(yield* BytePath.toString(joined), "/a/b/c")
+        assert.strictEqual(yield* BytePath.toString(BytePath.parent(joined)), "/a/b")
+      }))
+  })
 
   it("should return none when path bytes are not valid UTF-8", () => {
     assert.deepStrictEqual(BytePath.decodeOption(Uint8Array.from([104, 105])), Option.some("hi"))

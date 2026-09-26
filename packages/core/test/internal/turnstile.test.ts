@@ -1,3 +1,4 @@
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Stream } from "effect"
 import { LiveVolume } from "../../src/index.js"
@@ -38,48 +39,55 @@ const pausable = Effect.gen(function*() {
 })
 
 describe("the change turnstile", () => {
-  it.effect("should keep a queued change ahead of a watcher reacting to the change before it when mutations and watchers compete for a turn", () =>
-    Effect.gen(function*() {
-      const { caller, pauseNext, volume } = yield* pausable
-      const events = yield* volume.watch()
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should keep a queued change ahead of a watcher reacting to the change before it when mutations and watchers compete for a turn",
+      () =>
+        Effect.gen(function*() {
+          const { caller, pauseNext, volume } = yield* pausable
+          const events = yield* volume.watch()
 
-      // The watcher wakes while the first change still holds every permit, and stats what the second creates.
-      const watcher = yield* events.pipe(
-        Stream.take(1),
-        Stream.runDrain,
-        Effect.andThen(Effect.exit(caller.stat("/y"))),
-        Effect.forkChild({ startImmediately: true })
-      )
+          // The watcher wakes while the first change still holds every permit, and stats what the second creates.
+          const watcher = yield* events.pipe(
+            Stream.take(1),
+            Stream.runDrain,
+            Effect.andThen(Effect.exit(caller.stat("/y"))),
+            Effect.forkChild({ startImmediately: true })
+          )
 
-      const pause = yield* pauseNext
-      const first = yield* caller.mkdir("/x").pipe(Effect.forkChild({ startImmediately: true }))
-      yield* pause.entered
-      const second = yield* caller.mkdir("/y").pipe(Effect.forkChild({ startImmediately: true }))
+          const pause = yield* pauseNext
+          const first = yield* caller.mkdir("/x").pipe(Effect.forkChild({ startImmediately: true }))
+          yield* pause.entered
+          const second = yield* caller.mkdir("/y").pipe(Effect.forkChild({ startImmediately: true }))
 
-      for (let i = 0; i < 4; i++) yield* Effect.yieldNow
-      assert.isUndefined(second.pollUnsafe())
-      yield* pause.release
-      yield* Fiber.join(first)
-      yield* Fiber.join(second)
-      assert.isTrue(Exit.isSuccess(yield* Fiber.join(watcher)))
-    }))
+          for (let i = 0; i < 4; i++) yield* Effect.yieldNow
+          assert.isUndefined(second.pollUnsafe())
+          yield* pause.release
+          yield* Fiber.join(first)
+          yield* Fiber.join(second)
+          assert.isTrue(Exit.isSuccess(yield* Fiber.join(watcher)))
+        })
+    )
+  })
 
-  it.effect("should pass the turn on when a waiter is interrupted", () =>
-    Effect.gen(function*() {
-      const { caller, pauseNext } = yield* pausable
-      const pause = yield* pauseNext
-      const first = yield* caller.mkdir("/x").pipe(Effect.forkChild({ startImmediately: true }))
-      yield* pause.entered
-      const abandoned = yield* caller.mkdir("/gone").pipe(Effect.forkChild({ startImmediately: true }))
-      const later = yield* caller.mkdir("/z").pipe(Effect.forkChild({ startImmediately: true }))
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect("should pass the turn on when a waiter is interrupted", () =>
+      Effect.gen(function*() {
+        const { caller, pauseNext } = yield* pausable
+        const pause = yield* pauseNext
+        const first = yield* caller.mkdir("/x").pipe(Effect.forkChild({ startImmediately: true }))
+        yield* pause.entered
+        const abandoned = yield* caller.mkdir("/gone").pipe(Effect.forkChild({ startImmediately: true }))
+        const later = yield* caller.mkdir("/z").pipe(Effect.forkChild({ startImmediately: true }))
 
-      for (let i = 0; i < 4; i++) yield* Effect.yieldNow
-      yield* Fiber.interrupt(abandoned)
-      yield* pause.release
-      yield* Fiber.join(first)
-      yield* Fiber.join(later)
+        for (let i = 0; i < 4; i++) yield* Effect.yieldNow
+        yield* Fiber.interrupt(abandoned)
+        yield* pause.release
+        yield* Fiber.join(first)
+        yield* Fiber.join(later)
 
-      assert.strictEqual((yield* caller.stat("/z")).kind, "directory")
-      assert.isTrue(Exit.isFailure(yield* Effect.exit(caller.stat("/gone"))))
-    }))
+        assert.strictEqual((yield* caller.stat("/z")).kind, "directory")
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(caller.stat("/gone"))))
+      }))
+  })
 })

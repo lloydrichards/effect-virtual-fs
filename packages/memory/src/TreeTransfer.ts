@@ -10,6 +10,7 @@
  * @since 0.6.0
  */
 import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import type * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
@@ -459,6 +460,7 @@ export const TransferReport = Schema.Struct({
  *
  * @example
  * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { TreeTransfer } from "@effect-vfs/memory"
  * import { Effect, Stream } from "effect"
@@ -475,7 +477,7 @@ export const TransferReport = Schema.Struct({
  *   return entries.map((entry) => entry.path)
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ '/', '/a.txt' ]
  * ```
  *
@@ -503,6 +505,7 @@ export const fromCaller: (
  *
  * @example
  * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { TreeTransfer } from "@effect-vfs/memory"
  * import { Effect, Stream } from "effect"
@@ -514,7 +517,7 @@ export const fromCaller: (
  *   return entries.length
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // 1
  * ```
  *
@@ -541,6 +544,7 @@ export const fromSnapshot: (
  *
  * @example
  * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { TreeTransfer } from "@effect-vfs/memory"
  * import { Effect, Stream } from "effect"
@@ -564,7 +568,7 @@ export const fromSnapshot: (
  *   return [report.files, listing.value.map((entry) => new TextDecoder().decode(entry.name))]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 1, [ 'a.txt' ] ]
  * ```
  *
@@ -628,6 +632,7 @@ export interface VolumeTransferOptions {
  *
  * @example
  * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { TreeTransfer } from "@effect-vfs/memory"
  * import { Effect } from "effect"
@@ -646,7 +651,7 @@ export interface VolumeTransferOptions {
  *   return listing.value.map((entry) => new TextDecoder().decode(entry.name))
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ 'app.js' ]
  * ```
  *
@@ -659,7 +664,7 @@ export const toVolume: <E, R>(
 ) => Effect.Effect<
   Vfs.Volume,
   E | TransferError | Vfs.VfsError,
-  R
+  R | Crypto.Crypto
 > = (entries, options) => internal.toVolume(entries, options)
 
 /**
@@ -677,6 +682,7 @@ export const toVolume: <E, R>(
  *
  * @example
  * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { MemoryFileSystem, TreeTransfer } from "@effect-vfs/memory"
  * import { Effect, Stream } from "effect"
  *
@@ -690,7 +696,7 @@ export const toVolume: <E, R>(
  *   return entries.map((entry) => entry.path)
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ '/', '/a.txt' ]
  * ```
  *
@@ -719,6 +725,7 @@ export const fromFileSystem: (
  *
  * @example
  * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { MemoryFileSystem, TreeTransfer } from "@effect-vfs/memory"
  * import { Effect, Stream } from "effect"
@@ -737,7 +744,7 @@ export const fromFileSystem: (
  *   return yield* fs.readFileString("/out/app.js")
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // run()
  * ```
  *

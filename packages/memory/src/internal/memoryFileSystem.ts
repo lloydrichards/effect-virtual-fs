@@ -8,6 +8,7 @@
  * @since 0.1.0
  */
 import { BytePath, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FileSystem from "effect/FileSystem"
@@ -320,11 +321,11 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
 })
 
 /** @internal */
-export const make: Effect.Effect<FileSystem.FileSystem> = Effect.gen(function*() {
+export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = Effect.gen(function*() {
   const volume = yield* Vfs.fromFixture({ entries: [{ kind: "directory", path: "/tmp" }] })
 
   return yield* bind(volume)
 }).pipe(Effect.orDie)
 
 /** @internal */
-export const layer: Layer.Layer<FileSystem.FileSystem> = Layer.effect(FileSystem.FileSystem, make)
+export const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto> = Layer.effect(FileSystem.FileSystem, make)

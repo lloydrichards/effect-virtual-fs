@@ -10,6 +10,7 @@
  */
 import { Context, Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
+import type * as Crypto from "effect/Crypto"
 import type * as Scope from "effect/Scope"
 import { argumentFailure, retargetFailure } from "./internal/errors.js"
 import * as Model from "./internal/virtualFileSystem.js"
@@ -53,6 +54,7 @@ export interface Options {
 /**
  * Open a live volume using the supplied store Layer. The caller owns a Scope;
  * the volume shuts down before that Layer releases its storage resource.
+ * Requires `Crypto.Crypto` to mint a new volume or incarnation.
  *
  * @category constructors
  * @since 0.4.0
@@ -60,7 +62,7 @@ export interface Options {
 export const open: (options: Options) => Effect.Effect<
   Volume,
   VfsError,
-  LiveImageStore | Scope.Scope
+  LiveImageStore | Scope.Scope | Crypto.Crypto
 > = Effect.fn("LiveVolume.open")(function*(options: Options) {
   const store = yield* LiveImageStore
 
@@ -123,13 +125,15 @@ export interface ImageSession {
 /**
  * Construct a versioned image for a new, empty volume.
  * Store this image before opening it for mutation.
+ * Requires `Crypto.Crypto` for secure volume identifiers and reference keys.
  *
  * @category constructors
  * @since 0.4.0
  */
 export const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<
   Uint8Array,
-  VfsError
+  VfsError,
+  Crypto.Crypto
 > = (options) =>
   Effect.mapError(
     Model.prepareEmptyLiveImage(options),
@@ -152,5 +156,6 @@ export const openImage: (
   durability?: VolumeDurability
 ) => Effect.Effect<
   ImageSession,
-  VfsError
+  VfsError,
+  Crypto.Crypto
 > = Model.openImageVolume

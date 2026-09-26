@@ -157,6 +157,7 @@ export const ErrorPath = Schema.Uint8ArrayFromBase64.check(
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  *
  * const program = Effect.gen(function*() {
  *   const fs = yield* (yield* Vfs.make()).caller()
@@ -166,7 +167,7 @@ export const ErrorPath = Schema.Uint8ArrayFromBase64.check(
  *   )
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // readFile: NotFound
  * ```
  *

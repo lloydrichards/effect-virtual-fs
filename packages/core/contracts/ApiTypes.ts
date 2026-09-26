@@ -107,7 +107,7 @@ export const rootCaller = Effect.gen(function*() {
   void limits
   void usage
   return yield* volume.caller()
-}) satisfies Effect.Effect<Vfs.Caller, Vfs.VfsError>
+}) satisfies Effect.Effect<Vfs.Caller, Vfs.VfsError, Crypto.Crypto>
 
 export const scopedDirectory = (caller: Vfs.Caller) =>
   Effect.scoped(Effect.gen(function*() {
@@ -118,7 +118,7 @@ export const scopedDirectory = (caller: Vfs.Caller) =>
   })) satisfies Effect.Effect<Vfs.Metadata, Vfs.FsFailure>
 
 export const service = Layer.effect(Vfs.Caller, rootCaller)
-export const wired: Layer.Layer<Vfs.Caller, Vfs.VfsError> = Vfs.Caller.layer({ umask: 0o022 }).pipe(
+export const wired: Layer.Layer<Vfs.Caller, Vfs.VfsError, Crypto.Crypto> = Vfs.Caller.layer({ umask: 0o022 }).pipe(
   Layer.provide(Vfs.Volume.layer({ maxEntries: 10 }))
 )
 export const moveDirectory = (caller: Vfs.Caller, source: Vfs.DirectoryHandle, destination: Vfs.DirectoryHandle) =>
@@ -190,7 +190,8 @@ export const overlay = Effect.gen(function*() {
     readonly changes: ReadonlyArray<Vfs.OverlayChange>
     readonly capture: Vfs.OverlayCapture
   },
-  Vfs.VfsError
+  Vfs.VfsError,
+  Crypto.Crypto
 >
 
 const customDeltaLimits: Vfs.SnapshotDeltaLimits = {

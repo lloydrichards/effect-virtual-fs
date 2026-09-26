@@ -94,6 +94,7 @@ export type PathInput = string | BytePath
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect, Schema } from "effect"
  *
@@ -112,7 +113,7 @@ export type PathInput = string | BytePath
  *   return [known, unknown]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'NotFound', 'not a code' ]
  * ```
  *
@@ -138,6 +139,7 @@ export type FsCode = typeof FsCode.Type
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -154,7 +156,7 @@ export type FsCode = typeof FsCode.Type
  *   )
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // Uint8Array(0) []
  * ```
  *
@@ -167,6 +169,7 @@ export type FsCode = typeof FsCode.Type
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -181,7 +184,7 @@ export type FsCode = typeof FsCode.Type
  *   )
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // rejected maxEntries
  * ```
  *
@@ -221,6 +224,7 @@ export type Identity = typeof Identity.Type
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -242,7 +246,7 @@ export type Identity = typeof Identity.Type
  *   return ((yield* user.stat("/home/user")).mode & 0o777).toString(8)
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // 755
  * ```
  *
@@ -333,6 +337,7 @@ export type VolumeIncarnation = typeof VolumeIncarnation.Type
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect, Schema } from "effect"
  *
@@ -351,7 +356,7 @@ export type VolumeIncarnation = typeof VolumeIncarnation.Type
  *   return (yield* volume.resolveReferenceKey(key)) === reference
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // true
  * ```
  *
@@ -373,6 +378,7 @@ export type ReferenceKey = typeof ReferenceKey.Type
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { ByteSize, Effect } from "effect"
  *
@@ -390,7 +396,7 @@ export type ReferenceKey = typeof ReferenceKey.Type
  *   )
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // FileTooLarge
  * ```
  *
@@ -443,6 +449,7 @@ export interface VolumeUsage {
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -460,7 +467,7 @@ export interface VolumeUsage {
  *   return [metadata.kind, metadata.size, metadata.nlink]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'file', 3n, 1 ]
  * ```
  *
@@ -492,6 +499,7 @@ export interface ObjectReference {
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -514,7 +522,7 @@ export interface ObjectReference {
  *   return [before.kind, after.kind, after.revision > before.revision]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'directory', 'directory', true ]
  * ```
  *
@@ -658,6 +666,7 @@ export const TimeUpdate: typeof MetadataModule.TimeUpdate = MetadataModule.TimeU
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -680,7 +689,7 @@ export const TimeUpdate: typeof MetadataModule.TimeUpdate = MetadataModule.TimeU
  *   return [metadata.atimeNs, metadata.mtimeNs === 1_000n]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 1000n, false ]
  * ```
  *
@@ -702,6 +711,7 @@ export type Times = typeof Times.Type
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -723,7 +733,7 @@ export type Times = typeof Times.Type
  *   return (yield* caller.readDirectory("/renamed")).value.map((entry) => new TextDecoder().decode(entry.name))
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'notes.txt' ]
  * ```
  *
@@ -757,6 +767,7 @@ export type SeekMode = typeof SeekMode.Type
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -775,7 +786,7 @@ export type SeekMode = typeof SeekMode.Type
  *   return (yield* handle.stat).size
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // 2n
  * ```
  *
@@ -906,6 +917,7 @@ export interface OpenEntryResult {
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -934,7 +946,7 @@ export interface OpenEntryResult {
  *   return [refused, new TextDecoder().decode(yield* caller.readFile("/app.conf"))]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'AlreadyExists', 'v2' ]
  * ```
  *
@@ -967,6 +979,7 @@ export interface ReadResult {
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -986,7 +999,7 @@ export interface ReadResult {
  *   return [slice.bytes, slice.eof, yield* handle.seek(0n, "current")]
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ Uint8Array(2) [ 2, 3 ], false, 4n ]
  * ```
  *
@@ -1020,6 +1033,7 @@ export interface FileHandle {
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -1038,12 +1052,13 @@ export interface FileHandle {
  *   return (yield* caller.readDirectory("/work")).value.map((entry) => new TextDecoder().decode(entry.name))
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'notes.txt' ]
  * ```
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -1064,12 +1079,13 @@ export interface FileHandle {
  *   return new TextDecoder().decode(yield* handle.read(64))
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // first second
  * ```
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -1091,7 +1107,7 @@ export interface FileHandle {
  *   return (yield* caller.readDirectory("/dist")).value.map((entry) => new TextDecoder().decode(entry.name))
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'out.txt' ]
  * ```
  *
@@ -1213,6 +1229,7 @@ export interface Caller {
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect, Fiber, Stream } from "effect"
  *
@@ -1238,7 +1255,7 @@ export interface Caller {
  *     ))
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'Create /logs', 'Remove /logs' ]
  * ```
  *
@@ -1263,6 +1280,7 @@ export type Change = typeof Change.Type
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect, Fiber, Stream } from "effect"
  *
@@ -1292,7 +1310,7 @@ export type Change = typeof Change.Type
  *     ))
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'Remove /work', 'Create /renamed', 'Create /renamed/out' ]
  * ```
  *
@@ -1367,6 +1385,7 @@ export type OverlayChange = typeof OverlayChange.Type
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -1383,7 +1402,7 @@ export type OverlayChange = typeof OverlayChange.Type
  *   return [plain.length, timed.length]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 1, 2 ]
  * ```
  *
@@ -1405,6 +1424,7 @@ export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -1429,7 +1449,7 @@ export type OverlayChangesOptions = typeof OverlayChangesOptions.Type
  *   ]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ [ 'Added' ], 'built' ]
  * ```
  *
@@ -1448,6 +1468,7 @@ export interface OverlayCapture {
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect, Fiber, Option, Stream } from "effect"
  *
@@ -1468,7 +1489,7 @@ export interface OverlayCapture {
  *   return Option.getOrElse(Option.map(change, (event) => event._tag), () => "none")
  * }).pipe(Effect.scoped)
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // Create
  * ```
  *
@@ -1517,6 +1538,7 @@ export interface Volume {
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -1535,7 +1557,7 @@ export interface Volume {
  *   return captured.changes.map((change) => change._tag)
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'Added' ]
  * ```
  *
@@ -1560,6 +1582,7 @@ export interface OverlayVolume extends Volume {
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -1570,7 +1593,7 @@ export interface OverlayVolume extends Volume {
  *   return (yield* fs.readDirectory("/")).value.map((entry) => new TextDecoder().decode(entry.name))
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(Vfs.Caller.layer()), Effect.provide(Vfs.Volume.layer())))
+ * Effect.runPromise(program.pipe(Effect.provide(Vfs.Caller.layer()), Effect.provide(Vfs.Volume.layer()), Effect.provide(BunCrypto.layer)))
  *   .then(console.log)
  * // [ 'work' ]
  * ```
@@ -1580,15 +1603,18 @@ export interface OverlayVolume extends Volume {
  */
 export const Volume: Context.Service<Volume, Volume> & {
   /** A fresh empty volume. */
-  readonly layer: (options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  readonly layer: (options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
   /** A fresh volume restored from a snapshot. */
-  readonly layerFromSnapshot: (snapshot: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  readonly layerFromSnapshot: (
+    snapshot: Snapshot,
+    options?: VolumeOptions
+  ) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
   /** A fresh volume built from a fixture. */
-  readonly layerFromFixture: (fixture: Fixture, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  readonly layerFromFixture: (fixture: Fixture, options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
   /** A writable overlay over a snapshot base. */
-  readonly layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError>
+  readonly layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
   /** A durable volume opened through the `LiveImageStore` in context; it shuts down with the layer's scope. */
-  readonly layerLive: (options: LiveVolumeOptions) => Layer.Layer<Volume, VfsError, LiveImageStore>
+  readonly layerLive: (options: LiveVolumeOptions) => Layer.Layer<Volume, VfsError, LiveImageStore | Crypto.Crypto>
 } = Object.assign(Context.Service<Volume, Volume>("@effect-vfs/core/Volume"), {
   layer: (options?: VolumeOptions) => Layer.effect(Volume, VfsModel.make(options)),
   layerFromSnapshot: (snapshot: Snapshot, options?: VolumeOptions) =>
@@ -1640,6 +1666,7 @@ const optionalBudget = (operation: string, limits: DecodeLimits | undefined) =>
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect, Stream } from "effect"
  *
@@ -1657,7 +1684,7 @@ const optionalBudget = (operation: string, limits: DecodeLimits | undefined) =>
  *   return text.split("\n").map((line) => (line === "" ? "end" : JSON.parse(line)._tag ?? "header"))
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'header', 'directory', 'file', 'end' ]
  * ```
  *
@@ -1687,6 +1714,7 @@ export const encodeSnapshotStream: (
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -1706,7 +1734,7 @@ export const encodeSnapshotStream: (
  *   return JSON.parse(new TextDecoder().decode(bytes).split("\n")[0]!).version
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // 1
  * ```
  *
@@ -1740,6 +1768,7 @@ export const encodeSnapshot: (
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { ByteSize, Effect, Stream } from "effect"
  *
@@ -1767,7 +1796,7 @@ export const encodeSnapshot: (
  *   return yield* (yield* (yield* Vfs.fromSnapshot(snapshot)).caller()).readFile("/f")
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // Uint8Array(3) [ 1, 2, 3 ]
  * ```
  *
@@ -1795,6 +1824,7 @@ export const decodeSnapshotSink: (
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { ByteSize, Effect } from "effect"
  *
@@ -1814,7 +1844,7 @@ export const decodeSnapshotSink: (
  *   )
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'LimitExceeded', 'encodedBytes' ]
  * ```
  *
@@ -1842,6 +1872,7 @@ const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDelt
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
@@ -1864,7 +1895,7 @@ const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDelt
  *   return new TextDecoder().decode(yield* Vfs.pathToBytes(changes[0]!.path))
  * }).pipe(Effect.provide(NodeCrypto.layer))
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // /added.txt
  * ```
  *
@@ -1898,6 +1929,7 @@ export const diffSnapshots: (
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
@@ -1917,7 +1949,7 @@ export const diffSnapshots: (
  *     change._tag === "Updated" ? change.afterKind : change.kind)
  * }).pipe(Effect.provide(NodeCrypto.layer))
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'directory' ]
  * ```
  *
@@ -1959,6 +1991,7 @@ export const inspectSnapshotDelta: (
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect } from "effect"
@@ -1983,7 +2016,7 @@ export const inspectSnapshotDelta: (
  *   return yield* reader.readFile("/f")
  * }).pipe(Effect.provide(NodeCrypto.layer))
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // Uint8Array(1) [ 7 ]
  * ```
  *
@@ -2024,6 +2057,7 @@ const deltaSchemaIssue = (cause: VfsError, input: typeof Schema.Unknown.Type, op
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { Effect, Schema } from "effect"
@@ -2046,7 +2080,7 @@ const deltaSchemaIssue = (cause: VfsError, input: typeof Schema.Unknown.Type, op
  *   return (yield* Vfs.inspectSnapshotDelta(base, decoded)).map((change) => change._tag)
  * }).pipe(Effect.provide(NodeCrypto.layer))
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'Added' ]
  * ```
  *
@@ -2088,6 +2122,7 @@ export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDelta
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -2104,7 +2139,7 @@ export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDelta
  *   return [yield* Vfs.pathToBytes(path), rejected]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ Uint8Array(4) [ 47, 116, 109, 112 ], 'InvalidArgument' ]
  * ```
  *
@@ -2130,6 +2165,7 @@ export const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsFailur
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect, Schema } from "effect"
  *
@@ -2144,7 +2180,7 @@ export const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsFailur
  *   Effect.catchTag("VfsError", (error) => Effect.succeed(`rejected: ${error.code}`))
  * )
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // rejected: InvalidStructure
  * ```
  *
@@ -2168,9 +2204,11 @@ export type Fixture = typeof Fixture.Type
  *
  * Each execution creates independent storage. Snapshot image failures cannot
  * arise because this constructor does not accept persisted input.
+ * Provide `Crypto.Crypto` to generate the volume identity and reference-key secret.
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -2184,7 +2222,7 @@ export type Fixture = typeof Fixture.Type
  *   return yield* caller.readFile("/work/notes.txt")
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // Uint8Array(2) [ 104, 105 ]
  * ```
  *
@@ -2194,7 +2232,7 @@ export type Fixture = typeof Fixture.Type
  */
 export const make: (
   options?: VolumeOptions
-) => Effect.Effect<Volume, VfsError> = VfsModel.make
+) => Effect.Effect<Volume, VfsError, Crypto.Crypto> = VfsModel.make
 
 /**
  * Streams the tree at `root` in a snapshot as fixture entries, read from the
@@ -2215,6 +2253,7 @@ export const make: (
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect, Stream } from "effect"
  *
@@ -2233,7 +2272,7 @@ export const make: (
  *   return entries.map((entry) => `${entry.kind} ${String(entry.path)}`)
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'directory /', 'file /a.txt', 'file /b.txt', 'hardLink /c.txt' ]
  * ```
  *
@@ -2251,6 +2290,7 @@ export const snapshotEntries: (
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -2278,11 +2318,12 @@ export const snapshotEntries: (
  *   ]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'one', 'two' ]
  * ```
  *
  * @see {@link makeOverlay} for a copy-on-write workspace over the same base.
+ * @see `Crypto.Crypto` for the required secure random-byte service.
  * @category constructors
  * @since 0.1.0
  */
@@ -2291,7 +2332,8 @@ export const fromSnapshot: (
   options?: VolumeOptions
 ) => Effect.Effect<
   Volume,
-  VfsError
+  VfsError,
+  Crypto.Crypto
 > = VfsModel.fromSnapshot
 
 /**
@@ -2309,6 +2351,7 @@ export const fromSnapshot: (
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -2335,11 +2378,12 @@ export const fromSnapshot: (
  *   ]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ '{}', [ 'Updated' ] ]
  * ```
  *
  * @see The overlay guide at `/guides/overlay-filesystems`.
+ * @see `Crypto.Crypto` for the required secure random-byte service.
  * @category constructors
  * @since 0.1.0
  */
@@ -2348,7 +2392,8 @@ export const makeOverlay: (
   options?: VolumeOptions
 ) => Effect.Effect<
   OverlayVolume,
-  VfsError
+  VfsError,
+  Crypto.Crypto
 > = VfsModel.makeOverlay
 
 /**
@@ -2356,6 +2401,7 @@ export const makeOverlay: (
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -2381,11 +2427,12 @@ export const makeOverlay: (
  *   return listing.value.map((entry) => new TextDecoder().decode(entry.name))
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'latest', 'package.json' ]
  * ```
  *
  * @see The fixtures guide at `/guides/fixtures-and-snapshots`.
+ * @see `Crypto.Crypto` for the required secure random-byte service.
  * @category constructors
  * @since 0.1.0
  */
@@ -2394,5 +2441,6 @@ export const fromFixture: (
   options?: VolumeOptions
 ) => Effect.Effect<
   Volume,
-  VfsError
+  VfsError,
+  Crypto.Crypto
 > = FixtureInternal.fromFixture

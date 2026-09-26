@@ -233,4 +233,4 @@ const program = Effect.gen(function*() {
   }
 })
 
-await Effect.runPromise(program)
+await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))
