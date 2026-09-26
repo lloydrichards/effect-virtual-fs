@@ -7,7 +7,7 @@
     "build": "tsc --noEmit",
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "dev": "bun run src/index.ts",
-    "test": "vitest run --passWithNoTests",
+    "test": "bun --bun run vitest run --config ../../vitest.config.ts --project scratchpad --passWithNoTests",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

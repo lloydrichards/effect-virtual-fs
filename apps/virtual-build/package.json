@@ -7,7 +7,7 @@
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "build": "tsc --noEmit",
     "type-check": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "bun --bun run vitest run --config ../../vitest.config.ts --project virtual-build",
     "demo": "bun run src/demo.ts",
     "measure": "bun run src/measure.ts"
   },

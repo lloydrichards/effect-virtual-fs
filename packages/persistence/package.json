@@ -39,7 +39,7 @@
   "scripts": {
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "build": "tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json",
-    "test": "bun --bun run vitest run",
+    "test": "bun --bun run vitest run --config ../../vitest.config.ts --project persistence",
     "test:r2": "bun scripts/r2-smoke.ts",
     "test:r2:fault": "bun scripts/r2-fault-smoke.ts",
     "test:r2:volume": "bun scripts/r2-volume-smoke.ts",

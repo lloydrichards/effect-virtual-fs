@@ -21,7 +21,7 @@
   "scripts": {
     "build": "tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json",
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
-    "test": "vitest run",
+    "test": "bun --bun run vitest run --config ../../vitest.config.ts --project core",
     "type-check": "tsc --noEmit && tsc --project contracts/tsconfig.json"
   },
   "peerDependencies": {
