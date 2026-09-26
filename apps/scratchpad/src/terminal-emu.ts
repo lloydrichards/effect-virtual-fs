@@ -1,5 +1,5 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { BunCrypto, BunRuntime } from "@effect/platform-bun"
+import { BunRuntime } from "@effect/platform-bun"
 import { ByteSize, Console, Effect, Schema } from "effect"
 
 const utf8 = new TextEncoder()
@@ -7,11 +7,7 @@ const utf8 = new TextEncoder()
 const Config = Schema.fromJsonString(Schema.Struct({ feature: Schema.Literal("preview") }))
 
 const program = Effect.scoped(Effect.gen(function*() {
-  const volume = yield* Vfs.make({
-    maxEntries: 100,
-    maxBytes: ByteSize.megabytes(1),
-    maxFileBytes: ByteSize.kilobytes(100)
-  })
+  const volume = yield* Vfs.Volume
 
   // const base = yield* volume.snapshot
 
@@ -49,12 +45,16 @@ const program = Effect.scoped(Effect.gen(function*() {
     config: yield* Schema.decodeEffect(Config)(new TextDecoder().decode(contents)),
     mode: metadata.mode.toString(8)
   }
-}))
+})).pipe(Effect.provide(Vfs.Volume.layer({
+  maxEntries: 100,
+  maxBytes: ByteSize.megabytes(1),
+  maxFileBytes: ByteSize.kilobytes(100)
+})))
 
 const main = Effect.gen(function*() {
   const result = yield* program
 
   yield* Console.log(result)
-}).pipe(Effect.provide(BunCrypto.layer))
+})
 
 BunRuntime.runMain(main)

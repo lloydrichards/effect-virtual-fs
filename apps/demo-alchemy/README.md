@@ -16,7 +16,7 @@ Read the implementation in this order:
 3. [`src/from-alchemy.ts`](src/from-alchemy.ts) adapts Alchemy's native R2 binding to the image-store transport.
 4. [`alchemy.run.ts`](alchemy.run.ts) defines the Alchemy stack and its outputs.
 
-Each notebook operation opens its own volume. When the scope closes, `LiveVolume` commits any changes to R2. A later
+Each notebook operation opens its own volume. Mutations commit to R2 as they happen, and closing the scope shuts down the volume. A later
 request reconstructs the filesystem from that image rather than reusing Worker memory.
 
 The notebook uses core VFS callers directly instead of Effect's `FileSystem` adapter:

@@ -13,19 +13,22 @@ import * as Layer from "effect/Layer"
  */
 const port = 2049
 
+const VolumeLive = Vfs.Volume.layerFromFixture({
+  entries: [
+    { kind: "directory", path: "/tmp" },
+    { kind: "directory", path: "/tree" },
+    { kind: "directory", path: "/tree/dir" },
+    { kind: "file", path: "/tree/file", bytes: new TextEncoder().encode("this is the file test data\n") },
+    { kind: "symlink", path: "/tree/link", target: "/tree/file" }
+  ]
+})
+
+const VfsLive = Vfs.Caller.layer().pipe(Layer.provideMerge(VolumeLive))
+
 const program = Effect.scoped(
   Effect.gen(function*() {
-    const volume = yield* Vfs.fromFixture({
-      entries: [
-        { kind: "directory", path: "/tmp" },
-        { kind: "directory", path: "/tree" },
-        { kind: "directory", path: "/tree/dir" },
-        { kind: "file", path: "/tree/file", bytes: new TextEncoder().encode("this is the file test data\n") },
-        { kind: "symlink", path: "/tree/link", target: "/tree/file" }
-      ]
-    })
-
-    const caller = yield* volume.caller()
+    const volume = yield* Vfs.Volume
+    const caller = yield* Vfs.Caller
 
     const server = yield* NfsServer.make({
       volume,
@@ -51,10 +54,7 @@ const program = Effect.scoped(
     return yield* Effect.never
   })
 ).pipe(
-  Effect.provide(Layer.merge(
-    BunCrypto.layer,
-    BunSocketServer.layer({ host: "127.0.0.1", port })
-  ))
+  Effect.provide(Layer.mergeAll(VfsLive, BunCrypto.layer, BunSocketServer.layer({ host: "127.0.0.1", port })))
 )
 
 BunRuntime.runMain(program)

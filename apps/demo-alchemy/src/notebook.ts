@@ -1,4 +1,4 @@
-import { LiveVolume, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
 import * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
@@ -76,11 +76,14 @@ const make = Effect.gen(function*() {
       durability: "survives-power-loss"
     })
 
-    return Effect.scoped(Effect.gen(function*() {
-      const volume = yield* LiveVolume.open(options)
+    return Effect.scoped(
+      Effect.gen(function*() {
+        const volume = yield* Vfs.Volume
 
-      return yield* use(volume)
-    })).pipe(Effect.provide(store), Effect.provideService(Crypto.Crypto, crypto))
+        return yield* use(volume)
+      }).pipe(Effect.provide(Vfs.Volume.layerLive(options).pipe(Layer.provide(store))))
+    )
+      .pipe(Effect.provideService(Crypto.Crypto, crypto))
   }
 
   const createNotebook = Effect.fn("Notebook.create")(function*(id: string) {

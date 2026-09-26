@@ -1,8 +1,8 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
 import { Effect, Fiber, Layer, Predicate, Ref, Stream } from "effect"
 import { LanguageModel, type Response } from "effect/unstable/ai"
+import { describe } from "vitest"
 import { AgentTurnLimitExceeded, runAgent, type ToolObservation } from "../src/agent.js"
 import { escapeBlock, escapeInline } from "../src/presentation.js"
 
@@ -69,7 +69,7 @@ const collectObservations = Effect.gen(function*() {
   }
 })
 
-it.layer(BunCrypto.layer)("overlay agent harness", (it) => {
+describe("overlay agent harness", () => {
   it("escapes terminal control characters in model-controlled text", () => {
     assert.strictEqual(escapeInline("safe\n\u001b[2J"), "safe\\u{0a}\\u{1b}[2J")
     assert.strictEqual(escapeBlock("safe\n\u009b2J"), "safe\n\\u{9b}2J")

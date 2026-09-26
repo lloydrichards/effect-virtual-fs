@@ -1,16 +1,16 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
 import { ByteSize, Effect } from "effect"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as Path from "node:path"
+import { describe } from "vitest"
 import { buildVirtual, demoFixture } from "../src/VirtualBuild.js"
 
 const evaluate = (code: string) =>
   Effect.promise(() => import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`))
 
-it.layer(BunCrypto.layer)("standalone virtual builds", (it) => {
+describe("standalone virtual builds", () => {
   it.effect("builds and rebuilds a relative module entirely from the volume", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.fromFixture(demoFixture)
