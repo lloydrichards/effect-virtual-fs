@@ -1,5 +1,7 @@
 import * as Brand from "effect/Brand"
 import * as Effect from "effect/Effect"
+import * as Match from "effect/Match"
+import * as Order from "effect/Order"
 import type { Metadata } from "../Metadata.js"
 import * as InodeTable from "./inodeTable.js"
 import type { StoredMetadata } from "./metadata.js"
@@ -88,10 +90,10 @@ export interface VolumeState {
 export const getNode = (state: VolumeState, ino: Ino): Node | undefined => InodeTable.get(state.inodes, ino)
 
 /** @internal */
-export const byIno = (a: Node, b: Node) => a.ino - b.ino
+export const byIno = Order.mapInput(Order.Number, (node: Node) => node.ino)
 
 /** @internal */
-export const byEntryName = ([a]: readonly [string, Ino], [b]: readonly [string, Ino]) => (a < b ? -1 : a > b ? 1 : 0)
+export const byEntryName = Order.mapInput(Order.String, ([name]: readonly [string, Ino]) => name)
 
 const inNameOrder = (entries: ReadonlyMap<string, Ino>) => {
   let previous: string | undefined
@@ -295,35 +297,36 @@ export const assemble = (specs: ReadonlyArray<NodeSpec>): VolumeState => {
   let inodes = InodeTable.empty<Node>()
 
   for (const spec of specs) {
-    const base = { ...spec.metadata, kind: spec.kind, ino: BigInt(spec.ino) }
+    const base = { ...spec.metadata, ino: BigInt(spec.ino) }
 
-    const node: Node = spec.kind === "directory"
-      ? {
+    const node: Node = Match.value(spec).pipe(
+      Match.discriminator("kind")("directory", (directory): Directory => ({
         kind: "directory",
-        ino: spec.ino,
-        parent: spec.parent,
-        name: spec.name,
-        entries: new Map((edges.get(spec.ino) ?? []).sort(byEntryName)),
-        metadata: { ...base, nlink: 2 + (subdirectories.get(spec.ino) ?? 0), size: 0n },
-        revision: spec.revision
-      }
-      : spec.kind === "file"
-      ? {
+        ino: directory.ino,
+        parent: directory.parent,
+        name: directory.name,
+        entries: new Map((edges.get(directory.ino) ?? []).sort(byEntryName)),
+        metadata: { ...base, kind: "directory", nlink: 2 + (subdirectories.get(directory.ino) ?? 0), size: 0n },
+        revision: directory.revision
+      })),
+      Match.discriminator("kind")("file", (file): RegularFile => ({
         kind: "file",
-        ino: spec.ino,
-        data: spec.data,
-        links: spec.links,
-        metadata: { ...base, nlink: spec.links.length, size: BigInt(spec.data.length) },
-        revision: spec.revision
-      }
-      : {
+        ino: file.ino,
+        data: file.data,
+        links: file.links,
+        metadata: { ...base, kind: "file", nlink: file.links.length, size: BigInt(file.data.length) },
+        revision: file.revision
+      })),
+      Match.discriminator("kind")("symlink", (symlink): SymbolicLink => ({
         kind: "symlink",
-        ino: spec.ino,
-        target: spec.target,
-        links: spec.links,
-        metadata: { ...base, nlink: spec.links.length, size: BigInt(spec.target.length) },
-        revision: spec.revision
-      }
+        ino: symlink.ino,
+        target: symlink.target,
+        links: symlink.links,
+        metadata: { ...base, kind: "symlink", nlink: symlink.links.length, size: BigInt(symlink.target.length) },
+        revision: symlink.revision
+      })),
+      Match.exhaustive
+    )
 
     inodes = InodeTable.set(inodes, spec.ino, node, owner)
   }

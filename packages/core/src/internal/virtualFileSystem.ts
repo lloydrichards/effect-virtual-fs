@@ -1,3 +1,4 @@
+import * as Arr from "effect/Array"
 import * as ByteSize from "effect/ByteSize"
 import * as Clock from "effect/Clock"
 import * as Crypto from "effect/Crypto"
@@ -5,6 +6,7 @@ import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Exit from "effect/Exit"
+import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Random from "effect/Random"
@@ -94,10 +96,10 @@ import {
   SLASH_BYTE,
   SLASH_HEX
 } from "./path.js"
-import { type CommitProvider, offerCommit } from "./stagedState.js"
 import { VolumeTestSeams } from "./testSeams.js"
 import { makeTurnstile } from "./turnstile.js"
 import {
+  byEntryName,
   type Directory,
   directoryMetadata,
   emptyRoot,
@@ -124,6 +126,43 @@ const ANY_EXECUTE = 0o111
 const SET_ID_BITS = 0o6000
 const STICKY_BIT = 0o1000
 const RELATIME_INTERVAL_NS = 86_400_000_000_000n // relatime, as Linux mounts by default: a read refreshes an access time at least this old, 24 hours.
+
+type CommitOutcome = "committed" | "rejected" | "unknown"
+
+interface CommitProvider<State> {
+  /** Preparation failures leave the volume available. */
+  readonly prepare?: (candidate: State) => Effect.Effect<void, FsFailure>
+  readonly commit: (candidate: State) => Effect.Effect<CommitOutcome>
+}
+
+interface ClassifiedCommit {
+  readonly available: boolean
+  readonly failure: FsFailure | undefined
+}
+
+// An unknown commit outcome stops the volume; definite rejection stops it only during cleanup.
+const offerCommit = <State>(
+  provider: CommitProvider<State>,
+  operation: string,
+  candidate: State,
+  cleanup: boolean
+): Effect.Effect<ClassifiedCommit> =>
+  Effect.map(Effect.exit(Effect.suspend(() => provider.commit(candidate))), (committed): ClassifiedCommit => {
+    // TODO(#186): Preserve the cause of a provider defect or interruption.
+    if (Exit.isFailure(committed)) {
+      return { available: false, failure: fsFailure("OutcomeUnknown", operation) }
+    }
+
+    if (committed.value === "rejected") {
+      return { available: !cleanup, failure: fsFailure("StorageRejected", operation) }
+    }
+
+    if (committed.value === "unknown") {
+      return { available: false, failure: fsFailure("OutcomeUnknown", operation) }
+    }
+
+    return { available: true, failure: undefined }
+  })
 
 interface LookupOptions {
   readonly followFinalSymlink?: boolean
@@ -158,7 +197,12 @@ const SETATTR_FIELDS: ReadonlyArray<string> = Object.keys(SetattrOptions.fields)
 type Attributes = { readonly [K in keyof SetattrOptions]?: SetattrOptions[K] | undefined }
 
 const timeAt = (update: TimeUpdate | undefined, value: bigint, now: bigint) =>
-  update === undefined || update.kind === "omit" ? value : update.kind === "now" ? now : update.nanoseconds
+  update === undefined ? value : Match.value(update).pipe(
+    Match.discriminator("kind")("omit", () => value),
+    Match.discriminator("kind")("now", () => now),
+    Match.discriminator("kind")("value", ({ nanoseconds }) => nanoseconds),
+    Match.exhaustive
+  )
 
 const decodeWriteFileOptions = Schema.decodeEffect(WriteFileOptions, { onExcessProperty: "error" })
 
@@ -2662,16 +2706,14 @@ export const makeVolume = Effect.fnUntraced(
         up: WalkFrame | undefined
       ): Array<WalkFrame> => {
         const listed = referenceFor(directory.ino)
-        const frames: Array<WalkFrame> = []
 
-        for (const name of [...directory.entries.keys()].sort()) {
-          const childIno = directory.entries.get(name)
-          const child = childIno === undefined ? undefined : view(childIno)
+        return Arr.flatMap(Arr.sort(directory.entries, byEntryName), ([name, childIno]): Array<WalkFrame> => {
+          const child = view(childIno)
 
-          if (child === undefined) continue
+          if (child === undefined) return []
           const bytes = nameBytes(name)
 
-          frames.push({
+          return [{
             ino: child.ino,
             kind: child.kind,
             name: bytes,
@@ -2684,10 +2726,8 @@ export const makeVolume = Effect.fnUntraced(
             reference: referenceFor(child.ino),
             directory: listed,
             listed: false
-          })
-        }
-
-        return frames
+          }]
+        })
       }
 
       const anchorFrame = (parent: Directory, key: string, root: Directory): WalkFrame => ({

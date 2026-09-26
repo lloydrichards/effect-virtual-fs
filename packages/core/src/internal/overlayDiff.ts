@@ -1,3 +1,4 @@
+import * as Arr from "effect/Array"
 import * as Data from "effect/Data"
 import * as Encoding from "effect/Encoding"
 import * as Order from "effect/Order"
@@ -116,17 +117,8 @@ export const compareOverlay = (
     const afterEntries = currentLineages.get(lineage)
 
     if (afterEntries === undefined) continue
-    const removed: Array<ObservationEntry> = []
-
-    for (const [pathKey, entry] of beforeEntries) {
-      if (!afterEntries.has(pathKey)) removed.push(entry)
-    }
-
-    const added: Array<ObservationEntry> = []
-
-    for (const [pathKey, entry] of afterEntries) {
-      if (!beforeEntries.has(pathKey)) added.push(entry)
-    }
+    const removed = Arr.filter(beforeEntries, ([pathKey]) => !afterEntries.has(pathKey)).map(([, entry]) => entry)
+    const added = Arr.filter(afterEntries, ([pathKey]) => !beforeEntries.has(pathKey)).map(([, entry]) => entry)
 
     if (removed.length !== 1 || added.length !== 1) continue
     const before = removed[0]!
@@ -177,8 +169,6 @@ export const compareOverlay = (
     }
   }
 
-  changes.sort(changeOrder)
-
   // Every record owns its byte buffers and is frozen, so callers may wrap paths without copying.
-  return Object.freeze(changes.map((change) => Object.freeze(change)))
+  return Object.freeze(Arr.sort(changes, changeOrder).map((change) => Object.freeze(change)))
 }
