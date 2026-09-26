@@ -61,6 +61,7 @@ import * as FixtureInternal from "./internal/fixture.js"
 import * as Image from "./internal/image.js"
 import * as Path from "./internal/path.js"
 import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
+import * as SnapshotEntries from "./internal/snapshotEntries.js"
 import * as VfsModel from "./internal/virtualFileSystem.js"
 import { type LiveImageStore, open as openLiveVolume, type Options as LiveVolumeOptions } from "./LiveVolume.js"
 import * as SnapshotDeltaModel from "./SnapshotDelta.js"
@@ -2141,6 +2142,56 @@ export type Fixture = typeof Fixture.Type
 export const make: (
   options?: VolumeOptions
 ) => Effect.Effect<Volume, VfsError> = VfsModel.make
+
+/**
+ * Streams the tree at `root` in a snapshot as fixture entries, read from the
+ * snapshot itself without restoring a volume.
+ *
+ * **Details**
+ *
+ * `root` resolves as a privileged caller at `/` of a volume restored from the
+ * snapshot with default options would resolve it, following intermediate
+ * symbolic links but not a final one and applying no path byte limit. Entries come in sorted
+ * pre-order, children in the byte order of their names, with paths rooted at
+ * `root`, so the root entry's path is `/`. A path stays a string while every
+ * name on it is UTF-8 and is a `BytePath` otherwise. A file or symbolic link
+ * that more than one name reaches is an entry at its first path and a
+ * `hardLink` to that path at the others. Each file's bytes are an owned copy,
+ * made when the stream pulls its entry. Every entry after the root's is a
+ * fixture entry for a volume holding the same tree.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect, Stream } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.fromFixture({
+ *     entries: [
+ *       { kind: "directory", path: "/src" },
+ *       { kind: "file", path: "/src/b.txt", bytes: new Uint8Array([2]) },
+ *       { kind: "file", path: "/src/a.txt", bytes: new Uint8Array([1]) },
+ *       { kind: "hardLink", path: "/src/c.txt", target: "/src/a.txt" }
+ *     ]
+ *   })
+ *
+ *   const entries = yield* Stream.runCollect(Vfs.snapshotEntries(yield* volume.snapshot, "/src"))
+ *
+ *   return entries.map((entry) => `${entry.kind} ${String(entry.path)}`)
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 'directory /', 'file /a.txt', 'file /b.txt', 'hardLink /c.txt' ]
+ * ```
+ *
+ * @see {@link fromFixture} for building a volume from the entries.
+ * @category snapshots
+ * @since 0.6.0
+ */
+export const snapshotEntries: (
+  snapshot: Snapshot,
+  root: PathInput
+) => Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure> = SnapshotEntries.snapshotEntries
 
 /**
  * Restores a fresh volume from an opaque snapshot under the supplied destination limits.
