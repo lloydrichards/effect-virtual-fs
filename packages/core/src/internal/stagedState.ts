@@ -17,7 +17,7 @@ export interface CommitProvider<State> {
 
 /** @internal */
 export interface Classified {
-  /** Whether the volume may keep serving; false once storage's word cannot be trusted. */
+  /** Whether the volume may keep serving; false once storage's word cannot be relied on. */
   readonly available: boolean
   readonly failure: FsFailure | undefined
 }
