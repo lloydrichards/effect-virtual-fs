@@ -1,19 +1,27 @@
-// Fixture image construction.
+// Fixture construction: a fold of the declared final state into a volume value that starts from an empty root.
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { Fixture as FixtureSchema, FixtureEntry, type FixtureMetadata } from "../Fixture.js"
 import type { Fixture, PathInput, VolumeOptions } from "../VirtualFileSystem.js"
 import { VolumeIdentity, VolumeOptions as VolumeOptionsSchema } from "../Volume.js"
-import { CanonicalBase64 } from "./canonicalBase64.js"
 import { decodeConfiguration, imageFailure, OpContext, VfsError } from "./errors.js"
-import * as Image from "./image.js"
-import { inputBytes, isAttachedBytes, isDotComponent, nameBytes, preparePath } from "./path.js"
+import type { StoredMetadata } from "./metadata.js"
+import { inputBytes, isAttachedBytes, isDotComponent, preparePath } from "./path.js"
 import { makeVolume, VolumeSource } from "./virtualFileSystem.js"
+import { assemble, Ino, type Link, type NodeSpec, ROOT_INO } from "./volumeState.js"
 
-const DEFAULT_MODE: Record<Image.Record["_tag"], number> = { directory: 0o755, file: 0o644, symlink: 0o777 }
+const DEFAULT_MODE: Record<NodeSpec["kind"], number> = { directory: 0o755, file: 0o644, symlink: 0o777 }
 
 const EPOCH_NS = 0n
+
+// A declared object: its kind, its number, its metadata, and a file's bytes or a link's target.
+interface Declared {
+  readonly kind: NodeSpec["kind"]
+  readonly ino: Ino
+  readonly metadata: StoredMetadata
+  readonly payload?: Uint8Array
+}
 
 /** @internal */
 export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
@@ -37,10 +45,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
       return yield* imageFailure("fromFixture", "InvalidEncoding", { field: "bytes" })
     }
 
-    const metadata = (
-      kind: "directory" | "file" | "symlink",
-      overrides?: FixtureMetadata
-    ): Image.StoredMetadata => ({
+    const metadata = (kind: NodeSpec["kind"], overrides?: FixtureMetadata): StoredMetadata => ({
       uid: overrides?.uid ?? 0,
       gid: overrides?.gid ?? 0,
       mode: overrides?.mode ?? DEFAULT_MODE[kind],
@@ -50,17 +55,20 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
       birthtimeNs: overrides?.birthtimeNs ?? EPOCH_NS
     })
 
-    const declarations = new Map<string, Image.Record>()
+    // The object each declared path names; a hard link's path names its target's object once resolved. Objects
+    // take inode numbers in declaration order after the root.
+    const declarations = new Map<string, Declared>()
     const aliases = new Map<string, string>()
     const paths = new Map<string, ReadonlyArray<string>>()
+    let nextInode = ROOT_INO
 
-    const root = Image.Record.cases.directory.make({
-      id: "root",
-      metadata: metadata("directory", source.rootMetadata),
-      entries: []
-    })
+    const declare = (declared: Omit<Declared, "ino">): Declared => {
+      nextInode = Ino(nextInode + 1)
 
-    declarations.set("", root)
+      return { ...declared, ino: nextInode }
+    }
+
+    declarations.set("", { kind: "directory", ino: ROOT_INO, metadata: metadata("directory", source.rootMetadata) })
 
     const op = OpContext.make("fixture")
 
@@ -74,8 +82,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
         )
       )
 
-    // Encode caller-owned byte buffers now: nothing below yields until Image.capture, so a caller
-    // cannot mutate them first.
+    // Copy caller-owned byte buffers as they are declared, so a caller mutating them later changes nothing here.
     for (const entry of source.entries) {
       const components = yield* Effect.fromResult(fixturePath(entry.path)).pipe(
         Effect.mapError((cause) => imageFailure("fromFixture", "InvalidStructure", { field: "path", cause }))
@@ -97,23 +104,12 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
           aliases.set(key, parsedTarget.success.join("/"))
         },
         directory: (entry) => {
-          declarations.set(
-            key,
-            Image.Record.cases.directory.make({
-              id: String(paths.size),
-              metadata: metadata("directory", entry.metadata),
-              entries: []
-            })
-          )
+          declarations.set(key, declare({ kind: "directory", metadata: metadata("directory", entry.metadata) }))
         },
         file: (entry) => {
           declarations.set(
             key,
-            Image.Record.cases.file.make({
-              id: String(paths.size),
-              metadata: metadata("file", entry.metadata),
-              data: CanonicalBase64.encode(entry.bytes)
-            })
+            declare({ kind: "file", metadata: metadata("file", entry.metadata), payload: entry.bytes.slice() })
           )
         },
         symlink: ({ metadata: overrides, target: input }) => {
@@ -131,11 +127,7 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
 
           declarations.set(
             key,
-            Image.Record.cases.symlink.make({
-              id: String(paths.size),
-              metadata: metadata("symlink", overrides),
-              target: CanonicalBase64.encode(target.success)
-            })
+            declare({ kind: "symlink", metadata: metadata("symlink", overrides), payload: target.success.slice() })
           )
         }
       })
@@ -158,39 +150,47 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
 
       const node = declarations.get(target)
 
-      if (node === undefined || Image.Record.guards.directory(node)) {
+      if (node === undefined || node.kind === "directory") {
         return yield* imageFailure("fromFixture", "InvalidStructure", { field: "hardLink" })
       }
 
       for (const alias of seen) declarations.set(alias, node)
     }
 
-    const children = new Map<string, Array<{ name: typeof CanonicalBase64.Encoded.Type; target: string }>>()
+    // Each declared path is one name of its object, held by the object its parent path declares.
+    const names = new Map<Declared, Array<Link>>()
 
     for (const [key, components] of paths) {
       const parent = declarations.get(components.slice(0, -1).join("/"))
       const child = declarations.get(key)
       const name = components.at(-1)
 
-      if (parent?._tag !== "directory" || child === undefined || name === undefined) {
+      if (parent?.kind !== "directory" || child === undefined || name === undefined) {
         return yield* imageFailure("fromFixture", "InvalidStructure", { field: "parent" })
       }
 
-      const entries = children.get(parent.id) ?? []
-      entries.push({ name: CanonicalBase64.encode(nameBytes(name)), target: child.id })
-      children.set(parent.id, entries)
+      names.set(child, [...(names.get(child) ?? []), { parent: parent.ino, name }])
     }
 
-    const records = [...new Set(declarations.values())].map((record): Image.Record =>
-      Image.Record.match<Image.Record>(record, {
-        directory: (record) => ({ ...record, entries: children.get(record.id) ?? [] }),
-        file: (record) => record,
-        symlink: (record) => record
-      })
-    )
+    const specs = [...new Set(declarations.values())].map((declared): NodeSpec => {
+      const links = names.get(declared) ?? []
+      const common = { ino: declared.ino, metadata: declared.metadata, revision: 1n }
 
-    const snapshot = yield* Image.capture({ format: "effect-vfs", version: 1, root: "root", records }, undefined, true)
-    const restored = VolumeSource.Restored({ value: yield* Image.valueOf(snapshot) })
+      if (declared.kind === "directory") {
+        // The root has no path of its own; every other directory has exactly one, since no hard link names one.
+        const [link = { parent: ROOT_INO, name: "" }] = links
+
+        return { ...common, kind: "directory", parent: link.parent, name: link.name }
+      }
+
+      const payload = declared.payload ?? new Uint8Array()
+
+      return declared.kind === "file"
+        ? { ...common, kind: "file", links, data: payload }
+        : { ...common, kind: "symlink", links, target: payload }
+    })
+
+    const restored = VolumeSource.Restored({ value: assemble(specs) })
 
     const { identity, ...volumeOptions } = config
 
