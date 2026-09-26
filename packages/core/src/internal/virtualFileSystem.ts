@@ -70,6 +70,7 @@ import {
   retargetFailure,
   VfsError
 } from "./errors.js"
+import { KeySecret, VolumeEpoch } from "./hex128.js"
 import { hmacSha256, sameTag } from "./hmac.js"
 import * as Image from "./image.js"
 import * as InodeTable from "./inodeTable.js"
@@ -534,6 +535,21 @@ const randomHex128: Effect.Effect<string> = Effect.gen(function*() {
   return hex
 })
 
+// The 128-bit secret behind every key's tag, always from the platform's cryptographically secure generator. Unlike an
+// identity or an epoch it must not follow a seedable Random: every key hands out the identity and epoch, so a
+// reproducible secret would let one key forge the tag of any other inode. Web Crypto is global in every supported
+// runtime, so reading it adds no service requirement; a runtime without it is a defect, not a recoverable failure.
+const randomKeySecret: Effect.Effect<string> = Effect.sync(() => {
+  // The DOM types declare the global, but a runtime without Web Crypto leaves it undefined.
+  const webCrypto: typeof globalThis.crypto | undefined = globalThis.crypto
+
+  if (webCrypto === undefined) {
+    throw new Error("globalThis.crypto is unavailable, so a volume cannot draw its reference-key secret")
+  }
+
+  return Encoding.encodeHex(webCrypto.getRandomValues(new Uint8Array(16)))
+})
+
 /** @internal */
 export const makeVolume = Effect.fnUntraced(
   function*(
@@ -542,7 +558,7 @@ export const makeVolume = Effect.fnUntraced(
     commitProvider?: CommitProvider<VolumeState>,
     captureInitial?: (
       state: VolumeState,
-      identity: VolumeIdentity,
+      naming: LiveImage.Naming,
       limits: VolumeLimits
     ) => Effect.Effect<Uint8Array, ImageFailure>,
     durability: VolumeDurability = "memory-only"
@@ -574,13 +590,16 @@ export const makeVolume = Effect.fnUntraced(
       : VolumeIdentity.make(settings.identity)
 
     const incarnation = VolumeIncarnation.make(yield* randomHex128)
-    // The namespace this volume's inode numbers belong to. An overlay or a restore keeps its source's numbers but
-    // may share its identity, so a fresh epoch is what keeps an older key from resolving there.
-    const epoch = yield* randomHex128
+    // The namespace this volume's inode numbers belong to. It starts over with the numbers, so every construction
+    // mints one except a live reopen, which resumes the numbers it persisted. An overlay or a restore keeps its
+    // source's numbers but may share its identity, so a fresh epoch is what keeps an older key from resolving there.
+    const epoch = live === undefined ? VolumeEpoch.make(yield* randomHex128) : live.epoch
+    // The secret behind every key's tag. It is drawn and resumed with the epoch, so a new numbering gets a new one,
+    // but never from Random, so a seed that reproduces the identity and epoch cannot reproduce it.
+    const keySecret = live === undefined ? KeySecret.make(yield* randomKeySecret) : live.keySecret
     const identityBytes = Result.getOrThrow(Encoding.decodeHex(identity))
     const epochBytes = Result.getOrThrow(Encoding.decodeHex(epoch))
-    // The secret behind every key's tag. It is drawn with the epoch, so a new numbering also gets a new secret.
-    const keySecretBytes = Result.getOrThrow(Encoding.decodeHex(yield* randomHex128))
+    const keySecretBytes = Result.getOrThrow(Encoding.decodeHex(keySecret))
     const clock = yield* Clock.clockWith(Effect.succeed)
     const initialTime = clock.currentTimeNanosUnsafe()
 
@@ -691,7 +710,9 @@ export const makeVolume = Effect.fnUntraced(
 
     if (live !== undefined) state = live.value
 
-    const initialImage = captureInitial === undefined ? undefined : yield* captureInitial(state, identity, limits)
+    const initialImage = captureInitial === undefined
+      ? undefined
+      : yield* captureInitial(state, { identity, epoch, keySecret }, limits)
 
     // The running transition's draft; reads inside a transition see its pending writes.
     let draft: Draft | undefined
@@ -3864,7 +3885,7 @@ export const openImageVolume = Effect.fnUntraced(function*(
   // The image prepared for the candidate the store is about to see; prepare and commit run in sequence under
   // every permit, so one slot carries it between them.
   let prepared: Uint8Array | undefined
-  const { identity, limits: stored } = restored
+  const { limits: stored } = restored
   const commitOp = OpContext.make("commit")
 
   const limits: VolumeLimits = {
@@ -3881,7 +3902,7 @@ export const openImageVolume = Effect.fnUntraced(function*(
     undefined,
     {
       prepare: (candidate) =>
-        LiveImage.encode(candidate, identity, limits).pipe(
+        LiveImage.encode(candidate, restored, limits).pipe(
           Effect.mapError((cause) => commitOp.fail("StorageRejected", { cause })),
           Effect.flatMap((bytes) =>
             ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxImageBytes)

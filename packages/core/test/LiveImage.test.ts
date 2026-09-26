@@ -52,7 +52,7 @@ describe("private live image", () => {
       const restored = yield* LiveImage.decode(image, BOUND)
 
       assert.deepStrictEqual(
-        yield* LiveImage.encode(restored.value, restored.identity, session.volume.limits),
+        yield* LiveImage.encode(restored.value, restored, session.volume.limits),
         image
       )
       yield* session.shutdown
@@ -96,6 +96,30 @@ describe("private live image", () => {
           ["\"parent\":1,", "\"parent\":2,", "nodes.0"]
         ] as const
       ) assert.deepStrictEqual(yield* failure(edited(image, from, to)), ["InvalidStructure", field], field)
+    }))
+
+  it.effect("keeps the epoch and key secret in the runtime block across commits and refuses malformed ones", () =>
+    Effect.gen(function*() {
+      const { session, images } = yield* committing(yield* prepareEmptyLiveImage(LIMITS))
+      yield* (yield* session.volume.caller()).mkdir("/d")
+      const [initial, committed] = [images[0]!, images.at(-1)!]
+      const { epoch, keySecret } = yield* LiveImage.decode(initial, BOUND)
+      const resumed = yield* LiveImage.decode(committed, BOUND)
+
+      assert.match(epoch, /^[0-9a-f]{32}$/)
+      assert.match(keySecret, /^[0-9a-f]{32}$/)
+      assert.notStrictEqual<string>(keySecret, epoch)
+      assert.deepStrictEqual([resumed.epoch, resumed.keySecret], [epoch, keySecret])
+
+      for (const [field, value] of [["epoch", epoch], ["keySecret", keySecret]] as const) {
+        assert.deepStrictEqual(
+          yield* failure(edited(committed, `"${field}":"${value}"`, `"${field}":"${value.toUpperCase()}"`)),
+          ["InvalidStructure", "liveImage"],
+          field
+        )
+      }
+
+      yield* session.shutdown
     }))
 
   it.effect("keeps a file no name reaches for reopening to reclaim, but refuses such a symbolic link", () =>

@@ -1,10 +1,38 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Encoding, Result, Schema } from "effect"
-import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
+import { ByteSize, Effect, Encoding, Layer, Random, Result, Schema } from "effect"
+import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
 const bytes = (...values: Array<number>) => new Uint8Array(values)
 
 const IDENTITY = Vfs.VolumeIdentity.make("0123456789abcdef0123456789abcdef")
+
+const liveOptions = {
+  maxImageBytes: ByteSize.kilobytes(64),
+  volume: {
+    maxEntries: 100,
+    maxBytes: ByteSize.kilobytes(32),
+    maxFileBytes: ByteSize.kilobytes(16),
+    maxPathBytes: ByteSize.bytes(1024)
+  }
+}
+
+// A store that keeps its one image in memory, so a test can reopen the volume it committed.
+const memoryStore = () => {
+  let image: Uint8Array | undefined
+
+  return Layer.succeed(
+    LiveVolume.LiveImageStore,
+    LiveVolume.LiveImageStore.of({
+      loadOrCreate: (initial) => Effect.succeed(image ?? initial),
+      commit: (candidate) =>
+        Effect.sync(() => {
+          image = candidate
+
+          return "committed" as const
+        })
+    })
+  )
+}
 
 const keyOf = Effect.fnUntraced(function*(path: string) {
   const volume = yield* Vfs.Volume
@@ -123,6 +151,24 @@ describe("reference keys", () => {
       assert.lengthOf(secret.tag, 16)
     }).pipe(Effect.provide(Testing.layer())))
 
+  // A seeded Random reproduces a volume's identity and epoch, which every key carries. The secret behind the tag
+  // must not follow the seed, or one key would be enough to rebuild it and forge a key for any other inode.
+  it.effect("cannot be forged by replaying the Random seed: two volumes under one seed get different tags", () =>
+    Effect.gen(function*() {
+      const seeded = Effect.fnUntraced(function*() {
+        const volume = yield* Vfs.make()
+
+        return yield* volume.referenceKey(yield* (yield* volume.caller()).root)
+      }, Random.withSeed("reference-key-secret"))
+
+      const first = yield* seeded()
+      const second = yield* seeded()
+
+      assert.deepStrictEqual(second.identity, first.identity)
+      assert.deepStrictEqual(second.epoch, first.epoch)
+      assert.notDeepEqual(second.tag, first.tag)
+    }))
+
   it.effect("never resolves in a restore or an overlay, even under the same identity", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.Volume
@@ -145,4 +191,52 @@ describe("reference keys", () => {
       assert.strictEqual(forked.ino, key.ino)
       assert.notDeepEqual(forked.epoch, key.epoch)
     }).pipe(Effect.provide(Testing.layer({ volume: { identity: IDENTITY } }))))
+
+  it.effect("resolves to the same object after a live volume reopens", () =>
+    Effect.gen(function*() {
+      const opened = yield* Effect.scoped(Effect.gen(function*() {
+        const volume = yield* LiveVolume.open(liveOptions)
+        const fs = yield* volume.caller()
+        yield* fs.mkdir("/d")
+        yield* fs.writeFile("/d/kept", bytes(7), { access: "write", create: "exclusive" })
+        yield* fs.writeFile("/held", bytes(8), { access: "write", create: "exclusive" })
+        const kept = yield* volume.referenceKey(yield* fs.lookup("/d/kept"))
+        const held = yield* volume.referenceKey(yield* fs.lookup("/held"))
+        // Unlinked while a handle holds it; after the reopen nothing does.
+        yield* fs.open("/held", { access: "read" })
+        yield* fs.unlink("/held")
+
+        return { kept, held, incarnation: volume.incarnation }
+      }))
+
+      yield* Effect.scoped(Effect.gen(function*() {
+        const volume = yield* LiveVolume.open(liveOptions)
+        const fs = yield* volume.caller()
+        assert.notStrictEqual(volume.incarnation, opened.incarnation)
+
+        const kept = yield* volume.resolveReferenceKey(opened.kept)
+        assert.strictEqual(kept, yield* fs.lookup("/d/kept"))
+        assert.deepStrictEqual(yield* fs.readFile(kept), bytes(7))
+        assert.deepStrictEqual(yield* volume.referenceKey(kept), opened.kept)
+        assert.strictEqual((yield* Effect.flip(volume.resolveReferenceKey(opened.held))).code, "StaleReference")
+      }))
+    }).pipe(Effect.provide(memoryStore())))
+
+  // Documented rather than detected: a live image has one writer, so a copy served beside it is outside the contract.
+  it.effect("resolves across two volumes opened from one image, which share its identity and epoch", () =>
+    Effect.gen(function*() {
+      const image = yield* LiveVolume.prepareEmptyImage()
+      const commit = () => Effect.succeed("committed" as const)
+      const a = yield* LiveVolume.openImage(image, liveOptions.maxImageBytes, commit)
+      const b = yield* LiveVolume.openImage(image, liveOptions.maxImageBytes, commit)
+      const inA = yield* a.volume.caller()
+      const inB = yield* b.volume.caller()
+      yield* inA.writeFile("/a", bytes(1), { access: "write", create: "exclusive" })
+      yield* inB.writeFile("/b", bytes(2), { access: "write", create: "exclusive" })
+
+      const key = yield* a.volume.referenceKey(yield* inA.lookup("/a"))
+      assert.strictEqual(yield* b.volume.resolveReferenceKey(key), yield* inB.lookup("/b"))
+      yield* a.shutdown
+      yield* b.shutdown
+    }))
 })

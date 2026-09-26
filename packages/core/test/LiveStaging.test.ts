@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scheduler, Schema, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { KeySecret, VolumeEpoch } from "../src/internal/hex128.js"
 import * as LiveImage from "../src/internal/liveImage.js"
 import { LiveTreeNode } from "../src/internal/tree.js"
 import { makeVolume, openImageVolume, prepareEmptyLiveImage, VolumeSource } from "../src/internal/virtualFileSystem.js"
@@ -148,6 +149,12 @@ describe("live volume staging", () => {
       const images: Array<Uint8Array> = []
       const identity = VolumeIdentity.make("0123456789abcdef0123456789abcdef")
 
+      const naming = {
+        identity,
+        epoch: VolumeEpoch.make("fedcba9876543210fedcba9876543210"),
+        keySecret: KeySecret.make("00112233445566778899aabbccddeeff")
+      }
+
       const limits = {
         maxBytes: undefined,
         maxFileBytes: ByteSize.bytes(0xffffffff),
@@ -159,7 +166,7 @@ describe("live volume staging", () => {
 
       const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
         commit: (candidate) =>
-          LiveImage.encode(candidate, identity, limits).pipe(
+          LiveImage.encode(candidate, naming, limits).pipe(
             Effect.tap((bytes) => Effect.sync(() => images.push(bytes))),
             Effect.as("committed" as const),
             Effect.orDie
