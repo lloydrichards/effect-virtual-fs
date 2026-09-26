@@ -27,7 +27,7 @@ An exact delta reconstructs a state only with its specified immutable base. It d
 
 ## Open questions
 
-- **Alternative encodings.** Version 1 stores the target object graph with same-path inherited payload references and inline changed payloads. Per-directory or compressed encodings were deferred as compatibility and profiling work; nothing in core compresses today.
+- **Alternative encodings.** Version 1 first stored the target object graph with same-path inherited payload references and inline changed payloads; since #185 it stores one change per differing path carrying only the node it leaves. Per-directory or compressed encodings were deferred as compatibility and profiling work; nothing in core compresses today.
 - **Checkpoint storage of deltas.** `CheckpointStore` accepts and returns complete snapshots only. Storing delta bytes needs a retention policy for the base, a way to name the base a delta depends on, and validation on load.[^checkpoints]
 - **Profiling.** The shipped `default` and `constrained` presets are conservative finite bounds, not measured workspace-size recommendations. Cross-runtime measurements of creation, codec and application cost would let them be justified or revised.
 - **Merge and rebase.** Applying a delta to a base other than its exact one, and reconciling two deltas from one base, need their own decisions on conflict detection and resolution.
