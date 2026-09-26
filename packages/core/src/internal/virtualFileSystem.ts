@@ -51,6 +51,7 @@ import type {
 import {
   OverlayChange,
   OverlayChangesOptions,
+  ReferenceKey,
   type VolumeDurability,
   VolumeId,
   VolumeIdentity,
@@ -58,6 +59,7 @@ import {
   VolumeOptions
 } from "../Volume.js"
 import { WatchOptions } from "../Watch.js"
+import { sameBytes } from "./bytes.js"
 import {
   argumentFailure,
   decodeConfiguration,
@@ -68,6 +70,7 @@ import {
   retargetFailure,
   VfsError
 } from "./errors.js"
+import { hmacSha256, sameTag } from "./hmac.js"
 import * as Image from "./image.js"
 import * as InodeTable from "./inodeTable.js"
 import { MAX_FILE_BYTES } from "./limits.js"
@@ -571,6 +574,13 @@ export const makeVolume = Effect.fnUntraced(
       : VolumeIdentity.make(settings.identity)
 
     const incarnation = VolumeIncarnation.make(yield* randomHex128)
+    // The namespace this volume's inode numbers belong to. An overlay or a restore keeps its source's numbers but
+    // may share its identity, so a fresh epoch is what keeps an older key from resolving there.
+    const epoch = yield* randomHex128
+    const identityBytes = Result.getOrThrow(Encoding.decodeHex(identity))
+    const epochBytes = Result.getOrThrow(Encoding.decodeHex(epoch))
+    // The secret behind every key's tag. It is drawn with the epoch, so a new numbering also gets a new secret.
+    const keySecretBytes = Result.getOrThrow(Encoding.decodeHex(yield* randomHex128))
     const clock = yield* Clock.clockWith(Effect.succeed)
     const initialTime = clock.currentTimeNanosUnsafe()
 
@@ -1005,6 +1015,24 @@ export const makeVolume = Effect.fnUntraced(
 
       return { snapshot, observation: yield* observeChanges(captured) }
     })
+
+    // Whether a reference to the inode still resolves: it is in the table and, if a directory, still has its name.
+    // An unlinked file stays addressable while a handle holds it.
+    const addressable = (ino: Ino): boolean => {
+      const node = getNode(state, ino)
+
+      return node !== undefined && !(node.kind === "directory" && node.metadata.nlink === 0)
+    }
+
+    // The key's tag: HMAC-SHA-256 over identity, epoch and the inode number as 64 bits big-endian, cut to 16 bytes.
+    const keyTag = (ino: bigint): Uint8Array => {
+      const message = new Uint8Array(40)
+      message.set(identityBytes)
+      message.set(epochBytes, 16)
+      new DataView(message.buffer).setBigUint64(32, ino)
+
+      return hmacSha256(keySecretBytes, message).subarray(0, 16)
+    }
 
     const referenceFor = (ino: Ino): ObjectReference => {
       const existing = tokens.get(ino)
@@ -3731,6 +3759,48 @@ export const makeVolume = Effect.fnUntraced(
       snapshot: coordinatedRead(OpContext.make("snapshot"), Effect.sync(() => Image.make(state))).pipe(
         Effect.withSpan("Volume.snapshot")
       ),
+      referenceKey: Effect.fn("Volume.referenceKey")(function*(reference: ObjectReference) {
+        const op = OpContext.make("referenceKey")
+
+        return yield* coordinatedRead(
+          op,
+          Effect.suspend(() => {
+            const known = Predicate.isObject(reference) ? objectReferences.get(reference) : undefined
+
+            if (known === undefined) return Effect.fail(op.fail("InvalidReference"))
+
+            if (known.volume !== volumeIdentity) return Effect.fail(op.fail("ForeignReference"))
+
+            if (!addressable(known.ino)) return Effect.fail(op.fail("StaleReference"))
+
+            const ino = BigInt(known.ino)
+
+            return Effect.succeed({ identity: identityBytes.slice(), epoch: epochBytes.slice(), ino, tag: keyTag(ino) })
+          })
+        )
+      }),
+      resolveReferenceKey: Effect.fn("Volume.resolveReferenceKey")(function*(key: ReferenceKey) {
+        const op = OpContext.make("resolveReferenceKey")
+
+        return yield* coordinatedRead(
+          op,
+          Effect.suspend(() => {
+            if (!Schema.is(ReferenceKey)(key)) return Effect.fail(op.fail("InvalidReference"))
+
+            // Another epoch numbered its objects on its own, so its key is another volume's even under this identity.
+            if (!sameBytes(key.identity, identityBytes) || !sameBytes(key.epoch, epochBytes)) {
+              return Effect.fail(op.fail("ForeignReference"))
+            }
+
+            // Checked before the inode is looked up, so a guessed key learns nothing about which numbers are in use.
+            if (!sameTag(key.tag, keyTag(key.ino))) return Effect.fail(op.fail("InvalidReference"))
+
+            const ino = Ino(Number(key.ino))
+
+            return addressable(ino) ? Effect.succeed(referenceFor(ino)) : Effect.fail(op.fail("StaleReference"))
+          })
+        )
+      }),
 
       caller: Effect.fn("Volume.caller")(function*(options?: RootCallerOptions) {
         const decoded = yield* Effect.fromResult(
