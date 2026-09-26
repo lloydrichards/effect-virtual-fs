@@ -1,6 +1,5 @@
 // Exact snapshot delta construction, inspection, serialization, and application.
 import * as ByteSize from "effect/ByteSize"
-import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Fn from "effect/Function"
@@ -22,6 +21,7 @@ import { bytesOrder, decodeUtf8, sameBytes } from "./bytes.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import { imageFailure, VfsError } from "./errors.js"
 import * as Image from "./image.js"
+import * as Merkle from "./merkle.js"
 import { StoredMetadata, WireStoredMetadata } from "./metadata.js"
 import { isNameBytes, nameBytes, NUL_BYTE, SLASH_BYTE } from "./path.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
@@ -37,8 +37,6 @@ import {
 } from "./volumeState.js"
 
 const FORMAT = "effect-vfs-delta"
-
-const ALGORITHM = "effect-vfs-semantic-sha256-v1"
 
 const SHA256_BYTES = 32
 
@@ -131,7 +129,7 @@ const VersionProbe = Schema.Struct({
 const Document = Schema.Struct({
   format: Schema.Literal(FORMAT),
   version: Schema.Literal(1),
-  base: Schema.Struct({ algorithm: Schema.Literal(ALGORITHM), digest: CanonicalBase64.Encoded }),
+  base: Schema.Struct({ algorithm: Schema.Literal(Merkle.ALGORITHM), digest: CanonicalBase64.Encoded }),
   records: Schema.Array(DeltaRecord),
   changes: Schema.Array(Change)
 })
@@ -141,7 +139,7 @@ type Document = typeof Document.Type
 const WireDocument = Schema.Struct({
   format: Schema.Literal(FORMAT),
   version: Schema.Literal(1),
-  base: Schema.Struct({ algorithm: Schema.Literal(ALGORITHM), digest: Schema.String }),
+  base: Schema.Struct({ algorithm: Schema.Literal(Merkle.ALGORITHM), digest: Schema.String }),
   records: Schema.Array(WireDeltaRecord),
   changes: Schema.Array(WireChange)
 })
@@ -352,84 +350,17 @@ const normalize = Effect.fnUntraced(
   }
 )
 
-const U64_BYTES = 8
+// The base's semantic identity, walked under the base's budget.
+const baseDigest = Effect.fnUntraced(function*(snapshot: Snapshot, limits: DeltaBudget) {
+  const identity = yield* Merkle.identify(yield* Image.valueOf(snapshot), {
+    operation: "snapshotDelta",
+    records: limits.baseRecords,
+    recordsField: "baseRecords",
+    entries: limits.entries,
+    identityBytes: limits.identityBytes
+  })
 
-const EMPTY = new Uint8Array()
-
-const IDENTITY_PREFIX = encoder.encode(`${ALGORITHM}\0`)
-
-const KIND_BYTE = { directory: 0, file: 1, symlink: 2 } as const satisfies Record<SnapshotNodeKind, number>
-
-const u64 = (n: number) => {
-  const out = new Uint8Array(U64_BYTES)
-  new DataView(out.buffer).setBigUint64(0, BigInt(n), false)
-
-  return out
-}
-
-const framedLength = (bytes: Uint8Array) => U64_BYTES + bytes.length
-
-const timestampBytes = (metadata: StoredMetadata): ReadonlyArray<Uint8Array> =>
-  [metadata.atimeNs, metadata.mtimeNs, metadata.ctimeNs, metadata.birthtimeNs].map((value) =>
-    encoder.encode(String(value))
-  )
-
-// This is the versioned semantic identity encoding, not a generic byte builder.
-// Field framing, ordering, and the domain prefix are part of the persisted delta contract.
-const identityBytes = (view: SnapshotView, limits: DeltaBudget): Result.Result<Uint8Array, ImageFailure> => {
-  const timestamps = view.objects.map((object) => timestampBytes(object.metadata))
-  let total = ByteSize.bytes(IDENTITY_PREFIX.length + U64_BYTES)
-
-  for (const [index, object] of view.objects.entries()) {
-    const objectBytes = U64_BYTES +
-      object.paths.reduce((sum, path) => sum + framedLength(path), 0) +
-      1 + 3 * U64_BYTES +
-      timestamps[index]!.reduce((sum, stamp) => sum + framedLength(stamp), 0) +
-      framedLength(object.payload ?? EMPTY)
-
-    total = ByteSize.sum(total, ByteSize.bytes(objectBytes))
-  }
-
-  if (ByteSize.isGreaterThan(total, limits.identityBytes)) {
-    return Result.fail(imageFailure("snapshotDelta", "LimitExceeded", { field: "identityBytes" }))
-  }
-
-  const output = new Uint8Array(Number(ByteSize.toBigInt(total)))
-  let offset = 0
-
-  const put = (bytes: Uint8Array) => {
-    output.set(bytes, offset)
-    offset += bytes.length
-  }
-
-  const frame = (bytes: Uint8Array) => {
-    put(u64(bytes.length))
-    put(bytes)
-  }
-
-  put(IDENTITY_PREFIX)
-  put(u64(view.objects.length))
-
-  for (const [index, object] of view.objects.entries()) {
-    put(u64(object.paths.length))
-
-    for (const path of object.paths) frame(path)
-    put(new Uint8Array([KIND_BYTE[object.kind]]))
-    put(u64(object.metadata.uid))
-    put(u64(object.metadata.gid))
-    put(u64(object.metadata.mode))
-
-    for (const stamp of timestamps[index]!) frame(stamp)
-    frame(object.payload ?? EMPTY)
-  }
-
-  return Result.succeed(output)
-}
-
-const digest = Effect.fnUntraced(function*(view: SnapshotView, limits: DeltaBudget) {
-  const crypto = yield* Crypto.Crypto
-
-  return yield* crypto.digest("SHA-256", yield* Effect.fromResult(identityBytes(view, limits)))
+  return identity.digest
 })
 
 const samePaths = (a: ObjectView, b: ObjectView) => a.pathIdentity === b.pathIdentity
@@ -795,7 +726,7 @@ export const diffSnapshots = Effect.fnUntraced(
     const document: Document = {
       format: FORMAT,
       version: 1,
-      base: { algorithm: ALGORITHM, digest: CanonicalBase64.encode(yield* digest(before, limits)) },
+      base: { algorithm: Merkle.ALGORITHM, digest: CanonicalBase64.encode(yield* baseDigest(base, limits)) },
       records,
       changes
     }
@@ -815,7 +746,7 @@ const verify = Effect.fnUntraced(function*(
   yield* validate(document, limits)
   const before = yield* normalize(base, limits, "base")
 
-  if (!sameBytes(yield* digest(before, limits), yield* CanonicalBase64.decode(document.base.digest))) {
+  if (!sameBytes(yield* baseDigest(base, limits), yield* CanonicalBase64.decode(document.base.digest))) {
     return yield* new VfsError({ code: "BaseMismatch", operation: "snapshotDelta" })
   }
 

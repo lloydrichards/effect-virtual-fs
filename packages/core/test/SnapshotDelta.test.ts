@@ -35,6 +35,15 @@ const DeltaIdentity = Schema.fromJsonString(Schema.Struct({
   base: Schema.Struct({ digest: Schema.String })
 }))
 
+const identityOf = (snapshot: Vfs.Snapshot) =>
+  Effect.gen(function*() {
+    const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(
+      yield* Vfs.diffSnapshots(snapshot, snapshot)
+    )
+
+    return (yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))).base.digest
+  })
+
 const FileNode = Schema.TaggedStruct("file", {
   content: Schema.TaggedStruct("Inline", { bytes: Schema.String })
 })
@@ -45,6 +54,10 @@ interface MutableLink {
 }
 
 it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
+  // Both digests were regenerated when the identity became a Merkle tree: each node's digest covers its kind,
+  // metadata and payload, a directory's covers its entries' names and child digests in name-byte order, and the
+  // snapshot's covers the root digest and its hard-link groups. The layout changed under the same algorithm
+  // identifier, as decided for the 0.6.0 release, so deltas serialised before it no longer validate.
   it.effect("keeps the empty snapshot semantic identity stable", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.fromFixture({
@@ -56,14 +69,16 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       const delta = yield* Vfs.diffSnapshots(snapshot, snapshot)
       const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
       const document = yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))
-      assert.strictEqual(document.base.digest, "rZYY/SonfmsCbsGkLQjVSfHecxzy6kiNba2QGEmixg0=")
+      assert.strictEqual(document.base.digest, "Cvxnm9EjfvdhwMidAWBmx6OChcHENX1q4z+bCp//d98=")
     }))
 
-  // The empty fixture above pins the domain prefix, the algorithm identifier and the object count,
-  // but nothing else. This fixture exists to pin the rest of the encoding, one element per feature:
+  // The empty fixture above pins the domain prefix, the algorithm identifier, the root directory's node
+  // encoding and the empty group list, but nothing else. This fixture exists to pin the rest of the encoding,
+  // one element per feature:
   //
-  //   multiple objects, sorted by first path  `/B` before `/a`, which also reverses under locale collation
-  //   an object with several paths, sorted    the hard link at `/a` and `/B/a`, declared in the other order
+  //   entries sorted by name bytes            `/B` before `/a`, which also reverses under locale collation
+  //   a hard-link group, its paths sorted     the hard link at `/a` and `/B/a`, declared in the other order
+  //   a child digest under a subdirectory     `/B/a` sits under `/B`, so the root covers `/B`'s digest
   //   every kind byte                         a directory, a file and a symlink, plus the root directory
   //   uid, gid and mode, in that order        all three distinct per object, so a field swap cannot hide
   //   four timestamps, in that order          all four distinct per object
@@ -74,7 +89,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
   //   a raw, non-UTF-8 byte path              the file at [0xff, 0xfe]
   //
   // A failure here means the identity encoding moved. That is either a regression, or a deliberate
-  // change that also requires bumping ALGORITHM in internal/snapshotDelta.ts and updating
+  // change that also requires bumping ALGORITHM in internal/merkle.ts and updating
   // .okf/contracts/snapshot-deltas.md, because every previously serialised delta stops validating.
   // Do not regenerate this digest on its own.
   it.effect("keeps the populated snapshot semantic identity stable", () =>
@@ -129,7 +144,42 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       const delta = yield* Vfs.diffSnapshots(snapshot, snapshot)
       const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
       const document = yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))
-      assert.strictEqual(document.base.digest, "/Ay2nkhDZycpUnDrUSQzNhSctWHakQaN5xYAgA42SZU=")
+      assert.strictEqual(document.base.digest, "Uhdurw2p97cieGz/65CbuqV4LyAC04GiwBbZJOziwnQ=")
+    }))
+
+  it.effect("identifies hard-link groups but not inode numbers", () =>
+    Effect.gen(function*() {
+      const metadata = { mode: 0o644, uid: 1, gid: 1, atimeNs: 1n, mtimeNs: 1n, ctimeNs: 1n, birthtimeNs: 1n }
+      const file = (path: string) => ({ kind: "file", path, bytes: new Uint8Array([1]), metadata }) as const
+
+      // Every name holds the same bytes and metadata, so the trees differ only in which names share a node.
+      const aLinked = yield* Vfs.fromFixture({
+        entries: [file("/a"), { kind: "hardLink", path: "/b", target: "/a" }, file("/c")]
+      })
+
+      const cLinked = yield* Vfs.fromFixture({
+        entries: [file("/a"), file("/b"), { kind: "hardLink", path: "/c", target: "/b" }]
+      })
+
+      const unlinked = yield* Vfs.fromFixture({ entries: [file("/a"), file("/b"), file("/c")] })
+      const base = yield* aLinked.snapshot
+      const identities = yield* Effect.forEach([base, yield* cLinked.snapshot, yield* unlinked.snapshot], identityOf)
+      assert.strictEqual(new Set(identities).size, 3)
+
+      // The same groups under other inode numbers, stored in another order, keep the identity.
+      const document = yield* snapshotDocument(base)
+      const renumber = (ino: number) => (ino === 1 ? 1 : 1_000 - ino)
+
+      for (const node of document.nodes) {
+        node.ino = renumber(node.ino)
+
+        if (Object.hasOwn(node, "parent")) node.parent = renumber(node.parent)
+
+        for (const link of node.links ?? []) link.parent = renumber(link.parent)
+      }
+
+      document.nodes.sort((a: { ino: number }, b: { ino: number }) => a.ino - b.ino)
+      assert.strictEqual(yield* identityOf(yield* snapshotFromDocument(document)), identities[0])
     }))
 
   it.effect("reconstructs node kinds, raw paths, payloads, and every retained metadata field", () =>
