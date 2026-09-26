@@ -1,5 +1,12 @@
 # @effect-vfs/nfs
 
+## 0.7.0
+
+### Patch Changes
+
+- Updated dependencies [[`68613c2`](https://github.com/lloydrichards/effect-virtual-fs/commit/68613c2704de6b238bad4306088f7f0727e561e3)]:
+  - @effect-vfs/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes
