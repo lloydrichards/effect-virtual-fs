@@ -2,9 +2,11 @@
 
 Opaque virtual filesystem snapshots and their decoding limits.
 
-Snapshots contain a volume's reachable namespace and metadata, but exclude
-callers, open handles, watch subscriptions, and unlinked content. Use the
-encoding, decoding, and restoration functions in `VirtualFileSystem`.
+A snapshot is the immutable value of a volume at one committed state, so
+capturing one copies nothing. It holds the reachable namespace and metadata,
+but excludes callers, open handles, watch subscriptions, and unlinked
+content. Use the encoding, decoding, and restoration functions in
+`VirtualFileSystem`.
 
 Added in v0.1.0
 
