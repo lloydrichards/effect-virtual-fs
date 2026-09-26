@@ -17,7 +17,10 @@ sources:
   - id: reference-tests
     resource: ../../packages/core/test/ReferenceMutation.test.ts
     title: Atomic reference mutation result tests
-generated: { by: codex/okf, at: "2026-09-26T10:40:00+02:00" }
+  - id: restore-tests
+    resource: ../../packages/core/test/SnapshotRoundTrip.test.ts
+    title: Restored revisions match across captured and decoded snapshots
+generated: { by: claude/okf, at: "2026-09-26T15:00:00+02:00" }
 ---
 
 # Mutation revisions and coordinated observations
@@ -32,14 +35,16 @@ This extends the [mutation and observation contract](mutation-and-observation.md
 
 Content writes, truncation, permission changes, ownership changes, explicit timestamp changes, and link-count changes advance the affected object. A `setattr` that changes several attributes advances it once and publishes one `Update`. Namespace creation, removal, linking, and rename advance every affected parent directory; rename also advances the moved object. Cross-directory rename therefore changes both directory revisions.
 
-Access-time refreshes by reads, which follow [relatime](../decisions/core/relatime-reads.md "constrained by"), do not advance revisions. Rejected operations and existing explicit no-op branches do not advance them, and a change that leaves the volume's value unchanged offers no durable commit.[^replacement-tests] Directory observation is materialized in core; adapters own paging and invalidation. Revisions support equality and ordering only within one live volume. Callers cannot depend on the initial value, increment size, persistence, or continuity across restore.
+Access-time refreshes by reads, which follow [relatime](../decisions/core/relatime-reads.md "constrained by"), do not advance revisions. Rejected operations and existing explicit no-op branches do not advance them, and a change that leaves the volume's value unchanged offers no durable commit.[^replacement-tests] Directory observation is materialized in core; adapters own paging and invalidation. Revisions support equality and ordering only within one live volume. A volume restored from a snapshot, or overlaid on one, starts the volume's and every object's revision afresh, whether the snapshot was captured from a live volume or decoded from bytes, so two restores of one snapshot report and advance the same revisions; only a reopened live image keeps them. Callers cannot depend on the initial value, increment size, persistence, or continuity across restore.
 
 ## Acceptance evidence
 
-Focused fixed-clock tests cover same-length writes, hard-link aliases, metadata changes, cross-directory rename, reads, rejections, no-op branches, owned observations, and exclusion from snapshot version 1. Concurrent reference creation proves that returned transitions do not overlap or admit another parent mutation between their endpoints.[^metadata-tests][^reference-tests]
+Focused fixed-clock tests cover same-length writes, hard-link aliases, metadata changes, cross-directory rename, reads, rejections, no-op branches, owned observations, and exclusion from snapshot version 1. Restores of a captured snapshot and of its decoded bytes, directly and as overlays, report and advance identical revisions.[^restore-tests] Concurrent reference creation proves that returned transitions do not overlap or admit another parent mutation between their endpoints.[^metadata-tests][^reference-tests]
 
 [^core]: Inspect `Metadata`, `Volume.watch`, the private coordination gate, timestamp sampling and directory reads.
 
 [^metadata-tests]: Existing metadata tests demonstrate controlled clock inputs and rejected-state checks.
 
 [^replacement-tests]: Existing replacement tests ground publication and failure invariants that revisions must preserve.
+
+[^restore-tests]: The round-trip suite restores one snapshot four ways and compares the revisions each reports and advances.
