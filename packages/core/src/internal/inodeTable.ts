@@ -1,21 +1,11 @@
-// A persistent table keyed by inode number: a 32-way vector trie over the dense, monotonic inode space. Reads
-// index a few small arrays and never hash; a write copies one path of arrays and shares the rest with the
-// previous value. Writes made under one owner mutate the arrays that owner created, so a batch of writes
-// copies each path once.
+// A 32-way persistent trie. One owner may mutate paths it has already copied within a batch.
 
 const BITS = 5
-
 const WIDTH = 1 << BITS
-
 const MASK = WIDTH - 1
-
-// Bit shifts serve keys below 2^32 at shifts below 32; ToUint32 would wrap a larger key, and a shift count is
-// masked to five bits, so both cases divide instead.
-const SHIFTABLE = 0x100000000
-
+const SHIFTABLE = 0x100000000 // Shifts wrap keys at 2^32 and shift counts at 32.
 const MAX_SHIFT = 32
 
-// Identifies the batch of writes that may still mutate an array it created.
 /** @internal */
 export type Owner = symbol
 
@@ -76,7 +66,6 @@ const setIn = <A>(
   return target
 }
 
-// Stores or clears a key. Writes under the same `owner` share the arrays that owner already copied.
 /** @internal */
 export const set = <A>(table: InodeTable<A>, key: number, value: A | undefined, owner?: Owner): InodeTable<A> => {
   let { capacity, levels, root } = table

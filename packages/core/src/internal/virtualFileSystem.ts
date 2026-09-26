@@ -1,4 +1,3 @@
-// Runtime definitions and cohesive live virtual filesystem engine.
 import * as ByteSize from "effect/ByteSize"
 import * as Clock from "effect/Clock"
 import * as Crypto from "effect/Crypto"
@@ -118,47 +117,28 @@ import {
 } from "./volumeState.js"
 import * as WatchHub from "./watchHub.js"
 
-// POSIX permission bits, masked against mode once it is shifted to the caller's class.
 const EXECUTE = 0o1
-
 const WRITE = 0o2
-
 const READ = 0o4
-
-// Execute for every class; a file with none is not executable by anyone.
 const ANY_EXECUTE = 0o111
-
-// setuid and setgid, cleared whenever a file's contents or ownership change.
 const SET_ID_BITS = 0o6000
-
-// Sticky: only the owner of an entry or of its directory may remove it.
 const STICKY_BIT = 0o1000
+const RELATIME_INTERVAL_NS = 86_400_000_000_000n // relatime, as Linux mounts by default: a read refreshes an access time at least this old, 24 hours.
 
-// relatime, as Linux mounts by default: a read refreshes an access time at least this old, 24 hours.
-const RELATIME_INTERVAL_NS = 86_400_000_000_000n
-
-// Options for a single path walk; `lookup` is defined per volume, so this lives at module level.
 interface LookupOptions {
   readonly followFinalSymlink?: boolean
   readonly allowMissing?: boolean
   readonly parentOnly?: boolean
-  // Creates a missing directory the path names, for a recursive mkdir; `final` says the name ends the path.
   readonly createMissing?: (parent: Directory, name: string, final: boolean) => Effect.Effect<Directory, FsFailure>
 }
 
-// Entries a caller's walk hands on per pull. Reading a directory ends a pull early, so each pull holds at most one
-// permit once.
 const WALK_CHUNK_ENTRIES = 128
-
-// Largest signed 64-bit file offset, as POSIX off_t.
 const MAX_FILE_OFFSET = 0x7fffffffffffffffn
 
 const isMode = Schema.is(Mode)
 
 const isNatural = Schema.is(Schema.Natural)
 
-// A length arrives typed, but a caller outside TypeScript can pass anything. The published setattr schema
-// bounds it, so truncate and setattr agree with it.
 const isLength = Schema.is(SetattrOptions.fields.size.schema)
 
 const inGroup = (identity: Identity, gid: number) => identity.gid === gid || identity.groups.includes(gid)
@@ -175,10 +155,8 @@ const decodeExpected = Schema.decodeEffect(SetattrOptions.fields.expected.schema
 
 const SETATTR_FIELDS: ReadonlyArray<string> = Object.keys(SetattrOptions.fields)
 
-// The validated attributes one change applies; an undefined attribute keeps its value.
 type Attributes = { readonly [K in keyof SetattrOptions]?: SetattrOptions[K] | undefined }
 
-// A time after one update: the current value when omitted, the clock when "now", or the explicit value.
 const timeAt = (update: TimeUpdate | undefined, value: bigint, now: bigint) =>
   update === undefined || update.kind === "omit" ? value : update.kind === "now" ? now : update.nanoseconds
 
@@ -198,7 +176,6 @@ const decodeOpenEntryOptions = Schema.decodeEffect(OpenEntryOptions, { onExcessP
 
 const encoder = new TextEncoder()
 
-// What opening or creating a resolved entry needs; a path open supplies only the OpenSettings fields.
 type OpenRequest = Omit<OpenEntryOptions, "append" | "followFinalSymlink" | "expectedChild" | "expected">
 
 // Whether a read at `now` refreshes a node's access time: when it is not newer than the last modification or
@@ -215,38 +192,29 @@ interface Access {
   readonly now: bigint
 }
 
-// A read's result with the node it accessed and the time it read, or none when the read touches no access time.
 interface Accessed<A> {
   readonly value: A
   readonly access: Access | undefined
 }
 
-// Whether a read's access time is due under relatime; the one rule both the observation and the change apply.
 const refreshDue = <A>(read: Accessed<A>): read is Accessed<A> & { readonly access: Access } =>
   read.access !== undefined && accessDue(read.access.node.metadata, read.access.now)
 
-// An entry a caller's walk has reached. `path` is relative to the walk's root; `listed` marks a directory a
-// post-order walk has read and still has to report.
 interface WalkFrame {
   readonly ino: Ino
   readonly kind: Node["kind"]
   readonly name: Uint8Array
-  // The name as the directory keys it.
   readonly key: string
   readonly path: Uint8Array
   readonly parent: Ino
-  // The frame of the directory it was listed in: the root's anchor for a child of a root reached by name, and
-  // absent for a child of a root held by what it resolved to.
   readonly up: WalkFrame | undefined
   readonly depth: number
-  // What the entry counts toward a walk's byte bound: a file's size or a link's target length.
   readonly bytes: bigint
   readonly reference: ObjectReference
   readonly directory: ObjectReference
   readonly listed: boolean
 }
 
-// The bounds and order of a walk, decoded.
 interface WalkPlan {
   readonly order: "pre" | "post"
   readonly maxDepth: number | undefined
@@ -254,24 +222,16 @@ interface WalkPlan {
   readonly maxBytes: bigint | undefined
 }
 
-// The namespace entry a path or a directory reference plus name resolves to, so each verb has one body. A
-// path's final component can be absent or a dot and can carry a trailing slash; a reference name never does,
-// so a body's checks for those cases never fire on references.
 interface ResolvedEntry {
   readonly parent: Ino
   readonly name: string | undefined
   readonly trailingSlash: boolean
-  // A path names ".", ".." and existing names with the POSIX code of its verb; an entry reports a reserved name
-  // as an invalid argument.
   readonly addressing: "path" | "entry"
-  // Names the path on path-addressed entries; the method's own context on entry-addressed ones.
   readonly op: OpContext
 }
 
-// The node a path, handle, or object reference resolves to, so each node-addressed verb has one body.
 interface ResolvedNode {
   readonly ino: Ino
-  // Names the path on path-addressed nodes; the method's own context on handles and references.
   readonly op: OpContext
 }
 
@@ -286,20 +246,16 @@ interface RestoredVolumeOptions {
 // Builds the next volume value for one transition. Reads see pending writes; a discarded draft leaves the
 // base untouched, so an interrupted or failed transition needs no rollback.
 class Draft {
-  // Pending writes, applied to the table in one batch under this owner when the draft finishes.
   private readonly owner: InodeTable.Owner = Symbol()
   private readonly pending = new Map<Ino, Node | undefined>()
   private opens: Map<Ino, number> | undefined
   private nextInode: Ino
   private changed = false
   private finished: VolumeState | undefined
-  // The revision every inode this transition replaces is stamped with.
   readonly revision: bigint
   entries: number
   usedBytes: bigint
-  // Watch events, computed against the installed value once a watcher takes them.
   readonly events: Array<(installed: VolumeState) => Iterable<WatchEvent>> = []
-  // Handle record writes, applied once the value is installed.
   readonly after: Array<() => void> = []
   readonly removed: Array<Ino> = []
 
@@ -316,7 +272,6 @@ class Draft {
     return pending !== undefined || this.pending.has(ino) ? pending : InodeTable.get(this.base.inodes, ino)
   }
 
-  // Replaces an inode with a value built for this write, stamped with this transition's revision.
   put(node: Node): void {
     this.changed = true
     // SAFETY: callers construct the value they pass, so stamping it in place replaces a spread on every write.
@@ -325,18 +280,15 @@ class Draft {
     this.pending.set(node.ino, node)
   }
 
-  // Replaces an inode without stamping it; access-time updates do not advance revisions.
   putQuiet(node: Node): void {
     this.pending.set(node.ino, node)
   }
 
-  // Whether the next value would equal the base, so there is nothing to commit.
   get unchanged(): boolean {
     return this.pending.size === 0 && this.opens === undefined && this.nextInode === this.base.nextInode &&
       this.entries === this.base.entries && this.usedBytes === this.base.usedBytes
   }
 
-  // Drops an inode nothing reaches. The link change that orphaned it was stamped; its removal advances nothing.
   remove(ino: Ino): void {
     this.removed.push(ino)
     this.pending.set(ino, undefined)
@@ -370,7 +322,6 @@ class Draft {
     return count
   }
 
-  // Builds the next value once; a staged commit offers the same object it later installs.
   finish(): VolumeState {
     if (this.finished !== undefined) return this.finished
     const base = this.base
@@ -403,7 +354,6 @@ class Draft {
   }
 }
 
-// The object reference token stays opaque; this pairs it with the volume that issued it and the inode it names.
 interface ObjectReferenceState {
   readonly volume: symbol
   readonly ino: Ino
@@ -414,13 +364,11 @@ const objectReferences = new WeakMap<ObjectReference, ObjectReferenceState>()
 const isFileHandle = (value: FileHandle | DirectoryHandle): value is FileHandle =>
   Predicate.hasProperty(FileHandleId)(value)
 
-// The handle's own scope, forked from its acquiring scope; explicit close closes it too.
 interface HandleScope {
   scope: Scope.Closeable | undefined
   closed: boolean
 }
 
-// Handle records are written only after the transition that changes them is installed.
 interface FileReference extends HandleScope {
   readonly volume: symbol
   ino: Ino | undefined
@@ -447,7 +395,6 @@ const withEntries = (directory: Directory, edit: (entries: Map<string, Ino>) => 
   return { ...directory, entries }
 }
 
-// Removes one link to a file or symbolic link.
 const withoutLink = (links: ReadonlyArray<Link>, parent: Ino, name: string): ReadonlyArray<Link> => {
   const index = links.findIndex((link) => link.parent === parent && link.name === name)
 
@@ -456,9 +403,7 @@ const withoutLink = (links: ReadonlyArray<Link>, parent: Ino, name: string): Rea
 
 type VolumeSource =
   | { readonly _tag: "Empty" }
-  // A reopened live image's value, identity and limits.
   | { readonly _tag: "Live"; readonly restored: LiveImage.Restored }
-  // A snapshot's value, which the volume starts from once its limits have accepted it.
   | { readonly _tag: "Restored"; readonly value: VolumeState }
 
 /** @internal */
@@ -470,22 +415,17 @@ const RescanChange = Schema.TaggedStruct("Rescan", { path: BytePath })
 
 const RemoveChange = Schema.TaggedStruct("Remove", { path: BytePath })
 
-// A change and where it happened: the directory holding the entry it names and the object behind that entry. A
-// scoped watch tests these against the installed tree, so renaming its scope or an ancestor does not lose it.
 interface WatchEvent {
   readonly change: Change
   readonly parent: Ino
   readonly ino: Ino
 }
 
-// The volume's values either side of one installation.
 interface Installation {
   readonly before: VolumeState
   readonly after: VolumeState
 }
 
-// Every object's path, kind, content and stored metadata: what an overlay compares against its base. An overlay
-// starts from its base's value, and inode numbers are never reused, so an inode's number is its lineage.
 const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
   const observation: Array<ObservationEntry> = []
   const paths: Array<readonly [Ino, Uint8Array]> = [[ROOT_INO, ROOT_PATH]]
@@ -515,10 +455,6 @@ const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
   return observation
 })
 
-// Each execution constructs a fresh volume and captures its Clock.
-
-// 128 bits as lowercase hex. A platform Crypto service supplies them when one is in context; otherwise Effect's
-// Random does, in four 32-bit draws, so a constructor needs no service and a test can seed its identities.
 const randomHex128: Effect.Effect<string> = Effect.gen(function*() {
   const crypto = yield* Effect.serviceOption(Crypto.Crypto)
 
@@ -538,7 +474,6 @@ const randomHex128: Effect.Effect<string> = Effect.gen(function*() {
 // reproducible secret would let one key forge the tag of any other inode. Web Crypto is global in every supported
 // runtime, so reading it adds no service requirement; a runtime without it is a defect, not a recoverable failure.
 const randomKeySecret: Effect.Effect<string> = Effect.sync(() => {
-  // The DOM types declare the global, but a runtime without Web Crypto leaves it undefined.
   const webCrypto: typeof globalThis.crypto | undefined = globalThis.crypto
 
   if (webCrypto === undefined) {
@@ -588,12 +523,7 @@ export const makeVolume = Effect.fnUntraced(
       : VolumeIdentity.make(settings.identity)
 
     const incarnation = VolumeIncarnation.make(yield* randomHex128)
-    // The namespace this volume's inode numbers belong to. It starts over with the numbers, so every construction
-    // mints one except a live reopen, which resumes the numbers it persisted. An overlay or a restore keeps its
-    // source's numbers but may share its identity, so a fresh epoch is what keeps an older key from resolving there.
     const epoch = live === undefined ? VolumeEpoch.make(yield* randomHex128) : live.epoch
-    // The secret behind every key's tag. It is drawn and resumed with the epoch, so a new numbering gets a new one,
-    // but never from Random, so a seed that reproduces the identity and epoch cannot reproduce it.
     const keySecret = live === undefined ? KeySecret.make(yield* randomKeySecret) : live.keySecret
     const identityBytes = Result.getOrThrow(Encoding.decodeHex(identity))
     const epochBytes = Result.getOrThrow(Encoding.decodeHex(epoch))
@@ -615,10 +545,7 @@ export const makeVolume = Effect.fnUntraced(
       })
 
     const volumeIdentity = Symbol()
-    // One token per inode, so aliases and renames return the same reference; dropped when the inode leaves the table.
     const tokens = new Map<Ino, ObjectReference>()
-    // Directory handles holding an inode. Not part of the value: opening a directory is an observation, and the
-    // live image never keeps a detached directory. A held directory stays in the table until its last close.
     const directoryHolds = new Map<Ino, number>()
 
     const makeFileReference = (access: FileReference["access"], append: boolean): FileReference => ({
@@ -639,8 +566,6 @@ export const makeVolume = Effect.fnUntraced(
     })
 
     const maxPendingOperations = settings.maxPendingOperations ?? 64
-    // Observations each take one permit and run beside each other; a change, a cleanup or a watch registration
-    // takes them all, so it sees no reader and no reader sees it half done.
     const permits = maxPendingOperations + 1
     const gate = Semaphore.makeUnsafe(permits)
     // The gate hands permits to whichever waiter it can satisfy, so a change waiting for every permit would be
@@ -677,7 +602,6 @@ export const makeVolume = Effect.fnUntraced(
       usedBytes: 0n
     }
 
-    // The schema caps this value at uint32, so this boundary conversion is exact.
     const maxFileBytes = Number(ByteSize.toBigInt(settings.maxFileBytes ?? ByteSize.bytes(MAX_FILE_BYTES)))
 
     const limits: VolumeLimits = Object.freeze({
@@ -712,12 +636,10 @@ export const makeVolume = Effect.fnUntraced(
       ? undefined
       : yield* captureInitial(state, { identity, epoch, keySecret }, limits)
 
-    // The running transition's draft; reads inside a transition see its pending writes.
     let draft: Draft | undefined
 
     const view = (ino: Ino): Node | undefined => draft === undefined ? getNode(state, ino) : draft.get(ino)
 
-    // False once storage's answer about a candidate cannot be relied on; every later operation is refused.
     let available = true
 
     const checkAvailable = (operation: string) =>
@@ -730,7 +652,6 @@ export const makeVolume = Effect.fnUntraced(
       settings.maxWatchEvents ?? 256
     )
 
-    // Installs a finished draft: the only place the volume's value changes, and where its events publish.
     const install = (finished: Draft) => {
       const before = state
       state = finished.finish()
@@ -744,8 +665,6 @@ export const makeVolume = Effect.fnUntraced(
       watchHub.publishUnsafe(() => finished.events.flatMap((events) => Array.from(events(after))), { before, after })
     }
 
-    // Runs a change against a fresh draft and returns the finished draft with the change's value. A failure or
-    // an interruption anywhere in the change discards the draft, so the volume's value is untouched.
     const transition = <A, E, R>(change: Effect.Effect<A, E, R>) =>
       Effect.suspend(() => {
         const current = new Draft(state)
@@ -757,7 +676,6 @@ export const makeVolume = Effect.fnUntraced(
           })).pipe(Effect.map((value) => [value, current] as const))
       })
 
-    // A change that runs outside admission and needs no provider: handle cleanup.
     const applyDirect = (change: (d: Draft) => void) => {
       const current = new Draft(state)
       draft = current
@@ -780,8 +698,6 @@ export const makeVolume = Effect.fnUntraced(
       finished: Draft,
       onStorageFailure: (() => void) | undefined
     ) {
-      // A change that changes nothing, such as a read whose access time another read refreshed first, offers
-      // nothing; its handle writes and events still apply.
       if (finished.unchanged) return install(finished)
       const next = finished.finish()
 
@@ -799,7 +715,6 @@ export const makeVolume = Effect.fnUntraced(
       install(finished)
     })
 
-    // Records what failed on the span the caller has open.
     const annotateFailure = (error: VfsError) =>
       Effect.annotateCurrentSpan({ operation: error.operation, code: error.code })
 
@@ -826,13 +741,11 @@ export const makeVolume = Effect.fnUntraced(
         )
       ).pipe(Effect.tapError((error) => Schema.is(VfsError)(error) ? annotateFailure(error) : Effect.void))
 
-    // Pure observations take one permit each, so they run beside each other and never beside a change.
     const coordinatedRead = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>) =>
       admit(op, observing(Effect.andThen(checkAvailable(op.operation), effect))).pipe(
         Effect.tapError((error) => Schema.is(VfsError)(error) ? annotateFailure(error) : Effect.void)
       )
 
-    // Refreshes the access time a read reports, when relatime says it is due.
     const refreshAccess = <A>(read: Accessed<A>): A => {
       if (refreshDue(read)) {
         const { node, now } = read.access
@@ -856,7 +769,6 @@ export const makeVolume = Effect.fnUntraced(
 
     const coordinatedCleanup = <A, E, R>(effect: Effect.Effect<A, E, R>) => changing(Effect.uninterruptible(effect))
 
-    // Stops the volume once its store is going away; a later operation fails as unavailable.
     const shutdown = commitProvider === undefined ? undefined : changing(Effect.sync(() => {
       available = false
     }))
@@ -867,7 +779,6 @@ export const makeVolume = Effect.fnUntraced(
       return draft
     }
 
-    // The path that reaches a directory, or nothing once it is detached or an ancestor is gone.
     const pathOf = (get: (ino: Ino) => Node | undefined, ino: Ino): string | undefined => {
       const names: Array<string> = []
       let node = get(ino)
@@ -888,8 +799,6 @@ export const makeVolume = Effect.fnUntraced(
     const entryPath = (prefix: string, name: string) =>
       ownedPath(nameBytes(prefix + (prefix === SLASH_HEX ? "" : SLASH_HEX) + name))
 
-    // Events name their paths against the installed value, and only once a watcher takes them. `ino` is the object
-    // the entry names, or named until this change removed it.
     const publishEntry = (_tag: Exclude<Change["_tag"], "Rescan">, parent: Ino, name: string, ino: Ino) => {
       current().events.push((installed) => {
         const prefix = pathOf((at) => getNode(installed, at), parent)
@@ -916,7 +825,6 @@ export const makeVolume = Effect.fnUntraced(
         return
       }
 
-      // The names bound now: a later transition may rename them, but this one published these.
       const links = target.links
 
       current().events.push((installed) => {
@@ -938,7 +846,6 @@ export const makeVolume = Effect.fnUntraced(
       })
     }
 
-    // The paths that reach an object: a directory's one path, or every name of anything else.
     const pathsOf = (installed: VolumeState, ino: Ino): Array<BytePath> => {
       const node = getNode(installed, ino)
 
@@ -961,8 +868,6 @@ export const makeVolume = Effect.fnUntraced(
       return paths
     }
 
-    // Whether a directory is `ancestor` or lies below it. Directories have one name each, so the walk up is the
-    // directory's only path.
     const descends = (installed: VolumeState, directory: Ino, ancestor: Ino): boolean => {
       for (let at = directory;;) {
         if (at === ancestor) return true
@@ -982,7 +887,6 @@ export const makeVolume = Effect.fnUntraced(
       rescan: () => ({ change: RescanChange.make({ path: rootPath() }), parent: ROOT_INO, ino: ROOT_INO })
     }
 
-    // The inode a watch scope names. An object whose last name is gone has nothing left to watch.
     const scopeRoot = (scope: ObjectReference, op: OpContext) =>
       Effect.suspend(() => {
         const known = objectReferences.get(scope)
@@ -1035,15 +939,12 @@ export const makeVolume = Effect.fnUntraced(
       return { snapshot, observation: yield* observeChanges(captured) }
     })
 
-    // Whether a reference to the inode still resolves: it is in the table and, if a directory, still has its name.
-    // An unlinked file stays addressable while a handle holds it.
     const addressable = (ino: Ino): boolean => {
       const node = getNode(state, ino)
 
       return node !== undefined && !(node.kind === "directory" && node.metadata.nlink === 0)
     }
 
-    // The key's tag: HMAC-SHA-256 over identity, epoch and the inode number as 64 bits big-endian, cut to 16 bytes.
     const keyTag = (ino: bigint): Uint8Array => {
       const message = new Uint8Array(40)
       message.set(identityBytes)
@@ -1068,7 +969,6 @@ export const makeVolume = Effect.fnUntraced(
       directoryHolds.set(ino, (directoryHolds.get(ino) ?? 0) + 1)
     }
 
-    // Drops one hold; a detached directory nothing holds any more leaves the table.
     const unholdDirectory = (ino: Ino) => {
       const count = (directoryHolds.get(ino) ?? 1) - 1
 
@@ -1101,13 +1001,11 @@ export const makeVolume = Effect.fnUntraced(
         )
       )
 
-    // Only a close that released the handle closes its scope; an interrupted close leaves both open.
     const closeReleasedScope = (reference: HandleScope) =>
       Effect.suspend(() =>
         !reference.closed || reference.scope === undefined ? Effect.void : Scope.close(reference.scope, Exit.void)
       )
 
-    // The permission bits the node's mode grants this identity's class.
     const permitted = (node: Node, identity: Identity) => {
       const metadata = node.metadata
 
@@ -1125,7 +1023,6 @@ export const makeVolume = Effect.fnUntraced(
         ? Effect.void
         : Effect.fail(op.fail("AccessDenied"))
 
-    // An inode no name reaches leaves the table once nothing holds it open; a file's bytes are released then.
     const reclaim = (d: Draft, ino: Ino) => {
       const node = d.get(ino)
 
@@ -1142,14 +1039,11 @@ export const makeVolume = Effect.fnUntraced(
       d.remove(ino)
     }
 
-    // Whether the volume's entry quota is already full.
     const atEntryLimit = () => settings.maxEntries !== undefined && current().entries >= settings.maxEntries
 
-    // Every new entry but a replacement names a new inode, so running out of inode numbers is running out of space.
     const reserveEntry = (op: OpContext) =>
       atEntryLimit() || !current().canAllocate ? Effect.fail(op.fail("NoSpace")) : Effect.void
 
-    // A replacement keeps the entry count but still takes a new inode.
     const reserveInode = (op: OpContext) => current().canAllocate ? Effect.void : Effect.fail(op.fail("NoSpace"))
 
     const reserveBytes = (op: OpContext, bytes: bigint) =>
@@ -1157,8 +1051,6 @@ export const makeVolume = Effect.fnUntraced(
         ? Effect.fail(op.fail("NoSpace"))
         : Effect.void
 
-    // Adds a name for a child. A new subdirectory's ".." entry is a second link to the parent; other node kinds
-    // add none. The child records the name too, so events and paths never search for it.
     const attach = (parent: Directory, name: string, child: Node, now: bigint) => {
       const d = current()
 
@@ -1185,7 +1077,6 @@ export const makeVolume = Effect.fnUntraced(
       }
     }
 
-    // Drops the name `parent`/`name` from a child, which the caller has already removed from the parent.
     const detach = (child: Node, parent: Ino, name: string, now: bigint) => {
       const d = current()
 
@@ -1293,14 +1184,12 @@ export const makeVolume = Effect.fnUntraced(
       )
     })
 
-    // Records the inode a handle opened, once the transition that opened it is installed.
     const bindFile = (ref: FileReference, ino: Ino) => {
       current().after.push(() => {
         ref.ino = ino
       })
     }
 
-    // Replacing a payload clears setuid and setgid, and charges the volume for the size delta.
     const replaceContent = (file: RegularFile, data: Uint8Array, now: bigint, publish = true) => {
       const d = current()
       d.usedBytes += BigInt(data.length - file.data.length)
@@ -1319,7 +1208,6 @@ export const makeVolume = Effect.fnUntraced(
       if (publish) publishNode(file.ino)
     }
 
-    // Sets a file's length at a time the caller read, leaving its event to the caller.
     const resizeAt = Effect.fnUntraced(function*(file: RegularFile, length: bigint, now: bigint, op: OpContext) {
       if (length > BigInt(maxFileBytes)) return yield* op.fail("FileTooLarge")
       const size = Number(length)
@@ -1350,7 +1238,6 @@ export const makeVolume = Effect.fnUntraced(
 
       const read = (maximum: number, position?: bigint) => {
         const op = OpContext.make(position === undefined ? "read" : "pread")
-        // Failures past admission report "read" for both entry points.
         const readOp = OpContext.make("read")
 
         const body = Effect.gen(function*() {
@@ -1391,7 +1278,6 @@ export const makeVolume = Effect.fnUntraced(
 
       const write = Effect.fnUntraced(function*(input: Uint8Array, position?: bigint) {
         const op = OpContext.make(position === undefined ? "write" : "pwrite")
-        // Failures outside admission and the permitted handle report "write" for both entry points.
         const writeOp = OpContext.make("write")
 
         if (!isAttachedBytes(input)) return yield* writeOp.fail("InvalidArgument")
@@ -1445,7 +1331,6 @@ export const makeVolume = Effect.fnUntraced(
         )
       })
 
-      // Eager members share one context each between admission and their own failures.
       const statOp = OpContext.make("stat")
       const syncOp = OpContext.make("sync")
       const closeOp = OpContext.make("close")
@@ -1541,7 +1426,6 @@ export const makeVolume = Effect.fnUntraced(
 
         const node = view(known.ino)
 
-        // A removed directory goes stale at once, even while a handle keeps its inode in the table.
         if (node === undefined || (node.kind === "directory" && node.metadata.nlink === 0)) {
           return yield* op.fail("StaleReference")
         }
@@ -1549,14 +1433,12 @@ export const makeVolume = Effect.fnUntraced(
         return node
       })
 
-      // The caller's own directory, which a closed caller no longer has.
       const callerDirectory = (op: OpContext) => {
         const node = reference.ino === undefined ? undefined : view(reference.ino)
 
         return node?.kind === "directory" ? Effect.succeed(node) : Effect.fail(op.fail("ClosedCaller"))
       }
 
-      // Re-reads a directory the transition may have replaced since it was resolved.
       const directoryNow = (ino: Ino): Directory => {
         const node = view(ino)
 
@@ -1825,8 +1707,6 @@ export const makeVolume = Effect.fnUntraced(
       )
 
       const ResolvedEntry = {
-        // Takes a path whose preparation already succeeded, so a verb with two paths reports either one's
-        // preparation failure before locating any parent.
         fromPath: Effect.fnUntraced(function*(path: PreparedPath, base: DirectoryHandle | undefined, op: OpContext) {
           const parent = yield* locate(path, base, op, { parentOnly: true })
 
@@ -1840,7 +1720,6 @@ export const makeVolume = Effect.fnUntraced(
         })
       }
 
-      // The mode an owner may set: an unprivileged caller outside the file's group cannot set setgid on it.
       const grantedMode = (metadata: Pick<Metadata, "kind" | "gid">, mode: number) =>
         !identity.privileged && metadata.kind === "file" && !inGroup(identity, metadata.gid) ? mode & ~0o2000 : mode
 
@@ -1865,7 +1744,6 @@ export const makeVolume = Effect.fnUntraced(
       ) => {
         const { size, mode } = attributes
         const expected = attributes.expected?.revision
-        // Copied now: the change runs after the permit wait, and the caller may reuse its objects meanwhile.
         const owner = attributes.owner === undefined ? undefined : { ...attributes.owner }
 
         const times = attributes.times === undefined
@@ -1940,11 +1818,6 @@ export const makeVolume = Effect.fnUntraced(
           ? Effect.fail(op.fail("NotPermitted"))
           : Effect.void
 
-      // Authorizes creating the entry and returns its name. Only a path can name a dot entry, and one always
-      // exists, so it fails as AlreadyExists.
-      // Follows Linux's order: search permission on the directory before the name is looked up, so a directory
-      // the caller cannot search reveals nothing about its names; then a reserved or taken name, and a trailing
-      // slash on a name that cannot be a directory, before write permission.
       const claimName = Effect.fnUntraced(function*(
         entry: ResolvedEntry,
         trailingSlash: "allowed" | "rejected" = "allowed"
@@ -1959,7 +1832,6 @@ export const makeVolume = Effect.fnUntraced(
 
         if (parent.entries.has(entry.name)) return yield* entry.op.fail("AlreadyExists")
 
-        // A trailing slash asks for a directory that does not exist.
         if (trailingSlash === "rejected" && entry.trailingSlash) return yield* entry.op.fail("NotFound")
         yield* authorize(parent, identity, WRITE, entry.op)
 
@@ -1988,7 +1860,6 @@ export const makeVolume = Effect.fnUntraced(
 
         const child = newDirectory(parent, mode, now, request.times)
 
-        // No Effect yield or expected failure between these publication writes.
         attach(parent, name, child, now)
         current().entries += 1
         publishEntry("Create", parent.ino, name, child.ino)
@@ -2012,7 +1883,6 @@ export const makeVolume = Effect.fnUntraced(
       ) {
         let node: Node | undefined
         let entryOp = op
-        // Each directory that gained a child, with its revision before the first.
         const revisionsBefore = new Map<Ino, bigint>()
 
         if (prepared.kind === "entry") {
@@ -2067,7 +1937,6 @@ export const makeVolume = Effect.fnUntraced(
         }
       )
 
-      // Takes target bytes the caller already copied, so nothing else holds them.
       const makeSymlink = Effect.fnUntraced(function*(
         entry: ResolvedEntry,
         target: Uint8Array,
@@ -2090,7 +1959,6 @@ export const makeVolume = Effect.fnUntraced(
         return { child: child.ino, directory: { before, after: current().revision } }
       })
 
-      // A directory's ".." entry was a link to the parent, so removing one drops the parent's link count.
       const removeChild = Effect.fnUntraced(function*(parent: Directory, name: string, child: Node, op: OpContext) {
         const before = parent.revision
         const now = yield* timestamp(op)
@@ -2108,7 +1976,6 @@ export const makeVolume = Effect.fnUntraced(
           },
           (entries) => entries.delete(name)
         ))
-        // The event names the entry before the child loses its link, since a symlink's bytes go with it.
         publishEntry("Remove", parent.ino, name, child.ino)
         detach(child, parent.ino, name, now)
         d.entries -= 1
@@ -2143,8 +2010,6 @@ export const makeVolume = Effect.fnUntraced(
         return { parent, name: entry.name, child }
       })
 
-      // Removes a file, a symbolic link, or an empty directory. A dot name is invalid on either family, and a
-      // trailing slash asks for a directory, judged before write permission as unlink and rmdir judge it.
       const removeEntry = Effect.fnUntraced(function*(entry: ResolvedEntry, op: OpContext) {
         const { child, name, parent } = yield* removalTarget(
           entry,
@@ -2160,7 +2025,6 @@ export const makeVolume = Effect.fnUntraced(
       })
 
       const unlinkEntry = Effect.fnUntraced(function*(entry: ResolvedEntry, op: OpContext) {
-        // A trailing slash is judged before write permission, as Linux does.
         const { child, name, parent } = yield* removalTarget(
           entry,
           "IsDirectory",
@@ -2176,7 +2040,6 @@ export const makeVolume = Effect.fnUntraced(
         return yield* removeChild(parent, name, child, op)
       })
 
-      // Needs no trailing-slash check: anything it removes is a directory.
       const rmdirEntry = Effect.fnUntraced(function*(entry: ResolvedEntry, op: OpContext) {
         const { child, name, parent } = yield* removalTarget(entry, "InvalidArgument")
         yield* authorizeRemoval(parent, child, entry.op)
@@ -2196,7 +2059,6 @@ export const makeVolume = Effect.fnUntraced(
           const sourceName = source.name
           const destinationName = destination.name
 
-          // Both dot names report against the source path.
           if (isDotComponent(sourceName) || isDotComponent(destinationName)) {
             return yield* source.op.fail("InvalidArgument")
           }
@@ -2266,8 +2128,6 @@ export const makeVolume = Effect.fnUntraced(
           const now = yield* timestamp(op)
           const d = current()
 
-          // Every rejection above precedes the namespace and metadata writes below, and the old name is
-          // published before the namespace changes.
           publishEntry("Remove", sourceDirectory.ino, sourceName, child.ino)
 
           d.put(withEntries(
@@ -2329,7 +2189,6 @@ export const makeVolume = Effect.fnUntraced(
         }
       )
 
-      // Opens an existing regular file for the requested access, truncating it when asked.
       const openExisting = Effect.fnUntraced(function*(
         file: RegularFile,
         request: Pick<OpenRequest, "access" | "truncate">,
@@ -2346,11 +2205,8 @@ export const makeVolume = Effect.fnUntraced(
         if (request.truncate) yield* resize(file, 0n, op)
       })
 
-      // An entry whose name the front end already checked, since creating one needs a real name.
       type NamedEntry = ResolvedEntry & { readonly name: string }
 
-      // Needs no trailing-slash checks: a path's lookup already rejects a trailing slash on anything but a
-      // directory, and a reference name cannot hold one.
       const openFile = Effect.fnUntraced(function*(
         entry: NamedEntry,
         found: Node | undefined,
@@ -2417,7 +2273,6 @@ export const makeVolume = Effect.fnUntraced(
         return { ino: file.ino, created, directory: { before, after: directoryNow(entry.parent).revision } }
       })
 
-      // Releases a file this transition opened, before the transition installs.
       const releasePending = (opened: () => Ino | undefined) => () => {
         const ino = opened()
 
@@ -2444,11 +2299,8 @@ export const makeVolume = Effect.fnUntraced(
         )
       }
 
-      // ---- Targets and entries. One resolution step per addressing mode; the verb bodies below take the result.
-
       const prepare = (input: PathInput, op: OpContext) => preparePath(input, op.operation, settings.maxPathBytes)
 
-      // The node an open handle holds, which must belong to this volume and still be held.
       const handleNode = Effect.fnUntraced(function*(handle: FileHandle | DirectoryHandle, op: OpContext) {
         if (reference.ino === undefined) return yield* op.fail("ClosedCaller")
         const ref = isFileHandle(handle) ? files.get(handle) : handles.get(handle)
@@ -2465,7 +2317,6 @@ export const makeVolume = Effect.fnUntraced(
 
       interface Resolved {
         readonly node: Node
-        // Names the path on a path target; the verb's own context on a reference or a handle.
         readonly op: OpContext
       }
 
@@ -2517,14 +2368,10 @@ export const makeVolume = Effect.fnUntraced(
           (resolved): ResolvedNode => ({ ino: resolved.node.ino, op: resolved.op })
         )
 
-      // What an entry input becomes before coordination: a prepared path, or a directory target and a checked name.
       type PreparedEntry =
         | { readonly kind: "path"; readonly path: PreparedPath; readonly base: DirectoryHandle | undefined }
         | { readonly kind: "entry"; readonly directory: Target; readonly name: string }
 
-      // A well-formed name is one to 255 bytes with no NUL and no slash; "." and ".." pass here and are
-      // reported by the verb, after the directory resolves, with the code the addressing mode gives them.
-      // A string name must be well-formed UTF-16, as a string path must.
       const entryName = (input: NameInput, op: OpContext): Result.Result<string, FsFailure> => {
         if (Predicate.isString(input) && !isWellFormed(input)) return Result.fail(op.fail("InvalidPathEncoding"))
         const bytes = Predicate.isString(input) ? encoder.encode(input) : input
@@ -2590,15 +2437,12 @@ export const makeVolume = Effect.fnUntraced(
         )
       })
 
-      // An invalid argument, naming the attribute at fault when there is one.
       const fail = (op: OpContext, cause?: unknown, field?: string) =>
         op.fail("InvalidArgument", field === undefined ? { cause } : { cause, field })
 
-      // The context an entry's own failures use: the path on a path input, the verb's own on an entry.
       const preparedOp = (prepared: PreparedEntry, op: OpContext) =>
         prepared.kind === "path" ? op.at(prepared.path.input) : op
 
-      // Opens through a path, which may create its final component.
       const openPath = Effect.fnUntraced(
         function*(target: Extract<Target, { _tag: "Path" }>, options: OpenOptions, op: OpContext) {
           const pathOp = op.at(target.path)
@@ -2645,7 +2489,6 @@ export const makeVolume = Effect.fnUntraced(
 
                 if (isDotComponent(name)) return yield* pathOp.fail("IsDirectory")
 
-                // A trailing slash asks for a directory, which a create cannot make.
                 if (resolved.node === undefined && path.trailingSlash) return yield* pathOp.fail("IsDirectory")
                 yield* authorize(parent, identity, EXECUTE, pathOp)
                 const file = resolved.node
@@ -2668,7 +2511,6 @@ export const makeVolume = Effect.fnUntraced(
         }
       )
 
-      // Opens an existing file a reference or a handle names; nothing can be created through either.
       const openNode = Effect.fnUntraced(function*(target: Target, options: OpenOptions, op: OpContext) {
         const chosen = yield* decodeOpenOptions(options).pipe(Effect.mapError((cause) => fail(op, cause)))
 
@@ -2701,7 +2543,6 @@ export const makeVolume = Effect.fnUntraced(
         )
       })
 
-      // Looks a name up under a directory target and opens or creates it in one gate hold.
       const openEntry = Effect.fnUntraced(function*(entry: Entry, options: OpenEntryOptions, op: OpContext) {
         const name = yield* Effect.fromResult(entryName(entry.name, op))
         const decoded = yield* decodeOpenEntryOptions(options).pipe(Effect.mapError((cause) => fail(op, cause)))
@@ -2797,7 +2638,6 @@ export const makeVolume = Effect.fnUntraced(
               const result = yield* openFile(
                 { parent: mutationParent, name: mutationName, trailingSlash: false, addressing: "entry", op },
                 file,
-                // An entry create always checks its size, even when none was given.
                 { ...chosen, initialSize: chosen.initialSize ?? 0n },
                 acquired,
                 op
@@ -2815,8 +2655,6 @@ export const makeVolume = Effect.fnUntraced(
         )
       })
 
-      // A directory's children as walk frames, in the byte order of their names, which hex names keep. It runs in
-      // the observation that read the directory, so every reference is minted while its object is in the table.
       const walkChildren = (
         directory: Directory,
         path: Uint8Array,
@@ -2852,8 +2690,6 @@ export const makeVolume = Effect.fnUntraced(
         return frames
       }
 
-      // The frame that anchors a walk's root by the name its directory holds it under, so the root is reached by
-      // name like every directory below it. It is never reported.
       const anchorFrame = (parent: Directory, key: string, root: Directory): WalkFrame => ({
         ino: root.ino,
         kind: root.kind,
@@ -2869,9 +2705,6 @@ export const makeVolume = Effect.fnUntraced(
         listed: false
       })
 
-      // The anchor of a walk rooted at a path: the path's final name in its directory, when that name holds the
-      // root itself. A root reached through a final symbolic link, named by a dot, or held by a reference or a
-      // handle has none.
       const pathAnchor = (target: Target, root: Directory, op: OpContext): Effect.Effect<WalkFrame | undefined> => {
         if (!Target.$is("Path")(target)) return Effect.undefined
         const prepared = prepare(target.path, op)
@@ -2891,7 +2724,6 @@ export const makeVolume = Effect.fnUntraced(
         )
       }
 
-      // Whether a directory still holds a frame's name for the object the walk listed under it.
       const holds = (parent: Node | undefined, frame: WalkFrame): parent is Directory =>
         parent?.kind === "directory" && parent.metadata.nlink > 0 && parent.entries.get(frame.key) === frame.ino
 
@@ -2993,7 +2825,6 @@ export const makeVolume = Effect.fnUntraced(
               }
 
               if (unlisted) {
-                // A post-order walk reports a directory after its entries, so it judges the depth before reading.
                 if (plan.maxDepth !== undefined && frame.depth > plan.maxDepth) {
                   return yield* stop(exceeded(frame, "maxDepth"))
                 }
@@ -3034,7 +2865,6 @@ export const makeVolume = Effect.fnUntraced(
         const listable = (directory: Directory, at: OpContext) =>
           directory.entries.size === 0 ? Effect.void : authorize(directory, identity, READ, at)
 
-        // The target's name and the object it held when the walk listed it, and the context its failures use.
         let anchor: WalkFrame | undefined
         let targetAt = preparedOp(prepared, op)
 
@@ -3049,7 +2879,6 @@ export const makeVolume = Effect.fnUntraced(
 
             if (entry.name === undefined || child === undefined) return yield* entry.op.fail("NotFound")
 
-            // Something else took the name since the removal found it full; removing the entry again judges it.
             if (child.kind !== "directory") return []
             yield* listable(child, entry.op)
             anchor = anchorFrame(parent, entry.name, child)
@@ -3071,13 +2900,10 @@ export const makeVolume = Effect.fnUntraced(
             coordinated(
               op,
               Effect.suspend(() => {
-                // A target moved out of its name leaves nothing to remove; `force` forgives that, as it does the
-                // target going missing.
                 if (anchor !== undefined && !holds(view(anchor.parent), anchor)) {
                   return force ? Effect.void : Effect.fail(targetAt.fail("NotFound"))
                 }
 
-                // The name must still hold the object the walk listed, so a replacement created under it stays.
                 return Effect.flatMap(
                   frame.up === undefined ? Effect.succeed(view(frame.parent)) : reachFrame(frame.up, at),
                   (parent) =>
@@ -3195,7 +3021,6 @@ export const makeVolume = Effect.fnUntraced(
         walk: (input: TargetInput, options?: WalkOptions): Stream.Stream<WalkEntry, WalkFailure> => {
           const op = OpContext.make("walk")
           const target = asTarget(input)
-          // A path root names each entry's path under it; a reference or handle root names the path below it.
           const prefix = Target.$is("Path")(target) ? Result.getOrUndefined(inputBytes(target.path)) : undefined
 
           const locate = (path: Uint8Array): PathInput =>
@@ -3243,7 +3068,6 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinatedRead(
             op,
             Effect.gen(function*() {
-              // Reading a link never follows it, whatever the target asks.
               const resolved = yield* resolveTarget(target, op, { followFinalSymlink: false, final: true })
 
               if (resolved.node.kind !== "symlink") return yield* resolved.op.fail("InvalidArgument")
@@ -3298,7 +3122,6 @@ export const makeVolume = Effect.fnUntraced(
               for (const bit of [READ, WRITE, EXECUTE]) {
                 if ((bits & bit) === 0) continue
 
-                // Even a privileged caller needs one execute bit somewhere to execute a file.
                 if (bit === EXECUTE && node.kind === "file" && (node.metadata.mode & ANY_EXECUTE) === 0) continue
 
                 if (identity.privileged || (permitted(node, identity) & bit) !== 0) granted |= bit
@@ -3318,7 +3141,6 @@ export const makeVolume = Effect.fnUntraced(
               const resolved = yield* resolveTarget(target, op)
               const node = resolved.node
 
-              // A symlink is reached only without following it, which Linux refuses with ELOOP, as open does.
               if (node.kind === "symlink") return yield* resolved.op.fail("SymlinkLoop")
 
               if (node.kind !== "file") return yield* resolved.op.fail("IsDirectory")
@@ -3421,7 +3243,6 @@ export const makeVolume = Effect.fnUntraced(
                 found = child
               }
 
-              // A trailing slash asks for a directory, which a create cannot make.
               if (found === undefined && trailingSlash) return yield* entryOp.fail("IsDirectory")
               const replaced = found?.kind === "symlink" ? found : undefined
 
@@ -3454,7 +3275,6 @@ export const makeVolume = Effect.fnUntraced(
               if (size > maxFileBytes) return yield* entryOp.fail("FileTooLarge")
               const reclaimed = replaced !== undefined && replaced.metadata.nlink === 1 ? replaced.target.length : 0
 
-              // Replacing a symbolic link frees its target bytes once this is its last link.
               yield* reserveBytes(entryOp, BigInt(size - previous) - BigInt(reclaimed))
 
               if (file !== undefined && !chosen.truncate && captured.length === 0 && chosen.finalMode === undefined) {
@@ -3473,7 +3293,6 @@ export const makeVolume = Effect.fnUntraced(
               const now = yield* timestamp(op)
               const d = current()
 
-              // Content and size are assigned below on the shared path that also covers an existing file.
               const node = file ?? newFile(parent, new Uint8Array(0), (chosen.mode ?? 0o666) & 0o777 & ~umask, now)
 
               const written: RegularFile = {
@@ -3491,7 +3310,6 @@ export const makeVolume = Effect.fnUntraced(
               d.usedBytes += BigInt(size - previous)
 
               if (file === undefined) {
-                // The replaced symlink loses its name; attaching under the same name keeps the entry's position.
                 if (replaced !== undefined) detach(replaced, parent.ino, name, now)
 
                 attach(directoryNow(parent.ino), name, written, now)
@@ -3571,7 +3389,6 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              // A path source follows a final symbolic link only when its target says so.
               const resolved = yield* resolveTarget(source, op, { followFinalSymlink: false })
               const node = resolved.node
 
@@ -3602,7 +3419,6 @@ export const makeVolume = Effect.fnUntraced(
 
           const once = coordinated(op, Effect.flatMap(resolveEntry(prepared, op), (entry) => removeEntry(entry, op)))
 
-          // `force` forgives only the target itself going missing, never an entry below it.
           const target = <A>(effect: Effect.Effect<A, FsFailure>) =>
             chosen.force === true
               ? Effect.catchIf(effect, (error) => error.code === "NotFound", () => Effect.undefined)
@@ -3619,7 +3435,6 @@ export const makeVolume = Effect.fnUntraced(
         }) as Caller["remove"],
         rename: Effect.fn("Caller.rename")(function*(fromInput, toInput) {
           const op = OpContext.make("rename")
-          // Both inputs prepare before either resolves, so a malformed destination outranks a missing source.
           const from = yield* Effect.fromResult(prepareEntry(fromInput, op))
           const to = yield* Effect.fromResult(prepareEntry(toInput, op))
 
@@ -3660,7 +3475,6 @@ export const makeVolume = Effect.fnUntraced(
           if (!isLength(length)) return yield* op.fail("InvalidArgument")
           yield* changeAttributes(() => asResolvedNode(target, op), { size: length }, op)
         }),
-        // Every attribute validates before the target resolves, and a failure names the attribute in `field`.
         setattr: Effect.fn("Caller.setattr")(function*(input, attributes) {
           const op = OpContext.make("setattr")
           const target = asTarget(input)
@@ -3842,8 +3656,6 @@ export const makeVolume = Effect.fnUntraced(
       })
     })
 
-    // What an overlay layered on this volume compares against its base: the current value's entries, and a
-    // snapshot with the entries observed from the same value.
     const observe = Object.freeze({
       changes: coordinatedRead(OpContext.make("changes"), Effect.suspend(() => observeChanges(state))),
       capture: coordinatedRead(OpContext.make("capture"), captureState())
@@ -3880,8 +3692,6 @@ export const openImageVolume = Effect.fnUntraced(function*(
   durability: VolumeDurability = "memory-only"
 ) {
   const restored = yield* LiveImage.decode(image, maxImageBytes)
-  // The image prepared for the candidate the store is about to see; prepare and commit run in sequence under
-  // every permit, so one slot carries it between them.
   let prepared: Uint8Array | undefined
   const { limits: stored } = restored
   const commitOp = OpContext.make("commit")
@@ -3948,7 +3758,6 @@ export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
   Effect.mapError((error) => retargetFailure("fromSnapshot", error))
 )
 
-// An overlay is a volume started from its base's value, plus a fold of that value against the current one.
 /** @internal */
 export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
   function*(base: Snapshot, options?: VolumeOptions) {

@@ -66,7 +66,6 @@ const tagOrder: Record<RawOverlayChange["_tag"], number> = {
 
 const key = Encoding.encodeHex
 
-// Output order: source path bytewise (a rename sorts by its `from`), then Added, Removed, Replaced, Renamed, Updated.
 const sourcePath = (change: RawOverlayChange): Uint8Array =>
   Predicate.isTagged("Renamed")(change) ? change.from : change.path
 
@@ -148,7 +147,6 @@ export const compareOverlay = (
     if (renameSources.has(pathKey)) continue
     const after = currentPaths.get(pathKey)
 
-    // Gone, or the path's current occupant arrived by rename: the base entry was removed either way.
     if (after === undefined || renameTargets.has(pathKey)) {
       changes.push(RawOverlayChange.Removed({ path: before.path.slice(), kind: before.kind }))
       continue
@@ -174,7 +172,6 @@ export const compareOverlay = (
   for (const after of current) {
     const pathKey = key(after.path)
 
-    // A new path, or one whose base occupant was renamed away; rename targets were already reported.
     if (!renameTargets.has(pathKey) && (!basePaths.has(pathKey) || renameSources.has(pathKey))) {
       changes.push(RawOverlayChange.Added({ path: after.path.slice(), kind: after.kind }))
     }

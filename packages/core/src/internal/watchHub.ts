@@ -11,18 +11,15 @@ export interface Coordinator {
 }
 
 /**
- * What one subscriber receives. Every function sees the context its publication was made with.
+ * Selection callbacks share the context of their publication.
  *
  * @internal
  */
 export interface Selection<A, C> {
-  // Whether the subscriber receives the event. Checked before its queue's capacity, so an event it does not
-  // receive cannot overflow it.
+  // Filtering precedes capacity checks.
   readonly includes: (event: A, context: C) => boolean
-  // The marker the subscriber receives in place of the event that would fill its queue.
   readonly rescan: (context: C) => A
-  // Once a publication's events are offered: the subscriber's last events when its stream ends, or nothing. They
-  // are never replaced by the marker, since nothing follows them.
+  // Final events bypass the rescan marker because no later events can overflow them.
   readonly settle?: (context: C) => Iterable<A> | undefined
 }
 
@@ -51,14 +48,13 @@ export const make = Effect.fnUntraced(function*<A, C, E = never>(
   const offer = (subscriber: Subscriber<A, C>, event: A, context: C): void => {
     const size = Queue.sizeUnsafe(subscriber.queue)
 
-    // Nothing is queued behind the marker, so an empty queue means the consumer has taken it.
+    // An empty queue means the consumer has taken the rescan marker.
     if (subscriber.overflowed && size > 0) return
 
     subscriber.overflowed = size >= capacity - 1
     Queue.offerUnsafe(subscriber.queue, subscriber.overflowed ? subscriber.selection.rescan(context) : event)
   }
 
-  // An ended subscriber leaves the set at once; the consumer still takes what its queue holds.
   const publishUnsafe = (events: () => Iterable<A>, context: C): void => {
     if (subscribers.size === 0) return
 
@@ -79,8 +75,7 @@ export const make = Effect.fnUntraced(function*<A, C, E = never>(
     }
   }
 
-  // The finalizer is registered before the registration waits for the volume, so a scope that closes while the
-  // registration is under way, or right after it, still removes the subscriber it added.
+  // Register cleanup before waiting for the volume, including when the scope closes during registration.
   const subscribe = Effect.fnUntraced(function*(
     select: Effect.Effect<Selection<A, C>, E>,
     afterSubscribe: Effect.Effect<void>
@@ -107,7 +102,7 @@ export const make = Effect.fnUntraced(function*<A, C, E = never>(
       const selection = yield* select
 
       const created: Subscriber<A, C> = {
-        // One slot past the capacity holds a stream's last event behind a marker.
+        // Reserve one slot for a final event behind a rescan marker.
         queue: yield* Queue.bounded<A, Cause.Done>(capacity + 1),
         selection,
         overflowed: false
@@ -115,8 +110,7 @@ export const make = Effect.fnUntraced(function*<A, C, E = never>(
 
       yield* afterSubscribe
 
-      // A scope closed before or during registration already ran its finalizer, which found nothing to remove,
-      // so the subscriber is dropped here and its stream is empty.
+      // Cleanup may have run before registration; discard the subscriber if the scope closed.
       if (closed()) {
         yield* Queue.shutdown(created.queue)
 

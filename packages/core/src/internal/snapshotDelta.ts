@@ -1,7 +1,3 @@
-// Snapshot deltas: the path changes that turn a base snapshot into a target, each carrying only the node it
-// leaves behind. A delta names both snapshots by their Merkle identities. Diffing skips every subtree whose digests
-// agree, and applying folds the changes over the base value, so beyond the walk that identifies the base both do
-// work in proportion to what changed.
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
@@ -42,19 +38,14 @@ import {
 } from "./volumeState.js"
 
 const FORMAT = "effect-vfs-delta"
-
 const OPERATION = "snapshotDelta"
-
-// Marks the check holding a delta's rules, whose failures name the change that broke one.
 const RULE_CHECK = "@effect-vfs/core/deltaRuleCheck"
 
 const Path = CanonicalBase64.Encoded
 
 type Path = typeof Path.Type
 
-// The node a change leaves at its path. A file or symbolic link carries its payload only when the change alters
-// it, and otherwise keeps the payload its path held in the base. A name that joins a hard-link group names the
-// group's first path instead, whose change carries the node.
+// Unchanged payloads come from the base; a new hard link points to the group's first changed path.
 const InlineContent = Schema.TaggedStruct("Inline", { bytes: CanonicalBase64.Encoded })
 
 const DeltaNode = Schema.TaggedUnion({
@@ -101,7 +92,6 @@ const timestampFields = new Set<SnapshotDifference>(["atimeNs", "mtimeNs", "ctim
 
 const key = Encoding.encodeHex
 
-// An absolute path of valid names: the root alone, or a slash before each name and none after the last.
 const validPath = (path: Uint8Array) => {
   if (path[0] !== SLASH_BYTE) return false
   let start = 1
@@ -116,7 +106,6 @@ const validPath = (path: Uint8Array) => {
   return true
 }
 
-// A valid path's names, hex-encoded as directories key them; the root has none.
 const splitNames = (path: Uint8Array): ReadonlyArray<string> => {
   const names: Array<string> = []
 
@@ -137,8 +126,6 @@ const kindOf = (change: Change): SnapshotNodeKind => Change.guards.Updated(chang
 
 const payloadDifference = (kind: SnapshotNodeKind) => (kind === "file" ? "content" : "target")
 
-// Whether a change must carry the payload of the node it leaves: always for an addition, and for an update that
-// changes the node's kind or its payload.
 const carriesPayload = (change: Change) =>
   Change.guards.Added(change) ||
   (Change.guards.Updated(change) &&
@@ -147,11 +134,6 @@ const carriesPayload = (change: Change) =>
 const carriedPayload = (node: DeltaNode): Path | undefined =>
   DeltaNode.guards.file(node) ? node.content?.bytes : DeltaNode.guards.symlink(node) ? node.target : undefined
 
-// The rules a delta keeps whatever its base: changes ascend by path bytes, each path valid and listed once; the
-// root is only ever updated as a directory; an update lists its differences once each in their canonical order,
-// with `kind` exactly when the kind changes; each node matches the change's kind and carries its payload exactly
-// when the change alters it; a link names an earlier change's file or symbolic link of its kind; and no symbolic
-// link target holds a NUL.
 const changesIssue = (changes: ReadonlyArray<Change>): Schema.FilterIssue | undefined => {
   const at = (path: ReadonlyArray<PropertyKey>, issue: string) => ({ path: ["changes", ...path], issue })
   const heads = new Map<Path, SnapshotNodeKind>()
@@ -233,8 +215,7 @@ const Json = Schema.fromJsonString(Schema.Unknown)
 
 const decodeDocument = Schema.decodeUnknownEffect(ValidDocument, { onExcessProperty: "error" })
 
-// Names the site of a document of the wrong shape or spelling as the codec's errors always have: a digest, a
-// change's path or a payload, and otherwise the issue's path. A broken rule names the change from its issue path.
+// Preserve the codec's stable error fields for digest, path, and payload failures.
 const failureField = (path: ReadonlyArray<PropertyKey>): string => {
   const [head, , field] = path
 
@@ -261,7 +242,6 @@ const decodeFailure = (error: Schema.SchemaError) => {
 
 const exceeds = (value: number, limit: ByteSize.ByteSize) => ByteSize.isGreaterThan(ByteSize.bytes(value), limit)
 
-// The budget a delta keeps whatever its base, counted from the base64 lengths alone.
 const validate = (document: Document, limits: DeltaBudget): Result.Result<void, ImageFailure> => {
   const fail = (code: "LimitExceeded" | "InvalidEncoding", field: string) =>
     Result.fail(imageFailure(OPERATION, code, { field }))
@@ -282,7 +262,6 @@ const validate = (document: Document, limits: DeltaBudget): Result.Result<void, 
 
     if (Change.guards.Removed(change)) continue
 
-    // Every path but the root's is a name the change writes.
     if (pathBytes > 1) entries++
 
     if (DeltaNode.guards.link(change.node)) decoded += CanonicalBase64.decodedLength(change.node.to)
@@ -324,12 +303,11 @@ interface Output {
   readonly records: number
   readonly entries: number
   readonly payloadBytes: number
-  // The nodes the delta itself carries; the rest of the target is inherited from the base.
+  // Used to distinguish inherited records from records written by this delta.
   readonly written: number
 }
 
-// What a delta's target holds and inherits, against the budget it runs under. The target's own bounds come first,
-// so an applied target fails where a diff to it would.
+// Check target bounds first so applying and diffing report the same limit.
 const outputIssue = (limits: DeltaBudget, output: Output): Result.Result<void, ImageFailure> => {
   const fail = (field: string) => Result.fail(imageFailure(OPERATION, "LimitExceeded", { field }))
 
@@ -346,12 +324,10 @@ const outputIssue = (limits: DeltaBudget, output: Output): Result.Result<void, I
   return Result.void
 }
 
-// A snapshot's identity together with, for every path in a hard-link group, the group it belongs to.
 interface Side {
   readonly value: VolumeState
   readonly identity: Merkle.Identity
   readonly groupOf: ReadonlyMap<string, string>
-  // The first path of the group each hard-linked node belongs to.
   readonly firstOf: ReadonlyMap<Ino, Uint8Array>
 }
 
@@ -371,7 +347,6 @@ const side = (value: VolumeState, identity: Merkle.Identity): Side => {
   return { value, identity, groupOf, firstOf }
 }
 
-// The group a path's node belongs to, as the joined keys of its paths; a node with one name is its own group.
 const groupAt = (side: Side, pathKey: string) => side.groupOf.get(pathKey) ?? pathKey
 
 const differencesOf = (before: Node, after: Node, hardLinks: boolean): ReadonlyArray<SnapshotDifference> =>
@@ -444,9 +419,7 @@ const lookup = (
 
 const valueEntries = (directory: DirectoryNode) => directory.entries
 
-// Compares two identified snapshots, descending only where digests differ. A subtree whose digests agree holds
-// the same nodes, so only its hard-link groups can differ; the grouped paths the walk skipped are compared on
-// their own afterwards.
+// Equal digests skip a subtree; hard-link groups still need a separate path comparison.
 const compare = (base: Side, target: Side): ReadonlyArray<Change> => {
   const changes: Array<{ readonly path: Uint8Array; readonly change: Change }> = []
   const listed = new Set<string>()
@@ -512,7 +485,6 @@ const compare = (base: Side, target: Side): ReadonlyArray<Change> => {
       const same = sameBytes(base.identity.digests.get(before.ino), target.identity.digests.get(after.ino))
       const hardLinks = groupAt(base, pathKey) !== groupAt(target, pathKey)
 
-      // Equal digests leave nothing to compare under a directory, and nothing but the group at a file.
       if (same && !hardLinks) continue
       const differences = differencesOf(before, after, hardLinks)
 
@@ -522,7 +494,6 @@ const compare = (base: Side, target: Side): ReadonlyArray<Change> => {
     }
   }
 
-  // Grouped paths under a subtree the walk skipped: the node is the same, so only its group can differ.
   for (const s of [base, target]) {
     for (const paths of s.identity.groups.values()) {
       for (const path of paths) {
@@ -553,29 +524,21 @@ const getDocument = (delta: SnapshotDelta): Effect.Effect<Document, ImageFailure
 
 interface Folded extends Output {
   readonly value: VolumeState
-  // The nodes the fold wrote and every directory above them, whose digests the base's walk does not cover.
+  // Includes ancestors whose digests must be recomputed.
   readonly dirty: ReadonlySet<Ino>
-  // The base's nodes the fold removed.
   readonly removed: ReadonlySet<Ino>
-  // The target's hard-link groups, each as the paths of one node in byte order.
   readonly groups: ReadonlyMap<Ino, ReadonlyArray<Uint8Array>>
 }
 
 interface Placed {
-  // The change's position in the delta, which a failure it causes names.
   readonly index: number
   readonly change: Change
   readonly path: Uint8Array
   readonly pathKey: string
 }
 
-// Folds a delta's changes over its base value. Removals and rewritten names detach from the deepest path up, then
-// additions and rewrites attach from the root down; a directory that stays a directory updates in place. Each step
-// checks that the base agrees with what the change claims, and a disagreement fails at the change, as
-// `changes.<index>`. The target identity cannot stand in for these checks: a directory folded away without its
-// entries leaves them unreachable, so the identity of what remains still matches, and a node that keeps a name the
-// delta left alone keeps a stale hard-link group, whose digest a forged target could name. A delta that folds, and
-// whose target identity then matches, describes its base and target exactly.
+// Detach deepest paths first, then attach from the root. Check each claimed change against the base: a matching
+// target digest alone cannot detect unreachable children or forged hard-link groups.
 const fold = (
   base: VolumeState,
   identity: Merkle.Identity,
@@ -600,7 +563,6 @@ const fold = (
   const drafts = new Map<Ino, Map<string, Ino>>()
   const dirty = new Set<Ino>()
   const removed = new Set<Ino>()
-  // The paths of each node the fold created.
   const created = new Map<Ino, Array<Uint8Array>>()
 
   const get = (ino: Ino) => InodeTable.get(inodes, ino)
@@ -635,14 +597,13 @@ const fold = (
   const before = new Map<string, Found>()
 
   for (const { change, index, path, pathKey } of placed) {
-    // An addition's path is checked free when it attaches, after the removals have detached theirs.
     if (Change.guards.Added(change)) continue
     const found = lookup((ino) => getNode(base, ino), valueEntries, path)
 
     if (found?.node.kind !== (Change.guards.Updated(change) ? change.beforeKind : change.kind)) return fail(index)
     before.set(pathKey, found)
 
-    // A node leaves only with every name it had, and a directory only with everything under it.
+    // Reject partial removal of hard links or directory contents.
     for (const member of identity.groups.get(found.node.ino) ?? []) {
       const other = changed.get(key(member))
 
@@ -777,7 +738,6 @@ const fold = (
     after.set(pathKey, ino)
   }
 
-  // Every update lists exactly the differences between the node its path named and the one it names now.
   const baseGroup = (ino: Ino, pathKey: string) => {
     const paths = identity.groups.get(ino)
 
@@ -801,7 +761,6 @@ const fold = (
     }
   }
 
-  // Each directory whose entries changed lists them in name-byte order and counts its subdirectories again.
   for (const [ino, draft] of drafts) {
     const node = get(ino)
 
@@ -812,7 +771,6 @@ const fold = (
     put(ino, { ...node, entries: new Map(sorted), metadata, revision })
   }
 
-  // A rewritten node changes the digest of every directory above it.
   for (const ino of dirty) {
     let node = get(ino)
 
@@ -846,9 +804,7 @@ const fold = (
   return Result.succeed({ value, dirty, removed, groups, records, entries, payloadBytes, written })
 }
 
-// The identity of a folded value: only what the fold wrote is digested again, and the base's digests serve the
-// rest. The meter still charges the whole target, as a walk of it would: the base's node bytes, less those of the
-// nodes the fold replaced or removed, then what it digests again and the identity frame.
+// Reuse base digests for untouched nodes, but charge the meter for the whole target.
 const foldedIdentity = Effect.fnUntraced(function*(
   base: VolumeState,
   folded: Folded,
@@ -870,7 +826,6 @@ const foldedIdentity = Effect.fnUntraced(function*(
   const nodes = [...folded.dirty].map((ino) => getNode(folded.value, ino)!)
   const depths = new Map<Ino, number>([[ROOT_INO, 0]])
 
-  // Walks up to the nearest directory of known depth, then numbers the directories it passed on the way.
   const depth = (node: DirectoryNode): number => {
     const chain: Array<Ino> = []
     let current: Node | undefined = node
@@ -889,8 +844,7 @@ const foldedIdentity = Effect.fnUntraced(function*(
 
   const directories = nodes.filter((node): node is DirectoryNode => node.kind === "directory")
 
-  // Files and symbolic links first, then directories from the deepest up, so each child is digested before its
-  // directory.
+  // Digest children before their directories.
   const ordered = [
     ...nodes.filter((node) => node.kind !== "directory"),
     ...directories.sort((a, b) => depth(b) - depth(a))

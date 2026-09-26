@@ -1,6 +1,4 @@
-// HMAC-SHA-256 (RFC 2104 over FIPS 180-4), computed synchronously so a reference key's tag needs no Crypto
-// service: the volume's key methods stay free of platform requirements and failure channels. It signs a few dozen
-// bytes per key, so a plain implementation is fast enough, and RFC 4231's vectors pin it.
+// Synchronous HMAC keeps reference-key methods free of Crypto service requirements.
 
 const BLOCK_BYTES = 64
 
@@ -76,14 +74,12 @@ const INITIAL_STATE = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527
 const rotr = (value: number, bits: number): number => (value >>> bits) | (value << (32 - bits))
 
 const sha256 = (message: Uint8Array): Uint8Array => {
-  // The message, a 1 bit, zeros to 56 bytes past a block boundary, then the bit length as 64 bits big-endian.
   const padded = new Uint8Array(Math.ceil((message.length + 9) / BLOCK_BYTES) * BLOCK_BYTES)
   padded.set(message)
   padded[message.length] = 0x80
   const view = new DataView(padded.buffer)
   view.setBigUint64(padded.length - 8, BigInt(message.length) * 8n)
 
-  // An Int32Array wraps every sum to 32 bits on store.
   const state = Int32Array.from(INITIAL_STATE)
   const schedule = new Uint32Array(64)
 
@@ -161,8 +157,7 @@ export const hmacSha256 = (key: Uint8Array, message: Uint8Array): Uint8Array => 
   return sha256(concat(outer, sha256(concat(inner, message))))
 }
 
-// Compares every byte whatever the first difference, so the time a check takes says nothing about how much of a
-// guessed tag was right.
+// Compare every byte regardless of the first difference to avoid leaking a matching prefix.
 /** @internal */
 export const sameTag = (left: Uint8Array, right: Uint8Array): boolean => {
   if (left.length !== right.length) return false

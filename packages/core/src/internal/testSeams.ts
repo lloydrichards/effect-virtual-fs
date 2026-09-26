@@ -1,5 +1,3 @@
-// Package-internal synchronization seams for deterministic volume tests.
-
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 
@@ -7,7 +5,7 @@ import * as Effect from "effect/Effect"
 export interface VolumeTestSeams {
   readonly afterSubscribe: Effect.Effect<void>
   readonly betweenSnapshotAndSummary: Effect.Effect<void>
-  // Runs before a recursive remove removes each entry below its target, outside the volume's gate.
+  // Runs outside the volume gate before each entry is removed recursively.
   readonly beforeTreeRemoval: Effect.Effect<void>
 }
 

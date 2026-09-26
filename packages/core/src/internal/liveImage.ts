@@ -1,6 +1,4 @@
-// The private image of a live volume: the snapshot's tree with every node's revision and the unlinked files still
-// held open, after a first line that holds the header and the runtime block with the volume's identity, epoch, key
-// secret, counters, limits and usage. It is one document, so a store keeps it as one blob.
+// Live images persist runtime identity and revisions along with the tree, including unlinked open files.
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
@@ -14,10 +12,8 @@ import * as Tree from "./tree.js"
 import { assemble, getNode, Ino, type Node, type RegularFile, type VolumeState } from "./volumeState.js"
 
 const OPERATION = "openImage"
-
 const DOCUMENT_FIELD = "liveImage"
 
-// Open files that no name reaches any more; the live image keeps them until their final close.
 /** @internal */
 export const retainedFiles = (state: VolumeState): Array<RegularFile> => {
   const retained: Array<RegularFile> = []
@@ -33,8 +29,6 @@ export const retainedFiles = (state: VolumeState): Array<RegularFile> => {
 
 type StoredLimits = Tree.Runtime["limits"]
 
-// What names a volume's objects outside the process: its identity, the epoch of its inode numbers, and the secret
-// its reference-key tags are computed under. One record, so no two of them can swap places at a call.
 /** @internal */
 export interface Naming {
   readonly identity: VolumeIdentity
@@ -42,7 +36,6 @@ export interface Naming {
   readonly keySecret: KeySecret
 }
 
-// What a reopened volume starts from: its value, its naming, and the limits it was opened with.
 /** @internal */
 export interface Restored extends Naming {
   readonly value: VolumeState
@@ -98,8 +91,7 @@ export const encode = Effect.fnUntraced(function*(
   }, nodes))
 })
 
-// A live image holds no more than its bytes, and its runtime block bounds the rest, so the store's byte bound is
-// the only budget a reader applies to it.
+// The store's byte bound covers this whole image; no separate decode budget is needed.
 const imageBudget = (maxEncodedBytes: ByteSize.ByteSize) => ({
   encodedBytes: maxEncodedBytes,
   lineBytes: maxEncodedBytes,

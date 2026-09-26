@@ -1,11 +1,9 @@
-// A first-come lock for the volume's change turnstile.
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import type { SchedulerDispatcher } from "effect/Scheduler"
 
 /** @internal */
 export interface Turnstile {
-  // Runs `effect` holding the turnstile, after every fiber that asked for it earlier.
   readonly withTurn: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
 }
 
@@ -15,9 +13,7 @@ interface Ticket {
   wake: (() => void) | undefined
 }
 
-// A Semaphore frees a permit on release and wakes its waiters on a later task, so a fiber that arrives in
-// between takes the permit ahead of them. This lock hands itself to its oldest waiter at release instead, and
-// only schedules that waiter's resumption, so nothing that arrives later can pass it.
+// A Semaphore can let a newcomer overtake a scheduled waiter. Transfer ownership before scheduling the oldest waiter.
 /** @internal */
 export const makeTurnstile = (): Turnstile => {
   let held = false
@@ -32,7 +28,6 @@ export const makeTurnstile = (): Turnstile => {
       return
     }
 
-    // The turnstile is the waiter's from here on; only its resumption waits for its dispatcher.
     next.granted = true
     next.dispatcher.scheduleTask(() => next.wake?.(), 0)
   }
@@ -44,9 +39,7 @@ export const makeTurnstile = (): Turnstile => {
     })
 
   return {
-    // The turnstile is taken and given back while uninterruptible, and only the wait for it is interruptible.
-    // Whether the waiter owns the turnstile is read from its ticket after the wait, however the wait ended, so
-    // an interruption can neither strand the turnstile nor lose the waiter's place to a later arrival.
+    // Check ticket ownership after interruption so a granted turn is released rather than stranded.
     withTurn: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Effect.uninterruptibleMask((restore) =>
         Effect.withFiber((fiber) => {

@@ -1,4 +1,3 @@
-// Opaque byte path representation and value protocols.
 import * as Equal from "effect/Equal"
 import * as Hash from "effect/Hash"
 import { pipeArguments } from "effect/Pipeable"
@@ -39,13 +38,12 @@ const BytePathProto: BytePath = {
 /** @internal */
 export const isBytePath = (value: unknown): value is BytePath => Predicate.isObject(value) && bytePaths.has(value)
 
-// What every byte path holds: at least one byte and no NUL.
 /** @internal */
 export const isPathBytes = (bytes: Uint8Array): boolean => bytes.length > 0 && !bytes.includes(0)
 
 /** @internal */
 export const make = (bytes: Uint8Array): BytePath => {
-  // SAFETY: BytePathProto implements every member of the opaque BytePath contract.
+  // SAFETY: BytePathProto implements the opaque BytePath contract.
   const path = Object.create(BytePathProto) as BytePath
   bytePaths.set(path, bytes)
 

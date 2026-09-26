@@ -1,4 +1,3 @@
-// Snapshot handles, tree encoding, and fixture entries read from a captured value.
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -37,8 +36,7 @@ import {
   type VolumeState
 } from "./volumeState.js"
 
-// A snapshot is the volume value it was captured from. The value is immutable, so capture shares it rather than
-// copying it, and the private field keeps it out of reach of anything but this module.
+// Volume values are immutable, so snapshots share them without exposing their state.
 class SnapshotImpl implements Snapshot {
   readonly [SnapshotTypeId]: SnapshotTypeId = SnapshotTypeId
   readonly #value: VolumeState
@@ -65,13 +63,11 @@ export const valueOf = (snapshot: Snapshot): Effect.Effect<VolumeState, ImageFai
       : Effect.succeed(value)
   })
 
-// The header holds only literals, so its text is fixed.
 const HEADER = JSON.stringify(Tree.SnapshotHeader.make({ format: "effect-vfs", version: 1 }))
 
 const nodeText = Schema.encodeResult(Schema.fromJsonString(Tree.TreeNode))
 
-// With a budget, the encoder charges every line as a decoder under that budget would, and fails where the decoder
-// would refuse, so the bytes it produces decode under the budget without being decoded to find out.
+// Charge encoded lines by decoder rules so any successful output fits the same budget.
 /** @internal */
 export const encodeSnapshotStream = (
   snapshot: Snapshot,
@@ -110,16 +106,11 @@ export const decodeSnapshotSink = (budget: Budget): Sink.Sink<Snapshot, Uint8Arr
   })
 }
 
-// Read fixture entries from the captured value without opening another volume.
 const OPERATION = "snapshotEntries"
 
 const encoder = new TextEncoder()
 
-// The node `input` names, resolved as a privileged caller at the root of a volume restored from the snapshot with
-// default options would resolve it without following a final symbolic link: intermediate links are followed, a
-// trailing slash asks for a directory, and no path byte limit applies. This repeats the engine's lookup without its
-// permission checks and creation hooks; a test compares the two over a table of roots, so a drift between them
-// fails it.
+// Match privileged lookup: follow intermediate links, honor trailing slashes, and leave the final link intact.
 const resolve = (value: VolumeState, input: PathInput): Result.Result<Node, FsFailure> => {
   const fail = (code: FsFailure["code"]) => Result.fail(fsFailure(code, OPERATION, { path: input }))
   const prepared = preparePath(input, OPERATION, undefined)
@@ -172,7 +163,6 @@ const resolve = (value: VolumeState, input: PathInput): Result.Result<Node, FsFa
 
 const text = (bytes: Uint8Array): string | undefined => Option.getOrUndefined(decodeOption(bytes))
 
-// A path stays a string while every name on it is UTF-8, and is a byte path from the first name that is not.
 type WalkPath = string | Uint8Array
 
 const childPath = (parent: WalkPath, name: Uint8Array): WalkPath => {
@@ -185,8 +175,7 @@ const childPath = (parent: WalkPath, name: Uint8Array): WalkPath => {
 
 const pathInput = (path: WalkPath): PathInput => (Predicate.isString(path) ? path : makeBytePath(path))
 
-// The entries under `node`, each built when the stream pulls it, so a file's bytes are copied only then. The first
-// path of a node more than one name reaches carries it; its later paths are hard links to that path.
+// Emit the first hard-link path as content and later paths as links; copy file bytes only on pull.
 function* walk(value: VolumeState, node: Node): Generator<FixtureEntry> {
   const pending: Array<readonly [Node, WalkPath]> = [[node, "/"]]
   const first = new Map<Ino, PathInput>()
@@ -230,6 +219,6 @@ export const snapshotEntries = (
     const value = yield* valueOf(snapshot)
     const node = yield* Effect.fromResult(resolve(value, root))
 
-    // One entry to a chunk: a pulled chunk holds at most one file's copied bytes.
+    // Bound each pulled chunk to one file's copied bytes.
     return Stream.fromIterable({ [Symbol.iterator]: () => walk(value, node) }, { chunkSize: 1 })
   }))
