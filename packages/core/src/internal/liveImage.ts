@@ -1,6 +1,6 @@
 // The private image of a live volume: the snapshot's tree with every node's revision and the unlinked files still
-// held open, after a first line that holds the header and the runtime block with the volume's identity, counters,
-// limits and usage. It is one document, so a store keeps it as one blob.
+// held open, after a first line that holds the header and the runtime block with the volume's identity, epoch, key
+// secret, counters, limits and usage. It is one document, so a store keeps it as one blob.
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import type { VolumeLimits } from "../VirtualFileSystem.js"
 import type { VolumeIdentity } from "../Volume.js"
+import type { KeySecret, VolumeEpoch } from "./hex128.js"
 import * as Lines from "./lines.js"
 import * as Tree from "./tree.js"
 import { assemble, getNode, Ino, type Node, type RegularFile, type VolumeState } from "./volumeState.js"
@@ -33,11 +34,19 @@ export const retainedFiles = (state: VolumeState): Array<RegularFile> => {
 /** @internal */
 export type StoredLimits = Tree.Runtime["limits"]
 
-// What a reopened volume starts from: its value, its identity, and the limits it was opened with.
+// What names a volume's objects outside the process: its identity, the epoch of its inode numbers, and the secret
+// its reference-key tags are computed under. One record, so no two of them can swap places at a call.
 /** @internal */
-export interface Restored {
-  readonly value: VolumeState
+export interface Naming {
   readonly identity: VolumeIdentity
+  readonly epoch: VolumeEpoch
+  readonly keySecret: KeySecret
+}
+
+// What a reopened volume starts from: its value, its naming, and the limits it was opened with.
+/** @internal */
+export interface Restored extends Naming {
+  readonly value: VolumeState
   readonly limits: StoredLimits
 }
 
@@ -48,7 +57,11 @@ const nodeText = Schema.encodeResult(Schema.fromJsonString(Tree.LiveTreeNode))
 const liveNode = (node: Node): Tree.LiveTreeNode => ({ ...Tree.treeNode(node), rev: node.revision })
 
 /** @internal */
-export const encode = Effect.fnUntraced(function*(state: VolumeState, identity: VolumeIdentity, limits: VolumeLimits) {
+export const encode = Effect.fnUntraced(function*(
+  state: VolumeState,
+  { epoch, identity, keySecret }: Naming,
+  limits: VolumeLimits
+) {
   const nodes = yield* Tree.treeNodes(state, retainedFiles(state))
   const stored: { -readonly [K in keyof StoredLimits]: StoredLimits[K] } = {}
 
@@ -65,6 +78,8 @@ export const encode = Effect.fnUntraced(function*(state: VolumeState, identity: 
     version: 1,
     runtime: {
       identity,
+      epoch,
+      keySecret,
       nextInode: state.nextInode,
       revision: state.revision,
       limits: stored,
@@ -112,6 +127,8 @@ export const decode = (bytes: Uint8Array, maxEncodedBytes: ByteSize.ByteSize) =>
               return {
                 value: { ...value, nextInode: Ino(runtime.nextInode), revision: runtime.revision },
                 identity: runtime.identity,
+                epoch: runtime.epoch,
+                keySecret: runtime.keySecret,
                 limits: runtime.limits
               }
             })

@@ -33,8 +33,8 @@ it.effect("preserves a supplied identity while minting a new incarnation", () =>
     assert.strictEqual(original.identity, identity)
     assert.strictEqual(restored.identity, identity)
     assert.strictEqual(original.incarnation, "11111111111111111111111111111111")
-    assert.strictEqual(restored.incarnation, "44444444444444444444444444444444")
-  }).pipe(Effect.provide(cryptoLayer(0x11, 0x22, 0x33, 0x44)))
+    assert.strictEqual(restored.incarnation, "33333333333333333333333333333333")
+  }).pipe(Effect.provide(cryptoLayer(0x11, 0x22, 0x33)))
 })
 
 it.effect("mints an independent identity when restoring without one", () =>
@@ -44,9 +44,9 @@ it.effect("mints an independent identity when restoring without one", () =>
 
     assert.strictEqual(original.identity, "11111111111111111111111111111111")
     assert.strictEqual(original.incarnation, "22222222222222222222222222222222")
-    assert.strictEqual(restored.identity, "55555555555555555555555555555555")
-    assert.strictEqual(restored.incarnation, "66666666666666666666666666666666")
-  }).pipe(Effect.provide(cryptoLayer(0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88))))
+    assert.strictEqual(restored.identity, "44444444444444444444444444444444")
+    assert.strictEqual(restored.incarnation, "55555555555555555555555555555555")
+  }).pipe(Effect.provide(cryptoLayer(0x11, 0x22, 0x33, 0x44, 0x55, 0x66))))
 
 it.effect("draws each construction's reference-key epoch after its incarnation", () =>
   Effect.gen(function*() {

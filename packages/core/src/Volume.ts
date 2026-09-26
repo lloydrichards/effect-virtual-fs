@@ -9,6 +9,7 @@ import * as ByteSize from "effect/ByteSize"
 import * as Order from "effect/Order"
 import * as Schema from "effect/Schema"
 import { BytePath } from "./BytePath.js"
+import { Hex128 } from "./internal/hex128.js"
 import { MAX_FILE_BYTES } from "./internal/limits.js"
 import { MAX_INO, ROOT_INO } from "./internal/volumeState.js"
 
@@ -75,8 +76,6 @@ export const VolumeDurabilityOrder: Order.Order<VolumeDurability> = Order.mapInp
  */
 export const isVolumeDurabilityAtLeast = (actual: VolumeDurability, required: VolumeDurability): boolean =>
   VolumeDurabilityOrder(actual, required) >= 0
-
-const Hex128 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{32}$/))
 
 /**
  * Schema for a volume identity: 128 bits as lowercase hexadecimal, stable

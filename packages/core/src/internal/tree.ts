@@ -16,6 +16,7 @@ import { VolumeIdentity } from "../Volume.js"
 import type { Budget } from "./budget.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import { ENCODING_CHECK, imageFailure, isEncodingIssue, issueSite } from "./errors.js"
+import { KeySecret, VolumeEpoch } from "./hex128.js"
 import { byteLimit, encodeLine, frame, type FrameMeter, type LineFold } from "./lines.js"
 import { StoredMetadata } from "./metadata.js"
 import { isNameBytes, MAX_NAME_BYTES, nameBytes, NUL_BYTE } from "./path.js"
@@ -92,10 +93,13 @@ export type LiveTreeNode = typeof LiveTreeNode.Type
 /** @internal */
 export const SnapshotHeader = Schema.Struct({ format: Schema.Literal("effect-vfs"), version: Schema.Literal(1) })
 
-// What a reopened volume resumes from besides its nodes: its identity, the allocator and revision counters, the
-// limits it was opened with, and the usage those limits were checked against.
+// What a reopened volume resumes from besides its nodes: its identity, the epoch its inode numbers belong to, the
+// secret its reference-key tags are computed under, the allocator and revision counters, the limits it was opened
+// with, and the usage those limits were checked against.
 const Runtime = Schema.Struct({
   identity: VolumeIdentity,
+  epoch: VolumeEpoch,
+  keySecret: KeySecret,
   // The allocator must stay exactly representable, since the engine keys its inode table by a number.
   nextInode: Schema.Int.check(Schema.isBetween({ minimum: ROOT_INO + 1, maximum: Number.MAX_SAFE_INTEGER })),
   revision: NaturalBigInt,
