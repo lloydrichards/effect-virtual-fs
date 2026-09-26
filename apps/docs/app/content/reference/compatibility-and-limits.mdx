@@ -59,6 +59,27 @@ only as explicit copies through `TreeTransfer`, within the losses its Effect `Fi
 tracks read locks between NFS clients, but direct VFS callers do not participate in those locks. Named checkpoints
 are explicit copies. The separate SQLite live-image store does not currently qualify for host `fsync` durability.
 
+## Reference keys
+
+`volume.referenceKey(reference)` returns a `ReferenceKey`: the volume identity, an epoch, the object's inode number,
+and a tag. The tag is 16 bytes of HMAC-SHA-256 over the other three under a secret only the volume holds. The schema
+carries the identity, epoch and tag as base64 and the inode number as a decimal string, so a key can be stored or
+sent and decoded again. `volume.resolveReferenceKey(key)` returns the same reference traversal would.
+
+- Every construction draws a new epoch and secret: `make`, `fromSnapshot`, `fromFixture`, and `makeOverlay`. A key
+  never resolves in another volume, even one restored under the same identity.
+- A live volume keeps its epoch and secret across a reopen, so its keys resolve to the same objects after a restart.
+- A key from another identity or epoch fails `ForeignReference`, a key whose object is gone `StaleReference`, and a
+  malformed key or one whose tag the volume did not compute `InvalidReference`. An unlinked file stays resolvable
+  while a handle holds it.
+- Resolution is on the volume, not a caller, and checks no permission. Inode numbers are sequential, but a holder of
+  one key cannot write another's tag, so a key reaches only an object some key was issued for.
+- Rolling a live store back to an older image can reuse an inode number for a different object. The key cannot
+  detect that.
+- Two live volumes opened from one image, such as a copied store or a second open of the same bytes, share its
+  identity, epoch and secret, so a key minted in one resolves to whatever holds that inode in the other. A live image
+  has one writer; do not serve a copied store under persistent NFS filehandles beside the original.
+
 ## Path limits
 
 | Limit                                          | Value                                      | Configurable             |

@@ -15,7 +15,7 @@ application-controlled trusted client boundary; `AUTH_SYS` does not authenticate
 The app binds only to `127.0.0.1`. It accepts `AUTH_SYS` requests from the local host whose UID is either root or
 `NFS_ALLOWED_UID`, and maps them to the same VFS caller. Local users able to reach the loopback port can forge
 `AUTH_SYS` identity; run this only on a trusted test machine. The app does not run `sudo`, mount, or delete the R2
-image. A restart changes NFS sessions and filehandles, so unmount before stopping it and remount after it starts.
+image. Filehandles survive a restart, but NFS sessions do not, so unmount before stopping it and remount after it starts.
 
 For an independent client on a trusted private network, set `NFS_BIND_ADDRESS` to the host's address on one network
 interface and `NFS_ALLOWED_PEER` to that client's exact IP address. The server still accepts only root or
