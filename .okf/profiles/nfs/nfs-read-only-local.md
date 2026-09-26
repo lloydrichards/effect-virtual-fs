@@ -17,7 +17,7 @@ sources:
   - id: rfc8881
     resource: https://www.rfc-editor.org/rfc/rfc8881.html
     title: RFC 8881 NFSv4.1
-generated: { by: codex/okf, at: 2026-09-19T15:00:31Z }
+generated: { by: codex/okf, at: "2026-09-26T14:00:00+02:00" }
 ---
 
 # NFS read-only-local profile
@@ -28,7 +28,7 @@ generated: { by: codex/okf, at: 2026-09-19T15:00:31Z }
 
 - Binds only to `127.0.0.1`, `::1`, or a UNIX-domain socket path; the application owns the socket and platform adapter.[^server]
 - One application-supplied privileged caller performs every volume operation. `AUTH_NONE` and `AUTH_SYS` credentials are decoded and never trusted; `RPCSEC_GSS` is refused with `AUTH_TOOWEAK`. ACCESS is advisory: it reports mode bits against the wire identity, while OPEN and READ run through the privileged caller with no mode check.
-- Sessions, client ids, and filehandles are volatile per server process. Restart requires a client remount.
+- Sessions and client ids are volatile per server process, and restart requires a client remount. Filehandles carry core's reference key: persistent over a volume that survives at least a process crash, where `fh_expire_type` is `FH4_PERSISTENT`, and volatile over a memory volume, where it is `FH4_VOLATILE_ANY | FH4_NOEXPIRE_WITH_OPEN` (0x3).
 - No delegations, no write locks, no grace period, no pNFS. Bounded advisory read locks are volatile and released when their owner closes or its lease expires. A backchannel is negotiated when the client asks for one, and the server sends exactly one kind of callback over it: a CB_SEQUENCE-only CB_COMPOUND that probes the path. It is sent on the first SEQUENCE after the backchannel is armed, and armed again when the client repairs the path with BIND_CONN_TO_SESSION or BACKCHANNEL_CTL, or when the last connection carrying it goes away. No delegation or layout recall is ever sent, because none is ever granted.
 
 ## Required behavior

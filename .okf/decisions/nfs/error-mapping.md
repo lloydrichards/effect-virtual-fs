@@ -20,14 +20,14 @@ sources:
   - id: tests
     resource: ../../../packages/nfs/test/ErrorMapping.test.ts
     title: Exhaustive error mapping test
-generated: { by: codex/okf, at: 2026-09-26T10:00:00Z }
+generated: { by: claude-code, at: "2026-09-26T12:30:00+02:00" }
 ---
 
 # NFS filesystem error mapping
 
 Accepted for issue #99 on 2026-09-19. Core reports `FsError` values; the NFS adapter converts them to NFSv4.1 statuses. The generic mapping covers every current `FsCode` value and has a compile-time exhaustive table test. An unknown runtime code returns `SERVERFAULT` so reply encoding remains valid. An NFS operation can override the generic result when RFC 8881 requires a different status.[^nfs-map][^tests]
 
-`AlreadyExists` maps to `EXIST`, `NotEmpty` to `NOTEMPTY`, and `StaleReference` to `STALE`. NFSv4.1 has no `LOOP` status, so `SymlinkLoop` maps to `INVAL`; the current NFS read path never follows symbolic links. `InvalidHandle`, `ForeignHandle`, `InvalidReference`, `ForeignReference`, and `ClosedCaller` are internal adapter failures and map to `SERVERFAULT`. Client-supplied filehandles retain their separate `PUTFH` classification: `BADHANDLE` for malformed or unknown handles, `FHEXPIRED` for a different export generation, and `STALE` for a formerly valid deleted object.[^rfc8881][^nfs-map]
+`AlreadyExists` maps to `EXIST`, `NotEmpty` to `NOTEMPTY`, and `StaleReference` to `STALE`. NFSv4.1 has no `LOOP` status, so `SymlinkLoop` maps to `INVAL`; the current NFS read path never follows symbolic links. `InvalidHandle`, `ForeignHandle`, `InvalidReference`, `ForeignReference`, and `ClosedCaller` are internal adapter failures and map to `SERVERFAULT`. Client-supplied filehandles retain their separate `PUTFH` classification, through core's [reference key](../core/reference-keys.md "depends on") codes: `BADHANDLE` for a malformed handle or `InvalidReference`, a forged tag included, and for `ForeignReference`, another volume or epoch, `FHEXPIRED` while handles are volatile and `STALE` once they are persistent. Any other code takes this table's status when RFC 8881 Section 15.2 lists it for `PUTFH`, so `StaleReference` answers `STALE` and `VolumeBusy` `DELAY`, and `SERVERFAULT` otherwise, since that list has no `IO`.[^rfc8881][^nfs-map]
 
 The durable-provider error vocabulary now includes `StorageRejected`, `OutcomeUnknown`, and `VolumeUnavailable`; all map to `IO`. The current memory volume emits none of them. The [live durable volume proposal](../../research/live-durable-volume.md "proposed by") owns their future runtime behavior and fail-closed rules, which remain a draft.[^nfs-map]
 

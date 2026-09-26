@@ -87,7 +87,7 @@ Accepted by the user on 2026-09-17 while resolving the durability half of issue 
 
 [^checkpoints]: `CheckpointStore` saves snapshots the application captured; it is not a live commit barrier.
 
-[^dispatcher]: The NFS handler hashes the fresh server generation and volume incarnation for the `COMMIT` verifier; internal writable `WRITE` uses the same value. The export derives filehandles from incarnation and `fsid` from stable identity.
+[^dispatcher]: The NFS handler hashes the fresh server generation and volume incarnation for the `COMMIT` verifier; internal writable `WRITE` uses the same value. The export derives `fsid` from stable identity; filehandles now carry the [reference key](reference-keys.md "superseded by") instead of the incarnation.
 
 [^rfc8881]: Sections 5.2 (attributes "whenever they don't have to tell lies"), 18.7.3 (unsupported GETATTR attributes), 18.32.3 and 18.3.3 (write verifier), and Table 20 (committed levels).
 

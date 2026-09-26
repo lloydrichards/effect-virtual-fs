@@ -80,7 +80,7 @@ Before reference mutations, path operations accepted a live `DirectoryHandle` ba
 
 [^engine]: One gate coordinates mutations and observations: an observation takes one of its permits and a mutation takes them all, so both revisions of a directory change are read inside the mutation's hold; `Metadata` timestamps are bigint nanoseconds; unlinked open files survive through the volume value's inode-keyed open-count map.
 
-[^export]: `NfsExport.openChild` reserves registry capacity and owns the scoped core handle. The dispatcher maps core failures to NFS statuses.
+[^export]: `NfsExport.openChild` owns the scoped core handle; it reserved filehandle registry capacity until [reference keys](reference-keys.md) removed the registry. The dispatcher maps core failures to NFS statuses.
 
 [^dispatcher]: `OpenState` holds `deny` per open-owner in a server-side map that core never sees.
 
