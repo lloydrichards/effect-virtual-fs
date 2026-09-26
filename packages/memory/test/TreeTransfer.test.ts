@@ -481,6 +481,23 @@ describe("TreeTransfer", () => {
       assert.deepStrictEqual(entries, [])
     }).pipe(Effect.provide(Testing.layer({ fixture: FOUR_FILES_FIXTURE }))))
 
+  it.effect("should fail a snapshot listing larger than the entry budget at the entry that overflows", () =>
+    Effect.gen(function*() {
+      const limits = { ...TreeTransfer.TreeTransferLimits.default, maxEntries: 3 }
+      const snapshot = yield* (yield* Vfs.fromFixture(FOUR_FILES_FIXTURE)).snapshot
+      const paths: Array<Vfs.PathInput> = []
+
+      const error = yield* Effect.flip(
+        Stream.runForEach(
+          TreeTransfer.fromSnapshot(snapshot, "/", { limits }),
+          (entry) => Effect.sync(() => paths.push(entry.path))
+        )
+      )
+
+      assert.deepStrictEqual(failure(error), ["LimitExceeded", "maxEntries"])
+      assert.deepStrictEqual(paths, ["/", "/a", "/b"])
+    }))
+
   it.effect("should not remove a destination that was replaced during a failed transfer", () =>
     Effect.gen(function*() {
       const destination = yield* Vfs.Caller

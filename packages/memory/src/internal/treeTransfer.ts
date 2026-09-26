@@ -124,6 +124,36 @@ const childPath = (parent: string | Uint8Array, name: Uint8Array, text: string |
   return output
 }
 
+// The limits a source charges as it emits, one budget for every source so they check the same things in the same
+// order. `fromCaller` also charges a listing before visiting it and a file's size before reading it.
+const makeBudget = (limits: TreeTransferLimits) => {
+  let entries = 0
+  let bytes = 0n
+
+  return {
+    entry: (path: Vfs.PathInput, pathBytes: number, depth: number) => {
+      entries++
+
+      if (entries > limits.maxEntries) return limitExceeded("maxEntries", path)
+
+      if (depth > limits.maxDepth) return limitExceeded("maxDepth", path)
+
+      return exceeds(pathBytes, limits.maxPathBytes) ? limitExceeded("maxPathBytes", path) : Effect.void
+    },
+    // A listing's names are held until each is visited, so the listing must fit the entry budget up front.
+    listing: (path: Vfs.PathInput, pending: number) =>
+      entries + pending > limits.maxEntries ? limitExceeded("maxEntries", path) : Effect.void,
+    fileSize: (path: Vfs.PathInput, size: number | bigint) =>
+      exceeds(size, limits.maxFileBytes) ? limitExceeded("maxFileBytes", path) : Effect.void,
+    // File contents and symbolic-link targets count toward stored bytes, as they do for volume capacity.
+    stored: (path: Vfs.PathInput, size: number) => {
+      bytes += BigInt(size)
+
+      return exceeds(bytes, limits.maxBytes) ? limitExceeded("maxBytes", path) : Effect.void
+    }
+  }
+}
+
 const emitPath = (path: string | Uint8Array) =>
   Predicate.isString(path) ? Effect.succeed(path) : Vfs.pathFromBytes(path)
 
@@ -138,21 +168,14 @@ export const fromCaller = (
     const location = Predicate.isString(root) ? root : yield* BytePath.toBytes(root)
     const pending: Array<Pending> = [{ location, path: "/", pathBytes: 1, depth: 0 }]
     const firstAliases = new Map<bigint, Vfs.PathInput>()
-    let entries = 0
-    let bytes = 0n
+    const budget = makeBudget(limits)
 
     const step = Effect.gen(function*() {
       const next = pending.pop()
 
       if (next === undefined) return [[], Option.none()] as const
       const path = yield* emitPath(next.path)
-      entries++
-
-      if (entries > limits.maxEntries) return yield* limitExceeded("maxEntries", path)
-
-      if (next.depth > limits.maxDepth) return yield* limitExceeded("maxDepth", path)
-
-      if (exceeds(next.pathBytes, limits.maxPathBytes)) return yield* limitExceeded("maxPathBytes", path)
+      yield* budget.entry(path, next.pathBytes, next.depth)
       const target = at(yield* emitPath(next.location), undefined, false)
       // Metadata is read before contents so entries carry the source's pre-read access time.
       const metadata = yield* caller.stat(target)
@@ -174,8 +197,7 @@ export const fromCaller = (
           })
         }
 
-        // A listing is held in memory until visited, so a single huge directory must fit the entry budget up front.
-        if (entries + pending.length > limits.maxEntries) return yield* limitExceeded("maxEntries", path)
+        yield* budget.listing(path, pending.length)
 
         entry = { kind: "directory", path, metadata: entryMetadata(metadata) }
       } else {
@@ -187,20 +209,14 @@ export const fromCaller = (
           if (metadata.nlink > 1) firstAliases.set(metadata.ino, path)
 
           if (metadata.kind === "file") {
-            if (exceeds(metadata.size, limits.maxFileBytes)) return yield* limitExceeded("maxFileBytes", path)
+            yield* budget.fileSize(path, metadata.size)
             const contents = yield* caller.readFile(target)
-
-            if (exceeds(contents.length, limits.maxFileBytes)) return yield* limitExceeded("maxFileBytes", path)
-            bytes += BigInt(contents.length)
-
-            if (exceeds(bytes, limits.maxBytes)) return yield* limitExceeded("maxBytes", path)
+            yield* budget.fileSize(path, contents.length)
+            yield* budget.stored(path, contents.length)
             entry = { kind: "file", path, bytes: contents, metadata: entryMetadata(metadata) }
           } else {
             const link = yield* caller.readLink(target)
-            // Symlink targets count toward stored bytes, as they do for volume capacity.
-            bytes += BigInt(link.length)
-
-            if (exceeds(bytes, limits.maxBytes)) return yield* limitExceeded("maxBytes", path)
+            yield* budget.stored(path, link.length)
             entry = { kind: "symlink", path, target: yield* toPathInput(link), metadata: entryMetadata(metadata) }
           }
         }
@@ -212,12 +228,40 @@ export const fromCaller = (
     return Stream.paginate(undefined, () => step)
   }))
 
+// A path's byte length and its depth below the transfer root, which is "/" at depth 0.
+const pathSize = Effect.fnUntraced(function*(path: Vfs.PathInput) {
+  const bytes = Predicate.isString(path) ? encoder.encode(path) : yield* Vfs.pathToBytes(path)
+  const depth = bytes.length === 1 ? 0 : bytes.reduce((count, byte) => (byte === SLASH ? count + 1 : count), 0)
+
+  return { bytes: bytes.length, depth }
+})
+
+const payloadBytes = (target: Vfs.PathInput) =>
+  Predicate.isString(target)
+    ? Effect.succeed(encoder.encode(target).length)
+    : Effect.map(Vfs.pathToBytes(target), (bytes) => bytes.length)
+
+// Walks the snapshot's own value, so nothing is restored and no caller reads it. The walk already holds every
+// listing and file, so the budget is charged entry by entry as each is emitted: a listing past `maxEntries` fails
+// at the entry that overflows, after the entries before it.
 /** @internal */
 export const fromSnapshot = (snapshot: Vfs.Snapshot, root: Vfs.PathInput, options?: ReadOptions) =>
   Stream.unwrap(Effect.gen(function*() {
-    const volume = yield* Vfs.fromSnapshot(snapshot)
+    const budget = makeBudget(yield* resolveLimits(options?.limits))
 
-    return fromCaller(yield* volume.caller(), root, options)
+    const checked = Effect.fnUntraced(function*(entry: Entry) {
+      const size = yield* pathSize(entry.path)
+      yield* budget.entry(entry.path, size.bytes, size.depth)
+
+      if (entry.kind === "file") {
+        yield* budget.fileSize(entry.path, entry.bytes.length)
+        yield* budget.stored(entry.path, entry.bytes.length)
+      } else if (entry.kind === "symlink") yield* budget.stored(entry.path, yield* payloadBytes(entry.target))
+
+      return entry
+    })
+
+    return Stream.mapEffect(Vfs.snapshotEntries(snapshot, root), checked)
   }))
 
 interface Location {

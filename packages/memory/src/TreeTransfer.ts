@@ -494,8 +494,12 @@ export const fromCaller: (
  *
  * **Details**
  *
- * Restores the snapshot into a private volume and walks it with a privileged
- * caller, so the original volume is never read or changed.
+ * Walks the snapshot's own value through `VirtualFileSystem.snapshotEntries`,
+ * resolving `root` as a privileged caller would, so no volume is restored and
+ * the original volume is never read or changed. The limits apply entry by
+ * entry, after each entry's bytes are copied, so a directory past
+ * `maxEntries` fails at the entry that overflows, after the entries before
+ * it, where {@link fromCaller} fails before emitting any of its listing.
  *
  * @example
  * ```ts
