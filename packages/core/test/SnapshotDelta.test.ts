@@ -1,6 +1,6 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Effect, Predicate, Schema } from "effect"
+import { ByteSize, Crypto, Effect, Exit, Predicate, Schema } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { entryNames, rawEntryNames } from "./support/text.js"
 
@@ -33,14 +33,38 @@ const deltaLimitsWith = (
 
 const DeltaIdentity = Schema.fromJsonString(Schema.Struct({ base: Schema.String }))
 
-const identityOf = (snapshot: Vfs.Snapshot) =>
-  Effect.gen(function*() {
-    const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(
-      yield* Vfs.diffSnapshots(snapshot, snapshot)
-    )
+const identityOf = Effect.fnUntraced(function*(snapshot: Vfs.Snapshot) {
+  const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(yield* Vfs.diffSnapshots(snapshot, snapshot))
 
-    return (yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))).base
+  return (yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))).base
+})
+
+const deltaDocument = (delta: Vfs.SnapshotDelta) =>
+  Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta).pipe(
+    Effect.map((bytes) => ({ bytes: bytes.length, document: JSON.parse(new TextDecoder().decode(bytes)) }))
+  )
+
+// A tree of `directories` directories holding `files` files each, all with fixed metadata.
+const tree = (directories: number, files: number) =>
+  Vfs.fromFixture({
+    entries: Array.from({ length: directories }, (_, d) => [
+      { kind: "directory", path: `/d${d}` } as const,
+      ...Array.from({ length: files }, (_, f) =>
+        ({
+          kind: "file",
+          path: `/d${d}/f${f}`,
+          bytes: new Uint8Array([d, f])
+        }) as const)
+    ]).flat()
   })
+
+const edit = Effect.fnUntraced(function*(volume: Vfs.Volume, path: string) {
+  const caller = yield* volume.caller()
+  const base = yield* volume.snapshot
+  yield* caller.writeFile(path, new Uint8Array([9, 9, 9]), { access: "write", truncate: true })
+
+  return { base, target: yield* volume.snapshot }
+})
 
 const FileNode = Schema.TaggedStruct("file", {
   content: Schema.TaggedStruct("Inline", { bytes: Schema.String })
@@ -596,6 +620,85 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.strictEqual(targetPayloadError.field, "outputBytes")
     }))
 
+  it.effect("refuses on apply and inspect exactly the identity bytes a diff to the same target refuses", () =>
+    Effect.gen(function*() {
+      const grownFrom = Effect.fnUntraced(function*(volume: Vfs.Volume, path: string, bytes: number) {
+        const base = yield* volume.snapshot
+        yield* (yield* volume.caller()).writeFile(path, new Uint8Array(bytes).fill(7), {
+          access: "write",
+          create: "exclusive"
+        })
+
+        return { base, target: yield* volume.snapshot }
+      })
+
+      const at = (bytes: number) => deltaLimitsWith("maxIdentityBytes", bytes)
+
+      // The smallest maxIdentityBytes under which `run` succeeds: double to a bound that succeeds, then bisect.
+      const threshold = Effect.fnUntraced(function*<E>(
+        run: (limits: Vfs.SnapshotDeltaLimits) => Effect.Effect<unknown, E, Crypto.Crypto>
+      ) {
+        let low = 1
+        let high = 1024
+
+        while (Exit.isFailure(yield* Effect.exit(run(yield* at(high))))) {
+          low = high + 1
+          high *= 2
+        }
+
+        while (low < high) {
+          const middle = Math.floor((low + high) / 2)
+          const exit = yield* Effect.exit(run(yield* at(middle)))
+
+          if (Exit.isSuccess(exit)) high = middle
+          else low = middle + 1
+        }
+
+        return low
+      })
+
+      // A target that grows past its base, one that drops most of what its base holds, and a one-file rewrite.
+      const grown = yield* grownFrom(yield* tree(6, 6), "/big", 4_000)
+      const shrunk = { base: grown.target, target: grown.base }
+      const edited = yield* edit(yield* tree(6, 6), "/d3/f5")
+
+      for (
+        const [label, { base, target }] of [["grown", grown], ["shrunk", shrunk], ["edited", edited]] as const
+      ) {
+        const delta = yield* Vfs.diffSnapshots(base, target)
+        const diffAt = yield* threshold((limits) => Vfs.diffSnapshots(base, target, limits))
+        const applyAt = yield* threshold((limits) => Vfs.applySnapshotDelta(base, delta, limits))
+        const inspectAt = yield* threshold((limits) => Vfs.inspectSnapshotDelta(base, delta, undefined, limits))
+        assert.deepStrictEqual([applyAt, inspectAt], [diffAt, diffAt], label)
+        const error = yield* Effect.flip(Vfs.applySnapshotDelta(base, delta, yield* at(diffAt - 1)))
+        assert.instanceOf(error, Vfs.VfsError)
+        assert.deepStrictEqual([error.code, error.field], ["LimitExceeded", "identityBytes"], label)
+      }
+    }))
+
+  it.effect("refuses even a root-only snapshot when its record limit is zero", () =>
+    Effect.gen(function*() {
+      const empty = yield* (yield* Vfs.fromFixture({ entries: [] })).snapshot
+      const delta = yield* Vfs.diffSnapshots(empty, empty)
+
+      const refused = Effect.fnUntraced(function*<A, E>(attempt: Effect.Effect<A, E, Crypto.Crypto>, field: string) {
+        const error = yield* Effect.flip(attempt)
+        assert.instanceOf(error, Vfs.VfsError)
+        assert.deepStrictEqual([error.code, error.field], ["LimitExceeded", field])
+      })
+
+      for (
+        const [limits, field] of [
+          [{ ...Vfs.SnapshotDeltaLimits.default, maxBaseRecords: 0 }, "baseRecords"],
+          [{ ...Vfs.SnapshotDeltaLimits.default, maxTargetRecords: 0 }, "targetRecords"]
+        ] as const
+      ) {
+        yield* refused(Vfs.diffSnapshots(empty, empty, limits), field)
+        yield* refused(Vfs.applySnapshotDelta(empty, delta, limits), field)
+        yield* refused(Vfs.inspectSnapshotDelta(empty, delta, undefined, limits), field)
+      }
+    }))
+
   it.effect("orders raw paths deterministically, filters timestamps, and returns fresh frozen owned results", () =>
     Effect.gen(function*() {
       const p80 = yield* Vfs.pathFromBytes(new Uint8Array([47, 128]))
@@ -640,5 +743,166 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       const b = yield* (yield* Vfs.fromSnapshot(yield* applied)).caller()
       yield* a.unlink(p80)
       assert.strictEqual((yield* b.stat(p80)).kind, "file")
+    }))
+
+  it.effect("carries only the changed node, so a one-file edit is one change whatever the tree's size", () =>
+    Effect.gen(function*() {
+      const sizes: Array<number> = []
+
+      for (const directories of [2, 40]) {
+        const { base, target } = yield* edit(yield* tree(directories, 50), "/d1/f7")
+        const { bytes, document } = yield* deltaDocument(yield* Vfs.diffSnapshots(base, target))
+        assert.deepStrictEqual(document.changes.map((change: { _tag: string }) => change._tag), ["Updated"])
+        assert.deepStrictEqual(document.changes[0].differences, ["content"])
+        assert.deepStrictEqual(document.changes[0].node.content, { _tag: "Inline", bytes: "CQkJ" })
+        sizes.push(bytes)
+      }
+
+      // 101 nodes and 2,041 nodes produce deltas of the same size.
+      assert.strictEqual(sizes[0], sizes[1])
+    }))
+
+  it.effect("keeps an unchanged payload out of a metadata-only change", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: new Uint8Array(64) }] })
+      const base = yield* volume.snapshot
+      yield* (yield* volume.caller()).chmod("/f", 0o600)
+      const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
+      const { document } = yield* deltaDocument(delta)
+      assert.deepStrictEqual(document.changes[0].differences, ["mode"])
+      assert.notProperty(document.changes[0].node, "content")
+
+      const fs = yield* (yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(base, delta))).caller()
+      assert.deepStrictEqual(yield* fs.readFile("/f"), new Uint8Array(64))
+      assert.strictEqual((yield* fs.stat("/f")).mode, 0o600)
+    }))
+
+  it.effect("skips subtrees whose digests agree but still reports a hard link that joins one", () =>
+    Effect.gen(function*() {
+      const base = yield* Vfs.fromFixture({
+        entries: [
+          { kind: "directory", path: "/d" },
+          { kind: "file", path: "/d/a", bytes: new Uint8Array([1]) },
+          { kind: "file", path: "/d/b", bytes: new Uint8Array([2]) }
+        ]
+      })
+
+      // `/d` holds the same nodes on both sides, so its digest agrees and the walk does not descend into it; only
+      // the hard-link groups show that `/d/a` now shares its node with `/x`.
+      const target = yield* Vfs.fromFixture({
+        entries: [
+          { kind: "directory", path: "/d" },
+          { kind: "file", path: "/d/a", bytes: new Uint8Array([1]) },
+          { kind: "file", path: "/d/b", bytes: new Uint8Array([2]) },
+          { kind: "hardLink", path: "/x", target: "/d/a" }
+        ]
+      })
+
+      const baseSnapshot = yield* base.snapshot
+      const delta = yield* Vfs.diffSnapshots(baseSnapshot, yield* target.snapshot)
+      const changes = yield* Vfs.inspectSnapshotDelta(baseSnapshot, delta)
+
+      const summary = yield* Effect.forEach(changes, (change) =>
+        Effect.map(Vfs.pathToBytes(change.path), (path) => [
+          new TextDecoder().decode(path),
+          Predicate.isTagged("Updated")(change) ? change.differences : change.kind
+        ]))
+
+      assert.deepStrictEqual(summary, [["/d/a", ["hardLinks"]], ["/x", "file"]])
+      const { document } = yield* deltaDocument(delta)
+      assert.deepStrictEqual(document.changes[1].node, { _tag: "link", to: "L2QvYQ==" })
+
+      const fs = yield* (yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(baseSnapshot, delta))).caller()
+      assert.strictEqual((yield* fs.stat("/d/a")).ino, (yield* fs.stat("/x")).ino)
+      assert.strictEqual((yield* fs.stat("/d/a")).nlink, 2)
+    }))
+
+  it.effect("digests only what an applied delta rewrote and reuses the base's digests elsewhere", () =>
+    Effect.gen(function*() {
+      let digests = 0
+      const crypto = yield* Crypto.Crypto
+
+      const counting = Crypto.make({
+        randomBytes: (size) => new Uint8Array(size),
+        digest: (algorithm, data) => {
+          digests++
+
+          return crypto.digest(algorithm, data)
+        }
+      })
+
+      // The root, 20 directories and 1,000 files.
+      const nodes = 1 + 20 + 20 * 50
+      const { base, target } = yield* edit(yield* tree(20, 50), "/d3/f9")
+      const delta = yield* Vfs.diffSnapshots(base, target)
+      digests = 0
+      yield* Vfs.applySnapshotDelta(base, delta).pipe(Effect.provideService(Crypto.Crypto, counting))
+
+      // One walk of the base with its identity, then the edited file, its directory and the root, and the target's
+      // identity: nothing else in the target is digested again.
+      assert.strictEqual(digests, nodes + 1 + 3 + 1)
+    }))
+
+  it.effect("rejects a delta against any base but its own", () =>
+    Effect.gen(function*() {
+      const { base, target } = yield* edit(yield* tree(2, 2), "/d0/f0")
+      const other = yield* (yield* tree(2, 3)).snapshot
+      const delta = yield* Vfs.diffSnapshots(base, target)
+
+      const errors = [
+        yield* Effect.flip(Vfs.applySnapshotDelta(other, delta)),
+        yield* Effect.flip(Vfs.inspectSnapshotDelta(other, delta)),
+        // Applying to its own target is a mismatch too: a delta does not apply twice.
+        yield* Effect.flip(Vfs.applySnapshotDelta(target, delta))
+      ]
+
+      for (const error of errors) {
+        assert.instanceOf(error, Vfs.VfsError)
+        assert.strictEqual(error.code, "BaseMismatch")
+      }
+    }))
+
+  it.effect("applies to a snapshot with the target's identity, which then inspects as unchanged", () =>
+    Effect.gen(function*() {
+      const volume = yield* tree(3, 3)
+      const caller = yield* volume.caller()
+      const base = yield* volume.snapshot
+      yield* caller.writeFile("/d0/f0", new Uint8Array([7]), { access: "write", truncate: true })
+      yield* caller.chmod("/d1", 0o700)
+      yield* caller.unlink("/d2/f2")
+      yield* caller.link("/d0/f1", "/d2/shared")
+      yield* caller.mkdir("/new")
+      yield* caller.symlink("d0", "/new/link")
+      const target = yield* volume.snapshot
+
+      const delta = yield* Vfs.diffSnapshots(base, target)
+      const applied = yield* Vfs.applySnapshotDelta(base, delta)
+      assert.strictEqual(yield* identityOf(applied), yield* identityOf(target))
+      assert.deepStrictEqual(yield* Vfs.inspectSnapshotDelta(applied, yield* Vfs.diffSnapshots(applied, target)), [])
+
+      // The applied snapshot is an ordinary one: its bytes decode, and a delta from it applies again.
+      const decoded = yield* snapshotFromDocument(yield* snapshotDocument(applied))
+      assert.strictEqual(yield* identityOf(decoded), yield* identityOf(target))
+      const back = yield* Vfs.diffSnapshots(applied, base)
+      assert.strictEqual(yield* identityOf(yield* Vfs.applySnapshotDelta(decoded, back)), yield* identityOf(base))
+    }))
+
+  it.effect("carries an overlay's changes and capture across an applied delta", () =>
+    Effect.gen(function*() {
+      const { base, target } = yield* edit(yield* tree(2, 2), "/d0/f0")
+      const applied = yield* Vfs.applySnapshotDelta(base, yield* Vfs.diffSnapshots(base, target))
+      const overlay = yield* Vfs.makeOverlay(applied)
+      const caller = yield* overlay.caller()
+      yield* caller.writeFile("/d1/f1", new Uint8Array([5]), { access: "write", truncate: true })
+      yield* caller.unlink("/d0/f0")
+
+      const changes = yield* overlay.changes()
+      assert.deepStrictEqual(changes.map((change) => change._tag), ["Removed", "Updated"])
+      const { snapshot } = yield* overlay.capture()
+
+      const delta = yield* Vfs.diffSnapshots(applied, snapshot)
+      const inspected = yield* Vfs.inspectSnapshotDelta(applied, delta)
+      assert.deepStrictEqual(inspected.map((change) => change._tag), ["Removed", "Updated"])
+      assert.strictEqual(yield* identityOf(yield* Vfs.applySnapshotDelta(applied, delta)), yield* identityOf(snapshot))
     }))
 })
