@@ -182,6 +182,8 @@ describe("object references", () => {
       const handle = yield* fs.openDirectory("/a")
       yield* fs.rmdir("/a")
       assert.strictEqual((yield* handle.stat).nlink, 0)
+      // The removed directory stops counting at rmdir, even while the handle still holds it.
+      assert.deepStrictEqual(yield* (yield* Vfs.Volume).usage, { usedBytes: 0n, entries: 0 })
       assert.strictEqual((yield* Effect.flip(fs.stat(a))).code, "StaleReference")
       assert.strictEqual((yield* Effect.flip(fs.parent(a))).code, "StaleReference")
       assert.strictEqual((yield* Effect.flip(fs.mkdir(Vfs.Entry(a, name("orphan"))))).code, "StaleReference")
@@ -190,8 +192,10 @@ describe("object references", () => {
         (yield* Effect.flip(fs.rename(Vfs.Entry(root, name("f")), Vfs.Entry(a, name("g"))))).code,
         "StaleReference"
       )
+      assert.deepStrictEqual(yield* (yield* Vfs.Volume).usage, { usedBytes: 1n, entries: 1 })
       yield* handle.close
+      assert.strictEqual((yield* Effect.flip(handle.stat)).code, "InvalidHandle")
       assert.deepStrictEqual(entryNames(yield* fs.readDirectory("/")), ["f"])
-      assert.deepStrictEqual(yield* (yield* Vfs.make()).usage, { usedBytes: 0n, entries: 0 })
+      assert.deepStrictEqual(yield* (yield* Vfs.Volume).usage, { usedBytes: 1n, entries: 1 })
     }).pipe(Effect.provide(Testing.layer())))
 })
