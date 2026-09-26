@@ -2,14 +2,15 @@ import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scheduler, Schema, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import * as LiveImage from "../src/internal/liveImage.js"
-import { LiveTree } from "../src/internal/tree.js"
+import { LiveTreeNode } from "../src/internal/tree.js"
 import { makeVolume, openImageVolume, prepareEmptyLiveImage, VolumeSource } from "../src/internal/virtualFileSystem.js"
 import { VolumeIdentity } from "../src/Volume.js"
+import { readLines } from "./support/lines.js"
 import { entryNames } from "./support/text.js"
 
-// The tree a live image stores, read without restoring it.
+// The nodes a live image stores, read without restoring it: every line after the header.
 const storedTree = (image: Uint8Array) =>
-  Schema.decodeEffect(Schema.fromJsonString(LiveTree))(new TextDecoder().decode(image))
+  Effect.map(Schema.decodeUnknownEffect(Schema.Array(LiveTreeNode))(readLines(image).slice(1)), (nodes) => ({ nodes }))
 
 // Smaller budgets livelock the runtime: it counts an op before checking whether to yield.
 const MIN_OP_BUDGET = 3

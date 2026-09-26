@@ -1,18 +1,19 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { toLines } from "./support/lines.js"
 
 const encodedFile = (data: string) => {
   const metadata = { uid: 0, gid: 0, mode: 0o644, atimeNs: "0", mtimeNs: "0", ctimeNs: "0", birthtimeNs: "0" }
 
-  return new TextEncoder().encode(JSON.stringify({
+  return toLines({
     format: "effect-vfs",
     version: 1,
     nodes: [
       { _tag: "directory", ino: 1, parent: 1, name: "", metadata },
       { _tag: "file", ino: 2, links: [{ parent: 1, name: "Zg==" }], content: { _tag: "Inline", bytes: data }, metadata }
     ]
-  }))
+  })
 }
 
 const limits = {

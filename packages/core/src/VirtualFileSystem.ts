@@ -21,7 +21,8 @@ import type * as SchemaAST from "effect/SchemaAST"
 import * as SchemaIssue from "effect/SchemaIssue"
 import * as SchemaTransformation from "effect/SchemaTransformation"
 import type * as Scope from "effect/Scope"
-import type * as Stream from "effect/Stream"
+import * as Sink from "effect/Sink"
+import * as Stream from "effect/Stream"
 import type { BytePath } from "./BytePath.js"
 import type { CallerId, ObjectReferenceId } from "./Caller.js"
 import * as CallerModule from "./Caller.js"
@@ -54,7 +55,7 @@ import type { DecodeLimits, Snapshot } from "./Snapshot.js"
 
 export { DecodeLimits, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 
-import { DeltaBudgetFromLimits } from "./internal/budget.js"
+import { BudgetFromDecodeLimits, DeltaBudgetFromLimits } from "./internal/budget.js"
 import { decodeConfiguration, retargetFailure } from "./internal/errors.js"
 import * as FixtureInternal from "./internal/fixture.js"
 import * as Image from "./internal/image.js"
@@ -1560,8 +1561,75 @@ export const Caller: Context.Service<Caller, Caller> & {
     Layer.effect(Caller, Effect.flatMap(Volume, (volume) => volume.caller(options)))
 })
 
+const snapshotBudget = (operation: string, limits: DecodeLimits) =>
+  Effect.fromResult(decodeConfiguration(BudgetFromDecodeLimits, limits, operation))
+
+const optionalBudget = (operation: string, limits: DecodeLimits | undefined) =>
+  limits === undefined ? Effect.undefined : snapshotBudget(operation, limits)
+
 /**
- * Encodes a snapshot as owned UTF-8 JSON bytes using the version 1 snapshot format.
+ * Streams a snapshot's version 1 encoding as owned UTF-8 chunks: a header line,
+ * then one line per node, each ending in a newline.
+ *
+ * **Details**
+ *
+ * The encoding is newline-delimited JSON. The first line names the format and
+ * version; each later line is one node in inode order, with names and payloads
+ * as canonical base64. Nodes are encoded as the stream is pulled, so writing a
+ * large snapshot to a file or a socket never holds its whole encoding. A chunk
+ * holds at most 128 lines and 64 KiB, so a pull holds at most that and the next
+ * line; a line longer than 64 KiB is a chunk of its own.
+ *
+ * Given `limits`, the stream fails with `LimitExceeded` at the first line that
+ * `decodeSnapshot` would refuse under the same limits, naming the same field,
+ * so bytes it completes are known to decode without decoding them.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect, Stream } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.fromFixture({
+ *     entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([1]) }]
+ *   })
+ *
+ *   const text = yield* Vfs.encodeSnapshotStream(yield* volume.snapshot).pipe(
+ *     Stream.decodeText,
+ *     Stream.mkString
+ *   )
+ *
+ *   // A header line, then the root and the file, each line ending in a newline.
+ *   return text.split("\n").map((line) => (line === "" ? "end" : JSON.parse(line)._tag ?? "header"))
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // [ 'header', 'directory', 'file', 'end' ]
+ * ```
+ *
+ * @see {@link encodeSnapshot} for the same bytes collected into one array.
+ * @see {@link decodeSnapshotSink} for reading a stream back under limits.
+ * @category serialization
+ * @since 0.6.0
+ */
+export const encodeSnapshotStream: (
+  snapshot: Snapshot,
+  limits?: DecodeLimits
+) => Stream.Stream<Uint8Array, ImageFailure | ArgumentFailure> = (snapshot, limits) =>
+  Stream.unwrap(Effect.map(
+    optionalBudget("encodeSnapshotStream", limits),
+    (budget) => Image.encodeSnapshotStream(snapshot, budget)
+  )).pipe(Stream.mapError((error) => retargetFailure("encodeSnapshotStream", error)))
+
+/**
+ * Encodes a snapshot as owned UTF-8 bytes in the version 1 snapshot format.
+ *
+ * **Details**
+ *
+ * The bytes are the chunks of {@link encodeSnapshotStream} collected into one
+ * array: newline-delimited JSON, a header line and then one line per node.
+ * Given `limits`, encoding fails with `LimitExceeded` wherever `decodeSnapshot`
+ * would refuse the bytes under the same limits.
  *
  * @example
  * ```ts
@@ -1580,8 +1648,8 @@ export const Caller: Context.Service<Caller, Caller> & {
  *
  *   const bytes = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
  *
- *   // The bytes are UTF-8 JSON carrying the version 1 snapshot format.
- *   return JSON.parse(new TextDecoder().decode(bytes)).version
+ *   // The first line is the header carrying the version 1 snapshot format.
+ *   return JSON.parse(new TextDecoder().decode(bytes).split("\n")[0]!).version
  * })
  *
  * Effect.runPromise(program).then(console.log)
@@ -1592,11 +1660,84 @@ export const Caller: Context.Service<Caller, Caller> & {
  * @category serialization
  * @since 0.1.0
  */
-export const encodeSnapshot: (snapshot: Snapshot) => Effect.Effect<Uint8Array, ImageFailure> = (snapshot) =>
-  Effect.mapError(Image.encodeSnapshot(snapshot), (error) => retargetFailure("encodeSnapshot", error))
+export const encodeSnapshot: (
+  snapshot: Snapshot,
+  limits?: DecodeLimits
+) => Effect.Effect<Uint8Array, ImageFailure | ArgumentFailure> = (snapshot, limits) =>
+  Effect.flatMap(optionalBudget("encodeSnapshot", limits), (budget) => Image.encodeSnapshot(snapshot, budget)).pipe(
+    Effect.mapError((error) => retargetFailure("encodeSnapshot", error))
+  )
+
+/**
+ * A sink that decodes a stream of version 1 snapshot chunks while enforcing
+ * explicit input and payload limits.
+ *
+ * **Details**
+ *
+ * Chunks may split lines, and UTF-8 sequences, anywhere. Each line is checked
+ * as it ends, so input that breaks a limit or a rule is refused before the
+ * sink holds more than one line of it: `maxLineBytes` bounds that line, and
+ * the other limits bound what the accepted lines add up to. A line is
+ * refused at the byte where it first crosses `maxLineBytes` or
+ * `maxEncodedBytes`, so the field a refusal names does not depend on how the
+ * input is chunked. Every line must end in a newline, the last included; a
+ * carriage return, an empty line, a byte-order mark and malformed UTF-8 are
+ * refused as `InvalidEncoding`.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { ByteSize, Effect, Stream } from "effect"
+ *
+ * const limits: Vfs.DecodeLimits = {
+ *   maxEncodedBytes: ByteSize.megabytes(4),
+ *   maxRecords: 10_000,
+ *   maxEntries: 10_000,
+ *   maxDecodedBytes: ByteSize.megabytes(16),
+ *   maxLineBytes: ByteSize.megabytes(1)
+ * }
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.fromFixture({
+ *     entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([1, 2, 3]) }]
+ *   })
+ *
+ *   // Rechunked to single bytes: the sink joins lines across chunks.
+ *   const snapshot = yield* Vfs.encodeSnapshotStream(yield* volume.snapshot).pipe(
+ *     Stream.flattenIterable,
+ *     Stream.rechunk(1),
+ *     Stream.map((byte) => new Uint8Array([byte])),
+ *     Stream.run(Vfs.decodeSnapshotSink(limits))
+ *   )
+ *
+ *   return yield* (yield* (yield* Vfs.fromSnapshot(snapshot)).caller()).readFile("/f")
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // Uint8Array(3) [ 1, 2, 3 ]
+ * ```
+ *
+ * @see {@link DecodeLimits} for what each bound protects.
+ * @see {@link decodeSnapshot} for decoding bytes already in memory.
+ * @category serialization
+ * @since 0.6.0
+ */
+export const decodeSnapshotSink: (
+  limits: DecodeLimits
+) => Sink.Sink<Snapshot, Uint8Array, never, ImageFailure | ArgumentFailure> = (limits) =>
+  Sink.unwrap(Effect.map(
+    snapshotBudget("decodeSnapshot", limits),
+    (budget): Sink.Sink<Snapshot, Uint8Array, never, ImageFailure | ArgumentFailure> => Image.decodeSnapshotSink(budget)
+  )).pipe(
+    Sink.mapError((error) => retargetFailure("decodeSnapshot", error))
+  )
 
 /**
  * Decodes version 1 snapshot bytes while enforcing explicit input and payload limits.
+ *
+ * **Details**
+ *
+ * The same decoder as {@link decodeSnapshotSink}, run over one chunk.
  *
  * @example
  * ```ts
@@ -1631,7 +1772,7 @@ export const decodeSnapshot: (
   input: Uint8Array,
   limits: DecodeLimits
 ) => Effect.Effect<Snapshot, ImageFailure | ArgumentFailure> = (input, limits) =>
-  Effect.mapError(Image.decodeSnapshot(input, limits), (error) => retargetFailure("decodeSnapshot", error))
+  Stream.run(Stream.succeed(input), decodeSnapshotSink(limits))
 
 const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDeltaLimits) =>
   Effect.fromResult(decodeConfiguration(

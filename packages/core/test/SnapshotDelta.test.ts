@@ -2,6 +2,7 @@ import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
 import { ByteSize, Crypto, Effect, Exit, Predicate, Schema } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
+import { type Document, documentText, toLines } from "./support/lines.js"
 import { entryNames, rawEntryNames } from "./support/text.js"
 
 const encoder = new TextEncoder()
@@ -13,11 +14,10 @@ const snapshotLimits = {
   maxDecodedBytes: ByteSize.kilobytes(100)
 }
 
-const snapshotFromDocument = (document: typeof Schema.Unknown.Type) =>
-  Vfs.decodeSnapshot(encoder.encode(JSON.stringify(document)), snapshotLimits)
+const snapshotFromDocument = (document: Document) => Vfs.decodeSnapshot(toLines(document), snapshotLimits)
 
 const snapshotDocument = (snapshot: Vfs.Snapshot) =>
-  Vfs.encodeSnapshot(snapshot).pipe(Effect.map((bytes) => JSON.parse(new TextDecoder().decode(bytes))))
+  Vfs.encodeSnapshot(snapshot).pipe(Effect.map((bytes) => JSON.parse(documentText(bytes))))
 
 const deltaLimitsWith = (
   field: "maxIdentityBytes" | "maxDecodedDeltaBytes" | "maxOutputBytes",
@@ -457,7 +457,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       assert.isAbove(fileIndex, 0)
       assert.isAbove(symlinkIndex, 0)
 
-      const cases: Array<readonly [string, unknown]> = []
+      const cases: Array<readonly [string, Document]> = []
 
       for (const field of ["mode", "uid", "gid"] as const) {
         const changed = structuredClone(source)
