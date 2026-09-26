@@ -3,31 +3,25 @@ import { ByteSize, Effect, Encoding } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import * as Image from "../src/internal/image.js"
 import * as InodeTable from "../src/internal/inodeTable.js"
-import { baseStateFor, hasBaseState } from "../src/internal/virtualFileSystem.js"
 
 describe("overlay base sharing", () => {
   it.effect(
-    "should start every workspace from one restored base value that untouched siblings keep sharing",
+    "should start every workspace from the snapshot's own value that untouched siblings keep sharing",
     () =>
       Effect.gen(function*() {
-        const base = yield* (yield* Vfs.fromFixture({
+        const volume = yield* Vfs.fromFixture({
           entries: [{ kind: "file", path: "/file", bytes: new Uint8Array([1, 2, 3]) }]
-        })).snapshot
+        })
 
-        const image = yield* Image.inspect(base)
-        assert.isFalse(hasBaseState(base))
+        const base = yield* volume.snapshot
+        const first = yield* Image.valueOf(base)
+        // Capture shares the volume's value, so an unchanged volume captures the same value again.
+        assert.strictEqual(yield* Image.valueOf(yield* volume.snapshot), first)
         // @ts-expect-error exercises runtime rejection of a value outside the public ByteSize contract
         assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: -1 })), Vfs.VfsError)
-        assert.isFalse(hasBaseState(base))
         assert.instanceOf(yield* Effect.flip(Vfs.makeOverlay(base, { maxBytes: ByteSize.bytes(2) })), Vfs.VfsError)
-        assert.isFalse(hasBaseState(base))
 
         const workspaceA = yield* Vfs.makeOverlay(base)
-        assert.isTrue(hasBaseState(base))
-        const first = yield* baseStateFor(base, image, 0n)
-        const second = yield* baseStateFor(base, image, 0n)
-        assert.strictEqual(first, second)
-
         const workspaceB = yield* Vfs.makeOverlay(base)
         const a = yield* workspaceA.caller()
         const b = yield* workspaceB.caller()
@@ -35,7 +29,7 @@ describe("overlay base sharing", () => {
         yield* handle.pwrite(new Uint8Array([7]), 0n)
         assert.deepStrictEqual(yield* b.readFile("/file"), new Uint8Array([1, 2, 3]))
         yield* b.chmod("/file", 0o600)
-        assert.strictEqual(first, yield* baseStateFor(base, image, 0n))
+        assert.strictEqual(yield* Image.valueOf(base), first)
 
         // Deliberately violate the private immutable-payload convention to prove an untouched workspace still
         // reads the base value's exact payload while a promoted one holds its own.
