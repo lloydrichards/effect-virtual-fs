@@ -12,10 +12,10 @@
     "test:live": "bun --env-file=.env scripts/smoke.ts"
   },
   "dependencies": {
-    "@effect/platform-browser": "4.0.0-rc.115",
-    "@effect/platform-node": "4.0.0-rc.115",
+    "@effect/platform-browser": "4.0.0-rc.117",
+    "@effect/platform-node": "4.0.0-rc.117",
     "alchemy": "2.0.0-beta.79",
-    "effect": "4.0.0-rc.115",
+    "effect": "4.0.0-rc.117",
     "mime": "^4.1.0",
     "@effect-vfs/core": "workspace:*",
     "@effect-vfs/persistence": "workspace:*"
@@ -23,6 +23,6 @@
   "devDependencies": {
     "@repo/config-typescript": "workspace:*",
     "@types/bun": "^1.2.17",
-    "@effect/vitest": "4.0.0-rc.115"
+    "@effect/vitest": "4.0.0-rc.117"
   }
 }

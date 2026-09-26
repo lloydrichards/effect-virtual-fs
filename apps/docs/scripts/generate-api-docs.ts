@@ -88,6 +88,7 @@ const expandTypeAliases = async (packagePath: string, moduleName: string, conten
 
     const resolved = alias.getTypeNodeOrThrow().getType().getText(alias, typeFlags)
       .replace(/import\("[^"]*\/node_modules\/effect\/dist\/([^"/]+)"\)\.([A-Za-z_$][\w$]*)/g, "$1.$2")
+      .replace(/import\("effect\/([^"/]+)"\)\.([A-Za-z_$][\w$]*)/g, "$1.$2")
 
     if (resolved.includes("import(\"") || resolved === alias.getName()) {
       throw new Error(`Could not render public type ${packagePath}/${moduleName}.${alias.getName()}`)

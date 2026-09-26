@@ -13,18 +13,18 @@
   },
   "dependencies": {
     "@cloudflare/containers": "0.3.7",
-    "@aws-sdk/client-s3": "3.883.0",
+    "@aws-sdk/client-s3": "3.1141.0",
     "@effect-vfs/core": "workspace:*",
     "@effect-vfs/nfs": "workspace:*",
     "@effect-vfs/persistence": "workspace:*",
-    "@effect/platform-bun": "4.0.0-rc.115",
-    "@effect/platform-node-shared": "4.0.0-rc.115",
-    "effect": "4.0.0-rc.115"
+    "@effect/platform-bun": "4.0.0-rc.117",
+    "@effect/platform-node-shared": "4.0.0-rc.117",
+    "effect": "4.0.0-rc.117"
   },
   "devDependencies": {
     "@repo/config-typescript": "workspace:*",
     "@types/bun": "^1.2.17",
-    "@cloudflare/workers-types": "^4.20260511.1",
-    "wrangler": "4.136.1"
+    "@cloudflare/workers-types": "^5.20260926.1",
+    "wrangler": "4.141.0"
   }
 }
