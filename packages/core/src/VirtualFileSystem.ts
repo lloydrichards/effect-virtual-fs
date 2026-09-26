@@ -328,6 +328,48 @@ export const VolumeIncarnation: typeof VolumeModule.VolumeIncarnation = VolumeMo
 export type VolumeIncarnation = typeof VolumeIncarnation.Type
 
 /**
+ * Schema for the serialisable name of one object in one volume: the volume's
+ * identity, the epoch of its inode numbers, the object's inode number, and a
+ * tag only the volume can compute, so a key cannot be guessed from another.
+ *
+ * @example
+ * ```ts
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect, Schema } from "effect"
+ *
+ * const Json = Schema.fromJsonString(Vfs.ReferenceKey)
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const caller = yield* volume.caller()
+ *   yield* caller.writeFile("/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
+ *
+ *   // The key survives a wire; resolving it returns the same reference.
+ *   const reference = yield* caller.lookup("/f")
+ *   const text = yield* Schema.encodeEffect(Json)(yield* volume.referenceKey(reference))
+ *   const key = yield* Schema.decodeEffect(Json)(text)
+ *
+ *   return (yield* volume.resolveReferenceKey(key)) === reference
+ * })
+ *
+ * Effect.runPromise(program).then(console.log)
+ * // true
+ * ```
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const ReferenceKey: typeof VolumeModule.ReferenceKey = VolumeModule.ReferenceKey
+
+/**
+ * The serialisable name of one object in one volume.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type ReferenceKey = typeof ReferenceKey.Type
+
+/**
  * Schema for optional volume capacity and path limits.
  *
  * @example
@@ -1454,6 +1496,18 @@ export interface Volume {
   readonly watch: (options?: WatchOptions) => Effect.Effect<Stream.Stream<Change>, FsFailure, Scope.Scope>
   /** Captures an isolated snapshot of the reachable namespace and metadata. */
   readonly snapshot: Effect.Effect<Snapshot, VfsError>
+  /**
+   * The serialisable key of an object this volume issued. Fails with `InvalidReference` for a value that is not a
+   * reference, `ForeignReference` for another volume's, and `StaleReference` once the object is gone.
+   */
+  readonly referenceKey: (reference: ObjectReference) => Effect.Effect<ReferenceKey, FsFailure>
+  /**
+   * The object a key names, as the same reference traversal returns. Fails with `InvalidReference` for a malformed
+   * key or one whose tag this volume did not compute, `ForeignReference` for a key another volume or another epoch
+   * of this one minted, and `StaleReference` once the object is gone. It checks no permission: holding the volume
+   * already grants every caller, and the tag keeps a key holder from reaching an object no key was issued for.
+   */
+  readonly resolveReferenceKey: (key: ReferenceKey) => Effect.Effect<ObjectReference, FsFailure>
   readonly [VolumeId]: true
   /** Creates a caller rooted at `/` with independent credentials, umask, and current directory. */
   readonly caller: (options?: RootCallerOptions) => Effect.Effect<Caller, VfsError>

@@ -1,6 +1,7 @@
 /**
- * Volume identity brands and schemas: durability, identity tokens, construction
- * options, and the change summaries an overlay volume reports.
+ * Volume identity brands and schemas: durability, identity tokens, reference
+ * keys, construction options, and the change summaries an overlay volume
+ * reports.
  *
  * @since 0.6.0
  */
@@ -9,6 +10,7 @@ import * as Order from "effect/Order"
 import * as Schema from "effect/Schema"
 import { BytePath } from "./BytePath.js"
 import { MAX_FILE_BYTES } from "./internal/limits.js"
+import { MAX_INO, ROOT_INO } from "./internal/volumeState.js"
 
 /**
  * Brand key that marks a volume.
@@ -109,6 +111,48 @@ export const VolumeIncarnation = Hex128.pipe(Schema.brand("@effect-vfs/core/Volu
  * @since 0.6.0
  */
 export type VolumeIncarnation = typeof VolumeIncarnation.Type
+
+// 128 bits as bytes, carried as base64 like every other byte field on a wire.
+const KeyBytes = Schema.Uint8ArrayFromBase64.check(
+  Schema.makeFilter((bytes) => bytes.length === 16 ? undefined : "must hold exactly 16 bytes")
+)
+
+/**
+ * Schema for a reference key: the serialisable name of one object in one
+ * volume, for adapters that must name an object outside the process, such as
+ * an NFS filehandle.
+ *
+ * **Details**
+ *
+ * `identity` is the volume's identity and `epoch` the inode-number namespace
+ * the object was numbered in, both as 16 bytes encoded as base64; `ino` is
+ * the object's inode number, encoded as a decimal string; `tag` is 16 bytes of
+ * HMAC-SHA-256 over the identity, epoch and inode number under a secret only
+ * the volume holds, encoded as base64. Inode numbers are small and sequential,
+ * so the tag is what keeps a holder of one key from naming a neighbouring
+ * object: a key with another inode number or an altered tag fails
+ * `InvalidReference`. A volume mints a new epoch and secret whenever its inode
+ * numbers start over: a new volume, a snapshot or fixture restore, and an
+ * overlay. A live volume keeps both across a reopen, so its keys outlive the
+ * process. Turning a key into bytes of a fixed layout stays the adapter's job.
+ *
+ * @category schemas
+ * @since 0.6.0
+ */
+export const ReferenceKey = Schema.Struct({
+  identity: KeyBytes,
+  epoch: KeyBytes,
+  ino: Schema.BigIntFromString.check(Schema.isBetweenBigInt({ minimum: BigInt(ROOT_INO), maximum: BigInt(MAX_INO) })),
+  tag: KeyBytes
+})
+
+/**
+ * The serialisable name of one object in one volume.
+ *
+ * @category models
+ * @since 0.6.0
+ */
+export type ReferenceKey = typeof ReferenceKey.Type
 
 /**
  * Schema for volume construction options.
