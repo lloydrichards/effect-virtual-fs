@@ -3,8 +3,9 @@ import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import { DecodeLimits, type Snapshot, SnapshotTypeId } from "../Snapshot.js"
+import { type DecodeLimits, type Snapshot, SnapshotTypeId } from "../Snapshot.js"
 import type { ImageFailure } from "../VfsError.js"
+import { type Budget, BudgetFromDecodeLimits } from "./budget.js"
 import { decodeUtf8 } from "./bytes.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import { decodeConfiguration, imageFailure } from "./errors.js"
@@ -52,8 +53,8 @@ const decodeTree = Schema.decodeUnknownEffect(Tree.Tree, { onExcessProperty: "er
 const encoder = new TextEncoder()
 
 // Counts what restoring a tree would hold against the budgets, from the base64 lengths alone.
-const withinBudget = Effect.fnUntraced(function*(tree: Tree.Tree, limits: DecodeLimits) {
-  if (tree.nodes.length > limits.maxRecords) {
+const withinBudget = Effect.fnUntraced(function*(tree: Tree.Tree, budget: Budget) {
+  if (tree.nodes.length > budget.records) {
     return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "records" })
   }
 
@@ -81,9 +82,9 @@ const withinBudget = Effect.fnUntraced(function*(tree: Tree.Tree, limits: Decode
     if (payload !== undefined) charge(payload)
   }
 
-  if (entries > limits.maxEntries) return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "entries" })
+  if (entries > budget.entries) return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "entries" })
 
-  if (ByteSize.isGreaterThan(decoded, limits.maxDecodedBytes)) {
+  if (ByteSize.isGreaterThan(decoded, budget.decodedBytes)) {
     return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "bytes" })
   }
 })
@@ -103,13 +104,13 @@ export const encodeSnapshot = Effect.fn("VirtualFileSystem.encodeSnapshot")(func
 /** @internal */
 export const decodeSnapshot = Effect.fn("VirtualFileSystem.decodeSnapshot")(
   function*(input: Uint8Array, limits: DecodeLimits) {
-    const checked = yield* Effect.fromResult(decodeConfiguration(DecodeLimits, limits, "decodeSnapshot"))
+    const budget = yield* Effect.fromResult(decodeConfiguration(BudgetFromDecodeLimits, limits, "decodeSnapshot"))
 
     if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) {
       return yield* imageFailure("decodeSnapshot", "InvalidEncoding", { field: "input" })
     }
 
-    if (ByteSize.isGreaterThan(ByteSize.bytes(input.byteLength), checked.maxEncodedBytes)) {
+    if (ByteSize.isGreaterThan(ByteSize.bytes(input.byteLength), budget.encodedBytes)) {
       return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "encodedBytes" })
     }
 
@@ -129,7 +130,7 @@ export const decodeSnapshot = Effect.fn("VirtualFileSystem.decodeSnapshot")(
     }
 
     const tree = yield* Effect.mapError(decodeTree(value), Tree.decodeFailure("decodeSnapshot", "document"))
-    yield* withinBudget(tree, checked)
+    yield* withinBudget(tree, budget)
     yield* Tree.checkGraph(tree, "decodeSnapshot")
 
     return make(yield* Tree.toValue(tree.nodes, "decodeSnapshot"))
