@@ -18,6 +18,11 @@ export const Ino = Brand.nominal<Ino>()
 /** @internal */
 export const ROOT_INO = Ino(1)
 
+// The largest inode number a value holds. The allocator resumes one above it and must stay exactly representable,
+// since the inode table is keyed by a number.
+/** @internal */
+export const MAX_INO = Number.MAX_SAFE_INTEGER - 1
+
 // Nodes walked between yields. Whole-tree reads are one synchronous tick otherwise, which
 // starves the event loop and leaves nothing for interruption to act on.
 /** @internal */
@@ -108,6 +113,11 @@ const inEntryOrder = (directory: Directory): Directory =>
   inNameOrder(directory.entries)
     ? directory
     : { ...directory, entries: new Map([...directory.entries].sort(byEntryName)) }
+
+// A file's content or a symbolic link's target; a directory has none.
+/** @internal */
+export const payloadOf = (node: Node): Uint8Array | undefined =>
+  node.kind === "file" ? node.data.bytes : node.kind === "symlink" ? node.target : undefined
 
 /** @internal */
 export const directoryMetadata = (

@@ -1,6 +1,10 @@
 /**
  * Opaque portable snapshot deltas and their public inspection models.
  *
+ * A delta names its base and target snapshots by their semantic identities and
+ * holds one change per path that differs, each carrying only the node it
+ * leaves behind, so its size follows what changed rather than the tree.
+ *
  * @since 0.1.0
  */
 import * as ByteSize from "effect/ByteSize"
@@ -195,15 +199,25 @@ export const SnapshotChangesOptions = Schema.Struct({
 export type SnapshotChangesOptions = typeof SnapshotChangesOptions.Type
 
 const SnapshotDeltaLimitsSchema = Schema.Struct({
+  /** Maximum encoded delta length in bytes. */
   maxEncodedBytes: Schema.ByteSize,
+  /** Maximum bytes hashed for one snapshot's identity. */
   maxIdentityBytes: Schema.ByteSize,
+  /** Maximum number of changes a delta holds. */
   maxDeltaRecords: Schema.Natural,
+  /** Maximum decoded bytes of a delta's digests, paths and payloads. */
   maxDecodedDeltaBytes: Schema.ByteSize,
+  /** Maximum number of nodes in the base snapshot. */
   maxBaseRecords: Schema.Natural,
+  /** Maximum number of nodes in the target snapshot. */
   maxTargetRecords: Schema.Natural,
+  /** Maximum number of names in either snapshot, and of names a delta writes. */
   maxEntries: Schema.Natural,
+  /** Maximum number of nodes an applied delta produces. */
   maxOutputRecords: Schema.Natural,
+  /** Maximum payload bytes of the target, and of the payloads a delta carries. */
   maxOutputBytes: Schema.ByteSize,
+  /** Maximum number of target nodes carried over from the base rather than written by the delta. */
   maxInheritedRecords: Schema.Natural
 })
 

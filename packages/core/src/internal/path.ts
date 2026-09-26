@@ -39,6 +39,23 @@ export const isNameBytes = (name: Uint8Array): boolean =>
   name.length >= 1 && name.length <= MAX_NAME_BYTES && !name.includes(NUL_BYTE) && !name.includes(SLASH_BYTE) &&
   !(name.length === 1 && name[0] === DOT_BYTE) && !(name.length === 2 && name[0] === DOT_BYTE && name[1] === DOT_BYTE)
 
+/** @internal */
+export const ROOT_PATH = new Uint8Array([SLASH_BYTE])
+
+// `name` under `prefix`, in a new buffer. A prefix ending in a slash, such as the root, adds none of its own, and
+// an empty prefix is a relative walk's root.
+/** @internal */
+export const joinPath = (prefix: Uint8Array, name: Uint8Array): Uint8Array => {
+  const separator = prefix.length === 0 || prefix[prefix.length - 1] === SLASH_BYTE ? 0 : 1
+  const joined = new Uint8Array(prefix.length + separator + name.length)
+  joined.set(prefix)
+
+  if (separator === 1) joined[prefix.length] = SLASH_BYTE
+  joined.set(name, prefix.length + separator)
+
+  return joined
+}
+
 // A missing final component is rejected wherever "." and ".." are, so it counts as a dot component.
 // Callers pass the code POSIX gives their operation, so the codes differ on purpose: EEXIST for
 // create (link, symlink, mkdir), EISDIR for open and unlink, EINVAL for rename and rmdir.

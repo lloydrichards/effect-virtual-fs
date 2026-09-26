@@ -17,6 +17,7 @@ import {
   byIno,
   Ino,
   type Link,
+  MAX_INO,
   type Node,
   type NodeSpec,
   reachableNodes,
@@ -25,15 +26,11 @@ import {
   type VolumeState
 } from "./volumeState.js"
 
-// The largest inode number a tree holds. A restored volume's allocator resumes one above it, and the allocator
-// must stay exactly representable.
-const MAX_TREE_INO = Number.MAX_SAFE_INTEGER - 1
-
 // Marks the check holding a tree's graph rules, whose failures name the node that broke one.
 const GRAPH_CHECK = "@effect-vfs/core/graphCheck"
 
 /** @internal */
-export const TreeIno = Schema.Int.check(Schema.isBetween({ minimum: ROOT_INO, maximum: MAX_TREE_INO }))
+export const TreeIno = Schema.Int.check(Schema.isBetween({ minimum: ROOT_INO, maximum: MAX_INO }))
 
 /** @internal */
 export const NaturalBigInt = Schema.String.check(
