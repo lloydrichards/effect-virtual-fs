@@ -1,5 +1,160 @@
 # @effect-vfs/core
 
+## 0.6.0
+
+### Minor Changes
+
+- [`ed86941`](https://github.com/lloydrichards/effect-virtual-fs/commit/ed869410b0fddee9b74f981003614bde5688ba36) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `Caller.setattr` changes a target's size, owner, mode, and times in one operation. If any attribute fails validation or permission checks, none of the attributes change. Pass `expected: { revision }` to reject an update when the target has changed since you read it.
+
+  ```ts
+  const metadata = yield * caller.stat("/bin/tool")
+  yield * caller.setattr("/bin/tool", {
+    mode: 0o755,
+    expected: { revision: metadata.revision }
+  })
+  ```
+
+- [#191](https://github.com/lloydrichards/effect-virtual-fs/pull/191) [`ee41936`](https://github.com/lloydrichards/effect-virtual-fs/commit/ee419360725c0d5ff8313c4f8e4544263b6b927c) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `VfsError` now exposes the underlying failure as `cause`. Errors with a cause no longer compare equal to otherwise identical errors without one. If you compare errors with `Equal`, match the fields you need instead:
+
+  ```ts
+  const sameFailure = left.code === right.code && left.operation === right.operation
+  ```
+
+- [#226](https://github.com/lloydrichards/effect-virtual-fs/pull/226) [`649dfbe`](https://github.com/lloydrichards/effect-virtual-fs/commit/649dfbea39e5c683ae1e1430775f18bbec60f815) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Snapshot deltas now contain one change per changed path, and snapshot identities have new values. Deltas saved by earlier releases no longer decode or validate. Recompute stored deltas from the snapshots they connect:
+
+  ```ts
+  const fresh = yield * Vfs.diffSnapshots(base, target)
+  const bytes = yield * Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(fresh)
+  ```
+
+  `maxDeltaRecords` now counts changes. `maxOutputRecords` and `maxInheritedRecords` limit nodes in the applied target and nodes retained from the base. These limits are checked when you create or apply a delta, so review any custom limits before upgrading.
+
+- [#216](https://github.com/lloydrichards/effect-virtual-fs/pull/216) [`1004c17`](https://github.com/lloydrichards/effect-virtual-fs/commit/1004c176e0fa5eeae1f31dab30e9fcfa43c7a868) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Ownership failures now return `NotPermitted` (EPERM) instead of `AccessDenied` (EACCES). Mode-bit denials still return `AccessDenied`. If you handle ownership failures by error code, accept the new code:
+
+  ```ts
+  Effect.catchIf(
+    (error) => error.code === "AccessDenied" || error.code === "NotPermitted",
+    () => Effect.succeed(forbidden)
+  )
+  ```
+
+  Exhaustive matches on `VfsError.code` also need a `NotPermitted` case. NFS maps it to `NFS4ERR_PERM` for CREATE, OPEN, and SETATTR; `MemoryFileSystem` maps it to `PermissionDenied`.
+
+- [#210](https://github.com/lloydrichards/effect-virtual-fs/pull/210) [`c9ff94a`](https://github.com/lloydrichards/effect-virtual-fs/commit/c9ff94ab8edc5a75c60eac00aa6c9371b953face) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Public schemas are now importable from their own modules, including `Metadata`, `Watch`, `Snapshot`, and `BytePath`. The main `VirtualFileSystem` export still re-exports them.
+
+  ```ts
+  import { Metadata } from "@effect-vfs/core/Metadata"
+  import { Change } from "@effect-vfs/core/Watch"
+  import { Schema } from "effect"
+
+  const decodeMetadata = Schema.decodeUnknownEffect(Metadata)
+  const isCreate = Schema.is(Change.cases.Create)
+  ```
+
+- [`0362a15`](https://github.com/lloydrichards/effect-virtual-fs/commit/0362a157405a9db3d8f13f555e300222167e356d) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `ReferenceKey` lets you save an object reference and resolve it after reopening a live volume. A key from another volume or epoch, a removed object, or an altered key fails with a distinct `VfsError` code.
+
+  ```ts
+  const key = yield * volume.referenceKey(reference)
+  const sameObject = yield * volume.resolveReferenceKey(key)
+  ```
+
+  Live images written by earlier releases cannot be opened because they lack the key data. Regenerate those images before upgrading. Keys from a restored snapshot or overlay do not resolve against the original volume.
+
+- [#222](https://github.com/lloydrichards/effect-virtual-fs/pull/222) [`60e4a61`](https://github.com/lloydrichards/effect-virtual-fs/commit/60e4a6151704a81ca35b1c0cce13b5ddb70c3331) Thanks [@lloydrichards](https://github.com/lloydrichards)! - File, directory, and handle reads now use relatime: they refresh access time when it is no newer than modification or status-change time, or when it is at least 24 hours old. Repeated reads that do not refresh access time avoid a live-image commit.
+
+  ```ts
+  const first = yield * caller.readFile("/notes")
+  const second = yield * caller.readFile("/notes") // no access-time update if relatime does not require one
+  ```
+
+- [#223](https://github.com/lloydrichards/effect-virtual-fs/pull/223) [`1585192`](https://github.com/lloydrichards/effect-virtual-fs/commit/15851928691c633845161471b2f6dab8f792d761) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `Volume.watch({ scope })` watches one object and its subtree, following the object through renames. `Volume.watch` is now a function, so existing volume-wide watches must call `volume.watch()`.
+
+  ```ts
+  const allChanges = yield * volume.watch()
+  const work = yield * caller.lookup("/work")
+  const workChanges = yield * volume.watch({ scope: work })
+  ```
+
+  A scoped stream ends when its object loses its last name. Pass `recursive: false` to watch only the object itself.
+
+- [#215](https://github.com/lloydrichards/effect-virtual-fs/pull/215) [`06a9086`](https://github.com/lloydrichards/effect-virtual-fs/commit/06a90860558f8231c5f9426ff212dad861d08d04) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `Caller` now accepts a path, object reference, or open handle as a `Target`, and the packages use one `VfsError` family. This changes existing calls and error handling across the fixed release group.
+
+  Replace `*Reference`, `*Handle`, and `*Bytes` methods with the corresponding `Caller` method. Use `Vfs.Entry(directory, name)` for an entry relative to a directory. Use `Vfs.Target.Path` for path options such as `followFinalSymlink`:
+
+  ```ts
+  // Before
+  const work = yield * fs.lookupReference(root, encoder.encode("work"))
+  const metadata = yield * fs.lstat("/link")
+
+  // After
+  const work = yield * fs.lookup(Vfs.Entry(root, "work"))
+  const metadata = yield * fs.stat(
+    Vfs.Target.Path({ path: "/link", followFinalSymlink: false })
+  )
+  ```
+
+  `stat` now returns `Metadata` with a `revision`; `readDirectory` returns entries and a directory revision; `readLink` and `realPath` return bytes; `pread` returns `{ bytes, eof }`; and `access` returns the granted bits. Update callers that use the old return values. Match failures on `VfsError.code` and `operation`; `error.path` is now a `BytePath`.
+
+  `Volume.layer`, `Caller.layer`, and the other volume layers replace manual service wiring. Volume construction no longer requires a `Crypto` service. Remove `CurrentFileSystem`, `makeCrypto`, and `layerCrypto` from applications that used them.
+
+- [`bfff016`](https://github.com/lloydrichards/effect-virtual-fs/commit/bfff016dc75b22473aa022455decc87f1c9887c2) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `@effect-vfs/core/Testing` provides a fresh volume and caller for Effect tests, plus helpers for callers with other identities and watch streams.
+
+  ```ts
+  import * as Testing from "@effect-vfs/core/Testing"
+
+  const test = Effect.gen(function*() {
+    const caller = yield* Vfs.Caller
+    yield* caller.mkdir("/work")
+  }).pipe(Effect.scoped, Effect.provide(Testing.layer()))
+  ```
+
+- [#224](https://github.com/lloydrichards/effect-virtual-fs/pull/224) [`c9cce23`](https://github.com/lloydrichards/effect-virtual-fs/commit/c9cce232b55f9bf24745a133527ba562afbc5743) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `Caller` can walk a tree, create missing directories recursively, and remove a directory tree. Recursive `mkdir` applies all created directories together; recursive `remove` stops at the first failure.
+
+  ```ts
+  yield * caller.mkdir("/work/src/lib", { recursive: true })
+  const entries = yield * Stream.runCollect(caller.walk("/work"))
+  yield * caller.remove("/work", { recursive: true })
+  ```
+
+  `walk` reports symbolic links without following them and accepts depth, entry, and byte limits. `remove` with `force` ignores only a missing target, not a missing descendant.
+
+- [#225](https://github.com/lloydrichards/effect-virtual-fs/pull/225) [`7a47c57`](https://github.com/lloydrichards/effect-virtual-fs/commit/7a47c571ee15d00db71f78164d1994e5344b65df) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Snapshot and live image bytes now use newline-delimited JSON. Bytes saved by earlier releases no longer load, even though the format header still says `version: 1`. Regenerate stored checkpoints and live images from their source volumes or fixtures before upgrading:
+
+  ```ts
+  const volume = yield * Vfs.fromFixture(fixture)
+  yield * checkpoints.save("baseline", yield * volume.snapshot)
+  ```
+
+  `encodeSnapshotStream` and `decodeSnapshotSink` process snapshot bytes in chunks. Existing `encodeSnapshot` and `decodeSnapshot` calls still work with a single byte array:
+
+  ```ts
+  const bytes = yield * Vfs.encodeSnapshot(snapshot, limits)
+  const decoded = yield * Stream.run(Stream.succeed(bytes), Vfs.decodeSnapshotSink(limits))
+  ```
+
+  `DecodeLimits` gains `maxLineBytes`, which defaults to `maxEncodedBytes`. `encodeSnapshot` now checks the same limits as decoding. Snapshot entries can also be read with `snapshotEntries(snapshot, root)` without restoring a volume.
+
+- [#217](https://github.com/lloydrichards/effect-virtual-fs/pull/217) [`45deedb`](https://github.com/lloydrichards/effect-virtual-fs/commit/45deedb3ff694ebd2c7037e85973030b634170dc) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `typedMode` combines `Metadata.kind` and permission bits into a POSIX `st_mode`. `Metadata.mode` continues to contain permission bits only.
+
+  ```ts
+  import { S_IFDIR, S_IFMT, typedMode } from "@effect-vfs/core/Metadata"
+
+  const stMode = typedMode(yield * caller.stat("/src"))
+  const isDirectory = (stMode & S_IFMT) === S_IFDIR
+  ```
+
+### Patch Changes
+
+- [`967878b`](https://github.com/lloydrichards/effect-virtual-fs/commit/967878bd34e4e3d018c69d271108ff9cb7f5ef68) Thanks [@lloydrichards](https://github.com/lloydrichards)! - File and directory opens now release their handles when their scope closes during a pending open, and a `VolumeBusy` close remains retryable.
+
+- [#230](https://github.com/lloydrichards/effect-virtual-fs/pull/230) [`7e55719`](https://github.com/lloydrichards/effect-virtual-fs/commit/7e55719806017f42b4eb8cbd3b71630ae7b6e3ad) Thanks [@lloydrichards](https://github.com/lloydrichards)! - An interrupted live-volume mutation no longer exposes uncommitted changes to later reads.
+
+- [#203](https://github.com/lloydrichards/effect-virtual-fs/pull/203) [`730ce13`](https://github.com/lloydrichards/effect-virtual-fs/commit/730ce13d3f5514f9069887478ee12d36aaeafc58) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Concurrent `stat`, lookup, snapshot, and overlay observations no longer wait for one another, while pending mutations still take priority.
+
+- [`c75d5f0`](https://github.com/lloydrichards/effect-virtual-fs/commit/c75d5f0693cd47aac6de183a59c296885ef93aec) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Live-volume mutations no longer copy the whole tree before committing, and objects changed by one operation now report the same revision.
+
+- [#230](https://github.com/lloydrichards/effect-virtual-fs/pull/230) [`7e55719`](https://github.com/lloydrichards/effect-virtual-fs/commit/7e55719806017f42b4eb8cbd3b71630ae7b6e3ad) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Operations that leave a live volume unchanged no longer write a new image.
+
 ## 0.5.0
 
 ### Minor Changes
