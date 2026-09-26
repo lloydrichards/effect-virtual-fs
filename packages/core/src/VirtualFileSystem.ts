@@ -61,7 +61,6 @@ import * as FixtureInternal from "./internal/fixture.js"
 import * as Image from "./internal/image.js"
 import * as Path from "./internal/path.js"
 import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
-import * as SnapshotEntries from "./internal/snapshotEntries.js"
 import * as VfsModel from "./internal/virtualFileSystem.js"
 import { type LiveImageStore, open as openLiveVolume, type Options as LiveVolumeOptions } from "./LiveVolume.js"
 import * as SnapshotDeltaModel from "./SnapshotDelta.js"
@@ -2245,7 +2244,7 @@ export const make: (
 export const snapshotEntries: (
   snapshot: Snapshot,
   root: PathInput
-) => Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure> = SnapshotEntries.snapshotEntries
+) => Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure> = Image.snapshotEntries
 
 /**
  * Restores a fresh volume from an opaque snapshot under the supplied destination limits.

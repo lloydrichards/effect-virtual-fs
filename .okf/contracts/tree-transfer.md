@@ -15,7 +15,7 @@ sources:
     resource: ../../packages/memory/src/internal/treeTransfer.ts
     title: Tree transfer sources and sinks
   - id: snapshot-entries
-    resource: ../../packages/core/src/internal/snapshotEntries.ts
+    resource: ../../packages/core/src/internal/image.ts
     title: Core's snapshot walk that fromSnapshot reads
   - id: host-adapter
     resource: ../../packages/memory/src/internal/treeTransferFileSystem.ts

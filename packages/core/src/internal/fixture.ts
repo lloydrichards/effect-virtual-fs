@@ -15,7 +15,6 @@ const DEFAULT_MODE: Record<NodeSpec["kind"], number> = { directory: 0o755, file:
 
 const EPOCH_NS = 0n
 
-// A declared object: its kind, its number, its metadata, and a file's bytes or a link's target.
 interface Declared {
   readonly kind: NodeSpec["kind"]
   readonly ino: Ino

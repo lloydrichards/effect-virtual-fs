@@ -74,10 +74,8 @@ import { KeySecret, VolumeEpoch } from "./hex128.js"
 import { hmacSha256, sameTag } from "./hmac.js"
 import * as Image from "./image.js"
 import * as InodeTable from "./inodeTable.js"
-import { MAX_FILE_BYTES } from "./limits.js"
 import * as LiveImage from "./liveImage.js"
 import * as MetadataDomain from "./metadata.js"
-import * as Content from "./overlayContent.js"
 import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./overlayDiff.js"
 import {
   DOT_DOT_HEX,
@@ -107,6 +105,7 @@ import {
   getNode,
   Ino,
   type Link,
+  MAX_FILE_BYTES,
   type Node,
   type NodeMetadata,
   reachableValue,
@@ -162,7 +161,6 @@ const isNatural = Schema.is(Schema.Natural)
 // bounds it, so truncate and setattr agree with it.
 const isLength = Schema.is(SetattrOptions.fields.size.schema)
 
-// Whether an identity belongs to a group, by its primary group or a supplementary one.
 const inGroup = (identity: Identity, gid: number) => identity.gid === gid || identity.groups.includes(gid)
 
 const isTimestamp = Schema.is(MetadataDomain.Timestamp)
@@ -505,7 +503,7 @@ const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
       path: new Uint8Array(path),
       lineage: String(node.ino),
       kind: node.kind,
-      content: node.kind === "file" ? node.data.bytes : node.kind === "symlink" ? node.target : undefined,
+      content: node.kind === "file" ? node.data : node.kind === "symlink" ? node.target : undefined,
       metadata: storedMetadata(node.metadata)
     })
 
@@ -1135,7 +1133,7 @@ export const makeVolume = Effect.fnUntraced(
 
       if (node.kind === "file") {
         if (node.links.length > 0 || d.openCount(ino) > 0) return
-        d.usedBytes -= BigInt(node.data.bytes.length)
+        d.usedBytes -= BigInt(node.data.length)
       } else if (node.kind === "symlink") {
         if (node.links.length > 0) return
         d.usedBytes -= BigInt(node.target.length)
@@ -1305,10 +1303,10 @@ export const makeVolume = Effect.fnUntraced(
     // Replacing a payload clears setuid and setgid, and charges the volume for the size delta.
     const replaceContent = (file: RegularFile, data: Uint8Array, now: bigint, publish = true) => {
       const d = current()
-      d.usedBytes += BigInt(data.length - file.data.bytes.length)
+      d.usedBytes += BigInt(data.length - file.data.length)
       d.put({
         ...file,
-        data: Content.make(data),
+        data,
         metadata: {
           ...file.metadata,
           size: BigInt(data.length),
@@ -1326,10 +1324,10 @@ export const makeVolume = Effect.fnUntraced(
       if (length > BigInt(maxFileBytes)) return yield* op.fail("FileTooLarge")
       const size = Number(length)
 
-      yield* reserveBytes(op, BigInt(size - file.data.bytes.length))
+      yield* reserveBytes(op, BigInt(size - file.data.length))
 
       const data = new Uint8Array(size)
-      data.set(file.data.bytes.subarray(0, size))
+      data.set(file.data.subarray(0, size))
       replaceContent(file, data, now, false)
     })
 
@@ -1366,8 +1364,8 @@ export const makeVolume = Effect.fnUntraced(
           }
 
           const start = Number(offset > file.metadata.size ? file.metadata.size : offset)
-          const data = file.data.bytes.slice(start, start + Math.min(maximum, file.data.bytes.length - start))
-          const eof = start + data.length >= file.data.bytes.length
+          const data = file.data.slice(start, start + Math.min(maximum, file.data.length - start))
+          const eof = start + data.length >= file.data.length
 
           const access = maximum > 0 ? { node: file, now: yield* timestamp(readOp) } : undefined
 
@@ -1421,16 +1419,16 @@ export const makeVolume = Effect.fnUntraced(
               ? BigInt(maxFileBytes)
               : ByteSize.toBigInt(settings.maxBytes) - current().usedBytes
 
-            const maximumEnd = BigInt(file.data.bytes.length) + free
+            const maximumEnd = BigInt(file.data.length) + free
             const end = Number(BigInt(maxFileBytes) < maximumEnd ? BigInt(maxFileBytes) : maximumEnd)
             const count = Math.min(bytes.length, Math.max(0, end - start))
 
             if (count === 0) return yield* writeOp.fail("NoSpace")
-            const size = Math.max(file.data.bytes.length, start + count)
+            const size = Math.max(file.data.length, start + count)
             // Always detach before mutation. A same-sized write is the critical
             // case: the current payload may belong to the base or a prior capture.
             const data = new Uint8Array(size)
-            data.set(file.data.bytes)
+            data.set(file.data)
             const now = yield* timestamp(writeOp)
             data.set(bytes.subarray(0, count), start)
             replaceContent(file, data, now)
@@ -1599,7 +1597,7 @@ export const makeVolume = Effect.fnUntraced(
 
       const newFile = (
         parent: Directory,
-        data: Content.Content,
+        data: RegularFile["data"],
         mode: number,
         now: bigint,
         owner?: OwnerUpdate,
@@ -1622,7 +1620,7 @@ export const makeVolume = Effect.fnUntraced(
             ),
             ...creationTimes(times, now),
             kind: "file",
-            size: BigInt(data.bytes.length),
+            size: BigInt(data.length),
             nlink: 0
           },
           revision: 0n
@@ -2400,7 +2398,7 @@ export const makeVolume = Effect.fnUntraced(
             )
             : (request.mode ?? 0o666) & 0o777 & ~umask
 
-          file = newFile(parent, Content.make(new Uint8Array(Number(size))), mode, now, owner, request.times)
+          file = newFile(parent, new Uint8Array(Number(size)), mode, now, owner, request.times)
           attach(parent, name, file, now)
           current().entries += 1
           current().usedBytes += size
@@ -3325,7 +3323,7 @@ export const makeVolume = Effect.fnUntraced(
 
               if (node.kind !== "file") return yield* resolved.op.fail("IsDirectory")
               yield* authorize(node, identity, READ, resolved.op)
-              const data = new Uint8Array(node.data.bytes)
+              const data = new Uint8Array(node.data)
 
               return { value: data, access: { node, now: yield* timestamp(op) } }
             })
@@ -3448,7 +3446,7 @@ export const makeVolume = Effect.fnUntraced(
                 entryOp
               )
 
-              const previous = file?.data.bytes.length ?? 0
+              const previous = file?.data.length ?? 0
               const initial = chosen.truncate ? 0 : previous
               const position = chosen.append ? initial : 0
               const size = Math.max(initial, position + captured.length)
@@ -3468,7 +3466,7 @@ export const makeVolume = Effect.fnUntraced(
               if (position !== 0 || size !== captured.length) {
                 data = new Uint8Array(size)
 
-                if (file !== undefined && !chosen.truncate) data.set(file.data.bytes)
+                if (file !== undefined && !chosen.truncate) data.set(file.data)
                 data.set(captured, position)
               }
 
@@ -3476,11 +3474,11 @@ export const makeVolume = Effect.fnUntraced(
               const d = current()
 
               // Content and size are assigned below on the shared path that also covers an existing file.
-              const node = file ?? newFile(parent, Content.empty(), (chosen.mode ?? 0o666) & 0o777 & ~umask, now)
+              const node = file ?? newFile(parent, new Uint8Array(0), (chosen.mode ?? 0o666) & 0o777 & ~umask, now)
 
               const written: RegularFile = {
                 ...node,
-                data: Content.make(data),
+                data,
                 metadata: {
                   ...node.metadata,
                   mode: finalMode ?? node.metadata.mode & ~SET_ID_BITS,

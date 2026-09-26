@@ -29,7 +29,6 @@ const IDENTITY_PREFIX = encoder.encode(`${ALGORITHM}\0`)
 
 const KIND_BYTE = { directory: 0, file: 1, symlink: 2 } as const
 
-// What one walk may spend, and the field an overrun names.
 /** @internal */
 export interface WalkBudget {
   readonly operation: string
@@ -98,7 +97,6 @@ const layout = (node: Node): Layout => {
   return { times, entries, body, length }
 }
 
-// The length of the preimage a node's digest covers.
 /** @internal */
 export const nodeBytes = (node: Node): number => layout(node).length
 
@@ -150,7 +148,6 @@ export const meter = (budget: WalkBudget): Meter => {
   }
 }
 
-// One node's digest, given its children's.
 /** @internal */
 export const nodeDigest = Effect.fnUntraced(function*(node: Node, childDigest: (ino: Ino) => Uint8Array, meter: Meter) {
   const crypto = yield* Crypto.Crypto

@@ -25,7 +25,6 @@ import * as Image from "./image.js"
 import * as InodeTable from "./inodeTable.js"
 import * as Merkle from "./merkle.js"
 import { StoredMetadata } from "./metadata.js"
-import * as Content from "./overlayContent.js"
 import { isAttachedBytes, isNameBytes, joinPath, nameBytes, NUL_BYTE, ROOT_PATH, SLASH_BYTE } from "./path.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
 import { UNCHECKED } from "./tree.js"
@@ -421,7 +420,6 @@ interface Found {
 
 type DirectoryNode = Node & { readonly kind: "directory" }
 
-// The node a path names, walking directories from the root.
 const lookup = (
   get: (ino: Ino) => Node | undefined,
   entriesOf: (directory: DirectoryNode) => ReadonlyMap<string, Ino>,
@@ -762,7 +760,7 @@ const fold = (
         put(
           ino,
           DeltaNode.guards.file(node)
-            ? { kind: "file", ino, data: Content.make(bytes), links: [link], metadata: counted, revision }
+            ? { kind: "file", ino, data: bytes, links: [link], metadata: counted, revision }
             : { kind: "symlink", ino, target: bytes, links: [link], metadata: counted, revision }
         )
         payloadBytes += bytes.length
@@ -954,7 +952,6 @@ export const diffSnapshots = Effect.fnUntraced(function*(base: Snapshot, target:
 
 const [AddedSummary, RemovedSummary, UpdatedSummary] = SnapshotChange.members
 
-// The public summary of a change: its path as an owned byte path, without the node it carries.
 const publicChange = (change: Change, options: SnapshotChangesOptions): SnapshotChange | undefined => {
   const path = makeBytePath(CanonicalBase64.toBytes(change.path))
 

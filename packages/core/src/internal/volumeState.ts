@@ -5,7 +5,6 @@ import * as Effect from "effect/Effect"
 import type { Metadata } from "../Metadata.js"
 import * as InodeTable from "./inodeTable.js"
 import type { StoredMetadata } from "./metadata.js"
-import * as Content from "./overlayContent.js"
 
 // An inode number: monotonic within a volume, never reused, and persisted by the snapshot and the live image. A
 // number keys the inode table more cheaply than a bigint; the public metadata still reports it as one.
@@ -22,6 +21,10 @@ export const ROOT_INO = Ino(1)
 // since the inode table is keyed by a number.
 /** @internal */
 export const MAX_INO = Number.MAX_SAFE_INTEGER - 1
+
+// File sizes fit an unsigned 32-bit count in the volume and its public options.
+/** @internal */
+export const MAX_FILE_BYTES = 0xffffffff
 
 // Nodes walked between yields. Whole-tree reads are one synchronous tick otherwise, which
 // starves the event loop and leaves nothing for interruption to act on.
@@ -56,7 +59,7 @@ export interface Directory {
 export interface RegularFile {
   readonly kind: "file"
   readonly ino: Ino
-  readonly data: Content.Content
+  readonly data: Uint8Array
   readonly links: ReadonlyArray<Link>
   readonly metadata: NodeMetadata
   readonly revision: bigint
@@ -114,10 +117,9 @@ const inEntryOrder = (directory: Directory): Directory =>
     ? directory
     : { ...directory, entries: new Map([...directory.entries].sort(byEntryName)) }
 
-// A file's content or a symbolic link's target; a directory has none.
 /** @internal */
 export const payloadOf = (node: Node): Uint8Array | undefined =>
-  node.kind === "file" ? node.data.bytes : node.kind === "symlink" ? node.target : undefined
+  node.kind === "file" ? node.data : node.kind === "symlink" ? node.target : undefined
 
 /** @internal */
 export const directoryMetadata = (
@@ -140,7 +142,6 @@ export const directoryMetadata = (
   birthtimeNs: now
 })
 
-// The root of a volume that starts empty.
 /** @internal */
 export const emptyRoot = (now: bigint): Directory => ({
   kind: "directory",
@@ -190,7 +191,6 @@ export const reachableNodes = Effect.fnUntraced(function*(state: VolumeState) {
   return nodes
 })
 
-// A node at the first revision, copied only when it is at another.
 const atFirstRevision = (node: Node): Node => node.revision === 1n ? node : { ...node, revision: 1n }
 
 // A value holding only what a name reaches, and the size of its largest file. A captured value keeps unlinked
@@ -219,8 +219,8 @@ export const reachableValue = Effect.fnUntraced(function*(source: VolumeState) {
     if (node.kind === "directory") entries += node.entries.size
     else if (node.kind === "symlink") usedBytes += BigInt(node.target.length)
     else {
-      usedBytes += BigInt(node.data.bytes.length)
-      largestFile = Math.max(largestFile, node.data.bytes.length)
+      usedBytes += BigInt(node.data.length)
+      largestFile = Math.max(largestFile, node.data.length)
     }
   }
 
@@ -322,7 +322,7 @@ export const assemble = (specs: ReadonlyArray<NodeSpec>): VolumeState => {
       ? {
         kind: "file",
         ino: spec.ino,
-        data: Content.make(spec.data),
+        data: spec.data,
         links: spec.links,
         metadata: { ...base, nlink: spec.links.length, size: BigInt(spec.data.length) },
         revision: spec.revision

@@ -31,16 +31,16 @@ describe("overlay base sharing", () => {
         yield* b.chmod("/file", 0o600)
         assert.strictEqual(yield* Image.valueOf(base), first)
 
-        // Deliberately violate the private immutable-payload convention to prove an untouched workspace still
+        // Deliberately violate the private immutable-buffer convention to prove an untouched workspace still
         // reads the base value's exact payload while a promoted one holds its own.
         // SAFETY: the base value's inode shapes are private; the test reaches the file payload through them.
         const rootNode = InodeTable.get(first.inodes, 1) as { entries: ReadonlyMap<string, number> } | undefined
         const fileIno = rootNode?.entries.get(Encoding.encodeHex(new TextEncoder().encode("file")))
         assert.isDefined(fileIno)
         // SAFETY: as above.
-        const fileNode = InodeTable.get(first.inodes, fileIno) as { data: { bytes: Uint8Array } } | undefined
+        const fileNode = InodeTable.get(first.inodes, fileIno) as { data: Uint8Array } | undefined
         assert.isDefined(fileNode)
-        fileNode.data.bytes[0] = 9
+        fileNode.data[0] = 9
         assert.deepStrictEqual(yield* a.readFile("/file"), new Uint8Array([7, 2, 3]))
         assert.deepStrictEqual(yield* b.readFile("/file"), new Uint8Array([9, 2, 3]))
         assert.strictEqual((yield* b.stat("/file")).mode, 0o600)
