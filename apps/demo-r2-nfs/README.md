@@ -11,7 +11,7 @@ The storage layout is different. The Cloudflare example exposes bucket objects a
 3. [`container-http.ts`](src/container-http.ts) defines four Effect `HttpApi` routes. Their handlers use Effect's host `FileSystem` service through the mounted path.
 4. [`container-worker.ts`](src/container-worker.ts) checks a bearer token and forwards requests to one named container.
 
-The [Dockerfile](../../Dockerfile.r2-nfs-container) installs the Linux NFS client. The Worker and Container configuration is in [`wrangler.jsonc`](wrangler.jsonc).
+The [Dockerfile](Dockerfile) installs the Linux NFS client. The Worker and Container configuration is in [`wrangler.jsonc`](wrangler.jsonc). Wrangler builds the image with the repository root as its Docker context so the workspace packages are available.
 
 | Method | Path                         | Action                                                            |
 | ------ | ---------------------------- | ----------------------------------------------------------------- |
@@ -31,7 +31,7 @@ cp apps/demo-r2-nfs/.env.example apps/demo-r2-nfs/.env
 Set the R2 endpoint, bucket, key, and API credentials in `.env`. Keep the credentials out of Git. Then build and start the container:
 
 ```sh
-docker build -f Dockerfile.r2-nfs-container -t effect-vfs-r2-nfs .
+docker build -f apps/demo-r2-nfs/Dockerfile -t effect-vfs-r2-nfs .
 docker run --init --name effect-vfs-r2-nfs --cap-add SYS_ADMIN \
   --env-file apps/demo-r2-nfs/.env -p 127.0.0.1:8080:8080 effect-vfs-r2-nfs
 ```

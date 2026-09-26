@@ -30,7 +30,7 @@ sources:
     resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: Separate server and storage generations
   - id: evidence
-    resource: ../../../packages/core/test/VolumeFacts.test.ts
+    resource: ../../../packages/core/test/Volume.test.ts
     title: Volume durability and identity behavior tests
   - id: rfc8881
     resource: https://www.rfc-editor.org/rfc/rfc8881.html

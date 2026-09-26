@@ -12,16 +12,16 @@ sources:
     resource: ../../../packages/core/src/internal/virtualFileSystem.ts
     title: changeAttributes, the one body behind setattr, chmod, chown, utimes and truncate
   - id: families
-    resource: ../../../packages/core/test/OperationFamilies.test.ts
+    resource: ../../../packages/core/test/behaviour/operations.test.ts
     title: setattr check-order rows for both families
   - id: tests
-    resource: ../../../packages/core/test/Setattr.test.ts
+    resource: ../../../packages/core/test/VirtualFileSystem.test.ts
     title: Field naming, atomicity, one revision, one event and the set-ID case
   - id: nfs
     resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: SETATTR over one setattr call, sanitised as knfsd nfsd_sanitize_attrs
   - id: nfs-tests
-    resource: ../../../packages/nfs/test/NfsSetattr.test.ts
+    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
     title: All-or-nothing attrsset, set-ID clearing with an owner change, unchanged owners, and the chown race
   - id: knfsd
     resource: https://github.com/torvalds/linux/blob/master/fs/nfsd/vfs.c

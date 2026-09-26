@@ -11,11 +11,11 @@ sources:
     title: Core virtual filesystem API and implementation
   - resource: ../../packages/core/test/BytePath.test.ts
     title: Byte path value behavior tests
-  - resource: ../../packages/core/test/Links.test.ts
+  - resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Link and path-resolution behavior tests
-  - resource: ../../packages/core/test/Namespace.test.ts
+  - resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Namespace behavior tests
-  - resource: ../../packages/core/test/OperationFamilies.test.ts
+  - resource: ../../packages/core/test/behaviour/operations.test.ts
     title: Side-by-side path and reference outcomes
 generated: { by: claude/okf, at: "2026-09-25T22:30:00+02:00" }
 ---

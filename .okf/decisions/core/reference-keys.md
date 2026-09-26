@@ -18,13 +18,13 @@ sources:
     resource: ../../../packages/core/src/internal/tree.ts
     title: The live runtime block's epoch and key secret
   - id: tests
-    resource: ../../../packages/core/test/ReferenceKey.test.ts
+    resource: ../../../packages/core/test/Volume.test.ts
     title: Round trip, aliases, lifetime, refusals, forged keys, restores and overlays, live reopen, two opens of one image
   - id: export
     resource: ../../../packages/nfs/src/internal/export.ts
     title: Key-encoded filehandles and their failures
   - id: nfs-tests
-    resource: ../../../packages/nfs/test/Filehandles.test.ts
+    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
     title: Handle layout, restart over a durable volume, STALE and FHEXPIRED, forged handles, PUTFH's status list
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/201

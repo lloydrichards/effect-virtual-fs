@@ -9,34 +9,34 @@ sources:
     resource: ../../.github/workflows/pr-validation.yml
     title: Pull request validation workflow
   - id: core-regressions
-    resource: ../../packages/core/test/Replacement.test.ts
+    resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Core replacement regression tests
   - id: snapshot-decoding
-    resource: ../../packages/core/test/SnapshotDecoding.test.ts
+    resource: ../../packages/core/test/Snapshot.test.ts
     title: Snapshot decoding regression tests
   - id: adapter-regressions
-    resource: ../../packages/memory/test/AdapterCompatibility.test.ts
+    resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Adapter compatibility regression tests
   - id: timestamp-regressions
-    resource: ../../packages/memory/test/Timestamp.test.ts
+    resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Adapter timestamp regression tests
   - id: persistence-tests
     resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Checkpoint behavior tests
   - id: persistence-restart
-    resource: ../../packages/persistence/test/Restart.test.ts
+    resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Separate-process restart test
   - id: virtual-build-tests
     resource: ../../apps/virtual-build/test/VirtualBuild.test.ts
     title: Public-package virtual build tests
   - id: overlay-tests
-    resource: ../../packages/core/test/Overlay.test.ts
+    resource: ../../packages/core/test/behaviour/overlay.test.ts
     title: Overlay workspace tests
   - id: delta-tests
     resource: ../../packages/core/test/SnapshotDelta.test.ts
     title: Snapshot delta tests
   - id: overlay-checkpoint-tests
-    resource: ../../packages/persistence/test/OverlayCheckpoint.test.ts
+    resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Overlay checkpoint tests
 generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 ---

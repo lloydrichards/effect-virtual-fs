@@ -19,17 +19,17 @@ sources:
     title: Tree transfer engine used by copy
   - resource: ../../packages/memory/src/internal/platformError.ts
     title: Core-to-Effect error translation
-  - resource: ../../packages/memory/test/AdapterCompatibility.test.ts
+  - resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Effect compatibility tests
-  - resource: ../../packages/memory/test/CoreBinding.test.ts
+  - resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Shared core binding tests
   - id: adapter-tests
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Adapter behavior tests
-  - resource: ../../packages/memory/test/ErrorMapping.test.ts
+  - resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Error mapping regressions
   - id: overlay-binding
-    resource: ../../packages/memory/test/OverlayBinding.test.ts
+    resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Overlay volume binding tests
 generated: { by: claude-code, at: "2026-09-26T13:25:00+02:00" }
 ---

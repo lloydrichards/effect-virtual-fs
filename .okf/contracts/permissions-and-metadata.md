@@ -9,7 +9,7 @@ sources:
     title: Identity, access, and metadata implementation
   - resource: ../../packages/core/test/Metadata.test.ts
     title: Permission and metadata behavior tests
-  - resource: ../../packages/memory/test/Timestamp.test.ts
+  - resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Adapter timestamp boundary tests
   - resource: ../../packages/core/src/VfsError.ts
     title: AccessDenied and NotPermitted codes

@@ -15,7 +15,7 @@ sources:
     resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Checkpoint behavior tests
   - id: restart-test
-    resource: ../../packages/persistence/test/Restart.test.ts
+    resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Separate-process restart test
 generated: { by: codex/okf, at: "2026-09-18T06:16:53Z" }
 ---

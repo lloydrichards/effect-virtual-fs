@@ -18,7 +18,7 @@ sources:
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Tree transfer behavior tests
   - id: host-tests
-    resource: ../../packages/memory/test/TreeTransferFileSystem.test.ts
+    resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Host filesystem round-trip tests
 generated: { by: claude/okf, at: "2026-09-26T10:40:00+02:00" }
 ---

@@ -7,11 +7,11 @@ tags: [files, io, handles]
 sources:
   - resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Core file and handle implementation
-  - resource: ../../packages/core/test/File.test.ts
+  - resource: ../../packages/core/test/FileHandle.test.ts
     title: Regular-file behavior tests
-  - resource: ../../packages/core/test/WholeFile.test.ts
+  - resource: ../../packages/core/test/FileHandle.test.ts
     title: Whole-file behavior tests
-  - resource: ../../packages/core/test/ReferenceMutation.test.ts
+  - resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Reference-open and child-create behavior tests
 generated: { by: codex/okf, at: 2026-09-20T10:18:00Z }
 ---

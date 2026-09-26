@@ -21,10 +21,10 @@ sources:
     resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: NFS operation decoder and dispatcher
   - id: namespace-tests
-    resource: ../../../packages/nfs/test/NfsNamespace.test.ts
+    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
     title: Namespace wire tests
   - id: setattr-tests
-    resource: ../../../packages/nfs/test/NfsSetattr.test.ts
+    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
     title: Metadata wire tests
 generated: { by: codex/okf, at: 2026-09-20T12:11:27Z }
 ---

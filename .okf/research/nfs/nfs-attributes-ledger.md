@@ -15,7 +15,7 @@ sources:
     resource: ../../../packages/nfs/src/internal/export.ts
     title: Filehandle and fsid construction
   - id: tests
-    resource: ../../../packages/nfs/test/Nfs4.test.ts
+    resource: ../../../packages/nfs/test/internal/nfs4.test.ts
     title: Protocol behavior tests including every advertised attribute
   - id: core
     resource: ../../../packages/core/src/VirtualFileSystem.ts

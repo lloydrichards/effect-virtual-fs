@@ -21,13 +21,13 @@ sources:
     resource: ../../../packages/memory/src/internal/memoryFileSystem.ts
     title: FileSystem.watch over a scoped core watch
   - id: tests
-    resource: ../../../packages/core/test/ScopedWatch.test.ts
+    resource: ../../../packages/core/test/Watch.test.ts
     title: Subtree, depth, renames, moves, scope end, and rejected scopes
   - id: bounded-tests
-    resource: ../../../packages/core/test/WatchBounded.test.ts
+    resource: ../../../packages/core/test/Watch.test.ts
     title: Scoped subscriber under an out-of-scope flood, a scoped Rescan, and the scope's removal at the last slot
   - id: adapter-tests
-    resource: ../../../packages/memory/test/CoreBinding.test.ts
+    resource: ../../../packages/memory/test/MemoryFileSystem.test.ts
     title: Ancestor rename, a watched file followed across renames and hidden from its other hard links, end of an adapter watch, and changes that land as it opens
   - id: adapter-alias-tests
     resource: ../../../packages/memory/test/MemoryFileSystem.test.ts

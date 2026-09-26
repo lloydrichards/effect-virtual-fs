@@ -9,7 +9,7 @@ sources:
     title: Volume options and quota implementation
   - resource: ../../packages/core/src/Snapshot.ts
     title: Snapshot decode limits
-  - resource: ../../packages/core/test/File.test.ts
+  - resource: ../../packages/core/test/FileHandle.test.ts
     title: File quota behavior tests
 generated: { by: codex/okf, at: 2026-09-19T09:08:16Z }
 ---

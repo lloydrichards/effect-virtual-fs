@@ -15,16 +15,16 @@ sources:
     resource: ../../../packages/core/src/internal/virtualFileSystem.ts
     title: walkChildren, reachFrame, walkFrames, makeDirectories, the lookup createMissing option, and emptyDirectory
   - id: walk-tests
-    resource: ../../../packages/core/test/Walk.test.ts
+    resource: ../../../packages/core/test/behaviour/walk.test.ts
     title: Order, bounds in both orders, links, vanished and renamed directories and roots, permissions, and access times
   - id: mkdir-tests
-    resource: ../../../packages/core/test/MkdirRecursive.test.ts
+    resource: ../../../packages/core/test/VirtualFileSystem.test.ts
     title: One change, partway failure, dots, links, and modes
   - id: remove-tests
-    resource: ../../../packages/core/test/RemoveRecursive.test.ts
+    resource: ../../../packages/core/test/VirtualFileSystem.test.ts
     title: Post-order removal, first failure, denied directories, a subtree or the target renamed out, a replacement, and force
   - id: families
-    resource: ../../../packages/core/test/OperationFamilies.test.ts
+    resource: ../../../packages/core/test/behaviour/operations.test.ts
     title: Recursive mkdir and remove rows for both addressing families
   - id: adapter
     resource: ../../../packages/memory/src/internal/treeOperations.ts

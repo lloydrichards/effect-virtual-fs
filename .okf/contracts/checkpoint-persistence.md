@@ -9,7 +9,7 @@ sources:
     title: Checkpoint store implementation
   - resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Checkpoint behavior tests
-  - resource: ../../packages/persistence/test/Restart.test.ts
+  - resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Separate-process restart test
 generated: { by: claude/okf, at: "2026-09-26T14:30:00+02:00" }
 ---
