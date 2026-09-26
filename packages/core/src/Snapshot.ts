@@ -1,9 +1,11 @@
 /**
  * Opaque virtual filesystem snapshots and their decoding limits.
  *
- * Snapshots contain a volume's reachable namespace and metadata, but exclude
- * callers, open handles, watch subscriptions, and unlinked content. Use the
- * encoding, decoding, and restoration functions in `VirtualFileSystem`.
+ * A snapshot is the immutable value of a volume at one committed state, so
+ * capturing one copies nothing. It holds the reachable namespace and metadata,
+ * but excludes callers, open handles, watch subscriptions, and unlinked
+ * content. Use the encoding, decoding, and restoration functions in
+ * `VirtualFileSystem`.
  *
  * @since 0.1.0
  */
@@ -71,11 +73,11 @@ export interface Snapshot {
 export const DecodeLimits = Schema.Struct({
   /** Maximum accepted encoded input length in bytes. */
   maxEncodedBytes: Schema.ByteSize,
-  /** Maximum number of stored metadata and content records. */
+  /** Maximum number of stored objects, one node each, the root included. */
   maxRecords: Schema.Natural,
-  /** Maximum number of namespace entries. */
+  /** Maximum number of namespace entries, counting every name of a hard-linked file. */
   maxEntries: Schema.Natural,
-  /** Maximum combined decoded byte content. */
+  /** Maximum combined decoded bytes of names, file contents and symbolic-link targets. */
   maxDecodedBytes: Schema.ByteSize
 })
 
