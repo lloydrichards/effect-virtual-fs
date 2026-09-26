@@ -608,6 +608,7 @@ export declare const toCaller: (
 **Example**
 
 ```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { TreeTransfer } from "@effect-vfs/memory"
 import { Effect, Stream } from "effect"
@@ -631,7 +632,7 @@ const program = Effect.gen(function* () {
   return [report.files, listing.value.map((entry) => new TextDecoder().decode(entry.name))]
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 1, [ 'a.txt' ] ]
 ```
 
@@ -664,6 +665,7 @@ export declare const toFileSystem: (
 **Example**
 
 ```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem, TreeTransfer } from "@effect-vfs/memory"
 import { Effect, Stream } from "effect"
@@ -682,7 +684,7 @@ const program = Effect.gen(function* () {
   return yield* fs.readFileString("/out/app.js")
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // run()
 ```
 
@@ -706,12 +708,13 @@ memory until the volume is built.
 export declare const toVolume: <E, R>(
   entries: Stream.Stream<Entry, E, R>,
   options?: VolumeTransferOptions
-) => Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R>
+) => Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R | Crypto.Crypto>
 ```
 
 **Example**
 
 ```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { TreeTransfer } from "@effect-vfs/memory"
 import { Effect } from "effect"
@@ -730,7 +733,7 @@ const program = Effect.gen(function* () {
   return listing.value.map((entry) => new TextDecoder().decode(entry.name))
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ 'app.js' ]
 ```
 
@@ -765,6 +768,7 @@ export declare const fromCaller: (
 **Example**
 
 ```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { TreeTransfer } from "@effect-vfs/memory"
 import { Effect, Stream } from "effect"
@@ -781,7 +785,7 @@ const program = Effect.gen(function* () {
   return entries.map((entry) => entry.path)
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ '/', '/a.txt' ]
 ```
 
@@ -814,6 +818,7 @@ export declare const fromFileSystem: (
 **Example**
 
 ```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { MemoryFileSystem, TreeTransfer } from "@effect-vfs/memory"
 import { Effect, Stream } from "effect"
 
@@ -827,7 +832,7 @@ const program = Effect.gen(function* () {
   return entries.map((entry) => entry.path)
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // [ '/', '/a.txt' ]
 ```
 
@@ -859,6 +864,7 @@ export declare const fromSnapshot: (
 **Example**
 
 ```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { TreeTransfer } from "@effect-vfs/memory"
 import { Effect, Stream } from "effect"
@@ -870,7 +876,7 @@ const program = Effect.gen(function* () {
   return entries.length
 })
 
-Effect.runPromise(program).then(console.log)
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
 // 1
 ```
 
