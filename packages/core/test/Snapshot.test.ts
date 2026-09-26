@@ -11,8 +11,6 @@ const limits = {
   maxDecodedBytes: ByteSize.kilobytes(100)
 }
 
-const encode = (value: typeof Schema.Unknown.Type) => new TextEncoder().encode(JSON.stringify(value))
-
 const MutableMetadata = Schema.Struct({
   uid: Schema.mutableKey(Schema.Finite),
   gid: Schema.Finite,
@@ -54,6 +52,7 @@ const SnapshotJson = Schema.fromJsonString(Schema.Struct({
   extra: Schema.mutableKey(Schema.optionalKey(Schema.Boolean))
 }))
 
+import { documentText, toLines as encode } from "./support/lines.js"
 import { entryNames, text } from "./support/text.js"
 
 describe("fixtures and snapshots", () => {
@@ -79,7 +78,7 @@ describe("fixtures and snapshots", () => {
 
           const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: input }] })
           const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
-          const document = yield* Schema.decodeEffect(SnapshotJson)(new TextDecoder().decode(encoded))
+          const document = yield* Schema.decodeEffect(SnapshotJson)(documentText(encoded))
           assert.strictEqual(
             document.nodes[1].content.bytes,
             "AP9/".repeat(8_192) + suffix
@@ -189,7 +188,7 @@ describe("fixtures and snapshots", () => {
       const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([102]) }] })
 
       const original = yield* Schema.decodeEffect(SnapshotJson)(
-        new TextDecoder().decode(yield* Vfs.encodeSnapshot(yield* volume.snapshot))
+        documentText(yield* Vfs.encodeSnapshot(yield* volume.snapshot))
       )
 
       assert.deepStrictEqual(original.nodes.map((node) => node._tag), ["directory", "file"])
@@ -286,7 +285,7 @@ describe("fixtures and snapshots", () => {
       const normalized = yield* Vfs.decodeSnapshot(encode(alternateTimestamp), limits)
 
       const normalizedImage = yield* Schema.decodeEffect(SnapshotJson)(
-        new TextDecoder().decode(yield* Vfs.encodeSnapshot(normalized))
+        documentText(yield* Vfs.encodeSnapshot(normalized))
       )
 
       assert.strictEqual(normalizedImage.nodes[1].metadata.mtimeNs, "1")

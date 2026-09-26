@@ -1,16 +1,16 @@
-// Snapshots: the opaque handle over a volume value, and its encoding as a tree document.
-import * as ByteSize from "effect/ByteSize"
+// Snapshots: the opaque handle over a volume value, and its encoding as the lines of a tree.
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import { type DecodeLimits, type Snapshot, SnapshotTypeId } from "../Snapshot.js"
+import type * as Sink from "effect/Sink"
+import * as Stream from "effect/Stream"
+import { type Snapshot, SnapshotTypeId } from "../Snapshot.js"
 import type { ImageFailure } from "../VfsError.js"
-import { type Budget, BudgetFromDecodeLimits } from "./budget.js"
-import { decodeUtf8 } from "./bytes.js"
-import { CanonicalBase64 } from "./canonicalBase64.js"
-import { decodeConfiguration, imageFailure } from "./errors.js"
+import type { Budget } from "./budget.js"
+import { imageFailure } from "./errors.js"
+import * as Lines from "./lines.js"
 import * as Tree from "./tree.js"
-import type { VolumeState } from "./volumeState.js"
+import { assemble, type VolumeState } from "./volumeState.js"
 
 // A snapshot is the volume value it was captured from. The value is immutable, so capture shares it rather than
 // copying it, and the private field keeps it out of reach of anything but this module.
@@ -40,99 +40,51 @@ export const valueOf = (snapshot: Snapshot): Effect.Effect<VolumeState, ImageFai
       : Effect.succeed(value)
   })
 
-const VersionProbe = Schema.Struct({
-  format: Schema.Literal("effect-vfs"),
-  version: Schema.Unknown
-})
+// The header holds only literals, so its text is fixed.
+const HEADER = JSON.stringify(Tree.SnapshotHeader.make({ format: "effect-vfs", version: 1 }))
 
-const JsonTree = Schema.fromJsonString(Tree.Tree)
+const nodeText = Schema.encodeResult(Schema.fromJsonString(Tree.TreeNode))
 
-// The tree's shape alone: its graph rules are checked once the budgets have accepted it.
-const decodeTree = Schema.decodeUnknownEffect(Tree.Tree, { onExcessProperty: "error" })
+// With a budget, the encoder charges every line as a decoder under that budget would, and fails where the decoder
+// would refuse, so the bytes it produces decode under the budget without being decoded to find out.
+/** @internal */
+export const encodeSnapshotStream = (
+  snapshot: Snapshot,
+  budget?: Budget
+): Stream.Stream<Uint8Array, ImageFailure> =>
+  Stream.unwrap(Effect.gen(function*() {
+    const nodes = yield* Tree.treeNodes(yield* valueOf(snapshot))
+    const operation = "encodeSnapshot"
 
-const encoder = new TextEncoder()
-
-// Counts what restoring a tree would hold against the budgets, from the base64 lengths alone.
-const withinBudget = Effect.fnUntraced(function*(tree: Tree.Tree, budget: Budget) {
-  if (tree.nodes.length > budget.records) {
-    return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "records" })
-  }
-
-  let entries = 0
-  let decoded = ByteSize.zero
-
-  const charge = (value: typeof CanonicalBase64.Encoded.Type) => {
-    decoded = ByteSize.sum(decoded, ByteSize.bytes(CanonicalBase64.decodedLength(value)))
-  }
-
-  for (const [index, node] of tree.nodes.entries()) {
-    const linkNames = (links: ReadonlyArray<{ readonly name: typeof CanonicalBase64.Encoded.Type }>) =>
-      links.map((link) => link.name)
-
-    const [names, payload] = Tree.TreeNode.match(node, {
-      directory: (directory) => [index === 0 ? [] : [directory.name], undefined] as const,
-      file: (file) => [linkNames(file.links), Tree.inlineBytes(file.content)] as const,
-      symlink: (symlink) => [linkNames(symlink.links), symlink.target] as const
-    })
-
-    entries += names.length
-
-    for (const name of names) charge(name)
-
-    if (payload !== undefined) charge(payload)
-  }
-
-  if (entries > budget.entries) return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "entries" })
-
-  if (ByteSize.isGreaterThan(decoded, budget.decodedBytes)) {
-    return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "bytes" })
-  }
-})
+    return Tree.writeTree({
+      operation,
+      documentField: "text",
+      header: HEADER,
+      node: Tree.treeNode,
+      text: nodeText,
+      meter: budget === undefined ? undefined : Tree.meter(budget, operation)
+    }, nodes)
+  }))
 
 /** @internal */
-export const encodeSnapshot = Effect.fn("VirtualFileSystem.encodeSnapshot")(function*(snapshot: Snapshot) {
-  const nodes = yield* Tree.treeNodes(yield* valueOf(snapshot))
-  const tree: Tree.Tree = { format: "effect-vfs", version: 1, nodes: nodes.map(Tree.treeNode) }
-
-  const text = yield* Schema.encodeEffect(JsonTree)(tree).pipe(
-    Effect.mapError((cause) => imageFailure("decodeSnapshot", "InvalidStructure", { field: "text", cause }))
-  )
-
-  return encoder.encode(text)
-})
+export const encodeSnapshot = (snapshot: Snapshot, budget?: Budget): Effect.Effect<Uint8Array, ImageFailure> =>
+  Lines.collect(encodeSnapshotStream(snapshot, budget))
 
 /** @internal */
-export const decodeSnapshot = Effect.fn("VirtualFileSystem.decodeSnapshot")(
-  function*(input: Uint8Array, limits: DecodeLimits) {
-    const budget = yield* Effect.fromResult(decodeConfiguration(BudgetFromDecodeLimits, limits, "decodeSnapshot"))
+export const decodeSnapshotSink = (budget: Budget): Sink.Sink<Snapshot, Uint8Array, never, ImageFailure> => {
+  const operation = "decodeSnapshot"
 
-    if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) {
-      return yield* imageFailure("decodeSnapshot", "InvalidEncoding", { field: "input" })
+  return Lines.sink({ operation, inputField: "input", textField: "text" }, () => {
+    const meter = Tree.meter(budget, operation)
+    const reader = Tree.snapshotReader({ operation, documentField: "document", meter })
+
+    return {
+      meter,
+      fold: { line: reader.line, end: () => Result.map(reader.end(), (read) => make(assemble(read.specs))) }
     }
+  })
+}
 
-    if (ByteSize.isGreaterThan(ByteSize.bytes(input.byteLength), budget.encodedBytes)) {
-      return yield* imageFailure("decodeSnapshot", "LimitExceeded", { field: "encodedBytes" })
-    }
-
-    const text = yield* decodeUtf8(
-      input,
-      (cause) => imageFailure("decodeSnapshot", "InvalidEncoding", { field: "text", cause })
-    )
-
-    const value = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
-      Effect.mapError((cause) => imageFailure("decodeSnapshot", "InvalidEncoding", { field: "text", cause }))
-    )
-
-    const version = Schema.decodeUnknownResult(VersionProbe)(value)
-
-    if (Result.isSuccess(version) && version.success.version !== 1) {
-      return yield* imageFailure("decodeSnapshot", "UnsupportedVersion", { field: "version" })
-    }
-
-    const tree = yield* Effect.mapError(decodeTree(value), Tree.decodeFailure("decodeSnapshot", "document"))
-    yield* withinBudget(tree, budget)
-    yield* Tree.checkGraph(tree, "decodeSnapshot")
-
-    return make(yield* Tree.toValue(tree.nodes, "decodeSnapshot"))
-  }
-)
+/** @internal */
+export const decodeSnapshot = (input: Uint8Array, budget: Budget): Effect.Effect<Snapshot, ImageFailure> =>
+  Stream.run(Stream.succeed(input), decodeSnapshotSink(budget))

@@ -40,18 +40,27 @@ export interface Snapshot {
 /**
  * Schema for the mandatory resource limits applied while decoding a snapshot.
  *
+ * **Details**
+ *
+ * A snapshot is encoded one line per node, and a decoder checks each line as
+ * it ends, so input that breaks a limit is refused before the decoder holds
+ * more than one line of it. `maxLineBytes` bounds that line; the other limits
+ * bound what the accepted lines add up to.
+ *
  * @example
  * ```ts
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { ByteSize, Effect } from "effect"
  *
- * // All four are required: each bounds a different resource. `maxEncodedBytes`
+ * // The four counts are required: each bounds a different resource. `maxEncodedBytes`
  * // caps the wire payload before parsing; `maxDecodedBytes` caps memory after it.
+ * // `maxLineBytes` is optional and caps one line, which holds at most one file.
  * const limits: Vfs.DecodeLimits = {
  *   maxEncodedBytes: ByteSize.megabytes(4),
  *   maxRecords: 10_000,
  *   maxEntries: 10_000,
- *   maxDecodedBytes: ByteSize.megabytes(16)
+ *   maxDecodedBytes: ByteSize.megabytes(16),
+ *   maxLineBytes: ByteSize.megabytes(4)
  * }
  *
  * const program = Effect.gen(function*() {
@@ -78,7 +87,13 @@ export const DecodeLimits = Schema.Struct({
   /** Maximum number of namespace entries, counting every name of a hard-linked file. */
   maxEntries: Schema.Natural,
   /** Maximum combined decoded bytes of names, file contents and symbolic-link targets. */
-  maxDecodedBytes: Schema.ByteSize
+  maxDecodedBytes: Schema.ByteSize,
+  /**
+   * Maximum bytes of one line of the encoding, without its newline: the most a decoder holds before it can check
+   * what the line says. A file's line holds its whole content, so this also bounds the largest file. Defaults to
+   * `maxEncodedBytes`.
+   */
+  maxLineBytes: Schema.optionalKey(Schema.ByteSize)
 })
 
 /**

@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Encoding, Layer, Predicate, Schema, Stream } from "effect"
 import { BytePath, LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
+import { documentText, toLines } from "./support/lines.js"
 import { entryNames } from "./support/text.js"
 
 const LIMITS: Vfs.DecodeLimits = {
@@ -13,8 +14,6 @@ const LIMITS: Vfs.DecodeLimits = {
 const encoder = new TextEncoder()
 
 const bytes = (value: string) => encoder.encode(value)
-
-const json = (value: typeof Schema.Unknown.Type) => bytes(JSON.stringify(value))
 
 // A name that is not UTF-8, so no string path can reach it.
 const RAW_NAME = new Uint8Array([0xff, 0x41])
@@ -37,7 +36,7 @@ const SampleTree = Schema.fromJsonString(Schema.Struct({
   nodes: Schema.Array(Schema.Record(Schema.String, Schema.Unknown))
 }))
 
-const snapshotOf = (nodes: ReadonlyArray<object>) => json({ format: "effect-vfs", version: 1, nodes })
+const snapshotOf = (nodes: ReadonlyArray<object>) => toLines({ format: "effect-vfs", version: 1, nodes })
 
 // POSIX NAME_MAX, the longest name a directory holds.
 const NAME_MAX = 255
@@ -342,8 +341,8 @@ describe("snapshot decoding rejects hostile input", () => {
   const failure = (input: Uint8Array, limits: Vfs.DecodeLimits = LIMITS) =>
     Effect.map(Effect.flip(Vfs.decodeSnapshot(input, limits)), (error) => [error.code, error.field] as const)
 
-  // Both snapshot encodings open with the format and the version, so an edit of that prefix reaches either.
-  const PREFIX = "{\"format\":\"effect-vfs\",\"version\":1,"
+  // The header line holds the format and the version and nothing else.
+  const PREFIX = "{\"format\":\"effect-vfs\",\"version\":1"
 
   const withPrefix = (input: Uint8Array, prefix: string) => {
     const text = new TextDecoder().decode(input)
@@ -399,13 +398,13 @@ describe("snapshot decoding rejects hostile input", () => {
 
       for (const version of ["0", "2", "\"1\"", "null"]) {
         assert.deepStrictEqual(
-          yield* failure(withPrefix(encoded, `{"format":"effect-vfs","version":${version},`)),
+          yield* failure(withPrefix(encoded, `{"format":"effect-vfs","version":${version}`)),
           ["UnsupportedVersion", "version"]
         )
       }
 
       for (const value of ["[]", "null", "\"effect-vfs\"", "{\"format\":\"effect-vfs-live\",\"version\":1}"]) {
-        assert.strictEqual((yield* failure(bytes(value)))[0], "InvalidStructure")
+        assert.strictEqual((yield* failure(bytes(`${value}\n`)))[0], "InvalidStructure")
       }
     }))
 
@@ -414,7 +413,7 @@ describe("snapshot decoding rejects hostile input", () => {
       const encoded = yield* sample
 
       assert.deepStrictEqual(
-        yield* failure(withPrefix(encoded, `${PREFIX}"extra":true,`)),
+        yield* failure(withPrefix(encoded, `${PREFIX},"extra":true`)),
         ["InvalidStructure", "document"]
       )
     }))
@@ -468,7 +467,7 @@ describe("snapshot decoding rejects hostile input", () => {
 
   it.effect("names the directory or symbolic link below the root that breaks a graph rule", () =>
     Effect.gen(function*() {
-      const original = yield* Schema.decodeEffect(SampleTree)(new TextDecoder().decode(yield* sample))
+      const original = yield* Schema.decodeEffect(SampleTree)(documentText(yield* sample))
       const directory = original.nodes.findIndex((node, index) => index > 0 && Predicate.isTagged(node, "directory"))
       const symlink = original.nodes.findIndex(Predicate.isTagged("symlink"))
 
@@ -483,7 +482,7 @@ describe("snapshot decoding rejects hostile input", () => {
 
       for (const [index, edit, field] of mutations) {
         const nodes = original.nodes.map((node, at) => (at === index ? { ...node, ...edit } : node))
-        assert.deepStrictEqual(yield* failure(json({ ...original, nodes })), ["InvalidStructure", field])
+        assert.deepStrictEqual(yield* failure(toLines({ ...original, nodes })), ["InvalidStructure", field])
       }
     }))
 
@@ -519,7 +518,7 @@ describe("snapshot decoding rejects hostile input", () => {
 describe("restored inode numbers", () => {
   // A root holding a directory `d` and a file `d/f`, at the inode numbers given.
   const tree = (directory: number, file: number) =>
-    json({
+    toLines({
       format: "effect-vfs",
       version: 1,
       nodes: [
@@ -578,7 +577,7 @@ describe("restored inode numbers", () => {
 
   it.effect("refuses directories whose parents form a cycle nothing reaches", () =>
     Effect.gen(function*() {
-      const cycle = json({
+      const cycle = toLines({
         format: "effect-vfs",
         version: 1,
         nodes: [

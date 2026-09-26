@@ -1,14 +1,20 @@
-// The private image of a live volume: the snapshot's tree with every node's revision, the unlinked files still
-// held open, and a runtime block with the volume's identity, counters, limits and usage.
+// The private image of a live volume: the snapshot's tree with every node's revision and the unlinked files still
+// held open, after a first line that holds the header and the runtime block with the volume's identity, counters,
+// limits and usage. It is one document, so a store keeps it as one blob.
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
+import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 import type { VolumeLimits } from "../VirtualFileSystem.js"
 import type { VolumeIdentity } from "../Volume.js"
-import { decodeUtf8 } from "./bytes.js"
-import { imageFailure } from "./errors.js"
+import * as Lines from "./lines.js"
 import * as Tree from "./tree.js"
-import { getNode, Ino, type Node, type RegularFile, type VolumeState } from "./volumeState.js"
+import { assemble, getNode, Ino, type Node, type RegularFile, type VolumeState } from "./volumeState.js"
+
+const OPERATION = "openImage"
+
+const DOCUMENT_FIELD = "liveImage"
 
 // Open files that no name reaches any more; the live image keeps them until their final close.
 /** @internal */
@@ -25,7 +31,7 @@ export const retainedFiles = (state: VolumeState): Array<RegularFile> => {
 }
 
 /** @internal */
-export type StoredLimits = Tree.LiveTree["runtime"]["limits"]
+export type StoredLimits = Tree.Runtime["limits"]
 
 // What a reopened volume starts from: its value, its identity, and the limits it was opened with.
 /** @internal */
@@ -35,11 +41,9 @@ export interface Restored {
   readonly limits: StoredLimits
 }
 
-const JsonLiveTree = Schema.fromJsonString(Tree.LiveTree)
+const headerText = Schema.encodeResult(Schema.fromJsonString(Tree.LiveHeader))
 
-const decodeTree = Schema.decodeUnknownEffect(Tree.ValidLiveTree, { onExcessProperty: "error" })
-
-const encoder = new TextEncoder()
+const nodeText = Schema.encodeResult(Schema.fromJsonString(Tree.LiveTreeNode))
 
 const liveNode = (node: Node): Tree.LiveTreeNode => ({ ...Tree.treeNode(node), rev: node.revision })
 
@@ -56,7 +60,7 @@ export const encode = Effect.fnUntraced(function*(state: VolumeState, identity: 
 
   if (limits.maxPathBytes !== undefined) stored.maxPathBytes = ByteSize.toBigInt(limits.maxPathBytes)
 
-  const tree: Tree.LiveTree = {
+  const header = yield* Effect.fromResult(headerText({
     format: "effect-vfs-live",
     version: 1,
     runtime: {
@@ -65,48 +69,53 @@ export const encode = Effect.fnUntraced(function*(state: VolumeState, identity: 
       revision: state.revision,
       limits: stored,
       usage: { entries: state.entries, usedBytes: state.usedBytes }
-    },
-    nodes: nodes.map(liveNode)
-  }
-
-  const text = yield* Schema.encodeEffect(JsonLiveTree)(tree).pipe(
-    Effect.mapError((cause) => imageFailure("openImage", "InvalidStructure", { field: "liveImage", cause }))
+    }
+  })).pipe(
+    Effect.mapError((cause) => Tree.encodeFailure(OPERATION, DOCUMENT_FIELD, cause))
   )
 
-  return encoder.encode(text)
+  return yield* Lines.collect(Tree.writeTree({
+    operation: OPERATION,
+    documentField: DOCUMENT_FIELD,
+    header,
+    node: liveNode,
+    text: nodeText,
+    meter: undefined
+  }, nodes))
+})
+
+// A live image holds no more than its bytes, and its runtime block bounds the rest, so the store's byte bound is
+// the only budget a reader applies to it.
+const imageBudget = (maxEncodedBytes: ByteSize.ByteSize) => ({
+  encodedBytes: maxEncodedBytes,
+  lineBytes: maxEncodedBytes,
+  decodedBytes: maxEncodedBytes,
+  records: Number.MAX_SAFE_INTEGER,
+  entries: Number.MAX_SAFE_INTEGER
 })
 
 /** @internal */
-export const decode = Effect.fnUntraced(function*(bytes: Uint8Array, maxEncodedBytes: ByteSize.ByteSize) {
-  if (!(bytes instanceof Uint8Array) || !(bytes.buffer instanceof ArrayBuffer)) {
-    return yield* imageFailure("openImage", "InvalidEncoding", { field: "liveImage" })
-  }
+export const decode = (bytes: Uint8Array, maxEncodedBytes: ByteSize.ByteSize) =>
+  Stream.run(
+    Stream.succeed(bytes),
+    Lines.sink({ operation: OPERATION, inputField: DOCUMENT_FIELD, textField: DOCUMENT_FIELD }, () => {
+      const reader = Tree.liveReader({ operation: OPERATION, documentField: DOCUMENT_FIELD })
 
-  if (ByteSize.isGreaterThan(ByteSize.bytes(bytes.byteLength), maxEncodedBytes)) {
-    return yield* imageFailure("openImage", "LimitExceeded", { field: "encodedBytes" })
-  }
+      return {
+        meter: Tree.meter(imageBudget(maxEncodedBytes), OPERATION),
+        fold: {
+          line: reader.line,
+          end: () =>
+            Result.map(reader.end(), ({ header: { runtime }, specs }): Restored => {
+              const value = assemble(specs)
 
-  const text = yield* decodeUtf8(
-    bytes,
-    (cause) => imageFailure("openImage", "InvalidEncoding", { field: "liveImage", cause })
+              return {
+                value: { ...value, nextInode: Ino(runtime.nextInode), revision: runtime.revision },
+                identity: runtime.identity,
+                limits: runtime.limits
+              }
+            })
+        }
+      }
+    })
   )
-
-  const parsed = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
-    Effect.mapError((cause) => imageFailure("openImage", "InvalidEncoding", { field: "liveImage", cause }))
-  )
-
-  const tree = yield* Effect.mapError(decodeTree(parsed), Tree.decodeFailure("openImage", "liveImage"))
-  const { runtime } = tree
-
-  // A previous process's handles no longer exist, so the unlinked files they held are reclaimed on reopening.
-  const linked = tree.nodes.filter((node) => !Tree.TreeNode.guards.file(node) || node.links.length > 0)
-  const value = yield* Tree.toValue(linked, "openImage")
-
-  const restored: Restored = {
-    value: { ...value, nextInode: Ino(runtime.nextInode), revision: runtime.revision },
-    identity: runtime.identity,
-    limits: runtime.limits
-  }
-
-  return restored
-})

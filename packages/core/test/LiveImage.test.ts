@@ -66,7 +66,7 @@ describe("private live image", () => {
         "LimitExceeded"
       )
       assert.deepStrictEqual(
-        yield* failure(new TextEncoder().encode("{\"format\":\"effect-vfs-live\",\"version\":2}")),
+        yield* failure(new TextEncoder().encode("{\"format\":\"effect-vfs-live\",\"version\":2}\n")),
         ["InvalidStructure", "liveImage"]
       )
       assert.deepStrictEqual(yield* failure(new Uint8Array([0xff])), ["InvalidEncoding", "liveImage"])
