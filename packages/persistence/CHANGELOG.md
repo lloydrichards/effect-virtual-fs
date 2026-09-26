@@ -1,5 +1,63 @@
 # @effect-vfs/persistence
 
+## 0.6.0
+
+### Minor Changes
+
+- [#215](https://github.com/lloydrichards/effect-virtual-fs/pull/215) [`06a9086`](https://github.com/lloydrichards/effect-virtual-fs/commit/06a90860558f8231c5f9426ff212dad861d08d04) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `Caller` now accepts a path, object reference, or open handle as a `Target`, and the packages use one `VfsError` family. This changes existing calls and error handling across the fixed release group.
+
+  Replace `*Reference`, `*Handle`, and `*Bytes` methods with the corresponding `Caller` method. Use `Vfs.Entry(directory, name)` for an entry relative to a directory. Use `Vfs.Target.Path` for path options such as `followFinalSymlink`:
+
+  ```ts
+  // Before
+  const work = yield * fs.lookupReference(root, encoder.encode("work"))
+  const metadata = yield * fs.lstat("/link")
+
+  // After
+  const work = yield * fs.lookup(Vfs.Entry(root, "work"))
+  const metadata = yield * fs.stat(
+    Vfs.Target.Path({ path: "/link", followFinalSymlink: false })
+  )
+  ```
+
+  `stat` now returns `Metadata` with a `revision`; `readDirectory` returns entries and a directory revision; `readLink` and `realPath` return bytes; `pread` returns `{ bytes, eof }`; and `access` returns the granted bits. Update callers that use the old return values. Match failures on `VfsError.code` and `operation`; `error.path` is now a `BytePath`.
+
+  `Volume.layer`, `Caller.layer`, and the other volume layers replace manual service wiring. Volume construction no longer requires a `Crypto` service. Remove `CurrentFileSystem`, `makeCrypto`, and `layerCrypto` from applications that used them.
+
+- [#219](https://github.com/lloydrichards/effect-virtual-fs/pull/219) [`fee1d21`](https://github.com/lloydrichards/effect-virtual-fs/commit/fee1d21dbc9cc0b2fed5a71dbd2ba7bbdf16f1d5) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Persistence errors now name the full entry point in `operation`, such as `CheckpointStore.load` instead of `load`. Update comparisons against `CheckpointError.operation` and `VfsError.operation`:
+
+  ```ts
+  // Before
+  error.operation === "load"
+
+  // After
+  error.operation === "CheckpointStore.load"
+  ```
+
+  The live stores use names such as `SqliteLiveImageStore.loadOrCreate` and `R2LiveImageStore.loadOrCreate` instead of a bare store name.
+
+### Patch Changes
+
+- [#225](https://github.com/lloydrichards/effect-virtual-fs/pull/225) [`7a47c57`](https://github.com/lloydrichards/effect-virtual-fs/commit/7a47c571ee15d00db71f78164d1994e5344b65df) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Snapshot and live image bytes now use newline-delimited JSON. Bytes saved by earlier releases no longer load, even though the format header still says `version: 1`. Regenerate stored checkpoints and live images from their source volumes or fixtures before upgrading:
+
+  ```ts
+  const volume = yield * Vfs.fromFixture(fixture)
+  yield * checkpoints.save("baseline", yield * volume.snapshot)
+  ```
+
+  `encodeSnapshotStream` and `decodeSnapshotSink` process snapshot bytes in chunks. Existing `encodeSnapshot` and `decodeSnapshot` calls still work with a single byte array:
+
+  ```ts
+  const bytes = yield * Vfs.encodeSnapshot(snapshot, limits)
+  const decoded = yield * Stream.run(Stream.succeed(bytes), Vfs.decodeSnapshotSink(limits))
+  ```
+
+  `DecodeLimits` gains `maxLineBytes`, which defaults to `maxEncodedBytes`. `encodeSnapshot` now checks the same limits as decoding. Snapshot entries can also be read with `snapshotEntries(snapshot, root)` without restoring a volume.
+
+- [#230](https://github.com/lloydrichards/effect-virtual-fs/pull/230) [`7e55719`](https://github.com/lloydrichards/effect-virtual-fs/commit/7e55719806017f42b4eb8cbd3b71630ae7b6e3ad) Thanks [@lloydrichards](https://github.com/lloydrichards)! - A late live-store commit no longer unfreezes a store that another commit froze.
+- Updated dependencies [[`ed86941`](https://github.com/lloydrichards/effect-virtual-fs/commit/ed869410b0fddee9b74f981003614bde5688ba36), [`ee41936`](https://github.com/lloydrichards/effect-virtual-fs/commit/ee419360725c0d5ff8313c4f8e4544263b6b927c), [`967878b`](https://github.com/lloydrichards/effect-virtual-fs/commit/967878bd34e4e3d018c69d271108ff9cb7f5ef68), [`7e55719`](https://github.com/lloydrichards/effect-virtual-fs/commit/7e55719806017f42b4eb8cbd3b71630ae7b6e3ad), [`649dfbe`](https://github.com/lloydrichards/effect-virtual-fs/commit/649dfbea39e5c683ae1e1430775f18bbec60f815), [`1004c17`](https://github.com/lloydrichards/effect-virtual-fs/commit/1004c176e0fa5eeae1f31dab30e9fcfa43c7a868), [`730ce13`](https://github.com/lloydrichards/effect-virtual-fs/commit/730ce13d3f5514f9069887478ee12d36aaeafc58), [`c75d5f0`](https://github.com/lloydrichards/effect-virtual-fs/commit/c75d5f0693cd47aac6de183a59c296885ef93aec), [`c9ff94a`](https://github.com/lloydrichards/effect-virtual-fs/commit/c9ff94ab8edc5a75c60eac00aa6c9371b953face), [`0362a15`](https://github.com/lloydrichards/effect-virtual-fs/commit/0362a157405a9db3d8f13f555e300222167e356d), [`60e4a61`](https://github.com/lloydrichards/effect-virtual-fs/commit/60e4a6151704a81ca35b1c0cce13b5ddb70c3331), [`1585192`](https://github.com/lloydrichards/effect-virtual-fs/commit/15851928691c633845161471b2f6dab8f792d761), [`06a9086`](https://github.com/lloydrichards/effect-virtual-fs/commit/06a90860558f8231c5f9426ff212dad861d08d04), [`bfff016`](https://github.com/lloydrichards/effect-virtual-fs/commit/bfff016dc75b22473aa022455decc87f1c9887c2), [`c9cce23`](https://github.com/lloydrichards/effect-virtual-fs/commit/c9cce232b55f9bf24745a133527ba562afbc5743), [`7a47c57`](https://github.com/lloydrichards/effect-virtual-fs/commit/7a47c571ee15d00db71f78164d1994e5344b65df), [`45deedb`](https://github.com/lloydrichards/effect-virtual-fs/commit/45deedb3ff694ebd2c7037e85973030b634170dc), [`7e55719`](https://github.com/lloydrichards/effect-virtual-fs/commit/7e55719806017f42b4eb8cbd3b71630ae7b6e3ad)]:
+  - @effect-vfs/core@0.6.0
+
 ## 0.5.0
 
 ### Minor Changes
