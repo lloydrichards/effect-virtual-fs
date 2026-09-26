@@ -1,7 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, Schema } from "effect"
+import { ByteSize, Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { CanonicalBase64 } from "../src/internal/canonicalBase64.js"
 
 const encodedFile = (data: string) => {
   const metadata = { uid: 0, gid: 0, mode: 0o644, atimeNs: "0", mtimeNs: "0", ctimeNs: "0", birthtimeNs: "0" }
@@ -9,10 +8,9 @@ const encodedFile = (data: string) => {
   return new TextEncoder().encode(JSON.stringify({
     format: "effect-vfs",
     version: 1,
-    root: "root",
-    records: [
-      { _tag: "directory", id: "root", metadata, entries: [{ name: "Zg==", target: "file" }] },
-      { _tag: "file", id: "file", metadata, data }
+    nodes: [
+      { _tag: "directory", ino: 1, parent: 1, name: "", metadata },
+      { _tag: "file", ino: 2, links: [{ parent: 1, name: "Zg==" }], content: { _tag: "Inline", bytes: data }, metadata }
     ]
   }))
 }
@@ -28,11 +26,11 @@ describe("snapshot decoding", () => {
   it.effect("encodes bytes as canonical base64 and decodes that representation", () =>
     Effect.gen(function*() {
       const input = new Uint8Array([0, 255, 127, 42])
-      const encoded = CanonicalBase64.encode(input)
+      const snapshot = yield* Vfs.decodeSnapshot(encodedFile("AP9/Kg=="), limits)
+      const caller = yield* (yield* Vfs.fromSnapshot(snapshot)).caller()
 
-      assert.strictEqual(encoded, "AP9/Kg==")
-      assert.strictEqual(yield* Schema.encodeEffect(CanonicalBase64.Bytes)(input), encoded)
-      assert.deepStrictEqual(yield* CanonicalBase64.decode(encoded), input)
+      assert.deepStrictEqual(yield* caller.readFile("/f"), input)
+      assert.deepStrictEqual(yield* Vfs.encodeSnapshot(snapshot), encodedFile("AP9/Kg=="))
     }))
 
   it.effect(

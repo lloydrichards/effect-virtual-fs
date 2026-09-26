@@ -4,7 +4,6 @@ import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Fn from "effect/Function"
-import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -23,20 +22,23 @@ import { bytesOrder, decodeUtf8, sameBytes } from "./bytes.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import { imageFailure, VfsError } from "./errors.js"
 import * as Image from "./image.js"
-import { WireStoredMetadata } from "./metadata.js"
+import { StoredMetadata, WireStoredMetadata } from "./metadata.js"
+import { isNameBytes, nameBytes, NUL_BYTE, SLASH_BYTE } from "./path.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
+import {
+  assemble,
+  getNode,
+  Ino,
+  type Link,
+  type NodeSpec,
+  reachableNodes,
+  ROOT_INO,
+  storedMetadata
+} from "./volumeState.js"
 
 const FORMAT = "effect-vfs-delta"
 
 const ALGORITHM = "effect-vfs-semantic-sha256-v1"
-
-const SLASH_BYTE = 47
-
-const DOT_BYTE = 46
-
-const MAX_NAME_BYTES = 255
-
-const NUL_BYTE = 0
 
 const SHA256_BYTES = 32
 
@@ -51,17 +53,17 @@ const BasePayload = Schema.TaggedStruct("Base", { path: Path })
 const Payload = Schema.Union([InlinePayload, BasePayload])
 
 const DeltaRecord = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("directory"), paths: Schema.Array(Path), metadata: Image.StoredMetadata }),
+  Schema.Struct({ kind: Schema.Literal("directory"), paths: Schema.Array(Path), metadata: StoredMetadata }),
   Schema.Struct({
     kind: Schema.Literal("file"),
     paths: Schema.Array(Path),
-    metadata: Image.StoredMetadata,
+    metadata: StoredMetadata,
     payload: Payload
   }),
   Schema.Struct({
     kind: Schema.Literal("symlink"),
     paths: Schema.Array(Path),
-    metadata: Image.StoredMetadata,
+    metadata: StoredMetadata,
     payload: Payload
   })
 ])
@@ -166,7 +168,7 @@ interface ValidatableDocument {
 
 interface ObjectView {
   readonly kind: SnapshotNodeKind
-  readonly metadata: Image.StoredMetadata
+  readonly metadata: StoredMetadata
   readonly paths: ReadonlyArray<Uint8Array>
   readonly pathIdentity: string
   readonly payload: Uint8Array | undefined
@@ -200,13 +202,15 @@ const join = (parent: Uint8Array, name: Uint8Array) => {
   return out
 }
 
-const parentKey = (path: Uint8Array) => {
+const parentOf = (path: Uint8Array) => {
   let slash = path.length - 1
 
   while (slash > 0 && path[slash] !== SLASH_BYTE) slash--
 
-  return key(slash === 0 ? ROOT_PATH : path.subarray(0, slash))
+  return slash === 0 ? ROOT_PATH : path.subarray(0, slash)
 }
+
+const parentKey = (path: Uint8Array) => key(parentOf(path))
 
 const basename = (path: Uint8Array) => {
   let slash = path.length - 1
@@ -224,23 +228,14 @@ const safeAdd = (a: number, b: number) => {
 
 const exceeds = (value: number, limit: ByteSize.ByteSize) => ByteSize.isGreaterThan(ByteSize.bytes(value), limit)
 
+// An absolute path of valid names: the root alone, or a slash before each name and none after the last.
 const validPath = (path: Uint8Array) => {
-  if (
-    path.length === 0 || path[0] !== SLASH_BYTE || path.includes(NUL_BYTE) ||
-    (path.length > 1 && path.at(-1) === SLASH_BYTE)
-  ) return false
-
-  if (path.length === 1) return true
+  if (path[0] !== SLASH_BYTE) return false
   let start = 1
 
-  for (let i = 1; i <= path.length; i++) {
+  for (let i = 1; i <= path.length && path.length > 1; i++) {
     if (i === path.length || path[i] === SLASH_BYTE) {
-      const length = i - start
-
-      if (
-        length < 1 || length > MAX_NAME_BYTES || (length === 1 && path[start] === DOT_BYTE) ||
-        (length === 2 && path[start] === DOT_BYTE && path[start + 1] === DOT_BYTE)
-      ) return false
+      if (!isNameBytes(path.subarray(start, i))) return false
       start = i + 1
     }
   }
@@ -278,56 +273,46 @@ const roleBudget = (limits: SnapshotDeltaLimits, role: Role): RoleBudget =>
       payloadBytesField: "outputBytes"
     }
 
-const encodedPayload = (record: Image.Record): typeof CanonicalBase64.Encoded.Type | undefined =>
-  Match.value(record).pipe(
-    Match.tag("directory", () => undefined),
-    Match.tag("file", (record) => record.data),
-    Match.tag("symlink", (record) => record.target),
-    Match.exhaustive
-  )
-
 const normalize = Effect.fnUntraced(
   function*(snapshot: Snapshot, limits: SnapshotDeltaLimits, role: Role): Effect.fn.Return<SnapshotView, ImageFailure> {
-    const doc = yield* Image.inspect(snapshot)
+    const value = yield* Image.valueOf(snapshot)
     const budget = roleBudget(limits, role)
+    const nodes = yield* reachableNodes(value)
 
-    if (doc.records.length > budget.records) {
+    if (nodes.length > budget.records) {
       return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: budget.recordsField })
     }
 
-    const records = new Map(doc.records.map((record) => [record.id, record]))
-    const pathsById = new Map<string, Array<Uint8Array>>()
-    const pending: Array<readonly [string, Uint8Array]> = [[doc.root, ROOT_PATH]]
+    const pathsByIno = new Map<Ino, Array<Uint8Array>>()
+    const pending: Array<readonly [Ino, Uint8Array]> = [[ROOT_INO, ROOT_PATH]]
     let entries = 0
     let pathBytes = ByteSize.bytes(ROOT_PATH.length)
 
     // Index loop: `pending` grows while it is being walked.
     for (let i = 0; i < pending.length; i++) {
-      const [recordId, path] = pending[i]!
-      const record = records.get(recordId)
+      const [ino, path] = pending[i]!
+      const paths = pathsByIno.get(ino)
 
-      if (record === undefined) return yield* imageFailure("snapshotDelta", "InvalidStructure", { field: role })
-      const paths = pathsById.get(recordId)
-
-      if (paths === undefined) pathsById.set(recordId, [path])
+      if (paths === undefined) pathsByIno.set(ino, [path])
       else paths.push(path)
+      const node = getNode(value, ino)
 
-      if (Image.Record.guards.directory(record)) {
-        for (const entry of record.entries) {
-          if (++entries > limits.maxEntries) {
-            return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "entries" })
-          }
+      if (node?.kind !== "directory") continue
 
-          const separator = path.length === ROOT_PATH.length ? 0 : 1
-          const pathLength = path.length + separator + CanonicalBase64.decodedLength(entry.name)
-          pathBytes = ByteSize.sum(pathBytes, ByteSize.bytes(pathLength))
-
-          if (ByteSize.isGreaterThan(pathBytes, budget.pathBytes)) {
-            return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: budget.pathBytesField })
-          }
-
-          pending.push([entry.target, join(path, yield* CanonicalBase64.decode(entry.name))])
+      for (const [name, child] of node.entries) {
+        if (++entries > limits.maxEntries) {
+          return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "entries" })
         }
+
+        const bytes = nameBytes(name)
+        const separator = path.length === ROOT_PATH.length ? 0 : 1
+        pathBytes = ByteSize.sum(pathBytes, ByteSize.bytes(path.length + separator + bytes.length))
+
+        if (ByteSize.isGreaterThan(pathBytes, budget.pathBytes)) {
+          return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: budget.pathBytesField })
+        }
+
+        pending.push([child, join(path, bytes)])
       }
     }
 
@@ -335,15 +320,13 @@ const normalize = Effect.fnUntraced(
     const byPath = new Map<string, { readonly object: ObjectView; readonly path: Uint8Array }>()
     let payloadBytes = ByteSize.zero
 
-    for (const record of doc.records) {
-      const paths = pathsById.get(record.id)
-
-      if (paths === undefined) return yield* imageFailure("snapshotDelta", "InvalidStructure", { field: role })
+    for (const node of nodes) {
+      const paths = pathsByIno.get(node.ino) ?? []
       paths.sort(bytesOrder)
-      const encoded = encodedPayload(record)
+      const payload = node.kind === "file" ? node.data.bytes : node.kind === "symlink" ? node.target : undefined
 
-      if (encoded !== undefined) {
-        payloadBytes = ByteSize.sum(payloadBytes, ByteSize.bytes(CanonicalBase64.decodedLength(encoded)))
+      if (payload !== undefined) {
+        payloadBytes = ByteSize.sum(payloadBytes, ByteSize.bytes(payload.length))
 
         if (ByteSize.isGreaterThan(payloadBytes, budget.payloadBytes)) {
           return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: budget.payloadBytesField })
@@ -351,11 +334,11 @@ const normalize = Effect.fnUntraced(
       }
 
       const object = {
-        kind: record._tag,
-        metadata: record.metadata,
+        kind: node.kind,
+        metadata: storedMetadata(node.metadata),
         paths,
         pathIdentity: paths.map(key).join("/"),
-        payload: encoded === undefined ? undefined : yield* CanonicalBase64.decode(encoded)
+        payload
       } satisfies ObjectView
 
       objects.push(object)
@@ -386,7 +369,7 @@ const u64 = (n: number) => {
 
 const framedLength = (bytes: Uint8Array) => U64_BYTES + bytes.length
 
-const timestampBytes = (metadata: Image.StoredMetadata): ReadonlyArray<Uint8Array> =>
+const timestampBytes = (metadata: StoredMetadata): ReadonlyArray<Uint8Array> =>
   [metadata.atimeNs, metadata.mtimeNs, metadata.ctimeNs, metadata.birthtimeNs].map((value) =>
     encoder.encode(String(value))
   )
@@ -525,24 +508,10 @@ interface PathEntry {
   readonly bytes: Uint8Array
 }
 
-// `name` holds the raw basename bytes so ordering never decodes base64. `buildImage` encodes each
-// name once when it materialises the image record.
-interface DirectoryEntry {
-  readonly name: Uint8Array
-  readonly target: string
-}
-
-const byEntryName = (a: DirectoryEntry, b: DirectoryEntry) => bytesOrder(a.name, b.name)
-
-// Every recorded path must be the root directory or the child of a recorded directory.
-// Together with `validPath` and the per-record path rules in `validate`, this subsumes the
-// structural checks `Image.capture` would otherwise perform on the applied image.
-const linkTree = (
-  paths: ReadonlyMap<string, PathEntry>
-): Result.Result<
-  { readonly root: string; readonly entriesById: ReadonlyMap<string, Array<DirectoryEntry>> },
-  ImageFailure
-> => {
+// Every recorded path must be the root directory or the child of a recorded directory. Together with `validPath`
+// and the per-record path rules in `validate`, this makes the recorded paths one tree, so the applied value needs
+// no further structural check. Returns the root's record.
+const linkTree = (paths: ReadonlyMap<string, PathEntry>): Result.Result<string, ImageFailure> => {
   const rootKey = key(ROOT_PATH)
   const root = paths.get(rootKey)
 
@@ -550,27 +519,13 @@ const linkTree = (
     return Result.fail(imageFailure("snapshotDelta", "InvalidStructure", { field: "root" }))
   }
 
-  const entriesById = new Map<string, Array<DirectoryEntry>>()
-
-  for (const entry of paths.values()) {
-    if (entry.kind === "directory") entriesById.set(entry.id, [])
-  }
-
   for (const [pathKey, child] of paths) {
-    if (pathKey === rootKey) continue
-    const parent = paths.get(parentKey(child.bytes))
-    const entries = parent === undefined ? undefined : entriesById.get(parent.id)
-
-    if (entries === undefined) {
+    if (pathKey !== rootKey && paths.get(parentKey(child.bytes))?.kind !== "directory") {
       return Result.fail(imageFailure("snapshotDelta", "InvalidStructure", { field: "parent" }))
     }
-
-    entries.push({ name: basename(child.bytes), target: child.id })
   }
 
-  for (const entries of entriesById.values()) entries.sort(byEntryName)
-
-  return Result.succeed({ root: root.id, entriesById })
+  return Result.succeed(root.id)
 }
 
 const inheritedPayload = Effect.fnUntraced(
@@ -581,8 +536,8 @@ const inheritedPayload = Effect.fnUntraced(
   }
 )
 
-// Expects a document that already passed `validate`.
-const buildImage = Effect.fnUntraced(
+// Expects a document that already passed `validate`. Inode numbers follow record order after the root.
+const buildSnapshot = Effect.fnUntraced(
   function*(
     document: Document,
     base: SnapshotView,
@@ -597,22 +552,54 @@ const buildImage = Effect.fnUntraced(
       }
     }
 
-    const tree = yield* Effect.fromResult(linkTree(paths))
-    const records: Array<Image.Record> = []
+    const root = yield* Effect.fromResult(linkTree(paths))
+    const inos = new Map<string, Ino>()
+    let next = ROOT_INO
+
+    for (const index of document.records.keys()) {
+      if (String(index) === root) inos.set(root, ROOT_INO)
+      else {
+        next = Ino(next + 1)
+        inos.set(String(index), next)
+      }
+    }
+
+    // Each path names its object inside the directory its parent path records; the root's path names the root.
+    const inoAt = (path: Uint8Array) => {
+      const entry = paths.get(key(path))
+
+      return entry === undefined ? undefined : inos.get(entry.id)
+    }
+
+    const specs: Array<NodeSpec> = []
     let outputBytes = ByteSize.zero
 
-    for (const [index, record] of document.records.entries()) {
-      const id = String(index)
+    for (const record of document.records) {
+      const links: Array<Link> = []
+      let ino: Ino | undefined
+
+      for (const encodedPath of record.paths) {
+        const bytes = yield* CanonicalBase64.decode(encodedPath)
+        const parent = inoAt(parentOf(bytes))
+        ino = inoAt(bytes)
+
+        if (parent === undefined || ino === undefined) {
+          return yield* imageFailure("snapshotDelta", "InvalidStructure", { field: "parent" })
+        }
+
+        links.push({ parent, name: key(basename(bytes)) })
+      }
+
+      const [link] = links
+
+      if (ino === undefined || link === undefined) {
+        return yield* imageFailure("snapshotDelta", "InvalidStructure", { field: "paths" })
+      }
+
+      const common = { ino, metadata: record.metadata, revision: 1n }
 
       if (record.kind === "directory") {
-        records.push(Image.Record.cases.directory.make({
-          id,
-          metadata: record.metadata,
-          entries: (tree.entriesById.get(id) ?? []).map((entry) => ({
-            name: CanonicalBase64.encode(entry.name),
-            target: entry.target
-          }))
-        }))
+        specs.push({ ...common, kind: "directory", parent: link.parent, name: link.name })
         continue
       }
 
@@ -630,18 +617,14 @@ const buildImage = Effect.fnUntraced(
         return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "outputBytes" })
       }
 
-      records.push(
+      specs.push(
         record.kind === "file"
-          ? Image.Record.cases.file.make({ id, metadata: record.metadata, data: CanonicalBase64.encode(payload) })
-          : Image.Record.cases.symlink.make({
-            id,
-            metadata: record.metadata,
-            target: CanonicalBase64.encode(payload)
-          })
+          ? { ...common, kind: "file", links, data: payload }
+          : { ...common, kind: "symlink", links, target: payload }
       )
     }
 
-    return yield* Image.capture({ format: "effect-vfs", version: 1, root: tree.root, records }, undefined, true)
+    return Image.make(assemble(specs))
   }
 )
 
@@ -836,7 +819,7 @@ const verify = Effect.fnUntraced(function*(
     return yield* new VfsError({ code: "BaseMismatch", operation: "snapshotDelta" })
   }
 
-  const target = yield* buildImage(document, before, limits)
+  const target = yield* buildSnapshot(document, before, limits)
   const changes = compare(before, yield* normalize(target, limits, "target"))
 
   if (!sameChanges(changes, document.changes)) {

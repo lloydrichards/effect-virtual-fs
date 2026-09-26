@@ -1,7 +1,9 @@
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
+import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as SchemaGetter from "effect/SchemaGetter"
+import { ENCODING_CHECK } from "./errors.js"
 
 const canonicalTail = /^(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?(?![\s\S])/
 
@@ -27,7 +29,10 @@ const encode = (input: Uint8Array): Encoded => {
 }
 
 const Encoded = Schema.String.pipe(
-  Schema.refine((value): value is string => isCanonical(value), { expected: "canonical padded base64" }),
+  Schema.refine((value): value is string => isCanonical(value), {
+    expected: "canonical padded base64",
+    [ENCODING_CHECK]: true
+  }),
   Schema.brand("CanonicalBase64")
 )
 
@@ -45,6 +50,8 @@ export const CanonicalBase64 = {
   Encoded,
   Bytes,
   decode: (input: Encoded) => Schema.decodeEffect(Bytes)(input).pipe(Effect.orDie),
+  // A canonical value always decodes, so a synchronous caller need not handle a failure.
+  toBytes: (input: Encoded): Uint8Array => Result.getOrThrow(Encoding.decodeBase64(input)),
   encode: (input: Uint8Array): Encoded => encode(input),
   decodedLength: (value: Encoded): number => decodedLength(value),
   is: (value: string): value is Encoded => isCanonical(value)

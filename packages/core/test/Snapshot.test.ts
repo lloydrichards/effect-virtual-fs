@@ -24,23 +24,31 @@ const MutableMetadata = Schema.Struct({
   extra: Schema.mutableKey(Schema.optionalKey(Schema.Finite))
 })
 
+const MutableLink = Schema.Struct({
+  parent: Schema.mutableKey(Schema.Finite),
+  name: Schema.mutableKey(Schema.String)
+})
+
 const SnapshotJson = Schema.fromJsonString(Schema.Struct({
   format: Schema.String,
   version: Schema.mutableKey(Schema.Finite),
-  root: Schema.String,
-  records: Schema.mutable(Schema.Tuple([
+  nodes: Schema.mutable(Schema.Tuple([
     Schema.TaggedStruct("directory", {
-      id: Schema.String,
-      metadata: Schema.mutableKey(MutableMetadata),
-      entries: Schema.mutableKey(Schema.mutable(Schema.Array(Schema.Struct({
-        name: Schema.String,
-        target: Schema.mutableKey(Schema.String)
-      }))))
+      ino: Schema.mutableKey(Schema.Finite),
+      parent: Schema.mutableKey(Schema.Finite),
+      name: Schema.mutableKey(Schema.String),
+      metadata: Schema.mutableKey(MutableMetadata)
     }),
     Schema.TaggedStruct("file", {
-      id: Schema.mutableKey(Schema.String),
-      metadata: Schema.mutableKey(MutableMetadata),
-      data: Schema.mutableKey(Schema.String)
+      ino: Schema.mutableKey(Schema.Finite),
+      links: Schema.mutableKey(Schema.mutable(Schema.Array(MutableLink))),
+      content: Schema.mutableKey(Schema.Struct({
+        _tag: Schema.mutableKey(Schema.String),
+        bytes: Schema.mutableKey(Schema.optionalKey(Schema.String)),
+        hash: Schema.mutableKey(Schema.optionalKey(Schema.String)),
+        size: Schema.mutableKey(Schema.optionalKey(Schema.Finite))
+      })),
+      metadata: Schema.mutableKey(MutableMetadata)
     })
   ])),
   extra: Schema.mutableKey(Schema.optionalKey(Schema.Boolean))
@@ -73,7 +81,7 @@ describe("fixtures and snapshots", () => {
           const encoded = yield* Vfs.encodeSnapshot(yield* volume.snapshot)
           const document = yield* Schema.decodeEffect(SnapshotJson)(new TextDecoder().decode(encoded))
           assert.strictEqual(
-            document.records[1].data,
+            document.nodes[1].content.bytes,
             "AP9/".repeat(8_192) + suffix
           )
           const restored = yield* Vfs.fromSnapshot(yield* Vfs.decodeSnapshot(encoded, limits))
@@ -184,16 +192,22 @@ describe("fixtures and snapshots", () => {
         new TextDecoder().decode(yield* Vfs.encodeSnapshot(yield* volume.snapshot))
       )
 
-      assert.deepStrictEqual(original.records.map((record) => record._tag), ["directory", "file"])
-      assert.isFalse(original.records.some((record) => Object.hasOwn(record, "kind")))
+      assert.deepStrictEqual(original.nodes.map((node) => node._tag), ["directory", "file"])
+      assert.isFalse(original.nodes.some((node) => Object.hasOwn(node, "kind")))
 
       for (
         const mutate of [
           (image: typeof original) => {
-            image.records[0].metadata.extra = 1
+            image.nodes[0].metadata.extra = 1
           },
           (image: typeof original) => {
-            image.records[0].metadata.uid = -1
+            image.nodes[0].metadata.uid = -1
+          },
+          (image: typeof original) => {
+            image.nodes[1].ino = 0
+          },
+          (image: typeof original) => {
+            image.nodes[1].ino = Number.MAX_SAFE_INTEGER
           }
         ]
       ) {
@@ -209,22 +223,7 @@ describe("fixtures and snapshots", () => {
           image.extra = true
         },
         (image) => {
-          image.records[1].data = "Zh=="
-        },
-        (image) => {
-          image.records[1].id = image.records[0].id
-        },
-        (image) => {
-          image.records[0].entries[0]!.target = "missing"
-        },
-        (image) => {
-          image.records[0].entries.push(image.records[0].entries[0]!)
-        },
-        (image) => {
-          image.records[0].entries[0]!.target = image.root
-        },
-        (image) => {
-          image.records[0].entries = []
+          image.nodes[1].content.bytes = "Zh=="
         }
       ]
 
@@ -234,8 +233,55 @@ describe("fixtures and snapshots", () => {
         yield* Effect.flip(Vfs.decodeSnapshot(encode(image), limits))
       }
 
+      // A broken graph rule names the node that broke it.
+      const graphMutations: Array<readonly [(image: typeof original) => void, string]> = [
+        [(image) => {
+          image.nodes[1].ino = image.nodes[0].ino
+        }, "nodes.1.ino"],
+        [(image) => {
+          image.nodes[0].parent = 2
+        }, "nodes.0"],
+        [(image) => {
+          image.nodes[0].name = "Zg=="
+        }, "nodes.0"],
+        [(image) => {
+          image.nodes[1].links[0]!.parent = 9
+        }, "nodes.1.links.0.parent"],
+        [(image) => {
+          image.nodes[1].links[0]!.parent = image.nodes[1].ino
+        }, "nodes.1.links.0.parent"],
+        [(image) => {
+          image.nodes[1].links.push({ ...image.nodes[1].links[0]! })
+        }, "nodes.1.links.1.name"],
+        [(image) => {
+          image.nodes[1].links[0]!.name = "Lg=="
+        }, "nodes.1.links.0.name"],
+        [(image) => {
+          image.nodes[1].links[0]!.name = ""
+        }, "nodes.1.links.0.name"],
+        [(image) => {
+          image.nodes[1].links = []
+        }, "nodes.1.links"],
+        [(image) => {
+          image.nodes.reverse()
+        }, "nodes.0"]
+      ]
+
+      for (const [mutate, field] of graphMutations) {
+        const image = structuredClone(original)
+        mutate(image)
+        const error = yield* Effect.flip(Vfs.decodeSnapshot(encode(image), limits))
+        assert.deepStrictEqual([error.code, error.field], ["InvalidStructure", field])
+      }
+
+      // A content reference is reserved: it decodes as a shape, and restoring refuses it by name.
+      const reference = structuredClone(original)
+      reference.nodes[1].content = { _tag: "Ref", hash: "00", size: 1 }
+      const refused = yield* Effect.flip(Vfs.decodeSnapshot(encode(reference), limits))
+      assert.deepStrictEqual([refused.code, refused.field], ["UnsupportedVersion", "nodes.1.content"])
+
       const alternateTimestamp = structuredClone(original)
-      alternateTimestamp.records[1].metadata.mtimeNs = "01"
+      alternateTimestamp.nodes[1].metadata.mtimeNs = "01"
 
       const normalized = yield* Vfs.decodeSnapshot(encode(alternateTimestamp), limits)
 
@@ -243,15 +289,15 @@ describe("fixtures and snapshots", () => {
         new TextDecoder().decode(yield* Vfs.encodeSnapshot(normalized))
       )
 
-      assert.strictEqual(normalizedImage.records[1].metadata.mtimeNs, "1")
+      assert.strictEqual(normalizedImage.nodes[1].metadata.mtimeNs, "1")
 
       const longestAcceptedTimestamp = structuredClone(original)
-      longestAcceptedTimestamp.records[1].metadata.mtimeNs = "0".repeat(128)
+      longestAcceptedTimestamp.nodes[1].metadata.mtimeNs = "0".repeat(128)
       yield* Vfs.decodeSnapshot(encode(longestAcceptedTimestamp), limits)
 
       for (const timestamp of ["0".repeat(129), "9".repeat(129)]) {
         const oversizedTimestamp = structuredClone(original)
-        oversizedTimestamp.records[1].metadata.mtimeNs = timestamp
+        oversizedTimestamp.nodes[1].metadata.mtimeNs = timestamp
         const error = yield* Effect.flip(Vfs.decodeSnapshot(encode(oversizedTimestamp), limits))
         assert.strictEqual(error.code, "InvalidEncoding")
         assert.strictEqual(error.field, "document")
