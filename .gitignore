@@ -31,3 +31,8 @@ Thumbs.db
 coverage
 playwright-report
 test-results
+
+# nix
+result
+result-*
+.direnv/
