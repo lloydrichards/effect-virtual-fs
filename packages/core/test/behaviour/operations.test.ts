@@ -1,5 +1,7 @@
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Result } from "effect"
+import type * as Crypto from "effect/Crypto"
 import { Testing, type VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../../src/index.js"
 import { GUEST } from "../support/caller.js"
 import { pathText } from "../support/text.js"
@@ -49,10 +51,10 @@ const arrange = Effect.gen(function*() {
 interface Row {
   readonly scenario: string
   // A row may build its own volume when the fixture's cannot express the situation.
-  readonly path: (fixture: Fixture) => Effect.Effect<unknown, FsError>
-  readonly reference: (fixture: Fixture) => Effect.Effect<unknown, FsError>
+  readonly path: (fixture: Fixture) => Effect.Effect<unknown, FsError, Crypto.Crypto>
+  readonly reference: (fixture: Fixture) => Effect.Effect<unknown, FsError, Crypto.Crypto>
   // Confirms a successful operation took effect, on the fixture it ran against, for the family that ran.
-  readonly check?: (fixture: Fixture, family: "path" | "reference") => Effect.Effect<unknown, FsError>
+  readonly check?: (fixture: Fixture, family: "path" | "reference") => Effect.Effect<unknown, FsError, Crypto.Crypto>
   readonly expected: { readonly path: string; readonly reference: string }
 }
 
@@ -1126,13 +1128,18 @@ describe("operation families", () => {
   for (const [verb, rows] of TABLE) {
     describe(verb, () => {
       for (const row of rows) {
-        it.effect(`should report the expected path and reference outcomes when ${verb} ${row.scenario}`, () =>
-          Effect.gen(function*() {
-            const path = yield* outcome(row, "path")
-            const reference = yield* outcome(row, "reference")
+        it.layer(BunCrypto.layer)((it) => {
+          it.effect(
+            `should report the expected path and reference outcomes when ${verb} ${row.scenario}`,
+            () =>
+              Effect.gen(function*() {
+                const path = yield* outcome(row, "path")
+                const reference = yield* outcome(row, "reference")
 
-            assert.deepStrictEqual({ path, reference }, row.expected)
-          }))
+                assert.deepStrictEqual({ path, reference }, row.expected)
+              })
+          )
+        })
       }
     })
   }

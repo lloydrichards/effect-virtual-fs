@@ -1,10 +1,12 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
 import { ByteSize, Effect, FileSystem, Layer, Path, Result, Stream } from "effect"
+import type * as Crypto from "effect/Crypto"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
 import { CheckpointError, CheckpointStore } from "../src/index.js"
@@ -24,15 +26,16 @@ const snapshot = Effect.gen(function*() {
 
 // A migrated in-memory database. The suite shares one.
 const migrated = Layer.effectDiscard(CheckpointStore.migrate).pipe(
-  Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))
+  Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })),
+  Layer.provideMerge(NodeCrypto.layer)
 )
 
 // A test that alters the table or its migration state takes a database of its own. `Layer.fresh` keeps it from
 // reusing the suite's database through the shared memo map.
-const freshDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient>) =>
+const freshDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient | Crypto.Crypto>) =>
   effect.pipe(Effect.provide(Layer.fresh(migrated)))
 
-const unmigratedDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient>) =>
+const unmigratedDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient | Crypto.Crypto>) =>
   effect.pipe(Effect.provide(Layer.fresh(SqliteClient.layer({ filename: ":memory:" }))))
 
 const files = Layer.merge(NodeFileSystem.layer, NodePath.layer)

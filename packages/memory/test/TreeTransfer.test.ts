@@ -1,7 +1,8 @@
 import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, Exit, FileSystem, Predicate, Result, Schema, Stream } from "effect"
+import { ByteSize, Effect, Exit, FileSystem, Layer, Predicate, Result, Schema, Stream } from "effect"
 import * as TreeTransfer from "../src/TreeTransfer.js"
 import { snapshotEntries } from "./support/snapshotEntries.js"
 
@@ -67,172 +68,190 @@ const withoutChangeTimes = (entries: ReadonlyArray<TreeTransfer.Entry>) =>
   })
 
 describe("TreeTransfer", () => {
-  it.effect("should round-trip a representative tree between callers when all metadata is requested", () =>
-    Effect.gen(function*() {
-      const source = yield* representativeTree
-      const destination = yield* Vfs.Volume
-      const expected = yield* snapshotEntries(source, "/src")
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should round-trip a representative tree between callers when all metadata is requested", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+        const destination = yield* Vfs.Volume
+        const expected = yield* snapshotEntries(source, "/src")
 
-      const report = yield* Stream.run(
-        TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
-        TreeTransfer.toCaller(yield* Vfs.Caller, "/copy", { times: "all", specialBits: true })
-      )
+        const report = yield* Stream.run(
+          TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
+          TreeTransfer.toCaller(yield* Vfs.Caller, "/copy", { times: "all", specialBits: true })
+        )
 
-      assert.deepStrictEqual(
-        withoutChangeTimes(yield* snapshotEntries(destination, "/copy")),
-        withoutChangeTimes(expected)
-      )
-      assert.deepStrictEqual(report, {
-        entries: 9,
-        files: 2,
-        bytes: ByteSize.bytes(7),
-        skipped: [],
-        hardLinksDegraded: 0
-      })
-      const copied = yield* destination.caller()
-      assert.strictEqual(
-        (yield* copied.stat(Vfs.Target.Path({ path: "/copy/alias.bin", followFinalSymlink: false }))).nlink,
-        2
-      )
-    }).pipe(Effect.provide(Testing.layer())))
+        assert.deepStrictEqual(
+          withoutChangeTimes(yield* snapshotEntries(destination, "/copy")),
+          withoutChangeTimes(expected)
+        )
+        assert.deepStrictEqual(report, {
+          entries: 9,
+          files: 2,
+          bytes: ByteSize.bytes(7),
+          skipped: [],
+          hardLinksDegraded: 0
+        })
+        const copied = yield* destination.caller()
+        assert.strictEqual(
+          (yield* copied.stat(Vfs.Target.Path({ path: "/copy/alias.bin", followFinalSymlink: false }))).nlink,
+          2
+        )
+      }).pipe(Effect.provide(Testing.layer())))
+  })
 
-  it.effect("should keep every metadata field when building a new volume with owners and special bits requested", () =>
-    Effect.gen(function*() {
-      const source = yield* representativeTree
-      const expected = yield* snapshotEntries(source, "/src")
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should keep every metadata field when building a new volume with owners and special bits requested", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+        const expected = yield* snapshotEntries(source, "/src")
 
-      const volume = yield* TreeTransfer.toVolume(TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"), {
-        owner: true,
-        specialBits: true
-      })
+        const volume = yield* TreeTransfer.toVolume(TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"), {
+          owner: true,
+          specialBits: true
+        })
 
-      assert.deepStrictEqual(yield* snapshotEntries(volume, "/"), expected)
-    }))
+        assert.deepStrictEqual(yield* snapshotEntries(volume, "/"), expected)
+      }))
+  })
 
-  it.effect("should apply mtime and strip special bits when writing with default options", () =>
-    Effect.gen(function*() {
-      const source = yield* representativeTree
-      const destination = yield* Vfs.Caller
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should apply mtime and strip special bits when writing with default options", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+        const destination = yield* Vfs.Caller
 
-      yield* Stream.run(
-        TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
-        TreeTransfer.toCaller(destination, "/copy")
-      )
-
-      const file = yield* destination.stat(
-        Vfs.Target.Path({ path: "/copy/nested/data.bin", followFinalSymlink: false })
-      )
-
-      assert.deepStrictEqual({ mode: file.mode, mtimeNs: file.mtimeNs }, { mode: 0o755, mtimeNs: 32n })
-      assert.notStrictEqual(file.atimeNs, 31n)
-      assert.strictEqual(
-        (yield* destination.stat(Vfs.Target.Path({ path: "/copy/nested", followFinalSymlink: false }))).mode,
-        0o555
-      )
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should write children of a read-only directory when the destination caller is unprivileged", () =>
-    Effect.gen(function*() {
-      const source = yield* representativeTree
-      const owner = yield* Testing.callerAs(OWNER)
-
-      yield* Stream.run(
-        TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
-        TreeTransfer.toCaller(owner, "/home/copy")
-      )
-
-      assert.deepStrictEqual(entryNames(yield* owner.readDirectory("/home/copy/nested")), ["data.bin"])
-      assert.strictEqual(
-        (yield* owner.stat(Vfs.Target.Path({ path: "/home/copy/nested", followFinalSymlink: false }))).mode,
-        0o555
-      )
-    }).pipe(Effect.provide(Testing.layer({ fixture: HOME_FIXTURE }))))
-
-  it.effect("should leave an existing destination untouched when existing entries are rejected", () =>
-    Effect.gen(function*() {
-      const source = yield* representativeTree
-      const destination = yield* Vfs.Caller
-      yield* destination.mkdir("/copy")
-      yield* destination.writeFile("/copy/keep", text.encode("keep"), { access: "write", create: "exclusive" })
-
-      const error = yield* Effect.flip(
-        Stream.run(
+        yield* Stream.run(
           TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
           TreeTransfer.toCaller(destination, "/copy")
         )
-      )
 
-      assert.strictEqual(Schema.is(Vfs.VfsError)(error) && error.code, "AlreadyExists")
-      assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/copy")), ["keep"])
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should merge into and replace existing entries when overwriting", () =>
-    Effect.gen(function*() {
-      const source = yield* representativeTree
-      const destination = yield* Vfs.Caller
-      yield* destination.mkdir("/copy")
-      yield* destination.writeFile("/copy/keep", text.encode("keep"), { access: "write", create: "exclusive" })
-      yield* destination.writeFile("/copy/relative", text.encode("old"), { access: "write", create: "exclusive" })
-
-      yield* Stream.run(
-        TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
-        TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })
-      )
-
-      assert.strictEqual(new TextDecoder().decode(yield* destination.readLink("/copy/relative")), "nested/data.bin")
-      assert.strictEqual(
-        (yield* destination.stat(Vfs.Target.Path({ path: "/copy/keep", followFinalSymlink: false }))).kind,
-        "file"
-      )
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should remove a claimed destination when the source fails mid-transfer", () =>
-    Effect.gen(function*() {
-      const source = yield* representativeTree
-      const destination = yield* Vfs.Caller
-
-      const failing = TreeTransfer.fromSnapshot(yield* source.snapshot, "/src").pipe(
-        Stream.take(3),
-        Stream.concat(Stream.fail("source failed"))
-      )
-
-      const exit = yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy")))
-
-      assert.isTrue(Exit.isFailure(exit))
-      assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/")), [])
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should keep written entries when an overwriting transfer fails", () =>
-    Effect.gen(function*() {
-      const source = yield* representativeTree
-      const destination = yield* Vfs.Caller
-
-      const failing = TreeTransfer.fromSnapshot(yield* source.snapshot, "/src").pipe(
-        Stream.take(2),
-        Stream.concat(Stream.fail("source failed"))
-      )
-
-      yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })))
-
-      assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/copy")), ["alias.bin"])
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should exclude entries when the source stream is filtered", () =>
-    Effect.gen(function*() {
-      const source = yield* representativeTree
-
-      const volume = yield* TreeTransfer.toVolume(
-        TreeTransfer.fromSnapshot(yield* source.snapshot, "/src").pipe(
-          Stream.filter((entry) => !Predicate.isString(entry.path) || !entry.path.startsWith("/nested"))
+        const file = yield* destination.stat(
+          Vfs.Target.Path({ path: "/copy/nested/data.bin", followFinalSymlink: false })
         )
-      )
 
-      const missing = yield* Effect.flip(
-        (yield* volume.caller()).stat(Vfs.Target.Path({ path: "/nested", followFinalSymlink: false }))
-      )
+        assert.deepStrictEqual({ mode: file.mode, mtimeNs: file.mtimeNs }, { mode: 0o755, mtimeNs: 32n })
+        assert.notStrictEqual(file.atimeNs, 31n)
+        assert.strictEqual(
+          (yield* destination.stat(Vfs.Target.Path({ path: "/copy/nested", followFinalSymlink: false }))).mode,
+          0o555
+        )
+      }).pipe(Effect.provide(Testing.layer())))
+  })
 
-      assert.strictEqual(missing.code, "NotFound")
-    }))
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should write children of a read-only directory when the destination caller is unprivileged", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+        const owner = yield* Testing.callerAs(OWNER)
+
+        yield* Stream.run(
+          TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
+          TreeTransfer.toCaller(owner, "/home/copy")
+        )
+
+        assert.deepStrictEqual(entryNames(yield* owner.readDirectory("/home/copy/nested")), ["data.bin"])
+        assert.strictEqual(
+          (yield* owner.stat(Vfs.Target.Path({ path: "/home/copy/nested", followFinalSymlink: false }))).mode,
+          0o555
+        )
+      }).pipe(Effect.provide(Testing.layer({ fixture: HOME_FIXTURE }))))
+  })
+
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should leave an existing destination untouched when existing entries are rejected", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+        const destination = yield* Vfs.Caller
+        yield* destination.mkdir("/copy")
+        yield* destination.writeFile("/copy/keep", text.encode("keep"), { access: "write", create: "exclusive" })
+
+        const error = yield* Effect.flip(
+          Stream.run(
+            TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
+            TreeTransfer.toCaller(destination, "/copy")
+          )
+        )
+
+        assert.strictEqual(Schema.is(Vfs.VfsError)(error) && error.code, "AlreadyExists")
+        assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/copy")), ["keep"])
+      }).pipe(Effect.provide(Testing.layer())))
+  })
+
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should merge into and replace existing entries when overwriting", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+        const destination = yield* Vfs.Caller
+        yield* destination.mkdir("/copy")
+        yield* destination.writeFile("/copy/keep", text.encode("keep"), { access: "write", create: "exclusive" })
+        yield* destination.writeFile("/copy/relative", text.encode("old"), { access: "write", create: "exclusive" })
+
+        yield* Stream.run(
+          TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
+          TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })
+        )
+
+        assert.strictEqual(new TextDecoder().decode(yield* destination.readLink("/copy/relative")), "nested/data.bin")
+        assert.strictEqual(
+          (yield* destination.stat(Vfs.Target.Path({ path: "/copy/keep", followFinalSymlink: false }))).kind,
+          "file"
+        )
+      }).pipe(Effect.provide(Testing.layer())))
+  })
+
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should remove a claimed destination when the source fails mid-transfer", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+        const destination = yield* Vfs.Caller
+
+        const failing = TreeTransfer.fromSnapshot(yield* source.snapshot, "/src").pipe(
+          Stream.take(3),
+          Stream.concat(Stream.fail("source failed"))
+        )
+
+        const exit = yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy")))
+
+        assert.isTrue(Exit.isFailure(exit))
+        assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/")), [])
+      }).pipe(Effect.provide(Testing.layer())))
+  })
+
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should keep written entries when an overwriting transfer fails", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+        const destination = yield* Vfs.Caller
+
+        const failing = TreeTransfer.fromSnapshot(yield* source.snapshot, "/src").pipe(
+          Stream.take(2),
+          Stream.concat(Stream.fail("source failed"))
+        )
+
+        yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })))
+
+        assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/copy")), ["alias.bin"])
+      }).pipe(Effect.provide(Testing.layer())))
+  })
+
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should exclude entries when the source stream is filtered", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+
+        const volume = yield* TreeTransfer.toVolume(
+          TreeTransfer.fromSnapshot(yield* source.snapshot, "/src").pipe(
+            Stream.filter((entry) => !Predicate.isString(entry.path) || !entry.path.startsWith("/nested"))
+          )
+        )
+
+        const missing = yield* Effect.flip(
+          (yield* volume.caller()).stat(Vfs.Target.Path({ path: "/nested", followFinalSymlink: false }))
+        )
+
+        assert.strictEqual(missing.code, "NotFound")
+      }))
+  })
 
   for (
     const [field, limits] of [
@@ -243,79 +262,89 @@ describe("TreeTransfer", () => {
       ["maxPathBytes", { maxPathBytes: ByteSize.bytes(8) }]
     ] as const
   ) {
-    it.effect(`should fail with the exceeded field when a source passes ${field}`, () =>
-      Effect.gen(function*() {
-        const source = yield* representativeTree
+    it.layer(NodeCrypto.layer)((it) => {
+      it.effect(`should fail with the exceeded field when a source passes ${field}`, () =>
+        Effect.gen(function*() {
+          const source = yield* representativeTree
 
-        const stream = TreeTransfer.fromSnapshot(yield* source.snapshot, "/src", {
-          limits: { ...TreeTransfer.TreeTransferLimits.default, ...limits }
-        })
+          const stream = TreeTransfer.fromSnapshot(yield* source.snapshot, "/src", {
+            limits: { ...TreeTransfer.TreeTransferLimits.default, ...limits }
+          })
 
-        const error = yield* Effect.flip(Stream.runDrain(stream))
+          const error = yield* Effect.flip(Stream.runDrain(stream))
 
-        assert.deepStrictEqual(failure(error), ["LimitExceeded", field])
-      }))
+          assert.deepStrictEqual(failure(error), ["LimitExceeded", field])
+        }))
+    })
   }
 
-  it.effect("should reject a transfer when its limits policy is malformed", () =>
-    Effect.gen(function*() {
-      const caller = yield* Vfs.Caller
-      const limits = { ...TreeTransfer.TreeTransferLimits.default, maxEntries: -1 }
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should reject a transfer when its limits policy is malformed", () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        const limits = { ...TreeTransfer.TreeTransferLimits.default, maxEntries: -1 }
 
-      const error = yield* Effect.flip(Stream.runDrain(TreeTransfer.fromCaller(caller, "/", { limits })))
+        const error = yield* Effect.flip(Stream.runDrain(TreeTransfer.fromCaller(caller, "/", { limits })))
 
-      assert.deepStrictEqual(failure(error), ["InvalidArgument", "limits"])
-    }).pipe(Effect.provide(Testing.layer())))
+        assert.deepStrictEqual(failure(error), ["InvalidArgument", "limits"])
+      }).pipe(Effect.provide(Testing.layer())))
+  })
 
-  it.effect("should record the original access time when a newer live read follows the last change", () =>
-    Effect.gen(function*() {
-      const caller = yield* Vfs.Caller
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should record the original access time when a newer live read follows the last change", () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
 
-      const [entry] = yield* Stream.runCollect(TreeTransfer.fromCaller(caller, "/file"))
+        const [entry] = yield* Stream.runCollect(TreeTransfer.fromCaller(caller, "/file"))
 
-      assert.strictEqual(entry?.kind === "file" && entry.metadata?.atimeNs, 5n)
-      // The fixture's access time is newer than its modification time, so relatime leaves it in place.
-      assert.strictEqual(
-        (yield* caller.stat(Vfs.Target.Path({ path: "/file", followFinalSymlink: false }))).atimeNs,
-        5n
-      )
-    }).pipe(Effect.provide(Testing.layer({ fixture: ACCESSED_FILE_FIXTURE }))))
+        assert.strictEqual(entry?.kind === "file" && entry.metadata?.atimeNs, 5n)
+        // The fixture's access time is newer than its modification time, so relatime leaves it in place.
+        assert.strictEqual(
+          (yield* caller.stat(Vfs.Target.Path({ path: "/file", followFinalSymlink: false }))).atimeNs,
+          5n
+        )
+      }).pipe(Effect.provide(Testing.layer({ fixture: ACCESSED_FILE_FIXTURE }))))
+  })
 
-  it.effect("should fail a transfer when the caller cannot search a directory", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.Volume
-      const owner = yield* Vfs.Caller
-      yield* owner.mkdir("/src/inner", { recursive: true })
-      yield* owner.writeFile("/src/inner/file", text.encode("x"), { access: "write", create: "ifMissing" })
-      yield* owner.chmod("/src", 0o444)
-      const guest = yield* volume.caller({ identity: { uid: 1, gid: 1, groups: [], privileged: false } })
-      const seen: Array<string> = []
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should fail a transfer when the caller cannot search a directory", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.Volume
+        const owner = yield* Vfs.Caller
+        yield* owner.mkdir("/src/inner", { recursive: true })
+        yield* owner.writeFile("/src/inner/file", text.encode("x"), { access: "write", create: "ifMissing" })
+        yield* owner.chmod("/src", 0o444)
+        const guest = yield* volume.caller({ identity: { uid: 1, gid: 1, groups: [], privileged: false } })
+        const seen: Array<string> = []
 
-      // Every entry is reached by its path and no directory is opened, so the root is read without searching it and
-      // reaching /src/inner needs search permission on /src.
-      const error = yield* Effect.flip(
-        Stream.runForEach(TreeTransfer.fromCaller(guest, "/src"), (entry) =>
-          Effect.sync(() => {
-            seen.push(`${entry.kind} ${Predicate.isString(entry.path) ? entry.path : "<bytes>"}`)
-          }))
-      )
+        // Every entry is reached by its path and no directory is opened, so the root is read without searching it and
+        // reaching /src/inner needs search permission on /src.
+        const error = yield* Effect.flip(
+          Stream.runForEach(TreeTransfer.fromCaller(guest, "/src"), (entry) =>
+            Effect.sync(() => {
+              seen.push(`${entry.kind} ${Predicate.isString(entry.path) ? entry.path : "<bytes>"}`)
+            }))
+        )
 
-      assert.deepStrictEqual(seen, ["directory /"])
-      assert.strictEqual(error.code, "AccessDenied")
-    }).pipe(Effect.provide(Testing.layer())))
+        assert.deepStrictEqual(seen, ["directory /"])
+        assert.strictEqual(error.code, "AccessDenied")
+      }).pipe(Effect.provide(Testing.layer())))
+  })
 
-  it.effect("should leave the source unchanged when streaming from a snapshot", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.Volume
-      const caller = yield* Vfs.Caller
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should leave the source unchanged when streaming from a snapshot", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.Volume
+        const caller = yield* Vfs.Caller
 
-      yield* Stream.runDrain(TreeTransfer.fromSnapshot(yield* volume.snapshot, "/file"))
+        yield* Stream.runDrain(TreeTransfer.fromSnapshot(yield* volume.snapshot, "/file"))
 
-      assert.strictEqual(
-        (yield* caller.stat(Vfs.Target.Path({ path: "/file", followFinalSymlink: false }))).atimeNs,
-        5n
-      )
-    }).pipe(Effect.provide(Testing.layer({ fixture: ACCESSED_FILE_FIXTURE }))))
+        assert.strictEqual(
+          (yield* caller.stat(Vfs.Target.Path({ path: "/file", followFinalSymlink: false }))).atimeNs,
+          5n
+        )
+      }).pipe(Effect.provide(Testing.layer({ fixture: ACCESSED_FILE_FIXTURE }))))
+  })
 
   for (
     const [name, entries, field] of [
@@ -333,47 +362,55 @@ describe("TreeTransfer", () => {
       }], "target"]
     ] satisfies ReadonlyArray<readonly [string, ReadonlyArray<TreeTransfer.Entry>, string]>
   ) {
-    it.effect(`should reject the stream when ${name}`, () =>
-      Effect.gen(function*() {
-        const destination = yield* Vfs.Caller
+    it.layer(NodeCrypto.layer)((it) => {
+      it.effect(`should reject the stream when ${name}`, () =>
+        Effect.gen(function*() {
+          const destination = yield* Vfs.Caller
 
-        const error = yield* Effect.flip(
-          Stream.run(Stream.fromIterable(entries), TreeTransfer.toCaller(destination, "/copy"))
-        )
+          const error = yield* Effect.flip(
+            Stream.run(Stream.fromIterable(entries), TreeTransfer.toCaller(destination, "/copy"))
+          )
 
-        assert.deepStrictEqual(failure(error), ["InvalidEntry", field])
-      }).pipe(Effect.provide(Testing.layer())))
+          assert.deepStrictEqual(failure(error), ["InvalidEntry", field])
+        }).pipe(Effect.provide(Testing.layer())))
+    })
   }
 
-  it.effect("should require a root directory when building a new volume", () =>
-    Effect.gen(function*() {
-      const error = yield* Effect.flip(
-        TreeTransfer.toVolume(Stream.make({ kind: "file", path: "/", bytes: new Uint8Array() } as const))
-      )
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should require a root directory when building a new volume", () =>
+      Effect.gen(function*() {
+        const error = yield* Effect.flip(
+          TreeTransfer.toVolume(Stream.make({ kind: "file", path: "/", bytes: new Uint8Array() } as const))
+        )
 
-      assert.deepStrictEqual(failure(error), ["InvalidEntry", "root"])
-    }))
+        assert.deepStrictEqual(failure(error), ["InvalidEntry", "root"])
+      }))
+  })
 
-  it.effect("should report a missing root when its entry path is malformed", () =>
-    Effect.gen(function*() {
-      const error = yield* Effect.flip(
-        TreeTransfer.toVolume(Stream.make({ kind: "directory", path: "\uD800" } as const))
-      )
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should report a missing root when its entry path is malformed", () =>
+      Effect.gen(function*() {
+        const error = yield* Effect.flip(
+          TreeTransfer.toVolume(Stream.make({ kind: "directory", path: "\uD800" } as const))
+        )
 
-      assert.deepStrictEqual(failure(error), ["InvalidEntry", "root"])
-    }))
+        assert.deepStrictEqual(failure(error), ["InvalidEntry", "root"])
+      }))
+  })
 
-  it.effect("should leave an existing destination file untouched when a file root is rejected", () =>
-    Effect.gen(function*() {
-      const caller = yield* Vfs.Caller
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should leave an existing destination file untouched when a file root is rejected", () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
 
-      const error = yield* Effect.flip(
-        Stream.run(TreeTransfer.fromCaller(caller, "/source"), TreeTransfer.toCaller(caller, "/existing"))
-      )
+        const error = yield* Effect.flip(
+          Stream.run(TreeTransfer.fromCaller(caller, "/source"), TreeTransfer.toCaller(caller, "/existing"))
+        )
 
-      assert.strictEqual(Schema.is(Vfs.VfsError)(error) && error.code, "AlreadyExists")
-      assert.strictEqual(new TextDecoder().decode(yield* caller.readFile("/existing")), "old")
-    }).pipe(Effect.provide(Testing.layer({ fixture: FILE_ROOT_FIXTURE }))))
+        assert.strictEqual(Schema.is(Vfs.VfsError)(error) && error.code, "AlreadyExists")
+        assert.strictEqual(new TextDecoder().decode(yield* caller.readFile("/existing")), "old")
+      }).pipe(Effect.provide(Testing.layer({ fixture: FILE_ROOT_FIXTURE }))))
+  })
 
   for (
     const [name, entry] of [
@@ -382,31 +419,35 @@ describe("TreeTransfer", () => {
       ["an empty component", { kind: "directory", path: "/a/" }]
     ] satisfies ReadonlyArray<readonly [string, TreeTransfer.Entry]>
   ) {
-    it.effect(`should reject ${name} when overwriting`, () =>
-      Effect.gen(function*() {
-        const destination = yield* Vfs.Caller
-        yield* destination.mkdir("/copy")
+    it.layer(NodeCrypto.layer)((it) => {
+      it.effect(`should reject ${name} when overwriting`, () =>
+        Effect.gen(function*() {
+          const destination = yield* Vfs.Caller
+          yield* destination.mkdir("/copy")
 
-        const error = yield* Effect.flip(
-          Stream.run(
-            Stream.make<ReadonlyArray<TreeTransfer.Entry>>({ kind: "directory", path: "/" }, entry),
-            TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })
+          const error = yield* Effect.flip(
+            Stream.run(
+              Stream.make<ReadonlyArray<TreeTransfer.Entry>>({ kind: "directory", path: "/" }, entry),
+              TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })
+            )
           )
-        )
 
-        assert.deepStrictEqual(failure(error), ["InvalidEntry", "path"])
-        assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/")), ["copy"])
-      }).pipe(Effect.provide(Testing.layer())))
+          assert.deepStrictEqual(failure(error), ["InvalidEntry", "path"])
+          assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/")), ["copy"])
+        }).pipe(Effect.provide(Testing.layer())))
+    })
   }
 
-  it.effect("should reject a transfer when its source stream is empty", () =>
-    Effect.gen(function*() {
-      const destination = yield* Vfs.Caller
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should reject a transfer when its source stream is empty", () =>
+      Effect.gen(function*() {
+        const destination = yield* Vfs.Caller
 
-      const error = yield* Effect.flip(Stream.run(Stream.empty, TreeTransfer.toCaller(destination, "/copy")))
+        const error = yield* Effect.flip(Stream.run(Stream.empty, TreeTransfer.toCaller(destination, "/copy")))
 
-      assert.deepStrictEqual(failure(error), ["InvalidEntry", "root"])
-    }).pipe(Effect.provide(Testing.layer())))
+        assert.deepStrictEqual(failure(error), ["InvalidEntry", "root"])
+      }).pipe(Effect.provide(Testing.layer())))
+  })
 
   for (
     const [name, entries, field] of [
@@ -415,126 +456,144 @@ describe("TreeTransfer", () => {
       ["a hard link precedes its target", [{ kind: "hardLink", path: "/a", target: "/b" }], "target"]
     ] satisfies ReadonlyArray<readonly [string, ReadonlyArray<TreeTransfer.Entry>, string]>
   ) {
-    it.effect(`should reject a new volume when ${name}`, () =>
-      Effect.gen(function*() {
-        const error = yield* Effect.flip(
-          TreeTransfer.toVolume(Stream.fromIterable<TreeTransfer.Entry>([{ kind: "directory", path: "/" }, ...entries]))
-        )
+    it.layer(NodeCrypto.layer)((it) => {
+      it.effect(`should reject a new volume when ${name}`, () =>
+        Effect.gen(function*() {
+          const error = yield* Effect.flip(
+            TreeTransfer.toVolume(
+              Stream.fromIterable<TreeTransfer.Entry>([{ kind: "directory", path: "/" }, ...entries])
+            )
+          )
 
-        assert.deepStrictEqual(failure(error), ["InvalidEntry", field])
-      }))
+          assert.deepStrictEqual(failure(error), ["InvalidEntry", field])
+        }))
+    })
   }
 
-  it.effect("should drop owners and special bits when building a new volume by default", () =>
-    Effect.gen(function*() {
-      const volume = yield* TreeTransfer.toVolume(Stream.fromIterable<TreeTransfer.Entry>([
-        { kind: "directory", path: "/", metadata: { uid: 501, gid: 20 } },
-        { kind: "file", path: "/tool", bytes: new Uint8Array(), metadata: { uid: 501, gid: 20, mode: 0o4755 } }
-      ]))
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should drop owners and special bits when building a new volume by default", () =>
+      Effect.gen(function*() {
+        const volume = yield* TreeTransfer.toVolume(Stream.fromIterable<TreeTransfer.Entry>([
+          { kind: "directory", path: "/", metadata: { uid: 501, gid: 20 } },
+          { kind: "file", path: "/tool", bytes: new Uint8Array(), metadata: { uid: 501, gid: 20, mode: 0o4755 } }
+        ]))
 
-      const tool = yield* (yield* volume.caller()).stat(Vfs.Target.Path({ path: "/tool", followFinalSymlink: false }))
+        const tool = yield* (yield* volume.caller()).stat(Vfs.Target.Path({ path: "/tool", followFinalSymlink: false }))
 
-      assert.deepStrictEqual({ uid: tool.uid, gid: tool.gid, mode: tool.mode }, { uid: 0, gid: 0, mode: 0o755 })
-    }))
+        assert.deepStrictEqual({ uid: tool.uid, gid: tool.gid, mode: tool.mode }, { uid: 0, gid: 0, mode: 0o755 })
+      }))
+  })
 
-  it.effect("should pass at a limit and fail below it when the same tree is transferred", () =>
-    Effect.gen(function*() {
-      const source = yield* representativeTree
-      const snapshot = yield* source.snapshot
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should pass at a limit and fail below it when the same tree is transferred", () =>
+      Effect.gen(function*() {
+        const source = yield* representativeTree
+        const snapshot = yield* source.snapshot
 
-      const drain = (limits: Partial<TreeTransfer.TreeTransferLimits>) =>
-        Effect.exit(Stream.runDrain(
-          TreeTransfer.fromSnapshot(snapshot, "/src", {
-            limits: { ...TreeTransfer.TreeTransferLimits.default, ...limits }
-          })
-        ))
+        const drain = (limits: Partial<TreeTransfer.TreeTransferLimits>) =>
+          Effect.exit(Stream.runDrain(
+            TreeTransfer.fromSnapshot(snapshot, "/src", {
+              limits: { ...TreeTransfer.TreeTransferLimits.default, ...limits }
+            })
+          ))
 
-      assert.isTrue(Exit.isSuccess(yield* drain({ maxEntries: 9 })))
-      assert.isTrue(Exit.isFailure(yield* drain({ maxEntries: 8 })))
-      assert.isTrue(Exit.isSuccess(yield* drain({ maxPathBytes: ByteSize.bytes(16) })))
-      assert.isTrue(Exit.isFailure(yield* drain({ maxPathBytes: ByteSize.bytes(15) })))
-    }))
+        assert.isTrue(Exit.isSuccess(yield* drain({ maxEntries: 9 })))
+        assert.isTrue(Exit.isFailure(yield* drain({ maxEntries: 8 })))
+        assert.isTrue(Exit.isSuccess(yield* drain({ maxPathBytes: ByteSize.bytes(16) })))
+        assert.isTrue(Exit.isFailure(yield* drain({ maxPathBytes: ByteSize.bytes(15) })))
+      }))
+  })
 
-  it.effect("should count symbolic-link targets when enforcing the byte limit", () =>
-    Effect.gen(function*() {
-      const limits = { ...TreeTransfer.TreeTransferLimits.default, maxBytes: ByteSize.bytes(9) }
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should count symbolic-link targets when enforcing the byte limit", () =>
+      Effect.gen(function*() {
+        const limits = { ...TreeTransfer.TreeTransferLimits.default, maxBytes: ByteSize.bytes(9) }
 
-      const error = yield* Effect.flip(
-        Stream.runDrain(TreeTransfer.fromCaller(yield* Vfs.Caller, "/link", { limits }))
-      )
-
-      assert.deepStrictEqual(failure(error), ["LimitExceeded", "maxBytes"])
-    }).pipe(Effect.provide(Testing.layer({ fixture: LONG_SYMLINK_FIXTURE }))))
-
-  it.effect("should fail before visiting a directory when its listing exceeds the entry budget", () =>
-    Effect.gen(function*() {
-      const limits = { ...TreeTransfer.TreeTransferLimits.default, maxEntries: 3 }
-      const entries: Array<TreeTransfer.Entry> = []
-
-      const error = yield* Effect.flip(
-        Stream.runForEach(
-          TreeTransfer.fromCaller(yield* Vfs.Caller, "/", { limits }),
-          (entry) => Effect.sync(() => entries.push(entry))
+        const error = yield* Effect.flip(
+          Stream.runDrain(TreeTransfer.fromCaller(yield* Vfs.Caller, "/link", { limits }))
         )
-      )
 
-      assert.deepStrictEqual(failure(error), ["LimitExceeded", "maxEntries"])
-      assert.deepStrictEqual(entries, [])
-    }).pipe(Effect.provide(Testing.layer({ fixture: FOUR_FILES_FIXTURE }))))
+        assert.deepStrictEqual(failure(error), ["LimitExceeded", "maxBytes"])
+      }).pipe(Effect.provide(Testing.layer({ fixture: LONG_SYMLINK_FIXTURE }))))
+  })
 
-  it.effect("should fail at the overflowing entry when a snapshot listing exceeds the budget", () =>
-    Effect.gen(function*() {
-      const limits = { ...TreeTransfer.TreeTransferLimits.default, maxEntries: 3 }
-      const snapshot = yield* (yield* Vfs.fromFixture(FOUR_FILES_FIXTURE)).snapshot
-      const paths: Array<Vfs.PathInput> = []
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should fail before visiting a directory when its listing exceeds the entry budget", () =>
+      Effect.gen(function*() {
+        const limits = { ...TreeTransfer.TreeTransferLimits.default, maxEntries: 3 }
+        const entries: Array<TreeTransfer.Entry> = []
 
-      const error = yield* Effect.flip(
-        Stream.runForEach(
-          TreeTransfer.fromSnapshot(snapshot, "/", { limits }),
-          (entry) => Effect.sync(() => paths.push(entry.path))
+        const error = yield* Effect.flip(
+          Stream.runForEach(
+            TreeTransfer.fromCaller(yield* Vfs.Caller, "/", { limits }),
+            (entry) => Effect.sync(() => entries.push(entry))
+          )
         )
-      )
 
-      assert.deepStrictEqual(failure(error), ["LimitExceeded", "maxEntries"])
-      assert.deepStrictEqual(paths, ["/", "/a", "/b"])
-    }))
+        assert.deepStrictEqual(failure(error), ["LimitExceeded", "maxEntries"])
+        assert.deepStrictEqual(entries, [])
+      }).pipe(Effect.provide(Testing.layer({ fixture: FOUR_FILES_FIXTURE }))))
+  })
 
-  it.effect("should preserve a replacement destination when a transfer fails", () =>
-    Effect.gen(function*() {
-      const destination = yield* Vfs.Caller
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should fail at the overflowing entry when a snapshot listing exceeds the budget", () =>
+      Effect.gen(function*() {
+        const limits = { ...TreeTransfer.TreeTransferLimits.default, maxEntries: 3 }
+        const snapshot = yield* (yield* Vfs.fromFixture(FOUR_FILES_FIXTURE)).snapshot
+        const paths: Array<Vfs.PathInput> = []
 
-      const replace = Effect.gen(function*() {
-        yield* destination.rename("/copy", "/moved")
-        yield* destination.mkdir("/copy")
-        yield* destination.writeFile("/copy/theirs", text.encode("keep"), { access: "write", create: "exclusive" })
-      })
+        const error = yield* Effect.flip(
+          Stream.runForEach(
+            TreeTransfer.fromSnapshot(snapshot, "/", { limits }),
+            (entry) => Effect.sync(() => paths.push(entry.path))
+          )
+        )
 
-      const failing = Stream.fromIterable<TreeTransfer.Entry>([{ kind: "directory", path: "/" }]).pipe(
-        Stream.concat(Stream.fromEffect(replace).pipe(Stream.drain)),
-        Stream.concat(Stream.fail("source failed"))
-      )
+        assert.deepStrictEqual(failure(error), ["LimitExceeded", "maxEntries"])
+        assert.deepStrictEqual(paths, ["/", "/a", "/b"])
+      }))
+  })
 
-      yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy")))
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should preserve a replacement destination when a transfer fails", () =>
+      Effect.gen(function*() {
+        const destination = yield* Vfs.Caller
 
-      assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/copy")), ["theirs"])
-    }).pipe(Effect.provide(Testing.layer())))
+        const replace = Effect.gen(function*() {
+          yield* destination.rename("/copy", "/moved")
+          yield* destination.mkdir("/copy")
+          yield* destination.writeFile("/copy/theirs", text.encode("keep"), { access: "write", create: "exclusive" })
+        })
 
-  it.effect("should restore final directory modes when an overwriting transfer fails", () =>
-    Effect.gen(function*() {
-      const destination = yield* Vfs.Caller
+        const failing = Stream.fromIterable<TreeTransfer.Entry>([{ kind: "directory", path: "/" }]).pipe(
+          Stream.concat(Stream.fromEffect(replace).pipe(Stream.drain)),
+          Stream.concat(Stream.fail("source failed"))
+        )
 
-      const failing = Stream.fromIterable<TreeTransfer.Entry>([
-        { kind: "directory", path: "/" },
-        { kind: "directory", path: "/locked", metadata: { mode: 0o555 } }
-      ]).pipe(Stream.concat(Stream.fail("source failed")))
+        yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy")))
 
-      yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })))
+        assert.deepStrictEqual(entryNames(yield* destination.readDirectory("/copy")), ["theirs"])
+      }).pipe(Effect.provide(Testing.layer())))
+  })
 
-      assert.strictEqual(
-        (yield* destination.stat(Vfs.Target.Path({ path: "/copy/locked", followFinalSymlink: false }))).mode,
-        0o555
-      )
-    }).pipe(Effect.provide(Testing.layer())))
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should restore final directory modes when an overwriting transfer fails", () =>
+      Effect.gen(function*() {
+        const destination = yield* Vfs.Caller
+
+        const failing = Stream.fromIterable<TreeTransfer.Entry>([
+          { kind: "directory", path: "/" },
+          { kind: "directory", path: "/locked", metadata: { mode: 0o555 } }
+        ]).pipe(Stream.concat(Stream.fail("source failed")))
+
+        yield* Effect.exit(Stream.run(failing, TreeTransfer.toCaller(destination, "/copy", { existing: "overwrite" })))
+
+        assert.strictEqual(
+          (yield* destination.stat(Vfs.Target.Path({ path: "/copy/locked", followFinalSymlink: false }))).mode,
+          0o555
+        )
+      }).pipe(Effect.provide(Testing.layer())))
+  })
 })
 
 const millis = (value: number) => BigInt(value) * 1_000_000n
@@ -587,7 +646,7 @@ const withTemp = <A, E, R>(use: (fs: FileSystem.FileSystem, directory: string) =
     return yield* use(fs, yield* fs.makeTempDirectoryScoped({ prefix: "tree-transfer-" }))
   }))
 
-it.layer(NodeFileSystem.layer)("TreeTransfer host FileSystem", (it) => {
+it.layer(NodeFileSystem.layer.pipe(Layer.provideMerge(NodeCrypto.layer)))("TreeTransfer host FileSystem", (it) => {
   it.effect("should round-trip a representative tree within declared losses when transferred through the host", () =>
     withTemp((fs, directory) =>
       Effect.gen(function*() {

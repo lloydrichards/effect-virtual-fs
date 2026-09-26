@@ -9,7 +9,6 @@ import * as Exit from "effect/Exit"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as Random from "effect/Random"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
@@ -499,33 +498,11 @@ const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
   return observation
 })
 
-const randomHex128: Effect.Effect<string> = Effect.gen(function*() {
-  const crypto = yield* Effect.serviceOption(Crypto.Crypto)
+const randomHex128 = Effect.gen(function*() {
+  const crypto = yield* Crypto.Crypto
 
-  if (Option.isSome(crypto)) return Encoding.encodeHex(yield* Effect.orDie(crypto.value.randomBytes(16)))
-
-  let hex = ""
-
-  for (let draw = 0; draw < 4; draw++) {
-    hex += (yield* Random.nextIntBetween(0, 0x100000000, { halfOpen: true })).toString(16).padStart(8, "0")
-  }
-
-  return hex
-})
-
-// The 128-bit secret behind every key's tag, always from the platform's cryptographically secure generator. Unlike an
-// identity or an epoch it must not follow a seedable Random: every key hands out the identity and epoch, so a
-// reproducible secret would let one key forge the tag of any other inode. Web Crypto is global in every supported
-// runtime, so reading it adds no service requirement; a runtime without it is a defect, not a recoverable failure.
-const randomKeySecret: Effect.Effect<string> = Effect.sync(() => {
-  const webCrypto: typeof globalThis.crypto | undefined = globalThis.crypto
-
-  if (webCrypto === undefined) {
-    throw new Error("globalThis.crypto is unavailable, so a volume cannot draw its reference-key secret")
-  }
-
-  return Encoding.encodeHex(webCrypto.getRandomValues(new Uint8Array(16)))
-})
+  return Encoding.encodeHex(yield* crypto.randomBytes(16))
+}).pipe(Effect.orDie)
 
 /** @internal */
 export const makeVolume = Effect.fnUntraced(
@@ -540,6 +517,9 @@ export const makeVolume = Effect.fnUntraced(
     ) => Effect.Effect<Uint8Array, ImageFailure>,
     durability: VolumeDurability = "memory-only"
   ) {
+    const services = yield* Effect.context<Crypto.Crypto>()
+    // These accessors run inside synchronous transition callbacks. The runner is reached only when an invariant fails.
+    const dieInvariant = (message: string): never => Effect.runSyncWith(services)(Effect.die(message))
     const live = Predicate.isTagged("Live")(source) ? source.restored : undefined
     let restoredOptions = options
 
@@ -568,7 +548,7 @@ export const makeVolume = Effect.fnUntraced(
 
     const incarnation = VolumeIncarnation.make(yield* randomHex128)
     const epoch = live === undefined ? VolumeEpoch.make(yield* randomHex128) : live.epoch
-    const keySecret = live === undefined ? KeySecret.make(yield* randomKeySecret) : live.keySecret
+    const keySecret = live === undefined ? KeySecret.make(yield* randomHex128) : live.keySecret
     const identityBytes = Result.getOrThrow(Encoding.decodeHex(identity))
     const epochBytes = Result.getOrThrow(Encoding.decodeHex(epoch))
     const keySecretBytes = Result.getOrThrow(Encoding.decodeHex(keySecret))
@@ -818,7 +798,7 @@ export const makeVolume = Effect.fnUntraced(
     }))
 
     const current = (): Draft => {
-      if (draft === undefined) throw new Error("Volume mutation outside a transition")
+      if (draft === undefined) return dieInvariant("Volume mutation outside a transition")
 
       return draft
     }
@@ -1486,7 +1466,9 @@ export const makeVolume = Effect.fnUntraced(
       const directoryNow = (ino: Ino): Directory => {
         const node = view(ino)
 
-        if (node?.kind !== "directory") throw new Error("Directory left the inode table during a transition")
+        if (node?.kind !== "directory") {
+          return dieInvariant("Directory left the inode table during a transition")
+        }
 
         return node
       }
@@ -1494,7 +1476,7 @@ export const makeVolume = Effect.fnUntraced(
       const nodeNow = (ino: Ino): Node => {
         const node = view(ino)
 
-        if (node === undefined) throw new Error("Inode left the table during a transition")
+        if (node === undefined) return dieInvariant("Inode left the table during a transition")
 
         return node
       }

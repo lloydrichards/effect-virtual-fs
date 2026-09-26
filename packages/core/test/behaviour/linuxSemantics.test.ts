@@ -1,3 +1,4 @@
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Exit } from "effect"
 import { Testing, VirtualFileSystem as Vfs } from "../../src/index.js"
@@ -42,126 +43,151 @@ const outcome = <A, E extends { readonly code: string }, R>(effect: Effect.Effec
   Effect.match(effect, { onFailure: (error): string => error.code, onSuccess: (): string => "OK" })
 
 describe("directory search and structural checks", () => {
-  it.effect("should hide existing and missing names when path or reference operations lack search permission", () =>
-    Effect.gen(function*() {
-      const { admin, guest } = yield* arrange
-      const noexec = yield* admin.lookup("/noexec")
-      const at = (name: string) => Vfs.Entry(noexec, name)
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should hide existing and missing names when path or reference operations lack search permission",
+      () =>
+        Effect.gen(function*() {
+          const { admin, guest } = yield* arrange
+          const noexec = yield* admin.lookup("/noexec")
+          const at = (name: string) => Vfs.Entry(noexec, name)
 
-      assert.deepStrictEqual({
-        mkdirExisting: yield* outcome(guest.mkdir("/noexec/f")),
-        symlinkExisting: yield* outcome(guest.symlink("t", "/noexec/f")),
-        linkExisting: yield* outcome(guest.link("/gfile", "/noexec/f")),
-        rmdirMissing: yield* outcome(guest.rmdir("/noexec/missing")),
-        unlinkMissing: yield* outcome(guest.unlink("/noexec/missing")),
-        renameMissing: yield* outcome(guest.rename("/noexec/missing", "/gdir/x")),
-        entryMkdirExisting: yield* outcome(guest.mkdir(at("f"))),
-        entryMkdirMissing: yield* outcome(guest.mkdir(at("missing"))),
-        entryRmdirMissing: yield* outcome(guest.rmdir(at("missing"))),
-        entryUnlinkMissing: yield* outcome(guest.unlink(at("missing")))
-      }, {
-        mkdirExisting: "AccessDenied",
-        symlinkExisting: "AccessDenied",
-        linkExisting: "AccessDenied",
-        rmdirMissing: "AccessDenied",
-        unlinkMissing: "AccessDenied",
-        renameMissing: "AccessDenied",
-        entryMkdirExisting: "AccessDenied",
-        entryMkdirMissing: "AccessDenied",
-        entryRmdirMissing: "AccessDenied",
-        entryUnlinkMissing: "AccessDenied"
-      })
-    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
+          assert.deepStrictEqual({
+            mkdirExisting: yield* outcome(guest.mkdir("/noexec/f")),
+            symlinkExisting: yield* outcome(guest.symlink("t", "/noexec/f")),
+            linkExisting: yield* outcome(guest.link("/gfile", "/noexec/f")),
+            rmdirMissing: yield* outcome(guest.rmdir("/noexec/missing")),
+            unlinkMissing: yield* outcome(guest.unlink("/noexec/missing")),
+            renameMissing: yield* outcome(guest.rename("/noexec/missing", "/gdir/x")),
+            entryMkdirExisting: yield* outcome(guest.mkdir(at("f"))),
+            entryMkdirMissing: yield* outcome(guest.mkdir(at("missing"))),
+            entryRmdirMissing: yield* outcome(guest.rmdir(at("missing"))),
+            entryUnlinkMissing: yield* outcome(guest.unlink(at("missing")))
+          }, {
+            mkdirExisting: "AccessDenied",
+            symlinkExisting: "AccessDenied",
+            linkExisting: "AccessDenied",
+            rmdirMissing: "AccessDenied",
+            unlinkMissing: "AccessDenied",
+            renameMissing: "AccessDenied",
+            entryMkdirExisting: "AccessDenied",
+            entryMkdirMissing: "AccessDenied",
+            entryRmdirMissing: "AccessDenied",
+            entryUnlinkMissing: "AccessDenied"
+          })
+        }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } })))
+    )
+  })
 
-  it.effect("should check trailing slashes and rename structure before write permission when a directory is read-only", () =>
-    Effect.gen(function*() {
-      const { guest } = yield* arrange
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should check trailing slashes and rename structure before write permission when a directory is read-only",
+      () =>
+        Effect.gen(function*() {
+          const { guest } = yield* arrange
 
-      assert.deepStrictEqual({
-        unlinkFileSlash: yield* outcome(guest.unlink("/ro/x/")),
-        unlinkDirectorySlash: yield* outcome(guest.unlink("/ro/d/")),
-        linkOntoSlash: yield* outcome(guest.link("/gfile", "/ro/new/")),
-        symlinkOntoSlash: yield* outcome(guest.symlink("t", "/ro/new/")),
-        renameFileOntoSlash: yield* outcome(guest.rename("/gfile", "/ro/new/")),
-        renameOntoItselfSlash: yield* outcome(guest.rename("/ro/x", "/ro/x/")),
-        ontoItself: yield* outcome(guest.rename("/ro/x", "/ro/x")),
-        acrossHardLinks: yield* outcome(guest.rename("/hard1", "/hard2")),
-        intoOwnSubtree: yield* outcome(guest.rename("/ro/d", "/ro/d/sub"))
-      }, {
-        unlinkFileSlash: "NotDirectory",
-        unlinkDirectorySlash: "IsDirectory",
-        linkOntoSlash: "NotFound",
-        symlinkOntoSlash: "NotFound",
-        renameFileOntoSlash: "NotDirectory",
-        renameOntoItselfSlash: "NotDirectory",
-        ontoItself: "OK",
-        acrossHardLinks: "OK",
-        intoOwnSubtree: "InvalidArgument"
-      })
-    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
+          assert.deepStrictEqual({
+            unlinkFileSlash: yield* outcome(guest.unlink("/ro/x/")),
+            unlinkDirectorySlash: yield* outcome(guest.unlink("/ro/d/")),
+            linkOntoSlash: yield* outcome(guest.link("/gfile", "/ro/new/")),
+            symlinkOntoSlash: yield* outcome(guest.symlink("t", "/ro/new/")),
+            renameFileOntoSlash: yield* outcome(guest.rename("/gfile", "/ro/new/")),
+            renameOntoItselfSlash: yield* outcome(guest.rename("/ro/x", "/ro/x/")),
+            ontoItself: yield* outcome(guest.rename("/ro/x", "/ro/x")),
+            acrossHardLinks: yield* outcome(guest.rename("/hard1", "/hard2")),
+            intoOwnSubtree: yield* outcome(guest.rename("/ro/d", "/ro/d/sub"))
+          }, {
+            unlinkFileSlash: "NotDirectory",
+            unlinkDirectorySlash: "IsDirectory",
+            linkOntoSlash: "NotFound",
+            symlinkOntoSlash: "NotFound",
+            renameFileOntoSlash: "NotDirectory",
+            renameOntoItselfSlash: "NotDirectory",
+            ontoItself: "OK",
+            acrossHardLinks: "OK",
+            intoOwnSubtree: "InvalidArgument"
+          })
+        }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } })))
+    )
+  })
 })
 
 describe("a removed directory held by a handle", () => {
-  it.effect("should reject child creation without leaked usage when a removed directory handle remains open", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.Volume
-      const fs = yield* Vfs.Caller
-      yield* fs.mkdir("/a")
-      const handle = yield* fs.openDirectory("/a")
-      yield* fs.rmdir("/a")
-      yield* fs.writeFile("/moved", new Uint8Array([9, 9]), { access: "write", create: "exclusive" })
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should reject child creation without leaked usage when a removed directory handle remains open",
+      () =>
+        Effect.gen(function*() {
+          const volume = yield* Vfs.Volume
+          const fs = yield* Vfs.Caller
+          yield* fs.mkdir("/a")
+          const handle = yield* fs.openDirectory("/a")
+          yield* fs.rmdir("/a")
+          yield* fs.writeFile("/moved", new Uint8Array([9, 9]), { access: "write", create: "exclusive" })
 
-      const created = yield* outcome(fs.mkdir(Vfs.Entry(handle, "orphan")))
+          const created = yield* outcome(fs.mkdir(Vfs.Entry(handle, "orphan")))
 
-      const written = yield* outcome(
-        fs.writeFile(Vfs.Entry(handle, "f"), new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
-      )
+          const written = yield* outcome(
+            fs.writeFile(Vfs.Entry(handle, "f"), new Uint8Array([1, 2, 3]), { access: "write", create: "exclusive" })
+          )
 
-      const opened = yield* outcome(
-        Effect.scoped(fs.open(Vfs.Entry(handle, "g"), { access: "write", create: "exclusive" }))
-      )
+          const opened = yield* outcome(
+            Effect.scoped(fs.open(Vfs.Entry(handle, "g"), { access: "write", create: "exclusive" }))
+          )
 
-      const moved = yield* outcome(fs.rename("/moved", Vfs.Entry(handle, "moved")))
-      yield* handle.close
+          const moved = yield* outcome(fs.rename("/moved", Vfs.Entry(handle, "moved")))
+          yield* handle.close
 
-      assert.deepStrictEqual({ created, written, opened, moved }, {
-        created: "NotFound",
-        written: "NotFound",
-        opened: "NotFound",
-        moved: "NotFound"
-      })
-      assert.deepStrictEqual(yield* volume.usage, { entries: 1, usedBytes: 2n })
-      assert.isTrue(Exit.isSuccess(yield* Effect.exit(fs.stat("/moved"))))
-    }).pipe(Effect.provide(Testing.layer())))
+          assert.deepStrictEqual({ created, written, opened, moved }, {
+            created: "NotFound",
+            written: "NotFound",
+            opened: "NotFound",
+            moved: "NotFound"
+          })
+          assert.deepStrictEqual(yield* volume.usage, { entries: 1, usedBytes: 2n })
+          assert.isTrue(Exit.isSuccess(yield* Effect.exit(fs.stat("/moved"))))
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
 })
 
 describe("entry names and no-follow targets", () => {
-  it.effect("should reject invalid path encoding when an entry name contains a lone surrogate", () =>
-    Effect.gen(function*() {
-      const fs = yield* Vfs.Caller
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should reject invalid path encoding when an entry name contains a lone surrogate",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* Vfs.Caller
 
-      assert.deepStrictEqual({
-        viaPath: yield* outcome(fs.mkdir("/\uD800")),
-        viaEntry: yield* outcome(fs.mkdir(Vfs.Entry("/", "\uD800"))),
-        otherSurrogate: yield* outcome(fs.mkdir(Vfs.Entry("/", "\uDC00")))
-      }, {
-        viaPath: "InvalidPathEncoding",
-        viaEntry: "InvalidPathEncoding",
-        otherSurrogate: "InvalidPathEncoding"
-      })
-    }).pipe(Effect.provide(Testing.layer())))
+          assert.deepStrictEqual({
+            viaPath: yield* outcome(fs.mkdir("/\uD800")),
+            viaEntry: yield* outcome(fs.mkdir(Vfs.Entry("/", "\uD800"))),
+            otherSurrogate: yield* outcome(fs.mkdir(Vfs.Entry("/", "\uDC00")))
+          }, {
+            viaPath: "InvalidPathEncoding",
+            viaEntry: "InvalidPathEncoding",
+            otherSurrogate: "InvalidPathEncoding"
+          })
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
 
-  it.effect("should reject a final symlink when readFile and truncate are told not to follow it", () =>
-    Effect.gen(function*() {
-      const fs = yield* Vfs.Caller
-      yield* fs.writeFile("/f", encode("x"), { access: "write", create: "exclusive" })
-      yield* fs.symlink("f", "/fl")
-      const target = Vfs.Target.Path({ path: "/fl", followFinalSymlink: false })
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should reject a final symlink when readFile and truncate are told not to follow it",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* Vfs.Caller
+          yield* fs.writeFile("/f", encode("x"), { access: "write", create: "exclusive" })
+          yield* fs.symlink("f", "/fl")
+          const target = Vfs.Target.Path({ path: "/fl", followFinalSymlink: false })
 
-      assert.deepStrictEqual({
-        open: yield* outcome(Effect.scoped(fs.open(target, { access: "read" }))),
-        readFile: yield* outcome(fs.readFile(target)),
-        truncate: yield* outcome(fs.truncate(target, 0n))
-      }, { open: "SymlinkLoop", readFile: "SymlinkLoop", truncate: "SymlinkLoop" })
-    }).pipe(Effect.provide(Testing.layer())))
+          assert.deepStrictEqual({
+            open: yield* outcome(Effect.scoped(fs.open(target, { access: "read" }))),
+            readFile: yield* outcome(fs.readFile(target)),
+            truncate: yield* outcome(fs.truncate(target, 0n))
+          }, { open: "SymlinkLoop", readFile: "SymlinkLoop", truncate: "SymlinkLoop" })
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
 })

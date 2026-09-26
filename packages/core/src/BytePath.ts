@@ -42,6 +42,7 @@ export type BytePathId = typeof BytePathId
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { Effect } from "effect"
  *
@@ -59,7 +60,7 @@ export type BytePathId = typeof BytePathId
  *   return (yield* caller.readDirectory("/")).value.map((entry) => entry.name)
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ Uint8Array(2) [ 255, 254 ] ]
  * ```
  *

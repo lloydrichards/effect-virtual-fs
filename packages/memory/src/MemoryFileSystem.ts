@@ -9,6 +9,7 @@
  * @since 0.1.0
  */
 import type * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import type * as Crypto from "effect/Crypto"
 import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Layer from "effect/Layer"
@@ -50,6 +51,7 @@ export const isWatchOverflow: (error: PlatformError.PlatformError) => boolean = 
  *
  * @example
  * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { MemoryFileSystem } from "@effect-vfs/memory"
  * import { Effect } from "effect"
  *
@@ -61,15 +63,16 @@ export const isWatchOverflow: (error: PlatformError.PlatformError) => boolean = 
  *   return yield* fs.readFileString("/tmp/greeting.txt")
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // hello
  * ```
  *
  * @see {@link layer} for a Layer, {@link bind} for an existing volume.
+ * @see `Crypto.Crypto` for the required secure random-byte service.
  * @category constructors
  * @since 0.1.0
  */
-export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
+export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = internal.make
 
 /**
  * Provides a `FileSystem.FileSystem` backed by a fresh in-memory volume.
@@ -83,9 +86,11 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  * Reusing this layer value within a single layer graph shares one volume through
  * layer memoization. Wrap it with `Layer.fresh` when each use needs separate
  * state. Separate graphs, such as one per test, already get separate volumes.
+ * Provide `Crypto.Crypto` to build the underlying volume.
  *
  * @example
  * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { MemoryFileSystem } from "@effect-vfs/memory"
  * import { Effect, FileSystem } from "effect"
  *
@@ -98,13 +103,14 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  *   return yield* fs.readFileString("/dist/manifest.json")
  * })
  *
- * Effect.runPromise(writeManifest.pipe(Effect.provide(MemoryFileSystem.layer)))
+ * Effect.runPromise(writeManifest.pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(NodeCrypto.layer)))
  *   .then(console.log)
  * // {"version":"1.2.3"}
  * ```
  *
  * @example
  * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { MemoryFileSystem } from "@effect-vfs/memory"
  * import { Effect, FileSystem, Layer } from "effect"
  *
@@ -135,7 +141,7 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  *   return [shared, isolated]
  * })
  *
- * Effect.runPromise(program).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
  * // [ true, false ]
  * ```
  *
@@ -144,7 +150,7 @@ export const make: Effect.Effect<FileSystem.FileSystem> = internal.make
  * @category layers
  * @since 0.1.0
  */
-export const layer: Layer.Layer<FileSystem.FileSystem> = internal.layer
+export const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto> = internal.layer
 
 /**
  * Creates a `FileSystem.FileSystem` service backed by an existing core volume.
@@ -162,6 +168,7 @@ export const layer: Layer.Layer<FileSystem.FileSystem> = internal.layer
  *
  * @example
  * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import { MemoryFileSystem } from "@effect-vfs/memory"
  * import { Effect, FileSystem, Layer } from "effect"
@@ -193,7 +200,7 @@ export const layer: Layer.Layer<FileSystem.FileSystem> = internal.layer
  *   return yield* fs.readFileString("/project/package.json")
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(seeded))).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(seeded), Effect.provide(NodeCrypto.layer))).then(console.log)
  * // {"version":"1.2.3"}
  * ```
  *

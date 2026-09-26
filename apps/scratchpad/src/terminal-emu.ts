@@ -1,5 +1,5 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { BunRuntime } from "@effect/platform-bun"
+import { BunCrypto, BunRuntime } from "@effect/platform-bun"
 import { ByteSize, Console, Effect, Schema } from "effect"
 
 const utf8 = new TextEncoder()
@@ -57,4 +57,4 @@ const main = Effect.gen(function*() {
   yield* Console.log(result)
 })
 
-BunRuntime.runMain(main)
+BunRuntime.runMain(main.pipe(Effect.provide(BunCrypto.layer)))

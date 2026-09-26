@@ -12,6 +12,7 @@
  *
  * @since 0.6.0
  */
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
@@ -45,10 +46,11 @@ export interface LayerOptions {
  *
  * Every build constructs a new volume, from `fixture` when one is given. The
  * layer fails with the `VfsError` the constructor or the caller reports for
- * invalid options.
+ * invalid options. Provide `Crypto.Crypto` to build the volume.
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import * as Testing from "@effect-vfs/core/Testing"
  * import { Effect } from "effect"
@@ -61,14 +63,14 @@ export interface LayerOptions {
  * })
  *
  * // Each provide builds its own volume, so neither run sees the other's writes.
- * Effect.runPromise(program.pipe(Effect.provide(Testing.layer()))).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(Testing.layer()), Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'work' ]
  * ```
  *
  * @category layers
  * @since 0.6.0
  */
-export const layer = (options?: LayerOptions): Layer.Layer<Volume | Caller, VfsError> =>
+export const layer = (options?: LayerOptions): Layer.Layer<Volume | Caller, VfsError, Crypto.Crypto> =>
   Caller.layer(options?.caller).pipe(
     Layer.provideMerge(
       options?.fixture === undefined
@@ -82,6 +84,7 @@ export const layer = (options?: LayerOptions): Layer.Layer<Volume | Caller, VfsE
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import * as Testing from "@effect-vfs/core/Testing"
  * import { Effect } from "effect"
@@ -94,7 +97,7 @@ export const layer = (options?: LayerOptions): Layer.Layer<Volume | Caller, VfsE
  *   return (yield* Effect.flip(guest.readDirectory("/private"))).code
  * })
  *
- * Effect.runPromise(program.pipe(Effect.provide(Testing.layer()))).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.provide(Testing.layer()), Effect.provide(BunCrypto.layer))).then(console.log)
  * // AccessDenied
  * ```
  *
@@ -120,6 +123,7 @@ export const callerAs = (
  *
  * @example
  * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
  * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
  * import * as Testing from "@effect-vfs/core/Testing"
  * import { Effect } from "effect"
@@ -133,7 +137,7 @@ export const callerAs = (
  *   return (yield* changes).map((change) => change._tag)
  * })
  *
- * Effect.runPromise(program.pipe(Effect.scoped, Effect.provide(Testing.layer()))).then(console.log)
+ * Effect.runPromise(program.pipe(Effect.scoped, Effect.provide(Testing.layer()), Effect.provide(BunCrypto.layer))).then(console.log)
  * // [ 'Create' ]
  * ```
  *

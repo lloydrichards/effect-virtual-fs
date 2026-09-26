@@ -1,3 +1,4 @@
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Stream } from "effect"
 import * as TestClock from "effect/testing/TestClock"
@@ -29,297 +30,378 @@ const failure = (error: Vfs.WalkFailure) =>
   Effect.map(pathText(error.path), (path) => [error.code, error.field, path] as const)
 
 describe("walk", () => {
-  it.effect("should report each directory before its entries, in the byte order of their names when using pre-order traversal", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-
-      assert.deepStrictEqual(yield* collect(fs.walk("/tree")), [
-        "file a 1",
-        "directory b 1",
-        "directory b/deep 2",
-        "file b/deep/leaf 3",
-        "symlink c 1"
-      ])
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should report each directory after its entries when walking in post-order", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-
-      assert.deepStrictEqual(yield* collect(fs.walk("/tree", { order: "post" })), [
-        "file a 1",
-        "file b/deep/leaf 3",
-        "directory b/deep 2",
-        "directory b 1",
-        "symlink c 1"
-      ])
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should order names by their bytes, not their text when names have different byte and text order", () =>
-    Effect.gen(function*() {
-      const fs = yield* Vfs.Caller
-      const root = yield* fs.root
-
-      for (const name of [new Uint8Array([0xff]), new TextEncoder().encode("b"), new TextEncoder().encode("B")]) {
-        yield* fs.mkdir(Vfs.Entry(root, name))
-      }
-
-      const names = yield* Stream.runCollect(Stream.map(fs.walk(root), (entry) => Array.from(entry.name)))
-
-      assert.deepStrictEqual(names, [[0x42], [0x62], [0xff]])
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should name each entry by a reference and the directory it was listed in when entries are listed from parent references", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-      const entries = yield* Stream.runCollect(fs.walk("/tree"))
-      const deep = entries.find((entry) => text(entry.name) === "deep")
-
-      assert.isDefined(deep)
-      assert.strictEqual(deep.reference, yield* fs.lookup("/tree/b/deep"))
-      assert.strictEqual(deep.directory, yield* fs.lookup("/tree/b"))
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should walk from a reference with the same relative paths when a reference is the starting point", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-
-      assert.deepStrictEqual(
-        yield* collect(fs.walk(yield* fs.lookup("/tree/b"))),
-        ["directory deep 1", "file deep/leaf 2"]
-      )
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should follow a final symbolic link at the root, as a path does, and no link below it when the root is a symbolic link", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-
-      assert.deepStrictEqual(yield* collect(fs.walk("/tree/c")), ["directory deep 1", "file deep/leaf 2"])
-
-      const error = yield* Effect.flip(
-        Stream.runDrain(fs.walk(Vfs.Target.Path({ path: "/tree/c", followFinalSymlink: false })))
-      )
-
-      assert.deepStrictEqual(yield* failure(error), ["NotDirectory", undefined, "/tree/c"])
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should fail once an entry lies deeper than maxDepth, naming it when an entry exceeds maxDepth", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-      const entries: Array<string> = []
-
-      const error = yield* Effect.flip(
-        Stream.runForEach(fs.walk("/tree", { maxDepth: 2 }), (entry) =>
-          Effect.map(describeEntry(entry), (line) => {
-            entries.push(line)
-          }))
-      )
-
-      // The entries before the one that crossed the bound are all handed on.
-      assert.deepStrictEqual(entries, ["file a 1", "directory b 1", "directory b/deep 2"])
-      assert.deepStrictEqual(yield* failure(error), ["LimitExceeded", "maxDepth", "/tree/b/deep/leaf"])
-      assert.strictEqual((yield* collect(fs.walk("/tree", { maxDepth: 3 }))).length, 5)
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should fail at the first entry past maxEntries or maxBytes when an entry exceeds maxEntries or maxBytes", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-
-      const entries = yield* Effect.flip(Stream.runDrain(fs.walk("/tree", { maxEntries: 2 })))
-      assert.deepStrictEqual(yield* failure(entries), ["LimitExceeded", "maxEntries", "/tree/b/deep"])
-
-      // The file holds three bytes, the leaf one: the leaf is the fourth byte.
-      const bytes = yield* Effect.flip(Stream.runDrain(fs.walk("/tree", { maxBytes: ByteSize.bytes(3) })))
-      assert.deepStrictEqual(yield* failure(bytes), ["LimitExceeded", "maxBytes", "/tree/b/deep/leaf"])
-
-      // The link's one-byte target counts as well.
-      assert.strictEqual((yield* collect(fs.walk("/tree", { maxEntries: 5, maxBytes: ByteSize.bytes(5) }))).length, 5)
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should read no directory past maxDepth in a post-order walk when a post-order walk reaches maxDepth", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-      const seen: Array<string> = []
-
-      const error = yield* Effect.flip(
-        Stream.runForEach(
-          fs.walk("/tree", { order: "post", maxDepth: 1 }),
-          (entry) =>
-            Effect.map(describeEntry(entry), (line) => {
-              seen.push(line)
-            })
-        )
-      )
-
-      assert.deepStrictEqual(seen, ["file a 1"])
-      assert.deepStrictEqual(yield* failure(error), ["LimitExceeded", "maxDepth", "/tree/b/deep"])
-
-      // A directory past the bound that the caller may not read still fails on the bound, since it is never read.
-      yield* fs.chmod("/tree/b/deep", 0o000)
-      const guest = yield* Testing.callerAs(GUEST)
-      const denied = yield* Effect.flip(Stream.runDrain(guest.walk("/tree", { order: "post", maxDepth: 1 })))
-      assert.deepStrictEqual(yield* failure(denied), ["LimitExceeded", "maxDepth", "/tree/b/deep"])
-
-      // Within the bound, the deepest directory is read and its entry is the first past it.
-      const leaf = yield* Effect.flip(Stream.runDrain(fs.walk("/tree", { order: "post", maxDepth: 2 })))
-      assert.deepStrictEqual(yield* failure(leaf), ["LimitExceeded", "maxDepth", "/tree/b/deep/leaf"])
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should fail at the first entry past maxEntries or maxBytes in a post-order walk when a post-order walk exceeds entry or byte limits", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-
-      const entries = yield* Effect.flip(Stream.runDrain(fs.walk("/tree", { order: "post", maxEntries: 2 })))
-      assert.deepStrictEqual(yield* failure(entries), ["LimitExceeded", "maxEntries", "/tree/b/deep"])
-
-      const bytes = yield* Effect.flip(
-        Stream.runDrain(fs.walk("/tree", { order: "post", maxBytes: ByteSize.bytes(3) }))
-      )
-
-      assert.deepStrictEqual(yield* failure(bytes), ["LimitExceeded", "maxBytes", "/tree/b/deep/leaf"])
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should reject malformed options when it runs", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-      // A negative bound type-checks; the schema rejects it.
-      const error = yield* Effect.flip(Stream.runDrain(fs.walk("/tree", { maxDepth: -1 })))
-
-      assert.deepStrictEqual(yield* failure(error), ["InvalidArgument", undefined, "/tree"])
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should skip the entries of a directory that went away when it was listed", () =>
-    Effect.gen(function*() {
-      const fs = yield* Vfs.Caller
-      yield* fs.mkdir("/tree")
-      yield* fs.mkdir("/tree/a")
-      yield* write(fs, "/tree/a/x")
-      yield* fs.mkdir("/tree/b")
-      yield* write(fs, "/tree/b/y")
-      const seen: Array<string> = []
-
-      // Reading /tree/a ends the first pull, so /tree/b is removed before the walk reads it.
-      yield* Stream.runForEach(fs.walk("/tree"), (entry) =>
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should report each directory before its entries, in the byte order of their names when using pre-order traversal",
+      () =>
         Effect.gen(function*() {
-          seen.push(yield* describeEntry(entry))
+          const fs = yield* arrange
 
-          if (text(entry.name) === "a") {
-            yield* fs.unlink("/tree/b/y")
-            yield* fs.rmdir("/tree/b")
+          assert.deepStrictEqual(yield* collect(fs.walk("/tree")), [
+            "file a 1",
+            "directory b 1",
+            "directory b/deep 2",
+            "file b/deep/leaf 3",
+            "symlink c 1"
+          ])
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should report each directory after its entries when walking in post-order",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* arrange
+
+          assert.deepStrictEqual(yield* collect(fs.walk("/tree", { order: "post" })), [
+            "file a 1",
+            "file b/deep/leaf 3",
+            "directory b/deep 2",
+            "directory b 1",
+            "symlink c 1"
+          ])
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should order names by their bytes, not their text when names have different byte and text order",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* Vfs.Caller
+          const root = yield* fs.root
+
+          for (const name of [new Uint8Array([0xff]), new TextEncoder().encode("b"), new TextEncoder().encode("B")]) {
+            yield* fs.mkdir(Vfs.Entry(root, name))
           }
-        }))
 
-      assert.deepStrictEqual(seen, ["directory a 1", "file a/x 2", "directory b 1"])
-    }).pipe(Effect.provide(Testing.layer())))
+          const names = yield* Stream.runCollect(Stream.map(fs.walk(root), (entry) => Array.from(entry.name)))
 
-  it.effect("should not follow a directory renamed out of the tree when it was listed", () =>
-    Effect.gen(function*() {
-      const fs = yield* Vfs.Caller
-      yield* fs.mkdir("/keep")
-      yield* fs.mkdir("/work")
-      yield* fs.mkdir("/work/a")
-      yield* write(fs, "/work/a/x")
-      yield* fs.mkdir("/work/z")
-      yield* write(fs, "/work/z/k")
-      const seen: Array<string> = []
+          assert.deepStrictEqual(names, [[0x42], [0x62], [0xff]])
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
 
-      // Reading /work/a ends the first pull, so /work/z moves out before the walk reads it.
-      yield* Stream.runForEach(fs.walk("/work"), (entry) =>
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should name each entry by a reference and the directory it was listed in when entries are listed from parent references",
+      () =>
         Effect.gen(function*() {
-          seen.push(yield* describeEntry(entry))
+          const fs = yield* arrange
+          const entries = yield* Stream.runCollect(fs.walk("/tree"))
+          const deep = entries.find((entry) => text(entry.name) === "deep")
 
-          if (text(entry.name) === "a") yield* fs.rename("/work/z", "/keep/z")
-        }))
+          assert.isDefined(deep)
+          assert.strictEqual(deep.reference, yield* fs.lookup("/tree/b/deep"))
+          assert.strictEqual(deep.directory, yield* fs.lookup("/tree/b"))
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
 
-      assert.deepStrictEqual(seen, ["directory a 1", "file a/x 2", "directory z 1"])
-    }).pipe(Effect.provide(Testing.layer())))
-
-  it.effect("should not follow its root renamed away when it was listed", () =>
-    Effect.gen(function*() {
-      const fs = yield* Vfs.Caller
-      yield* fs.mkdir("/work")
-      yield* fs.mkdir("/work/a")
-      yield* write(fs, "/work/a/x")
-      yield* fs.mkdir("/work/b")
-      yield* write(fs, "/work/b/y")
-      const seen: Array<string> = []
-
-      // Reading /work/a ends the first pull, so /work moves away before the walk reads /work/b, which the walk
-      // reaches through the name /work and so no longer reaches.
-      yield* Stream.runForEach(fs.walk("/work"), (entry) =>
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should walk from a reference with the same relative paths when a reference is the starting point",
+      () =>
         Effect.gen(function*() {
-          seen.push(yield* describeEntry(entry))
+          const fs = yield* arrange
 
-          if (text(entry.name) === "a") yield* fs.rename("/work", "/keep")
-        }))
+          assert.deepStrictEqual(
+            yield* collect(fs.walk(yield* fs.lookup("/tree/b"))),
+            ["directory deep 1", "file deep/leaf 2"]
+          )
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
 
-      assert.deepStrictEqual(seen, ["directory a 1", "file a/x 2", "directory b 1"])
-    }).pipe(Effect.provide(Testing.layer())))
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should follow a final symbolic link at the root, as a path does, and no link below it when the root is a symbolic link",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* arrange
 
-  it.effect("should refuse to descend below a directory it may read but not search, as POSIX does when a caller can read but cannot search a directory", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-      yield* fs.chmod("/tree/b", 0o444)
-      const guest = yield* Testing.callerAs(GUEST)
-      const seen: Array<string> = []
+          assert.deepStrictEqual(yield* collect(fs.walk("/tree/c")), ["directory deep 1", "file deep/leaf 2"])
 
-      const error = yield* Effect.flip(
-        Stream.runForEach(guest.walk("/tree"), (entry) =>
-          Effect.map(describeEntry(entry), (line) => {
-            seen.push(line)
+          const error = yield* Effect.flip(
+            Stream.runDrain(fs.walk(Vfs.Target.Path({ path: "/tree/c", followFinalSymlink: false })))
+          )
+
+          assert.deepStrictEqual(yield* failure(error), ["NotDirectory", undefined, "/tree/c"])
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should fail once an entry lies deeper than maxDepth, naming it when an entry exceeds maxDepth",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* arrange
+          const entries: Array<string> = []
+
+          const error = yield* Effect.flip(
+            Stream.runForEach(fs.walk("/tree", { maxDepth: 2 }), (entry) =>
+              Effect.map(describeEntry(entry), (line) => {
+                entries.push(line)
+              }))
+          )
+
+          // The entries before the one that crossed the bound are all handed on.
+          assert.deepStrictEqual(entries, ["file a 1", "directory b 1", "directory b/deep 2"])
+          assert.deepStrictEqual(yield* failure(error), ["LimitExceeded", "maxDepth", "/tree/b/deep/leaf"])
+          assert.strictEqual((yield* collect(fs.walk("/tree", { maxDepth: 3 }))).length, 5)
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should fail at the first entry past maxEntries or maxBytes when an entry exceeds maxEntries or maxBytes",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* arrange
+
+          const entries = yield* Effect.flip(Stream.runDrain(fs.walk("/tree", { maxEntries: 2 })))
+          assert.deepStrictEqual(yield* failure(entries), ["LimitExceeded", "maxEntries", "/tree/b/deep"])
+
+          // The file holds three bytes, the leaf one: the leaf is the fourth byte.
+          const bytes = yield* Effect.flip(Stream.runDrain(fs.walk("/tree", { maxBytes: ByteSize.bytes(3) })))
+          assert.deepStrictEqual(yield* failure(bytes), ["LimitExceeded", "maxBytes", "/tree/b/deep/leaf"])
+
+          // The link's one-byte target counts as well.
+          assert.strictEqual(
+            (yield* collect(fs.walk("/tree", { maxEntries: 5, maxBytes: ByteSize.bytes(5) }))).length,
+            5
+          )
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should read no directory past maxDepth in a post-order walk when a post-order walk reaches maxDepth",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* arrange
+          const seen: Array<string> = []
+
+          const error = yield* Effect.flip(
+            Stream.runForEach(
+              fs.walk("/tree", { order: "post", maxDepth: 1 }),
+              (entry) =>
+                Effect.map(describeEntry(entry), (line) => {
+                  seen.push(line)
+                })
+            )
+          )
+
+          assert.deepStrictEqual(seen, ["file a 1"])
+          assert.deepStrictEqual(yield* failure(error), ["LimitExceeded", "maxDepth", "/tree/b/deep"])
+
+          // A directory past the bound that the caller may not read still fails on the bound, since it is never read.
+          yield* fs.chmod("/tree/b/deep", 0o000)
+          const guest = yield* Testing.callerAs(GUEST)
+          const denied = yield* Effect.flip(Stream.runDrain(guest.walk("/tree", { order: "post", maxDepth: 1 })))
+          assert.deepStrictEqual(yield* failure(denied), ["LimitExceeded", "maxDepth", "/tree/b/deep"])
+
+          // Within the bound, the deepest directory is read and its entry is the first past it.
+          const leaf = yield* Effect.flip(Stream.runDrain(fs.walk("/tree", { order: "post", maxDepth: 2 })))
+          assert.deepStrictEqual(yield* failure(leaf), ["LimitExceeded", "maxDepth", "/tree/b/deep/leaf"])
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should fail at the first entry past maxEntries or maxBytes in a post-order walk when a post-order walk exceeds entry or byte limits",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* arrange
+
+          const entries = yield* Effect.flip(Stream.runDrain(fs.walk("/tree", { order: "post", maxEntries: 2 })))
+          assert.deepStrictEqual(yield* failure(entries), ["LimitExceeded", "maxEntries", "/tree/b/deep"])
+
+          const bytes = yield* Effect.flip(
+            Stream.runDrain(fs.walk("/tree", { order: "post", maxBytes: ByteSize.bytes(3) }))
+          )
+
+          assert.deepStrictEqual(yield* failure(bytes), ["LimitExceeded", "maxBytes", "/tree/b/deep/leaf"])
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect("should reject malformed options when it runs", () =>
+      Effect.gen(function*() {
+        const fs = yield* arrange
+        // A negative bound type-checks; the schema rejects it.
+        const error = yield* Effect.flip(Stream.runDrain(fs.walk("/tree", { maxDepth: -1 })))
+
+        assert.deepStrictEqual(yield* failure(error), ["InvalidArgument", undefined, "/tree"])
+      }).pipe(Effect.provide(Testing.layer())))
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should skip the entries of a directory that went away when it was listed",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* Vfs.Caller
+          yield* fs.mkdir("/tree")
+          yield* fs.mkdir("/tree/a")
+          yield* write(fs, "/tree/a/x")
+          yield* fs.mkdir("/tree/b")
+          yield* write(fs, "/tree/b/y")
+          const seen: Array<string> = []
+
+          // Reading /tree/a ends the first pull, so /tree/b is removed before the walk reads it.
+          yield* Stream.runForEach(fs.walk("/tree"), (entry) =>
+            Effect.gen(function*() {
+              seen.push(yield* describeEntry(entry))
+
+              if (text(entry.name) === "a") {
+                yield* fs.unlink("/tree/b/y")
+                yield* fs.rmdir("/tree/b")
+              }
+            }))
+
+          assert.deepStrictEqual(seen, ["directory a 1", "file a/x 2", "directory b 1"])
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should not follow a directory renamed out of the tree when it was listed",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* Vfs.Caller
+          yield* fs.mkdir("/keep")
+          yield* fs.mkdir("/work")
+          yield* fs.mkdir("/work/a")
+          yield* write(fs, "/work/a/x")
+          yield* fs.mkdir("/work/z")
+          yield* write(fs, "/work/z/k")
+          const seen: Array<string> = []
+
+          // Reading /work/a ends the first pull, so /work/z moves out before the walk reads it.
+          yield* Stream.runForEach(fs.walk("/work"), (entry) =>
+            Effect.gen(function*() {
+              seen.push(yield* describeEntry(entry))
+
+              if (text(entry.name) === "a") yield* fs.rename("/work/z", "/keep/z")
+            }))
+
+          assert.deepStrictEqual(seen, ["directory a 1", "file a/x 2", "directory z 1"])
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect("should not follow its root renamed away when it was listed", () =>
+      Effect.gen(function*() {
+        const fs = yield* Vfs.Caller
+        yield* fs.mkdir("/work")
+        yield* fs.mkdir("/work/a")
+        yield* write(fs, "/work/a/x")
+        yield* fs.mkdir("/work/b")
+        yield* write(fs, "/work/b/y")
+        const seen: Array<string> = []
+
+        // Reading /work/a ends the first pull, so /work moves away before the walk reads /work/b, which the walk
+        // reaches through the name /work and so no longer reaches.
+        yield* Stream.runForEach(fs.walk("/work"), (entry) =>
+          Effect.gen(function*() {
+            seen.push(yield* describeEntry(entry))
+
+            if (text(entry.name) === "a") yield* fs.rename("/work", "/keep")
           }))
-      )
 
-      // Listing /tree/b names its entries; reaching /tree/b/deep needs search permission on /tree/b.
-      assert.deepStrictEqual(seen, ["file a 1", "directory b 1", "directory b/deep 2"])
-      assert.deepStrictEqual(yield* failure(error), ["AccessDenied", undefined, "/tree/b/deep"])
-    }).pipe(Effect.provide(Testing.layer())))
+        assert.deepStrictEqual(seen, ["directory a 1", "file a/x 2", "directory b 1"])
+      }).pipe(Effect.provide(Testing.layer())))
+  })
 
-  it.effect("should fail on a directory it may not read, naming it under the root's path when a caller cannot read a directory", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-      yield* fs.chmod("/tree/b", 0o311)
-      const guest = yield* Testing.callerAs(GUEST)
-      const seen: Array<string> = []
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should refuse to descend below a directory it may read but not search, as POSIX does when a caller can read but cannot search a directory",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* arrange
+          yield* fs.chmod("/tree/b", 0o444)
+          const guest = yield* Testing.callerAs(GUEST)
+          const seen: Array<string> = []
 
-      const error = yield* Effect.flip(
-        Stream.runForEach(guest.walk("/tree"), (entry) =>
-          Effect.map(describeEntry(entry), (line) => {
-            seen.push(line)
-          }))
-      )
+          const error = yield* Effect.flip(
+            Stream.runForEach(guest.walk("/tree"), (entry) =>
+              Effect.map(describeEntry(entry), (line) => {
+                seen.push(line)
+              }))
+          )
 
-      assert.deepStrictEqual(seen, ["file a 1", "directory b 1"])
-      assert.deepStrictEqual(yield* failure(error), ["AccessDenied", undefined, "/tree/b"])
+          // Listing /tree/b names its entries; reaching /tree/b/deep needs search permission on /tree/b.
+          assert.deepStrictEqual(seen, ["file a 1", "directory b 1", "directory b/deep 2"])
+          assert.deepStrictEqual(yield* failure(error), ["AccessDenied", undefined, "/tree/b/deep"])
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
 
-      // A reference root names the path below it.
-      const below = yield* Effect.flip(Stream.runDrain(guest.walk(yield* fs.lookup("/tree"))))
-      assert.deepStrictEqual(yield* failure(below), ["AccessDenied", undefined, "b"])
-    }).pipe(Effect.provide(Testing.layer())))
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(
+      "should fail on a directory it may not read, naming it under the root's path when a caller cannot read a directory",
+      () =>
+        Effect.gen(function*() {
+          const fs = yield* arrange
+          yield* fs.chmod("/tree/b", 0o311)
+          const guest = yield* Testing.callerAs(GUEST)
+          const seen: Array<string> = []
 
-  it.effect("should refresh no access time when a walk observes directories", () =>
-    Effect.gen(function*() {
-      const fs = yield* arrange
-      const before = yield* fs.stat("/tree/b")
-      yield* TestClock.adjust("1 second")
+          const error = yield* Effect.flip(
+            Stream.runForEach(guest.walk("/tree"), (entry) =>
+              Effect.map(describeEntry(entry), (line) => {
+                seen.push(line)
+              }))
+          )
 
-      yield* Stream.runDrain(fs.walk("/tree"))
-      assert.strictEqual((yield* fs.stat("/tree/b")).atimeNs, before.atimeNs)
+          assert.deepStrictEqual(seen, ["file a 1", "directory b 1"])
+          assert.deepStrictEqual(yield* failure(error), ["AccessDenied", undefined, "/tree/b"])
 
-      // A listing of the same directory would.
-      yield* fs.readDirectory("/tree/b")
-      assert.notStrictEqual((yield* fs.stat("/tree/b")).atimeNs, before.atimeNs)
-    }).pipe(Effect.provide(Testing.layer())))
+          // A reference root names the path below it.
+          const below = yield* Effect.flip(Stream.runDrain(guest.walk(yield* fs.lookup("/tree"))))
+          assert.deepStrictEqual(yield* failure(below), ["AccessDenied", undefined, "b"])
+        }).pipe(Effect.provide(Testing.layer()))
+    )
+  })
 
-  it.effect("should report no entries or fail when the root is empty or missing", () =>
-    Effect.gen(function*() {
-      const fs = yield* Vfs.Caller
-      yield* fs.mkdir("/empty")
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect("should refresh no access time when a walk observes directories", () =>
+      Effect.gen(function*() {
+        const fs = yield* arrange
+        const before = yield* fs.stat("/tree/b")
+        yield* TestClock.adjust("1 second")
 
-      assert.deepStrictEqual(yield* collect(fs.walk("/empty")), [])
-      assert.deepStrictEqual(
-        yield* failure(yield* Effect.flip(Stream.runDrain(fs.walk("/missing")))),
-        ["NotFound", undefined, "/missing"]
-      )
-    }).pipe(Effect.provide(Testing.layer())))
+        yield* Stream.runDrain(fs.walk("/tree"))
+        assert.strictEqual((yield* fs.stat("/tree/b")).atimeNs, before.atimeNs)
+
+        // A listing of the same directory would.
+        yield* fs.readDirectory("/tree/b")
+        assert.notStrictEqual((yield* fs.stat("/tree/b")).atimeNs, before.atimeNs)
+      }).pipe(Effect.provide(Testing.layer())))
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect("should report no entries or fail when the root is empty or missing", () =>
+      Effect.gen(function*() {
+        const fs = yield* Vfs.Caller
+        yield* fs.mkdir("/empty")
+
+        assert.deepStrictEqual(yield* collect(fs.walk("/empty")), [])
+        assert.deepStrictEqual(
+          yield* failure(yield* Effect.flip(Stream.runDrain(fs.walk("/missing")))),
+          ["NotFound", undefined, "/missing"]
+        )
+      }).pipe(Effect.provide(Testing.layer())))
+  })
 })
