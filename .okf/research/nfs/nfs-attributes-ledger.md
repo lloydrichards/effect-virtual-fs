@@ -20,7 +20,7 @@ sources:
   - id: core
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: Core metadata and capacity model
-generated: { by: codex/okf, at: 2026-09-20T12:11:27Z }
+generated: { by: claude-code, at: "2026-09-26T14:00:00+02:00" }
 ---
 
 # NFS attributes ledger
@@ -29,22 +29,22 @@ Rows follow RFC 8881 Table 4 and Table 5.[^rfc8881-5] Status vocabulary comes fr
 
 ## REQUIRED attributes (Table 4)
 
-| Attribute          | #  | Required by     | Status    | Current value                                                                                                          | Intended behavior                                                                                  | Issue |
-| ------------------ | -- | --------------- | --------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----- |
-| supported_attrs    | 0  | read-only-local | supported | Bitmap of attributes the export can report; capacity bits depend on its limits                                         | Same                                                                                               |       |
-| type               | 1  | read-only-local | supported | NF4REG, NF4DIR, otherwise NF4LNK                                                                                       | Same while the volume has only files, directories, and symlinks; map explicitly if core adds kinds |       |
-| fh_expire_type     | 2  | read-only-local | supported | `FH4_VOLATILE_ANY \| FH4_NOEXPIRE_WITH_OPEN`                                                                           | Same through `writable`; `FH4_PERSISTENT` becomes a `stateful` requirement                         | #50   |
-| change             | 3  | read-only-local | supported | Core mutation revision                                                                                                 | Same; satisfies 10.3.1 because the revision changes on every update                                |       |
-| size               | 4  | read-only-local | supported | Metadata size                                                                                                          | Same; writable form in `writable`                                                                  | #48   |
-| link_support       | 5  | read-only-local | supported | `true`                                                                                                                 | Same                                                                                               |       |
-| symlink_support    | 6  | read-only-local | supported | `true`                                                                                                                 | Same                                                                                               |       |
-| named_attr         | 7  | read-only-local | supported | `false`                                                                                                                | Same; OPENATTR is excluded                                                                         |       |
-| fsid               | 8  | read-only-local | supported | Two words derived from the volume's stable identity[^export]                                                           | Same; persistent handles remain a separate requirement                                             | #50   |
-| unique_handles     | 9  | read-only-local | supported | `true`                                                                                                                 | Same                                                                                               |       |
-| lease_time         | 10 | read-only-local | supported | `leaseDurationSeconds`, default 30                                                                                     | Same                                                                                               |       |
-| rdattr_error       | 11 | read-only-local | supported | NFS4_OK in GETATTR; READDIR reports a failing entry with only `rdattr_error` when the client requested it, per 18.23.3 | Same                                                                                               |       |
-| filehandle         | 19 | read-only-local | supported | 25-byte handle                                                                                                         | Same                                                                                               |       |
-| suppattr_exclcreat | 75 | read-only-local | supported | Empty bitmap                                                                                                           | Empty for read-only; internal writable handler advertises size, mode, owner, and owner_group       | #48   |
+| Attribute          | #  | Required by     | Status    | Current value                                                                                                                     | Intended behavior                                                                                  | Issue |
+| ------------------ | -- | --------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----- |
+| supported_attrs    | 0  | read-only-local | supported | Bitmap of attributes the export can report; capacity bits depend on its limits                                                    | Same                                                                                               |       |
+| type               | 1  | read-only-local | supported | NF4REG, NF4DIR, otherwise NF4LNK                                                                                                  | Same while the volume has only files, directories, and symlinks; map explicitly if core adds kinds |       |
+| fh_expire_type     | 2  | read-only-local | supported | `FH4_PERSISTENT` over a volume surviving a process crash; `FH4_VOLATILE_ANY \| FH4_NOEXPIRE_WITH_OPEN` (0x3) over a memory volume | Same                                                                                               | #201  |
+| change             | 3  | read-only-local | supported | Core mutation revision                                                                                                            | Same; satisfies 10.3.1 because the revision changes on every update                                |       |
+| size               | 4  | read-only-local | supported | Metadata size                                                                                                                     | Same; writable form in `writable`                                                                  | #48   |
+| link_support       | 5  | read-only-local | supported | `true`                                                                                                                            | Same                                                                                               |       |
+| symlink_support    | 6  | read-only-local | supported | `true`                                                                                                                            | Same                                                                                               |       |
+| named_attr         | 7  | read-only-local | supported | `false`                                                                                                                           | Same; OPENATTR is excluded                                                                         |       |
+| fsid               | 8  | read-only-local | supported | Two words derived from the volume's stable identity[^export]                                                                      | Same; persistent handles remain a separate requirement                                             | #50   |
+| unique_handles     | 9  | read-only-local | supported | `true`                                                                                                                            | Same                                                                                               |       |
+| lease_time         | 10 | read-only-local | supported | `leaseDurationSeconds`, default 30                                                                                                | Same                                                                                               |       |
+| rdattr_error       | 11 | read-only-local | supported | NFS4_OK in GETATTR; READDIR reports a failing entry with only `rdattr_error` when the client requested it, per 18.23.3            | Same                                                                                               |       |
+| filehandle         | 19 | read-only-local | supported | 57-byte handle: version, volume identity, epoch, inode number, tag                                                                | Same                                                                                               |       |
+| suppattr_exclcreat | 75 | read-only-local | supported | Empty bitmap                                                                                                                      | Empty for read-only; internal writable handler advertises size, mode, owner, and owner_group       | #48   |
 
 ## RECOMMENDED attributes advertised (Table 5)
 
@@ -96,6 +96,6 @@ Every advertised attribute is exercised by the protocol tests.[^tests] The [oper
 
 [^dispatcher]: `supportedAttributesFor`, `encodeAttributeValues`, and `encodeAttributes` define the advertised list and values for each export.
 
-[^export]: The fsid derives from volume identity; filehandles include the volume incarnation.
+[^export]: The fsid derives from volume identity; filehandles encode the object's reference key.
 
 [^tests]: Protocol tests check the base advertised set and bounded versus unbounded capacity attributes, including GETATTR, VERIFY, and NVERIFY.

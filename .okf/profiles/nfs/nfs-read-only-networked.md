@@ -26,7 +26,7 @@ generated: { by: claude/okf, at: 2026-09-19T10:02:47Z }
 - Serves a network segment the operator controls. `AUTH_SYS` identity is trusted only from clients the application's policy vouches for; exposure to an untrusted network is unsupported.
 - The application supplies the `Volume`, a peer resolver for each accepted socket, and a policy function over the decoded credential and peer. TCP peers carry the remote address and port; UNIX peers carry null address and port plus the server socket path. The policy returns deny or a VFS identity; the server mints one caller per identity, caches callers under `maxIdentities`, and checks that caller's authority for file access.[^server]
 - A non-loopback bind requires the networked policy and `allowNonLoopback: true`. Networked mode also requires a peer resolver on loopback TCP and UNIX-domain sockets. Local mode needs neither.
-- Everything the local profile rejects stays rejected: mutation returns `NFS4ERR_ROFS`, RPCSEC_GSS answers `AUTH_TOOWEAK`, state protection other than `SP4_NONE` is refused, filehandles remain volatile.
+- Everything the local profile rejects stays rejected: mutation returns `NFS4ERR_ROFS`, RPCSEC_GSS answers `AUTH_TOOWEAK`, state protection other than `SP4_NONE` is refused, and filehandles follow the local profile's rule, persistent only over a durable volume.
 
 ## Required behavior
 
