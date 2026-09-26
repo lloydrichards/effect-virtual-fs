@@ -1,5 +1,21 @@
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert, describe, it } from "@effect/vitest"
-import { Cause, Effect, Exit, Fiber, FileSystem, Layer, Option, type PlatformError, Result, Stream } from "effect"
+import {
+  ByteSize,
+  Cause,
+  Crypto,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Layer,
+  Option,
+  PlatformError,
+  Result,
+  Scope,
+  Stream
+} from "effect"
 import { TestClock } from "effect/testing"
 import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
 import * as FileSystemTest from "./FileSystemTest.js"
@@ -190,7 +206,7 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
       yield* fs.access("/metadata.txt", { readable: true, writable: true })
     }))
 
-  it.effect("should report a typed st_mode with zero dev and rdev", () =>
+  it.effect("should report a typed st_mode with zero dev and rdev when stat describes a memory file", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       yield* fs.makeDirectory("/typed")
@@ -225,7 +241,7 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
     }))
 
   for (const recursive of [undefined, false, true]) {
-    it.effect(`should watch ${recursive === true ? "nested changes with recursion enabled" : `only direct children with recursive ${recursive}`}`, () =>
+    it.effect(`should watch ${recursive === true ? "nested changes" : "only direct children"} when recursive is ${recursive}`, () =>
       Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
         const root = `/watch-recursive-${recursive}`
@@ -374,5 +390,808 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
       )
 
       assert.deepStrictEqual(events, [{ _tag: "Update", path: "/alias.txt" }])
+    }))
+})
+
+describe("memory adapter compatibility", () => {
+  for (const root of ["/", "//", ".", "/directory/..", "/alias/../"]) {
+    it.effect(`should reject recursive removal without changing the tree when the target is ${root}`, () =>
+      Effect.gen(function*() {
+        const fs = yield* MemoryFileSystem.make
+        yield* fs.makeDirectory("/directory")
+        yield* fs.symlink("/directory", "/alias")
+        yield* fs.writeFileString("/directory/sentinel", "keep")
+        const before = yield* fs.readDirectory("/", { recursive: true })
+        const error = yield* Effect.flip(fs.remove(root, { recursive: true }))
+        assert.deepStrictEqual(yield* fs.readDirectory("/", { recursive: true }), before)
+        assert.strictEqual(error.reason._tag, "BadResource")
+        assert.strictEqual(yield* fs.readFileString("/directory/sentinel"), "keep")
+      }))
+  }
+
+  for (const nested of [false, true]) {
+    it.effect(`should replace a destination symlink without changing its target when copying a ${nested ? "directory" : "file"}`, () =>
+      Effect.gen(function*() {
+        const fs = yield* MemoryFileSystem.make
+        yield* fs.makeDirectory("/source")
+        yield* fs.makeDirectory("/destination")
+        yield* fs.writeFileString("/source/file", "copied")
+        yield* fs.writeFileString("/external", "untouched")
+        yield* fs.symlink("/external", "/destination/file")
+
+        if (nested) yield* fs.copy("/source", "/destination", { overwrite: true })
+        else yield* fs.copy("/source/file", "/destination/file", { overwrite: true })
+        assert.strictEqual(yield* fs.readFileString("/external"), "untouched")
+        assert.strictEqual(yield* fs.readFileString("/destination/file"), "copied")
+        yield* Effect.flip(fs.readLink("/destination/file"))
+      }))
+  }
+
+  it.effect("should preserve a destination directory symlink when copying a tree over it", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.make
+      yield* fs.makeDirectory("/source/child", { recursive: true })
+      yield* fs.makeDirectory("/destination")
+      yield* fs.makeDirectory("/outside")
+      yield* fs.writeFileString("/source/child/file", "copied")
+      yield* fs.symlink("/outside", "/destination/child")
+
+      const error = yield* Effect.flip(fs.copy("/source", "/destination", { overwrite: true }))
+
+      assert.strictEqual(error.reason._tag, "BadResource")
+      assert.strictEqual(yield* fs.readLink("/destination/child"), "/outside")
+      assert.deepStrictEqual(yield* fs.readDirectory("/outside"), [])
+    }))
+
+  it.effect("should leave the destination absent when copying root into its descendant is rejected", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.make
+      yield* fs.makeDirectory("/parent")
+      yield* fs.writeFileString("/parent/file", "keep")
+
+      const error = yield* Effect.flip(fs.copy("/", "/parent/copy"))
+
+      assert.strictEqual(error.reason._tag, "BadArgument")
+      assert.deepStrictEqual(yield* fs.readDirectory("/parent"), ["file"])
+      assert.strictEqual(yield* fs.readFileString("/parent/file"), "keep")
+    }))
+
+  it.effect("should preserve a destination symlink and its target when replacement exceeds capacity", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      yield* fs.writeFileString("/source", "x".repeat(32))
+      yield* fs.writeFileString("/external", "safe")
+      yield* fs.symlink("/external", "/destination")
+
+      const watched = yield* Testing.collectChanges(fs.watch("/"), 1)
+
+      const error = yield* Effect.flip(fs.copy("/source", "/destination", { overwrite: true }))
+      assert.strictEqual(error.reason._tag, "Unknown")
+      assert.strictEqual(yield* fs.readLink("/destination"), "/external")
+      assert.strictEqual(yield* fs.readFileString("/external"), "safe")
+      assert.deepStrictEqual(yield* fs.readDirectory("/"), ["destination", "external", "source"])
+      yield* fs.makeDirectory("/sentinel")
+      assert.deepStrictEqual(yield* watched, [{ _tag: "Create", path: "/sentinel" }])
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(45) } }))))
+
+  it.effect("should replace a symlink within capacity when its storage can be reused", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      yield* fs.writeFileString("/source", "copied")
+      yield* fs.writeFileString("/external", "safe")
+      yield* fs.symlink("/external", "/destination")
+
+      const watched = yield* Testing.collectChanges(fs.watch("/"), 1)
+
+      yield* fs.copy("/source", "/destination", { overwrite: true })
+      assert.strictEqual(yield* fs.readFileString("/destination"), "copied")
+      assert.strictEqual(yield* fs.readFileString("/external"), "safe")
+      const events = yield* watched
+      assert.strictEqual(events.length, 1)
+      assert.strictEqual(events[0]?.path, "/destination")
+      assert.deepStrictEqual(yield* fs.readDirectory("/"), ["destination", "external", "source"])
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(19), maxEntries: 3 } }))))
+
+  it.effect("should copy source mode and contents to existing destination aliases when copying a file", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.make
+      yield* fs.writeFileString("/source", "copied", { mode: 0o600 })
+      yield* fs.writeFileString("/destination", "old", { mode: 0o777 })
+      yield* fs.link("/destination", "/alias")
+      const handle = yield* fs.open("/destination")
+      const before = yield* fs.stat("/destination")
+
+      const watched = yield* Testing.collectChanges(fs.watch("/"), 3)
+
+      yield* fs.copyFile("/source", "/destination")
+      const after = yield* fs.stat("/destination")
+      assert.strictEqual(after.mode & 0o7777, 0o600)
+      assert.deepStrictEqual(after.ino, before.ino)
+      assert.strictEqual((yield* fs.stat("/alias")).mode & 0o7777, 0o600)
+      assert.strictEqual(new TextDecoder().decode(Option.getOrThrow(yield* handle.readAlloc(6))), "copied")
+      yield* fs.makeDirectory("/sentinel")
+      assert.deepStrictEqual(yield* watched, [
+        { _tag: "Update", path: "/destination" },
+        { _tag: "Update", path: "/alias" },
+        { _tag: "Create", path: "/sentinel" }
+      ])
+    }))
+
+  it.effect("should preserve destination bytes and metadata when copying mode is denied", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
+      const owner = yield* MemoryFileSystem.bind(volume)
+
+      const guest = yield* MemoryFileSystem.bind(volume, {
+        identity: { uid: 1, gid: 1, groups: [], privileged: false }
+      })
+
+      yield* owner.writeFileString("/source", "copied", { mode: 0o644 })
+      yield* owner.writeFileString("/destination", "keep", { mode: 0o666 })
+      const before = yield* owner.stat("/destination")
+
+      const watched = yield* Testing.collectChanges(owner.watch("/"), 1)
+
+      const error = yield* Effect.flip(guest.copyFile("/source", "/destination"))
+      assert.strictEqual(error.reason._tag, "PermissionDenied")
+      assert.deepStrictEqual(yield* owner.stat("/destination"), before)
+      assert.strictEqual(yield* owner.readFileString("/destination"), "keep")
+      yield* owner.makeDirectory("/sentinel")
+      assert.deepStrictEqual(yield* watched, [{ _tag: "Create", path: "/sentinel" }])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should leave a file unchanged when copied to itself or a hard-link alias", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.make
+      yield* fs.writeFileString("/source", "unchanged", { mode: 0o600 })
+      yield* fs.link("/source", "/alias")
+      const before = yield* fs.stat("/source")
+
+      const watched = yield* Testing.collectChanges(fs.watch("/"), 1)
+
+      yield* fs.copyFile("/source", "/source")
+      yield* fs.copyFile("/source", "/alias")
+      assert.deepStrictEqual(yield* fs.stat("/source"), before)
+      yield* fs.makeDirectory("/sentinel")
+      assert.deepStrictEqual(yield* watched, [{ _tag: "Create", path: "/sentinel" }])
+    }))
+
+  it.effect("should keep special mode bits when copying a directory tree", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.make
+      yield* fs.makeDirectory("/source")
+      yield* fs.writeFileString("/source/tool", "run")
+      yield* fs.chmod("/source/tool", 0o4755)
+
+      yield* fs.copy("/source", "/copy")
+
+      assert.strictEqual((yield* fs.stat("/copy/tool")).mode & 0o7777, 0o4755)
+    }))
+
+  it.effect("should report out of space when a copy exceeds volume capacity", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      yield* fs.makeDirectory("/source")
+      yield* fs.writeFileString("/source/a", "0123456789")
+
+      const error = yield* Effect.flip(fs.copy("/source", "/copy"))
+
+      assert.deepStrictEqual([error.reason._tag, error.reason.description], ["Unknown", "NoSpace"])
+      assert.isFalse(yield* fs.exists("/copy"))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(16) } }))))
+
+  it.effect("should reject copying a file when the destination is its hard link", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.make
+      yield* fs.writeFileString("/source", "keep")
+      yield* fs.link("/source", "/alias")
+
+      const error = yield* Effect.flip(fs.copy("/source", "/alias", { overwrite: true }))
+
+      assert.strictEqual(error.reason._tag, "BadArgument")
+      assert.strictEqual(yield* fs.readFileString("/alias"), "keep")
+    }))
+
+  it.effect("should create no directory when a recursive makeDirectory fails partway", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+
+      // The third directory is past the volume's entry limit, so the first two are not created either.
+      const error = yield* Effect.flip(fs.makeDirectory("/a/b/c", { recursive: true }))
+
+      assert.deepStrictEqual([error.reason._tag, error.reason.description], ["Unknown", "NoSpace"])
+      assert.isFalse(yield* fs.exists("/a"))
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxEntries: 2 } }))))
+
+  // As Node does, a recursive listing reads a directory it may read but not search and fails below it.
+  it.effect("should fail a recursive listing when the caller cannot search a directory", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
+      const owner = yield* MemoryFileSystem.bind(volume)
+      yield* owner.makeDirectory("/listed/inner", { recursive: true })
+      yield* owner.writeFileString("/listed/inner/file", "x")
+      yield* owner.chmod("/listed", 0o444)
+
+      const guest = yield* MemoryFileSystem.bind(volume, {
+        identity: { uid: 1, gid: 1, groups: [], privileged: false }
+      })
+
+      assert.deepStrictEqual(yield* guest.readDirectory("/listed"), ["inner"])
+      const error = yield* Effect.flip(guest.readDirectory("/listed", { recursive: true }))
+      assert.strictEqual(error.reason._tag, "PermissionDenied")
+    }).pipe(Effect.provide(Testing.layer())))
+})
+
+// A caller-supplied service stands in for a platform implementation such as
+// `NodeCrypto` or `BunCrypto`.
+const suppliedCrypto = Layer.succeed(
+  Crypto.Crypto,
+  Crypto.make({
+    randomBytes: (size) => new Uint8Array(size).fill(7),
+    digest: (_algorithm, data) => Effect.succeed(data)
+  })
+)
+
+it.effect("should mint a usable filesystem when crypto is absent or supplied", () =>
+  Effect.gen(function*() {
+    const withoutCrypto = yield* MemoryFileSystem.make
+
+    yield* withoutCrypto.writeFileString("/tmp/greeting.txt", "hello")
+    assert.strictEqual(yield* withoutCrypto.readFileString("/tmp/greeting.txt"), "hello")
+
+    const withCrypto = yield* Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.writeFileString("/tmp/greeting.txt", "hello")
+
+      return yield* fs.readFileString("/tmp/greeting.txt")
+    }).pipe(Effect.provide(MemoryFileSystem.layer.pipe(Layer.provide(suppliedCrypto))))
+
+    assert.strictEqual(withCrypto, "hello")
+  }))
+
+it.effect("should give each core volume a distinct identity and incarnation when no crypto service is provided", () =>
+  Effect.gen(function*() {
+    const first = yield* Vfs.make()
+    const second = yield* Vfs.make()
+
+    assert.notStrictEqual(first.identity, second.identity)
+    assert.notStrictEqual(first.incarnation, second.incarnation)
+    assert.notStrictEqual(String(first.identity), String(first.incarnation))
+  }))
+
+it.effect("should draw identities from a supplied crypto service when one is in context", () =>
+  Effect.gen(function*() {
+    const volume = yield* Vfs.make()
+
+    assert.strictEqual(volume.identity, "07".repeat(16))
+    assert.strictEqual(volume.incarnation, "07".repeat(16))
+  }).pipe(Effect.provide(suppliedCrypto)))
+
+const GUEST = { uid: 1, gid: 1, groups: [], privileged: false } as const
+
+// A guest bound to a volume with a guest-owned /work, so permission checks apply as they do to an unprivileged
+// Node process. Each expectation matches what Node does on a real filesystem.
+const guest = Effect.gen(function*() {
+  const volume = yield* Vfs.Volume
+  const owner = yield* MemoryFileSystem.bind(volume)
+  yield* owner.makeDirectory("/work")
+  yield* owner.chown("/work", GUEST.uid, GUEST.gid)
+
+  return yield* MemoryFileSystem.bind(volume, { identity: GUEST })
+}).pipe(Effect.provide(Testing.layer()))
+
+describe("permission parity with Node", () => {
+  it.effect("should create a recursive directory when its mode lacks owner search", () =>
+    Effect.gen(function*() {
+      const fs = yield* guest
+      const outcome = yield* Effect.result(fs.makeDirectory("/work/sealed", { recursive: true, mode: 0o600 }))
+
+      assert.isTrue(Result.isSuccess(outcome))
+      assert.isTrue(yield* fs.exists("/work/sealed"))
+    }))
+
+  it.effect("should refuse recursive directory creation when a file already exists", () =>
+    Effect.gen(function*() {
+      const fs = yield* guest
+      yield* fs.writeFileString("/work/file", "x")
+      const error = yield* Effect.flip(fs.makeDirectory("/work/file", { recursive: true }))
+
+      assert.strictEqual(error.reason._tag, "AlreadyExists")
+    }))
+
+  it.effect("should remove a tree when a sealed child directory is empty", () =>
+    Effect.gen(function*() {
+      const fs = yield* guest
+      yield* fs.makeDirectory("/work/tree/sealed", { recursive: true })
+      yield* fs.writeFileString("/work/tree/file", "x")
+      yield* fs.chmod("/work/tree/sealed", 0o000)
+      yield* fs.remove("/work/tree", { recursive: true })
+
+      assert.isFalse(yield* fs.exists("/work/tree"))
+    }))
+
+  it.effect("should refuse to remove a tree when a sealed child contains entries", () =>
+    Effect.gen(function*() {
+      const fs = yield* guest
+      yield* fs.makeDirectory("/work/tree/sealed", { recursive: true })
+      yield* fs.writeFileString("/work/tree/sealed/file", "x")
+      yield* fs.chmod("/work/tree/sealed", 0o000)
+      const error = yield* Effect.flip(fs.remove("/work/tree", { recursive: true }))
+
+      assert.strictEqual(error.reason._tag, "PermissionDenied")
+    }))
+})
+
+const MAXIMUM_MS = 8_640_000_000_000_000
+const MAXIMUM_NS = BigInt(MAXIMUM_MS) * 1_000_000n
+
+const overflowingFixture = (field: "atimeNs" | "mtimeNs" | "birthtimeNs", timestamp: bigint): Vfs.Fixture => ({
+  entries: [{ kind: "file", path: "/file", bytes: new Uint8Array([42]), metadata: { [field]: timestamp } }]
+})
+
+const BOUNDARY_FIXTURE: Vfs.Fixture = {
+  entries: [{
+    kind: "file",
+    path: "/file",
+    bytes: new Uint8Array(),
+    metadata: { atimeNs: -MAXIMUM_NS, mtimeNs: MAXIMUM_NS, birthtimeNs: -1_999_999n, ctimeNs: 10n ** 100n }
+  }]
+}
+
+describe("adapter timestamp conversion", () => {
+  for (const field of ["atimeNs", "mtimeNs", "birthtimeNs"] as const) {
+    for (const sign of [-1n, 1n]) {
+      it.effect(`should fail stat with InvalidData when ${field} exceeds the Date range with sign ${sign}`, () =>
+        Effect.gen(function*() {
+          const caller = yield* Vfs.Caller
+          const before = yield* caller.stat("/file")
+          const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+          const file = yield* fs.open("/file")
+          const pathError = yield* Effect.flip(fs.stat("/file"))
+          const handleError = yield* Effect.flip(file.stat)
+
+          for (const error of [pathError, handleError]) {
+            assert.strictEqual(error.reason._tag, "InvalidData")
+            assert.strictEqual(error.reason.method, "stat")
+            assert.include(error.reason.description ?? "", field)
+          }
+
+          assert.instanceOf(pathError.reason, PlatformError.SystemError)
+          assert.instanceOf(handleError.reason, PlatformError.SystemError)
+          assert.strictEqual(pathError.reason.pathOrDescriptor, "/file")
+          assert.isNumber(handleError.reason.pathOrDescriptor)
+          assert.deepStrictEqual(yield* caller.stat("/file"), before)
+        }).pipe(Effect.provide(Testing.layer({ fixture: overflowingFixture(field, sign * 10n ** 100n) }))))
+    }
+  }
+
+  it.effect("should return independent valid dates when timestamps reach Date boundaries", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      const file = yield* fs.open("/file")
+
+      for (const info of [yield* fs.stat("/file"), yield* file.stat]) {
+        assert.strictEqual(Option.getOrThrow(info.atime).getTime(), -MAXIMUM_MS)
+        assert.strictEqual(Option.getOrThrow(info.mtime).getTime(), MAXIMUM_MS)
+        assert.strictEqual(Option.getOrThrow(info.birthtime).getTime(), -1)
+        Option.getOrThrow(info.atime).setTime(0)
+      }
+
+      assert.strictEqual(Option.getOrThrow((yield* fs.stat("/file")).atime).getTime(), -MAXIMUM_MS)
+    }).pipe(Effect.provide(Testing.layer({ fixture: BOUNDARY_FIXTURE }))))
+})
+
+const systemReason = (error: PlatformError.PlatformError): PlatformError.SystemError =>
+  error.reason instanceof PlatformError.SystemError ? error.reason : assert.fail("Expected a system error")
+
+const bytes = new TextEncoder()
+
+describe("core-backed memory bindings", () => {
+  it.effect("should share file contents and keep cursors independent when bindings use one volume", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
+      const core = yield* Vfs.Caller
+      const a = yield* MemoryFileSystem.bind(volume)
+      const b = yield* MemoryFileSystem.bind(volume)
+      yield* core.writeFile("/f", bytes.encode("abc"), { access: "write", create: "exclusive" })
+      const af = yield* a.open("/f")
+      const bf = yield* b.open("/f")
+      const read = yield* af.readAlloc(1)
+      assert.isTrue(Option.isSome(read))
+      assert.strictEqual(yield* bf.seek(0n, "current"), 0n)
+      yield* b.writeFileString("/f", "xyz")
+      assert.strictEqual(new TextDecoder().decode(Option.getOrThrow(yield* bf.readAlloc(3))), "xyz")
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should leave the volume namespace unchanged when binding an adapter", () =>
+    Effect.gen(function*() {
+      const adapter = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      assert.isFalse(yield* adapter.exists("/tmp"))
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should close only the handle owned by a binding when its scope closes", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
+      const a = yield* MemoryFileSystem.bind(volume)
+      const b = yield* MemoryFileSystem.bind(volume)
+      yield* b.writeFileString("/f", "xyz")
+      const scope = yield* Scope.make()
+      const closed = yield* a.open("/f").pipe(Scope.provide(scope))
+      yield* Scope.close(scope, Exit.void)
+      yield* Effect.flip(closed.readAlloc(1))
+      assert.strictEqual(yield* closed.seek(10n, "start"), 0n)
+      assert.strictEqual(yield* b.readFileString("/f"), "xyz")
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should deliver direct core and alias writes in commit order when an adapter watches", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      yield* core.writeFile("/f", bytes.encode("old"), { access: "write", create: "exclusive" })
+      yield* core.link("/f", "/alias")
+      const changes = yield* Testing.collectChanges(adapter.watch("/"), 4)
+
+      yield* core.writeFile("/f", bytes.encode("new"), { access: "write", truncate: true })
+      yield* core.rename("/alias", "/renamed")
+      assert.deepStrictEqual(yield* changes, [
+        { _tag: "Update", path: "/f" },
+        { _tag: "Update", path: "/alias" },
+        { _tag: "Remove", path: "/alias" },
+        { _tag: "Create", path: "/renamed" }
+      ])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should recover subtree changes when a watch overflows during rescan", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
+      const core = yield* Vfs.Caller
+      yield* core.mkdir("/sub")
+      const adapter = yield* MemoryFileSystem.bind(volume)
+      const scope = yield* Scope.make()
+      const stream = yield* volume.watch().pipe(Scope.provide(scope))
+      yield* core.mkdir("/sub/a")
+      yield* core.mkdir("/sub/b")
+      const marker = yield* Stream.runCollect(Stream.take(stream, 2))
+      assert.deepEqual(Array.from(marker, (event) => event._tag), ["Create", "Rescan"])
+      yield* Scope.close(scope, Exit.void)
+
+      const first = yield* Deferred.make<void>()
+      const resume = yield* Deferred.make<void>()
+
+      const watch = yield* adapter.watch("/sub").pipe(
+        Stream.tap(() => Deferred.succeed(first, undefined).pipe(Effect.andThen(Deferred.await(resume)))),
+        Stream.runDrain,
+        Effect.flip,
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Effect.yieldNow
+      yield* core.mkdir("/sub/c")
+      yield* Deferred.await(first)
+      yield* core.mkdir("/sub/d")
+      yield* core.mkdir("/sub/e")
+      yield* Deferred.succeed(resume, undefined)
+      const error = yield* Fiber.join(watch)
+      assert.strictEqual(error.reason._tag, "Unknown")
+      assert.isTrue(MemoryFileSystem.isWatchOverflow(error))
+
+      const newWatchReady = yield* Deferred.make<void>()
+
+      const recovered = yield* adapter.watch("/sub").pipe(
+        Stream.take(2),
+        Stream.tap(() => Deferred.succeed(newWatchReady, undefined)),
+        Stream.runCollect,
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Effect.yieldNow
+      yield* core.mkdir("/sub/ready")
+      yield* Deferred.await(newWatchReady)
+
+      const scanRead = yield* Deferred.make<void>()
+      const finishScan = yield* Deferred.make<void>()
+
+      const scan = yield* adapter.readDirectory("/sub").pipe(
+        Effect.tap(() => Deferred.succeed(scanRead, undefined)),
+        Effect.tap(() => Deferred.await(finishScan)),
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Deferred.await(scanRead)
+      yield* core.mkdir("/sub/during-rescan")
+      yield* Deferred.succeed(finishScan, undefined)
+      const scanned = yield* Fiber.join(scan)
+      assert.isTrue(scanned.includes("ready"))
+      assert.isFalse(scanned.includes("during-rescan"))
+      assert.deepStrictEqual(yield* Fiber.join(recovered), [
+        { _tag: "Create", path: "/sub/ready" },
+        { _tag: "Create", path: "/sub/during-rescan" }
+      ])
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxWatchEvents: 2 } }))))
+
+  it.effect("should preserve the old file and publish no update when a whole-file write exceeds quota", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      yield* adapter.writeFileString("/f", "old")
+      const before = yield* core.stat("/f")
+      const changes = yield* Testing.collectChanges(adapter.watch("/"), 1)
+
+      yield* Effect.flip(adapter.writeFileString("/f", "too long"))
+      assert.deepStrictEqual(yield* core.stat("/f"), before)
+      assert.strictEqual(yield* adapter.readFileString("/f"), "old")
+      yield* core.mkdir("/sentinel")
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Create", path: "/sentinel" }])
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(3) } }))))
+
+  it.effect("should filter unrelated byte names when converting watched paths to strings", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      yield* core.mkdir("/watched")
+      const changes = yield* Testing.collectChanges(adapter.watch("/watched"), 1)
+
+      yield* core.mkdir(yield* Vfs.pathFromBytes(new Uint8Array([47, 255])))
+      yield* core.mkdir("/watched/child")
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Create", path: "/watched/child" }])
+      const invalid = yield* Effect.flip(adapter.readDirectory("/"))
+      assert.strictEqual(invalid.reason._tag, "InvalidData")
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should keep delivering a watched directory's changes when an ancestor is renamed", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      yield* core.mkdir("/project")
+      yield* core.mkdir("/project/watched")
+      const changes = yield* Testing.collectChanges(adapter.watch("/project/watched"), 1)
+
+      yield* core.rename("/project", "/renamed")
+      yield* core.mkdir("/renamed/watched/child")
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Create", path: "/renamed/watched/child" }])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should keep delivering a watched file's updates at its new name when it is renamed", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      yield* core.writeFile("/a", bytes.encode("one"), { access: "write", create: "exclusive" })
+      const changes = yield* Testing.collectChanges(adapter.watch("/a"), 3)
+
+      yield* core.rename("/a", "/b")
+      yield* core.writeFile("/b", bytes.encode("two"), { access: "write" })
+      assert.deepStrictEqual(yield* changes, [
+        { _tag: "Remove", path: "/a" },
+        { _tag: "Create", path: "/b" },
+        { _tag: "Update", path: "/b" }
+      ])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should keep delivering a watched file's updates when an ancestor is renamed", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      yield* core.mkdir("/d")
+      yield* core.writeFile("/d/a", bytes.encode("one"), { access: "write", create: "exclusive" })
+      const changes = yield* Testing.collectChanges(adapter.watch("/d/a"), 1)
+
+      yield* core.rename("/d", "/e")
+      yield* core.writeFile("/e/a", bytes.encode("two"), { access: "write" })
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Update", path: "/e/a" }])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should not deliver watched file updates when writes use another hard link", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      yield* core.writeFile("/a", bytes.encode("one"), { access: "write", create: "exclusive" })
+      yield* core.link("/a", "/alias")
+      const changes = yield* Testing.collectChanges(adapter.watch("/a"), 1)
+
+      yield* core.writeFile("/alias", bytes.encode("two"), { access: "write" })
+      yield* core.writeFile("/a", bytes.encode("three"), { access: "write" })
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Update", path: "/a" }])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should end a watch when the watched directory is removed", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      const adapter = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+      yield* core.mkdir("/watched")
+      // Asks for more changes than arrive, so it completes only because the stream ends.
+      const changes = yield* Testing.collectChanges(adapter.watch("/watched"), 2)
+
+      yield* core.rmdir("/watched")
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Remove", path: "/watched" }])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  // A volume whose first watch registration runs `change` first, as a change queued ahead of it would.
+  const changedBeforeFirstWatch = (volume: Vfs.Volume, change: Effect.Effect<unknown, Vfs.FsFailure>): Vfs.Volume => {
+    let pending = true
+
+    return {
+      ...volume,
+      watch: (options) =>
+        Effect.suspend(() => {
+          if (!pending) return volume.watch(options)
+          pending = false
+
+          return Effect.andThen(Effect.orDie(change), volume.watch(options))
+        })
+    }
+  }
+
+  it.effect("should watch the object a path names once the watch is active when a rename lands as it opens", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      yield* core.mkdir("/w")
+      yield* core.mkdir("/x")
+
+      const volume = changedBeforeFirstWatch(
+        yield* Vfs.Volume,
+        Effect.andThen(core.rename("/w", "/x/w"), core.mkdir("/w"))
+      )
+
+      const adapter = yield* MemoryFileSystem.bind(volume)
+      const changes = yield* Testing.collectChanges(adapter.watch("/w"), 1)
+
+      yield* core.mkdir("/x/w/other")
+      yield* core.mkdir("/w/child")
+      assert.deepStrictEqual(yield* changes, [{ _tag: "Create", path: "/w/child" }])
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should fail a watch with NotFound when its path is removed as the watch opens", () =>
+    Effect.gen(function*() {
+      const core = yield* Vfs.Caller
+      yield* core.mkdir("/w")
+      const adapter = yield* MemoryFileSystem.bind(changedBeforeFirstWatch(yield* Vfs.Volume, core.rmdir("/w")))
+
+      const error = yield* Effect.flip(Stream.runCollect(adapter.watch("/w")))
+      assert.strictEqual(error._tag, "PlatformError")
+      assert.strictEqual(error.reason._tag, "NotFound")
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should preserve hard-link topology when copying a directory", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.make
+      yield* fs.makeDirectory("/source/nested", { recursive: true })
+      yield* fs.writeFileString("/source/nested/a", "content")
+      yield* fs.link("/source/nested/a", "/source/nested/b")
+      yield* fs.utimes("/source/nested", 100, 200)
+      yield* fs.copy("/source", "/copy", { preserveTimestamps: true })
+      assert.deepStrictEqual((yield* fs.stat("/copy/nested/a")).ino, (yield* fs.stat("/copy/nested/b")).ino)
+    }))
+
+  it.effect("should preserve directory timestamps when copying with metadata preservation", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.make
+      yield* fs.makeDirectory("/source/nested", { recursive: true })
+      yield* fs.utimes("/source/nested", 100, 200)
+      yield* fs.copy("/source", "/copy", { preserveTimestamps: true })
+      assert.strictEqual(Option.getOrThrow((yield* fs.stat("/copy/nested")).mtime).getTime(), 200_000)
+    }))
+
+  it.effect("should retain an append handle cursor when its file is truncated", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.make
+      yield* fs.writeFileString("/f", "abcd")
+      const f = yield* fs.open("/f", { flag: "a+" })
+      yield* f.seek(4n, "start")
+      yield* f.truncate(1)
+      assert.strictEqual(yield* f.seek(0n, "current"), 4n)
+    }))
+
+  it.effect("should retain an open cursor when its path is truncated", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.make
+      yield* fs.writeFileString("/f", "abcd")
+      const g = yield* fs.open("/f", { flag: "r+" })
+      yield* g.seek(3n, "start")
+      yield* fs.truncate("/f", 0)
+      assert.strictEqual(yield* g.seek(0n, "current"), 3n)
+    }))
+})
+
+describe("overlay memory binding", () => {
+  it.effect("should expose direct and adapter writes when bound to an overlay volume", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({
+        entries: [{ kind: "file", path: "/f", bytes: bytes.encode("base") }]
+      })).snapshot
+
+      const overlay = yield* Vfs.makeOverlay(base)
+      const core = yield* overlay.caller()
+      const adapter = yield* MemoryFileSystem.bind(overlay)
+
+      yield* adapter.writeFileString("/f", "adapter")
+      assert.strictEqual(new TextDecoder().decode(yield* core.readFile("/f")), "adapter")
+      yield* core.writeFile("/f", bytes.encode("core"), { access: "write", truncate: true })
+      assert.strictEqual(yield* adapter.readFileString("/f"), "core")
+      assert.strictEqual((yield* overlay.changes()).length, 1)
+    }))
+
+  it.effect("should keep sibling overlay bindings isolated when writes have the same size", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({
+        entries: [{ kind: "file", path: "/f", bytes: bytes.encode("same") }]
+      })).snapshot
+
+      const a = yield* MemoryFileSystem.bind(yield* Vfs.makeOverlay(base))
+      const b = yield* MemoryFileSystem.bind(yield* Vfs.makeOverlay(base))
+      yield* a.writeFileString("/f", "edit")
+      assert.strictEqual(yield* a.readFileString("/f"), "edit")
+      assert.strictEqual(yield* b.readFileString("/f"), "same")
+    }))
+
+  it.effect("should publish direct and adapter rename events in commit order when a destination is replaced", () =>
+    Effect.gen(function*() {
+      const base = yield* (yield* Vfs.fromFixture({
+        entries: [
+          { kind: "file", path: "/direct", bytes: bytes.encode("direct") },
+          { kind: "file", path: "/source", bytes: bytes.encode("source") },
+          { kind: "file", path: "/destination", bytes: bytes.encode("destination") }
+        ]
+      })).snapshot
+
+      const overlay = yield* Vfs.makeOverlay(base)
+      const core = yield* overlay.caller()
+      const adapter = yield* MemoryFileSystem.bind(overlay)
+
+      const watched = yield* Testing.collectChanges(adapter.watch("/"), 4)
+
+      yield* core.rename("/direct", "/renamed")
+      yield* adapter.rename("/source", "/destination")
+
+      assert.deepStrictEqual(yield* watched, [
+        { _tag: "Remove", path: "/direct" },
+        { _tag: "Create", path: "/renamed" },
+        { _tag: "Remove", path: "/source" },
+        { _tag: "Create", path: "/destination" }
+      ])
+      assert.strictEqual(yield* adapter.readFileString("/destination"), "source")
+    }))
+})
+
+describe("memory adapter error mapping", () => {
+  it.effect("should report NoSpace when a write exceeds capacity", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+
+      const error = yield* Effect.flip(fs.writeFileString("/file", "too large"))
+
+      const reason = systemReason(error)
+      assert.strictEqual(reason._tag, "Unknown")
+      assert.strictEqual(reason.method, "writeFile")
+      assert.strictEqual(reason.pathOrDescriptor, "/file")
+      assert.strictEqual(reason.description, "NoSpace")
+    }).pipe(Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(1) } }))))
+
+  it.effect("should report PermissionDenied with EPERM when ownership denies an operation", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
+      const owner = yield* MemoryFileSystem.bind(volume)
+      yield* owner.writeFileString("/file", "x")
+
+      const guest = yield* MemoryFileSystem.bind(volume, {
+        identity: { uid: 1, gid: 1, groups: [], privileged: false }
+      })
+
+      const error = yield* Effect.flip(guest.chmod("/file", 0o600))
+
+      const reason = systemReason(error)
+      assert.strictEqual(reason._tag, "PermissionDenied")
+      assert.strictEqual(reason.method, "chmod")
+      assert.strictEqual(reason.description, "NotPermitted (EPERM)")
+    }).pipe(Effect.provide(Testing.layer())))
+
+  it.effect("should attribute a missing path to watch when watch subscription fails", () =>
+    Effect.gen(function*() {
+      const fs = yield* MemoryFileSystem.make
+      const error = yield* Effect.flip(fs.watch("/missing").pipe(Stream.runDrain))
+
+      const reason = systemReason(error)
+      assert.strictEqual(reason._tag, "NotFound")
+      assert.strictEqual(reason.method, "watch")
+      assert.strictEqual(reason.pathOrDescriptor, "/missing")
     }))
 })

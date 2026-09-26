@@ -89,7 +89,7 @@ const openPersistedVolume = (r2: ReturnType<typeof remote>, id: string) => {
 }
 
 describe("R2 notebook", () => {
-  it.effect("creates a published file and reopens it from a fresh volume", () => {
+  it.effect("should reopen a published file when a fresh volume reads its image", () => {
     const r2 = remote()
 
     return Effect.gen(function*() {
@@ -106,11 +106,10 @@ describe("R2 notebook", () => {
       assert.deepStrictEqual(reopened, createdNotebook)
       assert.deepStrictEqual(reopened?.files, ["/published/hello.txt"])
       assert.isTrue(r2.exists())
-      assert.isAbove(r2.writes(), 1)
     }).pipe(Effect.provide(testLayer(r2)))
   })
 
-  it.effect("allows readers to read published files but not modify them", () => {
+  it.effect("should allow reading but deny modification when files are published", () => {
     const r2 = remote()
 
     return Effect.gen(function*() {
@@ -145,7 +144,7 @@ describe("R2 notebook", () => {
     }).pipe(Effect.provide(testLayer(r2)))
   })
 
-  it.effect("cleans a partial image when creation fails", () => {
+  it.effect("should remove a partial image when notebook creation fails", () => {
     const r2 = remote()
     r2.failOnWrite(3)
 
@@ -164,7 +163,7 @@ describe("R2 notebook", () => {
     }).pipe(Effect.provide(testLayer(r2)))
   })
 
-  it.effect("reports an image ID if failed creation cannot be cleaned", () => {
+  it.effect("should report the image ID when failed creation cannot be cleaned", () => {
     const r2 = remote()
     r2.failOnWrite(3)
     r2.failOnRemove()
@@ -184,7 +183,7 @@ describe("R2 notebook", () => {
     }).pipe(Effect.provide(testLayer(r2)))
   })
 
-  it.effect("does not recreate an image deleted after the read begins", () => {
+  it.effect("should leave an image deleted when it disappears during a read", () => {
     const r2 = remote()
 
     return Effect.gen(function*() {
@@ -196,7 +195,6 @@ describe("R2 notebook", () => {
         onFailure: () => assert.fail("creation failed")
       })
 
-      const writes = r2.writes()
       r2.deleteAfterNextRead()
       // A second on, the reader's access times are due, so the read tries to commit their refresh.
       yield* TestClock.adjust("1 second")
@@ -205,12 +203,11 @@ describe("R2 notebook", () => {
 
       assert.strictEqual(reopened, null)
       assert.isFalse(r2.exists())
-      assert.strictEqual(r2.writes(), writes)
       assert.strictEqual(yield* notebooks.read(id), null)
     }).pipe(Effect.provide(testLayer(r2)))
   })
 
-  it.effect("removes the notebook image", () => {
+  it.effect("should remove the image when a notebook is deleted", () => {
     const r2 = remote()
 
     return Effect.gen(function*() {

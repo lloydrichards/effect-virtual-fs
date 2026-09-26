@@ -1,7 +1,11 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner"
+import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
+import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Effect, Layer, Result } from "effect"
+import { ByteSize, Effect, FileSystem, Layer, Path, Result, Stream } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
 import { CheckpointError, CheckpointStore } from "../src/index.js"
 
@@ -31,8 +35,12 @@ const freshDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient>) =>
 const unmigratedDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient>) =>
   effect.pipe(Effect.provide(Layer.fresh(SqliteClient.layer({ filename: ":memory:" }))))
 
+const files = Layer.merge(NodeFileSystem.layer, NodePath.layer)
+
+const platform = Layer.mergeAll(files, NodeChildProcessSpawner.layer.pipe(Layer.provide(files)))
+
 it.layer(migrated)("SQLite checkpoints", (it) => {
-  it.effect("preserves a checkpoint when another save uses the same name", () =>
+  it.effect("should preserve a checkpoint when another save uses its name", () =>
     Effect.gen(function*() {
       const store = yield* CheckpointStore.make(limits)
       const original = yield* snapshot
@@ -45,7 +53,7 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       assert.deepStrictEqual(yield* restored.readFile("/f"), new Uint8Array([0, 255, 1]))
     }))
 
-  it.effect("allows exactly one of two competing saves to claim a name", () =>
+  it.effect("should allow one save to claim a name when saves compete", () =>
     Effect.gen(function*() {
       const store = yield* CheckpointStore.make(limits)
       const a = yield* snapshot
@@ -66,13 +74,18 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       assert.deepStrictEqual(saved, yield* Vfs.encodeSnapshot(Result.isSuccess(first) ? a : b))
     }))
 
-  it.effect("distinguishes missing checkpoints from database failures", () =>
+  it.effect("should report NotFound when a checkpoint is absent", () =>
     freshDatabase(Effect.gen(function*() {
-      const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
       const missing = yield* Effect.flip(store.load("absent"))
       assert.instanceOf(missing, CheckpointError)
       assert.deepStrictEqual([missing.code, missing.operation], ["NotFound", "CheckpointStore.load"])
+    })))
+
+  it.effect("should report Storage when the checkpoint table is unavailable", () =>
+    freshDatabase(Effect.gen(function*() {
+      const sql = yield* SqlClient
+      const store = yield* CheckpointStore.make(limits)
       yield* sql`DROP TABLE effect_vfs_checkpoints`
       const failure = yield* Effect.flip(store.load("absent"))
       assert.instanceOf(failure, CheckpointError)
@@ -82,7 +95,7 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
 
   // Takes its own database: the Bun SQLite driver drops a leading U+FEFF from bound text, so "\ufeffrun" would
   // collide with the "run" checkpoint another test saves in the suite's database (#218).
-  it.effect("keeps names literal and rejects empty, oversized, NUL and lossy names", () =>
+  it.effect("should keep valid names literal and reject invalid names when saving or loading", () =>
     freshDatabase(Effect.gen(function*() {
       const store = yield* CheckpointStore.make(limits)
       const image = yield* snapshot
@@ -106,14 +119,17 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       }
     })))
 
-  it.effect("owns validated limits and permits repeated startup migrations", () =>
+  it.effect("should retain its original limits when the supplied limits object changes", () =>
     Effect.gen(function*() {
       const mutableLimits = { ...limits }
       const store = yield* CheckpointStore.make(mutableLimits)
       mutableLimits.maxEncodedBytes = ByteSize.zero
       yield* store.save("kept", yield* snapshot)
-      yield* CheckpointStore.migrate
       yield* store.load("kept")
+    }))
+
+  it.effect("should accept exact large byte limits when they exceed safe integers", () =>
+    Effect.gen(function*() {
       const exactLimit = ByteSize.bytes(BigInt(Number.MAX_SAFE_INTEGER) + 1n)
 
       const exactStore = yield* CheckpointStore.make({
@@ -124,7 +140,18 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
 
       yield* exactStore.save("exact", yield* snapshot)
       yield* exactStore.load("exact")
+    }))
 
+  it.effect("should preserve checkpoints when startup migration runs again", () =>
+    Effect.gen(function*() {
+      const store = yield* CheckpointStore.make(limits)
+      yield* store.save("migration-retry", yield* snapshot)
+      yield* CheckpointStore.migrate
+      yield* store.load("migration-retry")
+    }))
+
+  it.effect("should name limits when checkpoint configuration is invalid", () =>
+    Effect.gen(function*() {
       for (const invalid of [{ ...limits, maxRecords: -1 }, { ...limits, extra: true }]) {
         const error = yield* Effect.flip(CheckpointStore.make(invalid))
         assert.strictEqual(error.code, "InvalidArgument")
@@ -140,7 +167,7 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
     { budget: "maxEntries", bounded: { ...limits, maxEntries: 0 } },
     { budget: "maxDecodedBytes", bounded: { ...limits, maxDecodedBytes: ByteSize.bytes(2) } },
     { budget: "maxLineBytes", bounded: { ...limits, maxLineBytes: ByteSize.bytes(16) } }
-  ])("enforces the same save and load budgets for $budget", ({ budget, bounded }) =>
+  ])("should enforce $budget when saving and loading checkpoints", ({ budget, bounded }) =>
     Effect.gen(function*() {
       const broad = yield* CheckpointStore.make(limits)
       const narrow = yield* CheckpointStore.make(bounded)
@@ -155,7 +182,7 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       assert.deepStrictEqual([loadError.code, loadError.operation], ["LimitExceeded", "CheckpointStore.load"])
     }))
 
-  it.effect("rejects corrupt, unsupported and oversized stored images", () =>
+  it.effect("should reject malformed and historical images when loading checkpoints", () =>
     Effect.gen(function*() {
       const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
@@ -177,7 +204,12 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
         assert.instanceOf(error, Vfs.VfsError)
         assert.deepStrictEqual([error.code, error.operation], [code, "CheckpointStore.load"])
       }
+    }))
 
+  it.effect("should reject an oversized stored BLOB when loading a checkpoint", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient
+      const store = yield* CheckpointStore.make(limits)
       const oversized = ByteSize.toBigInt(limits.maxEncodedBytes) + 1n
       yield* sql`INSERT INTO effect_vfs_checkpoints VALUES ('oversized', zeroblob(${oversized}))`
       const error = yield* Effect.flip(store.load("oversized"))
@@ -188,7 +220,7 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
     }))
 
   // The table's CHECK constraint keeps a non-blob image out, so only a foreign or legacy writer stores one.
-  it.effect("reports a stored image that is not a blob as an invalid structure", () =>
+  it.effect("should report InvalidStructure when a stored image is not a BLOB", () =>
     freshDatabase(Effect.gen(function*() {
       const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
@@ -203,7 +235,7 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       ])
     })))
 
-  it.effect("reports a failed insert without damaging existing checkpoints", () =>
+  it.effect("should preserve existing checkpoints when a new insert fails", () =>
     freshDatabase(Effect.gen(function*() {
       const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
@@ -218,7 +250,7 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       assert.deepStrictEqual(yield* Vfs.encodeSnapshot(yield* store.load("kept")), yield* Vfs.encodeSnapshot(image))
     })))
 
-  it.effect("loads under application SQL transforms and safe-integer settings", () =>
+  it.effect("should load a checkpoint when application SQL transforms and safe integers are enabled", () =>
     Effect.gen(function*() {
       yield* CheckpointStore.migrate
       const store = yield* CheckpointStore.make(limits)
@@ -234,7 +266,7 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       Effect.provide(SqliteClient.layer({ filename: ":memory:", transformResultNames: (name) => name.toUpperCase() }))
     ))
 
-  it.effect("returns a typed migration error when the checkpoint table conflicts", () =>
+  it.effect("should report Storage when migration finds a conflicting checkpoint table", () =>
     unmigratedDatabase(Effect.gen(function*() {
       const sql = yield* SqlClient
       yield* sql`CREATE TABLE effect_vfs_checkpoints (unrelated TEXT)`
@@ -244,7 +276,7 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       assert.isDefined(error.cause)
     })))
 
-  it.effect("provides a usable service after the explicit migration layer", () =>
+  it.effect("should provide a usable checkpoint service when migration runs explicitly", () =>
     Effect.gen(function*() {
       const store = yield* CheckpointStore
       const image = yield* snapshot
@@ -257,7 +289,7 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       )
     )))
 
-  it.effect("rolls back checkpoints with the application's enclosing transaction", () =>
+  it.effect("should roll back a checkpoint when the application transaction aborts", () =>
     Effect.gen(function*() {
       const sql = yield* SqlClient
       const store = yield* CheckpointStore.make(limits)
@@ -273,4 +305,79 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       assert.strictEqual((yield* Effect.flip(store.load("rolled-back"))).code, "NotFound")
       yield* store.save("rolled-back", image)
     }))
+
+  it.effect("should restore a complete capture with an empty overlay baseline when loaded from a checkpoint", () =>
+    Effect.gen(function*() {
+      const store = yield* CheckpointStore.make(limits)
+      const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, 255]))
+
+      const source = yield* Vfs.fromFixture({
+        rootMetadata: { mode: 0o751, uid: 7, gid: 11 },
+        entries: [
+          { kind: "file", path: raw, bytes: new Uint8Array([0, 255, 1]), metadata: { mode: 0o640 } },
+          { kind: "hardLink", path: "/alias", target: raw },
+          { kind: "symlink", path: "/link", target: raw, metadata: { mode: 0o777 } },
+          { kind: "hardLink", path: "/link-alias", target: "/link" }
+        ]
+      })
+
+      const overlay = yield* Vfs.makeOverlay(yield* source.snapshot)
+      const fs = yield* overlay.caller()
+      yield* fs.writeFile("/alias", new Uint8Array([9, 8, 7]), { access: "write", truncate: true })
+      const captured = yield* overlay.capture({ includeTimestamps: true })
+      yield* store.save("overlay", captured.snapshot)
+
+      const loaded = yield* store.load("overlay")
+      const restored = yield* Vfs.fromSnapshot(loaded)
+      const restoredFs = yield* restored.caller()
+      assert.deepStrictEqual(yield* restoredFs.readFile(raw), new Uint8Array([9, 8, 7]))
+      assert.strictEqual((yield* restoredFs.stat(raw)).ino, (yield* restoredFs.stat("/alias")).ino)
+      assert.strictEqual((yield* restoredFs.stat(raw)).mode, 0o640)
+      assert.deepStrictEqual(yield* restoredFs.readLink("/link"), new Uint8Array([47, 255]))
+      assert.strictEqual(
+        (yield* restoredFs.stat(Vfs.Target.Path({ path: "/link", followFinalSymlink: false }))).ino,
+        (yield* restoredFs.stat(Vfs.Target.Path({ path: "/link-alias", followFinalSymlink: false }))).ino
+      )
+      assert.strictEqual(
+        (yield* restoredFs.stat(Vfs.Target.Path({ path: "/link", followFinalSymlink: false }))).nlink,
+        2
+      )
+      assert.strictEqual((yield* restoredFs.stat("/")).mode, 0o751)
+      assert.strictEqual((yield* restoredFs.stat("/")).uid, 7)
+      assert.strictEqual((yield* restoredFs.stat("/")).gid, 11)
+
+      const next = yield* Vfs.makeOverlay(loaded)
+      assert.deepStrictEqual(yield* next.changes(), [])
+      assert.deepStrictEqual(yield* (yield* next.caller()).readFile("/alias"), new Uint8Array([9, 8, 7]))
+      assert.deepStrictEqual(yield* (yield* next.caller()).readLink("/link-alias"), new Uint8Array([47, 255]))
+    }))
+})
+
+it.layer(platform, { excludeTestServices: true })("checkpoint process restart", (it) => {
+  it.effect(
+    "should restore the saved namespace without later mutations when a fresh process loads a checkpoint",
+    () =>
+      Effect.scoped(Effect.gen(function*() {
+        const filesystem = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+        const directory = yield* filesystem.makeTempDirectoryScoped({ prefix: "effect-vfs-restart-" })
+        const database = path.join(directory, "checkpoints.sqlite")
+        const worker = yield* path.fromFileUrl(new URL("./fixtures/restart.ts", import.meta.url))
+
+        // A worker that logs its marker and then fails while closing its database must still fail the test.
+        const run = (mode: "save" | "restore") =>
+          Effect.scoped(Effect.gen(function*() {
+            const child = yield* spawner.spawn(ChildProcess.make("bun", [worker, mode, database]))
+            const output = yield* Stream.mkString(Stream.decodeText(child.stdout))
+            assert.strictEqual(yield* child.exitCode, 0)
+
+            return output
+          })).pipe(Effect.timeout("5 seconds"))
+
+        assert.include(yield* run("save"), "saved")
+        assert.include(yield* run("restore"), "restored")
+      })),
+    15_000
+  )
 })

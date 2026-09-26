@@ -107,7 +107,7 @@ const storeLayer = (client: R2LiveImageStore.R2Client) =>
   )
 
 describe("Alchemy native R2 live image adapter", () => {
-  it.effect("forwards metadata and conditional writes, then reopens the image", () =>
+  it.effect("should send conditional writes with image metadata when the store commits", () =>
     Effect.gen(function*() {
       const remote = fixture()
       const client = yield* clientFrom(remote.bucket)
@@ -133,6 +133,20 @@ describe("Alchemy native R2 live image adapter", () => {
         generation: saved?.generation,
         digest: saved?.digest
       })
+    }))
+
+  it.effect("should reopen the committed image when a fresh store loads it", () =>
+    Effect.gen(function*() {
+      const remote = fixture()
+      const client = yield* clientFrom(remote.bucket)
+
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          const store = yield* LiveVolume.LiveImageStore
+          assert.strictEqual(text(yield* store.loadOrCreate(bytes("first"))), "first")
+          assert.strictEqual(yield* store.commit(bytes("second")), "committed")
+        }).pipe(Effect.provide(storeLayer(client)))
+      )
 
       yield* Effect.scoped(
         Effect.gen(function*() {
@@ -140,12 +154,19 @@ describe("Alchemy native R2 live image adapter", () => {
           assert.strictEqual(text(yield* store.loadOrCreate(bytes("ignored"))), "second")
         }).pipe(Effect.provide(storeLayer(client)))
       )
+    }))
 
+  it.effect("should remove the image when the client deletes its key", () =>
+    Effect.gen(function*() {
+      const remote = fixture()
+      const client = yield* clientFrom(remote.bucket)
+
+      yield* client.write("volume/live", bytes("first"), "0", "digest", { ifNoneMatch: "*" })
       yield* client.remove("volume/live")
       assert.strictEqual(yield* client.read("volume/live"), null)
     }))
 
-  it.effect("distinguishes a rejected condition from a storage failure", () =>
+  it.effect("should reject conditional writes when the object ETag does not match", () =>
     Effect.gen(function*() {
       const remote = fixture()
       const client = yield* clientFrom(remote.bucket)
@@ -154,9 +175,25 @@ describe("Alchemy native R2 live image adapter", () => {
       })
       assert.strictEqual(yield* client.write("key", bytes("two"), "1", "digest", { ifNoneMatch: "*" }), null)
       assert.strictEqual(yield* client.write("key", bytes("two"), "1", "digest", { ifMatch: "\"old\"" }), null)
+      assert.deepStrictEqual((yield* client.read("key"))?.bytes, bytes("one"))
+    }))
+
+  it.effect("should report Storage when the native write fails", () =>
+    Effect.gen(function*() {
+      const remote = fixture()
+      const client = yield* clientFrom(remote.bucket)
+      yield* client.write("key", bytes("one"), "0", "digest", { ifNoneMatch: "*" })
+
       remote.fail()
       const error = yield* Effect.flip(client.write("key", bytes("two"), "1", "digest", { ifMatch: "\"1\"" }))
       assert.strictEqual(error.code, "Storage")
+    }))
+
+  it.effect("should report Storage when the native write returns no ETag", () =>
+    Effect.gen(function*() {
+      const remote = fixture()
+      const client = yield* clientFrom(remote.bucket)
+      yield* client.write("key", bytes("one"), "0", "digest", { ifNoneMatch: "*" })
 
       remote.emptyEtag()
       const invalidEtag = yield* Effect.flip(client.write("key", bytes("two"), "1", "digest", { ifMatch: "\"1\"" }))

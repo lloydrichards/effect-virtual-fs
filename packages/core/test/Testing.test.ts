@@ -7,7 +7,7 @@ const decoder = new TextDecoder()
 const guest = { uid: 1000, gid: 1000, groups: [], privileged: false }
 
 describe("Testing.layer", () => {
-  it.effect("provides a root caller on the volume it provides", () =>
+  it.effect("should provide a root caller on the same volume when the test layer is constructed", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.Volume
       const caller = yield* Vfs.Caller
@@ -18,7 +18,7 @@ describe("Testing.layer", () => {
       assert.deepStrictEqual([(yield* caller.stat("/")).uid, (yield* caller.stat("/work")).uid], [0, 0])
     }).pipe(Effect.provide(Testing.layer())))
 
-  it.effect("builds a fresh volume for every provide", () =>
+  it.effect("should build a fresh volume when the test layer is provided again", () =>
     Effect.gen(function*() {
       const write = Effect.gen(function*() {
         const caller = yield* Vfs.Caller
@@ -31,7 +31,7 @@ describe("Testing.layer", () => {
       assert.deepStrictEqual([yield* Effect.provide(write, layer), yield* Effect.provide(write, layer)], [1, 1])
     }))
 
-  it.effect("seeds the volume from a fixture and applies volume and caller options", () =>
+  it.effect("should seed a volume and apply caller options when a fixture is supplied", () =>
     Effect.gen(function*() {
       const caller = yield* Vfs.Caller
       assert.strictEqual(decoder.decode(yield* caller.readFile("/seed.txt")), "seed")
@@ -45,7 +45,7 @@ describe("Testing.layer", () => {
       caller: { umask: 0o077 }
     }))))
 
-  it.effect("fails with the constructor's error for invalid volume options", () =>
+  it.effect("should return the constructor error when volume options are invalid", () =>
     Effect.gen(function*() {
       const error = yield* Effect.flip(
         Effect.provide(Effect.asVoid(Vfs.Caller), Testing.layer({ volume: { maxEntries: -1 } }))
@@ -62,7 +62,7 @@ describe("Testing.layer", () => {
 })
 
 describe("Testing.callerAs", () => {
-  it.effect("creates a caller with the identity on the volume in context", () =>
+  it.effect("should create a caller with the requested identity when a volume is in context", () =>
     Effect.gen(function*() {
       const root = yield* Vfs.Caller
       yield* root.mkdir("/shared", { mode: 0o777 })
@@ -77,7 +77,7 @@ describe("Testing.callerAs", () => {
 })
 
 describe("Testing.collectChanges", () => {
-  it.effect("collects the first n changes committed after the watch opened", () =>
+  it.effect("should collect the first n changes committed when the watch opened", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.Volume
       const caller = yield* Vfs.Caller
@@ -97,9 +97,13 @@ describe("Testing.collectChanges", () => {
       assert.deepStrictEqual(collected, ["Create /first", "Remove /before"])
     }).pipe(Effect.provide(Testing.layer())))
 
-  it.effect("returns fewer elements when the stream ends first and fails with its error", () =>
+  it.effect("should return fewer elements when the stream ends first", () =>
     Effect.gen(function*() {
       assert.deepStrictEqual(yield* (yield* Testing.collectChanges(Stream.make(1, 2), 5)), [1, 2])
+    }))
+
+  it.effect("should fail with the stream error when the stream fails", () =>
+    Effect.gen(function*() {
       assert.strictEqual(yield* Effect.flip(yield* Testing.collectChanges(Stream.fail("boom"), 1)), "boom")
     }))
 })
