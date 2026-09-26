@@ -532,7 +532,7 @@ export const treeNode = (node: Node): TreeNode => {
     ? TreeNode.cases.file.make({
       ino: node.ino,
       links: named,
-      content: TreeContent.cases.Inline.make({ bytes: CanonicalBase64.encode(node.data.bytes) }, UNCHECKED),
+      content: TreeContent.cases.Inline.make({ bytes: CanonicalBase64.encode(node.data) }, UNCHECKED),
       metadata
     }, UNCHECKED)
     : TreeNode.cases.symlink.make(

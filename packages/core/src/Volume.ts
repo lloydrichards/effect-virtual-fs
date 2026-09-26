@@ -10,8 +10,7 @@ import * as Order from "effect/Order"
 import * as Schema from "effect/Schema"
 import { BytePath } from "./BytePath.js"
 import { Hex128 } from "./internal/hex128.js"
-import { MAX_FILE_BYTES } from "./internal/limits.js"
-import { MAX_INO, ROOT_INO } from "./internal/volumeState.js"
+import { MAX_FILE_BYTES, MAX_INO, ROOT_INO } from "./internal/volumeState.js"
 
 /**
  * Brand key that marks a volume.

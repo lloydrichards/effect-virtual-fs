@@ -8,15 +8,13 @@ sources:
   - resource: ../../packages/core/src/Snapshot.ts
     title: Public snapshot model and limits
   - resource: ../../packages/core/src/internal/image.ts
-    title: Snapshot handle and codec
+    title: Snapshot handle, codec, and fixture-entry view
   - resource: ../../packages/core/src/internal/tree.ts
     title: The tree schema, its graph check, and the value converters
   - resource: ../../packages/core/src/internal/fixture.ts
     title: Fixture fold into a volume value
   - resource: ../../packages/core/src/internal/lines.ts
     title: Newline framing and the bounded line reader
-  - resource: ../../packages/core/src/internal/snapshotEntries.ts
-    title: A snapshot's tree as fixture entries without a restore
   - resource: ../../packages/core/test/Snapshot.test.ts
     title: Snapshot and restoration tests
   - resource: ../../packages/core/test/SnapshotDecoding.test.ts
