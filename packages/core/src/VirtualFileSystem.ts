@@ -54,6 +54,7 @@ import type { DecodeLimits, Snapshot } from "./Snapshot.js"
 
 export { DecodeLimits, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 
+import { DeltaBudgetFromLimits } from "./internal/budget.js"
 import { decodeConfiguration, retargetFailure } from "./internal/errors.js"
 import * as FixtureInternal from "./internal/fixture.js"
 import * as Image from "./internal/image.js"
@@ -1634,7 +1635,7 @@ export const decodeSnapshot: (
 
 const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDeltaLimits) =>
   Effect.fromResult(decodeConfiguration(
-    SnapshotDeltaModel.SnapshotDeltaLimits,
+    DeltaBudgetFromLimits,
     limits ?? SnapshotDeltaModel.SnapshotDeltaLimits.default,
     operation
   ))
@@ -1858,7 +1859,7 @@ const deltaSchemaIssue = (cause: VfsError, input: typeof Schema.Unknown.Type, op
  * @since 0.1.0
  */
 export const SnapshotDeltaFromBytes = (limits?: SnapshotDeltaModel.SnapshotDeltaLimits) => {
-  const selected = Schema.decodeResult(SnapshotDeltaModel.SnapshotDeltaLimits, { onExcessProperty: "error" })(
+  const selected = Schema.decodeResult(DeltaBudgetFromLimits, { onExcessProperty: "error" })(
     limits ?? SnapshotDeltaModel.SnapshotDeltaLimits.default
   )
 

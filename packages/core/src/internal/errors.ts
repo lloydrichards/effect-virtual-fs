@@ -42,6 +42,9 @@ const configurationField = (issue: SchemaIssue.Issue): string => {
 
   if (Predicate.isTagged("Composite")(issue)) return configurationField(issue.issues[0])
 
+  // A public limits schema that decodes into an internal budget reports its key beneath the transformation.
+  if (Predicate.isTagged("Encoding")(issue)) return configurationField(issue.issue)
+
   return "options"
 }
 
@@ -66,8 +69,8 @@ export const argumentFailure = (operation: string, field: string, cause?: unknow
   build("InvalidArgument", operation, { field, cause })
 
 /** @internal */
-export const decodeConfiguration = <A>(
-  schema: Schema.Codec<A>,
+export const decodeConfiguration = <A, I>(
+  schema: Schema.Codec<A, I>,
   value: typeof Schema.Unknown.Type,
   operation: string
 ): Result.Result<A, ArgumentFailure> =>

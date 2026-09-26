@@ -12,11 +12,11 @@ import {
   type SnapshotChange,
   type SnapshotChangesOptions,
   type SnapshotDelta,
-  type SnapshotDeltaLimits,
   SnapshotDifference,
   SnapshotNodeKind
 } from "../SnapshotDelta.js"
 import type { ImageFailure } from "../VfsError.js"
+import type { DeltaBudget } from "./budget.js"
 import { make as makeBytePath } from "./bytePath.js"
 import { bytesOrder, decodeUtf8, sameBytes } from "./bytes.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
@@ -254,27 +254,27 @@ interface RoleBudget {
   readonly payloadBytesField: string
 }
 
-const roleBudget = (limits: SnapshotDeltaLimits, role: Role): RoleBudget =>
+const roleBudget = (limits: DeltaBudget, role: Role): RoleBudget =>
   role === "base"
     ? {
-      records: limits.maxBaseRecords,
+      records: limits.baseRecords,
       recordsField: "baseRecords",
-      pathBytes: limits.maxIdentityBytes,
+      pathBytes: limits.identityBytes,
       pathBytesField: "identityBytes",
-      payloadBytes: limits.maxIdentityBytes,
+      payloadBytes: limits.identityBytes,
       payloadBytesField: "identityBytes"
     }
     : {
-      records: limits.maxTargetRecords,
+      records: limits.targetRecords,
       recordsField: "targetRecords",
-      pathBytes: limits.maxDecodedDeltaBytes,
+      pathBytes: limits.decodedBytes,
       pathBytesField: "decodedDeltaBytes",
-      payloadBytes: limits.maxOutputBytes,
+      payloadBytes: limits.outputBytes,
       payloadBytesField: "outputBytes"
     }
 
 const normalize = Effect.fnUntraced(
-  function*(snapshot: Snapshot, limits: SnapshotDeltaLimits, role: Role): Effect.fn.Return<SnapshotView, ImageFailure> {
+  function*(snapshot: Snapshot, limits: DeltaBudget, role: Role): Effect.fn.Return<SnapshotView, ImageFailure> {
     const value = yield* Image.valueOf(snapshot)
     const budget = roleBudget(limits, role)
     const nodes = yield* reachableNodes(value)
@@ -300,7 +300,7 @@ const normalize = Effect.fnUntraced(
       if (node?.kind !== "directory") continue
 
       for (const [name, child] of node.entries) {
-        if (++entries > limits.maxEntries) {
+        if (++entries > limits.entries) {
           return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "entries" })
         }
 
@@ -376,7 +376,7 @@ const timestampBytes = (metadata: StoredMetadata): ReadonlyArray<Uint8Array> =>
 
 // This is the versioned semantic identity encoding, not a generic byte builder.
 // Field framing, ordering, and the domain prefix are part of the persisted delta contract.
-const identityBytes = (view: SnapshotView, limits: SnapshotDeltaLimits): Result.Result<Uint8Array, ImageFailure> => {
+const identityBytes = (view: SnapshotView, limits: DeltaBudget): Result.Result<Uint8Array, ImageFailure> => {
   const timestamps = view.objects.map((object) => timestampBytes(object.metadata))
   let total = ByteSize.bytes(IDENTITY_PREFIX.length + U64_BYTES)
 
@@ -390,7 +390,7 @@ const identityBytes = (view: SnapshotView, limits: SnapshotDeltaLimits): Result.
     total = ByteSize.sum(total, ByteSize.bytes(objectBytes))
   }
 
-  if (ByteSize.isGreaterThan(total, limits.maxIdentityBytes)) {
+  if (ByteSize.isGreaterThan(total, limits.identityBytes)) {
     return Result.fail(imageFailure("snapshotDelta", "LimitExceeded", { field: "identityBytes" }))
   }
 
@@ -426,7 +426,7 @@ const identityBytes = (view: SnapshotView, limits: SnapshotDeltaLimits): Result.
   return Result.succeed(output)
 }
 
-const digest = Effect.fnUntraced(function*(view: SnapshotView, limits: SnapshotDeltaLimits) {
+const digest = Effect.fnUntraced(function*(view: SnapshotView, limits: DeltaBudget) {
   const crypto = yield* Crypto.Crypto
 
   return yield* crypto.digest("SHA-256", yield* Effect.fromResult(identityBytes(view, limits)))
@@ -541,7 +541,7 @@ const buildSnapshot = Effect.fnUntraced(
   function*(
     document: Document,
     base: SnapshotView,
-    limits: SnapshotDeltaLimits
+    limits: DeltaBudget
   ): Effect.fn.Return<Snapshot, ImageFailure> {
     const paths = new Map<string, PathEntry>()
 
@@ -613,7 +613,7 @@ const buildSnapshot = Effect.fnUntraced(
 
       outputBytes = ByteSize.sum(outputBytes, ByteSize.bytes(payload.length))
 
-      if (ByteSize.isGreaterThan(outputBytes, limits.maxOutputBytes)) {
+      if (ByteSize.isGreaterThan(outputBytes, limits.outputBytes)) {
         return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "outputBytes" })
       }
 
@@ -629,14 +629,14 @@ const buildSnapshot = Effect.fnUntraced(
 )
 
 const validate = Effect.fnUntraced(
-  function*(document: ValidatableDocument, limits: SnapshotDeltaLimits): Effect.fn.Return<void, ImageFailure> {
+  function*(document: ValidatableDocument, limits: DeltaBudget): Effect.fn.Return<void, ImageFailure> {
     const deltaRecords = safeAdd(document.records.length, document.changes.length)
 
-    if (deltaRecords === undefined || deltaRecords > limits.maxDeltaRecords) {
+    if (deltaRecords === undefined || deltaRecords > limits.records) {
       return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "deltaRecords" })
     }
 
-    if (document.records.length > limits.maxOutputRecords) {
+    if (document.records.length > limits.outputRecords) {
       return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "outputRecords" })
     }
 
@@ -656,7 +656,7 @@ const validate = Effect.fnUntraced(
     const charge = (encoded: typeof CanonicalBase64.Encoded.Type): Effect.Effect<void, ImageFailure> => {
       decoded = ByteSize.sum(decoded, ByteSize.bytes(CanonicalBase64.decodedLength(encoded)))
 
-      return ByteSize.isGreaterThan(decoded, limits.maxDecodedDeltaBytes)
+      return ByteSize.isGreaterThan(decoded, limits.decodedBytes)
         ? Effect.fail(imageFailure("snapshotDelta", "LimitExceeded", { field: "decodedDeltaBytes" }))
         : Effect.void
     }
@@ -674,7 +674,7 @@ const validate = Effect.fnUntraced(
         yield* charge(encodedPath)
         entries++
 
-        if (entries > limits.maxEntries) {
+        if (entries > limits.entries) {
           return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "entries" })
         }
 
@@ -705,7 +705,7 @@ const validate = Effect.fnUntraced(
         yield* charge(record.payload.path)
         inherited++
 
-        if (inherited > limits.maxInheritedRecords) {
+        if (inherited > limits.inheritedRecords) {
           return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "inheritedRecords" })
         }
 
@@ -734,7 +734,7 @@ const validate = Effect.fnUntraced(
       previous = path
     }
 
-    if (ByteSize.isGreaterThan(outputBytes, limits.maxOutputBytes)) {
+    if (ByteSize.isGreaterThan(outputBytes, limits.outputBytes)) {
       return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "outputBytes" })
     }
 
@@ -757,13 +757,13 @@ const validate = Effect.fnUntraced(
 
 /** @internal */
 export const diffSnapshots = Effect.fnUntraced(
-  function*(base: Snapshot, target: Snapshot, limits: SnapshotDeltaLimits) {
+  function*(base: Snapshot, target: Snapshot, limits: DeltaBudget) {
     const before = yield* normalize(base, limits, "base")
     const after = yield* normalize(target, limits, "target")
     const changes = [...compare(before, after)]
     const deltaRecords = safeAdd(after.objects.length, changes.length)
 
-    if (deltaRecords === undefined || deltaRecords > limits.maxDeltaRecords) {
+    if (deltaRecords === undefined || deltaRecords > limits.records) {
       return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "deltaRecords" })
     }
 
@@ -810,7 +810,7 @@ export const diffSnapshots = Effect.fnUntraced(
 const verify = Effect.fnUntraced(function*(
   base: Snapshot,
   document: Document,
-  limits: SnapshotDeltaLimits
+  limits: DeltaBudget
 ) {
   yield* validate(document, limits)
   const before = yield* normalize(base, limits, "base")
@@ -831,7 +831,7 @@ const verify = Effect.fnUntraced(function*(
 
 /** @internal */
 export const inspectSnapshotDelta = Effect.fnUntraced(
-  function*(base: Snapshot, delta: SnapshotDelta, options: SnapshotChangesOptions, limits: SnapshotDeltaLimits) {
+  function*(base: Snapshot, delta: SnapshotDelta, options: SnapshotChangesOptions, limits: DeltaBudget) {
     const output: Array<SnapshotChange> = []
     const { changes } = yield* verify(base, yield* getDocument(delta), limits)
 
@@ -853,7 +853,7 @@ export const inspectSnapshotDelta = Effect.fnUntraced(
 )
 
 /** @internal */
-export const encodeSnapshotDelta = Effect.fnUntraced(function*(delta: SnapshotDelta, limits: SnapshotDeltaLimits) {
+export const encodeSnapshotDelta = Effect.fnUntraced(function*(delta: SnapshotDelta, limits: DeltaBudget) {
   const document = yield* getDocument(delta)
   yield* validate(document, limits)
 
@@ -863,7 +863,7 @@ export const encodeSnapshotDelta = Effect.fnUntraced(function*(delta: SnapshotDe
 
   const bytes = encoder.encode(text)
 
-  if (exceeds(bytes.length, limits.maxEncodedBytes)) {
+  if (exceeds(bytes.length, limits.encodedBytes)) {
     return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "encodedBytes" })
   }
 
@@ -871,12 +871,12 @@ export const encodeSnapshotDelta = Effect.fnUntraced(function*(delta: SnapshotDe
 })
 
 /** @internal */
-export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array, limits: SnapshotDeltaLimits) {
+export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array, limits: DeltaBudget) {
   if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) {
     return yield* imageFailure("snapshotDelta", "InvalidEncoding")
   }
 
-  if (exceeds(input.byteLength, limits.maxEncodedBytes)) {
+  if (exceeds(input.byteLength, limits.encodedBytes)) {
     return yield* imageFailure("snapshotDelta", "LimitExceeded", { field: "encodedBytes" })
   }
 
@@ -907,7 +907,7 @@ export const decodeSnapshotDelta = Effect.fnUntraced(function*(input: Uint8Array
 
 /** @internal */
 export const applySnapshotDelta = Effect.fnUntraced(
-  function*(base: Snapshot, delta: SnapshotDelta, limits: SnapshotDeltaLimits) {
+  function*(base: Snapshot, delta: SnapshotDelta, limits: DeltaBudget) {
     return (yield* verify(base, yield* getDocument(delta), limits)).target
   }
 )
