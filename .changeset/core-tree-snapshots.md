@@ -2,7 +2,7 @@
 "@effect-vfs/core": minor
 ---
 
-Snapshot and live image bytes change shape, and bytes written by earlier releases no longer decode. A snapshot still encodes as `{ format: "effect-vfs", version: 1 }`, but its body is now one node per file, directory or symbolic link in inode order, each naming the directory entries that reach it, with file content as a tagged `Inline` value. `CheckpointStore` rows and `LiveImageStore` images saved before this release fail to load with `InvalidStructure`; there is no migration helper.
+Snapshot and live image bytes change shape, and bytes written by earlier releases no longer decode. A snapshot still encodes as `{ format: "effect-vfs", version: 1 }`, but its body is now one node per file, directory or symbolic link in inode order, each naming the directory entries that reach it, with file content as a tagged `Inline` value. `CheckpointStore` rows and `LiveImageStore` images saved before this release fail to load with `InvalidEncoding` at `text`; there is no migration helper.
 
 - **Capture copies nothing.** `volume.snapshot` and an overlay's `capture()` share the volume's immutable value instead of walking and encoding it, and `fromSnapshot` and `makeOverlay` start from that value, keeping only what a name reaches.
 - **Inode numbers survive a restore.** A volume restored from a captured or decoded snapshot reports the inode numbers the snapshot holds, and allocates new ones above them.
@@ -15,7 +15,7 @@ Regenerate stored snapshots and live images from the volumes or fixtures that pr
 
 ```ts
 // before: bytes saved by an earlier release
-const restored = yield * Vfs.decodeSnapshot(stored, limits) // now fails with InvalidStructure
+const restored = yield * Vfs.decodeSnapshot(stored, limits) // now fails with InvalidEncoding at "text"
 
 // after: rebuild the volume, then save its snapshot again
 const volume = yield * Vfs.fromFixture(fixture)

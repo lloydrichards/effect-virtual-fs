@@ -14,6 +14,9 @@ sources:
   - id: engine
     resource: ../../packages/memory/src/internal/treeTransfer.ts
     title: Tree transfer sources and sinks
+  - id: snapshot-entries
+    resource: ../../packages/core/src/internal/snapshotEntries.ts
+    title: Core's snapshot walk that fromSnapshot reads
   - id: host-adapter
     resource: ../../packages/memory/src/internal/treeTransferFileSystem.ts
     title: Effect FileSystem source and sink
@@ -23,7 +26,7 @@ sources:
   - id: host-tests
     resource: ../../packages/memory/test/TreeTransferFileSystem.test.ts
     title: Host filesystem round-trip tests
-generated: { by: claude-code, at: "2026-09-26T13:00:00+02:00" }
+generated: { by: claude/okf, at: "2026-09-26T14:30:00+02:00" }
 ---
 
 # Tree transfer
@@ -38,9 +41,9 @@ A second name for an object already emitted becomes a `hardLink` entry that name
 
 ## Sources
 
-`fromCaller` reads through a live caller with that caller's permissions. It reaches the root and every entry below it by its path, never following a final link, so it holds no directory handle while it streams, it needs search permission on each directory above an entry, as a path lookup does, and it does not follow a directory renamed out of the tree. It reads each entry's metadata before its contents, so entries carry the source's original access time. The reads themselves refresh source access times under relatime, so only a read whose access time is due changes the source, and on a durable volume only such a read commits. `fromSnapshot` restores a snapshot into a private volume and walks it with a privileged caller, so it never reads or changes the original volume.
+`fromCaller` reads through a live caller with that caller's permissions. It reaches the root and every entry below it by its path, never following a final link, so it holds no directory handle while it streams, it needs search permission on each directory above an entry, as a path lookup does, and it does not follow a directory renamed out of the tree. It reads each entry's metadata before its contents, so entries carry the source's original access time. The reads themselves refresh source access times under relatime, so only a read whose access time is due changes the source, and on a durable volume only such a read commits. `fromSnapshot` walks the snapshot's own value through core's `snapshotEntries`, resolving the root as a privileged caller at `/` would, so it restores no volume and never reads or changes the original volume. Its entries, their order and every limit's field match `fromCaller`, and both charge one budget; the snapshot already holds every listing and file, so `fromSnapshot` charges it entry by entry as each is emitted, and one directory past `maxEntries` is refused at the entry that overflows, after the entries before it, rather than when its listing is read.
 
-Every source enforces a complete `TreeTransferLimits` policy: `maxEntries`, `maxBytes`, `maxFileBytes`, `maxDepth`, and `maxPathBytes`. Omission uses the frozen `default` preset; `constrained` is also provided. `maxEntries` counts every emitted entry including the root. `maxBytes` counts file contents and symbolic-link targets, as volume capacity does. `maxDepth` counts components below the root, and `maxPathBytes` measures the rooted entry path. Limits are checked while streaming, before the entry is emitted; a file's size is checked before and after it is read, and a directory listing that would exceed `maxEntries` fails before any of its children are visited. Exceeding a limit fails `TransferError` with code `LimitExceeded` and the field name. A malformed policy fails `InvalidArgument`.
+Every source enforces a complete `TreeTransferLimits` policy: `maxEntries`, `maxBytes`, `maxFileBytes`, `maxDepth`, and `maxPathBytes`. Omission uses the frozen `default` preset; `constrained` is also provided. `maxEntries` counts every emitted entry including the root. `maxBytes` counts file contents and symbolic-link targets, as volume capacity does. `maxDepth` counts components below the root, and `maxPathBytes` measures the rooted entry path. Limits are checked while streaming, before the entry is emitted. `fromCaller` also checks a file's size before it is read, and fails a directory listing that would exceed `maxEntries` before any of its children are visited. Exceeding a limit fails `TransferError` with code `LimitExceeded` and the field name. A malformed policy fails `InvalidArgument`.
 
 ## Live sinks
 
