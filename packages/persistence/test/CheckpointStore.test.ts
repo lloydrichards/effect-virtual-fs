@@ -138,7 +138,8 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
     { budget: "maxEncodedBytes", bounded: { ...limits, maxEncodedBytes: ByteSize.bytes(1) } },
     { budget: "maxRecords", bounded: { ...limits, maxRecords: 1 } },
     { budget: "maxEntries", bounded: { ...limits, maxEntries: 0 } },
-    { budget: "maxDecodedBytes", bounded: { ...limits, maxDecodedBytes: ByteSize.bytes(2) } }
+    { budget: "maxDecodedBytes", bounded: { ...limits, maxDecodedBytes: ByteSize.bytes(2) } },
+    { budget: "maxLineBytes", bounded: { ...limits, maxLineBytes: ByteSize.bytes(16) } }
   ])("enforces the same save and load budgets for $budget", ({ budget, bounded }) =>
     Effect.gen(function*() {
       const broad = yield* CheckpointStore.make(limits)

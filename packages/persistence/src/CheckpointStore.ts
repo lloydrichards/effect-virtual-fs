@@ -90,11 +90,14 @@ const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.Decode
   const sql = (yield* SqlClient).withoutTransforms()
   const maxEncodedBytes = ByteSize.toBigInt(ownedLimits.maxEncodedBytes)
 
+  // Encoding under the store's limits fails wherever decoding under them would, so a saved image is known to load
+  // without being decoded here.
   const save = Effect.fn("CheckpointStore.save")(function*(name: string, snapshot: Vfs.Snapshot) {
     yield* checkName(name, "CheckpointStore.save")
-    const image = yield* Vfs.encodeSnapshot(snapshot).pipe(Effect.mapError(asEntryPoint("CheckpointStore.save")))
 
-    yield* Vfs.decodeSnapshot(image, ownedLimits).pipe(Effect.mapError(asEntryPoint("CheckpointStore.save")))
+    const image = yield* Vfs.encodeSnapshot(snapshot, ownedLimits).pipe(
+      Effect.mapError(asEntryPoint("CheckpointStore.save"))
+    )
 
     const inserted = yield* sql`
       INSERT INTO effect_vfs_checkpoints (name, image) VALUES (${name}, ${image})
@@ -202,7 +205,8 @@ export class CheckpointStore extends Context.Service<CheckpointStore, {
 ) {
   /**
    * Creates a store with an owned copy of mandatory image limits.
-   * Saving validates against the same limits used by loading.
+   * Saving encodes under the same limits loading decodes under and fails where
+   * loading would, so a saved checkpoint is known to load without being decoded.
    *
    * @example
    * ```ts
