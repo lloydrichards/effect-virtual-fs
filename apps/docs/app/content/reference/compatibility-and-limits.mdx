@@ -138,7 +138,8 @@ explicitly starts with `.` or a positive character class that includes it.
 
 ## Snapshot decode limits
 
-`decodeSnapshot` requires a complete `DecodeLimits` value. There is no default decode policy.
+`decodeSnapshot` and `decodeSnapshotSink` require a `DecodeLimits` value with its four counts. There is no default
+decode policy.
 
 | Field             | Work it bounds                                           |
 | ----------------- | -------------------------------------------------------- |
@@ -146,6 +147,7 @@ explicitly starts with `.` or a positive character class that includes it.
 | `maxRecords`      | Stored objects, one node each, the root included         |
 | `maxEntries`      | Namespace entries, counting every name of a hard link    |
 | `maxDecodedBytes` | Decoded bytes of names, file contents and link targets   |
+| `maxLineBytes`    | One line of the encoding; optional, `maxEncodedBytes`    |
 
 Encoded and decoded byte budgets use `ByteSize.ByteSize`. Record and entry limits are numbers. Restoring the decoded
 snapshot also applies the destination volume's capacity limits.

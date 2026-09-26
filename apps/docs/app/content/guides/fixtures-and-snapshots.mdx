@@ -75,26 +75,35 @@ Read `volume.snapshot` whenever you need a new capture. A snapshot is the volume
 state, so taking one copies nothing. It contains the reachable namespace, file contents, links, and metadata. It does
 not contain callers, open handles, watch subscriptions, or unlinked files that are still held open.
 
-`encodeSnapshot` returns version 1 JSON/base64 bytes: one node per file, directory, or symbolic link, in inode order,
-each naming the directory entries that reach it. Treat that representation as an interchange format rather than an
-object to edit. Decode it with `decodeSnapshot`, then pass the opaque result to `fromSnapshot`. Each call to
+`encodeSnapshot` returns version 1 bytes as newline-delimited JSON: a header line naming the format and version, then
+one line per file, directory, or symbolic link, in inode order, each naming the directory entries that reach it, with
+names and contents as base64. Every line ends in a newline. Treat that representation as an interchange format rather
+than an object to edit. Decode it with `decodeSnapshot`, then pass the opaque result to `fromSnapshot`. Each call to
 `fromSnapshot` creates independent writable storage that keeps the snapshot's inode numbers, and lists each directory's
 entries in the byte order of their names, whether the snapshot was captured or decoded. Version 1 bytes written
-before its layout became a tree of nodes no longer decode, so regenerate stored snapshots from the volumes or fixtures
+before the layout became lines of nodes no longer decode, so regenerate stored snapshots from the volumes or fixtures
 that produced them.
+
+To write or read a snapshot without holding its whole encoding, stream it: `encodeSnapshotStream` emits the same bytes as
+chunks, and `decodeSnapshotSink` reads chunks split anywhere, lines and UTF-8 sequences included. To read a snapshot's
+tree without restoring it, `snapshotEntries` streams its entries under a root.
 
 ## Decode untrusted bytes with finite limits
 
-`decodeSnapshot` requires all four limits. Choose them from what your application accepts:
+`decodeSnapshot` requires four limits and accepts a fifth. Choose them from what your application accepts:
 
 - Set `maxEncodedBytes` to the largest snapshot your storage or transport is allowed to deliver.
 - Set `maxDecodedBytes` to the largest combined size of names, file contents, and symbolic-link targets the application
   should hold.
 - Set `maxRecords` to the largest number of stored filesystem objects you expect, counting the root.
 - Set `maxEntries` to the largest reachable namespace you expect, counting every name of a hard-linked file.
+- Optionally set `maxLineBytes` to the longest line the decoder may hold before checking it. A file's line holds all of
+  its content, so it also bounds the largest file. It defaults to `maxEncodedBytes`.
 
 Use `ByteSize` values for byte limits and numbers for record and entry counts. Decoding fails with a `VfsError`
-before returning a partial snapshot when the input is malformed, uses an unsupported version, or exceeds a limit.
+before returning a partial snapshot when the input is malformed, uses an unsupported version, or exceeds a limit. It
+checks each line as the line ends, so it refuses such input before holding more than one line of it. Passing the same
+limits to `encodeSnapshot` makes encoding fail wherever decoding would, so bytes it returns are known to decode.
 
 Decoding limits protect the conversion from bytes to a snapshot. `fromSnapshot` can also receive `VolumeOptions` when
 the restored volume needs tighter file, path, entry, or total-byte limits.
