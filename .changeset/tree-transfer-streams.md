@@ -2,15 +2,11 @@
 "@effect-vfs/memory": minor
 ---
 
-Add `TreeTransfer`, which streams directory trees between callers, snapshots, and new volumes. Sources emit core fixture entries rooted at the copied directory and enforce `TreeTransferLimits.default` unless given other limits. `toCaller` rejects an existing destination by default and removes the tree it created if the transfer fails. `toVolume` builds a new volume only when every entry is accepted, and keeps owners and special mode bits only when asked with `owner: true` and `specialBits: true`.
+`TreeTransfer` streams directory trees between callers, snapshots, and new volumes. A transfer to an existing caller destination fails by default and removes a new partial destination if the transfer fails.
 
 ```ts
-import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { TreeTransfer } from "@effect-vfs/memory"
-import { Stream } from "effect"
-
-const copy = (source: Vfs.Caller, workspace: Vfs.Caller) =>
-  Stream.run(TreeTransfer.fromCaller(source, "/project"), TreeTransfer.toCaller(workspace, "/workspace"))
+const source = TreeTransfer.fromCaller(sourceCaller, "/project")
+yield * Stream.run(source, TreeTransfer.toCaller(workspace, "/workspace"))
 ```
 
-`MemoryFileSystem` `copy` now runs on the same engine. A copy without `overwrite` removes its partial destination on failure, and hard links inside a copied tree stay linked when overwriting.
+`MemoryFileSystem.copy` now preserves hard links within a copied tree when overwriting and removes a partial destination on failure when `overwrite` is false.
