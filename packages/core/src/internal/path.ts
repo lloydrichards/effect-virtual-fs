@@ -23,8 +23,7 @@ export const DOT_DOT_HEX = "2e2e"
 /** @internal */
 export const SLASH_BYTE = 47
 
-/** @internal */
-export const DOT_BYTE = 46
+const DOT_BYTE = 46
 
 /** @internal */
 export const NUL_BYTE = 0

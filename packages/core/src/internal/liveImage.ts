@@ -31,8 +31,7 @@ export const retainedFiles = (state: VolumeState): Array<RegularFile> => {
   return retained
 }
 
-/** @internal */
-export type StoredLimits = Tree.Runtime["limits"]
+type StoredLimits = Tree.Runtime["limits"]
 
 // What names a volume's objects outside the process: its identity, the epoch of its inode numbers, and the secret
 // its reference-key tags are computed under. One record, so no two of them can swap places at a call.

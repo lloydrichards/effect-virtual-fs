@@ -4,8 +4,7 @@ import * as Exit from "effect/Exit"
 import type { FsFailure } from "../VfsError.js"
 import { fsFailure } from "./errors.js"
 
-/** @internal */
-export type CommitOutcome = "committed" | "rejected" | "unknown"
+type CommitOutcome = "committed" | "rejected" | "unknown"
 
 /** @internal */
 export interface CommitProvider<State> {

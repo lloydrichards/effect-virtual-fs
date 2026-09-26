@@ -14,8 +14,7 @@ export interface ObservationEntry {
   readonly metadata: StoredMetadata
 }
 
-/** @internal */
-export type OverlayDifference = "content" | "mode" | "uid" | "gid" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs"
+type OverlayDifference = "content" | "mode" | "uid" | "gid" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs"
 
 /** @internal */
 export type RawOverlayChange =
