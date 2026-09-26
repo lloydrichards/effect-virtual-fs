@@ -10,14 +10,18 @@ import { gateway } from "./gateway.js"
 const program = Effect.scoped(Effect.gen(function*() {
   const config = yield* loadConfig()
 
-  yield* gateway(config).pipe(Effect.provide(Layer.merge(
+  const live = Effect.gen(function*() {
+    yield* gateway(config)
+
+    yield* Effect.log("Use one gateway only. Unmount before stopping or restarting this process.")
+
+    return yield* Effect.never
+  })
+
+  return yield* live.pipe(Effect.provide(Layer.merge(
     BunCrypto.layer,
     BunSocketServer.layer({ host: config.bindAddress, port: config.port })
   )))
-
-  yield* Effect.log("Use one gateway only. Unmount before stopping or restarting this process.")
-
-  return yield* Effect.never
 }))
 
 BunRuntime.runMain(program)

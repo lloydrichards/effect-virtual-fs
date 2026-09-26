@@ -9,19 +9,22 @@ import * as Layer from "effect/Layer"
 
 const capacityGate = Bun.env["EFFECT_VFS_NFS_CAPACITY_GATE"] === "1"
 
+const VolumeLive = Vfs.Volume.layerFromFixture({
+  entries: [
+    { kind: "directory", path: "/notes" },
+    { kind: "file", path: "/hello.txt", bytes: new TextEncoder().encode("hello from Effect VFS\n") },
+    { kind: "hardLink", path: "/hello-alias.txt", target: "/hello.txt" },
+    { kind: "file", path: "/notes/live.txt", bytes: new TextEncoder().encode("agents may update me\n") },
+    { kind: "symlink", path: "/latest", target: "notes/live.txt" }
+  ]
+}, capacityGate ? { maxBytes: ByteSize.mebibytes(16), maxEntries: 100 } : undefined)
+
+const VfsLive = Vfs.Caller.layer().pipe(Layer.provideMerge(VolumeLive))
+
 const program = Effect.scoped(
   Effect.gen(function*() {
-    const volume = yield* Vfs.fromFixture({
-      entries: [
-        { kind: "directory", path: "/notes" },
-        { kind: "file", path: "/hello.txt", bytes: new TextEncoder().encode("hello from Effect VFS\n") },
-        { kind: "hardLink", path: "/hello-alias.txt", target: "/hello.txt" },
-        { kind: "file", path: "/notes/live.txt", bytes: new TextEncoder().encode("agents may update me\n") },
-        { kind: "symlink", path: "/latest", target: "notes/live.txt" }
-      ]
-    }, capacityGate ? { maxBytes: ByteSize.mebibytes(16), maxEntries: 100 } : undefined)
-
-    const caller = yield* volume.caller()
+    const volume = yield* Vfs.Volume
+    const caller = yield* Vfs.Caller
     yield* Effect.forkScoped(
       Effect.gen(function*() {
         let revision = 1
@@ -57,10 +60,7 @@ const program = Effect.scoped(
     return yield* Effect.never
   })
 ).pipe(
-  Effect.provide(Layer.merge(
-    BunCrypto.layer,
-    BunSocketServer.layer({ host: "127.0.0.1", port: 2049 })
-  ))
+  Effect.provide(Layer.mergeAll(VfsLive, BunCrypto.layer, BunSocketServer.layer({ host: "127.0.0.1", port: 2049 })))
 )
 
 BunRuntime.runMain(program)

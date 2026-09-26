@@ -1,6 +1,5 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as BunCrypto from "@effect/platform-bun/BunCrypto"
-import { Cause, Console, Effect, Layer, Predicate, Queue, Ref, Stream } from "effect"
+import { Cause, Console, Effect, Predicate, Queue, Ref, Stream } from "effect"
 import { LanguageModelLive, type ObserveTool, runAgent, type ToolObservation } from "./agent.js"
 import {
   pacing,
@@ -185,7 +184,7 @@ const program = Effect.scoped(Effect.gen(function*() {
 }))
 
 await Effect.runPromise(program.pipe(
-  Effect.provide(Layer.merge(LanguageModelLive, BunCrypto.layer)),
+  Effect.provide(LanguageModelLive),
   Effect.catchCause(Effect.fnUntraced(function*(cause) {
     yield* Console.error(`Demo failed:\n${Cause.pretty(cause)}`)
     process.exitCode = 1
