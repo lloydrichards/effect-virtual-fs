@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "type-check": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "bun --bun run vitest run --config ../../vitest.config.ts --project demo-alchemy",
     "plan": "alchemy plan",
     "deploy": "alchemy deploy",
     "test:live": "bun --env-file=.env scripts/smoke.ts"

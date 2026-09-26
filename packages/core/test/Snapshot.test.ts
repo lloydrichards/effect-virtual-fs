@@ -653,10 +653,8 @@ describe("snapshot entries", () => {
     }
   }
 
-  // Vitest runs on Node, whose modules core's platform-free types do not describe, so they are loaded by a name typed as
-  // a plain string and given the few members used here.
-  const NODE_V8: string = "node:v8"
-  const NODE_VM: string = "node:vm"
+  // This memory-bound test uses the same Bun runtime as the rest of the test suite.
+  const BUN_JSC: string = "bun:jsc"
   const NODE_PROCESS: string = "node:process"
 
   interface Usage {
@@ -664,18 +662,12 @@ describe("snapshot entries", () => {
   }
 
   // A forced collection, and the bytes the heap and its array buffers hold.
-  const nodeHeap = Effect.gen(function*() {
-    const v8: { readonly setFlagsFromString: (flags: string) => void } = yield* Effect.promise(() => import(NODE_V8))
-
-    const vm: { readonly runInNewContext: (code: string) => () => void } = yield* Effect.promise(() => import(NODE_VM))
-
+  const bunHeap = Effect.gen(function*() {
+    const jsc: { readonly fullGC: () => void } = yield* Effect.promise(() => import(BUN_JSC))
     const process: Usage = yield* Effect.promise(() => import(NODE_PROCESS))
 
-    v8.setFlagsFromString("--expose-gc")
-    const gc = vm.runInNewContext("gc")
-
     return {
-      gc,
+      gc: jsc.fullGC,
       memory: () => {
         const usage = process.memoryUsage()
 
@@ -800,7 +792,7 @@ describe("snapshot entries", () => {
       "should hold an unfinished line in memory proportional to its bytes however finely it is chunked when a long line is split into small chunks",
       () =>
         Effect.gen(function*() {
-          const { gc, memory } = yield* nodeHeap
+          const { gc, memory } = yield* bunHeap
           const length = 1_000_000
           const limits = { ...LIMITS, maxEncodedBytes: ByteSize.megabytes(4), maxLineBytes: ByteSize.bytes(length) }
           let held = 0

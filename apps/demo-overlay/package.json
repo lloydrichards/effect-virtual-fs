@@ -7,7 +7,7 @@
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "build": "tsc --noEmit",
     "demo": "bun --env-file=.env run src/demo.ts",
-    "test": "vitest run",
+    "test": "bun --bun run vitest run --config ../../vitest.config.ts --project demo-overlay",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
