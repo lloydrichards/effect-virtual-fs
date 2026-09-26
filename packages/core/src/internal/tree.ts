@@ -1,6 +1,7 @@
 // Validate each tree line as it arrives; check cross-node graph rules after the final line.
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
+import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -483,26 +484,31 @@ export const UNCHECKED = { disableChecks: true }
 export const treeNode = (node: Node): TreeNode => {
   const metadata = storedMetadata(node.metadata)
 
-  if (node.kind === "directory") {
-    return TreeNode.cases.directory.make(
-      { ino: node.ino, parent: node.parent, name: encodeName(node.name), metadata },
-      UNCHECKED
-    )
-  }
-
-  const named = node.links.map((link) => ({ parent: link.parent, name: encodeName(link.name) }))
-
-  return node.kind === "file"
-    ? TreeNode.cases.file.make({
-      ino: node.ino,
-      links: named,
-      content: TreeContent.cases.Inline.make({ bytes: CanonicalBase64.encode(node.data) }, UNCHECKED),
-      metadata
-    }, UNCHECKED)
-    : TreeNode.cases.symlink.make(
-      { ino: node.ino, links: named, target: CanonicalBase64.encode(node.target), metadata },
-      UNCHECKED
-    )
+  return Match.value(node).pipe(
+    Match.discriminator("kind")("directory", (directory) =>
+      TreeNode.cases.directory.make(
+        { ino: directory.ino, parent: directory.parent, name: encodeName(directory.name), metadata },
+        UNCHECKED
+      )),
+    Match.discriminator("kind")("file", (file) =>
+      TreeNode.cases.file.make({
+        ino: file.ino,
+        links: file.links.map((link) => ({ parent: link.parent, name: encodeName(link.name) })),
+        content: TreeContent.cases.Inline.make({ bytes: CanonicalBase64.encode(file.data) }, UNCHECKED),
+        metadata
+      }, UNCHECKED)),
+    Match.discriminator("kind")("symlink", (symlink) =>
+      TreeNode.cases.symlink.make(
+        {
+          ino: symlink.ino,
+          links: symlink.links.map((link) => ({ parent: link.parent, name: encodeName(link.name) })),
+          target: CanonicalBase64.encode(symlink.target),
+          metadata
+        },
+        UNCHECKED
+      )),
+    Match.exhaustive
+  )
 }
 
 /** @internal */

@@ -1,6 +1,8 @@
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
+import * as Match from "effect/Match"
+import * as Order from "effect/Order"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type { Snapshot } from "../Snapshot.js"
@@ -372,19 +374,22 @@ const deltaNode = (target: Side, path: Uint8Array, node: Node, withPayload: bool
 
   const metadata = storedMetadata(node.metadata)
 
-  if (node.kind === "directory") return DeltaNode.cases.directory.make({ metadata }, UNCHECKED)
-
-  if (!withPayload) {
-    return node.kind === "file"
-      ? DeltaNode.cases.file.make({ metadata }, UNCHECKED)
-      : DeltaNode.cases.symlink.make({ metadata }, UNCHECKED)
-  }
-
-  const bytes = CanonicalBase64.encode(payloadOf(node)!)
-
-  return node.kind === "file"
-    ? DeltaNode.cases.file.make({ metadata, content: InlineContent.make({ bytes }, UNCHECKED) }, UNCHECKED)
-    : DeltaNode.cases.symlink.make({ metadata, target: bytes }, UNCHECKED)
+  return Match.value(node).pipe(
+    Match.discriminator("kind")("directory", () => DeltaNode.cases.directory.make({ metadata }, UNCHECKED)),
+    Match.discriminator("kind")("file", (file) =>
+      DeltaNode.cases.file.make(
+        withPayload
+          ? { metadata, content: InlineContent.make({ bytes: CanonicalBase64.encode(file.data) }, UNCHECKED) }
+          : { metadata },
+        UNCHECKED
+      )),
+    Match.discriminator("kind")("symlink", (symlink) =>
+      DeltaNode.cases.symlink.make(
+        withPayload ? { metadata, target: CanonicalBase64.encode(symlink.target) } : { metadata },
+        UNCHECKED
+      )),
+    Match.exhaustive
+  )
 }
 
 interface Found {
@@ -510,7 +515,7 @@ const compare = (base: Side, target: Side): ReadonlyArray<Change> => {
     }
   }
 
-  return changes.sort((a, b) => bytesOrder(a.path, b.path)).map(({ change }) => change)
+  return changes.sort(Order.mapInput(bytesOrder, (entry) => entry.path)).map(({ change }) => change)
 }
 
 const getDocument = (delta: SnapshotDelta): Effect.Effect<Document, ImageFailure> =>
@@ -847,7 +852,7 @@ const foldedIdentity = Effect.fnUntraced(function*(
   // Digest children before their directories.
   const ordered = [
     ...nodes.filter((node) => node.kind !== "directory"),
-    ...directories.sort((a, b) => depth(b) - depth(a))
+    ...directories.sort(Order.flip(Order.mapInput(Order.Number, depth)))
   ]
 
   for (const node of ordered) digests.set(node.ino, yield* Merkle.nodeDigest(node, digestOf, measure))
