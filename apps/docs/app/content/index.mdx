@@ -7,9 +7,11 @@ previews, or tools that need reproducible filesystem state.
 
 ```sh
 npm install @effect-vfs/memory@latest
+npm install "@effect/platform-bun@$(npm view @effect-vfs/memory peerDependencies.effect)"
 ```
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { Effect, FileSystem } from "effect"
 
@@ -23,7 +25,7 @@ const program = Effect.gen(function* () {
 })
 
 const settings = await Effect.runPromise(
-  program.pipe(Effect.provide(MemoryFileSystem.layer))
+  program.pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(BunCrypto.layer))
 )
 
 console.log(settings)

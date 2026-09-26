@@ -9,7 +9,7 @@ Install the core volume, memory adapter, and matching Effect test integration wi
 
 ```sh
 npm install @effect-vfs/core@latest @effect-vfs/memory@latest
-npm install --save-dev "@effect/vitest@$(npm view @effect-vfs/memory peerDependencies.effect)" vitest@^5.0.0
+npm install --save-dev "@effect/vitest@$(npm view @effect-vfs/memory peerDependencies.effect)" "@effect/platform-bun@$(npm view @effect-vfs/memory peerDependencies.effect)" vitest@^5.0.0
 ```
 
 ## Keep production code independent of storage
@@ -41,6 +41,7 @@ tests can provide a new in-memory volume.
 Import the test API from `@effect/vitest` and return an Effect from `it.effect`:
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, FileSystem } from "effect"
@@ -54,7 +55,7 @@ describe("writeManifest", () => {
         const result = yield* writeManifest("1.2.3")
 
         assert.deepStrictEqual(JSON.parse(result), { version: "1.2.3" })
-      }).pipe(Effect.provide(MemoryFileSystem.layer))
+      }).pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(BunCrypto.layer))
   )
 
   it.effect(
@@ -64,7 +65,7 @@ describe("writeManifest", () => {
         const fs = yield* FileSystem.FileSystem
 
         assert.isFalse(yield* fs.exists("/dist/manifest.json"))
-      }).pipe(Effect.provide(MemoryFileSystem.layer))
+      }).pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(BunCrypto.layer))
   )
 })
 ```
@@ -82,6 +83,7 @@ to `it.effect`. This is useful when the code under test expects a project or ano
 before the test begins:
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, it } from "@effect/vitest"
@@ -119,7 +121,7 @@ it.effect(
       )
 
       assert.strictEqual(manifest.version, "1.2.3")
-    }).pipe(Effect.provide(seededFileSystem))
+    }).pipe(Effect.provide(seededFileSystem), Effect.provide(BunCrypto.layer))
 )
 ```
 
@@ -134,6 +136,7 @@ When the code under test takes the `Volume` or `Caller` services, provide `Testi
 committed after the stream opened:
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as Testing from "@effect-vfs/core/Testing"
 import { assert, it } from "@effect/vitest"
@@ -151,7 +154,7 @@ it.effect("should report the directory a guest cannot read when it is private", 
 
     assert.strictEqual(error.code, "AccessDenied")
     assert.deepStrictEqual((yield* changes).map((change) => change._tag), ["Create"])
-  }).pipe(Effect.provide(Testing.layer()))
+  }).pipe(Effect.provide(Testing.layer()), Effect.provide(BunCrypto.layer))
 )
 ```
 

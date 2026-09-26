@@ -7,10 +7,12 @@ shared virtual volume, SQLite persistence, and NFSv4.1 exports.
 
 ```sh
 npm install @effect-vfs/memory@latest
+npm install "@effect/platform-bun@$(npm view @effect-vfs/memory peerDependencies.effect)"
 ```
 
 ```ts
 import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Effect, FileSystem } from "effect"
 
 const program = Effect.gen(function*() {
@@ -20,13 +22,13 @@ const program = Effect.gen(function*() {
 })
 
 const settings = await Effect.runPromise(
-  program.pipe(Effect.provide(MemoryFileSystem.layer))
+  program.pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(BunCrypto.layer))
 )
 
 console.log(settings) // {"mode":"preview"}
 ```
 
-The program uses Effect's `FileSystem` service. `layer` provides a fresh virtual volume and needs no platform service.
+The program uses Effect's `FileSystem` service. `layer` provides a fresh virtual volume and requires an Effect `Crypto` service.
 
 ## Choose a package
 

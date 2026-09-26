@@ -16,9 +16,8 @@ for the exact permission, path, timestamp, quota, and atomicity rules.
 npm install @effect-vfs/core@latest
 ```
 
-The package declares its exact Effect version as a peer dependency. An in-memory volume needs no platform service.
-The snapshot delta functions hash with SHA-256, so they take a `Crypto` service; on Node or Bun, install the matching
-provider and supply `NodeCrypto.layer` for those:
+The package declares its exact Effect version as a peer dependency. Volume constructors and snapshot delta functions require Effect’s `Crypto` service. On Node, install the matching
+provider and supply `NodeCrypto.layer` when running these effects:
 
 ```sh
 npm install "@effect/platform-node-shared@$(npm view @effect-vfs/core peerDependencies.effect)"
@@ -43,6 +42,7 @@ lifetime are explicit values that can be composed in one Effect program.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { ByteSize, Effect } from "effect"
 
 const utf8 = new TextEncoder()
@@ -79,7 +79,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   }
 }))
 
-const result = await Effect.runPromise(program)
+const result = await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))
 console.log(result) // { config: { feature: "preview" }, mode: "640" }
 ```
 
@@ -97,6 +97,7 @@ contain names which are not valid UTF-8.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function*() {
@@ -115,7 +116,7 @@ const program = Effect.gen(function*() {
   return { names: listing.value.map((entry) => Array.from(entry.name)), roundTrip: Array.from(roundTrip) }
 })
 
-console.log(await Effect.runPromise(program))
+console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))))
 // { names: [[255]], roundTrip: [47, 255] }
 ```
 
@@ -131,6 +132,7 @@ resettable sandboxes.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 
@@ -168,7 +170,7 @@ const program = Effect.gen(function*() {
   return new TextDecoder().decode(yield* b.readFile("/project/settings.json"))
 })
 
-console.log(await Effect.runPromise(program)) // {"theme":"dark"}
+console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))) // {"theme":"dark"}
 ```
 
 Fixture paths must be absolute and unique, and parent directories must be listed explicitly. Fixtures can also contain
@@ -196,6 +198,7 @@ interruption.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.scoped(Effect.gen(function*() {
@@ -216,7 +219,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   return [decode(first), decode(second), decode(preview.bytes), preview.eof]
 }))
 
-console.log(await Effect.runPromise(program)) // ["one\n", "two\n", "one", false]
+console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))) // ["one\n", "two\n", "one", false]
 ```
 
 Handles also expose an explicit `close` effect when early release matters. Calling explicit close twice fails, while
@@ -231,6 +234,7 @@ failures.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function*() {
@@ -244,7 +248,7 @@ const program = Effect.gen(function*() {
   )
 })
 
-const bytes = await Effect.runPromise(program)
+const bytes = await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))
 console.log(new TextDecoder().decode(bytes)) // {}
 ```
 
@@ -258,6 +262,7 @@ working directory.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect } from "effect"
 
 const loadConfig = Effect.gen(function*() {
@@ -276,7 +281,7 @@ const program = Effect.gen(function*() {
 })
 
 const bytes = await Effect.runPromise(
-  program.pipe(Effect.provide(Vfs.Caller.layer()), Effect.provide(Vfs.Volume.layer()))
+  program.pipe(Effect.provide(Vfs.Caller.layer()), Effect.provide(Vfs.Volume.layer()), Effect.provide(NodeCrypto.layer))
 )
 console.log(new TextDecoder().decode(bytes)) // {}
 ```

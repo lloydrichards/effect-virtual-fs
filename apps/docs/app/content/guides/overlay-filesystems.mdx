@@ -9,6 +9,7 @@ Start with a snapshot of the files that every workspace should see. This example
 base, edits one of them, reviews the result, and captures it:
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -60,7 +61,7 @@ const program = Effect.gen(function* () {
   return { changedKinds, unchanged, notes }
 })
 
-console.log(await Effect.runPromise(program))
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))))
 ```
 
 `changedKinds` contains `Updated` and `Added`. The sibling still

@@ -9,15 +9,17 @@ Install the adapter. npm installs its declared Effect peer dependency:
 
 ```sh
 npm install @effect-vfs/memory@latest
+npm install "@effect/platform-bun@$(npm view @effect-vfs/memory peerDependencies.effect)"
 ```
 
 The packages are ESM-only, so your project must support ES modules.
 
 ## Run a filesystem program
 
-Write against Effect's `FileSystem.FileSystem` service, then provide `MemoryFileSystem.layer` when you run the program. The layer builds its own volume and needs no platform service:
+Write against Effect's `FileSystem.FileSystem` service, then provide `MemoryFileSystem.layer` when you run the program. The layer builds its own volume and requires an Effect `Crypto` service:
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { Effect, FileSystem } from "effect"
 
@@ -31,7 +33,7 @@ const loadSettings = Effect.gen(function* () {
 })
 
 const settings = await Effect.runPromise(
-  loadSettings.pipe(Effect.provide(MemoryFileSystem.layer))
+  loadSettings.pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(BunCrypto.layer))
 )
 
 console.log(settings)

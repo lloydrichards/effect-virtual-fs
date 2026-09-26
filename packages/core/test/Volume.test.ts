@@ -325,7 +325,8 @@ describe("reference keys", () => {
 
         assert.deepStrictEqual(secondKey.identity, firstKey.identity)
         assert.deepStrictEqual(secondKey.epoch, firstKey.epoch)
-        assert.notDeepEqual(secondKey.tag, firstKey.tag)
+        assert.strictEqual(Encoding.encodeHex(firstKey.tag), "5c9dea8d3ddda0cc23db0873f30caa04")
+        assert.strictEqual(Encoding.encodeHex(secondKey.tag), "9555879bfc92f3010843f8ec5d343df1")
       }).pipe(Effect.provide(cryptoLayer(0x11, 0x22, 0x33, 0x11, 0x22, 0x44))))
   })
 

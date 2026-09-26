@@ -25,6 +25,7 @@ Choose limits for the encoded snapshot and the filesystem data it can contain. T
 when it saves and loads a checkpoint.
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { CheckpointError, CheckpointStore } from "@effect-vfs/persistence"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
@@ -71,7 +72,7 @@ const save = Effect.gen(function* () {
   yield* store.save("run-42", yield* volume.snapshot)
 })
 
-await Effect.runPromise(save.pipe(Effect.provide(Checkpoints)))
+await Effect.runPromise(save.pipe(Effect.provide(Checkpoints), Effect.provide(BunCrypto.layer)))
 ```
 
 Each name is create-only. Saving `run-42` again fails with `AlreadyExists` and leaves the original checkpoint
@@ -94,7 +95,7 @@ const restore = Effect.gen(function* () {
   return new TextDecoder().decode(yield* caller.readFile("/hello.txt"))
 })
 
-const text = await Effect.runPromise(restore.pipe(Effect.provide(Checkpoints)))
+const text = await Effect.runPromise(restore.pipe(Effect.provide(Checkpoints), Effect.provide(BunCrypto.layer)))
 
 console.log(text)
 ```
