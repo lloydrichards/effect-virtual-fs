@@ -106,9 +106,8 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
 
       const { handler, client, session } = yield* openSession(caller, "write-prefix", {
         storageGeneration,
-        writable: true,
-        export: { generation: storageGeneration, capacity: volume }
-      })
+        writable: true
+      }).pipe(Effect.provideService(Vfs.Volume, volume))
 
       const opened = yield* parseOpen(
         yield* handler.compound(
@@ -205,9 +204,8 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
       })
 
       const { handler, client, session } = yield* openSession(caller, "write-upgrade", {
-        writable: true,
-        export: { capacity: volume }
-      })
+        writable: true
+      }).pipe(Effect.provideService(Vfs.Volume, volume))
 
       let sequenceId = 1
 
@@ -249,14 +247,13 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
     }).pipe(Effect.provide(Testing.layer())))
   it.effect("reuses the held write handle across downgrade and upgrade cycles", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.Volume
       const caller = yield* Vfs.Caller
       yield* caller.writeFile("/file", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const export_ = exportFor(caller, { capacity: volume })
+      const export_ = yield* exportFor(caller)
 
       let openedHandles = 0
 
@@ -364,9 +361,8 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
         })
 
         const { handler, client, session } = yield* openSession(caller, "write-reject", {
-          writable: true,
-          export: { capacity: volume }
-        })
+          writable: true
+        }).pipe(Effect.provideService(Vfs.Volume, volume))
 
         const opened = yield* parseOpen(
           yield* handler.compound(
@@ -436,9 +432,8 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
         })
 
         const { handler, client, session } = yield* openSession(caller, "write-commit-order", {
-          writable: true,
-          export: { capacity: volume }
-        })
+          writable: true
+        }).pipe(Effect.provideService(Vfs.Volume, volume))
 
         const opened = yield* parseOpen(
           yield* handler.compound(
@@ -502,9 +497,8 @@ it.layer(NodeCrypto.layer)("NFS durable write preparation", (it) => {
         })
 
         const { handler, client, session } = yield* openSession(caller, "write-unknown", {
-          writable: true,
-          export: { capacity: volume }
-        })
+          writable: true
+        }).pipe(Effect.provideService(Vfs.Volume, volume))
 
         const opened = yield* parseOpen(
           yield* handler.compound(

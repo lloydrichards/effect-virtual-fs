@@ -53,7 +53,6 @@ const setattr =
     })
 
 const setup = Effect.fnUntraced(function*(mapped = false, writable = true, mappedUid = 1000) {
-  const volume = yield* Vfs.Volume
   const caller = yield* Vfs.Caller
   yield* caller.writeFile("/file", new Uint8Array([1, 2]), {
     access: "write",
@@ -77,7 +76,7 @@ const setup = Effect.fnUntraced(function*(mapped = false, writable = true, mappe
     })
   }
 
-  const overrides: HandlerOverrides = { writable, export: { limits: { maxFilehandles: 32 }, capacity: volume } }
+  const overrides: HandlerOverrides = { writable }
 
   const { client, handler, session } = yield* openSession(
     caller,

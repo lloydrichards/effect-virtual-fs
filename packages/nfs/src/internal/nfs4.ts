@@ -13,13 +13,7 @@ import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import type * as Types from "effect/Types"
-import {
-  ExportCapacityError,
-  type InvalidFilehandleError,
-  InvalidNameError,
-  type NfsExport,
-  validateName
-} from "./export.js"
+import { InvalidFilehandleError, InvalidNameError, type NfsExport, validateName } from "./export.js"
 import { type LockRange, lockRange, MAX_OFFSET, overlaps } from "./lockRanges.js"
 import { type CompoundCall, type Connection, RpcPolicyDenied } from "./rpc.js"
 import {
@@ -281,6 +275,17 @@ const MAX_OPAQUE_AUTH_BYTES = 400
 /** The export accepts and generates only UTF-8 names (RFC 8881 Section 14.4). */
 const FSCHARSET_CAP4_ALLOWS_ONLY_UTF8 = 0x2
 
+// fh_expire_type (RFC 8881 Section 5.8.1.9): persistent handles never expire; volatile ones here expire only when
+// the server restarts, never while a file is open. RFC 8881 Section 4.2.3 allows FH4_NOEXPIRE_WITH_OPEN only
+// together with FH4_VOLATILE_ANY, so a volatile export sends both.
+const FH4_PERSISTENT = 0x0
+
+const FH4_NOEXPIRE_WITH_OPEN = 0x1
+
+const FH4_VOLATILE_ANY = 0x2
+
+const FH4_VOLATILE_UNTIL_RESTART = FH4_VOLATILE_ANY | FH4_NOEXPIRE_WITH_OPEN
+
 const SP4_NONE = 0
 
 const SP4_MACH_CRED = 1
@@ -310,7 +315,7 @@ const CLAIM_DELEG_PREV_FH = 6
 
 /**
  * Worst-case encoded GETATTR result: the largest attribute set this server can return for a
- * 25-byte filehandle and bounded capacity is about 360 bytes; recheck when attributes grow.
+ * 57-byte filehandle and bounded capacity is about 390 bytes; recheck when attributes grow.
  */
 const MAX_GETATTR_REPLY_BYTES = 512
 
@@ -1776,6 +1781,28 @@ export const failureForFs = (error: Vfs.VfsError, operation: number): number => 
   return status === Status.PERM && !PERM_OPERATIONS.has(operation) ? Status.ACCESS : status
 }
 
+// RFC 8881 Section 15.2 lists these for PUTFH; a volume failure outside them answers SERVERFAULT, which it includes.
+const PUTFH_STATUSES: ReadonlySet<number> = new Set([
+  Status.BADHANDLE,
+  Status.DELAY,
+  Status.FHEXPIRED,
+  Status.SERVERFAULT,
+  Status.STALE
+])
+
+// A handle the export could not read, or one from another volume or epoch, keeps its filehandle status; any other
+// volume failure goes through the shared table, so a gone object is STALE and a busy volume DELAY.
+/** @internal */
+export const putfhFailure = (error: InvalidFilehandleError | Vfs.VfsError): number => {
+  if (error instanceof InvalidFilehandleError) {
+    return error.reason === "Expired" ? Status.FHEXPIRED : error.reason === "Stale" ? Status.STALE : Status.BADHANDLE
+  }
+
+  const status = failureForFs(error, Operation.PUTFH)
+
+  return PUTFH_STATUSES.has(status) ? status : Status.SERVERFAULT
+}
+
 type WriteField = (writer: EncoderSession) => Effect.Effect<void, XdrEncodeError>
 
 const field = <A>(codec: XdrCodec<A>, value: A): WriteField => (writer) => writer.write(codec, value)
@@ -1830,11 +1857,7 @@ const baseSupportedAttributes = [
 const maxUint64 = 0xffff_ffff_ffff_ffffn
 
 const supportedAttributesFor = (export_: NfsExport): ReadonlyArray<number> => {
-  const capacity = export_.capacity
-
-  if (capacity === undefined) return baseSupportedAttributes
-
-  const { maxBytes, maxEntries } = capacity.limits
+  const { maxBytes, maxEntries } = export_.capacity.limits
   const additional = [27]
 
   if (maxEntries !== undefined) additional.push(21, 22, 23)
@@ -1917,7 +1940,7 @@ const encodeAttributeValues = (
           yield* values.write(XdrCodec.uint32, metadata.kind === "file" ? 1 : metadata.kind === "directory" ? 2 : 5)
           break
         case 2:
-          yield* values.write(XdrCodec.uint32, 0x3)
+          yield* values.write(XdrCodec.uint32, export_.persistentHandles ? FH4_PERSISTENT : FH4_VOLATILE_UNTIL_RESTART)
           break
         case 3:
           yield* values.write(XdrCodec.uint64, BigInt.asUintN(64, observation.revision))
@@ -1964,13 +1987,13 @@ const encodeAttributeValues = (
         case 21:
         case 22:
         case 23: {
-          const total = BigInt(export_.capacity!.limits.maxEntries!)
+          const total = BigInt(export_.capacity.limits.maxEntries!)
           yield* values.write(XdrCodec.uint64, attribute === 23 ? total : total - BigInt(usage!.entries))
           break
         }
 
         case 27:
-          yield* values.write(XdrCodec.uint64, ByteSize.toBigInt(export_.capacity!.limits.maxFileBytes))
+          yield* values.write(XdrCodec.uint64, ByteSize.toBigInt(export_.capacity.limits.maxFileBytes))
           break
         case 29:
           yield* values.write(XdrCodec.uint32, ByteSize.toNumberUnsafe(options.limits.maxNameBytes))
@@ -1996,7 +2019,7 @@ const encodeAttributeValues = (
         case 42:
         case 43:
         case 44: {
-          const total = ByteSize.toBigInt(export_.capacity!.limits.maxBytes!)
+          const total = ByteSize.toBigInt(export_.capacity.limits.maxBytes!)
           yield* values.write(XdrCodec.uint64, attribute === 44 ? total : total - usage!.usedBytes)
           break
         }
@@ -2410,7 +2433,7 @@ export const makeNfs4Handler = (
 
   const sampleUsage = (requested: ReadonlyArray<number>): Effect.Effect<Vfs.VolumeUsage | null, Vfs.VfsError> =>
     requested.some((attribute) => capacityAttributes.has(attribute))
-      ? export_.capacity!.usage
+      ? export_.capacity.usage
       : Effect.succeed(null)
 
   return Effect.gen(function*() {
@@ -2995,14 +3018,12 @@ export const makeNfs4Handler = (
                   () => Status.SERVERFAULT
                 )
 
-              /** Registers a filehandle only when the `filehandle` attribute (19) is requested. */
+              /** Encodes a filehandle only when the `filehandle` attribute (19) is requested. */
               const filehandleFor = (
                 reference: Vfs.ObjectReference,
                 requested: ReadonlyArray<number>
               ): Effect.Effect<Uint8Array, number> =>
-                requested.includes(19)
-                  ? export_.handleFor(reference).pipe(Effect.mapError(() => Status.SERVERFAULT))
-                  : Effect.succeed(empty)
+                requested.includes(19) ? mapFs(export_.handleFor(reference)) : Effect.succeed(empty)
 
               /**
                * Requires a directory. Only operations whose Section 15.2 error list includes
@@ -3808,24 +3829,13 @@ export const makeNfs4Handler = (
 
                       return { code: operation.code, status: Status.OK }
                     }),
-                    Effect.catch((error: InvalidFilehandleError) =>
-                      Effect.succeed({
-                        code: operation.code,
-                        status: error.reason === "WrongGeneration"
-                          ? Status.FHEXPIRED
-                          : error.reason === "Stale"
-                          ? Status.STALE
-                          : error.reason === "Unavailable"
-                          ? Status.SERVERFAULT
-                          : Status.BADHANDLE
-                      })
-                    )
+                    Effect.catch((error) => Effect.succeed({ code: operation.code, status: putfhFailure(error) }))
                   )
                 case "Getfh":
                   if (current === undefined) return Effect.succeed(noCurrent())
 
                   return export_.handleFor(current).pipe(
-                    Effect.mapError(() => Status.SERVERFAULT),
+                    Effect.mapError((error) => failureForFs(error, operation.code)),
                     Effect.flatMap((handle) =>
                       Effect.map(
                         encodeBody(handle, XdrCodec.opaque()),
@@ -3833,7 +3843,7 @@ export const makeNfs4Handler = (
                       )
                     ),
                     Effect.catchIf(
-                      (error): error is typeof Status.SERVERFAULT => Predicate.isNumber(error),
+                      (error): error is number => Predicate.isNumber(error),
                       (status) => Effect.succeed({ code: operation.code, status })
                     )
                   )
@@ -4374,8 +4384,6 @@ export const makeNfs4Handler = (
                           }).pipe(
                             Scope.provide(handlerScope),
                             Effect.mapError((error) => {
-                              if (error instanceof ExportCapacityError) return Status.DELAY
-
                               if (error instanceof InvalidNameError) return nameStatus(error, operation.code)
 
                               if (error.code === "StaleReference") return Status.DELAY
@@ -5353,9 +5361,7 @@ export const makeNfs4Handler = (
                         )
                         : export_.symlink(value.target!, parent, value.name, { times })).pipe(
                           Effect.mapError((error) =>
-                            error instanceof ExportCapacityError ?
-                              Status.DELAY :
-                              error instanceof InvalidNameError
+                            error instanceof InvalidNameError
                               ? nameStatus(error, operation.code)
                               : failureForFs(error, operation.code)
                           )

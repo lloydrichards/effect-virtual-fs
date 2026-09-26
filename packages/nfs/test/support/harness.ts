@@ -1,4 +1,4 @@
-import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { assert } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
@@ -43,7 +43,7 @@ export const limits: Nfs4Limits = {
   maxNameBytes: ByteSize.bytes(255)
 }
 
-export const EXPORT_LIMITS: ExportLimits = { maxFilehandles: 16, maxNameBytes: ByteSize.bytes(255) }
+export const EXPORT_LIMITS: ExportLimits = { maxNameBytes: ByteSize.bytes(255) }
 
 export const HANDLER_OPTIONS: Nfs4Options = {
   leaseDurationSeconds: 30,
@@ -53,33 +53,28 @@ export const HANDLER_OPTIONS: Nfs4Options = {
   limits
 }
 
-/** What a test changes about the export; `identity` defaults to `generation`, as in `makeExport`. */
+/** What a test changes about the export. */
 export interface ExportOverrides {
-  readonly generation?: Uint8Array
-  readonly identity?: Uint8Array
   readonly limits?: Partial<ExportLimits>
-  readonly capacity?: Pick<Vfs.Volume, "limits" | "usage">
 }
 
 export interface HandlerOverrides extends Partial<Nfs4Options> {
   readonly export?: ExportOverrides
 }
 
-export const exportFor = (caller: Vfs.Caller, overrides: ExportOverrides = {}): NfsExport =>
-  makeExport(
-    caller,
-    overrides.generation ?? generation,
-    { ...EXPORT_LIMITS, ...overrides.limits },
-    overrides.identity ?? overrides.generation ?? generation,
-    overrides.capacity
-  )
+/** The export of the volume in context, read through `caller`. */
+export const exportFor = Effect.fnUntraced(function*(caller: Vfs.Caller, overrides: ExportOverrides = {}) {
+  const volume = yield* Vfs.Volume
+
+  return makeExport(volume, caller, { ...EXPORT_LIMITS, ...overrides.limits })
+})
 
 export const handlerFor = (export_: NfsExport, overrides: Partial<Nfs4Options> = {}) =>
   makeNfs4Handler(export_, { ...HANDLER_OPTIONS, ...overrides })
 
 /** The export over `caller` and the handler serving it. */
 export const makeHandler = (caller: Vfs.Caller, { export: exportOverrides, ...overrides }: HandlerOverrides = {}) =>
-  handlerFor(exportFor(caller, exportOverrides), overrides)
+  Effect.flatMap(exportFor(caller, exportOverrides), (export_) => handlerFor(export_, overrides))
 
 /**
  * Distinct connections let a test exercise trunking without a socket. `onSend` receives anything
@@ -295,7 +290,7 @@ export const stateidWithSequence = (stateid: Uint8Array, sequence: number) => {
 export const openSession = (caller: Vfs.Caller, owner: string, overrides: HandlerOverrides = {}) =>
   Effect.gen(function*() {
     const { export: exportOverrides, ...options } = overrides
-    const export_ = exportFor(caller, exportOverrides)
+    const export_ = yield* exportFor(caller, exportOverrides)
     const handler = yield* handlerFor(export_, options)
 
     return { export_, handler, ...(yield* startSession(handler, owner)) }

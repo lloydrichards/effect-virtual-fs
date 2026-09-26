@@ -5,11 +5,23 @@ import { Effect, Exit, Predicate, Scope } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import { InvalidFilehandleError, InvalidNameError, makeExport, validateName } from "../src/internal/export.js"
 
-const generation = (value: number) => new Uint8Array(16).fill(value)
-
 const utf8 = (value: string) => new TextEncoder().encode(value)
 
 const maxNameBytes = ByteSize.bytes(255)
+
+// The export of the volume in context, read through its root caller.
+const volumeExport = Effect.gen(function*() {
+  const volume = yield* Vfs.Volume
+
+  return makeExport(volume, yield* Vfs.Caller, { maxNameBytes })
+})
+
+// Why a handle names nothing: the export's reason, or the volume's code when the volume's failure says it.
+const whyUnresolved = (effect: Effect.Effect<Vfs.ObjectReference, InvalidFilehandleError | Vfs.VfsError>) =>
+  Effect.map(
+    Effect.flip(effect),
+    (failure) => failure instanceof InvalidFilehandleError ? failure.reason : failure.code
+  )
 
 // The finalizers a scope still holds, read from the state the Scope interface exposes.
 const finalizerCount = (scope: Scope.Scope): number => {
@@ -21,18 +33,25 @@ const finalizerCount = (scope: Scope.Scope): number => {
 }
 
 it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
-  it.effect("derives fsid from stable identity and filehandles from the incarnation", () =>
+  it.effect("derives fsid from the volume identity and filehandles from reference keys", () =>
     Effect.gen(function*() {
-      const caller = yield* Vfs.Caller
-      const root = yield* caller.root
-      const incarnation = generation(0x11)
-      const identity = Uint8Array.from({ length: 16 }, (_, index) => index)
-      const export_ = makeExport(caller, incarnation, { maxFilehandles: 2, maxNameBytes }, identity)
+      const volume = yield* Vfs.Volume
+      const root = yield* (yield* Vfs.Caller).root
+      const export_ = yield* volumeExport
+      const key = yield* volume.referenceKey(root)
       const handle = yield* export_.handleFor(root)
 
       assert.deepStrictEqual(export_.fsid, [0x0001_0203_0405_0607n, 0x0809_0a0b_0c0d_0e0fn])
-      assert.deepStrictEqual(handle.subarray(1, 17), incarnation)
-    }).pipe(Effect.provide(Testing.layer())))
+      assert.deepStrictEqual(handle.subarray(1, 17), key.identity)
+      assert.deepStrictEqual(handle.subarray(17, 33), key.epoch)
+      assert.deepStrictEqual(handle.subarray(41, 57), key.tag)
+      assert.lengthOf(handle, 57)
+      assert.isFalse(export_.persistentHandles)
+    }).pipe(
+      Effect.provide(
+        Testing.layer({ volume: { identity: Vfs.VolumeIdentity.make("000102030405060708090a0b0c0d0e0f") } })
+      )
+    ))
 
   it.effect("keeps handles opaque and stable across hard-link and rename aliases", () =>
     Effect.gen(function*() {
@@ -42,7 +61,7 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
       const root = yield* caller.root
       const original = yield* caller.lookup(Vfs.Entry(root, utf8("original")))
       const alias = yield* caller.lookup(Vfs.Entry(root, utf8("alias")))
-      const export_ = makeExport(caller, generation(1), { maxFilehandles: 4, maxNameBytes })
+      const export_ = yield* volumeExport
       const before = yield* export_.handleFor(original)
       assert.deepStrictEqual(yield* export_.handleFor(alias), before)
       yield* caller.rename("/original", "/renamed")
@@ -50,15 +69,20 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
       assert.notInclude(new TextDecoder().decode(before), "original")
     }).pipe(Effect.provide(Testing.layer())))
 
-  it.effect("rejects handles from a different server generation", () =>
+  it.effect("expires another volume's handles when volatile and reports them stale when persistent", () =>
     Effect.gen(function*() {
+      const volume = yield* Vfs.Volume
       const caller = yield* Vfs.Caller
-      const root = yield* caller.root
-      const oldExport = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
-      const nextExport = makeExport(caller, generation(2), { maxFilehandles: 2, maxNameBytes })
-      const failure = yield* Effect.flip(nextExport.resolve(yield* oldExport.handleFor(root)))
-      assert.instanceOf(failure, InvalidFilehandleError)
-      assert.strictEqual(failure.reason, "WrongGeneration")
+      const handle = yield* (yield* volumeExport).handleFor(yield* caller.root)
+      const restored = yield* Vfs.fromSnapshot(yield* volume.snapshot, { identity: volume.identity })
+      const restoredCaller = yield* restored.caller()
+      const durable = { ...restored, durability: "survives-process-crash" as const }
+      const volatile = makeExport(restored, restoredCaller, { maxNameBytes })
+      const persistent = makeExport(durable, restoredCaller, { maxNameBytes })
+
+      assert.isTrue(persistent.persistentHandles)
+      assert.strictEqual(yield* whyUnresolved(volatile.resolve(handle)), "Expired")
+      assert.strictEqual(yield* whyUnresolved(persistent.resolve(handle)), "Stale")
     }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("rejects a handle after its object is deleted", () =>
@@ -67,11 +91,10 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const root = yield* caller.root
       const reference = yield* caller.lookup(Vfs.Entry(root, utf8("file")))
-      const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
+      const export_ = yield* volumeExport
       const handle = yield* export_.handleFor(reference)
       yield* caller.unlink("/file")
-      const failure = yield* Effect.flip(export_.resolve(handle))
-      assert.strictEqual(failure.reason, "Stale")
+      assert.strictEqual(yield* whyUnresolved(export_.resolve(handle)), "StaleReference")
     }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("keeps a deleted object's handle valid while the file remains open", () =>
@@ -80,13 +103,13 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const root = yield* caller.root
       const reference = yield* caller.lookup(Vfs.Entry(root, utf8("file")))
-      const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
+      const export_ = yield* volumeExport
       const handle = yield* export_.handleFor(reference)
       const opened = yield* export_.open(reference)
       yield* caller.unlink("/file")
       assert.strictEqual(yield* export_.resolve(handle), reference)
       yield* opened.close
-      assert.strictEqual((yield* Effect.flip(export_.resolve(handle))).reason, "Stale")
+      assert.strictEqual(yield* whyUnresolved(export_.resolve(handle)), "StaleReference")
     }).pipe(Effect.provide(Testing.layer())))
 
   it.effect("closes an open with the scope it was opened in, and early on close", () =>
@@ -97,7 +120,7 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
       const root = yield* caller.root
       const held = yield* caller.lookup(Vfs.Entry(root, utf8("held")))
       const closed = yield* caller.lookup(Vfs.Entry(root, utf8("closed")))
-      const export_ = makeExport(caller, generation(1), { maxFilehandles: 4, maxNameBytes })
+      const export_ = yield* volumeExport
       const parent = yield* Scope.make()
 
       yield* Scope.provide(export_.open(held), parent)
@@ -119,7 +142,7 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
       yield* caller.writeFile("/file", new Uint8Array([1]), { access: "write", create: "exclusive" })
       const root = yield* caller.root
       const reference = yield* caller.lookup(Vfs.Entry(root, utf8("file")))
-      const export_ = makeExport(caller, generation(1), { maxFilehandles: 4, maxNameBytes })
+      const export_ = yield* volumeExport
       const parent = yield* Scope.make()
 
       for (let cycle = 0; cycle < 8; cycle++) {
@@ -133,21 +156,25 @@ it.layer(NodeCrypto.layer)("NFS export identity", (it) => {
       yield* Scope.close(parent, Exit.void)
     }).pipe(Effect.provide(Testing.layer())))
 
-  it.effect("reclaims stale mappings without changing live handle identity", () =>
+  it.effect("rejects bytes that are not a handle this export issued as malformed", () =>
     Effect.gen(function*() {
       const caller = yield* Vfs.Caller
-      yield* caller.writeFile("/old", new Uint8Array([1]), { access: "write", create: "exclusive" })
-      const root = yield* caller.root
-      const old = yield* caller.lookup(Vfs.Entry(root, utf8("old")))
-      const export_ = makeExport(caller, generation(1), { maxFilehandles: 2, maxNameBytes })
-      const rootHandle = yield* export_.handleFor(root)
-      const oldHandle = yield* export_.handleFor(old)
-      yield* caller.unlink("/old")
-      yield* caller.writeFile("/new", new Uint8Array([2]), { access: "write", create: "exclusive" })
-      const fresh = yield* caller.lookup(Vfs.Entry(root, utf8("new")))
-      yield* export_.handleFor(fresh)
-      assert.deepStrictEqual(yield* export_.handleFor(root), rootHandle)
-      assert.strictEqual((yield* Effect.flip(export_.resolve(oldHandle))).reason, "Unknown")
+      yield* caller.writeFile("/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      const export_ = yield* volumeExport
+      const handle = yield* export_.handleFor(yield* caller.root)
+      const version = handle.slice()
+      version[0] = 1
+      const noInode = handle.slice()
+      noInode.fill(0, 33)
+      // The root's handle with the next inode number, which /f holds, and with one tag bit flipped.
+      const neighbour = handle.slice()
+      new DataView(neighbour.buffer).setBigUint64(33, (yield* caller.stat("/f")).ino)
+      const altered = handle.slice()
+      altered[56] = altered[56]! ^ 1
+
+      for (const malformed of [handle.subarray(0, 41), version, noInode, neighbour, altered]) {
+        assert.strictEqual(yield* whyUnresolved(export_.resolve(malformed)), "Malformed")
+      }
     }).pipe(Effect.provide(Testing.layer())))
 
   it("accepts exact UTF-8 without normalizing and rejects unsafe components", () => {
