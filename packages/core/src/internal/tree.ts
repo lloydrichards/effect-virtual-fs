@@ -5,9 +5,11 @@
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Schema from "effect/Schema"
+import * as SchemaTransformation from "effect/SchemaTransformation"
 import type { ImageFailure } from "../VfsError.js"
+import { VolumeIdentity } from "../Volume.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
-import { imageFailure, isEncodingIssue, issueSite } from "./errors.js"
+import { ENCODING_CHECK, imageFailure, isEncodingIssue, issueSite } from "./errors.js"
 import { StoredMetadata } from "./metadata.js"
 import { isNameBytes, MAX_NAME_BYTES, nameBytes, NUL_BYTE } from "./path.js"
 import {
@@ -32,6 +34,11 @@ const GRAPH_CHECK = "@effect-vfs/core/graphCheck"
 
 /** @internal */
 export const TreeIno = Schema.Int.check(Schema.isBetween({ minimum: ROOT_INO, maximum: MAX_TREE_INO }))
+
+/** @internal */
+export const NaturalBigInt = Schema.String.check(
+  Schema.isPattern(/^(0|[1-9][0-9]{0,127})$/, { [ENCODING_CHECK]: true })
+).pipe(Schema.decodeTo(Schema.BigInt, SchemaTransformation.bigintFromString))
 
 const TreeLink = Schema.Struct({ parent: TreeIno, name: CanonicalBase64.Encoded })
 
@@ -66,6 +73,19 @@ export const TreeNode = Schema.TaggedUnion({ directory, file, symlink })
 export type TreeNode = typeof TreeNode.Type
 
 const isDirectory = TreeNode.guards.directory
+
+// A live image keeps each node's revision, so a reopened volume's references and caches stay valid.
+const rev = { rev: NaturalBigInt }
+
+/** @internal */
+export const LiveTreeNode = Schema.TaggedUnion({
+  directory: { ...directory, ...rev },
+  file: { ...file, ...rev },
+  symlink: { ...symlink, ...rev }
+})
+
+/** @internal */
+export type LiveTreeNode = typeof LiveTreeNode.Type
 
 /** @internal */
 export const Tree = Schema.Struct({
@@ -180,6 +200,142 @@ export const checkGraph = (tree: Tree, operation: string): Effect.Effect<void, I
     ? Effect.void
     : imageFailure(operation, "InvalidStructure", { field: issue.path.map(String).join(".") })
 }
+
+// What a reopened volume resumes from besides its nodes: its identity, the allocator and revision counters, the
+// limits it was opened with, and the usage those limits were checked against.
+const Runtime = Schema.Struct({
+  identity: VolumeIdentity,
+  // The allocator must stay exactly representable, since the engine keys its inode table by a number.
+  nextInode: Schema.Int.check(Schema.isBetween({ minimum: ROOT_INO + 1, maximum: Number.MAX_SAFE_INTEGER })),
+  revision: NaturalBigInt,
+  limits: Schema.Struct({
+    maxEntries: Schema.optionalKey(Schema.Natural),
+    maxBytes: Schema.optionalKey(NaturalBigInt),
+    maxFileBytes: Schema.optionalKey(NaturalBigInt),
+    maxPathBytes: Schema.optionalKey(NaturalBigInt)
+  }),
+  usage: Schema.Struct({ entries: Schema.Natural, usedBytes: NaturalBigInt })
+})
+
+/** @internal */
+export const LiveTree = Schema.Struct({
+  format: Schema.Literal("effect-vfs-live"),
+  version: Schema.Literal(1),
+  runtime: Runtime,
+  nodes: Schema.Array(LiveTreeNode)
+})
+
+/** @internal */
+export type LiveTree = typeof LiveTree.Type
+
+interface Named {
+  readonly name: typeof CanonicalBase64.Encoded.Type
+  // Where the name sits in the document, for the issue.
+  readonly path: ReadonlyArray<PropertyKey>
+  // The directory the name reaches, if it reaches one.
+  readonly directory: number | undefined
+}
+
+// Whether every path fits `maxPathBytes`, measured in one walk from the root: the root is "/", and each name below
+// it adds a slash and itself. The graph rules have already made the directories a tree under the root.
+const pathIssue = (tree: LiveTree, maxPathBytes: bigint): Schema.FilterIssue | undefined => {
+  const below = new Map<number, Array<Named>>()
+
+  const add = (parent: number, named: Named) => {
+    const listed = below.get(parent)
+
+    if (listed === undefined) below.set(parent, [named])
+    else listed.push(named)
+  }
+
+  for (const [index, node] of tree.nodes.entries()) {
+    if (!isDirectory(node)) {
+      for (const [position, link] of node.links.entries()) {
+        add(link.parent, { name: link.name, path: ["nodes", index, "links", position, "name"], directory: undefined })
+      }
+    } else if (index > 0) add(node.parent, { name: node.name, path: ["nodes", index, "name"], directory: node.ino })
+  }
+
+  const pending: Array<readonly [number, bigint]> = [[ROOT_INO, 1n]]
+
+  for (let index = 0; index < pending.length; index++) {
+    const current = pending[index]
+
+    if (current === undefined) continue
+    const [parent, parentBytes] = current
+
+    for (const named of below.get(parent) ?? []) {
+      const bytes = (parent === ROOT_INO ? parentBytes : parentBytes + 1n) +
+        BigInt(CanonicalBase64.decodedLength(named.name))
+
+      if (bytes > maxPathBytes) return { path: named.path, issue: "every path fits maxPathBytes" }
+
+      if (named.directory !== undefined) pending.push([named.directory, bytes])
+    }
+  }
+}
+
+// The rules a live image keeps besides the graph's: every inode lies below the allocator and every revision between
+// 1 and the counter; the stored usage matches the nodes; and the nodes fit the limits the volume was opened with.
+const runtimeIssue = (tree: LiveTree): Schema.FilterIssue | undefined => {
+  const { limits, nextInode, revision, usage } = tree.runtime
+  let entries = 0
+  let usedBytes = 0n
+
+  if (revision < 1n) return { path: ["runtime", "revision"], issue: "the revision counter starts at 1" }
+
+  for (const [index, node] of tree.nodes.entries()) {
+    if (node.ino >= nextInode) return { path: ["nodes", index, "ino"], issue: "every inode lies below the allocator" }
+
+    if (node.rev < 1n || node.rev > revision) {
+      return { path: ["nodes", index, "rev"], issue: "every revision lies between 1 and the counter" }
+    }
+
+    if (isDirectory(node)) {
+      if (index > 0) entries++
+      continue
+    }
+
+    entries += node.links.length
+    const payload = TreeNode.guards.symlink(node) ? node.target : inlineBytes(node.content)
+    const size = BigInt(payload === undefined ? 0 : CanonicalBase64.decodedLength(payload))
+    usedBytes += size
+
+    if (TreeNode.guards.file(node) && limits.maxFileBytes !== undefined && size > limits.maxFileBytes) {
+      return { path: ["nodes", index, "content"], issue: "every file fits maxFileBytes" }
+    }
+  }
+
+  if (entries !== usage.entries) {
+    return { path: ["runtime", "usage", "entries"], issue: "the stored entry count matches the nodes" }
+  }
+
+  if (usedBytes !== usage.usedBytes) {
+    return { path: ["runtime", "usage", "usedBytes"], issue: "the stored byte count matches the nodes" }
+  }
+
+  if (limits.maxEntries !== undefined && entries > limits.maxEntries) {
+    return { path: ["runtime", "limits", "maxEntries"], issue: "the entries fit maxEntries" }
+  }
+
+  if (limits.maxBytes !== undefined && usedBytes > limits.maxBytes) {
+    return { path: ["runtime", "limits", "maxBytes"], issue: "the bytes fit maxBytes" }
+  }
+
+  if (limits.maxPathBytes !== undefined) {
+    return limits.maxPathBytes < 1n
+      ? { path: ["runtime", "limits", "maxPathBytes"], issue: "the path limit admits the root" }
+      : pathIssue(tree, limits.maxPathBytes)
+  }
+}
+
+/** @internal */
+export const ValidLiveTree = LiveTree.check(
+  Schema.makeFilter((tree) => graphIssue(tree.nodes, true) ?? runtimeIssue(tree) ?? true, {
+    identifier: "ValidLiveTree",
+    [GRAPH_CHECK]: true
+  })
+)
 
 // Maps a failed tree decode to the codec's error. A broken graph rule names the node from its issue path; a
 // document of the wrong shape or spelling names `documentField`, as it always has.

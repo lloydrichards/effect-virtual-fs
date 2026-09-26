@@ -1,17 +1,15 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scheduler, Stream } from "effect"
+import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scheduler, Schema, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import * as LiveImage from "../src/internal/liveImage.js"
-import {
-  captureLiveImage,
-  makeVolume,
-  openImageVolume,
-  prepareEmptyLiveImage,
-  retainedFiles,
-  VolumeSource
-} from "../src/internal/virtualFileSystem.js"
+import { LiveTree } from "../src/internal/tree.js"
+import { makeVolume, openImageVolume, prepareEmptyLiveImage, VolumeSource } from "../src/internal/virtualFileSystem.js"
 import { VolumeIdentity } from "../src/Volume.js"
 import { entryNames } from "./support/text.js"
+
+// The tree a live image stores, read without restoring it.
+const storedTree = (image: Uint8Array) =>
+  Schema.decodeEffect(Schema.fromJsonString(LiveTree))(new TextDecoder().decode(image))
 
 // Smaller budgets livelock the runtime: it counts an op before checking whether to yield.
 const MIN_OP_BUDGET = 3
@@ -126,7 +124,7 @@ describe("live volume staging", () => {
 
       const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
         commit: (candidate) => {
-          retained.push(retainedFiles(candidate).map((file) => file.metadata.ino))
+          retained.push(LiveImage.retainedFiles(candidate).map((file) => file.metadata.ino))
 
           return Effect.succeed("committed" as const)
         }
@@ -160,7 +158,7 @@ describe("live volume staging", () => {
 
       const { volume } = yield* makeVolume(VolumeSource.Empty(), undefined, {
         commit: (candidate) =>
-          captureLiveImage(candidate, identity, limits).pipe(
+          LiveImage.encode(candidate, identity, limits).pipe(
             Effect.tap((bytes) => Effect.sync(() => images.push(bytes))),
             Effect.as("committed" as const),
             Effect.orDie
@@ -172,19 +170,22 @@ describe("live volume staging", () => {
       const inode = (yield* handle.stat).ino
       yield* handle.write(new Uint8Array([1]))
       yield* caller.unlink("/file")
-      const retained = yield* LiveImage.decode(images.at(-1)!, ByteSize.bytes(4096))
+      const retainedImage = yield* storedTree(images.at(-1)!)
 
-      assert.deepEqual(retained.retainedFiles, [inode])
-      assert.deepEqual(retained.records.map((record) => record.ino), [1n, inode])
-      const { volume: recovered } = yield* makeVolume(VolumeSource.Live({ document: retained }))
+      // The unlinked file stays in the image with no names while its handle is open.
+      assert.deepEqual(retainedImage.nodes.map((node) => [node.ino, "links" in node ? node.links.length : 1]), [
+        [1, 1],
+        [Number(inode), 0]
+      ])
+      const retained = yield* LiveImage.decode(images.at(-1)!, ByteSize.bytes(4096))
+      const { volume: recovered } = yield* makeVolume(VolumeSource.Live({ restored: retained }))
       assert.strictEqual(recovered.identity, identity)
       assert.notStrictEqual(recovered.incarnation, volume.incarnation)
       assert.deepEqual(yield* recovered.usage, { usedBytes: 0n, entries: 0 })
       assert.strictEqual((yield* Effect.flip((yield* recovered.caller()).stat("/file"))).code, "NotFound")
       yield* handle.close
-      const released = yield* LiveImage.decode(images.at(-1)!, ByteSize.bytes(4096))
-      assert.deepEqual(released.retainedFiles, [])
-      assert.deepEqual(released.records.map((record) => record.ino), [1n])
+      const released = yield* storedTree(images.at(-1)!)
+      assert.deepEqual(released.nodes.map((node) => node.ino), [1])
     })))
 
   it.effect("reopens committed bytes with the same hard-link inode and a fresh incarnation", () =>
