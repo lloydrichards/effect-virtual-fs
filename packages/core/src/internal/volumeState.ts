@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect"
 import type { Metadata } from "../Metadata.js"
 import * as InodeTable from "./inodeTable.js"
 import type { StoredMetadata } from "./metadata.js"
-import type * as Content from "./overlayContent.js"
+import * as Content from "./overlayContent.js"
 
 // An inode number: monotonic within a volume, never reused, and persisted by the snapshot and the live image. A
 // number keys the inode table more cheaply than a bigint; the public metadata still reports it as one.
@@ -225,3 +225,109 @@ export const reachableValue = Effect.fnUntraced(function*(source: VolumeState) {
 
   return { state, largestFile }
 })
+
+// One node of a value being built from nodes that name their parents: a tree being decoded, a fixture, or an
+// applied delta. Names are hex-encoded, as the value keys them.
+/** @internal */
+export type NodeSpec =
+  | {
+    readonly kind: "directory"
+    readonly ino: Ino
+    readonly parent: Ino
+    readonly name: string
+    readonly metadata: StoredMetadata
+    readonly revision: bigint
+  }
+  | {
+    readonly kind: "file"
+    readonly ino: Ino
+    readonly links: ReadonlyArray<Link>
+    readonly data: Uint8Array
+    readonly metadata: StoredMetadata
+    readonly revision: bigint
+  }
+  | {
+    readonly kind: "symlink"
+    readonly ino: Ino
+    readonly links: ReadonlyArray<Link>
+    readonly target: Uint8Array
+    readonly metadata: StoredMetadata
+    readonly revision: bigint
+  }
+
+// Builds the value a set of nodes describes. The caller has checked that the nodes form a tree under the root:
+// every parent is a directory among them, no directory holds a name twice, and every directory reaches the root.
+// Each directory lists its entries in the byte order of their names, so the value does not depend on the order
+// the nodes arrive in. Link counts and sizes come from the nodes, and the allocator resumes past the largest inode.
+/** @internal */
+export const assemble = (specs: ReadonlyArray<NodeSpec>): VolumeState => {
+  const edges = new Map<Ino, Array<readonly [string, Ino]>>()
+  const subdirectories = new Map<Ino, number>()
+  let entries = 0
+  let usedBytes = 0n
+  let nextInode = Ino(ROOT_INO + 1)
+  let revision = 1n
+
+  const attach = (parent: Ino, name: string, child: Ino) => {
+    const listed = edges.get(parent)
+
+    if (listed === undefined) edges.set(parent, [[name, child]])
+    else listed.push([name, child])
+    entries++
+  }
+
+  for (const spec of specs) {
+    if (spec.ino >= nextInode) nextInode = Ino(spec.ino + 1)
+
+    if (spec.revision > revision) revision = spec.revision
+
+    if (spec.kind === "directory") {
+      if (spec.ino === ROOT_INO) continue
+      attach(spec.parent, spec.name, spec.ino)
+      subdirectories.set(spec.parent, (subdirectories.get(spec.parent) ?? 0) + 1)
+    } else {
+      usedBytes += BigInt(spec.kind === "file" ? spec.data.length : spec.target.length)
+
+      for (const link of spec.links) attach(link.parent, link.name, spec.ino)
+    }
+  }
+
+  const owner = Symbol()
+  let inodes = InodeTable.empty<Node>()
+
+  for (const spec of specs) {
+    const base = { ...spec.metadata, kind: spec.kind, ino: BigInt(spec.ino) }
+
+    const node: Node = spec.kind === "directory"
+      ? {
+        kind: "directory",
+        ino: spec.ino,
+        parent: spec.parent,
+        name: spec.name,
+        entries: new Map((edges.get(spec.ino) ?? []).sort(byEntryName)),
+        metadata: { ...base, nlink: 2 + (subdirectories.get(spec.ino) ?? 0), size: 0n },
+        revision: spec.revision
+      }
+      : spec.kind === "file"
+      ? {
+        kind: "file",
+        ino: spec.ino,
+        data: Content.make(spec.data),
+        links: spec.links,
+        metadata: { ...base, nlink: spec.links.length, size: BigInt(spec.data.length) },
+        revision: spec.revision
+      }
+      : {
+        kind: "symlink",
+        ino: spec.ino,
+        target: spec.target,
+        links: spec.links,
+        metadata: { ...base, nlink: spec.links.length, size: BigInt(spec.target.length) },
+        revision: spec.revision
+      }
+
+    inodes = InodeTable.set(inodes, spec.ino, node, owner)
+  }
+
+  return { inodes, open: new Map(), nextInode, revision, entries, usedBytes }
+}

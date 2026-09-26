@@ -2116,7 +2116,7 @@ export const makeOverlay: (
  * const encoder = new TextEncoder()
  *
  * const program = Effect.gen(function*() {
- *   // Parent directories must be listed explicitly, before their children.
+ *   // Parent directories must be listed explicitly, in any order.
  *   const volume = yield* Vfs.fromFixture({
  *     entries: [
  *       { kind: "directory", path: "/project" },
@@ -2129,13 +2129,14 @@ export const makeOverlay: (
  *     ]
  *   })
  *
+ *   // A fixture's directories list their entries in the byte order of their names.
  *   const listing = yield* (yield* volume.caller()).readDirectory("/project")
  *
  *   return listing.value.map((entry) => new TextDecoder().decode(entry.name))
  * })
  *
  * Effect.runPromise(program).then(console.log)
- * // [ 'package.json', 'latest' ]
+ * // [ 'latest', 'package.json' ]
  * ```
  *
  * @see The fixtures guide at `/guides/fixtures-and-snapshots`.

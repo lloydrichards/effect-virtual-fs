@@ -108,6 +108,21 @@ describe("fixtures and snapshots", () => {
       })
   )
 
+  it.effect("lists a fixture's entries in the byte order of their names whatever order declares them", () =>
+    Effect.gen(function*() {
+      const entries: Array<Vfs.Fixture["entries"][number]> = [
+        { kind: "file", path: "/b", bytes: new Uint8Array() },
+        { kind: "directory", path: "/c" },
+        { kind: "symlink", path: "/a", target: "b" },
+        { kind: "hardLink", path: "/B", target: "/b" }
+      ]
+
+      for (const declared of [entries, [...entries].reverse()]) {
+        const fs = yield* (yield* Vfs.fromFixture({ entries: declared })).caller()
+        assert.deepStrictEqual(entryNames(yield* fs.readDirectory("/")), ["B", "a", "b", "c"])
+      }
+    }))
+
   it.effect(
     "isolates capture, encoded bytes and independent restores from subsequent overwrites",
     () =>
