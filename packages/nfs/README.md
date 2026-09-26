@@ -20,7 +20,7 @@ The package describes what it does with a capability profile and how well that i
 | `read-only-local`     | complete read path, `NFS4ERR_ROFS` on mutation, loopback binding, `AUTH_SYS` accepted as untrusted, backchannel and connection binding | preview      |
 | `read-only-networked` | `AUTH_SYS` identity mapped to VFS callers by application policy, non-loopback binding behind that policy and an explicit opt-in        | experimental |
 | `writable`            | create, write, rename, remove, durable `WRITE` and `COMMIT`, share reservations, and advisory byte-range locks                         | experimental |
-| `stateful`            | grace and reclaim, restart recovery, persistent filehandles                                                                            | not public   |
+| `stateful`            | grace and reclaim, restart recovery of sessions, opens, and locks                                                                      | not public   |
 
 The current read-only export tracks advisory byte-range read locks between NFS clients. `LOCK` requires an open stateid; `LOCKU` releases an exact range. Write locks still return `NFS4ERR_ROFS`. `maxLockOwners` and `maxLocks` bound the in-memory state, which is removed on lease expiry or client revocation. Direct VFS callers do not participate in NFS locks.
 
@@ -32,8 +32,10 @@ The optional `writable: true` profile is limited to one gateway owning one quali
 must prevent another gateway from opening the same storage image; the server does not provide a distributed lease.
 Successful mutations rely on the live provider's synchronous commit guarantee. The [R2 writable test app](../../apps/demo-r2-nfs/README.md)
 shows the public API with a bounded R2 image, a trusted-client policy, mounted Debian and macOS checks, restart
-recovery, and an injected lost R2 HTTP response. Remount clients after gateway restart; this is not the `stateful`
-recovery profile. Do not set a stronger `Volume.durability` for an unqualified storage provider.
+recovery, and an injected lost R2 HTTP response. Filehandles carry the object's core reference key, so over a volume
+whose commits survive at least a process crash they persist across a restart and `fh_expire_type` reports
+`FH4_PERSISTENT`. The key's tag keeps a client from forging a handle for an object by guessing its inode number. Sessions, opens, and locks do not survive, so remount clients after gateway restart; this is not
+the `stateful` recovery profile. Do not set a stronger `Volume.durability` for an unqualified storage provider.
 
 In local mode, one application-supplied caller performs every read. Decoded `AUTH_SYS` fields never grant VFS authority, and ACCESS answers derived from them are advisory. In networked mode, the application supplies a peer resolver evaluated for each accepted socket and a policy that maps the decoded credential and peer to a VFS identity or denies it. The server creates and caches callers per distinct identity, bounded by `maxIdentities`. Policy denials and cache exhaustion answer RPC `AUTH_FAILED` before the compound executes. A resolver returning `null` closes the connection. UNIX peers have `address: null` and `port: null`; `path` is the server socket path, not a client address. Applications must enforce their trusted-client boundary in the policy. This profile is experimental: protocol and socket tests pass, but a networked kernel-client gate has not been recorded. See the [authentication and export policy decision](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.okf/decisions/nfs/nfs-authentication-and-export-policy.md).
 
@@ -99,7 +101,8 @@ bun run --filter @repo/nfs-preview start
 ```
 
 Applications continue writing through the VFS API while native clients read the mounted view. Stop the server,
-unmount, and mount again after a restart because filehandles and sessions are intentionally volatile.
+unmount, and mount again after a restart because its memory volume's filehandles and every session are intentionally
+volatile.
 
 Run the focused checks from this directory:
 

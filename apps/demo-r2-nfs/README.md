@@ -74,7 +74,7 @@ The first request starts the container. Set the Worker variable `NFS_MOUNT_READ_
 
 **Cloudflare mount permission is still unverified.** The local Docker test needed `CAP_SYS_ADMIN` for the kernel NFS mount. Cloudflare documents FUSE mounts in Containers, but the linked example does not establish that a Container can perform this NFS mount. A deployment must confirm that the mount succeeds before this demo can reproduce the workflow on Cloudflare.
 
-The image is limited to 16 MiB encoded, with 8 MiB of file contents, 4 MiB per file, and 1,000 entries. Each mutation replaces the complete R2 image. The HTTP routes demonstrate the mounted filesystem; they are not a general file API. Container restarts reopen the image, but existing NFS sessions and filehandles do not survive a restart.
+The image is limited to 16 MiB encoded, with 8 MiB of file contents, 4 MiB per file, and 1,000 entries. Each mutation replaces the complete R2 image. The HTTP routes demonstrate the mounted filesystem; they are not a general file API. Container restarts reopen the image. Filehandles survive a restart, because they carry the object's reference key, but NFS sessions do not.
 
 ## Local test result
 

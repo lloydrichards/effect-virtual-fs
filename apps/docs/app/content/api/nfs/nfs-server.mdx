@@ -105,7 +105,6 @@ export type NfsServerConfig = {
     readonly maxReaddirEntries: number
     readonly maxReaddirReplyBytes: ByteSize.ByteSize
     readonly maxNameBytes: ByteSize.ByteSize
-    readonly maxFilehandles: number
   }
 }
 ```
@@ -151,7 +150,6 @@ export type NfsServerConfigOverrides = {
     readonly maxReaddirEntries?: number
     readonly maxReaddirReplyBytes?: ByteSize.ByteSize
     readonly maxNameBytes?: ByteSize.ByteSize
-    readonly maxFilehandles?: number
   }
 }
 ```
@@ -194,7 +192,6 @@ export type NfsServerLimitOverrides = {
   readonly maxReaddirEntries?: number
   readonly maxReaddirReplyBytes?: ByteSize.ByteSize
   readonly maxNameBytes?: ByteSize.ByteSize
-  readonly maxFilehandles?: number
 }
 ```
 
@@ -236,7 +233,6 @@ export type NfsServerLimits = {
   readonly maxReaddirEntries: number
   readonly maxReaddirReplyBytes: ByteSize.ByteSize
   readonly maxNameBytes: ByteSize.ByteSize
-  readonly maxFilehandles: number
 }
 ```
 
@@ -380,7 +376,6 @@ export declare const NfsServerConfig: Schema.Struct<{
     readonly maxReaddirEntries: Schema.Finite
     readonly maxReaddirReplyBytes: Schema.ByteSize
     readonly maxNameBytes: Schema.ByteSize
-    readonly maxFilehandles: Schema.Finite
   }> & {
     constrained: {
       readonly maxConnections: number
@@ -411,7 +406,6 @@ export declare const NfsServerConfig: Schema.Struct<{
       readonly maxReaddirEntries: number
       readonly maxReaddirReplyBytes: ByteSize.ByteSize
       readonly maxNameBytes: ByteSize.ByteSize
-      readonly maxFilehandles: number
     }
     default: {
       readonly maxConnections: number
@@ -442,7 +436,6 @@ export declare const NfsServerConfig: Schema.Struct<{
       readonly maxReaddirEntries: number
       readonly maxReaddirReplyBytes: ByteSize.ByteSize
       readonly maxNameBytes: ByteSize.ByteSize
-      readonly maxFilehandles: number
     }
   }
 }> & {
@@ -478,7 +471,6 @@ export declare const NfsServerConfig: Schema.Struct<{
       readonly maxReaddirEntries: number
       readonly maxReaddirReplyBytes: ByteSize.ByteSize
       readonly maxNameBytes: ByteSize.ByteSize
-      readonly maxFilehandles: number
     }
   }
 }
@@ -526,7 +518,6 @@ export declare const NfsServerConfigOverrides: Schema.Struct<{
       readonly maxReaddirEntries: Schema.optionalKey<Schema.Finite>
       readonly maxReaddirReplyBytes: Schema.optionalKey<Schema.ByteSize>
       readonly maxNameBytes: Schema.optionalKey<Schema.ByteSize>
-      readonly maxFilehandles: Schema.optionalKey<Schema.Finite>
     }>
   >
 }>
@@ -570,7 +561,6 @@ export declare const NfsServerLimitOverrides: Schema.Struct<{
   readonly maxReaddirEntries: Schema.optionalKey<Schema.Finite>
   readonly maxReaddirReplyBytes: Schema.optionalKey<Schema.ByteSize>
   readonly maxNameBytes: Schema.optionalKey<Schema.ByteSize>
-  readonly maxFilehandles: Schema.optionalKey<Schema.Finite>
 }>
 ```
 
@@ -612,7 +602,6 @@ export declare const NfsServerLimits: Schema.Struct<{
   readonly maxReaddirEntries: Schema.Finite
   readonly maxReaddirReplyBytes: Schema.ByteSize
   readonly maxNameBytes: Schema.ByteSize
-  readonly maxFilehandles: Schema.Finite
 }> & {
   constrained: {
     readonly maxConnections: number
@@ -643,7 +632,6 @@ export declare const NfsServerLimits: Schema.Struct<{
     readonly maxReaddirEntries: number
     readonly maxReaddirReplyBytes: ByteSize.ByteSize
     readonly maxNameBytes: ByteSize.ByteSize
-    readonly maxFilehandles: number
   }
   default: {
     readonly maxConnections: number
@@ -674,7 +662,6 @@ export declare const NfsServerLimits: Schema.Struct<{
     readonly maxReaddirEntries: number
     readonly maxReaddirReplyBytes: ByteSize.ByteSize
     readonly maxNameBytes: ByteSize.ByteSize
-    readonly maxFilehandles: number
   }
 }
 ```

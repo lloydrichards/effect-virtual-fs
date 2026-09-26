@@ -1,7 +1,8 @@
 # Volume overview
 
-Volume identity brands and schemas: durability, identity tokens, construction
-options, and the change summaries an overlay volume reports.
+Volume identity brands and schemas: durability, identity tokens, reference
+keys, construction options, and the change summaries an overlay volume
+reports.
 
 Added in v0.6.0
 
@@ -90,6 +91,23 @@ A kind of filesystem entry in an overlay summary.
 
 ```ts
 export type OverlayNodeKind = "directory" | "file" | "symlink"
+```
+
+Added in v0.6.0
+
+### ReferenceKey (type alias)
+
+The serialisable name of one object in one volume.
+
+**Signature**
+
+```ts
+export type ReferenceKey = {
+  readonly identity: Uint8Array<ArrayBufferLike>
+  readonly epoch: Uint8Array<ArrayBufferLike>
+  readonly ino: bigint
+  readonly tag: Uint8Array<ArrayBufferLike>
+}
 ```
 
 Added in v0.6.0
@@ -283,6 +301,39 @@ Schema for the kinds of filesystem entry an overlay summary reports.
 
 ```ts
 export declare const OverlayNodeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+```
+
+Added in v0.6.0
+
+### ReferenceKey
+
+Schema for a reference key: the serialisable name of one object in one
+volume, for adapters that must name an object outside the process, such as
+an NFS filehandle.
+
+**Details**
+
+`identity` is the volume's identity and `epoch` the inode-number namespace
+the object was numbered in, both as 16 bytes encoded as base64; `ino` is
+the object's inode number, encoded as a decimal string; `tag` is 16 bytes of
+HMAC-SHA-256 over the identity, epoch and inode number under a secret only
+the volume holds, encoded as base64. Inode numbers are small and sequential,
+so the tag is what keeps a holder of one key from naming a neighbouring
+object: a key with another inode number or an altered tag fails
+`InvalidReference`. A volume mints a new epoch and secret whenever its inode
+numbers start over: a new volume, a snapshot or fixture restore, and an
+overlay. A live volume keeps both across a reopen, so its keys outlive the
+process. Turning a key into bytes of a fixed layout stays the adapter's job.
+
+**Signature**
+
+```ts
+export declare const ReferenceKey: Schema.Struct<{
+  readonly identity: Schema.Uint8ArrayFromBase64
+  readonly epoch: Schema.Uint8ArrayFromBase64
+  readonly ino: Schema.BigIntFromString
+  readonly tag: Schema.Uint8ArrayFromBase64
+}>
 ```
 
 Added in v0.6.0
