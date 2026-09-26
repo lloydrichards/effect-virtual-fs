@@ -1,6 +1,7 @@
 // Snapshot validation and serialization used by VirtualFileSystem.
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
+import * as Encoding from "effect/Encoding"
 import * as Match from "effect/Match"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -9,11 +10,49 @@ import type { ImageFailure } from "../VfsError.js"
 import { decodeUtf8 } from "./bytes.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import { decodeConfiguration, imageFailure } from "./errors.js"
+import * as InodeTable from "./inodeTable.js"
 import { StoredMetadata, WireStoredMetadata } from "./metadata.js"
+import * as Content from "./overlayContent.js"
+import { nameBytes } from "./path.js"
+import {
+  getNode,
+  Ino,
+  type Link,
+  type Node,
+  type NodeMetadata,
+  ROOT_INO,
+  storedMetadata,
+  type VolumeState,
+  WALK_YIELD_INTERVAL
+} from "./volumeState.js"
 
+// A snapshot is the volume value it was captured from. The value is immutable, so capture shares it rather than
+// copying it, and the private field keeps it out of reach of anything but this module.
 class SnapshotImpl implements Snapshot {
   readonly [SnapshotTypeId]: SnapshotTypeId = SnapshotTypeId
+  readonly #value: VolumeState
+
+  constructor(value: VolumeState) {
+    this.#value = value
+  }
+
+  static valueOf(snapshot: Snapshot): VolumeState | undefined {
+    return #value in snapshot ? snapshot.#value : undefined
+  }
 }
+
+/** @internal */
+export const make = (value: VolumeState): Snapshot => Object.freeze(new SnapshotImpl(value))
+
+/** @internal */
+export const valueOf = (snapshot: Snapshot): Effect.Effect<VolumeState, ImageFailure> =>
+  Effect.suspend(() => {
+    const value = SnapshotImpl.valueOf(snapshot)
+
+    return value === undefined
+      ? imageFailure("decodeSnapshot", "InvalidStructure", { field: "snapshot" })
+      : Effect.succeed(value)
+  })
 
 /** @internal */
 export { StoredMetadata }
@@ -67,17 +106,156 @@ const VersionProbe = Schema.Struct({
 /** @internal */
 export type Document = typeof Document.Type
 
-const snapshots = new WeakMap<Snapshot, Document>()
+// The value's reachable namespace as an image, numbering records in walk order.
+const toDocument = Effect.fnUntraced(function*(value: VolumeState) {
+  const ids = new Map<Ino, string>([[ROOT_INO, "0"]])
+  const pending: Array<Ino> = [ROOT_INO]
+  const records: Array<Record> = []
+
+  for (let index = 0; index < pending.length; index++) {
+    if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
+    const ino = pending[index]
+
+    if (ino === undefined) continue
+    const node = getNode(value, ino)
+    const id = ids.get(ino)
+
+    if (id === undefined || node === undefined) return yield* imageFailure("snapshot", "InvalidStructure")
+    const metadata = storedMetadata(node.metadata)
+
+    if (node.kind === "directory") {
+      const children: Array<{ name: typeof CanonicalBase64.Encoded.Type; target: string }> = []
+
+      for (const [name, child] of node.entries) {
+        let target = ids.get(child)
+
+        if (target === undefined) {
+          target = String(ids.size)
+          ids.set(child, target)
+          pending.push(child)
+        }
+
+        children.push({ name: CanonicalBase64.encode(nameBytes(name)), target })
+      }
+
+      records.push(Record.cases.directory.make({ id, metadata, entries: children }))
+    } else if (node.kind === "file") {
+      records.push(Record.cases.file.make({ id, metadata, data: CanonicalBase64.encode(node.data.bytes) }))
+    } else {
+      records.push(Record.cases.symlink.make({ id, metadata, target: CanonicalBase64.encode(node.target) }))
+    }
+  }
+
+  const document: Document = { format: "effect-vfs", version: 1, root: "0", records }
+
+  return document
+})
 
 /** @internal */
 export const inspect = (snapshot: Snapshot): Effect.Effect<Document, ImageFailure> =>
-  Effect.suspend(() => {
-    const document = snapshots.get(snapshot)
+  Effect.flatMap(valueOf(snapshot), toDocument)
 
-    return document === undefined
-      ? imageFailure("decodeSnapshot", "InvalidStructure", { field: "snapshot" })
-      : Effect.succeed(document)
-  })
+// Restores a validated image into a volume value. Inode numbers follow record order, so every volume restored
+// from one image assigns the same numbers.
+const restore = Effect.fnUntraced(function*(image: Document) {
+  // Restored inodes are built mutably here and frozen into the table once every entry is wired.
+  const incoming = new Map<string, { node: Node; entries: Map<string, Ino>; links: Array<Link> }>()
+  let nextInode = Ino(2)
+  let entries = 0
+  let usedBytes = 0n
+
+  for (const record of image.records) {
+    const isRoot = record.id === image.root
+    const ino = isRoot ? ROOT_INO : nextInode
+
+    if (!isRoot) nextInode = Ino(nextInode + 1)
+
+    const metadata: NodeMetadata = {
+      ...record.metadata,
+      kind: record._tag,
+      ino: BigInt(ino),
+      nlink: Record.guards.directory(record) ? 2 : 0,
+      size: 0n
+    }
+
+    if (Record.guards.directory(record)) {
+      const entries = new Map<string, Ino>()
+      incoming.set(record.id, {
+        node: { kind: "directory", ino, parent: ROOT_INO, name: "", entries, metadata, revision: 1n },
+        entries,
+        links: []
+      })
+    } else if (Record.guards.file(record)) {
+      const data = Content.make(yield* CanonicalBase64.decode(record.data))
+      const links: Array<Link> = []
+      usedBytes += BigInt(data.bytes.length)
+      incoming.set(record.id, {
+        node: {
+          kind: "file",
+          ino,
+          data,
+          links,
+          metadata: { ...metadata, size: BigInt(data.bytes.length) },
+          revision: 1n
+        },
+        entries: new Map(),
+        links
+      })
+    } else {
+      const target = yield* CanonicalBase64.decode(record.target)
+      const links: Array<Link> = []
+      usedBytes += BigInt(target.length)
+      incoming.set(record.id, {
+        node: {
+          kind: "symlink",
+          ino,
+          target,
+          links,
+          metadata: { ...metadata, size: BigInt(target.length) },
+          revision: 1n
+        },
+        entries: new Map(),
+        links
+      })
+    }
+  }
+
+  for (const record of image.records) {
+    if (!Record.guards.directory(record)) continue
+    const parent = incoming.get(record.id)
+
+    if (parent?.node.kind !== "directory") return yield* imageFailure("snapshot", "InvalidStructure")
+
+    for (const entry of record.entries) {
+      const child = incoming.get(entry.target)
+
+      if (child === undefined) return yield* imageFailure("snapshot", "InvalidStructure")
+      const name = Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name))
+      parent.entries.set(name, child.node.ino)
+      entries++
+
+      if (child.node.kind === "directory") {
+        child.node = { ...child.node, parent: parent.node.ino, name }
+        parent.node = {
+          ...parent.node,
+          metadata: { ...parent.node.metadata, nlink: parent.node.metadata.nlink + 1 }
+        }
+      } else {
+        child.links.push({ parent: parent.node.ino, name })
+        child.node = { ...child.node, metadata: { ...child.node.metadata, nlink: child.node.metadata.nlink + 1 } }
+      }
+    }
+  }
+
+  const owner = Symbol()
+  let inodes = InodeTable.empty<Node>()
+
+  for (const { node } of incoming.values()) inodes = InodeTable.set(inodes, node.ino, node, owner)
+
+  const value: VolumeState = { inodes, open: new Map(), nextInode, revision: 1n, entries, usedBytes }
+
+  return value
+})
 
 /** @internal */
 export const capture = Effect.fnUntraced(function*(
@@ -224,10 +402,7 @@ export const capture = Effect.fnUntraced(function*(
     return yield* imageFailure("decodeSnapshot", "InvalidStructure", { field: "reachability" })
   }
 
-  const snapshot: Snapshot = Object.freeze(new SnapshotImpl())
-  snapshots.set(snapshot, document)
-
-  return snapshot
+  return make(yield* restore(document))
 })
 
 /** @internal */

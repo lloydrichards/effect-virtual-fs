@@ -1,5 +1,4 @@
 // Runtime definitions and cohesive live virtual filesystem engine.
-import * as Brand from "effect/Brand"
 import * as ByteSize from "effect/ByteSize"
 import * as Clock from "effect/Clock"
 import * as Crypto from "effect/Crypto"
@@ -95,6 +94,24 @@ import {
 import { type CommitProvider, offerCommit } from "./stagedState.js"
 import { VolumeTestSeams } from "./testSeams.js"
 import { makeTurnstile } from "./turnstile.js"
+import {
+  byIno,
+  type Directory,
+  directoryMetadata,
+  emptyRoot,
+  getNode,
+  Ino,
+  type Link,
+  type Node,
+  type NodeMetadata,
+  reachableValue,
+  type RegularFile,
+  ROOT_INO,
+  storedMetadata,
+  type SymbolicLink,
+  type VolumeState,
+  WALK_YIELD_INTERVAL
+} from "./volumeState.js"
 import * as WatchHub from "./watchHub.js"
 
 // POSIX permission bits, masked against mode once it is shifted to the caller's class.
@@ -124,10 +141,6 @@ interface LookupOptions {
   // Creates a missing directory the path names, for a recursive mkdir; `final` says the name ends the path.
   readonly createMissing?: (parent: Directory, name: string, final: boolean) => Effect.Effect<Directory, FsFailure>
 }
-
-// Nodes walked between yields. Whole-tree reads are one synchronous tick otherwise, which
-// starves the event loop and leaves nothing for interruption to act on.
-const WALK_YIELD_INTERVAL = 128
 
 // Entries a caller's walk hands on per pull. Reading a directory ends a pull early, so each pull holds at most one
 // permit once.
@@ -185,55 +198,6 @@ const encoder = new TextEncoder()
 // What opening or creating a resolved entry needs; a path open supplies only the OpenSettings fields.
 type OpenRequest = Omit<OpenEntryOptions, "append" | "followFinalSymlink" | "expectedChild" | "expected">
 
-// An inode number: monotonic within a volume, never reused, and persisted by the live image. A number keys the
-// inode table more cheaply than a bigint; the public metadata still reports it as one.
-type Ino = number & Brand.Brand<"@effect-vfs/core/Ino">
-
-const Ino = Brand.nominal<Ino>()
-
-const ROOT_INO = Ino(1)
-
-// One name that reaches an inode: the directory holding it and the hex-encoded name bytes.
-interface Link {
-  readonly parent: Ino
-  readonly name: string
-}
-
-// Inodes are immutable values: every change replaces the value in the state's inode table.
-interface Directory {
-  readonly kind: "directory"
-  readonly ino: Ino
-  readonly lineage: string | undefined
-  // Directories have one name; a detached directory keeps its last one and reads as unnamed through nlink 0.
-  readonly parent: Ino
-  readonly name: string
-  readonly entries: ReadonlyMap<string, Ino>
-  readonly metadata: NodeMetadata
-  readonly revision: bigint
-}
-
-interface RegularFile {
-  readonly kind: "file"
-  readonly ino: Ino
-  readonly lineage: string | undefined
-  readonly data: Content.Content
-  readonly links: ReadonlyArray<Link>
-  readonly metadata: NodeMetadata
-  readonly revision: bigint
-}
-
-interface SymbolicLink {
-  readonly kind: "symlink"
-  readonly ino: Ino
-  readonly lineage: string | undefined
-  readonly target: Uint8Array
-  readonly links: ReadonlyArray<Link>
-  readonly metadata: NodeMetadata
-  readonly revision: bigint
-}
-
-type Node = Directory | RegularFile | SymbolicLink
-
 // Whether a read at `now` refreshes a node's access time: when it is not newer than the last modification or
 // status change, or when it is at least a day old. A time already equal to `now` is never refreshed, as Linux
 // skips it, so reads at one instant (a frozen or coarse clock) store nothing.
@@ -257,22 +221,6 @@ interface Accessed<A> {
 // Whether a read's access time is due under relatime; the one rule both the observation and the change apply.
 const refreshDue = <A>(read: Accessed<A>): read is Accessed<A> & { readonly access: Access } =>
   read.access !== undefined && accessDue(read.access.node.metadata, read.access.now)
-
-// The whole volume as one value. A transition builds the next value; nothing is published until it is installed.
-interface VolumeState {
-  readonly inodes: InodeTable.InodeTable<Node>
-  // Handles holding a file open; an unlinked file stays in the table, and in the live image, while any does.
-  readonly open: ReadonlyMap<Ino, number>
-  readonly nextInode: Ino
-  readonly revision: bigint
-  readonly entries: number
-  readonly usedBytes: bigint
-}
-
-/** @internal */
-export type EngineState = VolumeState
-
-const getNode = (state: VolumeState, ino: Ino): Node | undefined => InodeTable.get(state.inodes, ino)
 
 // An entry a caller's walk has reached. `path` is relative to the walk's root; `listed` marks a directory a
 // post-order walk has read and still has to report.
@@ -339,7 +287,6 @@ interface ResolvedNode {
 interface LiveImageCommon {
   ino: bigint
   revision: bigint
-  lineage?: string
   metadata: LiveImage.Record["metadata"]
 }
 
@@ -357,8 +304,6 @@ interface RestoredVolumeOptions {
   maxFileBytes?: ByteSize.ByteSize
   maxPathBytes?: ByteSize.ByteSize
 }
-
-const byIno = (a: Node, b: Node) => a.ino - b.ino
 
 // Open files that no name reaches any more; the live image keeps them until their final close.
 /** @internal */
@@ -404,8 +349,6 @@ export const captureLiveImage = Effect.fnUntraced(function*(
         size: node.metadata.size
       }
     }
-
-    if (node.lineage !== undefined) common.lineage = node.lineage
 
     if (node.kind === "directory") {
       const entries: Array<{ name: typeof CanonicalBase64.Encoded.Type; target: bigint }> = []
@@ -605,34 +548,7 @@ interface DirectoryReference extends HandleScope {
 
 const handles = new WeakMap<DirectoryHandle, DirectoryReference>()
 
-// What a node stores; the public Metadata adds the node's revision.
-type NodeMetadata = Omit<Metadata, "revision">
-
 const withMetadata = (node: Node): Metadata => ({ ...node.metadata, revision: node.revision })
-
-const directoryMetadata = (ino: bigint, uid: number, gid: number, mode: number, now: bigint): NodeMetadata => ({
-  kind: "directory",
-  ino,
-  uid,
-  gid,
-  mode,
-  nlink: 2,
-  size: 0n,
-  atimeNs: now,
-  mtimeNs: now,
-  ctimeNs: now,
-  birthtimeNs: now
-})
-
-const storedMetadata = (metadata: NodeMetadata): Image.StoredMetadata => ({
-  uid: metadata.uid,
-  gid: metadata.gid,
-  mode: metadata.mode,
-  atimeNs: metadata.atimeNs,
-  mtimeNs: metadata.mtimeNs,
-  ctimeNs: metadata.ctimeNs,
-  birthtimeNs: metadata.birthtimeNs
-})
 
 const withEntries = (directory: Directory, edit: (entries: Map<string, Ino>) => void): Directory => {
   const entries = new Map(directory.entries)
@@ -651,12 +567,8 @@ const withoutLink = (links: ReadonlyArray<Link>, parent: Ino, name: string): Rea
 type VolumeSource =
   | { readonly _tag: "Empty" }
   | { readonly _tag: "Live"; readonly document: LiveImage.Document }
-  // A snapshot's image, and the value it restores to once the volume's limits have accepted the image.
-  | {
-    readonly _tag: "Restored"
-    readonly image: Image.Document
-    readonly restore: (initialTime: bigint) => Effect.Effect<VolumeState, ImageFailure>
-  }
+  // A snapshot's value, which the volume starts from once its limits have accepted it.
+  | { readonly _tag: "Restored"; readonly value: VolumeState }
 
 /** @internal */
 export const VolumeSource = Data.taggedEnum<VolumeSource>()
@@ -681,196 +593,8 @@ interface Installation {
   readonly after: VolumeState
 }
 
-// A fresh directory root for a volume whose image names none; a restored image always carries its own.
-const emptyRoot = (lineage: string | undefined, now: bigint): Directory => ({
-  kind: "directory",
-  ino: ROOT_INO,
-  lineage,
-  parent: ROOT_INO,
-  name: "",
-  entries: new Map(),
-  metadata: directoryMetadata(BigInt(ROOT_INO), 0, 0, 0o755, now),
-  revision: 1n
-})
-
-// Restores a snapshot image into a volume value. Inode numbers follow record order, so every volume restored
-// from one image assigns the same numbers, and every restored inode carries the image record as its lineage.
-const restoreImage = Effect.fnUntraced(function*(image: Image.Document, initialTime: bigint) {
-  // Restored inodes are built mutably here and frozen into the table once every entry is wired.
-  const incoming = new Map<string, { node: Node; entries: Map<string, Ino>; links: Array<Link> }>()
-  let nextInode = Ino(2)
-
-  for (const record of image.records) {
-    const isRoot = record.id === image.root
-    const ino = isRoot ? ROOT_INO : nextInode
-
-    if (!isRoot) nextInode = Ino(nextInode + 1)
-
-    const metadata: NodeMetadata = {
-      ...record.metadata,
-      kind: record._tag,
-      ino: BigInt(ino),
-      nlink: Image.Record.guards.directory(record) ? 2 : 0,
-      size: 0n,
-      atimeNs: record.metadata.atimeNs,
-      mtimeNs: record.metadata.mtimeNs,
-      ctimeNs: record.metadata.ctimeNs,
-      birthtimeNs: record.metadata.birthtimeNs
-    }
-
-    if (Image.Record.guards.directory(record)) {
-      const entries = new Map<string, Ino>()
-      incoming.set(record.id, {
-        node: {
-          kind: "directory",
-          ino,
-          lineage: record.id,
-          parent: ROOT_INO,
-          name: "",
-          entries,
-          metadata,
-          revision: 1n
-        },
-        entries,
-        links: []
-      })
-    } else if (Image.Record.guards.file(record)) {
-      const data = Content.make(yield* CanonicalBase64.decode(record.data))
-      const links: Array<Link> = []
-      incoming.set(record.id, {
-        node: {
-          kind: "file",
-          ino,
-          lineage: record.id,
-          data,
-          links,
-          metadata: { ...metadata, size: BigInt(data.bytes.length) },
-          revision: 1n
-        },
-        entries: new Map(),
-        links
-      })
-    } else {
-      const target = yield* CanonicalBase64.decode(record.target)
-      const links: Array<Link> = []
-      incoming.set(record.id, {
-        node: {
-          kind: "symlink",
-          ino,
-          lineage: record.id,
-          target,
-          links,
-          metadata: { ...metadata, size: BigInt(target.length) },
-          revision: 1n
-        },
-        entries: new Map(),
-        links
-      })
-    }
-  }
-
-  for (const record of image.records) {
-    if (!Image.Record.guards.directory(record)) continue
-    const parent = incoming.get(record.id)
-
-    if (parent?.node.kind !== "directory") return yield* imageFailure("snapshot", "InvalidStructure")
-
-    for (const entry of record.entries) {
-      const child = incoming.get(entry.target)
-
-      if (child === undefined) return yield* imageFailure("snapshot", "InvalidStructure")
-      const name = Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name))
-      parent.entries.set(name, child.node.ino)
-
-      if (child.node.kind === "directory") {
-        child.node = { ...child.node, parent: parent.node.ino, name }
-        parent.node = {
-          ...parent.node,
-          metadata: { ...parent.node.metadata, nlink: parent.node.metadata.nlink + 1 }
-        }
-      } else {
-        child.links.push({ parent: parent.node.ino, name })
-        child.node = { ...child.node, metadata: { ...child.node.metadata, nlink: child.node.metadata.nlink + 1 } }
-      }
-    }
-  }
-
-  const owner = Symbol()
-  let inodes = InodeTable.empty<Node>()
-
-  for (const { node } of incoming.values()) inodes = InodeTable.set(inodes, node.ino, node, owner)
-
-  if (InodeTable.get(inodes, ROOT_INO) === undefined) {
-    inodes = InodeTable.set(inodes, ROOT_INO, emptyRoot(image.root, initialTime), owner)
-  }
-
-  return { inodes, nextInode }
-})
-
-// Volumes layered on one snapshot share its restored value, and so every unchanged inode and payload.
-const baseStates = new WeakMap<Snapshot, VolumeState>()
-
-/** @internal */
-export const hasBaseState = (snapshot: Snapshot): boolean => baseStates.has(snapshot)
-
-/** @internal */
-export const baseStateFor = (snapshot: Snapshot, image: Image.Document, initialTime: bigint) =>
-  Effect.suspend(() => {
-    const cached = baseStates.get(snapshot)
-
-    if (cached !== undefined) return Effect.succeed(cached)
-
-    return Effect.map(restoreImage(image, initialTime), (restored) => {
-      const value: VolumeState = { ...restored, open: new Map(), revision: 1n, entries: 0, usedBytes: 0n }
-      baseStates.set(snapshot, value)
-
-      return value
-    })
-  })
-
-const captureSnapshot = Effect.fnUntraced(function*(captured: VolumeState) {
-  const ids = new Map<Ino, string>([[ROOT_INO, "0"]])
-  const pending: Array<Ino> = [ROOT_INO]
-  const records: Array<Image.Record> = []
-
-  for (let index = 0; index < pending.length; index++) {
-    if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
-    const ino = pending[index]
-
-    if (ino === undefined) continue
-    const node = getNode(captured, ino)
-    const id = ids.get(ino)
-
-    if (id === undefined || node === undefined) return yield* imageFailure("snapshot", "InvalidStructure")
-    const metadata = storedMetadata(node.metadata)
-
-    if (node.kind === "directory") {
-      const children: Array<{ name: typeof CanonicalBase64.Encoded.Type; target: string }> = []
-
-      for (const [name, child] of node.entries) {
-        let target = ids.get(child)
-
-        if (target === undefined) {
-          target = String(ids.size)
-          ids.set(child, target)
-          pending.push(child)
-        }
-
-        children.push({ name: CanonicalBase64.encode(nameBytes(name)), target })
-      }
-
-      records.push(Image.Record.cases.directory.make({ id, metadata, entries: children }))
-    } else if (node.kind === "file") {
-      records.push(Image.Record.cases.file.make({ id, metadata, data: CanonicalBase64.encode(node.data.bytes) }))
-    } else {records.push(
-        Image.Record.cases.symlink.make({ id, metadata, target: CanonicalBase64.encode(node.target) })
-      )}
-  }
-
-  return yield* Image.capture({ format: "effect-vfs", version: 1, root: "0", records }, undefined, true)
-})
-
-// Every object's path, lineage, kind, content and stored metadata: what an overlay compares against its base.
+// Every object's path, kind, content and stored metadata: what an overlay compares against its base. An overlay
+// starts from its base's value, and inode numbers are never reused, so an inode's number is its lineage.
 const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
   const observation: Array<ObservationEntry> = []
   const paths: Array<readonly [Ino, Uint8Array]> = [[ROOT_INO, new Uint8Array([SLASH_BYTE])]]
@@ -886,7 +610,7 @@ const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
     if (node === undefined) continue
     observation.push({
       path: new Uint8Array(path),
-      lineage: node.lineage,
+      lineage: String(node.ino),
       kind: node.kind,
       content: node.kind === "file" ? node.data.bytes : node.kind === "symlink" ? node.target : undefined,
       metadata: storedMetadata(node.metadata)
@@ -940,7 +664,6 @@ export const makeVolume = Effect.fnUntraced(
     ) => Effect.Effect<Uint8Array, ImageFailure>,
     durability: VolumeDurability = "memory-only"
   ) {
-    const image = "image" in source ? source.image : undefined
     const live = Predicate.isTagged("Live")(source) ? source.document : undefined
     let restoredOptions = options
 
@@ -1036,7 +759,7 @@ export const makeVolume = Effect.fnUntraced(
         }))
       )
 
-    const root = emptyRoot(image?.root, initialTime)
+    const root = emptyRoot(initialTime)
 
     let state: VolumeState = {
       inodes: InodeTable.set(InodeTable.empty<Node>(), ROOT_INO, root),
@@ -1060,32 +783,20 @@ export const makeVolume = Effect.fnUntraced(
     })
 
     if (Predicate.isTagged("Restored")(source)) {
-      let content = 0n
-      let count = 0
+      const restored = yield* reachableValue(source.value)
 
-      for (const record of source.image.records) {
-        if (Image.Record.guards.directory(record)) count += record.entries.length
-        else {
-          const length = CanonicalBase64.decodedLength(
-            Image.Record.guards.file(record) ? record.data : record.target
-          )
-
-          if (Image.Record.guards.file(record) && length > maxFileBytes) {
-            return yield* imageFailure("snapshot", "LimitExceeded", { field: "maxFileBytes" })
-          }
-
-          content += BigInt(length)
-        }
+      if (restored.largestFile > maxFileBytes) {
+        return yield* imageFailure("snapshot", "LimitExceeded", { field: "maxFileBytes" })
       }
 
       if (
-        (settings.maxEntries !== undefined && count > settings.maxEntries) ||
-        (settings.maxBytes !== undefined && content > ByteSize.toBigInt(settings.maxBytes))
+        (settings.maxEntries !== undefined && restored.state.entries > settings.maxEntries) ||
+        (settings.maxBytes !== undefined && restored.state.usedBytes > ByteSize.toBigInt(settings.maxBytes))
       ) {
         return yield* imageFailure("snapshot", "LimitExceeded", { field: "volume" })
       }
 
-      state = { ...state, ...(yield* source.restore(initialTime)), entries: count, usedBytes: content }
+      state = restored.state
     }
 
     if (live !== undefined) {
@@ -1101,7 +812,6 @@ export const makeVolume = Effect.fnUntraced(
             node: {
               kind: "directory",
               ino,
-              lineage: record.lineage,
               parent: ROOT_INO,
               name: "",
               entries,
@@ -1117,7 +827,6 @@ export const makeVolume = Effect.fnUntraced(
             node: {
               kind: "file",
               ino,
-              lineage: record.lineage,
               data: Content.make(yield* CanonicalBase64.decode(record.data)),
               links,
               metadata,
@@ -1132,7 +841,6 @@ export const makeVolume = Effect.fnUntraced(
             node: {
               kind: "symlink",
               ino,
-              lineage: record.lineage,
               target: yield* CanonicalBase64.decode(record.target),
               links,
               metadata,
@@ -1513,7 +1221,7 @@ export const makeVolume = Effect.fnUntraced(
 
     const captureState = Effect.fnUntraced(function*() {
       const captured = state
-      const snapshot = yield* captureSnapshot(captured)
+      const snapshot = Image.make(captured)
 
       yield* (yield* VolumeTestSeams).betweenSnapshotAndSummary
 
@@ -2051,7 +1759,6 @@ export const makeVolume = Effect.fnUntraced(
         return {
           kind: "directory",
           ino,
-          lineage: undefined,
           parent: parent.ino,
           name: "",
           entries: new Map(),
@@ -2076,7 +1783,6 @@ export const makeVolume = Effect.fnUntraced(
         return {
           kind: "file",
           ino,
-          lineage: undefined,
           data,
           links: [],
           metadata: {
@@ -2102,7 +1808,6 @@ export const makeVolume = Effect.fnUntraced(
         return {
           kind: "symlink",
           ino,
-          lineage: undefined,
           target,
           links: [],
           metadata: {
@@ -4245,7 +3950,7 @@ export const makeVolume = Effect.fnUntraced(
 
         return Stream.map(stream, (event) => event.change)
       }),
-      snapshot: coordinatedRead(OpContext.make("snapshot"), Effect.suspend(() => captureSnapshot(state))).pipe(
+      snapshot: coordinatedRead(OpContext.make("snapshot"), Effect.sync(() => Image.make(state))).pipe(
         Effect.withSpan("Volume.snapshot")
       ),
 
@@ -4371,49 +4076,25 @@ const changeOptions = (options?: OverlayChangesOptions) => {
 }
 
 /** @internal */
-// A volume of its own restored from an image: nothing it holds is shared with another volume.
-/** @internal */
-export const restoredSource = (image: Image.Document): VolumeSource =>
-  VolumeSource.Restored({
-    image,
-    restore: (initialTime) =>
-      Effect.map(restoreImage(image, initialTime), (restored) => ({
-        ...restored,
-        open: new Map(),
-        revision: 1n,
-        entries: 0,
-        usedBytes: 0n
-      }))
-  })
-
-/** @internal */
 export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
   function*(snapshot: Snapshot, options?: VolumeOptions) {
-    return (yield* makeVolume(restoredSource(yield* Image.inspect(snapshot)), options)).volume
+    return (yield* makeVolume(VolumeSource.Restored({ value: yield* Image.valueOf(snapshot) }), options)).volume
   },
   Effect.mapError((error) => retargetFailure("fromSnapshot", error))
 )
 
-// An overlay is a volume started from its base's restored value, plus a fold of that value against the current one.
+// An overlay is a volume started from its base's value, plus a fold of that value against the current one.
 /** @internal */
 export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
   function*(base: Snapshot, options?: VolumeOptions) {
-    const image = yield* Image.inspect(base)
-    let baseState: VolumeState | undefined
+    const value = yield* Image.valueOf(base)
 
-    const source = VolumeSource.Restored({
-      image,
-      restore: (initialTime) =>
-        Effect.tap(baseStateFor(base, image, initialTime), (value) =>
-          Effect.sync(() => {
-            baseState = value
-          }))
-    })
+    const made = yield* Effect.mapError(
+      makeVolume(VolumeSource.Restored({ value }), options),
+      (error) => retargetFailure("makeOverlay", error)
+    )
 
-    const made = yield* Effect.mapError(makeVolume(source, options), (error) => retargetFailure("makeOverlay", error))
-
-    if (baseState === undefined) return yield* imageFailure("makeOverlay", "InvalidStructure", { field: "snapshot" })
-    const baseObservation = yield* observeChanges(baseState)
+    const baseObservation = yield* observeChanges(value)
 
     const overlay: OverlayVolume = Object.freeze({
       ...made.volume,

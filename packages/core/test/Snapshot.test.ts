@@ -330,12 +330,12 @@ describe("fixtures and snapshots", () => {
       })
   )
 
-  // Real scheduling: the assertion compares wall-clock durations, so virtual time would not measure
+  // Real scheduling: the assertions compare wall-clock durations, so virtual time would not measure
   // anything. Interruption is signalled by another fiber rather than a timer, because timer latency
   // on a loaded CI runner can exceed the walk itself. The 10,000-file setup can exceed Vitest's
   // five-second default when the workspace suites run in parallel.
   it.effect(
-    "releases the volume after a snapshot is interrupted mid-walk",
+    "captures without walking the volume and stops an interrupted encode mid-walk",
     () =>
       TestClock.withLive(Effect.gen(function*() {
         const bytes = new Uint8Array(64)
@@ -349,14 +349,21 @@ describe("fixtures and snapshots", () => {
 
         const volume = yield* Vfs.fromFixture({ entries })
         const caller = yield* volume.caller()
+        const snapshot = yield* volume.snapshot
         const started = performance.now()
 
-        yield* volume.snapshot
+        yield* Vfs.encodeSnapshot(snapshot)
         const full = performance.now() - started
 
-        // The walk yields periodically and the read is interruptible, so interrupting it returns at the
-        // next yield instead of waiting for the whole tree. An uninterruptible read measures near `full`.
-        const fiber = yield* Effect.forkChild(volume.snapshot)
+        // A capture shares the volume's immutable value, so it costs nothing like the walk an encode makes.
+        const captureStarted = performance.now()
+
+        yield* volume.snapshot
+        assert.isBelow(performance.now() - captureStarted, full / 4)
+
+        // The encode walk yields periodically, so interrupting it returns at the next yield instead of
+        // waiting for the whole tree.
+        const fiber = yield* Effect.forkChild(Vfs.encodeSnapshot(snapshot))
 
         yield* Effect.yieldNow
         const interruptStarted = performance.now()

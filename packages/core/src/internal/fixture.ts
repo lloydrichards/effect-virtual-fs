@@ -9,7 +9,7 @@ import { CanonicalBase64 } from "./canonicalBase64.js"
 import { decodeConfiguration, imageFailure, OpContext, VfsError } from "./errors.js"
 import * as Image from "./image.js"
 import { inputBytes, isAttachedBytes, isDotComponent, nameBytes, preparePath } from "./path.js"
-import { makeVolume, restoredSource } from "./virtualFileSystem.js"
+import { makeVolume, VolumeSource } from "./virtualFileSystem.js"
 
 const DEFAULT_MODE: Record<Image.Record["_tag"], number> = { directory: 0o755, file: 0o644, symlink: 0o777 }
 
@@ -190,13 +190,13 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
     )
 
     const snapshot = yield* Image.capture({ format: "effect-vfs", version: 1, root: "root", records }, undefined, true)
-    const image = yield* Image.inspect(snapshot)
+    const restored = VolumeSource.Restored({ value: yield* Image.valueOf(snapshot) })
 
     const { identity, ...volumeOptions } = config
 
-    if (identity === undefined) return (yield* makeVolume(restoredSource(image), volumeOptions)).volume
+    if (identity === undefined) return (yield* makeVolume(restored, volumeOptions)).volume
 
-    const { volume } = yield* makeVolume(restoredSource(image), {
+    const { volume } = yield* makeVolume(restored, {
       ...volumeOptions,
       identity: VolumeIdentity.make(identity)
     })
