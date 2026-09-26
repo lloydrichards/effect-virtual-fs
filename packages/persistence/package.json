@@ -46,18 +46,18 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.883.0",
+    "@aws-sdk/client-s3": "3.1141.0",
     "@effect-vfs/core": "^0.6.0"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.115"
+    "effect": "4.0.0-rc.117"
   },
   "devDependencies": {
-    "@effect/platform-node-shared": "4.0.0-rc.115",
-    "@effect/sql-sqlite-bun": "4.0.0-rc.115",
-    "@effect/vitest": "4.0.0-rc.115",
+    "@effect/platform-node-shared": "4.0.0-rc.117",
+    "@effect/sql-sqlite-bun": "4.0.0-rc.117",
+    "@effect/vitest": "4.0.0-rc.117",
     "@repo/config-typescript": "workspace:*",
-    "@types/node": "26.6.1",
-    "effect": "4.0.0-rc.115"
+    "@types/node": "26.6.3",
+    "effect": "4.0.0-rc.117"
   }
 }

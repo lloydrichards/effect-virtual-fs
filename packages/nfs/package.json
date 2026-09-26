@@ -39,16 +39,16 @@
     "type-check": "tsc --noEmit"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.115"
+    "effect": "4.0.0-rc.117"
   },
   "dependencies": {
     "@effect-vfs/core": "workspace:*"
   },
   "devDependencies": {
-    "@effect/platform-node-shared": "4.0.0-rc.115",
-    "@effect/vitest": "4.0.0-rc.115",
+    "@effect/platform-node-shared": "4.0.0-rc.117",
+    "@effect/vitest": "4.0.0-rc.117",
     "@repo/config-typescript": "workspace:*",
-    "effect": "4.0.0-rc.115",
-    "vitest": "^5.0.1"
+    "effect": "4.0.0-rc.117",
+    "vitest": "^5.0.2"
   }
 }
