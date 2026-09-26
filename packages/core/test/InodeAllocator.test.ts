@@ -20,8 +20,8 @@ const nearlyExhausted = Layer.succeed(
       Effect.sync(() =>
         new TextEncoder().encode(
           new TextDecoder().decode(initial).replace(
-            /"nextInode":"2"/,
-            `"nextInode":"${Number.MAX_SAFE_INTEGER - 1}"`
+            /"nextInode":2,/,
+            `"nextInode":${Number.MAX_SAFE_INTEGER - 1},`
           )
         )
       ),

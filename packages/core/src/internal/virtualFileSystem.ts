@@ -58,7 +58,6 @@ import {
   VolumeOptions
 } from "../Volume.js"
 import { WatchOptions } from "../Watch.js"
-import { CanonicalBase64 } from "./canonicalBase64.js"
 import {
   argumentFailure,
   decodeConfiguration,
@@ -95,7 +94,6 @@ import { type CommitProvider, offerCommit } from "./stagedState.js"
 import { VolumeTestSeams } from "./testSeams.js"
 import { makeTurnstile } from "./turnstile.js"
 import {
-  byIno,
   type Directory,
   directoryMetadata,
   emptyRoot,
@@ -284,19 +282,6 @@ interface ResolvedNode {
   readonly op: OpContext
 }
 
-interface LiveImageCommon {
-  ino: bigint
-  revision: bigint
-  metadata: LiveImage.Record["metadata"]
-}
-
-interface MutableLiveImageLimits {
-  maxEntries?: number
-  maxBytes?: bigint
-  maxFileBytes?: bigint
-  maxPathBytes?: bigint
-}
-
 interface RestoredVolumeOptions {
   identity: VolumeIdentity
   maxEntries?: number
@@ -304,94 +289,6 @@ interface RestoredVolumeOptions {
   maxFileBytes?: ByteSize.ByteSize
   maxPathBytes?: ByteSize.ByteSize
 }
-
-// Open files that no name reaches any more; the live image keeps them until their final close.
-/** @internal */
-export const retainedFiles = (state: VolumeState): Array<RegularFile> => {
-  const retained: Array<RegularFile> = []
-
-  for (const ino of state.open.keys()) {
-    const node = getNode(state, ino)
-
-    if (node?.kind === "file" && node.links.length === 0) retained.push(node)
-  }
-
-  return retained.sort(byIno)
-}
-
-/** @internal */
-export const captureLiveImage = Effect.fnUntraced(function*(
-  state: VolumeState,
-  identity: VolumeIdentity,
-  limits: VolumeLimits
-) {
-  const records: Array<LiveImage.Record> = []
-  const visited = new Set<Ino>()
-  const retained = retainedFiles(state)
-  const pending: Array<Ino> = [ROOT_INO, ...retained.map((file) => file.ino)]
-
-  for (let index = 0; index < pending.length; index++) {
-    if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
-    const ino = pending[index]
-
-    if (ino === undefined || visited.has(ino)) continue
-    visited.add(ino)
-    const node = getNode(state, ino)
-
-    if (node === undefined) return yield* imageFailure("snapshot", "InvalidStructure")
-
-    const common: LiveImageCommon = {
-      ino: BigInt(node.ino),
-      revision: node.revision,
-      metadata: {
-        ...storedMetadata(node.metadata),
-        nlink: node.metadata.nlink,
-        size: node.metadata.size
-      }
-    }
-
-    if (node.kind === "directory") {
-      const entries: Array<{ name: typeof CanonicalBase64.Encoded.Type; target: bigint }> = []
-
-      for (const [name, child] of node.entries) {
-        entries.push({ name: CanonicalBase64.encode(nameBytes(name)), target: BigInt(child) })
-        pending.push(child)
-      }
-
-      records.push(LiveImage.Record.cases.directory.make({ ...common, entries }))
-    } else if (node.kind === "file") {
-      records.push(LiveImage.Record.cases.file.make({ ...common, data: CanonicalBase64.encode(node.data.bytes) }))
-    } else {
-      records.push(LiveImage.Record.cases.symlink.make({ ...common, target: CanonicalBase64.encode(node.target) }))
-    }
-  }
-
-  const storedLimits: MutableLiveImageLimits = {}
-
-  if (limits.maxEntries !== undefined) storedLimits.maxEntries = limits.maxEntries
-
-  if (limits.maxBytes !== undefined) storedLimits.maxBytes = ByteSize.toBigInt(limits.maxBytes)
-
-  if (limits.maxFileBytes !== undefined) storedLimits.maxFileBytes = ByteSize.toBigInt(limits.maxFileBytes)
-
-  if (limits.maxPathBytes !== undefined) storedLimits.maxPathBytes = ByteSize.toBigInt(limits.maxPathBytes)
-
-  const document: LiveImage.Document = {
-    format: "effect-vfs-live",
-    version: 1,
-    identity,
-    root: BigInt(ROOT_INO),
-    nextInode: BigInt(state.nextInode),
-    revisionCounter: state.revision,
-    entries: state.entries,
-    usedBytes: state.usedBytes,
-    limits: storedLimits,
-    retainedFiles: retained.map((file) => BigInt(file.ino)),
-    records
-  }
-
-  return yield* LiveImage.encode(document)
-})
 
 // Builds the next volume value for one transition. Reads see pending writes; a discarded draft leaves the
 // base untouched, so an interrupted or failed transition needs no rollback.
@@ -566,7 +463,8 @@ const withoutLink = (links: ReadonlyArray<Link>, parent: Ino, name: string): Rea
 
 type VolumeSource =
   | { readonly _tag: "Empty" }
-  | { readonly _tag: "Live"; readonly document: LiveImage.Document }
+  // A reopened live image's value, identity and limits.
+  | { readonly _tag: "Live"; readonly restored: LiveImage.Restored }
   // A snapshot's value, which the volume starts from once its limits have accepted it.
   | { readonly _tag: "Restored"; readonly value: VolumeState }
 
@@ -664,11 +562,11 @@ export const makeVolume = Effect.fnUntraced(
     ) => Effect.Effect<Uint8Array, ImageFailure>,
     durability: VolumeDurability = "memory-only"
   ) {
-    const live = Predicate.isTagged("Live")(source) ? source.document : undefined
+    const live = Predicate.isTagged("Live")(source) ? source.restored : undefined
     let restoredOptions = options
 
     if (live !== undefined) {
-      const recovered: RestoredVolumeOptions = { identity: VolumeIdentity.make(live.identity) }
+      const recovered: RestoredVolumeOptions = { identity: live.identity }
 
       if (live.limits.maxEntries !== undefined) recovered.maxEntries = live.limits.maxEntries
 
@@ -799,109 +697,7 @@ export const makeVolume = Effect.fnUntraced(
       state = restored.state
     }
 
-    if (live !== undefined) {
-      const incoming = new Map<bigint, { node: Node; entries: Map<string, Ino>; links: Array<Link> }>()
-
-      for (const record of live.records) {
-        const ino = Ino(Number(record.ino))
-        const metadata: NodeMetadata = { ...record.metadata, kind: record._tag, ino: record.ino }
-
-        if (LiveImage.Record.guards.directory(record)) {
-          const entries = new Map<string, Ino>()
-          incoming.set(record.ino, {
-            node: {
-              kind: "directory",
-              ino,
-              parent: ROOT_INO,
-              name: "",
-              entries,
-              metadata,
-              revision: record.revision
-            },
-            entries,
-            links: []
-          })
-        } else if (LiveImage.Record.guards.file(record)) {
-          const links: Array<Link> = []
-          incoming.set(record.ino, {
-            node: {
-              kind: "file",
-              ino,
-              data: Content.make(yield* CanonicalBase64.decode(record.data)),
-              links,
-              metadata,
-              revision: record.revision
-            },
-            entries: new Map(),
-            links
-          })
-        } else {
-          const links: Array<Link> = []
-          incoming.set(record.ino, {
-            node: {
-              kind: "symlink",
-              ino,
-              target: yield* CanonicalBase64.decode(record.target),
-              links,
-              metadata,
-              revision: record.revision
-            },
-            entries: new Map(),
-            links
-          })
-        }
-      }
-
-      for (const record of live.records) {
-        if (!LiveImage.Record.guards.directory(record)) continue
-        const parent = incoming.get(record.ino)
-
-        if (parent?.node.kind !== "directory") return yield* imageFailure("snapshot", "InvalidStructure")
-
-        for (const entry of record.entries) {
-          const child = incoming.get(entry.target)
-
-          if (child === undefined) return yield* imageFailure("snapshot", "InvalidStructure")
-          const name = Encoding.encodeHex(yield* CanonicalBase64.decode(entry.name))
-          parent.entries.set(name, child.node.ino)
-
-          if (child.node.kind === "directory") child.node = { ...child.node, parent: parent.node.ino, name }
-          else child.links.push({ parent: parent.node.ino, name })
-        }
-      }
-
-      const restoredRoot = incoming.get(live.root)
-
-      if (restoredRoot?.node.kind !== "directory" || restoredRoot.node.ino !== ROOT_INO) {
-        return yield* imageFailure("snapshot", "InvalidStructure")
-      }
-
-      let usedBytes = live.usedBytes
-
-      // A previous process's handles no longer exist. Their zero-link files
-      // remain in the stored image but are reclaimed from this runtime state.
-      for (const ino of live.retainedFiles) {
-        const orphan = incoming.get(ino)
-
-        if (orphan?.node.kind !== "file") return yield* imageFailure("snapshot", "InvalidStructure")
-        usedBytes -= BigInt(orphan.node.data.bytes.length)
-        incoming.delete(ino)
-      }
-
-      const owner = Symbol()
-      let inodes = InodeTable.empty<Node>()
-
-      for (const { node } of incoming.values()) inodes = InodeTable.set(inodes, node.ino, node, owner)
-
-      state = {
-        inodes,
-        open: new Map(),
-        nextInode: Ino(Number(live.nextInode)),
-        revision: live.revisionCounter,
-        entries: live.entries,
-        usedBytes
-      }
-    }
+    if (live !== undefined) state = live.value
 
     const initialImage = captureInitial === undefined ? undefined : yield* captureInitial(state, identity, limits)
 
@@ -3996,7 +3792,7 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
 /** @internal */
 export const prepareEmptyLiveImage = Effect.fnUntraced(function*(options?: VolumeOptions) {
   const { initialImage } = yield* Effect.mapError(
-    makeVolume(VolumeSource.Empty(), options, undefined, captureLiveImage),
+    makeVolume(VolumeSource.Empty(), options, undefined, LiveImage.encode),
     (error) => retargetFailure("prepareEmptyImage", error)
   )
 
@@ -4012,30 +3808,28 @@ export const openImageVolume = Effect.fnUntraced(function*(
   commit: (image: Uint8Array) => Effect.Effect<"committed" | "rejected" | "unknown">,
   durability: VolumeDurability = "memory-only"
 ) {
-  const document = yield* LiveImage.decode(image, maxImageBytes)
+  const restored = yield* LiveImage.decode(image, maxImageBytes)
   // The image prepared for the candidate the store is about to see; prepare and commit run in sequence under
   // every permit, so one slot carries it between them.
   let prepared: Uint8Array | undefined
-  const identity = VolumeIdentity.make(document.identity)
+  const { identity, limits: stored } = restored
   const commitOp = OpContext.make("commit")
 
   const limits: VolumeLimits = {
-    maxEntries: document.limits.maxEntries,
-    maxBytes: document.limits.maxBytes === undefined ? undefined : ByteSize.bytes(document.limits.maxBytes),
-    maxFileBytes: document.limits.maxFileBytes === undefined
-      ? ByteSize.bytes(MAX_FILE_BYTES)
-      : ByteSize.bytes(document.limits.maxFileBytes),
-    maxPathBytes: document.limits.maxPathBytes === undefined ? undefined : ByteSize.bytes(document.limits.maxPathBytes),
+    maxEntries: stored.maxEntries,
+    maxBytes: stored.maxBytes === undefined ? undefined : ByteSize.bytes(stored.maxBytes),
+    maxFileBytes: ByteSize.bytes(stored.maxFileBytes ?? MAX_FILE_BYTES),
+    maxPathBytes: stored.maxPathBytes === undefined ? undefined : ByteSize.bytes(stored.maxPathBytes),
     maxPendingOperations: 64,
     maxWatchEvents: 256
   }
 
   const { volume, shutdown } = yield* makeVolume(
-    VolumeSource.Live({ document }),
+    VolumeSource.Live({ restored }),
     undefined,
     {
       prepare: (candidate) =>
-        captureLiveImage(candidate, identity, limits).pipe(
+        LiveImage.encode(candidate, identity, limits).pipe(
           Effect.mapError((cause) => commitOp.fail("StorageRejected", { cause })),
           Effect.flatMap((bytes) =>
             ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxImageBytes)

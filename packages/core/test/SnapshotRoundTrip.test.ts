@@ -100,6 +100,24 @@ const inodes = Effect.fnUntraced(function*(caller: Vfs.Caller) {
   return found
 })
 
+// A live image store that keeps the last committed image in memory.
+const memoryImageStore = () => {
+  let image: Uint8Array | undefined
+
+  return Layer.succeed(
+    LiveVolume.LiveImageStore,
+    LiveVolume.LiveImageStore.of({
+      loadOrCreate: (initial) => Effect.succeed(image ?? initial),
+      commit: (candidate) =>
+        Effect.sync(() => {
+          image = candidate
+
+          return "committed" as const
+        })
+    })
+  )
+}
+
 const richVolume = Effect.gen(function*() {
   const raw = yield* Vfs.pathFromBytes(new Uint8Array([47, ...RAW_NAME]))
   const rawTarget = yield* Vfs.pathFromBytes(new Uint8Array([0xfe, 47, 0x80]))
@@ -170,20 +188,7 @@ describe("snapshot round trips", () => {
     }))
 
   it.effect("reopens a live image with the tree and allocator it committed", () => {
-    let image: Uint8Array | undefined
-
-    const store = Layer.succeed(
-      LiveVolume.LiveImageStore,
-      LiveVolume.LiveImageStore.of({
-        loadOrCreate: (initial) => Effect.succeed(image ?? initial),
-        commit: (candidate) =>
-          Effect.sync(() => {
-            image = candidate
-
-            return "committed" as const
-          })
-      })
-    )
+    const store = memoryImageStore()
 
     const options = {
       maxImageBytes: ByteSize.megabytes(1),
@@ -243,6 +248,73 @@ describe("snapshot round trips", () => {
         ]
       ) assert.deepStrictEqual(yield* rootNames(yield* restored.caller()), ["alpha", "zeta"])
     }))
+
+  it.effect("starts a restored volume's revisions afresh, however it was restored", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      yield* caller.writeFile("/f", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      yield* caller.writeFile("/f", new Uint8Array([2]), { access: "write", truncate: true })
+      yield* caller.writeFile("/f", new Uint8Array([3]), { access: "write", truncate: true })
+      const sourceRevision = (yield* caller.stat("/f")).revision
+
+      const snapshot = yield* volume.snapshot
+      const decoded = yield* Vfs.decodeSnapshot(yield* Vfs.encodeSnapshot(snapshot), LIMITS)
+
+      // The revisions of "/" and "/f" on restore, then after the same two mutations.
+      const progress = Effect.fnUntraced(function*(restored: Vfs.Volume) {
+        const fs = yield* restored.caller()
+
+        const revisions = () =>
+          Effect.all([fs.stat("/"), fs.stat("/f")]).pipe(Effect.map((stats) => stats.map((stat) => stat.revision)))
+
+        const restoredRevisions = yield* revisions()
+
+        yield* fs.writeFile("/f", new Uint8Array([4]), { access: "write", truncate: true })
+        yield* fs.writeFile("/g", new Uint8Array([5]), { access: "write", create: "exclusive" })
+
+        return [restoredRevisions, yield* revisions(), (yield* fs.stat("/g")).revision]
+      })
+
+      const fromDecoded = yield* progress(yield* Vfs.fromSnapshot(decoded))
+      assert.deepStrictEqual(fromDecoded[0], [1n, 1n])
+
+      for (
+        const restored of [
+          yield* Vfs.fromSnapshot(snapshot),
+          yield* Vfs.makeOverlay(snapshot),
+          yield* Vfs.makeOverlay(decoded)
+        ]
+      ) assert.deepStrictEqual(yield* progress(restored), fromDecoded)
+
+      assert.strictEqual((yield* caller.stat("/f")).revision, sourceRevision)
+    }))
+
+  it.effect("lists a reopened live image's directories in the byte order of their names", () => {
+    const options = {
+      maxImageBytes: ByteSize.megabytes(1),
+      volume: {
+        maxEntries: 100,
+        maxBytes: ByteSize.kilobytes(256),
+        maxFileBytes: ByteSize.kilobytes(64),
+        maxPathBytes: ByteSize.bytes(1024)
+      }
+    }
+
+    return Effect.gen(function*() {
+      yield* Effect.scoped(Effect.gen(function*() {
+        const caller = yield* (yield* LiveVolume.open(options)).caller()
+        yield* caller.writeFile("/zeta", new Uint8Array([1]), { access: "write", create: "exclusive" })
+        yield* caller.writeFile("/alpha", new Uint8Array([2]), { access: "write", create: "exclusive" })
+        assert.deepStrictEqual(yield* rootNames(caller), ["zeta", "alpha"])
+      }))
+
+      yield* Effect.scoped(Effect.gen(function*() {
+        const caller = yield* (yield* LiveVolume.open(options)).caller()
+        assert.deepStrictEqual(yield* rootNames(caller), ["alpha", "zeta"])
+      }))
+    }).pipe(Effect.provide(memoryImageStore()))
+  })
 })
 
 describe("snapshot decoding rejects hostile input", () => {
