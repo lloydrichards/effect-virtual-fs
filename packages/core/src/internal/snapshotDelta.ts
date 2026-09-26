@@ -28,6 +28,7 @@ import { StoredMetadata } from "./metadata.js"
 import * as Content from "./overlayContent.js"
 import { isAttachedBytes, isNameBytes, joinPath, nameBytes, NUL_BYTE, ROOT_PATH, SLASH_BYTE } from "./path.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
+import { UNCHECKED } from "./tree.js"
 import {
   byEntryName,
   getNode,
@@ -387,9 +388,6 @@ const differencesOf = (before: Node, after: Node, hardLinks: boolean): ReadonlyA
 
     return before.metadata[field] !== after.metadata[field]
   })
-
-// A node built from a value is valid by construction, so building it skips the schema's checks.
-const UNCHECKED = { disableChecks: true }
 
 const deltaNode = (target: Side, path: Uint8Array, node: Node, withPayload: boolean): DeltaNode => {
   const first = target.firstOf.get(node.ino)

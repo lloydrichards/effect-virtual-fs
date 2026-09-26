@@ -33,11 +33,9 @@ import {
   WALK_YIELD_INTERVAL
 } from "./volumeState.js"
 
-/** @internal */
-export const TreeIno = Schema.Int.check(Schema.isBetween({ minimum: ROOT_INO, maximum: MAX_INO }))
+const TreeIno = Schema.Int.check(Schema.isBetween({ minimum: ROOT_INO, maximum: MAX_INO }))
 
-/** @internal */
-export const NaturalBigInt = Schema.String.check(
+const NaturalBigInt = Schema.String.check(
   Schema.isPattern(/^(0|[1-9][0-9]{0,127})$/, { [ENCODING_CHECK]: true })
 ).pipe(Schema.decodeTo(Schema.BigInt, SchemaTransformation.bigintFromString))
 
