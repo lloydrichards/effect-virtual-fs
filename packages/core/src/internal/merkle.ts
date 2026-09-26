@@ -13,8 +13,8 @@ import type * as PlatformError from "effect/PlatformError"
 import type { ImageFailure } from "../VfsError.js"
 import { bytesOrder } from "./bytes.js"
 import { imageFailure } from "./errors.js"
-import { nameBytes, SLASH_BYTE } from "./path.js"
-import { getNode, type Ino, type Node, ROOT_INO, type VolumeState } from "./volumeState.js"
+import { joinPath, nameBytes, ROOT_PATH } from "./path.js"
+import { byEntryName, getNode, type Ino, type Node, payloadOf, ROOT_INO, type VolumeState } from "./volumeState.js"
 
 /** @internal */
 export const ALGORITHM = "effect-vfs-semantic-sha256-v1"
@@ -29,21 +29,6 @@ const encoder = new TextEncoder()
 const IDENTITY_PREFIX = encoder.encode(`${ALGORITHM}\0`)
 
 const KIND_BYTE = { directory: 0, file: 1, symlink: 2 } as const
-
-/** @internal */
-export const ROOT_PATH = new Uint8Array([SLASH_BYTE])
-
-/** @internal */
-export const join = (parent: Uint8Array, name: Uint8Array): Uint8Array => {
-  const separator = parent.length === 1 ? 0 : 1
-  const out = new Uint8Array(parent.length + separator + name.length)
-  out.set(parent)
-
-  if (separator === 1) out[parent.length] = SLASH_BYTE
-  out.set(name, parent.length + separator)
-
-  return out
-}
 
 // What one walk may spend, and the field an overrun names.
 /** @internal */
@@ -66,6 +51,8 @@ export interface Identity {
   readonly groups: ReadonlyMap<Ino, ReadonlyArray<Uint8Array>>
   readonly records: number
   readonly payloadBytes: number
+  // The bytes of every reachable node's preimage, which the walk charged before the identity frame.
+  readonly nodeBytes: number
 }
 
 const u64 = (out: Uint8Array, offset: number, n: number) => {
@@ -86,14 +73,6 @@ const stamps = (node: Node): ReadonlyArray<Uint8Array> =>
     encoder.encode(String(value))
   )
 
-// A directory's entries in the byte order of their names; hex spelling keeps that order.
-/** @internal */
-export const sortedEntries = (node: Node & { readonly kind: "directory" }): ReadonlyArray<readonly [string, Ino]> =>
-  [...node.entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-
-const payload = (node: Node) =>
-  node.kind === "file" ? node.data.bytes : node.kind === "symlink" ? node.target : undefined
-
 interface Layout {
   readonly times: ReadonlyArray<Uint8Array>
   readonly entries: ReadonlyArray<readonly [Uint8Array, Ino]>
@@ -107,10 +86,10 @@ const layout = (node: Node): Layout => {
   const times = stamps(node)
 
   const entries = node.kind === "directory"
-    ? sortedEntries(node).map(([name, ino]) => [nameBytes(name), ino] as const)
+    ? [...node.entries].sort(byEntryName).map(([name, ino]) => [nameBytes(name), ino] as const)
     : []
 
-  const body = payload(node)
+  const body = payloadOf(node)
 
   const length = 1 + 3 * U64_BYTES + times.reduce((sum, stamp) => sum + U64_BYTES + stamp.length, 0) +
     (body === undefined
@@ -119,6 +98,10 @@ const layout = (node: Node): Layout => {
 
   return { times, entries, body, length }
 }
+
+// The length of the preimage a node's digest covers.
+/** @internal */
+export const nodeBytes = (node: Node): number => layout(node).length
 
 const preimage = (node: Node, { body, entries, length, times }: Layout, childDigest: (ino: Ino) => Uint8Array) => {
   const out = new Uint8Array(length)
@@ -147,21 +130,24 @@ const preimage = (node: Node, { body, entries, length, times }: Layout, childDig
 /** @internal */
 export interface Meter {
   readonly charge: (bytes: number) => Effect.Effect<void, ImageFailure>
+  // What has been charged so far.
+  readonly spent: () => number
 }
 
 /** @internal */
 export const meter = (budget: WalkBudget): Meter => {
-  let hashed = ByteSize.zero
+  let hashed = 0
 
   return {
     charge: (bytes) =>
       Effect.suspend(() => {
-        hashed = ByteSize.sum(hashed, ByteSize.bytes(bytes))
+        hashed += bytes
 
-        return ByteSize.isGreaterThan(hashed, budget.identityBytes)
+        return ByteSize.isGreaterThan(ByteSize.bytes(hashed), budget.identityBytes)
           ? Effect.fail(imageFailure(budget.operation, "LimitExceeded", { field: "identityBytes" }))
           : Effect.void
-      })
+      }),
+    spent: () => hashed
   }
 }
 
@@ -246,10 +232,10 @@ export const identify = Effect.fnUntraced(
 
         if (child === undefined) continue
 
-        if (child.kind === "directory") directoryPaths.set(ino, join(path, nameBytes(name)))
+        if (child.kind === "directory") directoryPaths.set(ino, joinPath(path, nameBytes(name)))
         else if (child.links.length > 1) {
           const paths = named.get(ino)
-          const childPath = join(path, nameBytes(name))
+          const childPath = joinPath(path, nameBytes(name))
 
           if (paths === undefined) named.set(ino, [childPath])
           else paths.push(childPath)
@@ -276,7 +262,7 @@ export const identify = Effect.fnUntraced(
     ]
 
     for (const node of leavesFirst) {
-      const body = payload(node)
+      const body = payloadOf(node)
 
       if (body !== undefined) {
         payloadBytes += body.length
@@ -296,12 +282,15 @@ export const identify = Effect.fnUntraced(
 
     for (const [ino, paths] of named) if (paths.length > 1) groups.set(ino, paths.sort(bytesOrder))
 
+    const nodeBytes = measure.spent()
+
     return {
       digest: yield* identityDigest(digests.get(ROOT_INO)!, groups.values(), measure),
       digests,
       groups,
       records: order.length,
-      payloadBytes
+      payloadBytes,
+      nodeBytes
     }
   }
 )

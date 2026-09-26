@@ -31,9 +31,7 @@ const deltaLimitsWith = (
   })
 }
 
-const DeltaIdentity = Schema.fromJsonString(Schema.Struct({
-  base: Schema.Struct({ digest: Schema.String })
-}))
+const DeltaIdentity = Schema.fromJsonString(Schema.Struct({ base: Schema.String }))
 
 const identityOf = (snapshot: Vfs.Snapshot) =>
   Effect.gen(function*() {
@@ -41,7 +39,7 @@ const identityOf = (snapshot: Vfs.Snapshot) =>
       yield* Vfs.diffSnapshots(snapshot, snapshot)
     )
 
-    return (yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))).base.digest
+    return (yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))).base
   })
 
 const FileNode = Schema.TaggedStruct("file", {
@@ -69,7 +67,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       const delta = yield* Vfs.diffSnapshots(snapshot, snapshot)
       const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
       const document = yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))
-      assert.strictEqual(document.base.digest, "Cvxnm9EjfvdhwMidAWBmx6OChcHENX1q4z+bCp//d98=")
+      assert.strictEqual(document.base, "Cvxnm9EjfvdhwMidAWBmx6OChcHENX1q4z+bCp//d98=")
     }))
 
   // The empty fixture above pins the domain prefix, the algorithm identifier, the root directory's node
@@ -144,7 +142,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       const delta = yield* Vfs.diffSnapshots(snapshot, snapshot)
       const encoded = yield* Schema.encodeEffect(Vfs.SnapshotDeltaFromBytes())(delta)
       const document = yield* Schema.decodeEffect(DeltaIdentity)(new TextDecoder().decode(encoded))
-      assert.strictEqual(document.base.digest, "Uhdurw2p97cieGz/65CbuqV4LyAC04GiwBbZJOziwnQ=")
+      assert.strictEqual(document.base, "Uhdurw2p97cieGz/65CbuqV4LyAC04GiwBbZJOziwnQ=")
     }))
 
   it.effect("identifies hard-link groups but not inode numbers", () =>
@@ -524,6 +522,38 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
         ),
         []
       )
+    }))
+
+  it.effect("numbers an applied node up to the largest inode a decoded tree allows, and no further", () =>
+    Effect.gen(function*() {
+      const target = yield* (yield* Vfs.fromFixture({
+        entries: [
+          { kind: "file", path: "/f", bytes: new Uint8Array([1]) },
+          { kind: "directory", path: "/g" }
+        ]
+      })).snapshot
+
+      const numbered = Effect.fnUntraced(function*(ino: number) {
+        const document = yield* snapshotDocument(
+          yield* (yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/f", bytes: new Uint8Array([1]) }] }))
+            .snapshot
+        )
+
+        document.nodes[1].ino = ino
+
+        return yield* snapshotFromDocument(document)
+      })
+
+      // A tree holds inode numbers up to one below the largest safe integer, so the allocator stays exact.
+      const roomy = yield* numbered(Number.MAX_SAFE_INTEGER - 2)
+      const applied = yield* Vfs.applySnapshotDelta(roomy, yield* Vfs.diffSnapshots(roomy, target))
+      const restored = yield* snapshotFromDocument(yield* snapshotDocument(applied))
+      assert.deepStrictEqual(yield* Vfs.inspectSnapshotDelta(restored, yield* Vfs.diffSnapshots(restored, target)), [])
+
+      const full = yield* numbered(Number.MAX_SAFE_INTEGER - 1)
+      const error = yield* Effect.flip(Vfs.applySnapshotDelta(full, yield* Vfs.diffSnapshots(full, target)))
+      assert.instanceOf(error, Vfs.VfsError)
+      assert.deepStrictEqual([error.code, error.field], ["LimitExceeded", "inodes"])
     }))
 
   it.effect("rejects snapshot path and payload work at the configured boundaries", () =>

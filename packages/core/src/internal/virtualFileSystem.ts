@@ -82,11 +82,13 @@ import {
   isAttachedBytes,
   isDotComponent,
   isWellFormed,
+  joinPath,
   MAX_NAME_BYTES,
   nameBytes,
   ownedPath,
   type PreparedPath,
   preparePath,
+  ROOT_PATH,
   SLASH_BYTE,
   SLASH_HEX
 } from "./path.js"
@@ -247,18 +249,6 @@ interface WalkPlan {
   readonly maxDepth: number | undefined
   readonly maxEntries: number | undefined
   readonly maxBytes: bigint | undefined
-}
-
-// `name` under `prefix`, in a new buffer; an empty prefix is the walk's root.
-const joinPath = (prefix: Uint8Array, name: Uint8Array): Uint8Array => {
-  const separator = prefix.length === 0 || prefix[prefix.length - 1] === SLASH_BYTE ? 0 : 1
-  const joined = new Uint8Array(prefix.length + separator + name.length)
-  joined.set(prefix)
-
-  if (separator === 1) joined[prefix.length] = SLASH_BYTE
-  joined.set(name, prefix.length + separator)
-
-  return joined
 }
 
 // The namespace entry a path or a directory reference plus name resolves to, so each verb has one body. A
@@ -495,7 +485,7 @@ interface Installation {
 // starts from its base's value, and inode numbers are never reused, so an inode's number is its lineage.
 const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
   const observation: Array<ObservationEntry> = []
-  const paths: Array<readonly [Ino, Uint8Array]> = [[ROOT_INO, new Uint8Array([SLASH_BYTE])]]
+  const paths: Array<readonly [Ino, Uint8Array]> = [[ROOT_INO, ROOT_PATH]]
 
   for (let index = 0; index < paths.length; index++) {
     if (index % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
@@ -516,16 +506,7 @@ const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
 
     if (node.kind !== "directory") continue
 
-    for (const [name, child] of node.entries) {
-      const bytes = nameBytes(name)
-      const childPath = new Uint8Array(path.length + (path.length === 1 ? 0 : 1) + bytes.length)
-      childPath.set(path)
-      let offset = path.length
-
-      if (path.length !== 1) childPath[offset++] = SLASH_BYTE
-      childPath.set(bytes, offset)
-      paths.push([child, childPath])
-    }
+    for (const [name, child] of node.entries) paths.push([child, joinPath(path, nameBytes(name))])
   }
 
   return observation
