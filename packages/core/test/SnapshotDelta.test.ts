@@ -35,11 +35,14 @@ const DeltaIdentity = Schema.fromJsonString(Schema.Struct({
   base: Schema.Struct({ digest: Schema.String })
 }))
 
-const DirectoryRecord = Schema.TaggedStruct("directory", {
-  entries: Schema.Array(Schema.Struct({ target: Schema.String }))
+const FileNode = Schema.TaggedStruct("file", {
+  content: Schema.TaggedStruct("Inline", { bytes: Schema.String })
 })
 
-const FileRecord = Schema.TaggedStruct("file", { data: Schema.String })
+interface MutableLink {
+  parent: number
+  name: string
+}
 
 it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
   it.effect("keeps the empty snapshot semantic identity stable", () =>
@@ -330,27 +333,26 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       const base = yield* original.snapshot
       const document = yield* snapshotDocument(base)
 
-      const ids = new Map<string, string>(
-        document.records.map((record: { id: string }, index: number) => [record.id, `r${index + 10}`])
+      // Renumber every inode but the root's so the nodes come in the reverse of their original order.
+      const inos = new Map<number, number>(
+        document.nodes.map((node: { ino: number }, index: number) => [node.ino, index === 0 ? 1 : 100 - index])
       )
 
-      document.root = ids.get(document.root)
+      for (const node of document.nodes) {
+        node.ino = inos.get(node.ino)
 
-      for (const record of document.records) {
-        record.id = ids.get(record.id)
+        if (Object.hasOwn(node, "parent")) node.parent = inos.get(node.parent)
 
-        if (Schema.is(DirectoryRecord)(record)) {
-          for (const entry of record.entries) entry.target = ids.get(entry.target)!
-        }
+        for (const link of node.links ?? []) link.parent = inos.get(link.parent)
       }
 
-      document.records.reverse()
+      document.nodes.sort((a: { ino: number }, b: { ino: number }) => a.ino - b.ino)
       const equivalent = yield* snapshotFromDocument(document)
       const delta = yield* Vfs.diffSnapshots(base, yield* target.snapshot)
       yield* Vfs.applySnapshotDelta(equivalent, delta)
 
       const changed = structuredClone(document)
-      changed.records.find((record: { _tag: string }) => Predicate.isTagged("file")(record)).data = "CQ=="
+      changed.nodes.find((node: { _tag: string }) => Predicate.isTagged("file")(node)).content.bytes = "CQ=="
       const error = yield* Effect.flip(Vfs.applySnapshotDelta(yield* snapshotFromDocument(changed), delta))
       assert.instanceOf(error, Vfs.VfsError)
       assert.deepStrictEqual([error.code, error.operation], ["BaseMismatch", "applySnapshotDelta"])
@@ -374,73 +376,74 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       const base = yield* volume.snapshot
       const delta = yield* Vfs.diffSnapshots(base, base)
       const source = yield* snapshotDocument(base)
-      const root = source.records.find((record: { id: string }) => record.id === source.root)
 
-      const file = source.records.find((record: { _tag: string; data?: string }) =>
-        Schema.is(FileRecord)(record) && record.data === "AQ=="
+      const fileIndex = source.nodes.findIndex((node: { _tag: string }) =>
+        Schema.is(FileNode)(node) && node.content.bytes === "AQ=="
       )
 
-      const symlink = source.records.find((record: { _tag: string }) => Predicate.isTagged("symlink")(record))
-      assert.isDefined(root)
-      assert.isDefined(file)
-      assert.isDefined(symlink)
+      const symlinkIndex = source.nodes.findIndex((node: { _tag: string }) => Predicate.isTagged("symlink")(node))
+      assert.isAbove(fileIndex, 0)
+      assert.isAbove(symlinkIndex, 0)
 
       const cases: Array<readonly [string, unknown]> = []
 
       for (const field of ["mode", "uid", "gid"] as const) {
         const changed = structuredClone(source)
-        const changedRoot = changed.records.find((record: { id: string }) => record.id === changed.root)
-        changedRoot.metadata[field] += 1
+        changed.nodes[0].metadata[field] += 1
         cases.push([`root ${field}`, changed])
       }
 
       for (const field of ["atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"] as const) {
         const changed = structuredClone(source)
-        const changedRoot = changed.records.find((record: { id: string }) => record.id === changed.root)
-        changedRoot.metadata[field] = String(BigInt(changedRoot.metadata[field]) + 1n)
+        changed.nodes[0].metadata[field] = String(BigInt(changed.nodes[0].metadata[field]) + 1n)
         cases.push([`root ${field}`, changed])
       }
 
       {
         const changed = structuredClone(source)
-        changed.records.find((record: { id: string }) => record.id === file.id).metadata.mode += 1
+        changed.nodes[fileIndex].metadata.mode += 1
         cases.push(["entry metadata", changed])
       }
 
       {
         const changed = structuredClone(source)
-        const changedRoot = changed.records.find((record: { id: string }) => record.id === changed.root)
-        changedRoot.entries.find((entry: { name: string }) => entry.name === "/w==").name = "/g=="
+
+        const rawLink = changed.nodes.flatMap((node: { links?: Array<MutableLink> }) => node.links ?? [])
+          .find((link: MutableLink) => link.name === "/w==")
+
+        rawLink.name = "/g=="
         cases.push(["raw path", changed])
       }
 
       {
         const changed = structuredClone(source)
-        const changedFile = changed.records.find((record: { id: string }) => record.id === file.id)
+        const changedFile = changed.nodes[fileIndex]
         changedFile._tag = "symlink"
-        changedFile.target = changedFile.data
-        delete changedFile.data
+        changedFile.target = changedFile.content.bytes
+        delete changedFile.content
         cases.push(["node kind", changed])
       }
 
       {
         const changed = structuredClone(source)
-        changed.records.find((record: { id: string }) => record.id === file.id).data = "Ag=="
+        changed.nodes[fileIndex].content.bytes = "Ag=="
         cases.push(["file payload", changed])
       }
 
       {
         const changed = structuredClone(source)
-        changed.records.find((record: { id: string }) => record.id === symlink.id).target = "b3RoZXI="
+        changed.nodes[symlinkIndex].target = "b3RoZXI="
         cases.push(["symlink target", changed])
       }
 
       {
+        // The file's second name moves to a copy of it, so both paths survive but no longer share an object.
         const changed = structuredClone(source)
-        const changedRoot = changed.records.find((record: { id: string }) => record.id === changed.root)
-        const changedFile = changed.records.find((record: { id: string }) => record.id === file.id)
-        changed.records.push({ ...structuredClone(changedFile), id: "split" })
-        changedRoot.entries.find((entry: { name: string }) => entry.name === "Yg==").target = "split"
+        const changedFile = changed.nodes[fileIndex]
+        const second = changedFile.links.findIndex((link: MutableLink) => link.name === "Yg==")
+        const [moved] = changedFile.links.splice(second, 1)
+        const last = changed.nodes.at(-1).ino
+        changed.nodes.push({ ...structuredClone(changedFile), ino: last + 1, links: [moved] })
         cases.push(["hard-link equivalence", changed])
       }
 

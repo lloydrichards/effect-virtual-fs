@@ -2,6 +2,7 @@
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
+import type * as SchemaAST from "effect/SchemaAST"
 import type * as SchemaIssue from "effect/SchemaIssue"
 import type { BytePath } from "../BytePath.js"
 import {
@@ -73,6 +74,47 @@ export const decodeConfiguration = <A>(
   Schema.decodeUnknownResult(schema, { onExcessProperty: "error" })(value).pipe(
     Result.mapError((error) => argumentFailure(operation, configurationField(error.issue), error))
   )
+
+// Marks a check whose failure means the input spells a value wrongly (noncanonical base64, an oversized decimal)
+// rather than having the wrong shape.
+/** @internal */
+export const ENCODING_CHECK = "@effect-vfs/core/encodingCheck"
+
+/** @internal */
+export interface IssueSite {
+  // Where the first failure is, from the decoded value's root.
+  readonly path: ReadonlyArray<PropertyKey>
+  // The checks the first failure was reported through, outermost first.
+  readonly checks: ReadonlyArray<SchemaAST.Filter<unknown>>
+}
+
+// Follows an issue to its first failure. A decode stops at the first failure, so the first branch of every
+// composite issue is the one that failed.
+/** @internal */
+export const issueSite = (issue: SchemaIssue.Issue): IssueSite => {
+  const path: Array<PropertyKey> = []
+  const checks: Array<SchemaAST.Filter<unknown>> = []
+  let current: SchemaIssue.Issue | undefined = issue
+
+  while (current !== undefined) {
+    if (Predicate.isTagged("Pointer")(current)) {
+      path.push(...current.path)
+      current = current.issue
+    } else if (Predicate.isTagged("Filter")(current)) {
+      checks.push(current.filter)
+      current = current.issue
+    } else if (Predicate.isTagged("Encoding")(current)) current = current.issue
+    else if (Predicate.isTagged("Composite")(current) || Predicate.isTagged("AnyOf")(current)) {
+      current = current.issues[0]
+    } else current = undefined
+  }
+
+  return { path, checks }
+}
+
+/** @internal */
+export const isEncodingIssue = (site: IssueSite): boolean =>
+  site.checks.some((check) => check.annotations?.[ENCODING_CHECK] === true)
 
 /** @internal */
 export const fsFailure = (code: FsCode, operation: string, details?: Details): FsFailure =>

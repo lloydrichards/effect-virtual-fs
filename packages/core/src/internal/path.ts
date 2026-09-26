@@ -23,9 +23,21 @@ export const DOT_DOT_HEX = "2e2e"
 /** @internal */
 export const SLASH_BYTE = 47
 
+/** @internal */
+export const DOT_BYTE = 46
+
+/** @internal */
+export const NUL_BYTE = 0
+
 // POSIX NAME_MAX: the longest single path component.
 /** @internal */
 export const MAX_NAME_BYTES = 255
+
+// A name a directory can hold: 1 to 255 bytes without a NUL or a slash, and neither "." nor "..".
+/** @internal */
+export const isNameBytes = (name: Uint8Array): boolean =>
+  name.length >= 1 && name.length <= MAX_NAME_BYTES && !name.includes(NUL_BYTE) && !name.includes(SLASH_BYTE) &&
+  !(name.length === 1 && name[0] === DOT_BYTE) && !(name.length === 2 && name[0] === DOT_BYTE && name[1] === DOT_BYTE)
 
 // A missing final component is rejected wherever "." and ".." are, so it counts as a dot component.
 // Callers pass the code POSIX gives their operation, so the codes differ on purpose: EEXIST for

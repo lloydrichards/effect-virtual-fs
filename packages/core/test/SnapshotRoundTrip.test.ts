@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, Encoding, Layer, Stream } from "effect"
+import { ByteSize, Effect, Encoding, Layer, Predicate, Schema, Stream } from "effect"
 import { BytePath, LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
+import { entryNames } from "./support/text.js"
 
 const LIMITS: Vfs.DecodeLimits = {
   maxEncodedBytes: ByteSize.megabytes(1),
@@ -13,6 +14,8 @@ const encoder = new TextEncoder()
 
 const bytes = (value: string) => encoder.encode(value)
 
+const json = (value: typeof Schema.Unknown.Type) => bytes(JSON.stringify(value))
+
 // A name that is not UTF-8, so no string path can reach it.
 const RAW_NAME = new Uint8Array([0xff, 0x41])
 
@@ -20,6 +23,26 @@ const RAW_NAME = new Uint8Array([0xff, 0x41])
 const LARGE: Uint8Array<ArrayBuffer> = Uint8Array.from({ length: 24_577 }, (_, index) => index % 251)
 
 const EXTREME_NS = 10n ** 127n
+
+const METADATA = { uid: 0, gid: 0, mode: 0o755, atimeNs: "0", mtimeNs: "0", ctimeNs: "0", birthtimeNs: "0" }
+
+const ROOT_NODE = { _tag: "directory", ino: 1, parent: 1, name: "", metadata: METADATA }
+
+const base64 = (value: string) => Encoding.encodeBase64(bytes(value))
+
+// A snapshot's nodes as JSON values, each keeping every field it was written with.
+const SampleTree = Schema.fromJsonString(Schema.Struct({
+  format: Schema.String,
+  version: Schema.Finite,
+  nodes: Schema.Array(Schema.Record(Schema.String, Schema.Unknown))
+}))
+
+const snapshotOf = (nodes: ReadonlyArray<object>) => json({ format: "effect-vfs", version: 1, nodes })
+
+// POSIX NAME_MAX, the longest name a directory holds.
+const NAME_MAX = 255
+
+const rootNames = (caller: Vfs.Caller) => Effect.map(caller.readDirectory("/"), entryNames)
 
 // Every node kind, an empty and a multi-chunk file, byte names and targets, a hard link across directories, the
 // setuid, setgid and sticky bits, and timestamps at both ends of the range.
@@ -199,6 +222,27 @@ describe("snapshot round trips", () => {
       }))
     }).pipe(Effect.provide(store))
   })
+
+  it.effect("lists a restored volume's directories in the byte order of their names, however it was restored", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      const caller = yield* volume.caller()
+      yield* caller.writeFile("/zeta", new Uint8Array([1]), { access: "write", create: "exclusive" })
+      yield* caller.writeFile("/alpha", new Uint8Array([2]), { access: "write", create: "exclusive" })
+      assert.deepStrictEqual(yield* rootNames(caller), ["zeta", "alpha"])
+
+      const snapshot = yield* volume.snapshot
+      const decoded = yield* Vfs.decodeSnapshot(yield* Vfs.encodeSnapshot(snapshot), LIMITS)
+
+      for (
+        const restored of [
+          yield* Vfs.fromSnapshot(snapshot),
+          yield* Vfs.fromSnapshot(decoded),
+          yield* Vfs.makeOverlay(snapshot),
+          yield* Vfs.makeOverlay(decoded)
+        ]
+      ) assert.deepStrictEqual(yield* rootNames(yield* restored.caller()), ["alpha", "zeta"])
+    }))
 })
 
 describe("snapshot decoding rejects hostile input", () => {
@@ -301,5 +345,178 @@ describe("snapshot decoding rejects hostile input", () => {
         yield* failure(withPrefix(encoded, `${PREFIX}"extra":true,`)),
         ["InvalidStructure", "document"]
       )
+    }))
+
+  it.effect("counts every budget before it checks the graph or decodes a name or target", () =>
+    Effect.gen(function*() {
+      // Each tree breaks a budget and a graph rule; the budget is what refuses it.
+      const brokenLink = snapshotOf([
+        ROOT_NODE,
+        { _tag: "directory", ino: 2, parent: 1, name: base64("d"), metadata: METADATA },
+        {
+          _tag: "file",
+          ino: 3,
+          links: [{ parent: 9, name: base64("f") }],
+          content: { _tag: "Inline", bytes: "AQ==" },
+          metadata: METADATA
+        }
+      ])
+
+      const repeatedName = snapshotOf([
+        ROOT_NODE,
+        { _tag: "directory", ino: 2, parent: 1, name: base64("a"), metadata: METADATA },
+        { _tag: "directory", ino: 3, parent: 1, name: base64("a"), metadata: METADATA }
+      ])
+
+      // 300 kB of NUL bytes as a symbolic link's target.
+      const nulTarget = snapshotOf([
+        ROOT_NODE,
+        {
+          _tag: "symlink",
+          ino: 2,
+          links: [{ parent: 1, name: base64("s") }],
+          target: "A".repeat(400_000),
+          metadata: METADATA
+        }
+      ])
+
+      assert.deepStrictEqual(yield* failure(brokenLink, { ...LIMITS, maxRecords: 2 }), ["LimitExceeded", "records"])
+      assert.deepStrictEqual(yield* failure(repeatedName, { ...LIMITS, maxEntries: 1 }), ["LimitExceeded", "entries"])
+
+      assert.deepStrictEqual(
+        yield* failure(nulTarget, { ...LIMITS, maxDecodedBytes: ByteSize.bytes(10) }),
+        ["LimitExceeded", "bytes"]
+      )
+
+      // Within the budgets, the same trees fail the graph rule they break.
+      assert.deepStrictEqual(yield* failure(brokenLink), ["InvalidStructure", "nodes.2.links.0.parent"])
+      assert.deepStrictEqual(yield* failure(repeatedName), ["InvalidStructure", "nodes.2.name"])
+      assert.deepStrictEqual(yield* failure(nulTarget), ["InvalidStructure", "nodes.1.target"])
+    }))
+
+  it.effect("names the directory or symbolic link below the root that breaks a graph rule", () =>
+    Effect.gen(function*() {
+      const original = yield* Schema.decodeEffect(SampleTree)(new TextDecoder().decode(yield* sample))
+      const directory = original.nodes.findIndex((node, index) => index > 0 && Predicate.isTagged(node, "directory"))
+      const symlink = original.nodes.findIndex(Predicate.isTagged("symlink"))
+
+      const mutations: Array<
+        readonly [number, { readonly name?: string; readonly parent?: number; readonly target?: string }, string]
+      > = [
+        [symlink, { target: base64("a\0b") }, `nodes.${symlink}.target`],
+        [directory, { name: base64(".") }, `nodes.${directory}.name`],
+        [directory, { name: base64("d/e") }, `nodes.${directory}.name`],
+        [directory, { parent: 99 }, `nodes.${directory}.parent`]
+      ]
+
+      for (const [index, edit, field] of mutations) {
+        const nodes = original.nodes.map((node, at) => (at === index ? { ...node, ...edit } : node))
+        assert.deepStrictEqual(yield* failure(json({ ...original, nodes })), ["InvalidStructure", field])
+      }
+    }))
+
+  it.effect("holds snapshots and fixtures to one name rule, admitting NAME_MAX bytes and no more", () =>
+    Effect.gen(function*() {
+      const file = (name: string) =>
+        snapshotOf([
+          ROOT_NODE,
+          {
+            _tag: "file",
+            ino: 2,
+            links: [{ parent: 1, name: base64(name) }],
+            content: { _tag: "Inline", bytes: "AQ==" },
+            metadata: METADATA
+          }
+        ])
+
+      const longest = "a".repeat(NAME_MAX)
+      const restored = yield* Vfs.fromSnapshot(yield* Vfs.decodeSnapshot(file(longest), LIMITS))
+      assert.deepStrictEqual(yield* rootNames(yield* restored.caller()), [longest])
+      assert.deepStrictEqual(yield* failure(file(`${longest}a`)), ["InvalidStructure", "nodes.1.links.0.name"])
+
+      const fixture = (name: string) =>
+        Vfs.fromFixture({ entries: [{ kind: "file", path: `/${name}`, bytes: new Uint8Array([1]) }] })
+
+      assert.deepStrictEqual(yield* rootNames(yield* (yield* fixture(longest)).caller()), [longest])
+
+      const refused = yield* Effect.flip(fixture(`${longest}a`))
+      assert.deepStrictEqual([refused.code, refused.field], ["InvalidStructure", "path"])
+    }))
+})
+
+describe("restored inode numbers", () => {
+  // A root holding a directory `d` and a file `d/f`, at the inode numbers given.
+  const tree = (directory: number, file: number) =>
+    json({
+      format: "effect-vfs",
+      version: 1,
+      nodes: [
+        { _tag: "directory", ino: 1, parent: 1, name: "", metadata: METADATA },
+        { _tag: "directory", ino: directory, parent: 1, name: "ZA==", metadata: METADATA },
+        {
+          _tag: "file",
+          ino: file,
+          links: [{ parent: directory, name: "Zg==" }],
+          content: { _tag: "Inline", bytes: "AQ==" },
+          metadata: METADATA
+        }
+      ].sort((a, b) => a.ino - b.ino)
+    })
+
+  it.effect("restores inode numbers past the inode table's first levels and allocates above them", () =>
+    Effect.gen(function*() {
+      // 2^35 and beyond need a table deep enough that its indexing can no longer use 32-bit shifts.
+      for (const [directory, file] of [[2 ** 35, 2 ** 35 + 33], [2 ** 40 + 7, 3], [2 ** 52, 2 ** 52 + 1]] as const) {
+        const encoded = tree(directory, file)
+        const snapshot = yield* Vfs.decodeSnapshot(encoded, LIMITS)
+        assert.deepStrictEqual(yield* Vfs.encodeSnapshot(snapshot), encoded)
+
+        for (const restored of [yield* Vfs.fromSnapshot(snapshot), yield* Vfs.makeOverlay(snapshot)]) {
+          const fs = yield* restored.caller()
+          assert.deepStrictEqual(yield* fs.readFile("/d/f"), new Uint8Array([1]))
+          assert.strictEqual((yield* fs.stat("/d")).ino, BigInt(directory))
+          assert.strictEqual((yield* fs.stat("/d/f")).ino, BigInt(file))
+
+          const created = yield* fs.mkdir("/d/new")
+          assert.strictEqual((yield* fs.stat(created.reference)).ino, BigInt(Math.max(directory, file) + 1))
+          yield* fs.rename("/d/f", "/d/new/f")
+          assert.deepStrictEqual(yield* fs.readFile("/d/new/f"), new Uint8Array([1]))
+        }
+      }
+    }))
+
+  it.effect("restores the largest inode a tree holds and then reports that none is left", () =>
+    Effect.gen(function*() {
+      const snapshot = yield* Vfs.decodeSnapshot(tree(2, Number.MAX_SAFE_INTEGER - 1), LIMITS)
+      const fs = yield* (yield* Vfs.fromSnapshot(snapshot)).caller()
+
+      assert.strictEqual((yield* fs.stat("/d/f")).ino, BigInt(Number.MAX_SAFE_INTEGER - 1))
+      assert.strictEqual((yield* Effect.flip(fs.mkdir("/d/new"))).code, "NoSpace")
+      yield* fs.unlink("/d/f")
+      assert.strictEqual((yield* Effect.flip(fs.stat("/d/f"))).code, "NotFound")
+
+      assert.deepStrictEqual(
+        yield* Effect.map(
+          Effect.flip(Vfs.decodeSnapshot(tree(2, Number.MAX_SAFE_INTEGER), LIMITS)),
+          (error) => [error.code, error.field]
+        ),
+        ["InvalidStructure", "document"]
+      )
+    }))
+
+  it.effect("refuses directories whose parents form a cycle nothing reaches", () =>
+    Effect.gen(function*() {
+      const cycle = json({
+        format: "effect-vfs",
+        version: 1,
+        nodes: [
+          { _tag: "directory", ino: 1, parent: 1, name: "", metadata: METADATA },
+          { _tag: "directory", ino: 2, parent: 3, name: "YQ==", metadata: METADATA },
+          { _tag: "directory", ino: 3, parent: 2, name: "Yg==", metadata: METADATA }
+        ]
+      })
+
+      const error = yield* Effect.flip(Vfs.decodeSnapshot(cycle, LIMITS))
+      assert.deepStrictEqual([error.code, error.field], ["InvalidStructure", "nodes.1.parent"])
     }))
 })

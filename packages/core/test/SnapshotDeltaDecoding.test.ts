@@ -1,6 +1,6 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
-import { Effect, Schema } from "effect"
+import { Effect, Encoding, Schema } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
@@ -127,6 +127,11 @@ it.layer(BunCrypto.layer)("snapshot delta Schema codec", (it) => {
         { ...source, base: { ...source.base, digest: `${source.base.digest.slice(0, -2)}h==` } },
         { ...source, records: [{ ...firstRecord, paths: ["Lg=="] }, ...source.records.slice(1)] },
         { ...source, records: [firstRecord, { ...secondRecord, paths: ["Zg=="] }] },
+        // One byte past NAME_MAX, which the snapshot tree and fixtures refuse as well.
+        {
+          ...source,
+          records: [firstRecord, { ...secondRecord, paths: [Encoding.encodeBase64(`/${"a".repeat(256)}`)] }]
+        },
         { ...source, records: [firstRecord, { ...secondRecord, payload: { _tag: "Inline", bytes: "AQI" } }] }
       ]
 
