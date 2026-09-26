@@ -35,8 +35,7 @@ const program = Effect.scoped(
         maxClients: 4096,
         maxPendingClientReplacements: 64,
         maxSessions: 4096,
-        maxOpens: 8192,
-        maxFilehandles: 65_536
+        maxOpens: 8192
       }
     })
 

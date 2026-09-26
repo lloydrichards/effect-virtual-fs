@@ -115,8 +115,7 @@ const NfsServerLimitsSchema = Schema.Struct({
   maxWriteBytes: PositiveByteSize,
   maxReaddirEntries: PositiveSafeInteger,
   maxReaddirReplyBytes: PositiveByteSize,
-  maxNameBytes: NameByteSize,
-  maxFilehandles: PositiveSafeInteger
+  maxNameBytes: NameByteSize
 })
 
 /**
@@ -157,8 +156,7 @@ const constrained = makeNfsServerLimits({
   maxWriteBytes: ByteSize.kibibytes(64),
   maxReaddirEntries: 64,
   maxReaddirReplyBytes: ByteSize.kibibytes(64),
-  maxNameBytes: ByteSize.bytes(255),
-  maxFilehandles: 512
+  maxNameBytes: ByteSize.bytes(255)
 })
 
 const defaultLimits = makeNfsServerLimits({
@@ -189,8 +187,7 @@ const defaultLimits = makeNfsServerLimits({
   maxWriteBytes: ByteSize.mebibytes(1),
   maxReaddirEntries: 1_024,
   maxReaddirReplyBytes: ByteSize.mebibytes(1),
-  maxNameBytes: ByteSize.bytes(255),
-  maxFilehandles: 8_192
+  maxNameBytes: ByteSize.bytes(255)
 })
 
 /**
@@ -252,8 +249,7 @@ export const NfsServerLimitOverrides = Schema.Struct({
   maxReaddirReplyBytes: Schema.optionalKey(
     NfsServerLimits.fields.maxReaddirReplyBytes
   ),
-  maxNameBytes: Schema.optionalKey(NfsServerLimits.fields.maxNameBytes),
-  maxFilehandles: Schema.optionalKey(NfsServerLimits.fields.maxFilehandles)
+  maxNameBytes: Schema.optionalKey(NfsServerLimits.fields.maxNameBytes)
 })
 
 /**
@@ -666,9 +662,8 @@ const make = (
       Effect.mapError((cause) => new NfsServerError({ cause }))
     )
 
-    const identity = Result.getOrThrow(Encoding.decodeHex(options.volume.identity))
     const storageGeneration = Result.getOrThrow(Encoding.decodeHex(options.volume.incarnation))
-    const export_ = makeExport(options.caller ?? volumeCaller, storageGeneration, limits, identity, options.volume)
+    const export_ = makeExport(options.volume, options.caller ?? volumeCaller, limits)
     const callers = new Map<string, Vfs.Caller>()
     let writableIdentityKey: string | undefined
 

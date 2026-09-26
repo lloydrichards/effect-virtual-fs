@@ -326,8 +326,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
 
         const { handler, session } = yield* openSession(caller, "commit-storage-generation", {
           generation: serverGeneration,
-          storageGeneration,
-          export: { generation: storageGeneration }
+          storageGeneration
         })
 
         const response = yield* make.openReader(
@@ -387,7 +386,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
     Effect.gen(function*() {
       const caller = yield* Vfs.Caller
 
-      const export_ = exportFor(caller)
+      const export_ = yield* exportFor(caller)
 
       const handler = yield* handlerFor(export_)
 
@@ -960,7 +959,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const base = exportFor(caller)
+      const base = yield* exportFor(caller)
 
       let opens = 0
 
@@ -1005,7 +1004,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const base = exportFor(caller)
+      const base = yield* exportFor(caller)
 
       let opens = 0
 
@@ -1041,7 +1040,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const base = exportFor(caller)
+      const base = yield* exportFor(caller)
 
       let opens = 0
 
@@ -1087,7 +1086,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const base = exportFor(caller)
+      const base = yield* exportFor(caller)
 
       let opens = 0
 
@@ -1588,7 +1587,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const base = exportFor(caller)
+      const base = yield* exportFor(caller)
 
       let opens = 0
 
@@ -1831,7 +1830,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const export_ = exportFor(caller)
+      const export_ = yield* exportFor(caller)
 
       const root = yield* caller.root
       const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
@@ -1921,7 +1920,8 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(yield* browseResponse.read(XdrCodec.uint32), Status.OK)
       assert.deepStrictEqual(yield* browseResponse.read(XdrCodec.array(XdrCodec.uint32)), [7])
       const attributeValues = yield* make.openReader(yield* browseResponse.read(XdrCodec.opaque()), limits)
-      assert.deepStrictEqual(yield* attributeValues.read(XdrCodec.array(XdrCodec.uint32)), [3826978815, 12099646, 6144])
+      // Every export reports its volume's maxfilesize (27); an unbounded volume adds no other capacity attribute.
+      assert.deepStrictEqual(yield* attributeValues.read(XdrCodec.array(XdrCodec.uint32)), [3961196543, 12099646, 6144])
       assert.strictEqual(yield* attributeValues.read(XdrCodec.uint32), 2)
       assert.strictEqual(yield* attributeValues.read(XdrCodec.uint32), 0x3)
       yield* attributeValues.finish
@@ -2024,7 +2024,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       const root = yield* caller.root
       const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
 
-      const export_ = exportFor(caller)
+      const export_ = yield* exportFor(caller)
 
       const filehandle = yield* export_.handleFor(reference)
 
@@ -2083,7 +2083,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         Status.OK
       )
     }).pipe(Effect.provide(Testing.layer())))
-  it.effect("lists entries without allocating filehandles when no attributes are requested", () =>
+  it.effect("lists entries without encoding filehandles when no attributes are requested", () =>
     Effect.gen(function*() {
       const caller = yield* Vfs.Caller
       yield* caller.writeFile("/a", new Uint8Array([1]), {
@@ -2095,9 +2095,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const { handler, session } = yield* openSession(caller, "attribute-free-readdir", {
-        export: { limits: { maxFilehandles: 1 } }
-      })
+      const { handler, session } = yield* openSession(caller, "attribute-free-readdir")
 
       const response = yield* handler.compound(
         yield* call([
@@ -2235,8 +2233,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       }
 
       const { handler, session } = yield* openSession(caller, "record-page", {
-        limits: constrained,
-        export: { limits: { maxFilehandles: 128 } }
+        limits: constrained
       })
 
       const readPage = (sequenceId: number, cookie: bigint, verifier: Uint8Array) =>
@@ -2785,7 +2782,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const base = exportFor(caller)
+      const base = yield* exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
@@ -3039,7 +3036,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         gid: 20
       })
 
-      const export_ = exportFor(caller)
+      const export_ = yield* exportFor(caller)
 
       const root = yield* caller.root
       const reference = yield* caller.lookup(Vfs.Entry(root, new TextEncoder().encode("file")))
@@ -3097,7 +3094,12 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       assert.strictEqual(yield* response.read(XdrCodec.uint32), Status.OK)
       assert.deepStrictEqual(yield* response.read(XdrCodec.array(XdrCodec.uint32)), requested)
       const values = yield* make.openReader(yield* response.read(XdrCodec.opaque()), limits)
-      assert.deepStrictEqual(yield* values.read(XdrCodec.array(XdrCodec.uint32)), requested)
+      // The supported set adds maxfilesize (27), which this request leaves out.
+      assert.deepStrictEqual(yield* values.read(XdrCodec.array(XdrCodec.uint32)), [
+        3_961_196_543,
+        12_099_646,
+        6_144
+      ])
       assert.strictEqual(yield* values.read(XdrCodec.uint32), 1)
       assert.strictEqual(yield* values.read(XdrCodec.uint32), 0x3)
       assert.strictEqual(yield* values.read(XdrCodec.uint64), observation.revision)
@@ -3158,8 +3160,6 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
     }).pipe(Effect.provide(Testing.layer())))
   it.effect("reports bounded volume capacity and omits unbounded totals", () =>
     Effect.gen(function*() {
-      const bounded = yield* Vfs.Volume
-
       const caller = yield* Vfs.Caller
       yield* caller.mkdir("/dir")
       yield* caller.writeFile("/file", new Uint8Array([1, 2, 3]), {
@@ -3167,7 +3167,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const export_ = exportFor(caller, { capacity: bounded })
+      const export_ = yield* exportFor(caller)
 
       const handler = yield* handlerFor(export_)
 
@@ -3229,7 +3229,9 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
       const unlimited = yield* Vfs.make()
       const unlimitedCaller = yield* unlimited.caller()
 
-      const unlimitedHandler = yield* makeHandler(unlimitedCaller, { export: { capacity: unlimited } })
+      const unlimitedHandler = yield* makeHandler(unlimitedCaller).pipe(
+        Effect.provideService(Vfs.Volume, unlimited)
+      )
 
       const unlimitedSession = yield* startSession(unlimitedHandler, "unbounded-capacity")
 
@@ -3707,7 +3709,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const base = exportFor(caller)
+      const base = yield* exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
@@ -3781,7 +3783,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const base = exportFor(caller)
+      const base = yield* exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
@@ -3853,7 +3855,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const base = exportFor(caller)
+      const base = yield* exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
@@ -3909,7 +3911,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const base = exportFor(caller)
+      const base = yield* exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()
@@ -3989,7 +3991,7 @@ it.layer(NodeCrypto.layer)("NFSv4.1 COMPOUND", (it) => {
         create: "exclusive"
       })
 
-      const base = exportFor(caller)
+      const base = yield* exportFor(caller)
 
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()

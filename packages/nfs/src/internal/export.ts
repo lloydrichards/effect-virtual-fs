@@ -2,20 +2,41 @@ import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import * as Encoding from "effect/Encoding"
 import * as Exit from "effect/Exit"
 import * as Result from "effect/Result"
 import * as Scope from "effect/Scope"
-import * as Semaphore from "effect/Semaphore"
 
-const HANDLE_VERSION = 1
+// Version 1 handles carried a per-process serial; version 2 carries the object's reference key.
+const HANDLE_VERSION = 2
 
-const HANDLE_BYTES = 25
+// A reference key's identity, epoch and tag, each 16 bytes.
+const KEY_PART_BYTES = 16
+
+const IDENTITY_OFFSET = 1
+
+const EPOCH_OFFSET = IDENTITY_OFFSET + KEY_PART_BYTES
+
+const INO_OFFSET = EPOCH_OFFSET + KEY_PART_BYTES
+
+const TAG_OFFSET = INO_OFFSET + 8
+
+// version | identity | epoch | ino | tag: 57 bytes, within NFS4_FHSIZE (128). The tag is what keeps a client that
+// holds one handle from writing another by changing its inode number.
+const HANDLE_BYTES = TAG_OFFSET + KEY_PART_BYTES
 
 /** @internal */
 export interface ExportLimits {
-  readonly maxFilehandles: number
   readonly maxNameBytes: ByteSize.ByteSize
 }
+
+// What the export needs of its volume: the identity behind the fsid, the durability, reference keys, and the
+// limits and usage behind the capacity attributes.
+/** @internal */
+export type ExportVolume = Pick<
+  Vfs.Volume,
+  "identity" | "durability" | "referenceKey" | "resolveReferenceKey" | "limits" | "usage"
+>
 
 /** @internal */
 export interface OpenedFile {
@@ -25,12 +46,14 @@ export interface OpenedFile {
 
 /** @internal */
 export interface NfsExport {
-  readonly capacity: Pick<Vfs.Volume, "limits" | "usage"> | undefined
-  /** Selects a caller for one compound while retaining the export's filehandle registry. */
+  readonly capacity: Pick<Vfs.Volume, "limits" | "usage">
+  /** Whether filehandles outlive the server: the volume's committed state survives at least a process crash. */
+  readonly persistentHandles: boolean
+  /** Selects a caller for one compound; filehandles belong to the volume, not the caller. */
   readonly withCaller: (caller: Vfs.Caller) => NfsExport
   readonly root: Effect.Effect<Vfs.ObjectReference, Vfs.VfsError>
-  readonly handleFor: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, ExportCapacityError>
-  readonly resolve: (handle: Uint8Array) => Effect.Effect<Vfs.ObjectReference, InvalidFilehandleError>
+  readonly handleFor: (reference: Vfs.ObjectReference) => Effect.Effect<Uint8Array, Vfs.VfsError>
+  readonly resolve: (handle: Uint8Array) => Effect.Effect<Vfs.ObjectReference, InvalidFilehandleError | Vfs.VfsError>
   readonly observeMetadata: (
     reference: Vfs.ObjectReference
   ) => Effect.Effect<Vfs.ObjectObservation<Vfs.Metadata>, Vfs.VfsError>
@@ -47,13 +70,13 @@ export interface NfsExport {
     directory: Vfs.ObjectReference,
     name: Uint8Array,
     settings?: Vfs.MkdirOptions
-  ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.VfsError | InvalidNameError | ExportCapacityError>
+  ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.VfsError | InvalidNameError>
   readonly symlink: (
     target: Vfs.PathInput,
     directory: Vfs.ObjectReference,
     name: Uint8Array,
     settings?: Vfs.SymlinkOptions
-  ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.VfsError | InvalidNameError | ExportCapacityError>
+  ) => Effect.Effect<Vfs.ReferenceEntryResult, Vfs.VfsError | InvalidNameError>
   readonly link: (
     source: Vfs.ObjectReference,
     directory: Vfs.ObjectReference,
@@ -90,24 +113,23 @@ export interface NfsExport {
     settings: Vfs.OpenEntryOptions
   ) => Effect.Effect<
     Vfs.OpenEntryResult & { readonly close: Effect.Effect<void> },
-    Vfs.VfsError | InvalidNameError | ExportCapacityError,
+    Vfs.VfsError | InvalidNameError,
     Scope.Scope
   >
   readonly fsid: readonly [bigint, bigint]
 }
 
+// Why a filehandle names nothing, where the volume's own failure does not say it: its bytes are not a handle this
+// export issued, or it belongs to another volume or epoch, which expires a volatile handle and leaves a persistent
+// one stale. Every other failure, such as a gone object or a busy volume, stays the volume's error.
 /** @internal */
-export class ExportCapacityError extends Data.TaggedError("ExportCapacityError")<{ readonly detail: string }> {
-  constructor(message: string) {
-    super({ detail: message })
-  }
-}
+export type InvalidFilehandleReason = "Malformed" | "Expired" | "Stale"
 
 /** @internal */
 export class InvalidFilehandleError extends Data.TaggedError("InvalidFilehandleError")<{
-  readonly reason: "Malformed" | "WrongGeneration" | "Stale" | "Unknown" | "Unavailable"
+  readonly reason: InvalidFilehandleReason
 }> {
-  constructor(reason: "Malformed" | "WrongGeneration" | "Stale" | "Unknown" | "Unavailable") {
+  constructor(reason: InvalidFilehandleReason) {
     super({ reason })
   }
 }
@@ -136,10 +158,6 @@ const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
   for (let index = 0; index < left.length; index++) difference |= left[index]! ^ right[index]!
 
   return difference === 0
-}
-
-const validateGeneration = (generation: Uint8Array): void => {
-  if (generation.length !== 16) throw new RangeError("generation must contain exactly 16 bytes")
 }
 
 const decodeUtf8 = (bytes: Uint8Array): string => {
@@ -178,91 +196,48 @@ const uint64From = (bytes: Uint8Array, offset: number): bigint =>
   new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(offset)
 
 /** @internal */
-export const makeExport = (
-  caller: Vfs.Caller,
-  generation: Uint8Array,
-  limits: ExportLimits,
-  identity: Uint8Array = generation,
-  capacity?: Pick<Vfs.Volume, "limits" | "usage">
-): NfsExport => {
-  validateGeneration(generation)
-  validateGeneration(identity)
-  assertPositiveInteger("maxFilehandles", limits.maxFilehandles)
+export const makeExport = (volume: ExportVolume, caller: Vfs.Caller, limits: ExportLimits): NfsExport => {
   assertPositiveInteger("maxNameBytes", ByteSize.toNumberUnsafe(limits.maxNameBytes))
 
-  const generationCopy = new Uint8Array(generation)
-  const identityCopy = new Uint8Array(identity)
-  const referencesById = new Map<bigint, Vfs.ObjectReference>()
-  const idsByReference = new WeakMap<object, bigint>()
-  const registryGate = Semaphore.makeUnsafe(1)
-  let nextId = 1n
+  const identity = Result.getOrThrow(Encoding.decodeHex(volume.identity))
+  const persistentHandles = Vfs.isVolumeDurabilityAtLeast(volume.durability, "survives-process-crash")
 
-  const admitHandle = Effect.gen(function*() {
-    if (referencesById.size >= limits.maxFilehandles) {
-      for (const [candidateId, candidate] of referencesById) {
-        const result = yield* Effect.result(caller.stat(candidate))
+  const handleFor = (reference: Vfs.ObjectReference): Effect.Effect<Uint8Array, Vfs.VfsError> =>
+    Effect.map(volume.referenceKey(reference), (key) => {
+      const bytes = new Uint8Array(HANDLE_BYTES)
+      bytes[0] = HANDLE_VERSION
+      bytes.set(key.identity, IDENTITY_OFFSET)
+      bytes.set(key.epoch, EPOCH_OFFSET)
+      new DataView(bytes.buffer).setBigUint64(INO_OFFSET, key.ino)
+      bytes.set(key.tag, TAG_OFFSET)
 
-        if (Result.isFailure(result) && result.failure.code === "StaleReference") {
-          referencesById.delete(candidateId)
-          // SAFETY: ObjectReference values are opaque object identities created by the core volume.
-          idsByReference.delete(candidate)
-        }
-      }
+      return bytes
+    })
 
-      if (referencesById.size >= limits.maxFilehandles) {
-        return yield* new ExportCapacityError("Filehandle registry is full")
-      }
-    }
-  })
+  // A key the volume did not mint, a forged tag included, is not a handle. One from another volume or epoch expires
+  // when handles are volatile (RFC 8881 Section 4.2.3); a persistent handle that names nothing is stale (Section
+  // 4.2.2), like one whose object is gone.
+  const filehandleFailure = (error: Vfs.VfsError): InvalidFilehandleError | Vfs.VfsError =>
+    error.code === "InvalidReference"
+      ? new InvalidFilehandleError("Malformed")
+      : error.code === "ForeignReference"
+      ? new InvalidFilehandleError(persistentHandles ? "Stale" : "Expired")
+      : error
 
-  const registerHandle = (reference: Vfs.ObjectReference): Uint8Array => {
-    // SAFETY: ObjectReference values are opaque object identities created by the core volume.
-    let id = idsByReference.get(reference)
-
-    if (id === undefined) {
-      id = nextId++
-      // SAFETY: ObjectReference values are opaque object identities created by the core volume.
-      idsByReference.set(reference, id)
-      referencesById.set(id, reference)
-    }
-
-    const bytes = new Uint8Array(HANDLE_BYTES)
-    bytes[0] = HANDLE_VERSION
-    bytes.set(generationCopy, 1)
-    new DataView(bytes.buffer).setBigUint64(17, id)
-
-    return bytes
-  }
-
-  const handleFor = (reference: Vfs.ObjectReference): Effect.Effect<Uint8Array, ExportCapacityError> =>
-    registryGate.withPermit(Effect.gen(function*() {
-      if (!idsByReference.has(reference)) yield* admitHandle
-
-      return registerHandle(reference)
-    }))
-
-  const resolve = (handle: Uint8Array): Effect.Effect<Vfs.ObjectReference, InvalidFilehandleError> =>
+  const resolve = (handle: Uint8Array): Effect.Effect<Vfs.ObjectReference, InvalidFilehandleError | Vfs.VfsError> =>
     Effect.suspend(() => {
       if (handle.length !== HANDLE_BYTES || handle[0] !== HANDLE_VERSION) {
         return Effect.fail(new InvalidFilehandleError("Malformed"))
       }
 
-      if (!sameBytes(handle.subarray(1, 17), generationCopy)) {
-        return Effect.fail(new InvalidFilehandleError("WrongGeneration"))
+      const key = {
+        identity: handle.slice(IDENTITY_OFFSET, EPOCH_OFFSET),
+        epoch: handle.slice(EPOCH_OFFSET, INO_OFFSET),
+        ino: uint64From(handle, INO_OFFSET),
+        tag: handle.slice(TAG_OFFSET, HANDLE_BYTES)
       }
 
-      const reference = referencesById.get(uint64From(handle, 17))
-
-      if (reference === undefined) return Effect.fail(new InvalidFilehandleError("Unknown"))
-
-      return caller.stat(reference).pipe(
-        Effect.as(reference),
-        Effect.mapError((error) =>
-          new InvalidFilehandleError(
-            error.code === "StaleReference" ? "Stale" : error.code === "VolumeUnavailable" ? "Unavailable" : "Unknown"
-          )
-        )
-      )
+      return volume.resolveReferenceKey(key).pipe(Effect.mapError(filehandleFailure))
     })
 
   const open = (
@@ -292,7 +267,8 @@ export const makeExport = (
     )
 
   const withCaller = (activeCaller: Vfs.Caller): NfsExport => ({
-    capacity,
+    capacity: volume,
+    persistentHandles,
     withCaller,
     root: activeCaller.root,
     handleFor,
@@ -314,7 +290,7 @@ export const makeExport = (
     parent: (directory) => activeCaller.parent(directory),
     readLink: (reference) => activeCaller.readLink(reference),
     mkdir: (directory, name, settings) =>
-      registryGate.withPermit(Effect.gen(function*() {
+      Effect.gen(function*() {
         yield* Effect.try({
           try: () => validateName(name, limits.maxNameBytes),
           catch: (error) => {
@@ -322,14 +298,11 @@ export const makeExport = (
             throw error
           }
         })
-        yield* admitHandle
-        const result = yield* activeCaller.mkdir(Vfs.Entry(directory, name), settings)
-        registerHandle(result.reference)
 
-        return result
-      })),
+        return yield* activeCaller.mkdir(Vfs.Entry(directory, name), settings)
+      }),
     symlink: (target, directory, name, settings) =>
-      registryGate.withPermit(Effect.gen(function*() {
+      Effect.gen(function*() {
         yield* Effect.try({
           try: () => validateName(name, limits.maxNameBytes),
           catch: (error) => {
@@ -337,12 +310,9 @@ export const makeExport = (
             throw error
           }
         })
-        yield* admitHandle
-        const result = yield* activeCaller.symlink(target, Vfs.Entry(directory, name), settings)
-        registerHandle(result.reference)
 
-        return result
-      })),
+        return yield* activeCaller.symlink(target, Vfs.Entry(directory, name), settings)
+      }),
     link: (source, directory, name) => activeCaller.link(source, Vfs.Entry(directory, name)),
     remove: (directory, name) => activeCaller.remove(Vfs.Entry(directory, name)),
     rename: (sourceDirectory, sourceName, destinationDirectory, destinationName) =>
@@ -351,38 +321,31 @@ export const makeExport = (
     access: (reference, bits) => activeCaller.access(reference, bits),
     open: (reference, access) => open(activeCaller, reference, access),
     openChild: (directory, name, settings) =>
-      registryGate.withPermit(
-        Effect.uninterruptibleMask((restore) =>
-          Effect.gen(function*() {
-            yield* Effect.try({
-              try: () => validateName(name, limits.maxNameBytes),
-              catch: (error) => {
-                if (error instanceof InvalidNameError) return error
-                throw error
-              }
-            })
-            const expected = settings.expectedChild
-
-            if (expected == null || !idsByReference.has(expected.reference)) yield* restore(admitHandle)
-            const scope = yield* Scope.fork(yield* Effect.scope)
-
-            const opened = yield* Effect.exit(restore(
-              activeCaller.open(Vfs.Entry(directory, name), settings).pipe(Effect.provideService(Scope.Scope, scope))
-            ))
-
-            if (Exit.isFailure(opened)) {
-              yield* Scope.close(scope, opened)
-
-              return yield* Effect.failCause(opened.cause)
+      Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function*() {
+          yield* Effect.try({
+            try: () => validateName(name, limits.maxNameBytes),
+            catch: (error) => {
+              if (error instanceof InvalidNameError) return error
+              throw error
             }
-
-            registerHandle(opened.value.reference)
-
-            return { ...opened.value, close: Scope.close(scope, Exit.void).pipe(Effect.orDie) }
           })
-        )
+          const scope = yield* Scope.fork(yield* Effect.scope)
+
+          const opened = yield* Effect.exit(restore(
+            activeCaller.open(Vfs.Entry(directory, name), settings).pipe(Effect.provideService(Scope.Scope, scope))
+          ))
+
+          if (Exit.isFailure(opened)) {
+            yield* Scope.close(scope, opened)
+
+            return yield* Effect.failCause(opened.cause)
+          }
+
+          return { ...opened.value, close: Scope.close(scope, Exit.void).pipe(Effect.orDie) }
+        })
       ),
-    fsid: [uint64From(identityCopy, 0), uint64From(identityCopy, 8)]
+    fsid: [uint64From(identity, 0), uint64From(identity, 8)]
   })
 
   return withCaller(caller)

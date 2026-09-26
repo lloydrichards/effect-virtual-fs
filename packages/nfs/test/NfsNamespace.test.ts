@@ -111,8 +111,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
       const caller = yield* Vfs.Caller
 
       const { handler, session } = yield* openSession(caller, "namespace-create", {
-        writable: true,
-        export: { limits: { maxFilehandles: 32 } }
+        writable: true
       })
 
       const response = yield* make.openReader(
@@ -180,8 +179,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
       const original = yield* caller.stat("/from/file")
 
       const { handler, session } = yield* openSession(caller, "namespace-move", {
-        writable: true,
-        export: { limits: { maxFilehandles: 32 } }
+        writable: true
       })
 
       assert.strictEqual(
@@ -224,8 +222,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
       const caller = yield* Vfs.Caller
 
       const { handler, session } = yield* openSession(caller, "namespace-partial", {
-        writable: true,
-        export: { limits: { maxFilehandles: 32 } }
+        writable: true
       })
 
       const reply = yield* handler.compound(
@@ -255,8 +252,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
       const toReference = yield* caller.lookup(Vfs.Entry(rootReference, new TextEncoder().encode("to")))
 
       const { handler, session } = yield* openSession(caller, "namespace-change", {
-        writable: true,
-        export: { limits: { maxFilehandles: 32 } }
+        writable: true
       })
 
       const beforeLink = (yield* caller.stat(toReference)).revision
@@ -333,7 +329,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         access: "write",
         create: "exclusive"
       })
-      const writable = yield* makeHandler(caller, { writable: true, export: { limits: { maxFilehandles: 32 } } })
+      const writable = yield* makeHandler(caller, { writable: true })
 
       const {
         session
@@ -359,7 +355,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         yield* status(yield* writable.compound(yield* call([sequence(session, 5), root, rename("file", "other")]))),
         Status.NOFILEHANDLE
       )
-      const readOnly = yield* makeHandler(caller, { writable: false, export: { limits: { maxFilehandles: 32 } } })
+      const readOnly = yield* makeHandler(caller, { writable: false })
 
       const {
         session: readOnlySession
@@ -396,8 +392,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
 
       const { handler, session } = yield* openSession(admin, "namespace-mapped-denial", {
         writable: true,
-        callerFor: () => Effect.succeed(guest),
-        export: { limits: { maxFilehandles: 32 } }
+        callerFor: () => Effect.succeed(guest)
       })
 
       assert.strictEqual(
@@ -436,8 +431,7 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
 
       const { handler, session } = yield* openSession(admin, "namespace-sticky-denial", {
         writable: true,
-        callerFor: () => Effect.succeed(guest),
-        export: { limits: { maxFilehandles: 32 } }
+        callerFor: () => Effect.succeed(guest)
       })
 
       assert.deepStrictEqual(
@@ -492,9 +486,8 @@ it.layer(NodeCrypto.layer)("NFS namespace mutations", (it) => {
         const caller = yield* volume.caller()
 
         const { handler, session } = yield* openSession(caller, "namespace-live-before", {
-          writable: true,
-          export: { limits: { maxFilehandles: 32 }, capacity: volume }
-        })
+          writable: true
+        }).pipe(Effect.provideService(Vfs.Volume, volume))
 
         assert.strictEqual(
           yield* status(yield* handler.compound(yield* call([sequence(session, 1), root, createDirectory("docs")]))),

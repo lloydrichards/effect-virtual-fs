@@ -112,11 +112,9 @@ const createInfo = (bytes: Uint8Array) =>
 it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
   it.effect("creates an exact regular file, replays once, and guards an existing name", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.Volume
-
       const caller = yield* Vfs.Caller
 
-      const export_ = exportFor(caller, { capacity: volume })
+      const export_ = yield* exportFor(caller)
 
       const handler = yield* handlerFor(export_, { writable: true })
 
@@ -190,9 +188,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       })
 
       const { handler, client, session } = yield* openSession(caller, "existing", {
-        writable: true,
-        export: { capacity: volume }
-      })
+        writable: true
+      }).pipe(Effect.provideService(Vfs.Volume, volume))
 
       const reply = yield* handler.compound(
         yield* call([
@@ -222,9 +219,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       })
 
       const { handler, client, session } = yield* openSession(caller, "ignored-attrs", {
-        writable: true,
-        export: { capacity: volume }
-      })
+        writable: true
+      }).pipe(Effect.provideService(Vfs.Volume, volume))
 
       yield* parseOpen(
         yield* handler.compound(
@@ -266,9 +262,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       const caller = yield* Vfs.Caller
 
       const { handler, client, session } = yield* openSession(caller, "mode", {
-        writable: true,
-        export: { capacity: volume }
-      })
+        writable: true
+      }).pipe(Effect.provideService(Vfs.Volume, volume))
 
       yield* parseOpen(
         yield* handler.compound(
@@ -301,9 +296,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       const caller = yield* Vfs.Caller
 
       const { handler, client, session } = yield* openSession(caller, "initial-size", {
-        writable: true,
-        export: { capacity: volume }
-      })
+        writable: true
+      }).pipe(Effect.provideService(Vfs.Volume, volume))
 
       yield* parseOpen(
         yield* handler.compound(
@@ -335,9 +329,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       yield* caller.symlink("target", "/link")
 
       const { handler, client, session } = yield* openSession(caller, "symlink", {
-        writable: true,
-        export: { capacity: volume }
-      })
+        writable: true
+      }).pipe(Effect.provideService(Vfs.Volume, volume))
 
       const reply = yield* handler.compound(
         yield* call([
@@ -360,9 +353,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       })
 
       const { handler, client, session } = yield* openSession(caller, "conflict", {
-        writable: true,
-        export: { capacity: volume }
-      })
+        writable: true
+      }).pipe(Effect.provideService(Vfs.Volume, volume))
 
       yield* parseOpen(
         yield* handler.compound(
@@ -392,9 +384,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       const caller = yield* Vfs.Caller
 
       const { handler, client, session } = yield* openSession(caller, "upgrade", {
-        writable: true,
-        export: { capacity: volume }
-      })
+        writable: true
+      }).pipe(Effect.provideService(Vfs.Volume, volume))
 
       const first = yield* parseOpen(
         yield* handler.compound(
@@ -424,14 +415,13 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
     }).pipe(Effect.provide(Testing.layer())))
   it.effect("rejects a replaced child before truncation or an extra open reservation", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.Volume
       const caller = yield* Vfs.Caller
       yield* caller.writeFile("/victim", new Uint8Array([1]), {
         access: "write",
         create: "exclusive"
       })
 
-      const base = exportFor(caller, { capacity: volume })
+      const base = yield* exportFor(caller)
 
       let replace = false
 
@@ -488,66 +478,6 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       assert.strictEqual(yield* statusOf(reply), Status.DELAY)
       assert.deepStrictEqual(yield* caller.readFile("/victim"), new Uint8Array([7]))
     }).pipe(Effect.provide(Testing.layer())))
-  it.effect("does not publish a file when the filehandle budget is full", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.Volume
-      const caller = yield* Vfs.Caller
-
-      const export_ = exportFor(caller, { limits: { maxFilehandles: 1 }, capacity: volume })
-
-      yield* export_.handleFor(yield* caller.root)
-
-      const handler = yield* handlerFor(export_, { writable: true })
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "capacity")
-
-      const reply = yield* handler.compound(
-        yield* call([
-          sequence(session, 1),
-          (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
-          create(client, "no-room")
-        ])
-      )
-
-      assert.strictEqual(yield* statusOf(reply), Status.DELAY)
-      assert.strictEqual(Result.isFailure(yield* Effect.result(caller.stat("/no-room"))), true)
-    }).pipe(Effect.provide(Testing.layer())))
-  it.effect("reuses a registered filehandle when the registry is full", () =>
-    Effect.gen(function*() {
-      const volume = yield* Vfs.Volume
-      const caller = yield* Vfs.Caller
-      yield* caller.writeFile("/old", new Uint8Array([1]), {
-        access: "write",
-        create: "exclusive"
-      })
-
-      const export_ = exportFor(caller, { limits: { maxFilehandles: 2 }, capacity: volume })
-
-      yield* export_.handleFor(yield* caller.root)
-      const old = yield* caller.lookup(Vfs.Entry(yield* caller.root, new TextEncoder().encode("old")))
-      yield* export_.handleFor(old)
-
-      const handler = yield* handlerFor(export_, { writable: true })
-
-      const {
-        client,
-        session
-      } = yield* startSession(handler, "reused-handle")
-
-      yield* parseOpen(
-        yield* handler.compound(
-          yield* call([
-            sequence(session, 1),
-            (writer) => writer.write(XdrCodec.uint32, Operation.PUTROOTFH),
-            create(client, "old"),
-            (writer) => writer.write(XdrCodec.uint32, Operation.GETFH)
-          ])
-        )
-      )
-    }).pipe(Effect.provide(Testing.layer())))
   it.effect("does not publish a file when its requested size exceeds the core limit", () =>
     Effect.gen(function*() {
       const volume = yield* Vfs.Volume
@@ -555,9 +485,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       const caller = yield* Vfs.Caller
 
       const { handler, client, session } = yield* openSession(caller, "too-large", {
-        writable: true,
-        export: { capacity: volume }
-      })
+        writable: true
+      }).pipe(Effect.provideService(Vfs.Volume, volume))
 
       const reply = yield* handler.compound(
         yield* call([
@@ -572,7 +501,6 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
     }).pipe(Effect.provide(Testing.layer({ volume: { maxFileBytes: ByteSize.bytes(2) } }))))
   it.effect("uses the mapped caller's directory permission", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.Volume
       const admin = yield* Vfs.Caller
 
       const guest = yield* Testing.callerAs({
@@ -584,8 +512,7 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       const { handler, client, session } = yield* openSession(admin, "guest", {
         writable: true,
-        callerFor: () => Effect.succeed(guest),
-        export: { capacity: volume }
+        callerFor: () => Effect.succeed(guest)
       })
 
       const reply = yield* handler.compound(
@@ -601,7 +528,6 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
     }).pipe(Effect.provide(Testing.layer())))
   it.effect("refuses a create that names another owner for an unprivileged caller as not permitted", () =>
     Effect.gen(function*() {
-      const volume = yield* Vfs.Volume
       const admin = yield* Vfs.Caller
       yield* admin.chmod(yield* admin.root, 0o777)
 
@@ -614,8 +540,7 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
 
       const { handler, client, session } = yield* openSession(admin, "guest-owner", {
         writable: true,
-        callerFor: () => Effect.succeed(guest),
-        export: { capacity: volume }
+        callerFor: () => Effect.succeed(guest)
       })
 
       const foreign = yield* handler.compound(
@@ -674,9 +599,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
         const caller = yield* volume.caller()
 
         const { handler, client, session } = yield* openSession(caller, "store", {
-          writable: true,
-          export: { capacity: volume }
-        })
+          writable: true
+        }).pipe(Effect.provideService(Vfs.Volume, volume))
 
         reject = true
 
@@ -747,9 +671,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
       const caller = yield* volume.caller()
 
       const { handler, client, session } = yield* openSession(caller, "unknown", {
-        writable: true,
-        export: { capacity: volume }
-      })
+        writable: true
+      }).pipe(Effect.provideService(Vfs.Volume, volume))
 
       unknown = true
 
@@ -799,9 +722,8 @@ it.layer(NodeCrypto.layer)("writable OPEN creation", (it) => {
         const caller = yield* volume.caller()
 
         const { handler, client, session } = yield* openSession(caller, "interrupted", {
-          writable: true,
-          export: { capacity: volume }
-        })
+          writable: true
+        }).pipe(Effect.provideService(Vfs.Volume, volume))
 
         hold = true
 

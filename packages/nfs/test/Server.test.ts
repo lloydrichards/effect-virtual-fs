@@ -78,8 +78,7 @@ const limits: NfsServerLimits = {
   maxWriteBytes: ByteSize.bytes(1_024),
   maxReaddirEntries: 64,
   maxReaddirReplyBytes: ByteSize.bytes(2_048),
-  maxNameBytes: ByteSize.bytes(255),
-  maxFilehandles: 128
+  maxNameBytes: ByteSize.bytes(255)
 }
 
 const writeWords = (writer: EncoderSession, values: ReadonlyArray<number>) =>

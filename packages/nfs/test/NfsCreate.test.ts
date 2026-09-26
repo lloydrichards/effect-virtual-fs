@@ -147,7 +147,6 @@ const readCreate = (bytes: Uint8Array) =>
 
 const server = (caller: Vfs.Caller, volume: Vfs.Volume, options: {
   readonly maxOpens?: number
-  readonly maxFilehandles?: number
   readonly writable?: boolean
   readonly mapped?: Vfs.Caller
 } = {}) =>
@@ -157,9 +156,8 @@ const server = (caller: Vfs.Caller, volume: Vfs.Volume, options: {
       maxOpens: options.maxOpens ?? limits.maxOpens
     },
     writable: options.writable ?? true,
-    callerFor: () => Effect.succeed(options.mapped ?? caller),
-    export: { limits: { maxFilehandles: options.maxFilehandles ?? 16 }, capacity: volume }
-  })
+    callerFor: () => Effect.succeed(options.mapped ?? caller)
+  }).pipe(Effect.provideService(Vfs.Volume, volume))
 
 const setup = Effect.fnUntraced(function*(options: Parameters<typeof server>[2] = {}) {
   const volume = yield* Vfs.Volume
@@ -627,47 +625,6 @@ it.layer(NodeCrypto.layer)("NFS OPEN creation", (it) => {
         yield* responseStatus(
           yield* handler.compound(
             yield* createCall(client, session, 3, "file", 0, [[4, (writer) => writer.write(XdrCodec.uint64, 0n)]])
-          )
-        ),
-        Status.DELAY
-      )
-      assert.strictEqual((yield* Effect.flip(caller.stat("/new"))).code, "NotFound")
-      assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array([4]))
-    }).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } }))))
-  it.effect("exhausted filehandle capacity cannot create or truncate", () =>
-    Effect.gen(function*() {
-      const {
-        caller,
-        handler,
-        client,
-        session
-      } = yield* setup({
-        maxFilehandles: 1
-      })
-
-      yield* caller.writeFile("/file", new Uint8Array([4]), {
-        access: "write",
-        create: "exclusive"
-      })
-      assert.strictEqual(
-        yield* responseStatus(
-          yield* handler.compound(
-            yield* call([sequence(session, 1), (writer) =>
-              writer.write(XdrCodec.uint32, Operation.PUTROOTFH), (writer) =>
-              writer.write(XdrCodec.uint32, Operation.GETFH)])
-          )
-        ),
-        Status.OK
-      )
-      assert.strictEqual(
-        yield* responseStatus(yield* handler.compound(yield* createCall(client, session, 2, "new"))),
-        Status.DELAY
-      )
-      assert.strictEqual(
-        yield* responseStatus(
-          yield* handler.compound(
-            yield* createCall(client, session, 3, "file", 0, [[4, (writer) =>
-              writer.write(XdrCodec.uint64, 0n)]])
           )
         ),
         Status.DELAY
