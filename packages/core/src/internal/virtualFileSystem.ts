@@ -84,6 +84,7 @@ import {
   isWellFormed,
   joinPath,
   MAX_NAME_BYTES,
+  MAX_SYMLINK_TRAVERSALS,
   nameBytes,
   ownedPath,
   type PreparedPath,
@@ -1694,7 +1695,7 @@ export const makeVolume = Effect.fnUntraced(
               return yield* pathOp.fail("NotFound")
             }
 
-            if (++traversals > 40) {
+            if (++traversals > MAX_SYMLINK_TRAVERSALS) {
               return yield* pathOp.fail("SymlinkLoop")
             }
 

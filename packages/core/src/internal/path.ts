@@ -29,6 +29,10 @@ export const DOT_BYTE = 46
 /** @internal */
 export const NUL_BYTE = 0
 
+// Linux's MAXSYMLINKS: the symbolic links one resolution follows before it reports a loop.
+/** @internal */
+export const MAX_SYMLINK_TRAVERSALS = 40
+
 // POSIX NAME_MAX: the longest single path component.
 /** @internal */
 export const MAX_NAME_BYTES = 255
