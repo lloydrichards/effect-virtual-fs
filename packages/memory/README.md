@@ -10,6 +10,7 @@ underlying state and permissions come from `@effect-vfs/core`.
 
 ```sh
 npm install @effect-vfs/memory@latest
+npm install "@effect/platform-bun@$(npm view @effect-vfs/memory peerDependencies.effect)"
 ```
 
 The binding and snapshot examples below import `@effect-vfs/core` directly. Add it as a direct dependency when using
@@ -29,6 +30,7 @@ This complete program creates a small build artifact without writing to disk:
 
 ```ts
 import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Effect, FileSystem } from "effect"
 
 const buildManifest = Effect.gen(function*() {
@@ -44,14 +46,14 @@ const buildManifest = Effect.gen(function*() {
 })
 
 const manifest = await Effect.runPromise(
-  buildManifest.pipe(Effect.provide(MemoryFileSystem.layer))
+  buildManifest.pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(BunCrypto.layer))
 )
 
 console.log(manifest)
 // { "files": ["index.js", "index.css"] }
 ```
 
-`layer` creates a fresh volume containing `/tmp` and needs no platform service; use `MemoryFileSystem.make` when you
+`layer` creates a fresh volume containing `/tmp` and requires an Effect `Crypto` service; use `MemoryFileSystem.make` when you
 need the service directly.
 
 ## Choose isolated or shared state
@@ -63,6 +65,7 @@ an existing `@effect-vfs/core` volume.
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Effect } from "effect"
 
 const program = Effect.gen(function*() {
@@ -83,7 +86,7 @@ const program = Effect.gen(function*() {
   }
 })
 
-console.log(await Effect.runPromise(program))
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))))
 // { isolatedBHasFile: false, sharedContents: "visible to both" }
 ```
 
@@ -105,6 +108,7 @@ core volume and expose it through `MemoryFileSystem.bind`.
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
 
@@ -134,7 +138,7 @@ const program = Effect.gen(function*() {
   }
 })
 
-console.log(await Effect.runPromise(program))
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))))
 // { current: "version 2", restored: "version 1" }
 ```
 
@@ -151,6 +155,7 @@ filter or merge them before a sink writes them.
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { TreeTransfer } from "@effect-vfs/memory"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Effect, Predicate, Stream } from "effect"
 
 const program = Effect.gen(function*() {
@@ -175,7 +180,7 @@ const program = Effect.gen(function*() {
   return listing.value.map((entry) => new TextDecoder().decode(entry.name))
 })
 
-console.log(await Effect.runPromise(program))
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))))
 // [ "index.ts" ]
 ```
 
@@ -250,3 +255,6 @@ The original implementation was based on earlier work in
 [effect-smol PR #456](https://github.com/Effect-TS/effect-smol/pull/456).
 
 Licensed under the MIT License.
+
+```
+```

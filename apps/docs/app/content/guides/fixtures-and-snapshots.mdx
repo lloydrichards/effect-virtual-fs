@@ -20,6 +20,7 @@ The following program creates a small project, captures it, transports the snaps
 writable state:
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 import * as ByteSize from "effect/ByteSize"
@@ -60,7 +61,7 @@ const program = Effect.gen(function* () {
   }
 })
 
-console.log(await Effect.runPromise(program))
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))))
 ```
 
 The restored config contains `{"mode":"development"}`. Writing to the restored volume does not change the source

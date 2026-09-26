@@ -20,7 +20,7 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/183
     title: A layer-based test volume across packages
-generated: { by: claude-code, at: "2026-09-26T10:20:00+02:00" }
+generated: { by: codex/okf, at: "2026-09-26T21:45:00Z" }
 ---
 
 # Layer-based test volume
@@ -36,7 +36,7 @@ Every suite built a volume and a caller by hand: core called `Vfs.make(` 159 tim
 1. **A public `@effect-vfs/core/Testing` subpath.** It is pure Effect with no test-runner dependency, so downstream applications get the same helpers. It holds plain functions over the service layers, not a new service: `layer(options?)` provides a fresh volume (empty or from a fixture) and a root caller on it, `callerAs(identity)` makes a caller on the volume in context, and `collectChanges(stream, n)` forks the collection into the scope and returns the join. `VolumeTestSeams` stays internal.
 2. **Isolation.** `it.layer` builds once per describe block, so its tests share one volume. Tests that need their own state provide `Testing.layer()` per test, which is the default in every suite.
 3. **Clock.** The two tests that count clock samples or feed invalid times keep a local clock helper in their own file. There is no shared clock layer.
-4. **`TestEffect.ts` is deleted.** Crypto is optional after the public API change; the snapshot-delta suites and the one tracing test that run delta operations provide it themselves. Byte-path helpers use the public `BytePath` toolkit. Codec whitebox imports stay for #185, which rewrites those modules.
+4. **`TestEffect.ts` is deleted.** Constructors and `Testing.layer()` now require Crypto after the later reference-key change; core tests provide a platform or deterministic Crypto layer at the test boundary. Byte-path helpers use the public `BytePath` toolkit. Codec whitebox imports stay for #185, which rewrites those modules.
 5. **NFS harness.** One factory in the test support module produces the export, the handler and the session from a caller, with the lease options as one shared constant and overrides for the options a test is about. Protocol whitebox tests stay.
 6. **One pull request**, with a commit per package, this note and a minor changeset for the new subpath.
 

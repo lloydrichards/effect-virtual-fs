@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: Public API on targets, services, and one error family
-description: Addresses every caller verb by a Target or an Entry, provides Volume and Caller as Effect services with layers, replaces the five error classes with one VfsError, and drops Crypto from construction.
+description: Addresses every caller verb by a Target or an Entry, provides Volume and Caller as Effect services with layers, replaces the five error classes with one VfsError, and records the later return to required Crypto for construction.
 status: stable
 tags: [api, effect, errors, targets, services]
 sources:
@@ -20,7 +20,7 @@ sources:
   - id: table
     resource: ../../../packages/core/test/behaviour/operations.test.ts
     title: Side-by-side codes per addressing mode
-generated: { by: claude-code, at: "2026-09-26T12:30:00+02:00" }
+generated: { by: codex/okf, at: "2026-09-26T21:40:00Z" }
 ---
 
 # Public API on targets, services, and one error family
@@ -39,7 +39,7 @@ Step 8 of the [persistent tree rebuild](persistent-tree-rebuild.md "extends"). T
 4. **One check order.** Both addressing modes resolve the directory before the name, check search permission on it before any name in it is looked up, and check a reserved or existing name, trailing slashes and rename's same-object and subtree rules before write permission, as Linux does. A directory the caller cannot search so reveals none of its names. A reserved name renders by addressing mode: the POSIX per-verb code on a path, `InvalidArgument` on an entry. A gone object renders `NotFound` on a path, `StaleReference` on a reference, `InvalidHandle` on a handle. No new `FsCode`.
 5. **Trailing slashes follow Linux.** Linking or symlinking onto a missing slashed name is `NotFound`, creating through a slashed name is `IsDirectory`, and a directory may move to a missing slashed name; each was verified in a Linux container before its row changed.
 6. **Errors.** One `VfsError`, a `Schema.TaggedError` whose `code` is the union of the filesystem, image, delta, and store codes, with `operation`, an optional `field` for a rejected option, an optional `path` carried as bytes and encoded as base64, and a `cause` carried as a `Schema.Defect`. `FsFailure`, `ImageFailure`, `StoreFailure`, and `ArgumentFailure` narrow the code per signature. Every rejected option is `InvalidArgument` with a `field`. An unencodable string input names its replacement encoding; an untyped input names no path.
-7. **Identity without Crypto.** Constructors draw identity and incarnation from Effect's `Random`, or from a `Crypto` service when one is in context, and no longer fail with `PlatformError`. `Crypto` stays on the delta functions that hash.
+7. **Identity from Crypto.** This decision originally made `Crypto` optional and used seedable `Random` as a fallback. The later reference-key requirement supersedes that choice: constructors require `Crypto.Crypto` and draw identity, incarnation, epoch, and the reference-key secret from it. Snapshot delta functions still require `Crypto` for hashing.
 8. **Services and layers.** `Volume` and `Caller` are Effect service keys carrying `Volume.layer`, `layerFromSnapshot`, `layerFromFixture`, `layerOverlay`, `layerLive`, and `Caller.layer`. A caller supplied through the service keeps its own volume, credentials, umask, and working directory. `CurrentFileSystem` goes.
 9. **Modules.** Per-concept subpaths own the schemas the engine imports: `Volume`, `Caller`, `Target`, `FileHandle`, `Metadata`, `VfsError`, `Snapshot`, `SnapshotDelta`, `BytePath`, `LiveVolume`, `Fixture`, `Watch`; `VirtualFileSystem` remains the barrel, and its declarations import nothing from `internal/`. `BytePath` gains a toolkit.
 10. **Declined at first for 0.6.0.** Recursive tree operations, path-scoped watch, file-type bits in `Metadata`, an atomic `setattr`, an unscoped open, and a serialisable reference key each got their own issue, and the `EPERM` versus `EACCES` split was declined here too. All but the unscoped open later joined 0.6.0: the split by the amendment below, file-type bits as `Metadata.typedMode` with `mode` kept as permission bits by the [permission mode and typed mode decision](permission-mode-and-typed-mode.md "amended by"), `setattr` by the [atomic setattr decision](atomic-setattr.md "amended by"), `walk`, `mkdir { recursive }` and `remove { recursive, force }` by the [recursive tree operations decision](recursive-tree-operations.md "amended by"), a watch scoped to a path by the [scoped watch decision](scoped-watch.md "amended by"), and `ReferenceKey` by the [reference keys decision](reference-keys.md "amended by"). Only the unscoped open stays declined, by the atomic setattr decision.

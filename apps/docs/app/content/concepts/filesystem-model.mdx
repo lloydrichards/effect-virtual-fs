@@ -69,6 +69,7 @@ close.
 This small program creates a scope-free root caller, then uses a scoped caller whose relative paths start in `/work`:
 
 ```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
 
@@ -86,7 +87,7 @@ const program = Effect.gen(function* () {
   return yield* root.readFile("/work/result.txt")
 }).pipe(Effect.scoped)
 
-console.log(await Effect.runPromise(program))
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))))
 ```
 
 The ownership pattern is:
