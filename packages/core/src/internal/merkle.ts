@@ -16,8 +16,7 @@ import { imageFailure } from "./errors.js"
 import { joinPath, nameBytes, ROOT_PATH } from "./path.js"
 import { byEntryName, getNode, type Ino, type Node, payloadOf, ROOT_INO, type VolumeState } from "./volumeState.js"
 
-/** @internal */
-export const ALGORITHM = "effect-vfs-semantic-sha256-v1"
+const ALGORITHM = "effect-vfs-semantic-sha256-v1"
 
 /** @internal */
 export const DIGEST_BYTES = 32

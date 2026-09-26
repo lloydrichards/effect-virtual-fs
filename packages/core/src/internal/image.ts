@@ -84,7 +84,3 @@ export const decodeSnapshotSink = (budget: Budget): Sink.Sink<Snapshot, Uint8Arr
     }
   })
 }
-
-/** @internal */
-export const decodeSnapshot = (input: Uint8Array, budget: Budget): Effect.Effect<Snapshot, ImageFailure> =>
-  Stream.run(Stream.succeed(input), decodeSnapshotSink(budget))

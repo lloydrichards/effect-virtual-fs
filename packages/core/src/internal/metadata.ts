@@ -6,8 +6,7 @@ import { ENCODING_CHECK } from "./errors.js"
 /** @internal */
 export { Timestamp }
 
-/** @internal */
-export const TimestampFromString = Schema.String
+const TimestampFromString = Schema.String
   .check(Schema.isPattern(/^-?[0-9]{1,128}$/, { [ENCODING_CHECK]: true }))
   .pipe(Schema.decodeTo(Timestamp, SchemaTransformation.bigintFromString))
 
