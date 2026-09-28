@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-09-28
+
+- **Draft state service**: Core replaces the private `Draft` class with a transition-local `Context.Service` whose operations return Effects. Pending inode edits remain private to one change, and lookups read the provided draft service during a change. The persistent-tree decision records this implementation while its commit and rollback contract stays unchanged.
+
 ## 2026-09-26
 
 - **Required Crypto for volume construction**: Core volume constructors and the memory filesystem layer now require `Crypto.Crypto`. Identity, incarnation, epoch, and reference-key secret use its secure bytes. The reference-key, public API, test-layer, durability, and persistent-tree decisions are updated to remove the optional Crypto and global Web Crypto claims.

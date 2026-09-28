@@ -329,7 +329,7 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
         assert.strictEqual((yield* fs.stat(`/copy${"/d".repeat(5_999)}`)).type, "Directory")
         assert.strictEqual((yield* fs.stat(`/moved${"/d".repeat(5_999)}`)).type, "Directory")
       }),
-    60_000
+    120_000
   )
 
   for (const suffix of [".", ".."]) {

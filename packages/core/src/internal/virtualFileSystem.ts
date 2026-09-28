@@ -1,12 +1,14 @@
 import * as Arr from "effect/Array"
 import * as ByteSize from "effect/ByteSize"
 import * as Clock from "effect/Clock"
+import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Exit from "effect/Exit"
 import * as Match from "effect/Match"
+import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
@@ -163,11 +165,11 @@ const offerCommit = <State>(
     return { available: true, failure: undefined }
   })
 
-interface LookupOptions {
+interface LookupOptions<R = never> {
   readonly followFinalSymlink?: boolean
   readonly allowMissing?: boolean
   readonly parentOnly?: boolean
-  readonly createMissing?: (parent: Directory, name: string, final: boolean) => Effect.Effect<Directory, FsFailure>
+  readonly createMissing?: (parent: Directory, name: string, final: boolean) => Effect.Effect<Directory, FsFailure, R>
 }
 
 const WALK_CHUNK_ENTRIES = 128
@@ -286,116 +288,177 @@ interface RestoredVolumeOptions {
   maxPathBytes?: ByteSize.ByteSize
 }
 
-// Builds the next volume value for one transition. Reads see pending writes; a discarded draft leaves the
-// base untouched, so an interrupted or failed transition needs no rollback.
-class Draft {
-  private readonly owner: InodeTable.Owner = Symbol()
-  private readonly pending = new Map<Ino, Node | undefined>()
-  private opens: Map<Ino, number> | undefined
-  private nextInode: Ino
-  private changed = false
-  private finished: VolumeState | undefined
-  readonly revision: bigint
-  entries: number
-  usedBytes: bigint
-  readonly events: Array<(installed: VolumeState) => Iterable<WatchEvent>> = []
-  readonly after: Array<() => void> = []
-  readonly removed: Array<Ino> = []
-
-  constructor(readonly base: VolumeState) {
-    this.nextInode = base.nextInode
-    this.revision = base.revision + 1n
-    this.entries = base.entries
-    this.usedBytes = base.usedBytes
-  }
-
-  get(ino: Ino): Node | undefined {
-    const pending = this.pending.get(ino)
-
-    return pending !== undefined || this.pending.has(ino) ? pending : InodeTable.get(this.base.inodes, ino)
-  }
-
-  put(node: Node): void {
-    this.changed = true
-    // SAFETY: callers construct the value they pass, so stamping it in place replaces a spread on every write.
-    const stamped = node as { revision: bigint }
-    stamped.revision = this.revision
-    this.pending.set(node.ino, node)
-  }
-
-  putQuiet(node: Node): void {
-    this.pending.set(node.ino, node)
-  }
-
-  get unchanged(): boolean {
-    return this.pending.size === 0 && this.opens === undefined && this.nextInode === this.base.nextInode &&
-      this.entries === this.base.entries && this.usedBytes === this.base.usedBytes
-  }
-
-  remove(ino: Ino): void {
-    this.removed.push(ino)
-    this.pending.set(ino, undefined)
-  }
-
-  allocate(): Ino {
-    const ino = this.nextInode
-    this.nextInode = Ino(ino + 1)
-
-    return ino
-  }
-
-  // Whether another inode can be allocated. The allocator itself must stay exactly representable, since a live
-  // image refuses one past the largest safe integer, so the last inode it hands out is one below that.
-  get canAllocate(): boolean {
-    return this.nextInode < Number.MAX_SAFE_INTEGER
-  }
-
-  openCount(ino: Ino): number {
-    return this.opens?.get(ino) ?? this.base.open.get(ino) ?? 0
-  }
-
-  retain(ino: Ino): void {
-    this.opens = (this.opens ?? new Map()).set(ino, this.openCount(ino) + 1)
-  }
-
-  release(ino: Ino): number {
-    const count = this.openCount(ino) - 1
-    this.opens = (this.opens ?? new Map()).set(ino, count < 0 ? 0 : count)
-
-    return count
-  }
-
-  finish(): VolumeState {
-    if (this.finished !== undefined) return this.finished
-    const base = this.base
-    let inodes = base.inodes
-
-    for (const [ino, node] of this.pending) inodes = InodeTable.set(inodes, ino, node, this.owner)
-    let open = base.open
-
-    if (this.opens !== undefined) {
-      const next = new Map(base.open)
-
-      for (const [ino, count] of this.opens) {
-        if (count > 0) next.set(ino, count)
-        else next.delete(ino)
-      }
-
-      open = next
-    }
-
-    this.finished = {
-      inodes,
-      open,
-      nextInode: this.nextInode,
-      revision: this.changed ? this.revision : base.revision,
-      entries: this.entries,
-      usedBytes: this.usedBytes
-    }
-
-    return this.finished
-  }
+// One change gets one draft service. Its MutableRef contains the candidate and all
+// actions that may become visible only after the candidate is installed.
+interface DraftState {
+  readonly owner: InodeTable.Owner
+  readonly pending: Map<Ino, Node | undefined>
+  readonly opens: ReadonlyMap<Ino, number> | undefined
+  readonly nextInode: Ino
+  readonly changed: boolean
+  readonly finished: VolumeState | undefined
+  readonly entries: number
+  readonly usedBytes: bigint
+  readonly events: Array<(installed: VolumeState) => Iterable<WatchEvent>>
+  readonly after: Array<() => void>
+  readonly removed: Array<Ino>
 }
+
+interface DraftOperations {
+  readonly revision: bigint
+  readonly get: (ino: Ino) => Effect.Effect<Node | undefined>
+  readonly put: (node: Node) => Effect.Effect<void>
+  readonly putQuiet: (node: Node) => Effect.Effect<void>
+  readonly unchanged: Effect.Effect<boolean>
+  readonly remove: (ino: Ino) => Effect.Effect<void>
+  readonly allocate: Effect.Effect<Ino>
+  readonly canAllocate: Effect.Effect<boolean>
+  readonly openCount: (ino: Ino) => Effect.Effect<number>
+  readonly retain: (ino: Ino) => Effect.Effect<void>
+  readonly release: (ino: Ino) => Effect.Effect<number>
+  readonly entries: Effect.Effect<number>
+  readonly addEntries: (amount: number) => Effect.Effect<void>
+  readonly usedBytes: Effect.Effect<bigint>
+  readonly addUsedBytes: (amount: bigint) => Effect.Effect<void>
+  readonly publish: (event: (installed: VolumeState) => Iterable<WatchEvent>) => Effect.Effect<void>
+  readonly afterInstall: (action: () => void) => Effect.Effect<void>
+  readonly finish: Effect.Effect<VolumeState>
+  readonly actions: Effect.Effect<Pick<DraftState, "events" | "after" | "removed">>
+}
+
+class Draft extends Context.Service<Draft, DraftOperations>()("@effect-vfs/core/internal/virtualFileSystem/Draft", {
+  make: Effect.fnUntraced(function*(base: VolumeState) {
+    const revision = base.revision + 1n
+
+    const cell = MutableRef.make<DraftState>({
+      owner: Symbol(),
+      pending: new Map(),
+      opens: undefined,
+      nextInode: base.nextInode,
+      changed: false,
+      finished: undefined,
+      entries: base.entries,
+      usedBytes: base.usedBytes,
+      events: [],
+      after: [],
+      removed: []
+    })
+
+    const get = (ino: Ino) =>
+      Effect.sync(() => {
+        const draft = MutableRef.get(cell)
+
+        return draft.pending.has(ino) ? draft.pending.get(ino) : InodeTable.get(base.inodes, ino)
+      })
+
+    const openCount = (ino: Ino) => Effect.sync(() => MutableRef.get(cell).opens?.get(ino) ?? base.open.get(ino) ?? 0)
+
+    const put = (node: Node, changed: boolean) =>
+      Effect.sync(() => {
+        MutableRef.update(cell, (draft) => {
+          // This map belongs only to this transition. Copying it on every inode write makes recursive changes quadratic.
+          draft.pending.set(node.ino, changed ? { ...node, revision } : node)
+
+          return { ...draft, changed: draft.changed || changed }
+        })
+      })
+
+    return {
+      revision,
+      get,
+      put: (node: Node) => put(node, true),
+      putQuiet: (node: Node) => put(node, false),
+      unchanged: Effect.sync(() => {
+        const draft = MutableRef.get(cell)
+
+        return draft.pending.size === 0 && draft.opens === undefined && draft.nextInode === base.nextInode &&
+          draft.entries === base.entries && draft.usedBytes === base.usedBytes
+      }),
+      remove: (ino: Ino) =>
+        Effect.sync(() => {
+          const draft = MutableRef.get(cell)
+          draft.pending.set(ino, undefined)
+          draft.removed.push(ino)
+        }),
+      allocate: Effect.sync(() => {
+        const next = MutableRef.get(cell).nextInode
+        MutableRef.update(cell, (draft) => ({ ...draft, nextInode: Ino(next + 1) }))
+
+        return next
+      }),
+      canAllocate: Effect.sync(() => MutableRef.get(cell).nextInode < Number.MAX_SAFE_INTEGER),
+      openCount,
+      retain: (ino: Ino) =>
+        Effect.sync(() => {
+          const count = MutableRef.get(cell).opens?.get(ino) ?? base.open.get(ino) ?? 0
+          MutableRef.update(cell, (draft) => ({ ...draft, opens: new Map(draft.opens).set(ino, count + 1) }))
+        }),
+      release: (ino: Ino) =>
+        Effect.sync(() => {
+          const count = (MutableRef.get(cell).opens?.get(ino) ?? base.open.get(ino) ?? 0) - 1
+          MutableRef.update(cell, (draft) => ({ ...draft, opens: new Map(draft.opens).set(ino, Math.max(0, count)) }))
+
+          return count
+        }),
+      entries: Effect.sync(() => MutableRef.get(cell).entries),
+      addEntries: (amount: number) =>
+        Effect.sync(() => {
+          MutableRef.update(cell, (draft) => ({ ...draft, entries: draft.entries + amount }))
+        }),
+      usedBytes: Effect.sync(() => MutableRef.get(cell).usedBytes),
+      addUsedBytes: (amount: bigint) =>
+        Effect.sync(() => {
+          MutableRef.update(cell, (draft) => ({ ...draft, usedBytes: draft.usedBytes + amount }))
+        }),
+      publish: (event: (installed: VolumeState) => Iterable<WatchEvent>) =>
+        Effect.sync(() => {
+          MutableRef.get(cell).events.push(event)
+        }),
+      afterInstall: (action: () => void) =>
+        Effect.sync(() => {
+          MutableRef.get(cell).after.push(action)
+        }),
+      finish: Effect.sync(() => {
+        const draft = MutableRef.get(cell)
+
+        if (draft.finished !== undefined) return draft.finished
+        let inodes = base.inodes
+
+        for (const [ino, node] of draft.pending) inodes = InodeTable.set(inodes, ino, node, draft.owner)
+        let open = base.open
+
+        if (draft.opens !== undefined) {
+          const next = new Map(base.open)
+
+          for (const [ino, count] of draft.opens) {
+            if (count > 0) next.set(ino, count)
+            else next.delete(ino)
+          }
+
+          open = next
+        }
+
+        const finished: VolumeState = {
+          inodes,
+          open,
+          nextInode: draft.nextInode,
+          revision: draft.changed ? revision : base.revision,
+          entries: draft.entries,
+          usedBytes: draft.usedBytes
+        }
+
+        MutableRef.update(cell, (current) => ({ ...current, finished }))
+
+        return finished
+      }),
+      actions: Effect.sync(() => {
+        const { events, after, removed } = MutableRef.get(cell)
+
+        return { events, after, removed }
+      })
+    }
+  })
+}) {}
 
 interface ObjectReferenceState {
   readonly volume: symbol
@@ -660,9 +723,11 @@ export const makeVolume = Effect.fnUntraced(
       ? undefined
       : yield* captureInitial(state, { identity, epoch, keySecret }, limits)
 
-    let draft: Draft | undefined
-
-    const view = (ino: Ino): Node | undefined => draft === undefined ? getNode(state, ino) : draft.get(ino)
+    const view = (ino: Ino): Effect.Effect<Node | undefined> =>
+      Effect.flatMap(
+        Effect.serviceOption(Draft),
+        (draft) => Option.isSome(draft) ? draft.value.get(ino) : Effect.sync(() => getNode(state, ino))
+      )
 
     let available = true
 
@@ -676,42 +741,34 @@ export const makeVolume = Effect.fnUntraced(
       settings.maxWatchEvents ?? 256
     )
 
-    const install = (finished: Draft) => {
+    const install = Effect.fnUntraced(function*(finished: DraftOperations) {
       const before = state
-      state = finished.finish()
+      state = yield* finished.finish
+      const actions = yield* finished.actions
 
-      for (const ino of finished.removed) tokens.delete(ino)
+      for (const ino of actions.removed) tokens.delete(ino)
 
-      for (const apply of finished.after) apply()
+      for (const apply of actions.after) apply()
 
       const after = state
 
-      watchHub.publishUnsafe(() => finished.events.flatMap((events) => Array.from(events(after))), { before, after })
-    }
+      watchHub.publishUnsafe(() => actions.events.flatMap((events) => Array.from(events(after))), { before, after })
+    })
 
-    const transition = <A, E, R>(change: Effect.Effect<A, E, R>) =>
-      Effect.suspend(() => {
-        const current = new Draft(state)
-        draft = current
+    const transition = Effect.fnUntraced(function*<A, E, R>(change: Effect.Effect<A, E, R>) {
+      const current = yield* Draft.make(state)
+      const value = yield* Effect.provideService(change, Draft, current)
 
-        return Effect.onExit(change, () =>
-          Effect.sync(() => {
-            draft = undefined
-          })).pipe(Effect.map((value) => [value, current] as const))
-      })
+      return [value, current] as const
+    })
 
-    const applyDirect = (change: (d: Draft) => void) => {
-      const current = new Draft(state)
-      draft = current
-
-      try {
-        change(current)
-      } finally {
-        draft = undefined
-      }
-
-      install(current)
-    }
+    const applyDirect = Effect.fnUntraced(function*(
+      change: (draft: DraftOperations) => Effect.Effect<void, never, Draft>
+    ) {
+      const current = yield* Draft.make(state)
+      yield* Effect.provideService(change(current), Draft, current)
+      yield* install(current)
+    })
 
     // Offers the finished draft's value to the store before installing it. A rejected candidate is discarded and
     // the volume stays available; an uncertain answer stops the volume. A change that is a cleanup runs its
@@ -719,11 +776,11 @@ export const makeVolume = Effect.fnUntraced(
     const committed = Effect.fnUntraced(function*(
       op: OpContext,
       provider: CommitProvider<VolumeState>,
-      finished: Draft,
-      onStorageFailure: (() => void) | undefined
+      finished: DraftOperations,
+      onStorageFailure: (() => Effect.Effect<void>) | undefined
     ) {
-      if (finished.unchanged) return install(finished)
-      const next = finished.finish()
+      if (yield* finished.unchanged) return yield* install(finished)
+      const next = yield* finished.finish
 
       if (provider.prepare !== undefined) yield* provider.prepare(next)
       const answer = yield* offerCommit(provider, op.operation, next, onStorageFailure !== undefined)
@@ -731,12 +788,12 @@ export const makeVolume = Effect.fnUntraced(
       if (!answer.available) available = false
 
       if (answer.failure !== undefined) {
-        if (!answer.available) onStorageFailure?.()
+        if (!answer.available && onStorageFailure !== undefined) yield* onStorageFailure()
 
         return yield* answer.failure
       }
 
-      install(finished)
+      yield* install(finished)
     })
 
     const annotateFailure = (error: VfsError) =>
@@ -744,17 +801,20 @@ export const makeVolume = Effect.fnUntraced(
 
     // Permit waits stay interruptible. A change and its publication run under every permit; with a store, the
     // change itself stays interruptible and only the commit and installation are not.
-    const coordinated = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>, onStorageFailure?: () => void) =>
+    const coordinated = <A, E, R>(
+      op: OpContext,
+      effect: Effect.Effect<A, E, R>,
+      onStorageFailure?: () => Effect.Effect<void>
+    ) =>
       admit(
         op,
         changing(
           commitProvider === undefined
             ? Effect.uninterruptible(
-              Effect.map(transition(Effect.andThen(checkAvailable(op.operation), effect)), ([value, finished]) => {
-                install(finished)
-
-                return value
-              })
+              Effect.flatMap(
+                transition(Effect.andThen(checkAvailable(op.operation), effect)),
+                ([value, finished]) => Effect.as(install(finished), value)
+              )
             )
             : Effect.uninterruptibleMask((restore) =>
               Effect.flatMap(
@@ -770,14 +830,15 @@ export const makeVolume = Effect.fnUntraced(
         Effect.tapError((error) => Schema.is(VfsError)(error) ? annotateFailure(error) : Effect.void)
       )
 
-    const refreshAccess = <A>(read: Accessed<A>): A => {
+    const refreshAccess = Effect.fnUntraced(function*<A>(read: Accessed<A>) {
       if (refreshDue(read)) {
         const { node, now } = read.access
-        current().putQuiet({ ...node, metadata: { ...node.metadata, atimeNs: now } })
+        const draft = yield* Draft
+        yield* draft.putQuiet({ ...node, metadata: { ...node.metadata, atimeNs: now } })
       }
 
       return read.value
-    }
+    })
 
     // A read that may refresh an access time. It observes under one permit, so reads run beside each other, and
     // only when the access time is due does it run again as a change. The change repeats every check and the rule,
@@ -787,7 +848,7 @@ export const makeVolume = Effect.fnUntraced(
         coordinatedRead(op, read),
         (observed) =>
           refreshDue(observed)
-            ? coordinated(op, Effect.map(read, refreshAccess))
+            ? coordinated(op, Effect.flatMap(read, refreshAccess))
             : Effect.succeed(observed.value)
       )
 
@@ -796,12 +857,6 @@ export const makeVolume = Effect.fnUntraced(
     const shutdown = commitProvider === undefined ? undefined : changing(Effect.sync(() => {
       available = false
     }))
-
-    const current = (): Draft => {
-      if (draft === undefined) return dieInvariant("Volume mutation outside a transition")
-
-      return draft
-    }
 
     const pathOf = (get: (ino: Ino) => Node | undefined, ino: Ino): string | undefined => {
       const names: Array<string> = []
@@ -820,24 +875,43 @@ export const makeVolume = Effect.fnUntraced(
       return SLASH_HEX + names.reverse().join(SLASH_HEX)
     }
 
+    const pathOfCurrent = Effect.fnUntraced(function*(ino: Ino) {
+      const names: Array<string> = []
+      const first = yield* view(ino)
+
+      if (first?.kind !== "directory" || first.metadata.nlink === 0) return undefined
+      let node: Directory = first
+
+      while (node.ino !== ROOT_INO) {
+        names.push(node.name)
+        const parent: Node | undefined = yield* view(node.parent)
+
+        if (parent?.kind !== "directory" || parent.metadata.nlink === 0) return undefined
+        node = parent
+      }
+
+      return SLASH_HEX + names.reverse().join(SLASH_HEX)
+    })
+
     const entryPath = (prefix: string, name: string) =>
       ownedPath(nameBytes(prefix + (prefix === SLASH_HEX ? "" : SLASH_HEX) + name))
 
-    const publishEntry = (_tag: Exclude<Change["_tag"], "Rescan">, parent: Ino, name: string, ino: Ino) => {
-      current().events.push((installed) => {
-        const prefix = pathOf((at) => getNode(installed, at), parent)
+    const publishEntry = (_tag: Exclude<Change["_tag"], "Rescan">, parent: Ino, name: string, ino: Ino) =>
+      Effect.flatMap(Draft, (draft) =>
+        draft.publish((installed) => {
+          const prefix = pathOf((at) => getNode(installed, at), parent)
 
-        return prefix === undefined ? [] : [{ change: { _tag, path: entryPath(prefix, name) }, parent, ino }]
-      })
-    }
+          return prefix === undefined ? [] : [{ change: { _tag, path: entryPath(prefix, name) }, parent, ino }]
+        }))
 
-    const publishNode = (ino: Ino) => {
-      const target = current().get(ino)
+    const publishNode = Effect.fnUntraced(function*(ino: Ino) {
+      const draft = yield* Draft
+      const target = yield* draft.get(ino)
 
       if (target === undefined) return
 
       if (target.kind === "directory") {
-        current().events.push((installed) => {
+        yield* draft.publish((installed) => {
           const directory = getNode(installed, ino)
           const path = pathOf((at) => getNode(installed, at), ino)
 
@@ -850,8 +924,7 @@ export const makeVolume = Effect.fnUntraced(
       }
 
       const links = target.links
-
-      current().events.push((installed) => {
+      yield* draft.publish((installed) => {
         const events: Array<WatchEvent> = []
 
         for (const link of links) {
@@ -868,7 +941,7 @@ export const makeVolume = Effect.fnUntraced(
 
         return events
       })
-    }
+    })
 
     const pathsOf = (installed: VolumeState, ino: Ino): Array<BytePath> => {
       const node = getNode(installed, ino)
@@ -993,7 +1066,7 @@ export const makeVolume = Effect.fnUntraced(
       directoryHolds.set(ino, (directoryHolds.get(ino) ?? 0) + 1)
     }
 
-    const unholdDirectory = (ino: Ino) => {
+    const unholdDirectory = Effect.fnUntraced(function*(ino: Ino) {
       const count = (directoryHolds.get(ino) ?? 1) - 1
 
       if (count > 0) {
@@ -1005,23 +1078,25 @@ export const makeVolume = Effect.fnUntraced(
       directoryHolds.delete(ino)
       const node = getNode(state, ino)
 
-      if (node?.kind === "directory" && node.metadata.nlink === 0) applyDirect((d) => d.remove(ino))
-    }
+      if (node?.kind === "directory" && node.metadata.nlink === 0) {
+        yield* applyDirect((d) => d.remove(ino))
+      }
+    })
 
-    const releaseDirectory = (reference: DirectoryReference) => {
+    const releaseDirectory = Effect.fnUntraced(function*(reference: DirectoryReference) {
       const ino = reference.ino
       reference.ino = undefined
       reference.closed = true
 
-      if (ino !== undefined) unholdDirectory(ino)
-    }
+      if (ino !== undefined) yield* unholdDirectory(ino)
+    })
 
     const finalizeDirectory = (reference: DirectoryReference) =>
       Effect.uninterruptible(
         Effect.suspend(() =>
           reference.closed
             ? Effect.void
-            : coordinatedCleanup(Effect.sync(() => releaseDirectory(reference)))
+            : coordinatedCleanup(releaseDirectory(reference))
         )
       )
 
@@ -1047,38 +1122,52 @@ export const makeVolume = Effect.fnUntraced(
         ? Effect.void
         : Effect.fail(op.fail("AccessDenied"))
 
-    const reclaim = (d: Draft, ino: Ino) => {
-      const node = d.get(ino)
+    const reclaim = Effect.fnUntraced(function*(d: DraftOperations, ino: Ino) {
+      const node = yield* d.get(ino)
 
       if (node === undefined) return
 
       if (node.kind === "file") {
-        if (node.links.length > 0 || d.openCount(ino) > 0) return
-        d.usedBytes -= BigInt(node.data.length)
+        if (node.links.length > 0 || (yield* d.openCount(ino)) > 0) return
+        yield* d.addUsedBytes(-BigInt(node.data.length))
       } else if (node.kind === "symlink") {
         if (node.links.length > 0) return
-        d.usedBytes -= BigInt(node.target.length)
+        yield* d.addUsedBytes(-BigInt(node.target.length))
       } else if (node.metadata.nlink > 0 || directoryHolds.has(ino)) return
+      yield* d.remove(ino)
+    })
 
-      d.remove(ino)
-    }
+    const atEntryLimit = Effect.gen(function*() {
+      const draft = yield* Draft
 
-    const atEntryLimit = () => settings.maxEntries !== undefined && current().entries >= settings.maxEntries
+      return settings.maxEntries !== undefined && (yield* draft.entries) >= settings.maxEntries
+    })
 
-    const reserveEntry = (op: OpContext) =>
-      atEntryLimit() || !current().canAllocate ? Effect.fail(op.fail("NoSpace")) : Effect.void
+    const reserveEntry = Effect.fnUntraced(function*(op: OpContext) {
+      const draft = yield* Draft
 
-    const reserveInode = (op: OpContext) => current().canAllocate ? Effect.void : Effect.fail(op.fail("NoSpace"))
+      if ((yield* atEntryLimit) || !(yield* draft.canAllocate)) return yield* op.fail("NoSpace")
+    })
 
-    const reserveBytes = (op: OpContext, bytes: bigint) =>
-      settings.maxBytes !== undefined && bytes > ByteSize.toBigInt(settings.maxBytes) - current().usedBytes
-        ? Effect.fail(op.fail("NoSpace"))
-        : Effect.void
+    const reserveInode = (op: OpContext) =>
+      Effect.flatMap(
+        Draft,
+        (draft) =>
+          Effect.flatMap(draft.canAllocate, (available) => available ? Effect.void : Effect.fail(op.fail("NoSpace")))
+      )
 
-    const attach = (parent: Directory, name: string, child: Node, now: bigint) => {
-      const d = current()
+    const reserveBytes = Effect.fnUntraced(function*(op: OpContext, bytes: bigint) {
+      if (settings.maxBytes === undefined) return
+      const draft = yield* Draft
 
-      d.put(withEntries(
+      if (bytes > ByteSize.toBigInt(settings.maxBytes) - (yield* draft.usedBytes)) {
+        return yield* op.fail("NoSpace")
+      }
+    })
+
+    const attach = Effect.fnUntraced(function*(parent: Directory, name: string, child: Node, now: bigint) {
+      const d = yield* Draft
+      yield* d.put(withEntries(
         {
           ...parent,
           metadata: {
@@ -1091,46 +1180,44 @@ export const makeVolume = Effect.fnUntraced(
         (entries) => entries.set(name, child.ino)
       ))
 
-      if (child.kind === "directory") d.put({ ...child, parent: parent.ino, name })
+      if (child.kind === "directory") yield* d.put({ ...child, parent: parent.ino, name })
       else {
-        d.put({
+        yield* d.put({
           ...child,
           links: [...child.links, { parent: parent.ino, name }],
           metadata: { ...child.metadata, nlink: child.links.length + 1, ctimeNs: now }
         })
       }
-    }
+    })
 
-    const detach = (child: Node, parent: Ino, name: string, now: bigint) => {
-      const d = current()
+    const detach = Effect.fnUntraced(function*(child: Node, parent: Ino, name: string, now: bigint) {
+      const d = yield* Draft
 
       if (child.kind === "directory") {
-        d.put({ ...child, metadata: { ...child.metadata, nlink: 0, ctimeNs: now } })
+        yield* d.put({ ...child, metadata: { ...child.metadata, nlink: 0, ctimeNs: now } })
       } else {
         const links = withoutLink(child.links, parent, name)
-        d.put({ ...child, links, metadata: { ...child.metadata, nlink: links.length, ctimeNs: now } })
+        yield* d.put({ ...child, links, metadata: { ...child.metadata, nlink: links.length, ctimeNs: now } })
       }
 
-      reclaim(d, child.ino)
-    }
+      yield* reclaim(d, child.ino)
+    })
 
-    const releaseFile = (ref: FileReference) => {
+    const releaseFile = Effect.fnUntraced(function*(ref: FileReference) {
       const ino = ref.ino
 
       if (ino !== undefined) {
-        const d = current()
-        d.release(ino)
-        reclaim(d, ino)
+        const d = yield* Draft
+        yield* d.release(ino)
+        yield* reclaim(d, ino)
       }
 
       ref.ino = undefined
       ref.closed = true
-    }
+    })
 
     const releaseOpenFile = (ref: FileReference) =>
-      coordinatedCleanup(Effect.sync(() => {
-        if (!ref.closed) applyDirect(() => releaseFile(ref))
-      }))
+      coordinatedCleanup(Effect.suspend(() => ref.closed ? Effect.void : applyDirect(() => releaseFile(ref))))
 
     // Explicit close and scope cleanup share one release. A release whose commit fails still completes as
     // cleanup, so the handle never stays open; only an explicit close reports the failure. A close refused
@@ -1140,16 +1227,17 @@ export const makeVolume = Effect.fnUntraced(
         op,
         Effect.andThen(
           check,
-          Effect.sync(() => {
+          Effect.gen(function*() {
             const ino = ref.ino
 
             if (ino !== undefined) {
-              const d = current()
-              d.release(ino)
-              reclaim(d, ino)
+              const d = yield* Draft
+              yield* d.release(ino)
+              yield* reclaim(d, ino)
             }
 
-            current().after.push(() => {
+            const d = yield* Draft
+            yield* d.afterInstall(() => {
               ref.ino = undefined
               ref.closed = true
             })
@@ -1179,11 +1267,11 @@ export const makeVolume = Effect.fnUntraced(
     // from outliving a finalizer that already ran. A scope that closes while the acquisition commits interrupts it
     // too. Every exit without a handle reruns the finalizer, which may have run before the commit published and
     // which closing an already closed scope would not run again.
-    const acquireHandle = Effect.fnUntraced(function*<A, E, R>(
+    const acquireHandle = Effect.fnUntraced(function*<A, E, R, ReleaseR>(
       reference: HandleScope,
-      coordinate: (acquire: Effect.Effect<A, E, R>) => Effect.Effect<A, E | FsFailure, R>,
+      coordinate: (acquire: Effect.Effect<A, E, R | ReleaseR>) => Effect.Effect<A, E | FsFailure, R>,
       acquire: Effect.Effect<A, E, R>,
-      releaseAcquired: () => void,
+      releaseAcquired: () => Effect.Effect<void, never, ReleaseR>,
       finalize: Effect.Effect<void>
     ) {
       const scope = yield* Scope.fork(yield* Effect.scope)
@@ -1196,9 +1284,8 @@ export const makeVolume = Effect.fnUntraced(
           Effect.tap(() =>
             Effect.suspend(() => {
               if (!closed()) return Effect.void
-              releaseAcquired()
 
-              return Effect.interrupt
+              return Effect.andThen(releaseAcquired(), Effect.interrupt)
             })
           )
         )
@@ -1208,16 +1295,21 @@ export const makeVolume = Effect.fnUntraced(
       )
     })
 
-    const bindFile = (ref: FileReference, ino: Ino) => {
-      current().after.push(() => {
-        ref.ino = ino
-      })
-    }
+    const bindFile = (ref: FileReference, ino: Ino) =>
+      Effect.flatMap(Draft, (draft) =>
+        draft.afterInstall(() => {
+          ref.ino = ino
+        }))
 
-    const replaceContent = (file: RegularFile, data: Uint8Array, now: bigint, publish = true) => {
-      const d = current()
-      d.usedBytes += BigInt(data.length - file.data.length)
-      d.put({
+    const replaceContent = Effect.fnUntraced(function*(
+      file: RegularFile,
+      data: Uint8Array,
+      now: bigint,
+      publish = true
+    ) {
+      const d = yield* Draft
+      yield* d.addUsedBytes(BigInt(data.length - file.data.length))
+      yield* d.put({
         ...file,
         data,
         metadata: {
@@ -1229,8 +1321,8 @@ export const makeVolume = Effect.fnUntraced(
         }
       })
 
-      if (publish) publishNode(file.ino)
-    }
+      if (publish) yield* publishNode(file.ino)
+    })
 
     const resizeAt = Effect.fnUntraced(function*(file: RegularFile, length: bigint, now: bigint, op: OpContext) {
       if (length > BigInt(maxFileBytes)) return yield* op.fail("FileTooLarge")
@@ -1240,25 +1332,27 @@ export const makeVolume = Effect.fnUntraced(
 
       const data = new Uint8Array(size)
       data.set(file.data.subarray(0, size))
-      replaceContent(file, data, now, false)
+      yield* replaceContent(file, data, now, false)
     })
 
     const resize = Effect.fnUntraced(function*(file: RegularFile, length: bigint, op: OpContext) {
       if (!isLength(length)) return yield* op.fail("InvalidArgument")
 
       yield* resizeAt(file, length, yield* timestamp(op), op)
-      publishNode(file.ino)
+      yield* publishNode(file.ino)
     })
 
     const fileHandle = (ref: FileReference): FileHandle => {
-      const get = (op: OpContext, access?: "read" | "write") => {
-        const node = ref.ino === undefined ? undefined : view(ref.ino)
+      const get = Effect.fnUntraced(function*(op: OpContext, access?: "read" | "write") {
+        const node = ref.ino === undefined ? undefined : yield* view(ref.ino)
 
-        return node?.kind !== "file" || (access === "read" && ref.access === "write") ||
-            (access === "write" && ref.access === "read")
-          ? Effect.fail(op.fail("InvalidHandle"))
-          : Effect.succeed(node)
-      }
+        if (
+          node?.kind !== "file" || (access === "read" && ref.access === "write") ||
+          (access === "write" && ref.access === "read")
+        ) return yield* op.fail("InvalidHandle")
+
+        return node
+      })
 
       const read = (maximum: number, position?: bigint) => {
         const op = OpContext.make(position === undefined ? "read" : "pread")
@@ -1289,9 +1383,10 @@ export const makeVolume = Effect.fnUntraced(
 
         return coordinated(
           op,
-          Effect.map(body, (read) => {
-            const { bytes, eof, next } = refreshAccess(read)
-            current().after.push(() => {
+          Effect.gen(function*() {
+            const { bytes, eof, next } = yield* refreshAccess(yield* body)
+            const draft = yield* Draft
+            yield* draft.afterInstall(() => {
               ref.offset = next
             })
 
@@ -1325,9 +1420,11 @@ export const makeVolume = Effect.fnUntraced(
             if (offset >= BigInt(maxFileBytes)) return yield* writeOp.fail("FileTooLarge")
             const start = Number(offset)
 
+            const draft = yield* Draft
+
             const free = settings.maxBytes === undefined
               ? BigInt(maxFileBytes)
-              : ByteSize.toBigInt(settings.maxBytes) - current().usedBytes
+              : ByteSize.toBigInt(settings.maxBytes) - (yield* draft.usedBytes)
 
             const maximumEnd = BigInt(file.data.length) + free
             const end = Number(BigInt(maxFileBytes) < maximumEnd ? BigInt(maxFileBytes) : maximumEnd)
@@ -1341,11 +1438,11 @@ export const makeVolume = Effect.fnUntraced(
             data.set(file.data)
             const now = yield* timestamp(writeOp)
             data.set(bytes.subarray(0, count), start)
-            replaceContent(file, data, now)
+            yield* replaceContent(file, data, now)
 
             if (position === undefined) {
               const next = offset + BigInt(count)
-              current().after.push(() => {
+              yield* draft.afterInstall(() => {
                 ref.offset = next
               })
             }
@@ -1448,7 +1545,7 @@ export const makeVolume = Effect.fnUntraced(
           return yield* op.fail("ForeignReference")
         }
 
-        const node = view(known.ino)
+        const node = yield* view(known.ino)
 
         if (node === undefined || (node.kind === "directory" && node.metadata.nlink === 0)) {
           return yield* op.fail("StaleReference")
@@ -1457,37 +1554,40 @@ export const makeVolume = Effect.fnUntraced(
         return node
       })
 
-      const callerDirectory = (op: OpContext) => {
-        const node = reference.ino === undefined ? undefined : view(reference.ino)
+      const callerDirectory = Effect.fnUntraced(function*(op: OpContext) {
+        const node = reference.ino === undefined ? undefined : yield* view(reference.ino)
 
-        return node?.kind === "directory" ? Effect.succeed(node) : Effect.fail(op.fail("ClosedCaller"))
-      }
+        if (node?.kind !== "directory") return yield* op.fail("ClosedCaller")
 
-      const directoryNow = (ino: Ino): Directory => {
-        const node = view(ino)
+        return node
+      })
+
+      const directoryNow = Effect.fnUntraced(function*(ino: Ino) {
+        const node = yield* view(ino)
 
         if (node?.kind !== "directory") {
           return dieInvariant("Directory left the inode table during a transition")
         }
 
         return node
-      }
+      })
 
-      const nodeNow = (ino: Ino): Node => {
-        const node = view(ino)
+      const nodeNow = Effect.fnUntraced(function*(ino: Ino) {
+        const node = yield* view(ino)
 
         if (node === undefined) return dieInvariant("Inode left the table during a transition")
 
         return node
-      }
+      })
 
       const creationTimes = (times: Times | undefined, now: bigint) => ({
         atimeNs: times?.access.kind === "value" ? times.access.nanoseconds : now,
         mtimeNs: times?.modification.kind === "value" ? times.modification.nanoseconds : now
       })
 
-      const newDirectory = (parent: Directory, mode: number, now: bigint, times?: Times): Directory => {
-        const ino = current().allocate()
+      const newDirectory = Effect.fnUntraced(function*(parent: Directory, mode: number, now: bigint, times?: Times) {
+        const draft = yield* Draft
+        const ino = yield* draft.allocate
 
         return {
           kind: "directory",
@@ -1500,18 +1600,19 @@ export const makeVolume = Effect.fnUntraced(
             ...creationTimes(times, now)
           },
           revision: 0n
-        }
-      }
+        } satisfies Directory
+      })
 
-      const newFile = (
+      const newFile = Effect.fnUntraced(function*(
         parent: Directory,
         data: RegularFile["data"],
         mode: number,
         now: bigint,
         owner?: OwnerUpdate,
         times?: Times
-      ): RegularFile => {
-        const ino = current().allocate()
+      ) {
+        const draft = yield* Draft
+        const ino = yield* draft.allocate
 
         return {
           kind: "file",
@@ -1532,33 +1633,36 @@ export const makeVolume = Effect.fnUntraced(
             nlink: 0
           },
           revision: 0n
-        }
-      }
+        } satisfies RegularFile
+      })
 
-      const newSymlink = (parent: Directory, target: Uint8Array, now: bigint, times?: Times): SymbolicLink => {
-        const ino = current().allocate()
+      const newSymlink = Effect.fnUntraced(
+        function*(parent: Directory, target: Uint8Array, now: bigint, times?: Times) {
+          const draft = yield* Draft
+          const ino = yield* draft.allocate
 
-        return {
-          kind: "symlink",
-          ino,
-          target,
-          links: [],
-          metadata: {
-            ...directoryMetadata(BigInt(ino), identity.uid, parent.metadata.gid, 0o777, now),
-            ...creationTimes(times, now),
+          return {
             kind: "symlink",
-            nlink: 0,
-            size: BigInt(target.length)
-          },
-          revision: 0n
+            ino,
+            target,
+            links: [],
+            metadata: {
+              ...directoryMetadata(BigInt(ino), identity.uid, parent.metadata.gid, 0o777, now),
+              ...creationTimes(times, now),
+              kind: "symlink",
+              nlink: 0,
+              size: BigInt(target.length)
+            },
+            revision: 0n
+          } satisfies SymbolicLink
         }
-      }
+      )
 
-      const lookup = Effect.fnUntraced(function*(
+      const lookup = Effect.fnUntraced(function*<R = never>(
         path: PreparedPath,
         base: DirectoryHandle | undefined,
         op: OpContext,
-        options: LookupOptions = {},
+        options: LookupOptions<R> = {},
         referencedBase?: Directory
       ) {
         const pathOp = op.at(path.input)
@@ -1568,7 +1672,7 @@ export const makeVolume = Effect.fnUntraced(
           return yield* pathOp.fail("ClosedCaller")
         }
 
-        let current: Node = path.absolute ? nodeNow(ROOT_INO) : yield* callerDirectory(pathOp)
+        let current: Node = path.absolute ? (yield* nodeNow(ROOT_INO)) : yield* callerDirectory(pathOp)
 
         if (!path.absolute && referencedBase !== undefined) {
           current = referencedBase
@@ -1584,7 +1688,7 @@ export const makeVolume = Effect.fnUntraced(
             return yield* pathOp.fail("ForeignHandle")
           }
 
-          const directory = target.ino === undefined ? undefined : view(target.ino)
+          const directory = target.ino === undefined ? undefined : (yield* view(target.ino))
 
           if (directory?.kind !== "directory") {
             return yield* pathOp.fail("InvalidHandle")
@@ -1619,7 +1723,7 @@ export const makeVolume = Effect.fnUntraced(
           if (component === DOT_HEX) continue
 
           if (component === DOT_DOT_HEX) {
-            current = directoryNow(current.parent)
+            current = yield* directoryNow(current.parent)
             parent = undefined
             name = undefined
             continue
@@ -1628,7 +1732,7 @@ export const makeVolume = Effect.fnUntraced(
           parent = current
           name = component
           const childIno = current.entries.get(component)
-          const child = childIno === undefined ? undefined : view(childIno)
+          const child = childIno === undefined ? undefined : (yield* view(childIno))
 
           if (child === undefined) {
             if (allowMissing && index === work.components.length - 1) {
@@ -1679,7 +1783,7 @@ export const makeVolume = Effect.fnUntraced(
             work = expanded.success
             linked = work.components.length - remaining + Math.max(0, linked - index - 1)
 
-            if (work.absolute) current = nodeNow(ROOT_INO)
+            if (work.absolute) current = yield* nodeNow(ROOT_INO)
             index = -1
           } else current = child
         }
@@ -1784,7 +1888,7 @@ export const makeVolume = Effect.fnUntraced(
           op,
           Effect.gen(function*() {
             const resolved = yield* resolving
-            const node = nodeNow(resolved.ino)
+            const node = yield* nodeNow(resolved.ino)
 
             if (expected !== undefined && node.revision !== expected) {
               return yield* resolved.op.fail("StaleReference", { field: "expected" })
@@ -1814,12 +1918,12 @@ export const makeVolume = Effect.fnUntraced(
             const now = yield* timestamp(op)
 
             if (size !== undefined && node.kind === "file") yield* resizeAt(node, size, now, op)
-            const sized = nodeNow(resolved.ino)
+            const sized = yield* nodeNow(resolved.ino)
             const gid = owner?.gid ?? sized.metadata.gid
             const cleared = chowned && sized.kind === "file" ? sized.metadata.mode & ~SET_ID_BITS : sized.metadata.mode
 
             if (chowned || mode !== undefined || timed) {
-              current().put({
+              yield* (yield* Draft).put({
                 ...sized,
                 metadata: {
                   ...sized.metadata,
@@ -1833,7 +1937,7 @@ export const makeVolume = Effect.fnUntraced(
               })
             }
 
-            publishNode(node.ino)
+            yield* publishNode(node.ino)
           })
         )
       }
@@ -1848,7 +1952,7 @@ export const makeVolume = Effect.fnUntraced(
         entry: ResolvedEntry,
         trailingSlash: "allowed" | "rejected" = "allowed"
       ) {
-        const parent = directoryNow(entry.parent)
+        const parent = yield* directoryNow(entry.parent)
 
         if (isDotComponent(entry.name)) {
           return yield* entry.op.fail(entry.addressing === "entry" ? "InvalidArgument" : "AlreadyExists")
@@ -1876,7 +1980,7 @@ export const makeVolume = Effect.fnUntraced(
         const name = yield* claimName(entry)
 
         yield* reserveEntry(entry.op)
-        const parent = directoryNow(entry.parent)
+        const parent = yield* directoryNow(entry.parent)
         const before = parent.revision
         const now = yield* timestamp(op)
 
@@ -1884,13 +1988,14 @@ export const makeVolume = Effect.fnUntraced(
           ? yield* permittedMode({ kind: "directory", uid: identity.uid, gid: parent.metadata.gid }, request.mode, op)
           : (request.mode & 0o777 & ~umask) | (request.mode & STICKY_BIT)
 
-        const child = newDirectory(parent, mode, now, request.times)
+        const child = yield* newDirectory(parent, mode, now, request.times)
 
-        attach(parent, name, child, now)
-        current().entries += 1
-        publishEntry("Create", parent.ino, name, child.ino)
+        yield* attach(parent, name, child, now)
+        const draft = yield* Draft
+        yield* draft.addEntries(1)
+        yield* publishEntry("Create", parent.ino, name, child.ino)
 
-        return { child: child.ino, directory: { before, after: current().revision } }
+        return { child: child.ino, directory: { before, after: draft.revision } }
       })
 
       // Creates every missing directory a path names in the running transition, so a failure anywhere discards
@@ -1916,8 +2021,12 @@ export const makeVolume = Effect.fnUntraced(
           const made = yield* Effect.result(makeDirectory(entry, request, op))
 
           if (Result.isSuccess(made)) return made.success
-          const existingIno = entry.name === undefined ? undefined : directoryNow(entry.parent).entries.get(entry.name)
-          node = existingIno === undefined ? undefined : view(existingIno)
+
+          const existingIno = entry.name === undefined
+            ? undefined
+            : (yield* directoryNow(entry.parent)).entries.get(entry.name)
+
+          node = existingIno === undefined ? undefined : (yield* view(existingIno))
 
           if (made.failure.code !== "AlreadyExists" || node?.kind !== "directory") return yield* made.failure
         } else {
@@ -1925,7 +2034,7 @@ export const makeVolume = Effect.fnUntraced(
 
           const resolved = yield* lookup(prepared.path, prepared.base, op, {
             createMissing: (parent, name, final) =>
-              Effect.map(
+              Effect.flatMap(
                 makeDirectory(
                   { parent: parent.ino, name, trailingSlash: false, addressing: "path", op: entryOp },
                   final ? request : { mode: request.mode, exactMode: request.exactMode },
@@ -1943,7 +2052,7 @@ export const makeVolume = Effect.fnUntraced(
         }
 
         if (node?.kind !== "directory") return yield* entryOp.fail("AlreadyExists")
-        const after = directoryNow(node.parent).revision
+        const after = (yield* directoryNow(node.parent)).revision
 
         return { child: node.ino, directory: { before: revisionsBefore.get(node.parent) ?? after, after } }
       })
@@ -1952,14 +2061,15 @@ export const makeVolume = Effect.fnUntraced(
         function*(node: Exclude<Node, Directory>, entry: ResolvedEntry, op: OpContext) {
           const name = yield* claimName(entry, "rejected")
           yield* reserveEntry(entry.op)
-          const parent = directoryNow(entry.parent)
+          const parent = yield* directoryNow(entry.parent)
           const before = parent.revision
           const now = yield* timestamp(op)
-          attach(parent, name, node, now)
-          current().entries += 1
-          publishEntry("Create", parent.ino, name, node.ino)
+          yield* attach(parent, name, node, now)
+          const draft = yield* Draft
+          yield* draft.addEntries(1)
+          yield* publishEntry("Create", parent.ino, name, node.ino)
 
-          return { before, after: current().revision }
+          return { before, after: draft.revision }
         }
       )
 
@@ -1972,25 +2082,25 @@ export const makeVolume = Effect.fnUntraced(
         const name = yield* claimName(entry, "rejected")
         yield* reserveEntry(entry.op)
         yield* reserveBytes(entry.op, BigInt(target.length))
-        const parent = directoryNow(entry.parent)
+        const parent = yield* directoryNow(entry.parent)
         const before = parent.revision
         const now = yield* timestamp(op)
-        const child = newSymlink(parent, target, now, times)
+        const child = yield* newSymlink(parent, target, now, times)
 
-        attach(parent, name, child, now)
-        current().entries += 1
-        current().usedBytes += BigInt(target.length)
-        publishEntry("Create", parent.ino, name, child.ino)
+        yield* attach(parent, name, child, now)
+        const draft = yield* Draft
+        yield* draft.addEntries(1)
+        yield* draft.addUsedBytes(BigInt(target.length))
+        yield* publishEntry("Create", parent.ino, name, child.ino)
 
-        return { child: child.ino, directory: { before, after: current().revision } }
+        return { child: child.ino, directory: { before, after: draft.revision } }
       })
 
       const removeChild = Effect.fnUntraced(function*(parent: Directory, name: string, child: Node, op: OpContext) {
         const before = parent.revision
         const now = yield* timestamp(op)
-        const d = current()
-
-        d.put(withEntries(
+        const d = yield* Draft
+        yield* d.put(withEntries(
           {
             ...parent,
             metadata: {
@@ -2002,9 +2112,9 @@ export const makeVolume = Effect.fnUntraced(
           },
           (entries) => entries.delete(name)
         ))
-        publishEntry("Remove", parent.ino, name, child.ino)
-        detach(child, parent.ino, name, now)
-        d.entries -= 1
+        yield* publishEntry("Remove", parent.ino, name, child.ino)
+        yield* detach(child, parent.ino, name, now)
+        yield* d.addEntries(-1)
 
         return { before, after: d.revision }
       })
@@ -2017,7 +2127,7 @@ export const makeVolume = Effect.fnUntraced(
         dotNameCode: "IsDirectory" | "InvalidArgument",
         beforeWrite?: (child: Node) => FsFailure | undefined
       ) {
-        const parent = directoryNow(entry.parent)
+        const parent = yield* directoryNow(entry.parent)
 
         if (isDotComponent(entry.name)) {
           return yield* entry.op.fail(entry.addressing === "entry" ? "InvalidArgument" : dotNameCode)
@@ -2025,7 +2135,7 @@ export const makeVolume = Effect.fnUntraced(
 
         yield* authorize(parent, identity, EXECUTE, entry.op)
         const childIno = parent.entries.get(entry.name)
-        const child = childIno === undefined ? undefined : view(childIno)
+        const child = childIno === undefined ? undefined : (yield* view(childIno))
 
         if (child === undefined) return yield* entry.op.fail("NotFound")
         const rejected = beforeWrite?.(child)
@@ -2079,8 +2189,8 @@ export const makeVolume = Effect.fnUntraced(
 
       const renameEntry = Effect.fnUntraced(
         function*(source: ResolvedEntry, destination: ResolvedEntry, op: OpContext) {
-          const sourceDirectory = directoryNow(source.parent)
-          const destinationDirectory = directoryNow(destination.parent)
+          const sourceDirectory = yield* directoryNow(source.parent)
+          const destinationDirectory = yield* directoryNow(destination.parent)
           const sameDirectory = source.parent === destination.parent
           const sourceName = source.name
           const destinationName = destination.name
@@ -2096,11 +2206,11 @@ export const makeVolume = Effect.fnUntraced(
           const sourceBefore = sourceDirectory.revision
           const destinationBefore = destinationDirectory.revision
           const childIno = sourceDirectory.entries.get(sourceName)
-          const child = childIno === undefined ? undefined : view(childIno)
+          const child = childIno === undefined ? undefined : (yield* view(childIno))
 
           if (child === undefined) return yield* source.op.fail("NotFound")
           const replacedIno = destinationDirectory.entries.get(destinationName)
-          const replaced = replacedIno === undefined ? undefined : view(replacedIno)
+          const replaced = replacedIno === undefined ? undefined : (yield* view(replacedIno))
 
           // A trailing slash on either side asks for a directory; a missing slashed destination is fine when the
           // source is one, as Linux allows.
@@ -2112,25 +2222,29 @@ export const makeVolume = Effect.fnUntraced(
             return yield* destination.op.fail("NotDirectory")
           }
 
-          const result = () =>
-            sameDirectory
+          const result = Effect.fnUntraced(function*() {
+            return sameDirectory
               ? {
                 _tag: "SameDirectory" as const,
-                directory: { before: sourceBefore, after: directoryNow(source.parent).revision }
+                directory: { before: sourceBefore, after: (yield* directoryNow(source.parent)).revision }
               }
               : {
                 _tag: "DifferentDirectories" as const,
-                sourceDirectory: { before: sourceBefore, after: directoryNow(source.parent).revision },
-                destinationDirectory: { before: destinationBefore, after: directoryNow(destination.parent).revision }
+                sourceDirectory: { before: sourceBefore, after: (yield* directoryNow(source.parent)).revision },
+                destinationDirectory: {
+                  before: destinationBefore,
+                  after: (yield* directoryNow(destination.parent)).revision
+                }
               }
+          })
 
-          for (let ancestor = destinationDirectory;; ancestor = directoryNow(ancestor.parent)) {
+          for (let ancestor = destinationDirectory;; ancestor = yield* directoryNow(ancestor.parent)) {
             if (ancestor.ino === child.ino) return yield* destination.op.fail("InvalidArgument")
 
             if (ancestor.ino === ROOT_INO) break
           }
 
-          if (child.ino === replaced?.ino) return result()
+          if (child.ino === replaced?.ino) return yield* result()
           yield* authorize(sourceDirectory, identity, WRITE, source.op)
           yield* authorize(destinationDirectory, identity, WRITE, destination.op)
           yield* authorizeRemoval(sourceDirectory, child, source.op)
@@ -2152,11 +2266,10 @@ export const makeVolume = Effect.fnUntraced(
           }
 
           const now = yield* timestamp(op)
-          const d = current()
+          const d = yield* Draft
 
-          publishEntry("Remove", sourceDirectory.ino, sourceName, child.ino)
-
-          d.put(withEntries(
+          yield* publishEntry("Remove", sourceDirectory.ino, sourceName, child.ino)
+          yield* d.put(withEntries(
             {
               ...sourceDirectory,
               metadata: {
@@ -2169,9 +2282,8 @@ export const makeVolume = Effect.fnUntraced(
             (entries) => entries.delete(sourceName)
           ))
 
-          const destinationNow = directoryNow(destination.parent)
-
-          d.put(withEntries(
+          const destinationNow = yield* directoryNow(destination.parent)
+          yield* d.put(withEntries(
             {
               ...destinationNow,
               metadata: {
@@ -2184,17 +2296,17 @@ export const makeVolume = Effect.fnUntraced(
             (entries) => entries.set(destinationName, child.ino)
           ))
 
-          const moved = nodeNow(child.ino)
+          const moved = yield* nodeNow(child.ino)
 
           if (moved.kind === "directory") {
-            d.put({
+            yield* d.put({
               ...moved,
               parent: destination.parent,
               name: destinationName,
               metadata: { ...moved.metadata, ctimeNs: now }
             })
           } else {
-            d.put({
+            yield* d.put({
               ...moved,
               links: [
                 ...withoutLink(moved.links, source.parent, sourceName),
@@ -2205,13 +2317,13 @@ export const makeVolume = Effect.fnUntraced(
           }
 
           if (replaced !== undefined) {
-            detach(nodeNow(replaced.ino), destination.parent, destinationName, now)
-            d.entries -= 1
+            yield* detach(yield* nodeNow(replaced.ino), destination.parent, destinationName, now)
+            yield* d.addEntries(-1)
           }
 
-          publishEntry("Create", destination.parent, destinationName, child.ino)
+          yield* publishEntry("Create", destination.parent, destinationName, child.ino)
 
-          return result()
+          return yield* result()
         }
       )
 
@@ -2241,7 +2353,7 @@ export const makeVolume = Effect.fnUntraced(
         op: OpContext
       ) {
         const { name } = entry
-        const parent = directoryNow(entry.parent)
+        const parent = yield* directoryNow(entry.parent)
         const before = parent.revision
         let file = found
         let created = false
@@ -2280,12 +2392,13 @@ export const makeVolume = Effect.fnUntraced(
             )
             : (request.mode ?? 0o666) & 0o777 & ~umask
 
-          file = newFile(parent, new Uint8Array(Number(size)), mode, now, owner, request.times)
-          attach(parent, name, file, now)
-          current().entries += 1
-          current().usedBytes += size
+          file = yield* newFile(parent, new Uint8Array(Number(size)), mode, now, owner, request.times)
+          yield* attach(parent, name, file, now)
+          const draft = yield* Draft
+          yield* draft.addEntries(1)
+          yield* draft.addUsedBytes(size)
           created = true
-          publishEntry("Create", parent.ino, name, file.ino)
+          yield* publishEntry("Create", parent.ino, name, file.ino)
         } else {
           if (file.kind === "symlink") return yield* entry.op.fail("SymlinkLoop")
 
@@ -2293,19 +2406,21 @@ export const makeVolume = Effect.fnUntraced(
           yield* openExisting(file, request, entry.op, op)
         }
 
-        current().retain(file.ino)
-        bindFile(acquired, file.ino)
+        yield* (yield* Draft).retain(file.ino)
+        yield* bindFile(acquired, file.ino)
 
-        return { ino: file.ino, created, directory: { before, after: directoryNow(entry.parent).revision } }
+        return { ino: file.ino, created, directory: { before, after: (yield* directoryNow(entry.parent)).revision } }
       })
 
-      const releasePending = (opened: () => Ino | undefined) => () => {
-        const ino = opened()
+      const releasePending = (opened: () => Ino | undefined) => () =>
+        Effect.gen(function*() {
+          const ino = opened()
 
-        if (ino === undefined) return
-        current().release(ino)
-        reclaim(current(), ino)
-      }
+          if (ino === undefined) return
+          const draft = yield* Draft
+          yield* draft.release(ino)
+          yield* reclaim(draft, ino)
+        })
 
       const acquireOpenedFile = <A, E, R>(
         ref: FileReference,
@@ -2334,7 +2449,7 @@ export const makeVolume = Effect.fnUntraced(
         if (ref === undefined) return yield* op.fail("InvalidHandle")
 
         if (ref.volume !== volumeIdentity) return yield* op.fail("ForeignHandle")
-        const node = ref.ino === undefined ? undefined : view(ref.ino)
+        const node = ref.ino === undefined ? undefined : (yield* view(ref.ino))
 
         if (node === undefined) return yield* op.fail("InvalidHandle")
 
@@ -2458,7 +2573,7 @@ export const makeVolume = Effect.fnUntraced(
           }),
           // Nothing to undo here: the finalizer that follows an interrupted acquisition releases the hold under
           // every permit, where a detached directory may leave the table.
-          () => {},
+          () => Effect.void,
           finalizeDirectory(acquired)
         )
       })
@@ -2560,8 +2675,9 @@ export const makeVolume = Effect.fnUntraced(
 
               if (node.metadata.nlink === 0) return yield* resolved.op.fail("StaleReference")
               yield* openExisting(node, chosen, resolved.op, op)
-              current().retain(node.ino)
-              bindFile(acquired, node.ino)
+              const draft = yield* Draft
+              yield* draft.retain(node.ino)
+              yield* bindFile(acquired, node.ino)
               opened(node.ino)
 
               return fileHandle(acquired)
@@ -2599,7 +2715,7 @@ export const makeVolume = Effect.fnUntraced(
               if (isDotComponent(name)) return yield* op.fail("InvalidArgument")
               yield* authorize(parent, identity, EXECUTE, op)
               const directIno = parent.entries.get(name)
-              const direct = directIno === undefined ? undefined : view(directIno)
+              const direct = directIno === undefined ? undefined : (yield* view(directIno))
 
               if (expected !== undefined) {
                 let expectedIno: Ino | undefined
@@ -2681,21 +2797,22 @@ export const makeVolume = Effect.fnUntraced(
         )
       })
 
-      const walkChildren = (
+      const walkChildren = Effect.fnUntraced(function*(
         directory: Directory,
         path: Uint8Array,
         depth: number,
         up: WalkFrame | undefined
-      ): Array<WalkFrame> => {
+      ) {
         const listed = referenceFor(directory.ino)
+        const frames: Array<WalkFrame> = []
 
-        return Arr.flatMap(Arr.sort(directory.entries, byEntryName), ([name, childIno]): Array<WalkFrame> => {
-          const child = view(childIno)
+        for (const [name, childIno] of Arr.sort(directory.entries, byEntryName)) {
+          const child = yield* view(childIno)
 
-          if (child === undefined) return []
+          if (child === undefined) continue
           const bytes = nameBytes(name)
 
-          return [{
+          frames.push({
             ino: child.ino,
             kind: child.kind,
             name: bytes,
@@ -2708,9 +2825,11 @@ export const makeVolume = Effect.fnUntraced(
             reference: referenceFor(child.ino),
             directory: listed,
             listed: false
-          }]
-        })
-      }
+          })
+        }
+
+        return frames
+      })
 
       const anchorFrame = (parent: Directory, key: string, root: Directory): WalkFrame => ({
         ino: root.ino,
@@ -2734,14 +2853,14 @@ export const makeVolume = Effect.fnUntraced(
         if (Result.isFailure(prepared)) return Effect.undefined
 
         return ResolvedEntry.fromPath(prepared.success, target.relativeTo, op).pipe(
-          Effect.map((entry) => {
-            const parent = view(entry.parent)
-
-            return entry.name !== undefined && parent?.kind === "directory" &&
-                parent.entries.get(entry.name) === root.ino
-              ? anchorFrame(parent, entry.name, root)
-              : undefined
-          }),
+          Effect.flatMap((entry) =>
+            Effect.map(view(entry.parent), (parent) => {
+              return entry.name !== undefined && parent?.kind === "directory" &&
+                  parent.entries.get(entry.name) === root.ino
+                ? anchorFrame(parent, entry.name, root)
+                : undefined
+            })
+          ),
           Effect.catch(() => Effect.undefined)
         )
       }
@@ -2760,14 +2879,14 @@ export const makeVolume = Effect.fnUntraced(
           const chain: Array<WalkFrame> = []
 
           for (let link: WalkFrame | undefined = frame; link !== undefined; link = link.up) chain.push(link)
-          let node: Node | undefined = view((chain.at(-1) ?? frame).parent)
+          let node: Node | undefined = yield* view((chain.at(-1) ?? frame).parent)
 
           for (let index = chain.length - 1; index >= 0; index--) {
             const link = chain[index]
 
             if (link === undefined || node?.kind !== "directory" || node.metadata.nlink === 0) return undefined
             yield* authorize(node, identity, EXECUTE, at)
-            node = node.entries.get(link.key) === link.ino ? view(link.ino) : undefined
+            node = node.entries.get(link.key) === link.ino ? (yield* view(link.ino)) : undefined
           }
 
           return node
@@ -2802,7 +2921,7 @@ export const makeVolume = Effect.fnUntraced(
                 return Effect.flatMap(reachFrame(frame, at), (node) =>
                   node?.kind !== "directory" || node.metadata.nlink === 0
                     ? Effect.succeed([])
-                    : Effect.as(listable(node, at), walkChildren(node, frame.path, frame.depth, frame)))
+                    : Effect.andThen(listable(node, at), walkChildren(node, frame.path, frame.depth, frame)))
               })
             )
 
@@ -2894,10 +3013,10 @@ export const makeVolume = Effect.fnUntraced(
           op,
           Effect.gen(function*() {
             const entry = yield* resolveEntry(prepared, op)
-            const parent = directoryNow(entry.parent)
+            const parent = yield* directoryNow(entry.parent)
             yield* authorize(parent, identity, EXECUTE, entry.op)
             const childIno = entry.name === undefined ? undefined : parent.entries.get(entry.name)
-            const child = childIno === undefined ? undefined : view(childIno)
+            const child = childIno === undefined ? undefined : (yield* view(childIno))
 
             if (entry.name === undefined || child === undefined) return yield* entry.op.fail("NotFound")
 
@@ -2906,7 +3025,7 @@ export const makeVolume = Effect.fnUntraced(
             anchor = anchorFrame(parent, entry.name, child)
             targetAt = entry.op
 
-            return walkChildren(child, new Uint8Array(0), 0, anchor)
+            return yield* walkChildren(child, new Uint8Array(0), 0, anchor)
           })
         ).pipe(
           Effect.catchIf((error) => force && error.code === "NotFound", () => Effect.succeed([]))
@@ -2921,13 +3040,13 @@ export const makeVolume = Effect.fnUntraced(
             seams.beforeTreeRemoval,
             coordinated(
               op,
-              Effect.suspend(() => {
-                if (anchor !== undefined && !holds(view(anchor.parent), anchor)) {
-                  return force ? Effect.void : Effect.fail(targetAt.fail("NotFound"))
+              Effect.gen(function*() {
+                if (anchor !== undefined && !holds(yield* view(anchor.parent), anchor)) {
+                  return yield* (force ? Effect.void : Effect.fail(targetAt.fail("NotFound")))
                 }
 
-                return Effect.flatMap(
-                  frame.up === undefined ? Effect.succeed(view(frame.parent)) : reachFrame(frame.up, at),
+                return yield* Effect.flatMap(
+                  frame.up === undefined ? view(frame.parent) : reachFrame(frame.up, at),
                   (parent) =>
                     !holds(parent, frame)
                       ? Effect.fail(at.fail("NotFound"))
@@ -2954,7 +3073,7 @@ export const makeVolume = Effect.fnUntraced(
       const entryVerb = Effect.fnUntraced(function*<A>(
         operation: string,
         input: EntryInput,
-        body: (entry: ResolvedEntry, op: OpContext) => Effect.Effect<A, FsFailure>
+        body: (entry: ResolvedEntry, op: OpContext) => Effect.Effect<A, FsFailure, Draft>
       ) {
         const op = OpContext.make(operation)
         const prepared = yield* Effect.fromResult(prepareEntry(input, op))
@@ -2980,7 +3099,7 @@ export const makeVolume = Effect.fnUntraced(
             op,
             Effect.gen(function*() {
               const entry = yield* resolveEntry(prepared, op)
-              const directory = directoryNow(entry.parent)
+              const directory = yield* directoryNow(entry.parent)
 
               if (isDotComponent(entry.name)) {
                 return yield* entry.op.fail(entry.addressing === "entry" ? "InvalidArgument" : "NotFound")
@@ -3061,7 +3180,12 @@ export const makeVolume = Effect.fnUntraced(
                 const directory = yield* resolveDirectory(target, op)
                 yield* authorize(directory.node, identity, READ, directory.op)
 
-                return walkChildren(directory.node, new Uint8Array(0), 0, yield* pathAnchor(target, directory.node, op))
+                return yield* walkChildren(
+                  directory.node,
+                  new Uint8Array(0),
+                  0,
+                  yield* pathAnchor(target, directory.node, op)
+                )
               })
             )
 
@@ -3109,7 +3233,7 @@ export const makeVolume = Effect.fnUntraced(
                 const pathOp = op.at(target.path)
                 const result = yield* lookup(yield* Effect.fromResult(prepare(target.path, op)), target.relativeTo, op)
                 const directory = result.node?.kind === "directory" ? result.node : result.parent
-                const prefix = directory === undefined ? SLASH_HEX : pathOf(view, directory.ino)
+                const prefix = directory === undefined ? SLASH_HEX : yield* pathOfCurrent(directory.ino)
 
                 if (prefix === undefined) return yield* pathOp.fail("NotFound")
 
@@ -3119,7 +3243,7 @@ export const makeVolume = Effect.fnUntraced(
               }
 
               const resolved = yield* resolveTarget(target, op)
-              const path = pathOf(view, resolved.node.ino)
+              const path = yield* pathOfCurrent(resolved.node.ino)
 
               if (path === undefined) return yield* resolved.op.fail("NotFound")
 
@@ -3227,7 +3351,7 @@ export const makeVolume = Effect.fnUntraced(
                 parent = directory.node
                 name = prepared.name
                 const childIno = parent.entries.get(name)
-                let child = childIno === undefined ? undefined : view(childIno)
+                let child = childIno === undefined ? undefined : (yield* view(childIno))
 
                 if (
                   child?.kind === "symlink" && chosen.replaceFinalSymlink !== true &&
@@ -3278,7 +3402,7 @@ export const makeVolume = Effect.fnUntraced(
 
                 if (replaced !== undefined) yield* authorizeRemoval(parent, replaced, entryOp)
 
-                yield* replaced === undefined ? reserveEntry(entryOp) : reserveInode(entryOp)
+                yield* (replaced === undefined ? reserveEntry(entryOp) : reserveInode(entryOp))
               } else {
                 yield* authorize(file, identity, chosen.access === "readWrite" ? READ | WRITE : WRITE, entryOp)
               }
@@ -3313,9 +3437,10 @@ export const makeVolume = Effect.fnUntraced(
               }
 
               const now = yield* timestamp(op)
-              const d = current()
+              const d = yield* Draft
 
-              const node = file ?? newFile(parent, new Uint8Array(0), (chosen.mode ?? 0o666) & 0o777 & ~umask, now)
+              const node = file ??
+                (yield* newFile(parent, new Uint8Array(0), (chosen.mode ?? 0o666) & 0o777 & ~umask, now))
 
               const written: RegularFile = {
                 ...node,
@@ -3329,18 +3454,18 @@ export const makeVolume = Effect.fnUntraced(
                 }
               }
 
-              d.usedBytes += BigInt(size - previous)
+              yield* d.addUsedBytes(BigInt(size - previous))
 
               if (file === undefined) {
-                if (replaced !== undefined) detach(replaced, parent.ino, name, now)
+                if (replaced !== undefined) yield* detach(replaced, parent.ino, name, now)
 
-                attach(directoryNow(parent.ino), name, written, now)
+                yield* attach(yield* directoryNow(parent.ino), name, written, now)
 
-                if (replaced === undefined) d.entries += 1
-                publishEntry(replaced === undefined ? "Create" : "Update", parent.ino, name, written.ino)
+                if (replaced === undefined) yield* d.addEntries(1)
+                yield* publishEntry(replaced === undefined ? "Create" : "Update", parent.ino, name, written.ino)
               } else {
-                d.put(written)
-                publishNode(written.ino)
+                yield* d.put(written)
+                yield* publishNode(written.ino)
               }
             })
           )
@@ -3545,12 +3670,12 @@ export const makeVolume = Effect.fnUntraced(
             [DirectoryHandleId]: true as const,
             stat: coordinatedRead(
               statOp,
-              Effect.suspend(() => {
-                const node = acquired.ino === undefined ? undefined : view(acquired.ino)
+              Effect.gen(function*() {
+                const node = acquired.ino === undefined ? undefined : yield* view(acquired.ino)
 
-                return node === undefined
+                return yield* (node === undefined
                   ? Effect.fail(statOp.fail("InvalidHandle"))
-                  : Effect.succeed(withMetadata(node))
+                  : Effect.succeed(withMetadata(node)))
               })
             ).pipe(Effect.withSpan("DirectoryHandle.stat")),
             close: coordinatedCleanup(Effect.suspend(() => {
@@ -3558,9 +3683,7 @@ export const makeVolume = Effect.fnUntraced(
                 return Effect.fail(OpContext.make("close").fail("InvalidHandle"))
               }
 
-              releaseDirectory(acquired)
-
-              return Effect.void
+              return releaseDirectory(acquired)
             })).pipe(Effect.ensuring(closeReleasedScope(acquired)), Effect.withSpan("DirectoryHandle.close"))
           })
 
