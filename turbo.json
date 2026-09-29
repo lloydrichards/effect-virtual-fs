@@ -4,6 +4,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": ["VITE_UMAMI_WEBSITE_ID"],
       "inputs": ["$TURBO_DEFAULT$"],
       "outputs": ["dist/**", "build/**"]
     },
