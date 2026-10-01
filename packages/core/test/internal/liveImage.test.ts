@@ -44,6 +44,57 @@ describe("private live image", () => {
   )
 
   it.layer(BunCrypto.layer)((it) => {
+    const constructors = [
+      ["memory volume", (options: Vfs.VolumeOptions) => Effect.map(Vfs.make(options), (volume) => volume.identity)],
+      ["empty image", (options: Vfs.VolumeOptions) =>
+        LiveVolume.prepareEmptyImage(options).pipe(
+          Effect.flatMap((image) => LiveImage.decode(image, BOUND)),
+          Effect.map((restored) => restored.identity)
+        )],
+      [
+        "durable volume",
+        (options: Vfs.VolumeOptions) =>
+          LiveVolume.open({ maxImageBytes: BOUND, volume: options }).pipe(
+            Effect.map((volume) => volume.identity),
+            Effect.provideService(LiveVolume.LiveImageStore, {
+              loadOrCreate: Effect.succeed,
+              commit: () => Effect.succeed("committed")
+            })
+          )
+      ]
+    ] as const
+
+    for (const [name, construct] of constructors) {
+      it.effect(`should retain the validated identity when constructing ${name} from changing options`, () =>
+        Effect.gen(function*() {
+          const identity = Vfs.VolumeIdentity.make("0123456789abcdef0123456789abcdef")
+          let reads = 0
+
+          const options = Object.defineProperty({}, "identity", {
+            enumerable: true,
+            get: () => ++reads === 1 ? identity : "invalid"
+          })
+
+          assert.strictEqual(yield* construct(options), identity)
+          assert.strictEqual(reads, 1)
+        }))
+
+      it.effect(`should reject an initially invalid identity when constructing ${name} from changing options`, () =>
+        Effect.gen(function*() {
+          let reads = 0
+
+          const options = Object.defineProperty({}, "identity", {
+            enumerable: true,
+            get: () => ++reads === 1 ? "invalid" : "0123456789abcdef0123456789abcdef"
+          })
+
+          const error = yield* Effect.flip(construct(options))
+
+          assert.strictEqual(error.code, "InvalidArgument")
+          assert.strictEqual(error.field, name === "durable volume" ? "volume.identity" : "identity")
+        }))
+    }
+
     it.effect("should reopen an existing version 1 document with its naming and root metadata intact", () =>
       Effect.gen(function*() {
         const restored = yield* LiveImage.decode(legacy, BOUND)
