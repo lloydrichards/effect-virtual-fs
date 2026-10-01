@@ -1,5 +1,5 @@
 // Live images persist runtime identity and revisions along with the tree, including unlinked open files.
-import * as ByteSize from "effect/ByteSize"
+import type * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -9,6 +9,7 @@ import type { VolumeIdentity } from "../Volume.js"
 import type { KeySecret, VolumeEpoch } from "./hex128.js"
 import * as Lines from "./lines.js"
 import * as Tree from "./tree.js"
+import * as Limits from "./volumeLimits.js"
 import { assemble, getNode, Ino, type Node, type RegularFile, type VolumeState } from "./volumeState.js"
 
 const OPERATION = "openImage"
@@ -55,15 +56,7 @@ export const encode = Effect.fnUntraced(function*(
   limits: VolumeLimits
 ) {
   const nodes = yield* Tree.treeNodes(state, retainedFiles(state))
-  const stored: { -readonly [K in keyof StoredLimits]: StoredLimits[K] } = {}
-
-  if (limits.maxEntries !== undefined) stored.maxEntries = limits.maxEntries
-
-  if (limits.maxBytes !== undefined) stored.maxBytes = ByteSize.toBigInt(limits.maxBytes)
-
-  stored.maxFileBytes = ByteSize.toBigInt(limits.maxFileBytes)
-
-  if (limits.maxPathBytes !== undefined) stored.maxPathBytes = ByteSize.toBigInt(limits.maxPathBytes)
+  const stored = Limits.toStored(limits)
 
   const header = yield* Effect.fromResult(headerText({
     format: "effect-vfs-live",

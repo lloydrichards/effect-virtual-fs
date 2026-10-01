@@ -1,6 +1,6 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Deferred, Effect, Exit, Fiber, Layer, Predicate, Stream } from "effect"
+import { ByteSize, Deferred, Effect, Exit, Fiber, Layer, Predicate, Queue, Stream } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
 import { entryNames } from "./support/text.js"
@@ -361,6 +361,199 @@ const answering = Effect.fnUntraced(
     return { volume: session.volume, caller: yield* session.volume.caller(), commits: () => commits }
   }
 )
+
+// The store keeps its committed image across independently scoped opens.
+const storedImages = () => {
+  let image: Uint8Array | undefined
+  let commit = (_candidate: Uint8Array): Effect.Effect<LiveVolume.CommitOutcome> => Effect.succeed("committed")
+
+  const layer = Layer.succeed(
+    LiveVolume.LiveImageStore,
+    LiveVolume.LiveImageStore.of({
+      loadOrCreate: (initial) => Effect.succeed(image ?? initial),
+      commit: (candidate) =>
+        commit(candidate).pipe(Effect.tap((outcome) =>
+          Effect.sync(() => {
+            if (outcome === "committed") image = new Uint8Array(candidate)
+          })
+        ))
+    })
+  )
+
+  return {
+    layer,
+    setCommit: (next: typeof commit) => {
+      commit = next
+    }
+  }
+}
+
+describe("live runtime limits", () => {
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect("should admit one waiter and release its slot when it is cancelled", () => {
+      const store = storedImages()
+
+      return Effect.scoped(Effect.gen(function*() {
+        const entered = yield* Deferred.make<void>()
+        const release = yield* Deferred.make<void>()
+        let commits = 0
+        store.setCommit(() =>
+          Effect.gen(function*() {
+            commits++
+
+            if (commits === 1) {
+              yield* Deferred.succeed(entered, undefined)
+              yield* Deferred.await(release)
+            }
+
+            return "committed" as const
+          })
+        )
+        const volume = yield* LiveVolume.open({ ...options, volume: { ...options.volume, maxPendingOperations: 1 } })
+        assert.strictEqual(volume.limits.maxPendingOperations, 1)
+        const caller = yield* volume.caller()
+        const active = yield* caller.mkdir("/active").pipe(Effect.forkChild({ startImmediately: true }))
+        yield* Deferred.await(entered)
+        const cancelled = yield* caller.mkdir("/cancelled").pipe(Effect.forkChild({ startImmediately: true }))
+        yield* settle
+        assert.isUndefined(cancelled.pollUnsafe())
+        const full = yield* caller.mkdir("/full").pipe(Effect.forkChild({ startImmediately: true }))
+        yield* settle
+        const completed = full.pollUnsafe()
+
+        if (completed === undefined) yield* Deferred.succeed(release, undefined)
+        assert.isDefined(completed)
+        assert.strictEqual((yield* Effect.flip(Fiber.join(full))).code, "VolumeBusy")
+        yield* Fiber.interrupt(cancelled)
+        const replacement = yield* caller.mkdir("/replacement").pipe(Effect.forkChild({ startImmediately: true }))
+        yield* settle
+        assert.isUndefined(replacement.pollUnsafe())
+        yield* Deferred.succeed(release, undefined)
+        yield* Fiber.join(active)
+        yield* Fiber.join(replacement)
+        assert.strictEqual(commits, 2)
+        assert.deepEqual(entryNames(yield* caller.readDirectory("/")), ["active", "replacement"])
+      })).pipe(Effect.provide(store.layer))
+    })
+
+    it.effect("should retune reopened watch buffers without losing stored files or overflowing fast subscribers", () => {
+      const store = storedImages()
+
+      return Effect.gen(function*() {
+        yield* Effect.scoped(Effect.gen(function*() {
+          const volume = yield* LiveVolume.open({ ...options, volume: { ...options.volume, maxWatchEvents: 8 } })
+          yield* (yield* volume.caller()).writeFile("/saved", bytes(7), { access: "write", create: "exclusive" })
+        }))
+        yield* Effect.scoped(Effect.gen(function*() {
+          const volume = yield* LiveVolume.open({
+            ...options,
+            volume: {
+              ...options.volume,
+              maxWatchEvents: 2,
+              maxPendingOperations: 1
+            }
+          })
+
+          assert.strictEqual(volume.limits.maxWatchEvents, 2)
+          assert.strictEqual(volume.limits.maxPendingOperations, 1)
+          const caller = yield* volume.caller()
+          assert.deepEqual(yield* caller.readFile("/saved"), bytes(7))
+          const slow = yield* volume.watch()
+          const fast = yield* volume.watch()
+          const received = yield* Queue.bounded<void>(3)
+
+          const consumer = yield* Stream.runCollect(
+            Stream.take(Stream.tap(fast, () => Queue.offer(received, undefined)), 3)
+          )
+            .pipe(Effect.forkChild({ startImmediately: true }))
+
+          for (const path of ["/a", "/b", "/c"]) {
+            yield* caller.mkdir(path)
+            yield* Queue.take(received)
+          }
+
+          assert.deepEqual(Array.from(yield* Stream.runCollect(Stream.take(slow, 2)), (event) => event._tag), [
+            "Create",
+            "Rescan"
+          ])
+          assert.deepEqual(Array.from(yield* Fiber.join(consumer), (event) => event._tag), [
+            "Create",
+            "Create",
+            "Create"
+          ])
+        }))
+      }).pipe(Effect.provide(store.layer))
+    })
+
+    it.effect("should reopen omitted capacity limits using their effective defaults", () => {
+      const store = storedImages()
+      const defaults = { maxImageBytes: MAX_IMAGE_BYTES, volume: {} }
+
+      return Effect.gen(function*() {
+        yield* Effect.scoped(Effect.gen(function*() {
+          const volume = yield* LiveVolume.open(defaults)
+          yield* (yield* volume.caller()).mkdir("/saved")
+        }))
+        yield* Effect.scoped(Effect.gen(function*() {
+          const volume = yield* LiveVolume.open(defaults)
+          assert.strictEqual((yield* (yield* volume.caller()).stat("/saved")).kind, "directory")
+        }))
+      }).pipe(Effect.provide(store.layer))
+    })
+
+    it.effect("should compare capacity quantities and reject each capacity or identity mismatch", () => {
+      const store = storedImages()
+      const identity = Vfs.VolumeIdentity.make("0123456789abcdef0123456789abcdef")
+      const original = { ...options, volume: { ...options.volume, identity } }
+
+      return Effect.gen(function*() {
+        yield* Effect.scoped(Effect.gen(function*() {
+          const volume = yield* LiveVolume.open(original)
+          yield* (yield* volume.caller()).mkdir("/saved")
+        }))
+        yield* Effect.scoped(Effect.gen(function*() {
+          const volume = yield* LiveVolume.open({
+            ...original,
+            volume: { ...original.volume, maxBytes: ByteSize.bytes(32000) }
+          })
+
+          assert.strictEqual((yield* (yield* volume.caller()).stat("/saved")).kind, "directory")
+        }))
+
+        for (
+          const changed of [
+            { maxEntries: 101 },
+            { maxBytes: ByteSize.bytes(32001) },
+            { maxFileBytes: ByteSize.bytes(16001) },
+            { maxPathBytes: ByteSize.bytes(1025) },
+            { identity: Vfs.VolumeIdentity.make("ffffffffffffffffffffffffffffffff") }
+          ]
+        ) {
+          const error = yield* Effect.scoped(
+            Effect.flip(LiveVolume.open({ ...original, volume: { ...original.volume, ...changed } }))
+          )
+
+          assert.strictEqual(error.code, "IncompatibleStore")
+          assert.strictEqual(error.operation, "LiveVolume.open")
+        }
+      }).pipe(Effect.provide(store.layer))
+    })
+
+    it.effect("should retain runtime defaults through the public four-argument image API", () =>
+      Effect.gen(function*() {
+        const session = yield* LiveVolume.openImage(
+          yield* LiveVolume.prepareEmptyImage(),
+          MAX_IMAGE_BYTES,
+          () => Effect.succeed("committed"),
+          "memory-only"
+        )
+
+        assert.strictEqual(session.volume.limits.maxPendingOperations, 64)
+        assert.strictEqual(session.volume.limits.maxWatchEvents, 256)
+        yield* session.shutdown
+      }))
+  })
+})
 
 describe("live commit", () => {
   it.layer(BunCrypto.layer)((it) => {

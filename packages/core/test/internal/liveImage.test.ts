@@ -1,7 +1,8 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect } from "effect"
-import { VirtualFileSystem as Vfs } from "../../src/index.js"
+import { ByteSize, Clock, Effect } from "effect"
+import * as TestClock from "effect/testing/TestClock"
+import { LiveVolume, VirtualFileSystem as Vfs } from "../../src/index.js"
 import * as LiveImage from "../../src/internal/liveImage.js"
 import { openImageVolume, prepareEmptyLiveImage } from "../../src/internal/virtualFileSystem.js"
 
@@ -36,6 +37,97 @@ const failure = (image: Uint8Array) =>
   Effect.map(Effect.flip(LiveImage.decode(image, BOUND)), (error) => [error.code, error.field] as const)
 
 describe("private live image", () => {
+  // Captured from the version 1 encoder before the direct empty-state refactor.
+  const legacy = new TextEncoder().encode(
+    "{\"format\":\"effect-vfs-live\",\"version\":1,\"runtime\":{\"identity\":\"0123456789abcdef0123456789abcdef\",\"epoch\":\"de369d4cca173d6066a0185f7e1284fe\",\"keySecret\":\"f8b0cbdf68fb9c18a79531b05811090b\",\"nextInode\":2,\"revision\":\"1\",\"limits\":{\"maxFileBytes\":\"4294967295\"},\"usage\":{\"entries\":0,\"usedBytes\":\"0\"}}}\n" +
+      "{\"_tag\":\"directory\",\"ino\":1,\"parent\":1,\"name\":\"\",\"metadata\":{\"uid\":0,\"gid\":0,\"mode\":493,\"atimeNs\":\"1790851950589000000\",\"mtimeNs\":\"1790851950589000000\",\"ctimeNs\":\"1790851950589000000\",\"birthtimeNs\":\"1790851950589000000\"},\"rev\":\"1\"}\n"
+  )
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect("should reopen an existing version 1 document with its naming and root metadata intact", () =>
+      Effect.gen(function*() {
+        const restored = yield* LiveImage.decode(legacy, BOUND)
+        const session = yield* LiveVolume.openImage(legacy, BOUND, () => Effect.succeed("committed"))
+        assert.strictEqual(session.volume.identity, "0123456789abcdef0123456789abcdef")
+        const root = yield* (yield* session.volume.caller()).stat("/")
+        assert.deepEqual([root.uid, root.gid, root.mode, root.birthtimeNs], [0, 0, 0o755, 1790851950589000000n])
+        assert.deepEqual(yield* LiveImage.encode(restored.value, restored, session.volume.limits), legacy)
+        yield* session.shutdown
+      }))
+
+    it.effect("should reject version 1 capacity values that exceed the supported file size", () =>
+      Effect.gen(function*() {
+        const error = yield* Effect.flip(LiveVolume.openImage(
+          edited(legacy, "\"maxFileBytes\":\"4294967295\"", "\"maxFileBytes\":\"4294967296\""),
+          BOUND,
+          () => Effect.succeed("committed")
+        ))
+
+        assert.deepEqual([error.code, error.field], ["InvalidArgument", "maxFileBytes"])
+      }))
+
+    it.effect("should attribute an unsupported clock sample to empty-image preparation", () =>
+      Effect.gen(function*() {
+        const original = yield* Clock.clockWith(Effect.succeed)
+        const now = () => 10n ** 128n
+
+        const clock: Clock.Clock = {
+          currentTimeMillisUnsafe: () => original.currentTimeMillisUnsafe(),
+          currentTimeMillis: original.currentTimeMillis,
+          currentTimeNanosUnsafe: now,
+          currentTimeNanos: Effect.sync(now),
+          monotonicTimeNanosUnsafe: () => original.monotonicTimeNanosUnsafe(),
+          monotonicTimeNanos: original.monotonicTimeNanos,
+          sleep: (duration) => original.sleep(duration)
+        }
+
+        const error = yield* Effect.flip(
+          LiveVolume.prepareEmptyImage().pipe(Effect.provideService(Clock.Clock, clock))
+        )
+
+        assert.deepEqual([error.code, error.operation, error.field], [
+          "InvalidArgument",
+          "LiveVolume.prepareEmptyImage",
+          "clock.currentTimeNanos"
+        ])
+      }))
+
+    it.effect("should prepare an empty root at the current time and attribute invalid options to preparation", () =>
+      Effect.gen(function*() {
+        yield* TestClock.setTime(1234)
+
+        const image = yield* LiveVolume.prepareEmptyImage({
+          identity: Vfs.VolumeIdentity.make("0123456789abcdef0123456789abcdef"),
+          ...LIMITS
+        })
+
+        const restored = yield* LiveImage.decode(image, BOUND)
+        const session = yield* LiveVolume.openImage(image, BOUND, () => Effect.succeed("committed"))
+        const root = yield* (yield* session.volume.caller()).stat("/")
+        assert.strictEqual(session.volume.identity, "0123456789abcdef0123456789abcdef")
+        assert.deepEqual([root.uid, root.gid, root.mode, root.atimeNs, root.mtimeNs, root.ctimeNs, root.birthtimeNs], [
+          0,
+          0,
+          0o755,
+          1_234_000_000n,
+          1_234_000_000n,
+          1_234_000_000n,
+          1_234_000_000n
+        ])
+        assert.deepEqual(yield* session.volume.usage, { entries: 0, usedBytes: 0n })
+        assert.match(restored.epoch, /^[0-9a-f]{32}$/)
+        assert.match(restored.keySecret, /^[0-9a-f]{32}$/)
+        assert.notStrictEqual<string>(restored.epoch, restored.keySecret)
+        const error = yield* Effect.flip(LiveVolume.prepareEmptyImage({ maxPendingOperations: 0 }))
+        assert.deepEqual([error.code, error.operation, error.field], [
+          "InvalidArgument",
+          "LiveVolume.prepareEmptyImage",
+          "maxPendingOperations"
+        ])
+        yield* session.shutdown
+      }))
+  })
+
   // Reopening reclaims unlinked files a handle held, so only an image without any re-encodes unchanged.
   it.layer(BunCrypto.layer)((it) => {
     it.effect(
