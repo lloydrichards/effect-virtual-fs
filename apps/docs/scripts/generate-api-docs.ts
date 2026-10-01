@@ -77,16 +77,25 @@ const expandTypeAliases = async (packagePath: string, moduleName: string, conten
 
     if (headingStart === -1) continue
 
-    const codeStart = result.indexOf("```ts\n", headingStart) + "```ts\n".length
+    const signatureStart = result.indexOf("**Signature**", headingStart)
+    const nextHeading = result.indexOf("\n### ", headingStart + heading.length)
+
+    if (signatureStart === -1 || (nextHeading !== -1 && signatureStart > nextHeading)) {
+      throw new Error(`Missing signature for ${heading}`)
+    }
+
+    const codeStart = result.indexOf("```ts\n", signatureStart) + "```ts\n".length
     const codeEnd = result.indexOf("\n```", codeStart)
 
     if (codeStart < "```ts\n".length || codeEnd === -1) throw new Error(`Missing signature for ${heading}`)
 
     const signature = result.slice(codeStart, codeEnd)
 
-    if (!signature.replace(/^export /, "").startsWith(`type ${alias.getName()} =`) || !signature.includes("typeof")) {
-      continue
+    if (!signature.replace(/^export /, "").startsWith(`type ${alias.getName()} =`)) {
+      throw new Error(`Unexpected signature for ${heading}`)
     }
+
+    if (!signature.includes("typeof")) continue
 
     const resolved = alias.getTypeNodeOrThrow().getType().getText(alias, typeFlags)
       .replace(/import\("[^"]*\/node_modules\/effect\/dist\/([^"/]+)"\)\.([A-Za-z_$][\w$]*)/g, "$1.$2")
