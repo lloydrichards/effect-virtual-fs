@@ -1,9 +1,9 @@
-# Caller overview
+# Caller.ts overview
 
 Caller identity brands and schemas: credentials, root caller options, and
 the settings and results of the operations a caller performs.
 
-Added in v0.6.0
+Since v0.6.0
 
 ---
 
@@ -19,7 +19,9 @@ A directory's revision before and after a change.
 export type DirectoryChange = { readonly before: bigint; readonly after: bigint }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L147)
+
+Since v0.6.0
 
 ### Identity (type alias)
 
@@ -36,7 +38,9 @@ export type Identity = {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L64)
+
+Since v0.6.0
 
 ### MkdirOptions (type alias)
 
@@ -62,7 +66,9 @@ export type MkdirOptions = {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L194)
+
+Since v0.6.0
 
 ### OpenEntryOptions (type alias)
 
@@ -101,7 +107,9 @@ export type OpenEntryOptions = {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L329)
+
+Since v0.6.0
 
 ### OpenOptions (type alias)
 
@@ -119,7 +127,9 @@ export type OpenOptions = {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L106)
+
+Since v0.6.0
 
 ### RemoveOptions (type alias)
 
@@ -131,7 +141,9 @@ Options of `remove`.
 export type RemoveOptions = { readonly recursive?: boolean; readonly force?: boolean }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L240)
+
+Since v0.6.0
 
 ### RenameReferenceResult (type alias)
 
@@ -152,7 +164,9 @@ export type RenameReferenceResult =
     }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L169)
+
+Since v0.6.0
 
 ### RootCallerOptions (type alias)
 
@@ -172,7 +186,9 @@ export type RootCallerOptions = {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L83)
+
+Since v0.6.0
 
 ### SetattrOptions (type alias)
 
@@ -199,7 +215,9 @@ export type SetattrOptions = {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L285)
+
+Since v0.6.0
 
 ### SymlinkOptions (type alias)
 
@@ -222,7 +240,9 @@ export type SymlinkOptions = {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L258)
+
+Since v0.6.0
 
 ### WalkOptions (type alias)
 
@@ -239,7 +259,9 @@ export type WalkOptions = {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L220)
+
+Since v0.6.0
 
 ### WriteFileOptions (type alias)
 
@@ -260,7 +282,9 @@ export type WriteFileOptions = {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L128)
+
+Since v0.6.0
 
 ## schemas
 
@@ -271,10 +295,12 @@ Schema for a directory's revision before and after a change.
 **Signature**
 
 ```ts
-export declare const DirectoryChange: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }>
+declare const DirectoryChange: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L136)
+
+Since v0.6.0
 
 ### Identity
 
@@ -284,7 +310,7 @@ grants nothing.
 **Signature**
 
 ```ts
-export declare const Identity: Schema.Struct<{
+declare const Identity: Schema.Struct<{
   readonly uid: Schema.Natural
   readonly gid: Schema.Natural
   readonly groups: Schema.$Array<Schema.Natural>
@@ -292,7 +318,9 @@ export declare const Identity: Schema.Struct<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L51)
+
+Since v0.6.0
 
 ### MkdirOptions
 
@@ -305,7 +333,7 @@ applies to every directory it creates and the times to the final one.
 **Signature**
 
 ```ts
-export declare const MkdirOptions: Schema.Struct<{
+declare const MkdirOptions: Schema.Struct<{
   readonly mode: Schema.optionalKey<Schema.Natural>
   readonly exactMode: Schema.optionalKey<Schema.Boolean>
   readonly times: Schema.optionalKey<
@@ -330,7 +358,9 @@ export declare const MkdirOptions: Schema.Struct<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L181)
+
+Since v0.6.0
 
 ### OpenEntryOptions
 
@@ -343,7 +373,7 @@ appeared; `expectedChild` pins its revision and times as well and fails as
 **Signature**
 
 ```ts
-export declare const OpenEntryOptions: Schema.Struct<{
+declare const OpenEntryOptions: Schema.Struct<{
   readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
   readonly times: Schema.optionalKey<
     Schema.Struct<{
@@ -390,7 +420,9 @@ export declare const OpenEntryOptions: Schema.Struct<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L307)
+
+Since v0.6.0
 
 ### OpenOptions
 
@@ -400,7 +432,7 @@ missing file is created, the creation mode, and append and truncate flags.
 **Signature**
 
 ```ts
-export declare const OpenOptions: Schema.Struct<{
+declare const OpenOptions: Schema.Struct<{
   readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
   readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
   readonly mode: Schema.optionalKey<Schema.Natural>
@@ -409,7 +441,9 @@ export declare const OpenOptions: Schema.Struct<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L92)
+
+Since v0.6.0
 
 ### RemoveOptions
 
@@ -419,13 +453,15 @@ everything under it; `force` succeeds when the target itself is missing.
 **Signature**
 
 ```ts
-export declare const RemoveOptions: Schema.Struct<{
+declare const RemoveOptions: Schema.Struct<{
   readonly recursive: Schema.optionalKey<Schema.Boolean>
   readonly force: Schema.optionalKey<Schema.Boolean>
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L229)
+
+Since v0.6.0
 
 ### RenameReferenceResult
 
@@ -434,7 +470,7 @@ Schema for the result of `rename`.
 **Signature**
 
 ```ts
-export declare const RenameReferenceResult: Schema.TaggedUnion<{
+declare const RenameReferenceResult: Schema.TaggedUnion<{
   readonly SameDirectory: Schema.TaggedStruct<
     "SameDirectory",
     { readonly directory: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }> }
@@ -449,7 +485,9 @@ export declare const RenameReferenceResult: Schema.TaggedUnion<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L155)
+
+Since v0.6.0
 
 ### RootCallerOptions
 
@@ -458,7 +496,7 @@ Schema for the options of a root caller.
 **Signature**
 
 ```ts
-export declare const RootCallerOptions: Schema.Struct<{
+declare const RootCallerOptions: Schema.Struct<{
   readonly identity: Schema.optionalKey<
     Schema.Struct<{
       readonly uid: Schema.Natural
@@ -471,7 +509,9 @@ export declare const RootCallerOptions: Schema.Struct<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L72)
+
+Since v0.6.0
 
 ### SetattrOptions
 
@@ -485,7 +525,7 @@ on, so a change decided from that observation never applies to a newer one.
 **Signature**
 
 ```ts
-export declare const SetattrOptions: Schema.Struct<{
+declare const SetattrOptions: Schema.Struct<{
   readonly size: Schema.optionalKey<Schema.BigInt>
   readonly mode: Schema.optionalKey<Schema.Natural>
   readonly owner: Schema.optionalKey<
@@ -516,7 +556,9 @@ export declare const SetattrOptions: Schema.Struct<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L271)
+
+Since v0.6.0
 
 ### SymlinkOptions
 
@@ -525,7 +567,7 @@ Schema for the options of `symlink`.
 **Signature**
 
 ```ts
-export declare const SymlinkOptions: Schema.Struct<{
+declare const SymlinkOptions: Schema.Struct<{
   readonly times: Schema.optionalKey<
     Schema.Struct<{
       readonly access: Schema.Union<
@@ -547,7 +589,9 @@ export declare const SymlinkOptions: Schema.Struct<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L248)
+
+Since v0.6.0
 
 ### WalkOptions
 
@@ -561,7 +605,7 @@ the bound in `field`.
 **Signature**
 
 ```ts
-export declare const WalkOptions: Schema.Struct<{
+declare const WalkOptions: Schema.Struct<{
   readonly order: Schema.optionalKey<Schema.Literals<readonly ["pre", "post"]>>
   readonly maxDepth: Schema.optionalKey<Schema.Natural>
   readonly maxEntries: Schema.optionalKey<Schema.Natural>
@@ -569,7 +613,9 @@ export declare const WalkOptions: Schema.Struct<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L207)
+
+Since v0.6.0
 
 ### WriteFileOptions
 
@@ -579,7 +625,7 @@ final symbolic link is replaced or followed and the mode the file ends with.
 **Signature**
 
 ```ts
-export declare const WriteFileOptions: Schema.Struct<{
+declare const WriteFileOptions: Schema.Struct<{
   readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
   readonly replaceFinalSymlink: Schema.optionalKey<Schema.Boolean>
   readonly finalMode: Schema.optionalKey<Schema.Natural>
@@ -591,7 +637,9 @@ export declare const WriteFileOptions: Schema.Struct<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L115)
+
+Since v0.6.0
 
 ## type IDs
 
@@ -602,10 +650,12 @@ Brand key that marks a caller.
 **Signature**
 
 ```ts
-export declare const CallerId: typeof CallerId
+declare const CallerId: unique symbol
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L18)
+
+Since v0.6.0
 
 ### CallerId (type alias)
 
@@ -617,7 +667,9 @@ Brand key that marks a caller.
 export type CallerId = typeof CallerId
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L26)
+
+Since v0.6.0
 
 ### ObjectReferenceId
 
@@ -626,10 +678,12 @@ Brand key that marks an object reference.
 **Signature**
 
 ```ts
-export declare const ObjectReferenceId: typeof ObjectReferenceId
+declare const ObjectReferenceId: unique symbol
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L34)
+
+Since v0.6.0
 
 ### ObjectReferenceId (type alias)
 
@@ -641,4 +695,6 @@ Brand key that marks an object reference.
 export type ObjectReferenceId = typeof ObjectReferenceId
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L42)
+
+Since v0.6.0

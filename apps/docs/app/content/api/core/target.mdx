@@ -1,11 +1,11 @@
-# Target overview
+# Target.ts overview
 
 How a caller names what it operates on. A `Target` is a path, an object
 reference, or an open handle; an `Entry` is a child of a directory target
 called `name`. Every verb takes one or the other, so the three addressing
 modes share one body and one option vocabulary.
 
-Added in v0.6.0
+Since v0.6.0
 
 ---
 
@@ -14,12 +14,6 @@ Added in v0.6.0
 ### Entry
 
 Names a child of a directory. The directory may be given bare.
-
-**Signature**
-
-```ts
-export declare const Entry: (directory: TargetInput, name: NameInput) => Entry
-```
 
 **Example**
 
@@ -30,7 +24,15 @@ const explicit = Entry(Target.Path({ path: "/var" }), "log")
 const bare = Entry("/var", "log")
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+declare const Entry: (directory: TargetInput, name: NameInput) => Entry
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L176)
+
+Since v0.6.0
 
 ### Target
 
@@ -40,7 +42,7 @@ reference, or handle.
 **Signature**
 
 ```ts
-export declare const Target: {
+declare const Target: {
   readonly Path: Data.TaggedEnum.ConstructorFrom<
     {
       readonly _tag: "Path"
@@ -58,23 +60,35 @@ export declare const Target: {
     { readonly _tag: "Handle"; readonly handle: FileHandle | DirectoryHandle },
     "_tag"
   >
-  readonly $is: <Tag>(
+  readonly $is: <Tag extends "Path" | "Reference" | "Handle">(
     tag: Tag
   ) => (
     u: unknown
-  ) => u is Extract<
-    | {
-        readonly _tag: "Path"
-        readonly path: PathInput
-        readonly relativeTo?: DirectoryHandle
-        readonly followFinalSymlink?: boolean
-      }
-    | { readonly _tag: "Reference"; readonly reference: ObjectReference }
-    | { readonly _tag: "Handle"; readonly handle: FileHandle | DirectoryHandle },
-    { readonly _tag: Tag }
-  >
+  ) => u is
+    | Extract<
+        {
+          readonly _tag: "Path"
+          readonly path: PathInput
+          readonly relativeTo?: DirectoryHandle
+          readonly followFinalSymlink?: boolean
+        },
+        { readonly _tag: Tag }
+      >
+    | Extract<{ readonly _tag: "Reference"; readonly reference: ObjectReference }, { readonly _tag: Tag }>
+    | Extract<{ readonly _tag: "Handle"; readonly handle: FileHandle | DirectoryHandle }, { readonly _tag: Tag }>
   readonly $match: {
-    <Cases>(
+    <
+      Cases extends {
+        readonly Path: (args: {
+          readonly _tag: "Path"
+          readonly path: PathInput
+          readonly relativeTo?: DirectoryHandle
+          readonly followFinalSymlink?: boolean
+        }) => any
+        readonly Reference: (args: { readonly _tag: "Reference"; readonly reference: ObjectReference }) => any
+        readonly Handle: (args: { readonly _tag: "Handle"; readonly handle: FileHandle | DirectoryHandle }) => any
+      }
+    >(
       cases: Cases
     ): (
       value:
@@ -87,7 +101,18 @@ export declare const Target: {
         | { readonly _tag: "Reference"; readonly reference: ObjectReference }
         | { readonly _tag: "Handle"; readonly handle: FileHandle | DirectoryHandle }
     ) => Unify<ReturnType<Cases["Path" | "Reference" | "Handle"]>>
-    <Cases>(
+    <
+      Cases extends {
+        readonly Path: (args: {
+          readonly _tag: "Path"
+          readonly path: PathInput
+          readonly relativeTo?: DirectoryHandle
+          readonly followFinalSymlink?: boolean
+        }) => any
+        readonly Reference: (args: { readonly _tag: "Reference"; readonly reference: ObjectReference }) => any
+        readonly Handle: (args: { readonly _tag: "Handle"; readonly handle: FileHandle | DirectoryHandle }) => any
+      }
+    >(
       value:
         | {
             readonly _tag: "Path"
@@ -103,7 +128,9 @@ export declare const Target: {
 } & { readonly of: (input: TargetInput) => Target }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L68)
+
+Since v0.6.0
 
 ## models
 
@@ -120,7 +147,9 @@ export interface Entry {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L130)
+
+Since v0.6.0
 
 ### EntryInput (type alias)
 
@@ -131,10 +160,12 @@ whose prefix is the directory.
 **Signature**
 
 ```ts
-export type EntryInput = Entry | PathInput | PathTarget
+type EntryInput = Entry | PathInput | PathTarget
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L143)
+
+Since v0.6.0
 
 ### Name (type alias)
 
@@ -146,7 +177,9 @@ A well-formed entry name, as bytes.
 export type Name = Uint8Array<ArrayBufferLike>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L122)
+
+Since v0.6.0
 
 ### NameInput (type alias)
 
@@ -156,10 +189,12 @@ bytes with no NUL and no slash. `.` and `..` are well formed but reserved.
 **Signature**
 
 ```ts
-export type NameInput = string | Uint8Array
+type NameInput = string | Uint8Array
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L94)
+
+Since v0.6.0
 
 ### PathTarget (type alias)
 
@@ -168,10 +203,12 @@ The path variant of `Target`.
 **Signature**
 
 ```ts
-export type PathTarget = Extract<Target, { readonly _tag: "Path" }>
+type PathTarget = Extract<Target, { readonly _tag: "Path" }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L151)
+
+Since v0.6.0
 
 ### Target (type alias)
 
@@ -181,7 +218,7 @@ handle, an object reference, or an open handle.
 **Signature**
 
 ```ts
-export type Target = Data.TaggedEnum<{
+type Target = Data.TaggedEnum<{
   readonly Path: {
     readonly path: PathInput
     /** A live directory handle from the same volume that a relative path starts from. */
@@ -194,7 +231,9 @@ export type Target = Data.TaggedEnum<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L23)
+
+Since v0.6.0
 
 ### TargetInput (type alias)
 
@@ -204,10 +243,12 @@ path, reference, or handle it would wrap.
 **Signature**
 
 ```ts
-export type TargetInput = Target | PathInput | ObjectReference | FileHandle | DirectoryHandle
+type TargetInput = Target | PathInput | ObjectReference | FileHandle | DirectoryHandle
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L59)
+
+Since v0.6.0
 
 ## predicates
 
@@ -218,10 +259,12 @@ Whether a path input is a byte path rather than a string.
 **Signature**
 
 ```ts
-export declare const isBytePathInput: (input: PathInput) => boolean
+declare const isBytePathInput: (input: PathInput) => boolean
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L184)
+
+Since v0.6.0
 
 ### isEntry
 
@@ -230,10 +273,12 @@ Whether a value is an `Entry`.
 **Signature**
 
 ```ts
-export declare const isEntry: (value: unknown) => value is Entry
+declare const isEntry: (value: unknown) => value is Entry
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L159)
+
+Since v0.6.0
 
 ### isTarget
 
@@ -242,10 +287,12 @@ Whether a value is a `Target`.
 **Signature**
 
 ```ts
-export declare const isTarget: (value: unknown) => value is Target
+declare const isTarget: (value: unknown) => value is Target
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L49)
+
+Since v0.6.0
 
 ## schemas
 
@@ -256,7 +303,9 @@ Schema for a well-formed entry name, as bytes.
 **Signature**
 
 ```ts
-export declare const Name: Schema.Uint8Array
+declare const Name: Schema.Uint8Array
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L102)
+
+Since v0.6.0

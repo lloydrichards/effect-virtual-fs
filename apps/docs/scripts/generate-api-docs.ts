@@ -16,7 +16,7 @@ const replaceTocHeader = (content: string): string =>
   )
 
 const stripInlineToc = (content: string): string =>
-  content.replace(/^## Table of contents\n(?:\n|[ \t]*-[^\n]*\n)*---\n*/m, "")
+  content.replace(/^## (?:Table of contents|Exports Grouped by Category)\n(?:\n|[ \t]*-[^\n]*\n)*---\n*/m, "")
 
 const escapeLineForMdx = (line: string): string =>
   line
@@ -84,7 +84,9 @@ const expandTypeAliases = async (packagePath: string, moduleName: string, conten
 
     const signature = result.slice(codeStart, codeEnd)
 
-    if (!signature.startsWith(`export type ${alias.getName()} =`) || !signature.includes("typeof")) continue
+    if (!signature.replace(/^export /, "").startsWith(`type ${alias.getName()} =`) || !signature.includes("typeof")) {
+      continue
+    }
 
     const resolved = alias.getTypeNodeOrThrow().getType().getText(alias, typeFlags)
       .replace(/import\("[^"]*\/node_modules\/effect\/dist\/([^"/]+)"\)\.([A-Za-z_$][\w$]*)/g, "$1.$2")
@@ -135,7 +137,9 @@ const expandTaggedErrorClasses = async (packagePath: string, moduleName: string,
       semi: false
     })).trimEnd()
 
-    const original = `export declare class ${name}`
+    const original = result.includes(`export declare class ${name}`)
+      ? `export declare class ${name}`
+      : `declare class ${name}`
 
     if (!result.includes(original)) throw new Error(`Missing signature for ${moduleName}.${name}`)
 
@@ -243,7 +247,10 @@ for (const packagePath of packageDirs) {
       await expandTypeAliases(
         packagePath,
         page.moduleName,
-        transformContent(keepPublishedExports(page.moduleName, content))
+        transformContent(keepPublishedExports(page.moduleName, content)).replace(
+          /https:\/\/github\.com\/lloydrichards\/effect-virtual-fs#readme\/blob\/main\/src\//g,
+          `https://github.com/lloydrichards/effect-virtual-fs/blob/main/${packagePath}/src/`
+        )
       )
     )
 

@@ -1,8 +1,8 @@
-# SqliteLiveImageStore overview
+# SqliteLiveImageStore.ts overview
 
 A bounded live-image store using Effect's SQL and platform services.
 
-Added in v0.4.0
+Since v0.4.0
 
 ---
 
@@ -12,6 +12,19 @@ Added in v0.4.0
 
 Limits and the local database path used to verify the supplied SQL client.
 Supply a dedicated SQLite `SqlClient` for this same path.
+
+**Example**
+
+```ts
+import type { Options } from "@effect-vfs/persistence/SqliteLiveImageStore"
+import { ByteSize } from "effect"
+
+const options: Options = {
+  filename: "/var/lib/my-app/live.sqlite",
+  maxImageBytes: ByteSize.megabytes(4),
+  maxDatabaseBytes: ByteSize.megabytes(16)
+}
+```
 
 **Signature**
 
@@ -30,37 +43,14 @@ export interface Options {
 }
 ```
 
-**Example**
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/SqliteLiveImageStore.ts#L29)
 
-```ts
-import type { Options } from "@effect-vfs/persistence/SqliteLiveImageStore"
-import { ByteSize } from "effect"
-
-const options: Options = {
-  filename: "/var/lib/my-app/live.sqlite",
-  maxImageBytes: ByteSize.megabytes(4),
-  maxDatabaseBytes: ByteSize.megabytes(16)
-}
-```
-
-Added in v0.4.0
+Since v0.4.0
 
 ### layer
 
 Reserve one SQLite connection and its exclusive lock for the Layer scope.
 The application supplies `SqlClient`, `FileSystem`, `Path`, and `Crypto`.
-
-**Signature**
-
-```ts
-export declare const layer: (
-  options: Options
-) => Layer.Layer<
-  LiveVolume.LiveImageStore,
-  VfsError.ArgumentFailure | VfsError.StoreFailure,
-  SqlClient | Crypto.Crypto | FileSystem.FileSystem | Path.Path
->
-```
 
 **Example**
 
@@ -75,4 +65,18 @@ const liveStore = SqliteLiveImageStore.layer({
 })
 ```
 
-Added in v0.4.0
+**Signature**
+
+```ts
+declare const layer: (
+  options: Options
+) => Layer.Layer<
+  LiveVolume.LiveImageStore,
+  VfsError.ArgumentFailure | VfsError.StoreFailure,
+  SqlClient | Crypto.Crypto | FileSystem.FileSystem | Path.Path
+>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/SqliteLiveImageStore.ts#L78)
+
+Since v0.4.0

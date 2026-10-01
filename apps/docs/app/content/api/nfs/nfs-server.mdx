@@ -1,4 +1,4 @@
-# NfsServer overview
+# NfsServer.ts overview
 
 Models and constructors for the experimental NFSv4.1 server.
 
@@ -7,7 +7,7 @@ ordinary NFS clients can mount a virtual filesystem. It implements the
 supported read-only operations. Writable operation dispatch requires an
 explicit option and a volume that reports power-loss durability.
 
-Added in v0.1.0
+Since v0.1.0
 
 ---
 
@@ -22,10 +22,12 @@ The `option` field names the rejected configuration key.
 **Signature**
 
 ```ts
-export declare class ConfigurationError
+declare class ConfigurationError
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L461)
+
+Since v0.1.0
 
 ### NfsServerError (class)
 
@@ -34,10 +36,12 @@ Raised when the NFS server cannot start or cannot continue listening.
 **Signature**
 
 ```ts
-export declare class NfsServerError
+declare class NfsServerError
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L472)
+
+Since v0.1.0
 
 ## models
 
@@ -51,7 +55,9 @@ A literal IPv4 or IPv6 loopback address.
 export type LoopbackHost = "127.0.0.1" | "::1"
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L72)
+
+Since v0.1.0
 
 ### NfsServerAddress (type alias)
 
@@ -64,7 +70,9 @@ export type NfsServerAddress =
   { readonly host: string; readonly port: number } | { readonly path: string }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L383)
+
+Since v0.1.0
 
 ### NfsServerConfig (type alias)
 
@@ -109,7 +117,9 @@ export type NfsServerConfig = {
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L277)
+
+Since v0.1.0
 
 ### NfsServerConfigOverrides (type alias)
 
@@ -154,7 +164,9 @@ export type NfsServerConfigOverrides = {
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L313)
+
+Since v0.1.0
 
 ### NfsServerLimitOverrides (type alias)
 
@@ -195,7 +207,9 @@ export type NfsServerLimitOverrides = {
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L261)
+
+Since v0.1.0
 
 ### NfsServerLimits (type alias)
 
@@ -236,7 +250,9 @@ export type NfsServerLimits = {
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L127)
+
+Since v0.1.0
 
 ### NfsServerLocalOptions (type alias)
 
@@ -245,7 +261,7 @@ Validated configuration paired with the live volume and caller capabilities.
 **Signature**
 
 ```ts
-export type NfsServerLocalOptions = NfsServerConfigOverrides & {
+type NfsServerLocalOptions = NfsServerConfigOverrides & {
   readonly volume: Vfs.Volume
   readonly caller: Vfs.Caller
   readonly writable?: never
@@ -256,7 +272,9 @@ export type NfsServerLocalOptions = NfsServerConfigOverrides & {
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L391)
+
+Since v0.1.0
 
 ### NfsServerNetworkTcpAddress (type alias)
 
@@ -268,7 +286,9 @@ A TCP address that may be reachable beyond the local host.
 export type NfsServerNetworkTcpAddress = { readonly host: string; readonly port: number }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L348)
+
+Since v0.1.0
 
 ### NfsServerTcpAddress (type alias)
 
@@ -280,7 +300,9 @@ A bound loopback TCP address.
 export type NfsServerTcpAddress = { readonly host: "127.0.0.1" | "::1"; readonly port: number }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L332)
+
+Since v0.1.0
 
 ### NfsServerUnixAddress (type alias)
 
@@ -292,7 +314,9 @@ A bound UNIX-domain socket path.
 export type NfsServerUnixAddress = { readonly path: string }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L367)
+
+Since v0.1.0
 
 ### Port (type alias)
 
@@ -304,7 +328,9 @@ A TCP port, including `0` for an ephemeral port.
 export type Port = number
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L88)
+
+Since v0.1.0
 
 ## schemas
 
@@ -315,10 +341,12 @@ Schema for a literal IPv4 or IPv6 loopback address.
 **Signature**
 
 ```ts
-export declare const LoopbackHost: Schema.Literals<readonly ["127.0.0.1", "::1"]>
+declare const LoopbackHost: Schema.Literals<readonly ["127.0.0.1", "::1"]>
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L64)
+
+Since v0.1.0
 
 ### NfsServerAddress
 
@@ -327,7 +355,7 @@ Schema for the bound server address: TCP or a UNIX-domain socket path.
 **Signature**
 
 ```ts
-export declare const NfsServerAddress: Schema.Union<
+declare const NfsServerAddress: Schema.Union<
   readonly [
     Schema.Struct<{ readonly host: Schema.NonEmptyString; readonly port: Schema.Finite }>,
     Schema.Struct<{ readonly path: Schema.NonEmptyString }>
@@ -335,7 +363,9 @@ export declare const NfsServerAddress: Schema.Union<
 >
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L375)
+
+Since v0.1.0
 
 ### NfsServerConfig
 
@@ -344,7 +374,7 @@ Complete server configuration schema with a frozen default policy.
 **Signature**
 
 ```ts
-export declare const NfsServerConfig: Schema.Struct<{
+declare const NfsServerConfig: Schema.Struct<{
   readonly leaseDurationSeconds: Schema.Finite
   readonly callbackTimeoutSeconds: Schema.Finite
   readonly limits: Schema.Struct<{
@@ -476,7 +506,9 @@ export declare const NfsServerConfig: Schema.Struct<{
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L291)
+
+Since v0.1.0
 
 ### NfsServerConfigOverrides
 
@@ -485,7 +517,7 @@ Optional configuration accepted when constructing an NFS server.
 **Signature**
 
 ```ts
-export declare const NfsServerConfigOverrides: Schema.Struct<{
+declare const NfsServerConfigOverrides: Schema.Struct<{
   readonly leaseDurationSeconds: Schema.optionalKey<Schema.Finite>
   readonly callbackTimeoutSeconds: Schema.optionalKey<Schema.Finite>
   readonly limits: Schema.optionalKey<
@@ -523,7 +555,9 @@ export declare const NfsServerConfigOverrides: Schema.Struct<{
 }>
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L301)
+
+Since v0.1.0
 
 ### NfsServerLimitOverrides
 
@@ -532,7 +566,7 @@ Schema for selectively overriding the default NFS server resource policy.
 **Signature**
 
 ```ts
-export declare const NfsServerLimitOverrides: Schema.Struct<{
+declare const NfsServerLimitOverrides: Schema.Struct<{
   readonly maxConnections: Schema.optionalKey<Schema.Finite>
   readonly maxFragmentBytes: Schema.optionalKey<Schema.ByteSize>
   readonly maxRecordBytes: Schema.optionalKey<Schema.ByteSize>
@@ -564,7 +598,9 @@ export declare const NfsServerLimitOverrides: Schema.Struct<{
 }>
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L210)
+
+Since v0.1.0
 
 ### NfsServerLimits
 
@@ -573,7 +609,7 @@ Schema for every resource bound enforced by the preview server, with frozen pres
 **Signature**
 
 ```ts
-export declare const NfsServerLimits: Schema.Struct<{
+declare const NfsServerLimits: Schema.Struct<{
   readonly maxConnections: Schema.Finite
   readonly maxFragmentBytes: Schema.ByteSize
   readonly maxRecordBytes: Schema.ByteSize
@@ -666,7 +702,9 @@ export declare const NfsServerLimits: Schema.Struct<{
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L199)
+
+Since v0.1.0
 
 ### NfsServerNetworkTcpAddress
 
@@ -675,13 +713,15 @@ Schema for a TCP address that may be reachable beyond the local host.
 **Signature**
 
 ```ts
-export declare const NfsServerNetworkTcpAddress: Schema.Struct<{
+declare const NfsServerNetworkTcpAddress: Schema.Struct<{
   readonly host: Schema.NonEmptyString
   readonly port: Schema.Finite
 }>
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L340)
+
+Since v0.1.0
 
 ### NfsServerTcpAddress
 
@@ -690,13 +730,15 @@ Schema for a bound loopback TCP address.
 **Signature**
 
 ```ts
-export declare const NfsServerTcpAddress: Schema.Struct<{
+declare const NfsServerTcpAddress: Schema.Struct<{
   readonly host: Schema.Literals<readonly ["127.0.0.1", "::1"]>
   readonly port: Schema.Finite
 }>
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L321)
+
+Since v0.1.0
 
 ### NfsServerUnixAddress
 
@@ -706,10 +748,12 @@ same host, so it counts as a local address alongside loopback TCP.
 **Signature**
 
 ```ts
-export declare const NfsServerUnixAddress: Schema.Struct<{ readonly path: Schema.NonEmptyString }>
+declare const NfsServerUnixAddress: Schema.Struct<{ readonly path: Schema.NonEmptyString }>
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L357)
+
+Since v0.1.0
 
 ### Port
 
@@ -718,10 +762,12 @@ Schema for a TCP port, including `0` for an ephemeral port.
 **Signature**
 
 ```ts
-export declare const Port: Schema.Finite
+declare const Port: Schema.Finite
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L80)
+
+Since v0.1.0
 
 ## services
 
@@ -732,10 +778,12 @@ The running NFS server, exposing the address it bound to.
 **Signature**
 
 ```ts
-export declare class NfsServer
+declare class NfsServer
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L761)
+
+Since v0.1.0
 
 ## utils
 
@@ -746,7 +794,7 @@ RPC identity claims. They grant no authority until the application policy maps t
 **Signature**
 
 ```ts
-export type NfsCredential =
+type NfsCredential =
   | { readonly flavor: "none" }
   | {
       readonly flavor: "sys"
@@ -757,7 +805,9 @@ export type NfsCredential =
     }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L415)
+
+Since v0.1.0
 
 ### NfsIdentityPolicy (type alias)
 
@@ -766,13 +816,15 @@ A policy returns an identity for this volume or null to deny the request.
 **Signature**
 
 ```ts
-export type NfsIdentityPolicy = (request: {
+type NfsIdentityPolicy = (request: {
   readonly credential: NfsCredential
   readonly peer: NfsPeer
 }) => NonNullable<Vfs.RootCallerOptions["identity"]> | null
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L430)
+
+Since v0.1.0
 
 ### NfsPeer (type alias)
 
@@ -781,19 +833,21 @@ Peer details from the transport; UNIX sockets do not expose a client IP or port.
 **Signature**
 
 ```ts
-export type NfsPeer =
+type NfsPeer =
   | { readonly transport: "tcp"; readonly address: string; readonly port: number }
   | { readonly transport: "unix"; readonly address: null; readonly port: null; readonly path: string }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L406)
+
+Since v0.1.0
 
 ### NfsServerNetworkedOptions (type alias)
 
 **Signature**
 
 ```ts
-export type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
+type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
   readonly volume: Vfs.Volume
   /** Enable mutations only for a volume qualified to survive power loss. */
   readonly writable?: true
@@ -808,14 +862,18 @@ export type NfsServerNetworkedOptions = NfsServerConfigOverrides & {
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L436)
+
+Since v0.1.0
 
 ### NfsServerOptions (type alias)
 
 **Signature**
 
 ```ts
-export type NfsServerOptions = NfsServerLocalOptions | NfsServerNetworkedOptions
+type NfsServerOptions = NfsServerLocalOptions | NfsServerNetworkedOptions
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/nfs/src/NfsServer.ts#L451)
+
+Since v0.1.0

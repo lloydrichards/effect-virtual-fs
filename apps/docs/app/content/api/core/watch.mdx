@@ -1,9 +1,9 @@
-# Watch overview
+# Watch.ts overview
 
 Change events published by a volume's watch stream, and the options that
 narrow a watch to one object's subtree.
 
-Added in v0.6.0
+Since v0.6.0
 
 ---
 
@@ -23,7 +23,9 @@ export type Change =
   | { readonly _tag: "Rescan"; readonly path: BytePath }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Watch.ts#L33)
+
+Since v0.6.0
 
 ### WatchOptions (type alias)
 
@@ -35,7 +37,9 @@ Options of a watch.
 export type WatchOptions = { readonly recursive?: boolean; readonly scope?: ObjectReference }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Watch.ts#L65)
+
+Since v0.6.0
 
 ## schemas
 
@@ -48,7 +52,7 @@ replayed.
 **Signature**
 
 ```ts
-export declare const Change: Schema.TaggedUnion<{
+declare const Change: Schema.TaggedUnion<{
   readonly Create: Schema.TaggedStruct<"Create", { readonly path: Schema.declare<BytePath, BytePath> }>
   readonly Update: Schema.TaggedStruct<"Update", { readonly path: Schema.declare<BytePath, BytePath> }>
   readonly Remove: Schema.TaggedStruct<"Remove", { readonly path: Schema.declare<BytePath, BytePath> }>
@@ -56,7 +60,9 @@ export declare const Change: Schema.TaggedUnion<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Watch.ts#L20)
+
+Since v0.6.0
 
 ### WatchOptions
 
@@ -77,10 +83,12 @@ reports `Remove` for it and ends.
 **Signature**
 
 ```ts
-export declare const WatchOptions: Schema.Struct<{
+declare const WatchOptions: Schema.Struct<{
   readonly scope: Schema.optionalKey<Schema.declare<ObjectReference, ObjectReference>>
   readonly recursive: Schema.optionalKey<Schema.Boolean>
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Watch.ts#L53)
+
+Since v0.6.0

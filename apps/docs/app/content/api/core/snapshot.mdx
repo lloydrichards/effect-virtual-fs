@@ -1,4 +1,4 @@
-# Snapshot overview
+# Snapshot.ts overview
 
 Opaque virtual filesystem snapshots and their decoding limits.
 
@@ -8,7 +8,7 @@ but excludes callers, open handles, watch subscriptions, and unlinked
 content. Use the encoding, decoding, and restoration functions in
 `VirtualFileSystem`.
 
-Added in v0.1.0
+Since v0.1.0
 
 ---
 
@@ -30,7 +30,9 @@ export type DecodeLimits = {
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Snapshot.ts#L106)
+
+Since v0.1.0
 
 ### Snapshot (interface)
 
@@ -44,7 +46,9 @@ export interface Snapshot {
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Snapshot.ts#L36)
+
+Since v0.1.0
 
 ## schemas
 
@@ -58,18 +62,6 @@ A snapshot is encoded one line per node, and a decoder checks each line as
 it ends, so input that breaks a limit is refused before the decoder holds
 more than one line of it. `maxLineBytes` bounds that line; the other limits
 bound what the accepted lines add up to.
-
-**Signature**
-
-```ts
-export declare const DecodeLimits: Schema.Struct<{
-  readonly maxEncodedBytes: Schema.ByteSize
-  readonly maxRecords: Schema.Natural
-  readonly maxEntries: Schema.Natural
-  readonly maxDecodedBytes: Schema.ByteSize
-  readonly maxLineBytes: Schema.optionalKey<Schema.ByteSize>
-}>
-```
 
 **Example**
 
@@ -102,7 +94,21 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 // accepted
 ```
 
-Added in v0.1.0
+**Signature**
+
+```ts
+declare const DecodeLimits: Schema.Struct<{
+  readonly maxEncodedBytes: Schema.ByteSize
+  readonly maxRecords: Schema.Natural
+  readonly maxEntries: Schema.Natural
+  readonly maxDecodedBytes: Schema.ByteSize
+  readonly maxLineBytes: Schema.optionalKey<Schema.ByteSize>
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Snapshot.ts#L83)
+
+Since v0.1.0
 
 ## type IDs
 
@@ -113,10 +119,12 @@ Type identifier for opaque filesystem snapshots.
 **Signature**
 
 ```ts
-export declare const SnapshotTypeId: "@effect-vfs/core/Snapshot"
+declare const SnapshotTypeId: "@effect-vfs/core/Snapshot"
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Snapshot.ts#L20)
+
+Since v0.1.0
 
 ### SnapshotTypeId (type alias)
 
@@ -128,4 +136,6 @@ Type identifier for opaque filesystem snapshots.
 export type SnapshotTypeId = "@effect-vfs/core/Snapshot"
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Snapshot.ts#L28)
+
+Since v0.1.0

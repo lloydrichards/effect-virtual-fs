@@ -1,9 +1,9 @@
-# CheckpointStore overview
+# CheckpointStore.ts overview
 
 Create-only SQLite checkpoints. Applications own capture, database provisioning,
 migration timing, and restoration into a fresh volume.
 
-Added in v0.1.0
+Since v0.1.0
 
 ---
 
@@ -15,12 +15,6 @@ Checkpoint lookup, naming, or storage failure. Rejected limits and unusable imag
 instead, reporting the image code, such as `InvalidStructure` or `LimitExceeded`. Every failure names the
 entry point that raised it as its operation: `CheckpointStore.make`, `CheckpointStore.save`,
 `CheckpointStore.load` or `CheckpointStore.migrate`.
-
-**Signature**
-
-```ts
-export declare class CheckpointError
-```
 
 **Example**
 
@@ -46,7 +40,15 @@ const loadOrStartFresh = Effect.gen(function* () {
 })
 ```
 
-Added in v0.1.0
+**Signature**
+
+```ts
+declare class CheckpointError
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/CheckpointStore.ts#L45)
+
+Since v0.1.0
 
 ## services
 
@@ -61,12 +63,6 @@ Driver lifetime belongs to the application's layer scope.
 separate ledger table, `effect_vfs_checkpoint_migrations`. Run it once during
 application startup, before providing the store to consumers; it is safe to
 run again on later startups. Neither `make` nor `layer` runs it.
-
-**Signature**
-
-```ts
-export declare class CheckpointStore
-```
 
 **Example**
 
@@ -94,19 +90,26 @@ const program = (sqlite: Layer.Layer<SqlClient>) =>
   }).pipe(Effect.provide(checkpoints(sqlite)))
 ```
 
-Added in v0.1.0
+**See**
+
+- The SQLite checkpoints guide at `/guides/sqlite-checkpoints` for driver
+  selection, transaction semantics, and durability caveats.
+
+**Signature**
+
+```ts
+declare class CheckpointStore
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/CheckpointStore.ts#L198)
+
+Since v0.1.0
 
 #### make (static method)
 
 Creates a store with an owned copy of mandatory image limits.
 Saving encodes under the same limits loading decodes under and fails where
 loading would, so a saved checkpoint is known to load without being decoded.
-
-**Signature**
-
-```ts
-static make(limits: Vfs.DecodeLimits)
-```
 
 **Example**
 
@@ -140,17 +143,28 @@ const program = Effect.gen(function* () {
 const runnable = (sqlite: Layer.Layer<SqlClient>) => program.pipe(Effect.provide(sqlite))
 ```
 
-Added in v0.1.0
+**Signature**
+
+```ts
+declare const make: (
+  limits: Vfs.DecodeLimits
+) => Effect.Effect<
+  {
+    readonly save: (name: string, snapshot: Vfs.Snapshot) => Effect.Effect<void, CheckpointError | Vfs.VfsError>
+    readonly load: (name: string) => Effect.Effect<Vfs.Snapshot, CheckpointError | Vfs.VfsError>
+  },
+  VfsError.VfsError & { readonly code: "InvalidArgument" },
+  SqlClient
+>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/CheckpointStore.ts#L244)
+
+Since v0.1.0
 
 #### layer (static method)
 
 Provides a store using the application-supplied SQLite client. Does not run migrations.
-
-**Signature**
-
-```ts
-static layer(limits: Vfs.DecodeLimits)
-```
 
 **Example**
 
@@ -171,7 +185,17 @@ const limits = {
 const checkpoints = (sqlite: Layer.Layer<SqlClient>) => CheckpointStore.layer(limits).pipe(Layer.provide(sqlite))
 ```
 
-Added in v0.1.0
+**Signature**
+
+```ts
+declare const layer: (
+  limits: Vfs.DecodeLimits
+) => Layer.Layer<CheckpointStore, VfsError.VfsError & { readonly code: "InvalidArgument" }, SqlClient>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/CheckpointStore.ts#L272)
+
+Since v0.1.0
 
 ## Related documentation
 

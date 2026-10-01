@@ -1,4 +1,4 @@
-# VfsError overview
+# VfsError.ts overview
 
 The one error family of `@effect-vfs/core`. Every failure a volume, caller,
 handle, snapshot codec, delta codec, or live store reports is a `VfsError`
@@ -6,7 +6,7 @@ whose `code` says what went wrong, whose `operation` names the verb or
 constructor, and which may name the offending option `field`, the `path`
 it was addressing, and the underlying `cause` it classifies.
 
-Added in v0.6.0
+Since v0.6.0
 
 ---
 
@@ -16,12 +16,6 @@ Added in v0.6.0
 
 Builds a `VfsError` whose type carries its code, so a service can fail with a narrowed alias such as
 `StoreFailure` or `ArgumentFailure` without a cast. An absent field, path or cause stays absent.
-
-**Signature**
-
-```ts
-export declare const make: <C extends VfsCode>(props: Props<C>) => VfsError & { readonly code: C }
-```
 
 **Example**
 
@@ -34,30 +28,21 @@ console.log(failure.message)
 // MyStore.load failed with Storage
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+declare const make: <C extends VfsCode>(props: Props<C>) => VfsError & { readonly code: C }
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L266)
+
+Since v0.6.0
 
 ## errors
 
 ### VfsError (class)
 
 A failure reported by any part of the virtual filesystem.
-
-**Signature**
-
-```ts
-export declare class VfsError extends Schema.TaggedError<VfsError>()("VfsError", {
-  /** What went wrong. */
-  code: VfsCode,
-  /** The verb or constructor that failed. */
-  operation: Schema.String,
-  /** The option or input area the failure concerns, when one is known. */
-  field: Schema.optionalKey(Schema.String),
-  /** The path the operation was addressing, when it named one. */
-  path: Schema.optionalKey(ErrorPath),
-  /** The underlying failure this error classifies, when one exists. */
-  cause: Schema.optionalKey(Schema.Defect()),
-}) {}
-```
 
 **Example**
 
@@ -78,7 +63,26 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 // readFile: NotFound
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+export declare class VfsError extends Schema.TaggedError<VfsError>()("VfsError", {
+  /** What went wrong. */
+  code: VfsCode,
+  /** The verb or constructor that failed. */
+  operation: Schema.String,
+  /** The option or input area the failure concerns, when one is known. */
+  field: Schema.optionalKey(Schema.String),
+  /** The path the operation was addressing, when it named one. */
+  path: Schema.optionalKey(ErrorPath),
+  /** The underlying failure this error classifies, when one exists. */
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L177)
+
+Since v0.6.0
 
 ## models
 
@@ -89,10 +93,12 @@ A `VfsError` reporting a rejected option, always `InvalidArgument` with the offe
 **Signature**
 
 ```ts
-export type ArgumentFailure = VfsError & { readonly code: "InvalidArgument" }
+type ArgumentFailure = VfsError & { readonly code: "InvalidArgument" }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L224)
+
+Since v0.6.0
 
 ### DeltaCode (type alias)
 
@@ -104,7 +110,9 @@ The code a delta reports when its base does not match.
 export type DeltaCode = "BaseMismatch"
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L95)
+
+Since v0.6.0
 
 ### FsCode (type alias)
 
@@ -141,7 +149,9 @@ export type FsCode =
   | "VolumeBusy"
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L63)
+
+Since v0.6.0
 
 ### FsFailure (type alias)
 
@@ -150,10 +160,12 @@ A `VfsError` whose code is one an operation on a volume, caller, or handle repor
 **Signature**
 
 ```ts
-export type FsFailure = VfsError & { readonly code: FsCode }
+type FsFailure = VfsError & { readonly code: FsCode }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L200)
+
+Since v0.6.0
 
 ### ImageCode (type alias)
 
@@ -166,7 +178,9 @@ export type ImageCode =
   "InvalidEncoding" | "UnsupportedVersion" | "InvalidStructure" | "LimitExceeded"
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L79)
+
+Since v0.6.0
 
 ### ImageFailure (type alias)
 
@@ -175,10 +189,12 @@ A `VfsError` whose code is one a snapshot, fixture, live image, or delta codec r
 **Signature**
 
 ```ts
-export type ImageFailure = VfsError & { readonly code: ImageCode }
+type ImageFailure = VfsError & { readonly code: ImageCode }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L208)
+
+Since v0.6.0
 
 ### Props (interface)
 
@@ -197,7 +213,9 @@ export interface Props<C extends VfsCode> {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L233)
+
+Since v0.6.0
 
 ### StoreCode (type alias)
 
@@ -209,7 +227,9 @@ A code a live image store reports while opening or recovering a volume.
 export type StoreCode = "Storage" | "Ownership" | "IncompatibleStore" | "CorruptStore"
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L111)
+
+Since v0.6.0
 
 ### StoreFailure (type alias)
 
@@ -218,10 +238,12 @@ A `VfsError` whose code is one a live image store reports.
 **Signature**
 
 ```ts
-export type StoreFailure = VfsError & { readonly code: StoreCode }
+type StoreFailure = VfsError & { readonly code: StoreCode }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L216)
+
+Since v0.6.0
 
 ### VfsCode (type alias)
 
@@ -267,7 +289,9 @@ export type VfsCode =
   | "CorruptStore"
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L132)
+
+Since v0.6.0
 
 ## schemas
 
@@ -278,10 +302,12 @@ Schema for the code a delta reports when its base does not match.
 **Signature**
 
 ```ts
-export declare const DeltaCode: Schema.Literals<readonly ["BaseMismatch"]>
+declare const DeltaCode: Schema.Literals<readonly ["BaseMismatch"]>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L87)
+
+Since v0.6.0
 
 ### ErrorPath
 
@@ -291,15 +317,12 @@ encoded as base64 bytes so the error survives a wire.
 **Signature**
 
 ```ts
-export declare const ErrorPath: Schema.decodeTo<
-  Schema.declare<BytePath, BytePath>,
-  Schema.Uint8ArrayFromBase64,
-  never,
-  never
->
+declare const ErrorPath: Schema.decodeTo<Schema.declare<BytePath, BytePath>, Schema.Uint8ArrayFromBase64, never, never>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L141)
+
+Since v0.6.0
 
 ### FsCode
 
@@ -308,7 +331,7 @@ Schema for the codes an operation on a volume, caller, or handle reports.
 **Signature**
 
 ```ts
-export declare const FsCode: Schema.Literals<
+declare const FsCode: Schema.Literals<
   readonly [
     "NotFound",
     "AlreadyExists",
@@ -339,7 +362,9 @@ export declare const FsCode: Schema.Literals<
 >
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L24)
+
+Since v0.6.0
 
 ### ImageCode
 
@@ -348,12 +373,14 @@ Schema for the codes a snapshot, fixture, live image, or delta codec reports.
 **Signature**
 
 ```ts
-export declare const ImageCode: Schema.Literals<
+declare const ImageCode: Schema.Literals<
   readonly ["InvalidEncoding", "UnsupportedVersion", "InvalidStructure", "LimitExceeded"]
 >
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L71)
+
+Since v0.6.0
 
 ### StoreCode
 
@@ -362,10 +389,12 @@ Schema for the codes a live image store reports while opening or recovering a vo
 **Signature**
 
 ```ts
-export declare const StoreCode: Schema.Literals<readonly ["Storage", "Ownership", "IncompatibleStore", "CorruptStore"]>
+declare const StoreCode: Schema.Literals<readonly ["Storage", "Ownership", "IncompatibleStore", "CorruptStore"]>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L103)
+
+Since v0.6.0
 
 ### VfsCode
 
@@ -374,7 +403,7 @@ Schema for every code a `VfsError` can carry.
 **Signature**
 
 ```ts
-export declare const VfsCode: Schema.Literals<
+declare const VfsCode: Schema.Literals<
   readonly [
     "NotFound",
     "AlreadyExists",
@@ -414,4 +443,6 @@ export declare const VfsCode: Schema.Literals<
 >
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L119)
+
+Since v0.6.0
