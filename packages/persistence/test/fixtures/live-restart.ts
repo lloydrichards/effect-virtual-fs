@@ -4,7 +4,7 @@ import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { ByteSize, Cause, Config, Console, Effect, Exit, FileSystem, Layer, Option, Schema } from "effect"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
+import { SqlClient } from "effect/sql/SqlClient"
 import * as SqliteLiveImageStore from "../../src/SqliteLiveImageStore.js"
 
 const options = {

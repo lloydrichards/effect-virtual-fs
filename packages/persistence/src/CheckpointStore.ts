@@ -6,8 +6,8 @@
  */
 import { VfsError, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { ByteSize, Context, Data, Effect, Layer, Schema } from "effect"
-import * as Migrator from "effect/unstable/sql/Migrator"
-import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
+import * as Migrator from "effect/sql/Migrator"
+import { SafeIntegers, SqlClient } from "effect/sql/SqlClient"
 
 /**
  * Checkpoint lookup, naming, or storage failure. Rejected limits and unusable images fail with core's `VfsError`
@@ -168,7 +168,7 @@ const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.Decode
  * ```ts
  * import { CheckpointStore } from "@effect-vfs/persistence"
  * import { ByteSize, Effect, Layer } from "effect"
- * import type { SqlClient } from "effect/unstable/sql/SqlClient"
+ * import type { SqlClient } from "effect/sql/SqlClient"
  *
  * const limits = {
  *   maxEncodedBytes: ByteSize.megabytes(4),
@@ -213,7 +213,7 @@ export class CheckpointStore extends Context.Service<CheckpointStore, {
    * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
    * import { CheckpointStore } from "@effect-vfs/persistence"
    * import { ByteSize, Effect, Layer } from "effect"
-   * import type { SqlClient } from "effect/unstable/sql/SqlClient"
+   * import type { SqlClient } from "effect/sql/SqlClient"
    *
    * const limits = {
    *   maxEncodedBytes: ByteSize.megabytes(4),
@@ -252,7 +252,7 @@ export class CheckpointStore extends Context.Service<CheckpointStore, {
    * ```ts
    * import { CheckpointStore } from "@effect-vfs/persistence"
    * import { ByteSize, Layer } from "effect"
-   * import type { SqlClient } from "effect/unstable/sql/SqlClient"
+   * import type { SqlClient } from "effect/sql/SqlClient"
    *
    * const limits = {
    *   maxEncodedBytes: ByteSize.megabytes(4),

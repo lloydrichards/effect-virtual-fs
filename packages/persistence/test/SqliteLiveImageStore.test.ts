@@ -6,9 +6,9 @@ import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
 import { ByteSize, Data, Effect, FileSystem, Layer, Option, Path, Stream } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
-import { ConnectionError, SqlError } from "effect/unstable/sql/SqlError"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
+import { SqlClient } from "effect/sql/SqlClient"
+import { ConnectionError, SqlError } from "effect/sql/SqlError"
 import * as SqliteLiveImageStore from "../src/SqliteLiveImageStore.js"
 
 const volume = {

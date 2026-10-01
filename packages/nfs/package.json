@@ -28,7 +28,11 @@
     "./*/index": null,
     "./package.json": "./package.json"
   },
-  "files": ["dist/**", "README.md", "LICENSE"],
+  "files": [
+    "dist/**",
+    "README.md",
+    "LICENSE"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -39,16 +43,16 @@
     "type-check": "tsc --noEmit"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.117"
+    "effect": "^4.0.0"
   },
   "dependencies": {
     "@effect-vfs/core": "workspace:*"
   },
   "devDependencies": {
-    "@effect/platform-node-shared": "4.0.0-rc.117",
-    "@effect/vitest": "4.0.0-rc.117",
+    "@effect/platform-node-shared": "4.0.0",
+    "@effect/vitest": "4.0.0",
     "@repo/config-typescript": "workspace:*",
-    "effect": "4.0.0-rc.117",
-    "vitest": "^5.0.2"
+    "effect": "4.0.0",
+    "vitest": "^5.0.3"
   }
 }

@@ -1,6 +1,6 @@
 import * as Arr from "effect/Array"
 import * as Data from "effect/Data"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import { bytesOrder, sameBytes } from "./bytes.js"
@@ -65,7 +65,7 @@ const tagOrder: Record<RawOverlayChange["_tag"], number> = {
   Updated: 4
 }
 
-const key = Encoding.encodeHex
+const key = Hex.encode
 
 const sourcePath = (change: RawOverlayChange): Uint8Array =>
   Predicate.isTagged("Renamed")(change) ? change.from : change.path

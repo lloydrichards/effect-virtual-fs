@@ -2,7 +2,7 @@ import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Exit from "effect/Exit"
 import * as Result from "effect/Result"
 import * as Scope from "effect/Scope"
@@ -199,7 +199,7 @@ const uint64From = (bytes: Uint8Array, offset: number): bigint =>
 export const makeExport = (volume: ExportVolume, caller: Vfs.Caller, limits: ExportLimits): NfsExport => {
   assertPositiveInteger("maxNameBytes", ByteSize.toNumberUnsafe(limits.maxNameBytes))
 
-  const identity = Result.getOrThrow(Encoding.decodeHex(volume.identity))
+  const identity = Result.getOrThrow(Hex.decode(volume.identity))
   const persistentHandles = Vfs.isVolumeDurabilityAtLeast(volume.durability, "survives-process-crash")
 
   const handleFor = (reference: Vfs.ObjectReference): Effect.Effect<Uint8Array, Vfs.VfsError> =>

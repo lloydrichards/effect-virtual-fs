@@ -1,4 +1,4 @@
-import * as Encoding from "effect/Encoding"
+import * as Base64 from "effect/encoding/Base64"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { ENCODING_CHECK } from "./errors.js"
@@ -19,7 +19,7 @@ const encode = (input: Uint8Array): Encoded => {
   const chunks: Array<string> = []
 
   for (let offset = 0; offset < input.length; offset += chunkBytes) {
-    chunks.push(Encoding.encodeBase64(input.subarray(offset, offset + chunkBytes)))
+    chunks.push(Base64.encode(input.subarray(offset, offset + chunkBytes)))
   }
 
   return Encoded.make(chunks.join(""))
@@ -38,7 +38,7 @@ type Encoded = typeof Encoded.Type
 /** @internal */
 export const CanonicalBase64 = {
   Encoded,
-  toBytes: (input: Encoded): Uint8Array => Result.getOrThrow(Encoding.decodeBase64(input)),
+  toBytes: (input: Encoded): Uint8Array => Result.getOrThrow(Base64.decode(input)),
   encode: (input: Uint8Array): Encoded => encode(input),
   decodedLength: (value: Encoded): number => decodedLength(value)
 }

@@ -1,6 +1,6 @@
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Match from "effect/Match"
 import * as Order from "effect/Order"
 import * as Result from "effect/Result"
@@ -92,7 +92,7 @@ const differenceOrder = SnapshotDifference.literals
 
 const timestampFields = new Set<SnapshotDifference>(["atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"])
 
-const key = Encoding.encodeHex
+const key = Hex.encode
 
 const validPath = (path: Uint8Array) => {
   if (path[0] !== SLASH_BYTE) return false

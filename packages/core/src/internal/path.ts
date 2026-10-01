@@ -1,6 +1,6 @@
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import type { BytePath } from "../BytePath.js"
@@ -61,7 +61,7 @@ export const strictString = (bytes: Uint8Array, operation: string) =>
   })
 
 /** @internal */
-export const nameBytes = (name: string): Uint8Array => Result.getOrThrow(Encoding.decodeHex(name))
+export const nameBytes = (name: string): Uint8Array => Result.getOrThrow(Hex.decode(name))
 
 // Constructing a view detects detached buffers, including empty ones.
 const attachedBuffer = (bytes: Uint8Array): boolean => {
@@ -173,7 +173,7 @@ export const preparePath = (
         return Result.fail(fsFailure("PathTooLong", operation, { path: input }))
       }
 
-      components.push(Encoding.encodeHex(bytes.subarray(start, index)))
+      components.push(Hex.encode(bytes.subarray(start, index)))
       suffixes.push(bytes.subarray(index))
     }
 

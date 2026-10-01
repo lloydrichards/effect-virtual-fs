@@ -7,8 +7,8 @@ import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
 import { ByteSize, Effect, FileSystem, Layer, Path, Result, Stream } from "effect"
 import type * as Crypto from "effect/Crypto"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
-import { SafeIntegers, SqlClient } from "effect/unstable/sql/SqlClient"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
+import { SafeIntegers, SqlClient } from "effect/sql/SqlClient"
 import { CheckpointError, CheckpointStore } from "../src/index.js"
 
 const limits = {

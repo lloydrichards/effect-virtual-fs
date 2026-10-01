@@ -1,6 +1,8 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, Encoding, Fiber, Layer, Option, Predicate, Schema, Stream } from "effect"
+import { ByteSize, Effect, Fiber, Layer, Option, Predicate, Schema, Stream } from "effect"
+import * as Base64 from "effect/encoding/Base64"
+import * as Hex from "effect/encoding/Hex"
 import * as TestClock from "effect/testing/TestClock"
 import { BytePath, LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as LiveImage from "../src/internal/liveImage.js"
@@ -1204,7 +1206,7 @@ describe("snapshot entries", () => {
 
   const ROOT_NODE = { _tag: "directory", ino: 1, parent: 1, name: "", metadata: METADATA }
 
-  const base64 = (value: string) => Encoding.encodeBase64(bytes(value))
+  const base64 = (value: string) => Base64.encode(bytes(value))
 
   // A snapshot's nodes as JSON values, each keeping every field it was written with.
   const SampleTree = Schema.fromJsonString(Schema.Struct({
@@ -1249,7 +1251,7 @@ describe("snapshot entries", () => {
 
     for (const { path, reference } of objects) {
       const { ino, revision: _revision, ...metadata } = yield* caller.stat(reference)
-      const key = Encoding.encodeHex(path)
+      const key = Hex.encode(path)
       paths.set(ino, [...(paths.get(ino) ?? []), key])
 
       const payload = metadata.kind === "file"
@@ -1258,7 +1260,7 @@ describe("snapshot entries", () => {
         ? yield* caller.readLink(reference)
         : undefined
 
-      rows.push({ key, ino, metadata, payload: payload === undefined ? undefined : Encoding.encodeHex(payload) })
+      rows.push({ key, ino, metadata, payload: payload === undefined ? undefined : Hex.encode(payload) })
     }
 
     // Inode numbers are not portable, so each row names the paths that share its object instead.
