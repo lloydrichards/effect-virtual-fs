@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Layer, Predicate, Queue, Stream } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
+import { readLines } from "./support/lines.js"
 import { entryNames } from "./support/text.js"
 
 const options = {
@@ -45,6 +46,51 @@ describe("live image store service", () => {
         yield* Effect.scoped(Effect.gen(function*() {
           const volume = yield* LiveVolume.open(options)
           assert.deepEqual(yield* (yield* volume.caller()).readFile("/saved"), new Uint8Array([4, 5]))
+        }))
+      }).pipe(Effect.provide(store))
+    })
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect("should persist final unlinked-file cleanup before reopening", () => {
+      let image: Uint8Array | undefined
+      let commits = 0
+
+      const store = Layer.succeed(
+        LiveVolume.LiveImageStore,
+        LiveVolume.LiveImageStore.of({
+          loadOrCreate: (initial) => Effect.succeed(image ?? initial),
+          commit: (candidate) =>
+            Effect.sync(() => {
+              image = new Uint8Array(candidate)
+              commits++
+
+              return "committed" as const
+            })
+        })
+      )
+
+      return Effect.gen(function*() {
+        yield* Effect.scoped(Effect.gen(function*() {
+          const volume = yield* LiveVolume.open(options)
+          const caller = yield* volume.caller()
+          const handle = yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
+          yield* handle.write(new Uint8Array([1]))
+          yield* caller.unlink("/file")
+          assert.strictEqual(readLines(image!).length, 3)
+
+          const before = commits
+          yield* handle.close
+          assert.strictEqual(commits, before + 1)
+          assert.strictEqual(readLines(image!).length, 2)
+        }))
+
+        yield* Effect.scoped(Effect.gen(function*() {
+          const volume = yield* LiveVolume.open(options)
+          const caller = yield* volume.caller()
+          assert.strictEqual((yield* Effect.flip(caller.stat("/file"))).code, "NotFound")
+          yield* caller.mkdir("/after-reopen")
+          assert.strictEqual((yield* caller.stat("/after-reopen")).kind, "directory")
         }))
       }).pipe(Effect.provide(store))
     })
