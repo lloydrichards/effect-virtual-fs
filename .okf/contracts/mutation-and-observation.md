@@ -25,12 +25,14 @@ sources:
   - id: tree-tests
     resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Recursive removal as a composition of changes
-generated: { by: claude-code, at: "2026-09-26T12:00:00+02:00" }
+generated: { by: codex/okf, at: "2026-10-01T11:20:00Z" }
 ---
 
 # Mutation and observation
 
 One volume coordinates mutations, observations, snapshot capture, and resource release. Observations may run beside each other; a mutation, a resource release, or a watch registration runs alone, so an observation never sees a change half applied, and a mutation waiting for the volume is not overtaken by observations that arrive after it. Admission limits the number of callers waiting to enter the volume. Excess work fails with retryable `VolumeBusy` before mutation or durable commit. Waiting for an admitted mutation, observation, or watch registration is interruptible; interruption after a committed publication does not roll it back. Cleanup finalizers remain able to enter the volume.
+
+Every changed candidate uses a required commit provider. Memory commits succeed immediately and preserve masked transitions. Durable transitions remain interruptible before commit; commit and installation settle together before interruption is honored. Ordinary definite rejection discards the candidate without disabling access. An uncertain outcome stops access. Changed resource cleanup also commits; if cleanup cannot commit, local release completes and access stops. Later cleanup does not contact storage again. The [close decision](../decisions/core/explicit-close-and-scope-cleanup.md "constrained by") defines the resource behavior.
 
 Runtime-only per-object revisions distinguish committed content, metadata, link-count, and namespace changes even when clock values repeat. Each committed operation advances the volume revision once and stamps it on every object it changed, so objects changed by one operation report equal revisions. Metadata observations pair copied metadata with its revision. Directory observations pair owned entry names and stable child references with the directory revision from one state. Reads, rejected changes, and explicit no-op branches do not advance revisions.
 
