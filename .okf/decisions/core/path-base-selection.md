@@ -6,11 +6,11 @@ status: stable
 tags: [paths, callers, authority]
 sources:
   - id: paths
-    resource: ../../../packages/core/src/internal/virtualFileSystem/path.ts
-    title: Absolute and base-relative resolution
+    resource: ../../../packages/core/src/internal/path.ts
+    title: Path preparation
   - id: core
-    resource: ../../../packages/core/src/internal/virtualFileSystem.ts
-    title: Base selection at lookup
+    resource: ../../../packages/core/src/internal/resolution.ts
+    title: Absolute and relative base selection
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---
 

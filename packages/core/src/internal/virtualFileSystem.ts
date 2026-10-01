@@ -14,7 +14,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import * as Scope from "effect/Scope"
+import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import { BytePath } from "../BytePath.js"
@@ -22,7 +22,6 @@ import {
   CallerId,
   type Identity,
   MkdirOptions,
-  ObjectReferenceId,
   OpenEntryOptions,
   OpenOptions,
   RemoveOptions,
@@ -36,14 +35,16 @@ import { DirectoryHandleId, FileHandleId, SeekMode } from "../FileHandle.js"
 import type { CommitOutcome } from "../LiveVolume.js"
 import { type Metadata, Mode, OwnerUpdate, Times, type TimeUpdate } from "../Metadata.js"
 import type { Snapshot } from "../Snapshot.js"
-import { type Entry, type EntryInput, isEntry, isTarget, type NameInput, Target, type TargetInput } from "../Target.js"
+import { type Entry, type EntryInput, isEntry, Target, type TargetInput } from "../Target.js"
 import { type FsFailure, make as makeError } from "../VfsError.js"
 import type {
   Caller,
   Change,
+  DirectoryChange,
   DirectoryHandle,
   FileHandle,
   ObjectReference,
+  OpenEntryResult,
   OverlayVolume,
   PathInput,
   Volume,
@@ -81,24 +82,21 @@ import * as LiveImage from "./liveImage.js"
 import * as MetadataDomain from "./metadata.js"
 import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./overlayDiff.js"
 import {
-  DOT_DOT_HEX,
-  DOT_HEX,
   inputBytes,
   isAttachedBytes,
   isDotComponent,
-  isWellFormed,
   joinPath,
-  MAX_NAME_BYTES,
-  MAX_SYMLINK_TRAVERSALS,
   nameBytes,
   ownedPath,
-  type PreparedPath,
-  preparePath,
   ROOT_PATH,
   SLASH_BYTE,
   SLASH_HEX
 } from "./path.js"
+import * as Resolution from "./resolution.js"
+import type { PreparedEntry } from "./resolution.js"
 import { VolumeTestSeams } from "./testSeams.js"
+import * as TokenRegistry from "./tokenRegistry.js"
+import type { DirectoryReference, FileReference } from "./tokenRegistry.js"
 import { makeTurnstile } from "./turnstile.js"
 import * as Limits from "./volumeLimits.js"
 import {
@@ -183,13 +181,6 @@ const offerCommit = <State>(
     }
   )
 
-interface LookupOptions<R = never> {
-  readonly followFinalSymlink?: boolean
-  readonly allowMissing?: boolean
-  readonly parentOnly?: boolean
-  readonly createMissing?: (parent: Directory, name: string, final: boolean) => Effect.Effect<Directory, FsFailure, R>
-}
-
 const WALK_CHUNK_ENTRIES = 128
 const MAX_FILE_OFFSET = 0x7fffffffffffffffn
 
@@ -199,7 +190,7 @@ const isNatural = Schema.is(Schema.Natural)
 
 const isLength = Schema.is(SetattrOptions.fields.size.schema)
 
-const inGroup = (identity: Identity, gid: number) => identity.gid === gid || identity.groups.includes(gid)
+const inGroup = Resolution.inGroup
 
 const isTimestamp = Schema.is(MetadataDomain.Timestamp)
 
@@ -236,8 +227,6 @@ const decodeWalkOptions = Schema.decodeEffect(WalkOptions, { onExcessProperty: "
 const decodeRemoveOptions = Schema.decodeEffect(RemoveOptions, { onExcessProperty: "error" })
 
 const decodeOpenEntryOptions = Schema.decodeEffect(OpenEntryOptions, { onExcessProperty: "error" })
-
-const encoder = new TextEncoder()
 
 type OpenRequest = Omit<OpenEntryOptions, "append" | "followFinalSymlink" | "expectedChild" | "expected">
 
@@ -278,11 +267,13 @@ interface WalkFrame {
   readonly listed: boolean
 }
 
-interface WalkPlan {
+interface WalkPlan<E = never> {
   readonly order: "pre" | "post"
-  readonly maxDepth: number | undefined
-  readonly maxEntries: number | undefined
-  readonly maxBytes: bigint | undefined
+  readonly limit: (
+    frame: WalkFrame,
+    progress: { readonly entries: number; readonly bytes: bigint },
+    phase: "entry" | "directory"
+  ) => E | undefined
 }
 
 interface ResolvedEntry {
@@ -470,38 +461,6 @@ class Draft extends Context.Service<Draft, DraftOperations>()("@effect-vfs/core/
   })
 }) {}
 
-interface ObjectReferenceState {
-  readonly volume: symbol
-  readonly ino: Ino
-}
-
-const objectReferences = new WeakMap<ObjectReference, ObjectReferenceState>()
-
-const isFileHandle = (value: FileHandle | DirectoryHandle): value is FileHandle =>
-  Predicate.hasProperty(FileHandleId)(value)
-
-interface HandleScope {
-  scope: Scope.Closeable | undefined
-  closed: boolean
-}
-
-interface FileReference extends HandleScope {
-  readonly volume: symbol
-  ino: Ino | undefined
-  offset: bigint
-  readonly access: "read" | "write" | "readWrite"
-  readonly append: boolean
-}
-
-const files = new WeakMap<FileHandle, FileReference>()
-
-interface DirectoryReference extends HandleScope {
-  readonly volume: symbol
-  ino: Ino | undefined
-}
-
-const handles = new WeakMap<DirectoryHandle, DirectoryReference>()
-
 const withMetadata = (node: Node): Metadata => ({ ...node.metadata, revision: node.revision })
 
 const withEntries = (directory: Directory, edit: (entries: Map<string, Ino>) => void): Directory => {
@@ -620,25 +579,7 @@ export const makeVolume = Effect.fnUntraced(
       })
 
     const volumeIdentity = Symbol()
-    const tokens = new Map<Ino, ObjectReference>()
     const directoryHolds = new Map<Ino, number>()
-
-    const makeFileReference = (access: FileReference["access"], append: boolean): FileReference => ({
-      volume: volumeIdentity,
-      scope: undefined,
-      closed: false,
-      ino: undefined,
-      offset: 0n,
-      access,
-      append
-    })
-
-    const makeDirectoryReference = (ino?: Ino): DirectoryReference => ({
-      volume: volumeIdentity,
-      scope: undefined,
-      closed: false,
-      ino
-    })
 
     const maxPendingOperations = limits.maxPendingOperations
     const permits = maxPendingOperations + 1
@@ -694,6 +635,11 @@ export const makeVolume = Effect.fnUntraced(
         (draft) => Option.isSome(draft) ? draft.value.get(ino) : Effect.sync(() => getNode(state, ino))
       )
 
+    const registry = TokenRegistry.make(volumeIdentity, view)
+    const referenceFor = registry.referenceFor
+    const makeFileReference = registry.file
+    const makeDirectoryReference = registry.directory
+
     let available = true
 
     const checkAvailable = (operation: string) =>
@@ -711,7 +657,7 @@ export const makeVolume = Effect.fnUntraced(
       state = yield* finished.finish
       const actions = yield* finished.actions
 
-      for (const ino of actions.removed) tokens.delete(ino)
+      for (const ino of actions.removed) registry.forget(ino)
 
       for (const apply of actions.after) apply()
 
@@ -942,19 +888,11 @@ export const makeVolume = Effect.fnUntraced(
       rescan: () => ({ change: RescanChange.make({ path: rootPath() }), parent: ROOT_INO, ino: ROOT_INO })
     }
 
-    const scopeRoot = (scope: ObjectReference, op: OpContext) =>
-      Effect.suspend(() => {
-        const known = objectReferences.get(scope)
+    const scopeRoot = Effect.fnUntraced(function*(scope: ObjectReference, op: OpContext) {
+      const node = yield* TokenRegistry.nodeOrFail(yield* registry.resolve(scope, "reference"), "reference", op)
 
-        if (known === undefined) return Effect.fail(op.fail("InvalidReference"))
-
-        if (known.volume !== volumeIdentity) return Effect.fail(op.fail("ForeignReference"))
-        const node = getNode(state, known.ino)
-
-        return node === undefined || node.metadata.nlink === 0
-          ? Effect.fail(op.fail("StaleReference"))
-          : Effect.succeed(known.ino)
-      })
+      return node.metadata.nlink === 0 ? yield* op.fail("StaleReference") : node.ino
+    })
 
     // A watch of one object, and of its subtree when recursive. Membership is read from the installed tree when
     // each event is offered, so it follows renames of the scope and its ancestors. When the object's last name is
@@ -994,12 +932,6 @@ export const makeVolume = Effect.fnUntraced(
       return { snapshot, observation: yield* observeChanges(captured) }
     })
 
-    const addressable = (ino: Ino): boolean => {
-      const node = getNode(state, ino)
-
-      return node !== undefined && !(node.kind === "directory" && node.metadata.nlink === 0)
-    }
-
     const keyTag = (ino: bigint): Uint8Array => {
       const message = new Uint8Array(40)
       message.set(identityBytes)
@@ -1007,17 +939,6 @@ export const makeVolume = Effect.fnUntraced(
       new DataView(message.buffer).setBigUint64(32, ino)
 
       return hmacSha256(keySecretBytes, message).subarray(0, 16)
-    }
-
-    const referenceFor = (ino: Ino): ObjectReference => {
-      const existing = tokens.get(ino)
-
-      if (existing !== undefined) return existing
-      const reference = Object.freeze({ [ObjectReferenceId]: true as const })
-      objectReferences.set(reference, { volume: volumeIdentity, ino })
-      tokens.set(ino, reference)
-
-      return reference
     }
 
     const holdDirectory = (ino: Ino) => {
@@ -1041,44 +962,19 @@ export const makeVolume = Effect.fnUntraced(
       }
     })
 
-    const releaseDirectory = Effect.fnUntraced(function*(reference: DirectoryReference) {
-      const ino = reference.ino
-      reference.ino = undefined
-      reference.closed = true
+    const releaseDirectory = (reference: DirectoryReference) =>
+      TokenRegistry.release(reference, unholdDirectory, (action) => Effect.sync(action))
 
-      if (ino !== undefined) yield* unholdDirectory(ino)
-    })
+    const finalizeDirectory = (reference: DirectoryReference) => {
+      const close = coordinatedCleanup(releaseDirectory(reference))
 
-    const finalizeDirectory = (reference: DirectoryReference) =>
-      Effect.uninterruptible(
-        Effect.suspend(() =>
-          reference.closed
-            ? Effect.void
-            : Effect.ignore(coordinatedCleanup(releaseDirectory(reference)))
-        )
-      )
-
-    const closeReleasedScope = (reference: HandleScope) =>
-      Effect.suspend(() =>
-        !reference.closed || reference.scope === undefined ? Effect.void : Scope.close(reference.scope, Exit.void)
-      )
-
-    const permitted = (node: Node, identity: Identity) => {
-      const metadata = node.metadata
-
-      const shift = metadata.uid === identity.uid ?
-        6
-        : inGroup(identity, metadata.gid)
-        ? 3
-        : 0
-
-      return (metadata.mode >> shift) & (READ | WRITE | EXECUTE)
+      return TokenRegistry.finalize(reference, close, Effect.ignore(close))
     }
 
-    const authorize = (node: Node, identity: Identity, bits: number, op: OpContext) =>
-      identity.privileged || (permitted(node, identity) & bits) === bits
-        ? Effect.void
-        : Effect.fail(op.fail("AccessDenied"))
+    const closeReleasedScope = TokenRegistry.closeReleasedScope
+
+    const permitted = Resolution.permitted
+    const authorize = Resolution.authorize
 
     const reclaim = Effect.fnUntraced(function*(d: DraftOperations, ino: Ino) {
       const node = yield* d.get(ino)
@@ -1161,105 +1057,45 @@ export const makeVolume = Effect.fnUntraced(
       yield* reclaim(d, child.ino)
     })
 
-    const releaseFile = Effect.fnUntraced(function*(ref: FileReference) {
-      const ino = ref.ino
-
-      if (ino !== undefined) {
-        const d = yield* Draft
-        yield* d.release(ino)
-        yield* reclaim(d, ino)
-      }
-
-      ref.ino = undefined
-      ref.closed = true
+    const releaseFileInode = Effect.fnUntraced(function*(ino: Ino) {
+      const d = yield* Draft
+      yield* d.release(ino)
+      yield* reclaim(d, ino)
     })
+
+    const releaseFile = (ref: FileReference) =>
+      TokenRegistry.release(ref, releaseFileInode, (action) => Effect.sync(action))
 
     const releaseOpenFile = (ref: FileReference) =>
       Effect.ignore(
-        coordinatedCleanup(Effect.suspend(() => ref.closed ? Effect.void : applyCleanup(() => releaseFile(ref))))
+        coordinatedCleanup(Effect.suspend(() =>
+          TokenRegistry.inode(ref) === undefined ? Effect.void : applyCleanup(() => releaseFile(ref))
+        ))
       )
 
-    // Explicit close and scope cleanup share one release. A release whose commit fails still completes as
-    // cleanup, so the handle never stays open; only an explicit close reports the failure. A close refused
-    // admission never entered the volume, so it leaves the handle open for a retry.
+    // Admission refusal leaves the handle open. Every admitted close shares the registry release,
+    // and a storage failure still completes cleanup while only explicit close reports the failure.
     const closeFile = (ref: FileReference, op: OpContext, check: Effect.Effect<unknown, FsFailure>) =>
       coordinated(
         op,
         Effect.andThen(
           check,
-          Effect.gen(function*() {
-            const ino = ref.ino
-
-            if (ino !== undefined) {
-              const d = yield* Draft
-              yield* d.release(ino)
-              yield* reclaim(d, ino)
-            }
-
-            const d = yield* Draft
-            yield* d.afterInstall(() => {
-              ref.ino = undefined
-              ref.closed = true
-            })
-          })
+          TokenRegistry.release(
+            ref,
+            releaseFileInode,
+            (action) => Effect.flatMap(Draft, (draft) => draft.afterInstall(action))
+          )
         ),
         true
-      ).pipe(
-        Effect.tapError((error) => error.code === "VolumeBusy" ? Effect.void : releaseOpenFile(ref))
-      )
+      ).pipe(Effect.tapError((error) => error.code === "VolumeBusy" ? Effect.void : releaseOpenFile(ref)))
 
-    // Keyed on the file rather than the closed flag, so a rerun releases an open that published after a first run.
-    // Cleanup is uninterruptible and does not need admission, so an interrupted or busy scope close still releases.
     const finalizeFile = (ref: FileReference) =>
-      Effect.uninterruptible(Effect.suspend(() =>
-        ref.ino === undefined
-          ? Effect.sync(() => {
-            ref.closed = true
-          })
-          : Effect.ignore(closeFile(ref, OpContext.make("close"), Effect.void)).pipe(
-            Effect.andThen(Effect.suspend(() => ref.closed ? Effect.void : releaseOpenFile(ref)))
-          )
-      ))
+      TokenRegistry.finalize(ref, closeFile(ref, OpContext.make("close"), Effect.void), releaseOpenFile(ref))
 
-    // Acquires a handle into its own scope, forked from the caller's. The finalizer is registered before waiting,
-    // since a closed scope runs a new finalizer at once and the permit is not reentrant. A scope that closes
-    // before or during acquisition interrupts it, and releasing here, under the permit, keeps the acquisition
-    // from outliving a finalizer that already ran. A scope that closes while the acquisition commits interrupts it
-    // too. Every exit without a handle reruns the finalizer, which may have run before the commit published and
-    // which closing an already closed scope would not run again.
-    const acquireHandle = Effect.fnUntraced(function*<A, E, R, ReleaseR>(
-      reference: HandleScope,
-      coordinate: (acquire: Effect.Effect<A, E, R | ReleaseR>) => Effect.Effect<A, E | FsFailure, R>,
-      acquire: Effect.Effect<A, E, R>,
-      releaseAcquired: () => Effect.Effect<void, never, ReleaseR>,
-      finalize: Effect.Effect<void>
-    ) {
-      const scope = yield* Scope.fork(yield* Effect.scope)
-      reference.scope = scope
-      yield* Scope.addFinalizer(scope, finalize)
-      const closed = () => Predicate.isTagged(scope.state, "Closed")
-
-      return yield* coordinate(
-        Effect.suspend(() => closed() ? Effect.interrupt : acquire).pipe(
-          Effect.tap(() =>
-            Effect.suspend(() => {
-              if (!closed()) return Effect.void
-
-              return Effect.andThen(releaseAcquired(), Effect.interrupt)
-            })
-          )
-        )
-      ).pipe(
-        Effect.tap(() => Effect.suspend(() => closed() ? Effect.interrupt : Effect.void)),
-        Effect.onError(() => Effect.andThen(finalize, Scope.close(scope, Exit.void)))
-      )
-    })
+    const acquireHandle = TokenRegistry.acquire
 
     const bindFile = (ref: FileReference, ino: Ino) =>
-      Effect.flatMap(Draft, (draft) =>
-        draft.afterInstall(() => {
-          ref.ino = ino
-        }))
+      Effect.flatMap(Draft, (draft) => draft.afterInstall(() => TokenRegistry.publish(ref, ino)))
 
     const replaceContent = Effect.fnUntraced(function*(
       file: RegularFile,
@@ -1304,7 +1140,8 @@ export const makeVolume = Effect.fnUntraced(
 
     const fileHandle = (ref: FileReference): FileHandle => {
       const get = Effect.fnUntraced(function*(op: OpContext, access?: "read" | "write") {
-        const node = ref.ino === undefined ? undefined : yield* view(ref.ino)
+        const ino = TokenRegistry.inode(ref)
+        const node = ino === undefined ? undefined : yield* view(ino)
 
         if (
           node?.kind !== "file" || (access === "read" && ref.access === "write") ||
@@ -1487,40 +1324,37 @@ export const makeVolume = Effect.fnUntraced(
         )
       })
 
-      files.set(handle, ref)
+      registry.registerFile(handle, ref)
 
       return handle
     }
 
     const createCaller = (reference: DirectoryReference, identity: Identity, umask: number): Caller => {
-      const referencedNode = Effect.fnUntraced(function*(target: ObjectReference, op: OpContext) {
-        if (reference.ino === undefined) return yield* op.fail("ClosedCaller")
-
-        if (!Predicate.isObject(target)) return yield* op.fail("InvalidReference")
-        const known = objectReferences.get(target)
-
-        if (known === undefined) return yield* op.fail("InvalidReference")
-
-        if (known.volume !== volumeIdentity) {
-          return yield* op.fail("ForeignReference")
-        }
-
-        const node = yield* view(known.ino)
-
-        if (node === undefined || (node.kind === "directory" && node.metadata.nlink === 0)) {
-          return yield* op.fail("StaleReference")
-        }
-
-        return node
+      const resolver = Resolution.make({
+        caller: reference,
+        get: view,
+        identity,
+        maxPathBytes: limits.maxPathBytes,
+        registry
       })
 
-      const callerDirectory = Effect.fnUntraced(function*(op: OpContext) {
-        const node = reference.ino === undefined ? undefined : yield* view(reference.ino)
+      const prepare = resolver.prepare
+      const prepareEntry = resolver.prepareEntry
+      const entryName = Resolution.entryName
 
-        if (node?.kind !== "directory") return yield* op.fail("ClosedCaller")
+      const resolveTarget = (
+        target: Target,
+        op: OpContext,
+        options?: Omit<Resolution.NodeMode, "kind" | "createMissing">
+      ) => resolver.resolve(target, { kind: "Node", ...options }, op)
 
-        return node
-      })
+      const resolveDirectory = resolver.directory
+
+      const resolveEntry = (prepared: PreparedEntry, op: OpContext) =>
+        resolver.resolve(prepared, { kind: "Parent" }, op)
+
+      const referencedNode = (target: ObjectReference, op: OpContext) =>
+        Effect.map(resolveTarget(Target.Reference({ reference: target }), op), (resolved) => resolved.node)
 
       const directoryNow = Effect.fnUntraced(function*(ino: Ino) {
         const node = yield* view(ino)
@@ -1617,198 +1451,6 @@ export const makeVolume = Effect.fnUntraced(
           } satisfies SymbolicLink
         }
       )
-
-      const lookup = Effect.fnUntraced(function*<R = never>(
-        path: PreparedPath,
-        base: DirectoryHandle | undefined,
-        op: OpContext,
-        options: LookupOptions<R> = {},
-        referencedBase?: Directory
-      ) {
-        const pathOp = op.at(path.input)
-        const { allowMissing = false, createMissing, followFinalSymlink = true, parentOnly = false } = options
-
-        if (reference.ino === undefined) {
-          return yield* pathOp.fail("ClosedCaller")
-        }
-
-        let current: Node = path.absolute ? (yield* nodeNow(ROOT_INO)) : yield* callerDirectory(pathOp)
-
-        if (!path.absolute && referencedBase !== undefined) {
-          current = referencedBase
-          yield* authorize(current, identity, EXECUTE, op)
-        } else if (!path.absolute && base !== undefined) {
-          const target = handles.get(base)
-
-          if (target === undefined) {
-            return yield* pathOp.fail("InvalidHandle")
-          }
-
-          if (target.volume !== volumeIdentity) {
-            return yield* pathOp.fail("ForeignHandle")
-          }
-
-          const directory = target.ino === undefined ? undefined : (yield* view(target.ino))
-
-          if (directory?.kind !== "directory") {
-            return yield* pathOp.fail("InvalidHandle")
-          }
-
-          current = directory
-          yield* authorize(current, identity, EXECUTE, pathOp)
-        }
-
-        if (current.metadata.nlink === 0) {
-          return yield* pathOp.fail("NotFound")
-        }
-
-        let work = path
-        let parent: Directory | undefined
-        let name: string | undefined
-        let traversals = 0
-        // Leading components that came from a symbolic link's target. Only the components the caller wrote are
-        // created, so a dangling link stays missing, as it does for mkdir -p.
-        let linked = 0
-
-        for (let index = 0; index < work.components.length - (parentOnly ? 1 : 0); index++) {
-          if (current.kind !== "directory") {
-            return yield* pathOp.fail("NotDirectory")
-          }
-
-          yield* authorize(current, identity, EXECUTE, pathOp)
-          const component = work.components[index]
-
-          if (component === undefined) break
-
-          if (component === DOT_HEX) continue
-
-          if (component === DOT_DOT_HEX) {
-            current = yield* directoryNow(current.parent)
-            parent = undefined
-            name = undefined
-            continue
-          }
-
-          parent = current
-          name = component
-          const childIno = current.entries.get(component)
-          const child = childIno === undefined ? undefined : (yield* view(childIno))
-
-          if (child === undefined) {
-            if (allowMissing && index === work.components.length - 1) {
-              return { node: undefined, parent, name }
-            }
-
-            if (createMissing !== undefined && index >= linked) {
-              current = yield* createMissing(current, component, index === work.components.length - 1)
-              continue
-            }
-
-            return yield* pathOp.fail("NotFound")
-          }
-
-          if (
-            child.kind === "symlink" && (followFinalSymlink || index < work.components.length - 1 || work.trailingSlash)
-          ) {
-            if (child.target.length === 0) {
-              return yield* pathOp.fail("NotFound")
-            }
-
-            if (++traversals > MAX_SYMLINK_TRAVERSALS) {
-              return yield* pathOp.fail("SymlinkLoop")
-            }
-
-            const suffix = work.suffixes[index] ?? new Uint8Array(0)
-            const remaining = work.components.length - index - 1
-
-            if (
-              limits.maxPathBytes !== undefined &&
-              ByteSize.isGreaterThan(ByteSize.bytes(child.target.length + suffix.length), limits.maxPathBytes)
-            ) {
-              return yield* pathOp.fail("PathTooLong")
-            }
-
-            const expansion = new Uint8Array(child.target.length + suffix.length)
-            expansion.set(child.target)
-            expansion.set(suffix, child.target.length)
-            const expanded = preparePath(ownedPath(expansion), op.operation, limits.maxPathBytes)
-
-            // The expansion is synthetic: its per-component limits are the caller's to hear about,
-            // but the path in the error has to be the one the caller passed in, so the
-            // expansion's own failure is not kept as the cause.
-            if (Result.isFailure(expanded)) {
-              return yield* pathOp.fail(expanded.failure.code)
-            }
-
-            work = expanded.success
-            linked = work.components.length - remaining + Math.max(0, linked - index - 1)
-
-            if (work.absolute) current = yield* nodeNow(ROOT_INO)
-            index = -1
-          } else current = child
-        }
-
-        if (!parentOnly && work.trailingSlash && current.kind !== "directory") {
-          return yield* pathOp.fail("NotDirectory")
-        }
-
-        return { node: current, parent, name }
-      })
-
-      const resolveNode = Effect.fnUntraced(
-        function*(
-          path: PreparedPath,
-          base: DirectoryHandle | undefined,
-          op: OpContext,
-          options?: Pick<LookupOptions, "followFinalSymlink">
-        ) {
-          const pathOp = op.at(path.input)
-          const result = yield* lookup(path, base, op, options)
-
-          if (result.node === undefined) {
-            return yield* pathOp.fail("NotFound")
-          }
-
-          return result.node
-        }
-      )
-
-      const locate = Effect.fnUntraced(
-        function*(
-          path: PreparedPath,
-          base: DirectoryHandle | undefined,
-          op: OpContext,
-          options?: Pick<LookupOptions, "parentOnly">
-        ) {
-          const pathOp = op.at(path.input)
-          const result = yield* lookup(path, base, op, options)
-          const node = result.node
-
-          if (node === undefined) {
-            return yield* pathOp.fail("NotFound")
-          }
-
-          if (node.kind !== "directory") {
-            return yield* pathOp.fail("NotDirectory")
-          }
-
-          return node
-        }
-      )
-
-      const ResolvedEntry = {
-        fromPath: Effect.fnUntraced(function*(path: PreparedPath, base: DirectoryHandle | undefined, op: OpContext) {
-          const parent = yield* locate(path, base, op, { parentOnly: true })
-
-          return {
-            parent: parent.ino,
-            name: path.components.at(-1),
-            trailingSlash: path.trailingSlash,
-            addressing: "path" as const,
-            op: op.at(path.input)
-          } satisfies ResolvedEntry
-        })
-      }
 
       const grantedMode = (metadata: Pick<Metadata, "kind" | "gid">, mode: number) =>
         !identity.privileged && metadata.kind === "file" && !inGroup(identity, metadata.gid) ? mode & ~0o2000 : mode
@@ -1992,21 +1634,30 @@ export const makeVolume = Effect.fnUntraced(
         } else {
           entryOp = op.at(prepared.path.input)
 
-          const resolved = yield* lookup(prepared.path, prepared.base, op, {
-            createMissing: (parent, name, final) =>
-              Effect.flatMap(
-                makeDirectory(
-                  { parent: parent.ino, name, trailingSlash: false, addressing: "path", op: entryOp },
-                  final ? request : { mode: request.mode, exactMode: request.exactMode },
-                  op
-                ),
-                (made) => {
-                  if (!revisionsBefore.has(parent.ino)) revisionsBefore.set(parent.ino, made.directory.before)
+          const resolved = yield* resolver.resolve(
+            Target.Path(
+              prepared.base === undefined
+                ? { path: prepared.path.input }
+                : { path: prepared.path.input, relativeTo: prepared.base }
+            ),
+            {
+              kind: "Node",
+              createMissing: (parent, name, final) =>
+                Effect.flatMap(
+                  makeDirectory(
+                    { parent: parent.ino, name, trailingSlash: false, addressing: "path", op: entryOp },
+                    final ? request : { mode: request.mode, exactMode: request.exactMode },
+                    op
+                  ),
+                  (made) => {
+                    if (!revisionsBefore.has(parent.ino)) revisionsBefore.set(parent.ino, made.directory.before)
 
-                  return directoryNow(made.child)
-                }
-              )
-          })
+                    return directoryNow(made.child)
+                  }
+                )
+            },
+            op
+          )
 
           node = resolved.node
         }
@@ -2377,9 +2028,7 @@ export const makeVolume = Effect.fnUntraced(
           const ino = opened()
 
           if (ino === undefined) return
-          const draft = yield* Draft
-          yield* draft.release(ino)
-          yield* reclaim(draft, ino)
+          yield* releaseFileInode(ino)
         })
 
       const acquireOpenedFile = <A, E, R>(
@@ -2400,119 +2049,11 @@ export const makeVolume = Effect.fnUntraced(
         )
       }
 
-      const prepare = (input: PathInput, op: OpContext) => preparePath(input, op.operation, limits.maxPathBytes)
-
-      const handleNode = Effect.fnUntraced(function*(handle: FileHandle | DirectoryHandle, op: OpContext) {
-        if (reference.ino === undefined) return yield* op.fail("ClosedCaller")
-        const ref = isFileHandle(handle) ? files.get(handle) : handles.get(handle)
-
-        if (ref === undefined) return yield* op.fail("InvalidHandle")
-
-        if (ref.volume !== volumeIdentity) return yield* op.fail("ForeignHandle")
-        const node = ref.ino === undefined ? undefined : (yield* view(ref.ino))
-
-        if (node === undefined) return yield* op.fail("InvalidHandle")
-
-        return node
-      })
-
-      interface Resolved {
-        readonly node: Node
-        readonly op: OpContext
-      }
-
-      // A path prepares before the walk, so a malformed input fails before any lookup, and names the path on
-      // every failure. A reference or handle names none. The verb's `followFinalSymlink` is the default a
-      // path's own setting overrides; `final` makes the verb's setting win, for a verb such as `readLink` whose
-      // meaning fixes it.
-      const resolveTarget = (
-        target: Target,
-        op: OpContext,
-        options?: { readonly followFinalSymlink?: boolean; readonly final?: boolean }
-      ): Effect.Effect<Resolved, FsFailure> =>
-        Target.$match(target, {
-          Path: ({ followFinalSymlink, path, relativeTo }) =>
-            Effect.flatMap(Effect.fromResult(prepare(path, op)), (prepared) =>
-              Effect.map(
-                resolveNode(prepared, relativeTo, op, {
-                  followFinalSymlink: options?.final === true
-                    ? options.followFinalSymlink ?? true
-                    : followFinalSymlink ?? options?.followFinalSymlink ?? true
-                }),
-                (node) => ({ node, op: op.at(path) })
-              )),
-          Reference: ({ reference }) => Effect.map(referencedNode(reference, op), (node) => ({ node, op })),
-          Handle: ({ handle }) => Effect.map(handleNode(handle, op), (node) => ({ node, op }))
-        })
-
-      const resolveDirectory = Effect.fnUntraced(function*(target: Target, op: OpContext) {
-        const resolved = yield* resolveTarget(target, op)
-
-        if (resolved.node.kind !== "directory") return yield* resolved.op.fail("NotDirectory")
-
-        return { node: resolved.node, op: resolved.op }
-      })
-
-      // The directory an entry names a child of. A removed directory that a handle still holds takes no new
-      // children, as on Linux, where creating through a descriptor of a removed directory fails with ENOENT.
-      const entryDirectory = Effect.fnUntraced(function*(target: Target, op: OpContext) {
-        const directory = yield* resolveDirectory(target, op)
-
-        if (directory.node.metadata.nlink === 0) return yield* directory.op.fail("NotFound")
-
-        return directory
-      })
-
       const asResolvedNode = (target: Target, op: OpContext, options?: { readonly followFinalSymlink?: boolean }) =>
         Effect.map(
           resolveTarget(target, op, options),
           (resolved): ResolvedNode => ({ ino: resolved.node.ino, op: resolved.op })
         )
-
-      type PreparedEntry =
-        | { readonly kind: "path"; readonly path: PreparedPath; readonly base: DirectoryHandle | undefined }
-        | { readonly kind: "entry"; readonly directory: Target; readonly name: string }
-
-      const entryName = (input: NameInput, op: OpContext): Result.Result<string, FsFailure> => {
-        if (Predicate.isString(input) && !isWellFormed(input)) return Result.fail(op.fail("InvalidPathEncoding"))
-        const bytes = Predicate.isString(input) ? encoder.encode(input) : input
-
-        if (
-          !isAttachedBytes(bytes) || bytes.length === 0 || bytes.length > MAX_NAME_BYTES || bytes.includes(0) ||
-          bytes.includes(SLASH_BYTE)
-        ) return Result.fail(op.fail("InvalidArgument"))
-
-        return Result.succeed(Hex.encode(new Uint8Array(bytes)))
-      }
-
-      const prepareEntry = (input: EntryInput, op: OpContext): Result.Result<PreparedEntry, FsFailure> =>
-        isEntry(input)
-          ? Result.map(
-            entryName(input.name, op),
-            (name): PreparedEntry => ({ kind: "entry", directory: input.directory, name })
-          )
-          : isTarget(input)
-          ? Result.map(
-            prepare(input.path, op),
-            (path): PreparedEntry => ({ kind: "path", path, base: input.relativeTo })
-          )
-          : Result.map(prepare(input, op), (path): PreparedEntry => ({ kind: "path", path, base: undefined }))
-
-      const resolveEntry = Effect.fnUntraced(function*(prepared: PreparedEntry, op: OpContext) {
-        if (prepared.kind === "path") {
-          return yield* ResolvedEntry.fromPath(prepared.path, prepared.base, op)
-        }
-
-        const directory = yield* entryDirectory(prepared.directory, op)
-
-        return {
-          parent: directory.node.ino,
-          name: prepared.name,
-          trailingSlash: false,
-          addressing: "entry" as const,
-          op
-        } satisfies ResolvedEntry
-      })
 
       const asTarget = (input: TargetInput): Target => Target.of(input)
 
@@ -2527,7 +2068,7 @@ export const makeVolume = Effect.fnUntraced(
             const directory = yield* resolveDirectory(target, op)
             yield* authorize(directory.node, identity, EXECUTE, directory.op)
             holdDirectory(directory.node.ino)
-            acquired.ino = directory.node.ino
+            TokenRegistry.publish(acquired, directory.node.ino)
 
             return acquired
           }),
@@ -2568,33 +2109,17 @@ export const makeVolume = Effect.fnUntraced(
               Effect.gen(function*() {
                 const path = yield* Effect.fromResult(prepared)
 
-                if (chosen.create === "exclusive") {
-                  const existing = yield* Effect.result(
-                    lookup(path, target.relativeTo, op, { followFinalSymlink: false })
-                  )
+                const resolved = yield* resolver.resolve({ kind: "path", path, base: target.relativeTo }, {
+                  kind: "OrCreate",
+                  create: chosen.create ?? "never",
+                  finalSymlink: follow ? "follow" : "preserve"
+                }, op)
 
-                  if (Result.isSuccess(existing)) return yield* pathOp.fail("AlreadyExists")
+                const { parent, name } = resolved
 
-                  if (existing.failure.code !== "NotFound") return yield* existing.failure
-                }
-
-                const resolved = yield* lookup(path, target.relativeTo, op, {
-                  followFinalSymlink: follow,
-                  allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
-                })
-
-                const parent = resolved.parent
-
-                if (parent === undefined) return yield* pathOp.fail("IsDirectory")
-                const name = resolved.name
-
-                if (isDotComponent(name)) return yield* pathOp.fail("IsDirectory")
-
-                if (resolved.node === undefined && path.trailingSlash) return yield* pathOp.fail("IsDirectory")
+                if (resolved.kind === "missing" && path.trailingSlash) return yield* pathOp.fail("IsDirectory")
                 yield* authorize(parent, identity, EXECUTE, pathOp)
-                const file = resolved.node
-
-                if (file !== undefined && chosen.create === "exclusive") return yield* pathOp.fail("AlreadyExists")
+                const file = resolved.kind === "existing" ? resolved.node : undefined
 
                 const result = yield* openFile(
                   { parent: parent.ino, name, trailingSlash: path.trailingSlash, addressing: "path", op: pathOp },
@@ -2661,7 +2186,6 @@ export const makeVolume = Effect.fnUntraced(
         }
 
         if (chosen.exactMode && chosen.mode === undefined) return yield* op.fail("InvalidArgument")
-        const relativePath = preparePath(ownedPath(nameBytes(name)), op.operation, undefined)
         const acquired = makeFileReference(chosen.access, chosen.append ?? false)
         const expected = chosen.expected
 
@@ -2670,72 +2194,47 @@ export const makeVolume = Effect.fnUntraced(
           op,
           (opened) =>
             Effect.gen(function*() {
-              const parent = (yield* entryDirectory(entry.directory, op)).node
+              const resolved = yield* resolver.resolve({ kind: "entry", directory: entry.directory, name }, {
+                kind: "OrCreate",
+                create: chosen.create ?? "never",
+                finalSymlink: chosen.followFinalSymlink !== false ? "follow" : "preserve",
+                beforeFollow: Effect.fnUntraced(function*(_, direct) {
+                  if (expected !== undefined) {
+                    let expectedIno: Ino | undefined
 
-              if (isDotComponent(name)) return yield* op.fail("InvalidArgument")
-              yield* authorize(parent, identity, EXECUTE, op)
-              const directIno = parent.entries.get(name)
-              const direct = directIno === undefined ? undefined : (yield* view(directIno))
+                    if (expected !== null) {
+                      const observed = yield* Effect.result(referencedNode(expected, op))
 
-              if (expected !== undefined) {
-                let expectedIno: Ino | undefined
+                      if (Result.isFailure(observed)) {
+                        return yield* op.fail("VolumeBusy", { cause: observed.failure })
+                      }
 
-                if (expected !== null) {
-                  const observed = yield* Effect.result(referencedNode(expected, op))
+                      expectedIno = observed.success.ino
+                    }
 
-                  if (Result.isFailure(observed)) {
-                    return yield* op.fail("VolumeBusy", { cause: observed.failure })
+                    if (direct?.ino !== expectedIno) return yield* op.fail("VolumeBusy")
                   }
 
-                  expectedIno = observed.success.ino
-                }
+                  if (chosen.expectedChild === null) {
+                    if (direct !== undefined) return yield* op.fail("StaleReference")
+                  } else if (chosen.expectedChild !== undefined) {
+                    const expectedChild = chosen.expectedChild
+                    const observed = yield* referencedNode(expectedChild.reference, op)
 
-                if (direct?.ino !== expectedIno) return yield* op.fail("VolumeBusy")
-              }
-
-              if (chosen.expectedChild === null) {
-                if (direct !== undefined) return yield* op.fail("StaleReference")
-              } else if (chosen.expectedChild !== undefined) {
-                const expectedChild = chosen.expectedChild
-                const observed = yield* referencedNode(expectedChild.reference, op)
-
-                if (
-                  direct?.ino !== observed.ino || observed.revision !== expectedChild.revision ||
-                  observed.metadata.atimeNs !== expectedChild.atimeNs ||
-                  observed.metadata.mtimeNs !== expectedChild.mtimeNs
-                ) {
-                  return yield* op.fail("StaleReference")
-                }
-              }
-
-              if (direct !== undefined && chosen.create === "exclusive") return yield* op.fail("AlreadyExists")
-              let file: Node | undefined = direct
-              let mutationParent = parent.ino
-              let mutationName = name
-
-              if (file?.kind === "symlink" && chosen.followFinalSymlink !== false) {
-                const resolved = yield* lookup(
-                  yield* Effect.fromResult(relativePath),
-                  undefined,
-                  op,
-                  {
-                    followFinalSymlink: true,
-                    allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
-                  },
-                  parent
-                )
-
-                file = resolved.node
-
-                if (file === undefined) {
-                  if (resolved.parent === undefined || resolved.name === undefined) {
-                    return yield* op.fail("IsDirectory")
+                    if (
+                      direct?.ino !== observed.ino || observed.revision !== expectedChild.revision ||
+                      observed.metadata.atimeNs !== expectedChild.atimeNs ||
+                      observed.metadata.mtimeNs !== expectedChild.mtimeNs
+                    ) {
+                      return yield* op.fail("StaleReference")
+                    }
                   }
+                })
+              }, op)
 
-                  mutationParent = resolved.parent.ino
-                  mutationName = resolved.name
-                }
-              }
+              const file = resolved.kind === "existing" ? resolved.node : undefined
+              const mutationParent = resolved.kind === "missing" ? resolved.parent.ino : resolved.origin.parent.ino
+              const mutationName = resolved.kind === "missing" ? resolved.name : resolved.origin.name
 
               const result = yield* openFile(
                 { parent: mutationParent, name: mutationName, trailingSlash: false, addressing: "entry", op },
@@ -2812,7 +2311,7 @@ export const makeVolume = Effect.fnUntraced(
 
         if (Result.isFailure(prepared)) return Effect.undefined
 
-        return ResolvedEntry.fromPath(prepared.success, target.relativeTo, op).pipe(
+        return resolveEntry({ kind: "path", path: prepared.success, base: target.relativeTo }, op).pipe(
           Effect.flatMap((entry) =>
             Effect.map(view(entry.parent), (parent) => {
               return entry.name !== undefined && parent?.kind === "directory" &&
@@ -2858,24 +2357,24 @@ export const makeVolume = Effect.fnUntraced(
       // and one that left the tree after it was listed has nothing to walk. A directory past `maxDepth` is never
       // read. `locate` names an entry's path in a failure, and `listable` authorizes reading a directory. Entries
       // gathered before a failure are handed on before the failure is.
-      const walkFrames = (
+      const walkFrames = <E extends WalkFailure = never>(
         op: OpContext,
         first: Effect.Effect<Array<WalkFrame>, FsFailure>,
-        plan: WalkPlan,
+        plan: WalkPlan<E>,
         locate: (path: Uint8Array) => PathInput,
         listable: (directory: Directory, at: OpContext) => Effect.Effect<void, FsFailure>
-      ): Stream.Stream<WalkFrame, WalkFailure> =>
+      ): Stream.Stream<WalkFrame, FsFailure | E> =>
         Stream.suspend(() => {
           let pending: Array<WalkFrame> | undefined
           let entries = 0
           let bytes = 0n
-          let failure: WalkFailure | undefined
+          let failure: FsFailure | E | undefined
 
           const list = (frame: WalkFrame) =>
             coordinatedRead(
               op,
               Effect.suspend(() => {
-                if (reference.ino === undefined) return Effect.fail(op.fail("ClosedCaller"))
+                if (TokenRegistry.inode(reference) === undefined) return Effect.fail(op.fail("ClosedCaller"))
                 const at = op.at(locate(frame.path))
 
                 return Effect.flatMap(reachFrame(frame, at), (node) =>
@@ -2885,27 +2384,22 @@ export const makeVolume = Effect.fnUntraced(
               })
             )
 
-          const exceeded = (frame: WalkFrame, field: keyof WalkOptions): WalkFailure =>
-            makeError({ code: "LimitExceeded", operation: op.operation, field, path: errorPath(locate(frame.path)) })
-
-          const admit = (frame: WalkFrame): WalkFailure | undefined => {
-            if (plan.maxDepth !== undefined && frame.depth > plan.maxDepth) return exceeded(frame, "maxDepth")
-
-            if (plan.maxEntries !== undefined && ++entries > plan.maxEntries) return exceeded(frame, "maxEntries")
+          const admit = (frame: WalkFrame): E | undefined => {
+            entries++
             bytes += frame.bytes
 
-            if (plan.maxBytes !== undefined && bytes > plan.maxBytes) return exceeded(frame, "maxBytes")
-
-            return undefined
+            return plan.limit(frame, { entries, bytes }, "entry")
           }
 
           const step = Effect.gen(function*() {
-            if (failure !== undefined) return yield* failure
+            // Preserve the generic limit error E; yielding the error directly widens it to WalkFailure.
+            // oxlint-disable-next-line effecttsgo/unnecessary-fail-yieldable-error -- E must stay narrow for unbounded removal.
+            if (failure !== undefined) return yield* Effect.fail(failure)
 
             if (pending === undefined) pending = (yield* first).reverse()
             const out: Array<WalkFrame> = []
 
-            const stop = (error: WalkFailure) => {
+            const stop = (error: FsFailure | E) => {
               if (out.length === 0) return Effect.fail(error)
               failure = error
 
@@ -2926,9 +2420,9 @@ export const makeVolume = Effect.fnUntraced(
               }
 
               if (unlisted) {
-                if (plan.maxDepth !== undefined && frame.depth > plan.maxDepth) {
-                  return yield* stop(exceeded(frame, "maxDepth"))
-                }
+                const rejected = plan.limit(frame, { entries, bytes }, "directory")
+
+                if (rejected !== undefined) return yield* stop(rejected)
 
                 const listed = yield* Effect.result(list(frame))
 
@@ -3023,7 +2517,7 @@ export const makeVolume = Effect.fnUntraced(
           )
         }
 
-        const plan: WalkPlan = { order: "post", maxDepth: undefined, maxEntries: undefined, maxBytes: undefined }
+        const plan: WalkPlan = { order: "post", limit: () => undefined }
 
         return yield* Stream.runForEach(walkFrames(op, first, plan, locate, listable), removeFrame)
       })
@@ -3041,12 +2535,74 @@ export const makeVolume = Effect.fnUntraced(
         return yield* coordinated(op, Effect.flatMap(resolveEntry(prepared, op), (entry) => body(entry, op)))
       })
 
+      const openDispatch = Effect.fn("Caller.open")(
+        function*(input: TargetInput | Entry, options: OpenOptions | OpenEntryOptions) {
+          const op = OpContext.make("open")
+
+          if (isEntry(input)) return yield* openEntry(input, options, op)
+          const target = asTarget(input)
+
+          if (Target.$is("Path")(target)) return yield* openPath(target, options, op)
+
+          return yield* openNode(target, options, op)
+        }
+      )
+
+      function open(
+        input: Target | PathInput | ObjectReference | FileHandle,
+        options: OpenOptions
+      ): Effect.Effect<FileHandle, FsFailure, Scope.Scope>
+      function open(input: Entry, options: OpenEntryOptions): Effect.Effect<OpenEntryResult, FsFailure, Scope.Scope>
+      function open(
+        input: TargetInput | Entry,
+        options: OpenOptions | OpenEntryOptions
+      ): Effect.Effect<FileHandle | OpenEntryResult, FsFailure, Scope.Scope> {
+        return openDispatch(input, options)
+      }
+
+      const removeDispatch = Effect.fn("Caller.remove")(function*(input: EntryInput, options?: RemoveOptions) {
+        const op = OpContext.make("remove")
+        const prepared = yield* Effect.fromResult(prepareEntry(input, op))
+
+        const chosen = yield* decodeRemoveOptions(options ?? {}).pipe(
+          Effect.mapError((cause) => fail(preparedOp(prepared, op), cause))
+        )
+
+        const once = coordinated(op, Effect.flatMap(resolveEntry(prepared, op), (entry) => removeEntry(entry, op)))
+
+        const target = <A>(effect: Effect.Effect<A, FsFailure>) =>
+          chosen.force === true
+            ? Effect.catchIf(effect, (error) => error.code === "NotFound", () => Effect.undefined)
+            : effect
+
+        const removed = yield* Effect.result(target(once))
+
+        if (Result.isSuccess(removed)) return removed.success
+
+        if (chosen.recursive !== true || removed.failure.code !== "NotEmpty") return yield* removed.failure
+        yield* emptyDirectory(prepared, op, chosen.force === true)
+
+        return yield* target(once)
+      })
+
+      function remove(
+        input: EntryInput,
+        options?: RemoveOptions & { readonly force?: false }
+      ): Effect.Effect<DirectoryChange, FsFailure>
+      function remove(input: EntryInput, options: RemoveOptions): Effect.Effect<DirectoryChange | undefined, FsFailure>
+      function remove(
+        input: EntryInput,
+        options?: RemoveOptions
+      ): Effect.Effect<DirectoryChange | undefined, FsFailure> {
+        return removeDispatch(input, options)
+      }
+
       const caller: Caller = Object.freeze({
         [CallerId]: true as const,
         root: coordinatedRead(
           rootOp,
           Effect.suspend(() =>
-            reference.ino === undefined
+            TokenRegistry.inode(reference) === undefined
               ? Effect.fail(rootOp.fail("ClosedCaller"))
               : Effect.succeed(referenceFor(ROOT_INO))
           )
@@ -3149,11 +2705,24 @@ export const makeVolume = Effect.fnUntraced(
               })
             )
 
-            const plan: WalkPlan = {
+            const exceeded = (frame: WalkFrame, field: keyof WalkOptions): WalkFailure =>
+              makeError({ code: "LimitExceeded", operation: op.operation, field, path: errorPath(locate(frame.path)) })
+
+            const maxBytes = chosen.maxBytes === undefined ? undefined : ByteSize.toBigInt(chosen.maxBytes)
+
+            const plan: WalkPlan<WalkFailure> = {
               order: chosen.order ?? "pre",
-              maxDepth: chosen.maxDepth,
-              maxEntries: chosen.maxEntries,
-              maxBytes: chosen.maxBytes === undefined ? undefined : ByteSize.toBigInt(chosen.maxBytes)
+              limit: (frame, progress, phase) => {
+                if (chosen.maxDepth !== undefined && frame.depth > chosen.maxDepth) return exceeded(frame, "maxDepth")
+
+                if (phase === "directory") return undefined
+
+                if (chosen.maxEntries !== undefined && progress.entries > chosen.maxEntries) {
+                  return exceeded(frame, "maxEntries")
+                }
+
+                return maxBytes !== undefined && progress.bytes > maxBytes ? exceeded(frame, "maxBytes") : undefined
+              }
             }
 
             return Stream.map(walkFrames(op, first, plan, locate, readable), (frame): WalkEntry =>
@@ -3191,13 +2760,19 @@ export const makeVolume = Effect.fnUntraced(
             Effect.gen(function*() {
               if (Target.$is("Path")(target)) {
                 const pathOp = op.at(target.path)
-                const result = yield* lookup(yield* Effect.fromResult(prepare(target.path, op)), target.relativeTo, op)
-                const directory = result.node?.kind === "directory" ? result.node : result.parent
+                const result = yield* resolveTarget(target, op, { final: true })
+
+                const directory = result.node.kind === "directory"
+                  ? result.node
+                  : result.kind === "entry"
+                  ? result.parent
+                  : undefined
+
                 const prefix = directory === undefined ? SLASH_HEX : yield* pathOfCurrent(directory.ino)
 
                 if (prefix === undefined) return yield* pathOp.fail("NotFound")
 
-                if (result.node?.kind === "directory" || result.name === undefined) return ownedPath(nameBytes(prefix))
+                if (result.node.kind === "directory" || result.kind === "node") return ownedPath(nameBytes(prefix))
 
                 return ownedPath(nameBytes(prefix + (prefix === SLASH_HEX ? "" : SLASH_HEX) + result.name))
               }
@@ -3270,86 +2845,22 @@ export const makeVolume = Effect.fnUntraced(
           return yield* coordinated(
             op,
             Effect.gen(function*() {
-              let entryOp = op
-              let parent: Directory
-              let name: string
-              let found: Node | undefined
-              let trailingSlash = false
+              const resolved = yield* resolver.resolve(prepared, {
+                kind: "OrCreate",
+                create: chosen.create ?? "never",
+                finalSymlink: chosen.replaceFinalSymlink !== true && chosen.followFinalSymlink !== false
+                  ? "follow"
+                  : "preserve",
+                entryExclusive: "afterSymlink"
+              }, op)
 
-              if (prepared.kind === "path") {
-                const path = prepared.path
-                entryOp = op.at(path.input)
+              const { parent, name, trailingSlash, op: entryOp } = resolved
+              const found = resolved.kind === "existing" ? resolved.node : undefined
 
-                if (chosen.create === "exclusive") {
-                  const exists = yield* Effect.result(lookup(path, prepared.base, op, { followFinalSymlink: false }))
-
-                  if (Result.isSuccess(exists)) return yield* entryOp.fail("AlreadyExists")
-
-                  if (exists.failure.code !== "NotFound") return yield* exists.failure
-                }
-
-                const resolved = yield* lookup(path, prepared.base, op, {
-                  followFinalSymlink: chosen.replaceFinalSymlink !== true && chosen.followFinalSymlink !== false,
-                  allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
-                })
-
-                if (
-                  resolved.parent === undefined || resolved.name === undefined || resolved.node?.kind === "directory"
-                ) {
-                  return yield* entryOp.fail("IsDirectory")
-                }
-
-                parent = resolved.parent
-                name = resolved.name
-                found = resolved.node
-                trailingSlash = path.trailingSlash
-              } else {
-                const directory = yield* entryDirectory(prepared.directory, op)
-
-                if (isDotComponent(prepared.name)) return yield* op.fail("InvalidArgument")
-                yield* authorize(directory.node, identity, EXECUTE, op)
-                parent = directory.node
-                name = prepared.name
-                const childIno = parent.entries.get(name)
-                let child = childIno === undefined ? undefined : (yield* view(childIno))
-
-                if (
-                  child?.kind === "symlink" && chosen.replaceFinalSymlink !== true &&
-                  chosen.followFinalSymlink !== false
-                ) {
-                  const resolved = yield* lookup(
-                    yield* Effect.fromResult(preparePath(ownedPath(nameBytes(name)), op.operation, undefined)),
-                    undefined,
-                    op,
-                    {
-                      followFinalSymlink: true,
-                      allowMissing: chosen.create === "ifMissing" || chosen.create === "exclusive"
-                    },
-                    parent
-                  )
-
-                  if (
-                    resolved.parent === undefined || resolved.name === undefined || resolved.node?.kind === "directory"
-                  ) {
-                    return yield* op.fail("IsDirectory")
-                  }
-
-                  parent = resolved.parent
-                  name = resolved.name
-                  child = resolved.node
-                }
-
-                if (child === undefined && (chosen.create === undefined || chosen.create === "never")) {
-                  return yield* op.fail("NotFound")
-                }
-
-                if (child !== undefined && chosen.create === "exclusive") return yield* op.fail("AlreadyExists")
-
-                if (child?.kind === "directory") return yield* op.fail("IsDirectory")
-                found = child
+              if (found?.kind === "directory" || (found === undefined && trailingSlash)) {
+                return yield* entryOp.fail("IsDirectory")
               }
 
-              if (found === undefined && trailingSlash) return yield* entryOp.fail("IsDirectory")
               const replaced = found?.kind === "symlink" ? found : undefined
 
               if (replaced !== undefined && !chosen.replaceFinalSymlink) return yield* entryOp.fail("SymlinkLoop")
@@ -3430,18 +2941,7 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        // SAFETY: the overloads pair an entry with entry options and a target with open options; the decoders below
-        // reject the other shape, so one implementation serves both.
-        open: Effect.fn("Caller.open")(function*(input: TargetInput | Entry, options: OpenOptions | OpenEntryOptions) {
-          const op = OpContext.make("open")
-
-          if (isEntry(input)) return yield* openEntry(input, options, op)
-          const target = asTarget(input)
-
-          if (Target.$is("Path")(target)) return yield* openPath(target, options, op)
-
-          return yield* openNode(target, options, op)
-        }) as Caller["open"],
+        open,
         mkdir: Effect.fn("Caller.mkdir")(function*(input, options = {}) {
           const op = OpContext.make("mkdir")
           const prepared = yield* Effect.fromResult(prepareEntry(input, op))
@@ -3515,31 +3015,7 @@ export const makeVolume = Effect.fnUntraced(
         rmdir: Effect.fn("Caller.rmdir")(function*(input) {
           return yield* entryVerb("rmdir", input, rmdirEntry)
         }),
-        // SAFETY: the overloads differ only in whether `force` may leave nothing removed; one body serves both.
-        remove: Effect.fn("Caller.remove")(function*(input: EntryInput, options?: RemoveOptions) {
-          const op = OpContext.make("remove")
-          const prepared = yield* Effect.fromResult(prepareEntry(input, op))
-
-          const chosen = yield* decodeRemoveOptions(options ?? {}).pipe(
-            Effect.mapError((cause) => fail(preparedOp(prepared, op), cause))
-          )
-
-          const once = coordinated(op, Effect.flatMap(resolveEntry(prepared, op), (entry) => removeEntry(entry, op)))
-
-          const target = <A>(effect: Effect.Effect<A, FsFailure>) =>
-            chosen.force === true
-              ? Effect.catchIf(effect, (error) => error.code === "NotFound", () => Effect.undefined)
-              : effect
-
-          const removed = yield* Effect.result(target(once))
-
-          if (Result.isSuccess(removed)) return removed.success
-
-          if (chosen.recursive !== true || removed.failure.code !== "NotEmpty") return yield* removed.failure
-          yield* emptyDirectory(prepared, op, chosen.force === true)
-
-          return yield* target(once)
-        }) as Caller["remove"],
+        remove,
         rename: Effect.fn("Caller.rename")(function*(fromInput, toInput) {
           const op = OpContext.make("rename")
           const from = yield* Effect.fromResult(prepareEntry(fromInput, op))
@@ -3631,7 +3107,8 @@ export const makeVolume = Effect.fnUntraced(
             stat: coordinatedRead(
               statOp,
               Effect.gen(function*() {
-                const node = acquired.ino === undefined ? undefined : yield* view(acquired.ino)
+                const ino = TokenRegistry.inode(acquired)
+                const node = ino === undefined ? undefined : yield* view(ino)
 
                 return yield* (node === undefined
                   ? Effect.fail(statOp.fail("InvalidHandle"))
@@ -3639,7 +3116,7 @@ export const makeVolume = Effect.fnUntraced(
               })
             ).pipe(Effect.withSpan("DirectoryHandle.stat")),
             close: coordinatedCleanup(Effect.suspend(() => {
-              if (acquired.ino === undefined) {
+              if (TokenRegistry.inode(acquired) === undefined) {
                 return Effect.fail(OpContext.make("close").fail("InvalidHandle"))
               }
 
@@ -3647,7 +3124,7 @@ export const makeVolume = Effect.fnUntraced(
             })).pipe(Effect.ensuring(closeReleasedScope(acquired)), Effect.withSpan("DirectoryHandle.close"))
           })
 
-          handles.set(handle, acquired)
+          registry.registerDirectory(handle, acquired)
 
           return handle
         })
@@ -3702,18 +3179,16 @@ export const makeVolume = Effect.fnUntraced(
 
         return yield* coordinatedRead(
           op,
-          Effect.suspend(() => {
-            const known = Predicate.isObject(reference) ? objectReferences.get(reference) : undefined
+          Effect.gen(function*() {
+            const node = yield* TokenRegistry.nodeOrFail(
+              yield* registry.resolve(reference, "reference"),
+              "reference",
+              op
+            )
 
-            if (known === undefined) return Effect.fail(op.fail("InvalidReference"))
+            const ino = BigInt(node.ino)
 
-            if (known.volume !== volumeIdentity) return Effect.fail(op.fail("ForeignReference"))
-
-            if (!addressable(known.ino)) return Effect.fail(op.fail("StaleReference"))
-
-            const ino = BigInt(known.ino)
-
-            return Effect.succeed({ identity: identityBytes.slice(), epoch: epochBytes.slice(), ino, tag: keyTag(ino) })
+            return { identity: identityBytes.slice(), epoch: epochBytes.slice(), ino, tag: keyTag(ino) }
           })
         )
       }),
@@ -3722,20 +3197,22 @@ export const makeVolume = Effect.fnUntraced(
 
         return yield* coordinatedRead(
           op,
-          Effect.suspend(() => {
-            if (!Schema.is(ReferenceKey)(key)) return Effect.fail(op.fail("InvalidReference"))
+          Effect.gen(function*() {
+            if (!Schema.is(ReferenceKey)(key)) return yield* op.fail("InvalidReference")
 
             // Another epoch numbered its objects on its own, so its key is another volume's even under this identity.
             if (!sameBytes(key.identity, identityBytes) || !sameBytes(key.epoch, epochBytes)) {
-              return Effect.fail(op.fail("ForeignReference"))
+              return yield* op.fail("ForeignReference")
             }
 
             // Checked before the inode is looked up, so a guessed key learns nothing about which numbers are in use.
-            if (!sameTag(key.tag, keyTag(key.ino))) return Effect.fail(op.fail("InvalidReference"))
+            if (!sameTag(key.tag, keyTag(key.ino))) return yield* op.fail("InvalidReference")
 
             const ino = Ino(Number(key.ino))
 
-            return addressable(ino) ? Effect.succeed(referenceFor(ino)) : Effect.fail(op.fail("StaleReference"))
+            yield* TokenRegistry.nodeOrFail(yield* registry.resolveInode(ino), "reference", op)
+
+            return referenceFor(ino)
           })
         )
       }),
