@@ -1,11 +1,11 @@
-# R2LiveImageStore overview
+# R2LiveImageStore.ts overview
 
 Experimental whole-image R2 storage for one externally owned live volume.
 Each mutation replaces one object with an ETag condition. R2's concurrent
 same-key write limit and the absence of a reader lease require a single
 application-controlled gateway for the experimental writable NFS profile.
 
-Added in v0.5.0
+Since v0.5.0
 
 ---
 
@@ -14,17 +14,6 @@ Added in v0.5.0
 ### ObjectRecord (interface)
 
 A complete R2 image plus the metadata needed to validate and fence it.
-
-**Signature**
-
-```ts
-export interface ObjectRecord {
-  readonly bytes: Uint8Array
-  readonly etag: string
-  readonly generation: string | undefined
-  readonly digest: string | undefined
-}
-```
 
 **Example**
 
@@ -39,23 +28,24 @@ const record: ObjectRecord = {
 }
 ```
 
-Added in v0.5.0
+**Signature**
+
+```ts
+export interface ObjectRecord {
+  readonly bytes: Uint8Array
+  readonly etag: string
+  readonly generation: string | undefined
+  readonly digest: string | undefined
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L30)
+
+Since v0.5.0
 
 ### Options (interface)
 
 Configuration for one experimental R2-backed image.
-
-**Signature**
-
-```ts
-export interface Options {
-  readonly client: R2Client
-  readonly key: string
-  readonly maxImageBytes: ByteSize.ByteSize
-  /** Assert R2's documented synchronous durable-write contract for a verified R2 endpoint and single owner. */
-  readonly durability?: "survives-power-loss"
-}
-```
 
 **Example**
 
@@ -74,11 +64,39 @@ const options: Options = {
 }
 ```
 
-Added in v0.5.0
+**Signature**
+
+```ts
+export interface Options {
+  readonly client: R2Client
+  readonly key: string
+  readonly maxImageBytes: ByteSize.ByteSize
+  /** Assert R2's documented synchronous durable-write contract for a verified R2 endpoint and single owner. */
+  readonly durability?: "survives-power-loss"
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L158)
+
+Since v0.5.0
 
 ### R2Client (interface)
 
 Transport operations required by the live-image adapter.
+
+**Example**
+
+```ts
+import { S3Client } from "@aws-sdk/client-s3"
+import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
+
+const s3 = new S3Client({
+  region: "auto",
+  endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
+  credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
+})
+const client: R2LiveImageStore.R2Client = R2LiveImageStore.fromS3(s3, "test-bucket")
+```
 
 **Signature**
 
@@ -95,31 +113,13 @@ export interface R2Client {
 }
 ```
 
-**Example**
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L54)
 
-```ts
-import { S3Client } from "@aws-sdk/client-s3"
-import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
-
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
-  credentials: { accessKeyId: "ACCESS_KEY_ID", secretAccessKey: "SECRET_ACCESS_KEY" }
-})
-const client: R2LiveImageStore.R2Client = R2LiveImageStore.fromS3(s3, "test-bucket")
-```
-
-Added in v0.5.0
+Since v0.5.0
 
 ### fromS3
 
 Use R2's S3-compatible API from a Bun or Node NFS server.
-
-**Signature**
-
-```ts
-export declare const fromS3: (client: S3Client, bucket: string) => R2Client
-```
 
 **Example**
 
@@ -135,20 +135,20 @@ const s3 = new S3Client({
 const client = R2LiveImageStore.fromS3(s3, "test-bucket")
 ```
 
-Added in v0.5.0
+**Signature**
+
+```ts
+declare const fromS3: (client: S3Client, bucket: string) => R2Client
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L88)
+
+Since v0.5.0
 
 ### layer
 
 A single-key experimental store. The application must ensure one live owner;
 ETag conditions detect stale writes but cannot prevent stale reads.
-
-**Signature**
-
-```ts
-export declare const layer: (
-  options: Options
-) => Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Crypto.Crypto>
-```
 
 **Example**
 
@@ -167,4 +167,14 @@ const store = R2LiveImageStore.layer({
 })
 ```
 
-Added in v0.5.0
+**Signature**
+
+```ts
+declare const layer: (
+  options: Options
+) => Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Crypto.Crypto>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L195)
+
+Since v0.5.0

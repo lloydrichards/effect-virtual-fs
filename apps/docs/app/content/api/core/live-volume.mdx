@@ -1,4 +1,4 @@
-# LiveVolume overview
+# LiveVolume.ts overview
 
 Image boundary for a storage adapter that commits each live volume mutation.
 
@@ -7,7 +7,7 @@ commit as confirmed, definitely rejected, or uncertain. The opened volume
 stays at `memory-only` unless the adapter explicitly supplies a qualified
 durability tier.
 
-Added in v0.4.0
+Since v0.4.0
 
 ---
 
@@ -22,12 +22,12 @@ Requires `Crypto.Crypto` to mint a new volume or incarnation.
 **Signature**
 
 ```ts
-export declare const open: (
-  options: Options
-) => Effect.Effect<Volume, VfsError, LiveImageStore | Scope.Scope | Crypto.Crypto>
+declare const open: (options: Options) => Effect.Effect<Volume, VfsError, LiveImageStore | Scope.Scope | Crypto.Crypto>
 ```
 
-Added in v0.4.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L62)
+
+Since v0.4.0
 
 ### openImage
 
@@ -39,7 +39,7 @@ makes the volume unavailable until it is reopened.
 **Signature**
 
 ```ts
-export declare const openImage: (
+declare const openImage: (
   image: Uint8Array,
   maxImageBytes: ByteSize.ByteSize,
   commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>,
@@ -47,7 +47,9 @@ export declare const openImage: (
 ) => Effect.Effect<ImageSession, VfsError, Crypto.Crypto>
 ```
 
-Added in v0.4.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L152)
+
+Since v0.4.0
 
 ### prepareEmptyImage
 
@@ -58,10 +60,12 @@ Requires `Crypto.Crypto` for secure volume identifiers and reference keys.
 **Signature**
 
 ```ts
-export declare const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<Uint8Array, VfsError, Crypto.Crypto>
+declare const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<Uint8Array, VfsError, Crypto.Crypto>
 ```
 
-Added in v0.4.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L133)
+
+Since v0.4.0
 
 ## models
 
@@ -72,15 +76,25 @@ A storage commit's observed outcome.
 **Signature**
 
 ```ts
-export type CommitOutcome = "committed" | "rejected" | "unknown"
+type CommitOutcome = "committed" | "rejected" | "unknown"
 ```
 
-Added in v0.4.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L26)
+
+Since v0.4.0
 
 ### ImageSession (interface)
 
 A live volume and the shutdown action its storage adapter must run before
 closing the underlying store.
+
+**Example**
+
+```ts
+import type { ImageSession } from "@effect-vfs/core/LiveVolume"
+
+const shutdown = (session: ImageSession) => session.shutdown
+```
 
 **Signature**
 
@@ -91,15 +105,9 @@ export interface ImageSession {
 }
 ```
 
-**Example**
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L120)
 
-```ts
-import type { ImageSession } from "@effect-vfs/core/LiveVolume"
-
-const shutdown = (session: ImageSession) => session.shutdown
-```
-
-Added in v0.4.0
+Since v0.4.0
 
 ### Options (interface)
 
@@ -114,7 +122,9 @@ export interface Options {
 }
 ```
 
-Added in v0.4.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L49)
+
+Since v0.4.0
 
 ## services
 
@@ -127,7 +137,9 @@ classify ambiguous commits as `unknown`.
 **Signature**
 
 ```ts
-export declare class LiveImageStore
+declare class LiveImageStore
 ```
 
-Added in v0.4.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L36)
+
+Since v0.4.0

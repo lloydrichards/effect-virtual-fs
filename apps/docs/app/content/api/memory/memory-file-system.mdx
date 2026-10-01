@@ -1,4 +1,4 @@
-# MemoryFileSystem overview
+# MemoryFileSystem.ts overview
 
 Provides an in-memory implementation of Effect's `FileSystem` service.
 
@@ -7,7 +7,7 @@ state through Effect's path-based `FileSystem` interface. It is intended for
 tests, build tools, and programs that need filesystem behavior without host
 filesystem I/O.
 
-Added in v0.1.0
+Since v0.1.0
 
 ---
 
@@ -27,15 +27,6 @@ changes, but keep independent caller state, descriptors, and file cursors.
 The caller defaults to a privileged uid and gid of `0` with umask `0`. Invalid
 caller options fail with a `VfsError` whose code is `InvalidArgument` and whose `field` names the option.
 Filesystem operations translate core failures to Effect `PlatformError` values.
-
-**Signature**
-
-```ts
-export declare const bind: (
-  volume: Vfs.Volume,
-  options?: Vfs.RootCallerOptions
-) => Effect.Effect<FileSystem.FileSystem, Vfs.VfsError>
-```
 
 **Example**
 
@@ -76,7 +67,22 @@ Effect.runPromise(program.pipe(Effect.provide(seeded), Effect.provide(NodeCrypto
 // {"version":"1.2.3"}
 ```
 
-Added in v0.1.0
+**See**
+
+- `make` for a service backed by a fresh volume with `/tmp`.
+
+**Signature**
+
+```ts
+declare const bind: (
+  volume: Vfs.Volume,
+  options?: Vfs.RootCallerOptions
+) => Effect.Effect<FileSystem.FileSystem, Vfs.VfsError>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L211)
+
+Since v0.1.0
 
 ### make
 
@@ -86,12 +92,6 @@ Creates a `FileSystem.FileSystem` service backed by a fresh in-memory volume.
 
 Use when you need the service value directly. The volume
 starts with an empty `/tmp` directory and uses `/` as its working directory.
-
-**Signature**
-
-```ts
-export declare const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto>
-```
 
 **Example**
 
@@ -112,7 +112,20 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 // hello
 ```
 
-Added in v0.1.0
+**See**
+
+- `layer` for a Layer, `bind` for an existing volume.
+- `Crypto.Crypto` for the required secure random-byte service.
+
+**Signature**
+
+```ts
+declare const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L75)
+
+Since v0.1.0
 
 ## guards
 
@@ -120,12 +133,6 @@ Added in v0.1.0
 
 Identifies a watch stream failure caused by lost events. Open a new watch before
 rescanning its path, and repeat if the new watch also overflows.
-
-**Signature**
-
-```ts
-export declare const isWatchOverflow: (error: PlatformError.PlatformError) => boolean
-```
 
 **Example**
 
@@ -144,7 +151,15 @@ console.log(MemoryFileSystem.isWatchOverflow(error))
 // true
 ```
 
-Added in v0.4.0
+**Signature**
+
+```ts
+declare const isWatchOverflow: (error: PlatformError.PlatformError) => boolean
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L42)
+
+Since v0.4.0
 
 ## layers
 
@@ -162,12 +177,6 @@ Reusing this layer value within a single layer graph shares one volume through
 layer memoization. Wrap it with `Layer.fresh` when each use needs separate
 state. Separate graphs, such as one per test, already get separate volumes.
 Provide `Crypto.Crypto` to build the underlying volume.
-
-**Signature**
-
-```ts
-export declare const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
-```
 
 **Example**
 
@@ -227,4 +236,17 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 // [ true, false ]
 ```
 
-Added in v0.1.0
+**See**
+
+- `make` for the service directly, `bind` for an existing volume.
+- The testing guide at `/guides/testing-with-an-isolated-filesystem`.
+
+**Signature**
+
+```ts
+declare const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L153)
+
+Since v0.1.0

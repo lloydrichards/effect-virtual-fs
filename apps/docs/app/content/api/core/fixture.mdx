@@ -1,8 +1,8 @@
-# Fixture overview
+# Fixture.ts overview
 
 Fixture schemas: a declarative final state from which a volume is built.
 
-Added in v0.6.0
+Since v0.6.0
 
 ---
 
@@ -76,7 +76,9 @@ export type Fixture = {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Fixture.ts#L93)
+
+Since v0.6.0
 
 ### FixtureEntry (type alias)
 
@@ -134,7 +136,9 @@ export type FixtureEntry =
     }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Fixture.ts#L74)
+
+Since v0.6.0
 
 ### FixtureMetadata (type alias)
 
@@ -154,7 +158,9 @@ export type FixtureMetadata = {
 }
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Fixture.ts#L33)
+
+Since v0.6.0
 
 ## schemas
 
@@ -165,7 +171,7 @@ Schema for a whole fixture: optional root metadata and its entries in order.
 **Signature**
 
 ```ts
-export declare const Fixture: Schema.Struct<{
+declare const Fixture: Schema.Struct<{
   readonly rootMetadata: Schema.optionalKey<
     Schema.Struct<{
       readonly uid: Schema.optionalKey<Schema.Natural>
@@ -239,7 +245,9 @@ export declare const Fixture: Schema.Struct<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Fixture.ts#L82)
+
+Since v0.6.0
 
 ### FixtureEntry
 
@@ -249,7 +257,7 @@ link, or a hard link to an earlier file entry.
 **Signature**
 
 ```ts
-export declare const FixtureEntry: Schema.toTaggedUnion<
+declare const FixtureEntry: Schema.toTaggedUnion<
   "kind",
   readonly [
     Schema.Struct<{
@@ -308,7 +316,9 @@ export declare const FixtureEntry: Schema.toTaggedUnion<
 >
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Fixture.ts#L47)
+
+Since v0.6.0
 
 ### FixtureMetadata
 
@@ -318,7 +328,7 @@ volume's defaults.
 **Signature**
 
 ```ts
-export declare const FixtureMetadata: Schema.Struct<{
+declare const FixtureMetadata: Schema.Struct<{
   readonly uid: Schema.optionalKey<Schema.Natural>
   readonly gid: Schema.optionalKey<Schema.Natural>
   readonly mode: Schema.optionalKey<Schema.Natural>
@@ -329,4 +339,6 @@ export declare const FixtureMetadata: Schema.Struct<{
 }>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Fixture.ts#L17)
+
+Since v0.6.0

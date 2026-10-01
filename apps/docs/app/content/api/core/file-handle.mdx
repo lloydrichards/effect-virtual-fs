@@ -1,8 +1,8 @@
-# FileHandle overview
+# FileHandle.ts overview
 
 Identity brands and schemas for open file and directory handles.
 
-Added in v0.6.0
+Since v0.6.0
 
 ---
 
@@ -18,7 +18,9 @@ The origin of a seek.
 export type SeekMode = "start" | "current" | "end" | "data" | "hole"
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/FileHandle.ts#L55)
+
+Since v0.6.0
 
 ## schemas
 
@@ -30,10 +32,12 @@ end, or the next data or hole region.
 **Signature**
 
 ```ts
-export declare const SeekMode: Schema.Literals<readonly ["start", "current", "end", "data", "hole"]>
+declare const SeekMode: Schema.Literals<readonly ["start", "current", "end", "data", "hole"]>
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/FileHandle.ts#L47)
+
+Since v0.6.0
 
 ## type IDs
 
@@ -44,10 +48,12 @@ Brand key that marks an open directory handle.
 **Signature**
 
 ```ts
-export declare const DirectoryHandleId: typeof DirectoryHandleId
+declare const DirectoryHandleId: unique symbol
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/FileHandle.ts#L30)
+
+Since v0.6.0
 
 ### DirectoryHandleId (type alias)
 
@@ -59,7 +65,9 @@ Brand key that marks an open directory handle.
 export type DirectoryHandleId = typeof DirectoryHandleId
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/FileHandle.ts#L38)
+
+Since v0.6.0
 
 ### FileHandleId
 
@@ -68,10 +76,12 @@ Brand key that marks an open file handle.
 **Signature**
 
 ```ts
-export declare const FileHandleId: typeof FileHandleId
+declare const FileHandleId: unique symbol
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/FileHandle.ts#L14)
+
+Since v0.6.0
 
 ### FileHandleId (type alias)
 
@@ -83,4 +93,6 @@ Brand key that marks an open file handle.
 export type FileHandleId = typeof FileHandleId
 ```
 
-Added in v0.6.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/FileHandle.ts#L22)
+
+Since v0.6.0

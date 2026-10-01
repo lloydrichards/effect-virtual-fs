@@ -1,4 +1,4 @@
-# SnapshotDelta overview
+# SnapshotDelta.ts overview
 
 Opaque portable snapshot deltas and their public inspection models.
 
@@ -6,7 +6,7 @@ A delta names its base and target snapshots by their semantic identities and
 holds one change per path that differs, each carrying only the node it
 leaves behind, so its size follows what changed rather than the tree.
 
-Added in v0.1.0
+Since v0.1.0
 
 ---
 
@@ -51,7 +51,9 @@ export type SnapshotChange =
     }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L154)
+
+Since v0.1.0
 
 ### SnapshotChangesOptions (type alias)
 
@@ -63,7 +65,9 @@ Filtering options for snapshot-delta inspection.
 export type SnapshotChangesOptions = { readonly includeTimestamps?: boolean }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L199)
+
+Since v0.1.0
 
 ### SnapshotDelta (interface)
 
@@ -77,7 +81,9 @@ export interface SnapshotDelta {
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L37)
+
+Since v0.1.0
 
 ### SnapshotDeltaLimits (type alias)
 
@@ -100,7 +106,9 @@ export type SnapshotDeltaLimits = {
 }
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L230)
+
+Since v0.1.0
 
 ### SnapshotDifference (type alias)
 
@@ -123,7 +131,9 @@ export type SnapshotDifference =
   | "hardLinks"
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L91)
+
+Since v0.1.0
 
 ### SnapshotNodeKind (type alias)
 
@@ -135,7 +145,9 @@ A filesystem entry kind reported by snapshot inspection.
 export type SnapshotNodeKind = "directory" | "file" | "symlink"
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L63)
+
+Since v0.1.0
 
 ## schemas
 
@@ -146,10 +158,44 @@ Schema for a path-oriented difference between two snapshots.
 Independent snapshots do not preserve shared lineage, so moves are reported
 as a removal and an addition rather than an inferred rename.
 
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.make()
+  const caller = yield* volume.caller()
+
+  yield* caller.writeFile("/f", new Uint8Array([1]), {
+    access: "write",
+    create: "exclusive"
+  })
+
+  const base = yield* volume.snapshot
+
+  yield* caller.writeFile("/f", new Uint8Array([2, 3]), { access: "write", truncate: true })
+  yield* caller.chmod("/f", 0o600)
+
+  const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
+  const changes = yield* Vfs.inspectSnapshotDelta(base, delta)
+
+  // `Updated` carries which fields moved; `Added` and `Removed` carry a kind.
+  const change = changes[0]!
+
+  return change._tag === "Updated" ? change.differences : change.kind
+}).pipe(Effect.provide(NodeCrypto.layer))
+
+Effect.runPromise(program).then(console.log)
+// [ 'content', 'mode' ]
+```
+
 **Signature**
 
 ```ts
-export declare const SnapshotChange: Schema.Union<
+declare const SnapshotChange: Schema.Union<
   readonly [
     Schema.TaggedStruct<
       "Added",
@@ -194,53 +240,13 @@ export declare const SnapshotChange: Schema.Union<
 >
 ```
 
-**Example**
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L137)
 
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { Effect } from "effect"
-
-const program = Effect.gen(function* () {
-  const volume = yield* Vfs.make()
-  const caller = yield* volume.caller()
-
-  yield* caller.writeFile("/f", new Uint8Array([1]), {
-    access: "write",
-    create: "exclusive"
-  })
-
-  const base = yield* volume.snapshot
-
-  yield* caller.writeFile("/f", new Uint8Array([2, 3]), { access: "write", truncate: true })
-  yield* caller.chmod("/f", 0o600)
-
-  const delta = yield* Vfs.diffSnapshots(base, yield* volume.snapshot)
-  const changes = yield* Vfs.inspectSnapshotDelta(base, delta)
-
-  // `Updated` carries which fields moved; `Added` and `Removed` carry a kind.
-  const change = changes[0]!
-
-  return change._tag === "Updated" ? change.differences : change.kind
-}).pipe(Effect.provide(NodeCrypto.layer))
-
-Effect.runPromise(program).then(console.log)
-// [ 'content', 'mode' ]
-```
-
-Added in v0.1.0
+Since v0.1.0
 
 ### SnapshotChangesOptions
 
 Schema for snapshot-delta inspection options.
-
-**Signature**
-
-```ts
-export declare const SnapshotChangesOptions: Schema.Struct<{
-  readonly includeTimestamps: Schema.optionalKey<Schema.Boolean>
-}>
-```
 
 **Example**
 
@@ -269,7 +275,15 @@ Effect.runPromise(program).then(console.log)
 // [ 1, 2 ]
 ```
 
-Added in v0.1.0
+**Signature**
+
+```ts
+declare const SnapshotChangesOptions: Schema.Struct<{ readonly includeTimestamps: Schema.optionalKey<Schema.Boolean> }>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L188)
+
+Since v0.1.0
 
 ### SnapshotDelta
 
@@ -278,10 +292,12 @@ Schema for an already validated opaque snapshot delta.
 **Signature**
 
 ```ts
-export declare const SnapshotDelta: Schema.declare<SnapshotDelta, SnapshotDelta>
+declare const SnapshotDelta: Schema.declare<SnapshotDelta, SnapshotDelta>
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L47)
+
+Since v0.1.0
 
 ### SnapshotDeltaLimits
 
@@ -290,10 +306,28 @@ Schema for a complete snapshot-delta resource policy, with frozen presets.
 The constrained preset is intended for memory-sensitive environments. The
 default preset permits larger snapshots and payloads while remaining finite.
 
+**Example**
+
+```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.make()
+  const base = yield* volume.snapshot
+
+  yield* (yield* volume.caller()).mkdir("/work")
+
+  // Omitting limits uses `default`; pass `constrained` where memory is tight.
+  return yield* Vfs.diffSnapshots(base, yield* volume.snapshot, Vfs.SnapshotDeltaLimits.constrained)
+}).pipe(Effect.provide(NodeCrypto.layer))
+```
+
 **Signature**
 
 ```ts
-export declare const SnapshotDeltaLimits: Schema.Struct<{
+declare const SnapshotDeltaLimits: Schema.Struct<{
   readonly maxEncodedBytes: Schema.ByteSize
   readonly maxIdentityBytes: Schema.ByteSize
   readonly maxDeltaRecords: Schema.Natural
@@ -332,25 +366,9 @@ export declare const SnapshotDeltaLimits: Schema.Struct<{
 }
 ```
 
-**Example**
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L296)
 
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { Effect } from "effect"
-
-const program = Effect.gen(function* () {
-  const volume = yield* Vfs.make()
-  const base = yield* volume.snapshot
-
-  yield* (yield* volume.caller()).mkdir("/work")
-
-  // Omitting limits uses `default`; pass `constrained` where memory is tight.
-  return yield* Vfs.diffSnapshots(base, yield* volume.snapshot, Vfs.SnapshotDeltaLimits.constrained)
-}).pipe(Effect.provide(NodeCrypto.layer))
-```
-
-Added in v0.1.0
+Since v0.1.0
 
 ### SnapshotDifference
 
@@ -359,7 +377,7 @@ Schema for semantic fields that can differ between snapshots.
 **Signature**
 
 ```ts
-export declare const SnapshotDifference: Schema.Literals<
+declare const SnapshotDifference: Schema.Literals<
   readonly [
     "kind",
     "content",
@@ -376,7 +394,9 @@ export declare const SnapshotDifference: Schema.Literals<
 >
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L71)
+
+Since v0.1.0
 
 ### SnapshotNodeKind
 
@@ -385,10 +405,12 @@ Schema for filesystem entry kinds reported by snapshot inspection.
 **Signature**
 
 ```ts
-export declare const SnapshotNodeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+declare const SnapshotNodeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L55)
+
+Since v0.1.0
 
 ## type IDs
 
@@ -399,10 +421,12 @@ Type identifier for opaque snapshot deltas.
 **Signature**
 
 ```ts
-export declare const SnapshotDeltaTypeId: "@effect-vfs/core/SnapshotDelta"
+declare const SnapshotDeltaTypeId: "@effect-vfs/core/SnapshotDelta"
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L21)
+
+Since v0.1.0
 
 ### SnapshotDeltaTypeId (type alias)
 
@@ -414,4 +438,6 @@ Type identifier for opaque snapshot deltas.
 export type SnapshotDeltaTypeId = "@effect-vfs/core/SnapshotDelta"
 ```
 
-Added in v0.1.0
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L29)
+
+Since v0.1.0

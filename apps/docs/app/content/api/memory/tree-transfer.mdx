@@ -1,4 +1,4 @@
-# TreeTransfer overview
+# TreeTransfer.ts overview
 
 Streams directory trees between callers, snapshots, and new volumes.
 
@@ -8,7 +8,7 @@ entries under a destination and return a `TransferReport`. Compose them with
 Effect's own `Stream` operators, for example `Stream.filter` to exclude paths
 or `Stream.concat` to merge several sources.
 
-Added in v0.6.0
+Since v0.6.0
 
 ---
 
@@ -30,12 +30,6 @@ turns them into reported skips instead. `EscapingSymlink` reports a symbolic
 link whose target leaves the transferred tree. `DestinationConflict` reports an
 existing destination entry that an overwrite cannot safely replace.
 
-**Signature**
-
-```ts
-export declare class TransferError
-```
-
 **Example**
 
 ```ts
@@ -47,7 +41,15 @@ console.log(error.code, error.field)
 // LimitExceeded maxEntries
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+declare class TransferError
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L77)
+
+Since v0.6.0
 
 ## models
 
@@ -61,12 +63,6 @@ transfer root.
 Paths are strings while every component is UTF-8, and `BytePath` values
 otherwise. Entries carry the source's full metadata; sinks decide what to apply.
 
-**Signature**
-
-```ts
-export type Entry = Vfs.Fixture["entries"][number]
-```
-
 **Example**
 
 ```ts
@@ -78,7 +74,15 @@ console.log(entry.path)
 // /README.md
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+type Entry = Vfs.Fixture["entries"][number]
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L47)
+
+Since v0.6.0
 
 ### FileSystemReadOptions (interface)
 
@@ -89,17 +93,6 @@ Options for a source that reads an Effect `FileSystem`.
 `unsupported: "fail"` (the default) fails on FIFOs, sockets, devices, and host
 names that Effect's `FileSystem` could not decode as UTF-8. `"skip"` omits them
 and passes each one to `onSkip`, which logs a warning by default.
-
-**Signature**
-
-```ts
-export interface FileSystemReadOptions extends ReadOptions {
-  /** How entries the source cannot carry are treated. Defaults to `"fail"`. */
-  readonly unsupported?: "fail" | "skip" | undefined
-  /** Receives each skipped entry. Defaults to logging a warning. */
-  readonly onSkip?: ((skipped: SkippedEntry) => Effect.Effect<void>) | undefined
-}
-```
 
 **Example**
 
@@ -116,7 +109,20 @@ console.log(options.unsupported)
 // skip
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+export interface FileSystemReadOptions extends ReadOptions {
+  /** How entries the source cannot carry are treated. Defaults to `"fail"`. */
+  readonly unsupported?: "fail" | "skip" | undefined
+  /** Receives each skipped entry. Defaults to logging a warning. */
+  readonly onSkip?: ((skipped: SkippedEntry) => Effect.Effect<void>) | undefined
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L233)
+
+Since v0.6.0
 
 ### FileSystemWriteOptions (interface)
 
@@ -129,17 +135,6 @@ when a link target is absolute or resolves outside the transferred tree,
 following `..` and links within the tree. `unsupported: "skip"` records
 non-UTF-8 names and name collisions in the report instead of failing.
 
-**Signature**
-
-```ts
-export interface FileSystemWriteOptions extends WriteOptions {
-  /** How symbolic links that leave the tree are treated. Defaults to `"reject"`. */
-  readonly escaping?: "reject" | "allow" | undefined
-  /** How entries the destination cannot carry are treated. Defaults to `"fail"`. */
-  readonly unsupported?: "fail" | "skip" | undefined
-}
-```
-
 **Example**
 
 ```ts
@@ -151,20 +146,24 @@ console.log(options.escaping)
 // allow
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+export interface FileSystemWriteOptions extends WriteOptions {
+  /** How symbolic links that leave the tree are treated. Defaults to `"reject"`. */
+  readonly escaping?: "reject" | "allow" | undefined
+  /** How entries the destination cannot carry are treated. Defaults to `"fail"`. */
+  readonly unsupported?: "fail" | "skip" | undefined
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L263)
+
+Since v0.6.0
 
 ### ReadOptions (interface)
 
 Options for a source.
-
-**Signature**
-
-```ts
-export interface ReadOptions {
-  /** Source work policy. Omission uses `TreeTransferLimits.default`. */
-  readonly limits?: TreeTransferLimits | undefined
-}
-```
 
 **Example**
 
@@ -177,25 +176,23 @@ console.log(options.limits?.maxEntries)
 // 10000
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+export interface ReadOptions {
+  /** Source work policy. Omission uses `TreeTransferLimits.default`. */
+  readonly limits?: TreeTransferLimits | undefined
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L165)
+
+Since v0.6.0
 
 ### SinkCapabilities (type alias)
 
 What a destination can preserve: `caller` for `toCaller`, `volume` for
 `toVolume`, and `fileSystem` for `toFileSystem`.
-
-**Signature**
-
-```ts
-export type SinkCapabilities = {
-  readonly byteNames: boolean
-  readonly timestampPrecision: "nanosecond" | "millisecond"
-  readonly changeAndBirthTimes: boolean
-  readonly owner: boolean
-  readonly symlinkMetadata: boolean
-  readonly hardLinks: "exact" | "bestEffort"
-}
-```
 
 **Example**
 
@@ -208,20 +205,19 @@ console.log(lossless(TreeTransfer.SinkCapabilities.volume))
 // true
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+type SinkCapabilities = typeof SinkCapabilities.Type
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L344)
+
+Since v0.6.0
 
 ### SkippedEntry (type alias)
 
 An entry that was left out of a transfer, with the reason.
-
-**Signature**
-
-```ts
-export type SkippedEntry = {
-  readonly path: string | Vfs.BytePath
-  readonly reason: "UnrepresentableName" | "UnsupportedEntryType" | "NameCollision"
-}
-```
 
 **Example**
 
@@ -234,7 +230,15 @@ console.log(skipped.path)
 // /fifo
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+type SkippedEntry = typeof SkippedEntry.Type
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L384)
+
+Since v0.6.0
 
 ### TransferReport (type alias)
 
@@ -245,21 +249,6 @@ Counts of what a sink wrote, and what it left out.
 `skipped` lists entries the sink omitted under `unsupported: "skip"`, and
 descendants of omitted directories. `hardLinksDegraded` counts hard links the
 destination could not create, written instead as independent copies.
-
-**Signature**
-
-```ts
-export type TransferReport = {
-  readonly entries: number
-  readonly files: number
-  readonly bytes: ByteSize.ByteSize
-  readonly skipped: readonly {
-    readonly path: string | Vfs.BytePath
-    readonly reason: "UnrepresentableName" | "UnsupportedEntryType" | "NameCollision"
-  }[]
-  readonly hardLinksDegraded: number
-}
-```
 
 **Example**
 
@@ -279,7 +268,15 @@ console.log(report.entries)
 // 2
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+type TransferReport = typeof TransferReport.Type
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L415)
+
+Since v0.6.0
 
 ### TreeTransferLimits (type alias)
 
@@ -291,18 +288,6 @@ A complete source work policy.
 file contents and symbolic-link targets. `maxDepth` counts components below the
 root, and `maxPathBytes` measures the rooted entry path. A supplied policy must
 set every field.
-
-**Signature**
-
-```ts
-export type TreeTransferLimits = {
-  readonly maxEntries: number
-  readonly maxBytes: ByteSize.ByteSize
-  readonly maxFileBytes: ByteSize.ByteSize
-  readonly maxDepth: number
-  readonly maxPathBytes: ByteSize.ByteSize
-}
-```
 
 **Example**
 
@@ -322,7 +307,15 @@ console.log(limits.maxDepth)
 // 8
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+type TreeTransferLimits = typeof TreeTransferLimits.Type
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L121)
+
+Since v0.6.0
 
 ### VolumeTransferOptions (interface)
 
@@ -334,19 +327,6 @@ Owners and setuid, setgid, and sticky bits come from the source, so they are
 dropped unless requested: without `owner: true` every entry is owned by uid and
 gid 0, and without `specialBits: true` modes keep only permission bits. All four
 timestamps are kept.
-
-**Signature**
-
-```ts
-export interface VolumeTransferOptions {
-  /** Options for the new volume. */
-  readonly volume?: Vfs.VolumeOptions | undefined
-  /** Keeps source owners. Defaults to `false`. */
-  readonly owner?: boolean | undefined
-  /** Keeps setuid, setgid, and sticky bits. Defaults to `false`. */
-  readonly specialBits?: boolean | undefined
-}
-```
 
 **Example**
 
@@ -364,7 +344,22 @@ console.log(exact.owner)
 // true
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+export interface VolumeTransferOptions {
+  /** Options for the new volume. */
+  readonly volume?: Vfs.VolumeOptions | undefined
+  /** Keeps source owners. Defaults to `false`. */
+  readonly owner?: boolean | undefined
+  /** Keeps setuid, setgid, and sticky bits. Defaults to `false`. */
+  readonly specialBits?: boolean | undefined
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L613)
+
+Since v0.6.0
 
 ### WriteOptions (interface)
 
@@ -382,6 +377,17 @@ clash always fails. Deleted source entries are never propagated.
 setgid, and sticky bits only with `specialBits: true`. Directory modes and
 times are applied after their children are written.
 
+**Example**
+
+```ts
+import { TreeTransfer } from "@effect-vfs/memory"
+
+const refresh: TreeTransfer.WriteOptions = { existing: "overwrite", times: "all" }
+
+console.log(refresh.existing)
+// overwrite
+```
+
 **Signature**
 
 ```ts
@@ -395,18 +401,9 @@ export interface WriteOptions {
 }
 ```
 
-**Example**
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L198)
 
-```ts
-import { TreeTransfer } from "@effect-vfs/memory"
-
-const refresh: TreeTransfer.WriteOptions = { existing: "overwrite", times: "all" }
-
-console.log(refresh.existing)
-// overwrite
-```
-
-Added in v0.6.0
+Since v0.6.0
 
 ## schemas
 
@@ -414,10 +411,19 @@ Added in v0.6.0
 
 Schema for what a destination can preserve.
 
+**Example**
+
+```ts
+import { TreeTransfer } from "@effect-vfs/memory"
+
+console.log(TreeTransfer.SinkCapabilities.fileSystem.timestampPrecision)
+// millisecond
+```
+
 **Signature**
 
 ```ts
-export declare const SinkCapabilities: Schema.Struct<{
+declare const SinkCapabilities: Schema.Struct<{
   readonly byteNames: Schema.Boolean
   readonly timestampPrecision: Schema.Literals<readonly ["nanosecond", "millisecond"]>
   readonly changeAndBirthTimes: Schema.Boolean
@@ -452,29 +458,13 @@ export declare const SinkCapabilities: Schema.Struct<{
 }
 ```
 
-**Example**
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L284)
 
-```ts
-import { TreeTransfer } from "@effect-vfs/memory"
-
-console.log(TreeTransfer.SinkCapabilities.fileSystem.timestampPrecision)
-// millisecond
-```
-
-Added in v0.6.0
+Since v0.6.0
 
 ### SkippedEntry
 
 Schema for an entry that was left out of a transfer.
-
-**Signature**
-
-```ts
-export declare const SkippedEntry: Schema.Struct<{
-  readonly path: Schema.Union<readonly [Schema.String, Schema.declare<Vfs.BytePath, Vfs.BytePath>]>
-  readonly reason: Schema.Literals<readonly ["UnrepresentableName", "UnsupportedEntryType", "NameCollision"]>
-}>
-```
 
 **Example**
 
@@ -491,28 +481,22 @@ console.log(skipped.reason)
 // UnsupportedEntryType
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+declare const SkippedEntry: Schema.Struct<{
+  readonly path: Schema.Union<readonly [Schema.String, Schema.declare<Vfs.BytePath, Vfs.BytePath>]>
+  readonly reason: Schema.Literals<readonly ["UnrepresentableName", "UnsupportedEntryType", "NameCollision"]>
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L363)
+
+Since v0.6.0
 
 ### TransferReport
 
 Schema for the counts a sink returns.
-
-**Signature**
-
-```ts
-export declare const TransferReport: Schema.Struct<{
-  readonly entries: Schema.Natural
-  readonly files: Schema.Natural
-  readonly bytes: Schema.ByteSize
-  readonly skipped: Schema.$Array<
-    Schema.Struct<{
-      readonly path: Schema.Union<readonly [Schema.String, Schema.declare<Vfs.BytePath, Vfs.BytePath>]>
-      readonly reason: Schema.Literals<readonly ["UnrepresentableName", "UnsupportedEntryType", "NameCollision"]>
-    }>
-  >
-  readonly hardLinksDegraded: Schema.Natural
-}>
-```
 
 **Example**
 
@@ -532,7 +516,26 @@ console.log(report.files)
 // 2
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+declare const TransferReport: Schema.Struct<{
+  readonly entries: Schema.Natural
+  readonly files: Schema.Natural
+  readonly bytes: Schema.ByteSize
+  readonly skipped: Schema.$Array<
+    Schema.Struct<{
+      readonly path: Schema.Union<readonly [Schema.String, Schema.declare<Vfs.BytePath, Vfs.BytePath>]>
+      readonly reason: Schema.Literals<readonly ["UnrepresentableName", "UnsupportedEntryType", "NameCollision"]>
+    }>
+  >
+  readonly hardLinksDegraded: Schema.Natural
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L440)
+
+Since v0.6.0
 
 ### TreeTransferLimits
 
@@ -543,10 +546,21 @@ Schema for a complete source work policy, with frozen presets.
 Sources use `default` when no limits are passed. `constrained` suits
 memory-sensitive hosts. Spread a preset to change individual fields.
 
+**Example**
+
+```ts
+import { TreeTransfer } from "@effect-vfs/memory"
+
+const shallow = { ...TreeTransfer.TreeTransferLimits.constrained, maxDepth: 4 }
+
+console.log(shallow.maxDepth, TreeTransfer.TreeTransferLimits.default.maxEntries)
+// 4 100000
+```
+
 **Signature**
 
 ```ts
-export declare const TreeTransferLimits: Schema.Struct<{
+declare const TreeTransferLimits: Schema.Struct<{
   readonly maxEntries: Schema.Natural
   readonly maxBytes: Schema.ByteSize
   readonly maxFileBytes: Schema.ByteSize
@@ -570,18 +584,9 @@ export declare const TreeTransferLimits: Schema.Struct<{
 }
 ```
 
-**Example**
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L144)
 
-```ts
-import { TreeTransfer } from "@effect-vfs/memory"
-
-const shallow = { ...TreeTransfer.TreeTransferLimits.constrained, maxDepth: 4 }
-
-console.log(shallow.maxDepth, TreeTransfer.TreeTransferLimits.default.maxEntries)
-// 4 100000
-```
-
-Added in v0.6.0
+Since v0.6.0
 
 ## sinks
 
@@ -594,16 +599,6 @@ Writes streamed entries under `destination` through a live caller.
 Writes use the caller's permissions and apply the `WriteOptions` policy.
 Each file write is atomic; the transfer as a whole is not. See `WriteOptions`
 for cleanup on failure.
-
-**Signature**
-
-```ts
-export declare const toCaller: (
-  caller: Vfs.Caller,
-  destination: Vfs.PathInput,
-  options?: WriteOptions
-) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError>
-```
 
 **Example**
 
@@ -636,7 +631,19 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 // [ 1, [ 'a.txt' ] ]
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+declare const toCaller: (
+  caller: Vfs.Caller,
+  destination: Vfs.PathInput,
+  options?: WriteOptions
+) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L578)
+
+Since v0.6.0
 
 ### toFileSystem
 
@@ -651,16 +658,6 @@ escape checks pass. Owners, change and birth times, and symbolic-link metadata
 are not written; times are truncated to milliseconds. A hard link the host
 refuses, or a hard link to a symbolic link, is written as a copy and counted in
 `hardLinksDegraded`. Paths use `/` separators.
-
-**Signature**
-
-```ts
-export declare const toFileSystem: (
-  fs: FileSystem.FileSystem,
-  destination: string,
-  options?: FileSystemWriteOptions
-) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError | PlatformError.PlatformError>
-```
 
 **Example**
 
@@ -688,7 +685,19 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 // run()
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+declare const toFileSystem: (
+  fs: FileSystem.FileSystem,
+  destination: string,
+  options?: FileSystemWriteOptions
+) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError | PlatformError.PlatformError>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L754)
+
+Since v0.6.0
 
 ### toVolume
 
@@ -701,15 +710,6 @@ Nothing is visible unless every entry is accepted. The first entry must be the
 sinks. Timestamps are kept exactly, including change and birth times; owners and
 special mode bits follow `VolumeTransferOptions`. Every entry is held in
 memory until the volume is built.
-
-**Signature**
-
-```ts
-export declare const toVolume: <E, R>(
-  entries: Stream.Stream<Entry, E, R>,
-  options?: VolumeTransferOptions
-) => Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R | Crypto.Crypto>
-```
 
 **Example**
 
@@ -737,7 +737,18 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 // [ 'app.js' ]
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+declare const toVolume: <E, R>(
+  entries: Stream.Stream<Entry, E, R>,
+  options?: VolumeTransferOptions
+) => Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R | Crypto.Crypto>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L661)
+
+Since v0.6.0
 
 ## sources
 
@@ -754,16 +765,6 @@ access time is due changes the source, and on a durable volume only such a
 read commits. Use
 `fromSnapshot` for a point-in-time read that never changes the source.
 Hard links within the tree become `hardLink` entries naming the first alias.
-
-**Signature**
-
-```ts
-export declare const fromCaller: (
-  caller: Vfs.Caller,
-  root: Vfs.PathInput,
-  options?: ReadOptions
-) => Stream.Stream<Entry, TransferError | Vfs.VfsError>
-```
 
 **Example**
 
@@ -789,7 +790,19 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 // [ '/', '/a.txt' ]
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+declare const fromCaller: (
+  caller: Vfs.Caller,
+  root: Vfs.PathInput,
+  options?: ReadOptions
+) => Stream.Stream<Entry, TransferError | Vfs.VfsError>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L487)
+
+Since v0.6.0
 
 ### fromFileSystem
 
@@ -804,16 +817,6 @@ and link entries carry no metadata. Hard links are detected when the host
 reports inode numbers and link counts. Files are read in bounded chunks, so an
 oversized file fails `maxFileBytes` without being read whole. A FIFO swapped in
 after its type is checked can block the read.
-
-**Signature**
-
-```ts
-export declare const fromFileSystem: (
-  fs: FileSystem.FileSystem,
-  root: string,
-  options?: FileSystemReadOptions
-) => Stream.Stream<Entry, TransferError | PlatformError.PlatformError>
-```
 
 **Example**
 
@@ -836,7 +839,19 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 // [ '/', '/a.txt' ]
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+declare const fromFileSystem: (
+  fs: FileSystem.FileSystem,
+  root: string,
+  options?: FileSystemReadOptions
+) => Stream.Stream<Entry, TransferError | PlatformError.PlatformError>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L706)
+
+Since v0.6.0
 
 ### fromSnapshot
 
@@ -850,16 +865,6 @@ the original volume is never read or changed. The limits apply entry by
 entry, after each entry's bytes are copied, so a directory past
 `maxEntries` fails at the entry that overflows, after the entries before
 it, where `fromCaller` fails before emitting any of its listing.
-
-**Signature**
-
-```ts
-export declare const fromSnapshot: (
-  snapshot: Vfs.Snapshot,
-  root: Vfs.PathInput,
-  options?: ReadOptions
-) => Stream.Stream<Entry, TransferError | Vfs.VfsError>
-```
 
 **Example**
 
@@ -880,4 +885,16 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 // 1
 ```
 
-Added in v0.6.0
+**Signature**
+
+```ts
+declare const fromSnapshot: (
+  snapshot: Vfs.Snapshot,
+  root: Vfs.PathInput,
+  options?: ReadOptions
+) => Stream.Stream<Entry, TransferError | Vfs.VfsError>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L527)
+
+Since v0.6.0
