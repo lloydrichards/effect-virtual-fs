@@ -208,7 +208,14 @@ console.log(lossless(TreeTransfer.SinkCapabilities.volume))
 **Signature**
 
 ```ts
-type SinkCapabilities = typeof SinkCapabilities.Type
+export type SinkCapabilities = {
+  readonly byteNames: boolean
+  readonly timestampPrecision: "nanosecond" | "millisecond"
+  readonly changeAndBirthTimes: boolean
+  readonly owner: boolean
+  readonly symlinkMetadata: boolean
+  readonly hardLinks: "exact" | "bestEffort"
+}
 ```
 
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L344)
@@ -233,7 +240,10 @@ console.log(skipped.path)
 **Signature**
 
 ```ts
-type SkippedEntry = typeof SkippedEntry.Type
+export type SkippedEntry = {
+  readonly path: string | Vfs.BytePath
+  readonly reason: "UnrepresentableName" | "UnsupportedEntryType" | "NameCollision"
+}
 ```
 
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L384)
@@ -271,7 +281,16 @@ console.log(report.entries)
 **Signature**
 
 ```ts
-type TransferReport = typeof TransferReport.Type
+export type TransferReport = {
+  readonly entries: number
+  readonly files: number
+  readonly bytes: ByteSize.ByteSize
+  readonly skipped: readonly {
+    readonly path: string | Vfs.BytePath
+    readonly reason: "UnrepresentableName" | "UnsupportedEntryType" | "NameCollision"
+  }[]
+  readonly hardLinksDegraded: number
+}
 ```
 
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L415)
@@ -310,7 +329,13 @@ console.log(limits.maxDepth)
 **Signature**
 
 ```ts
-type TreeTransferLimits = typeof TreeTransferLimits.Type
+export type TreeTransferLimits = {
+  readonly maxEntries: number
+  readonly maxBytes: ByteSize.ByteSize
+  readonly maxFileBytes: ByteSize.ByteSize
+  readonly maxDepth: number
+  readonly maxPathBytes: ByteSize.ByteSize
+}
 ```
 
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L121)
