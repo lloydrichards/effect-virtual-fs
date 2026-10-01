@@ -1,0 +1,22 @@
+{
+  "name": "@repo/agent-tools-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "type-check": "tsc --noEmit",
+    "start": "bun src/mcp.ts",
+    "test": "bun --bun run vitest run --config ../../vitest.config.ts --project demo-agent-tools"
+  },
+  "dependencies": {
+    "@effect-vfs/core": "workspace:*",
+    "@effect/platform-bun": "4.0.0",
+    "effect": "4.0.0"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0",
+    "@repo/config-typescript": "workspace:*",
+    "@types/bun": "^1.2.17"
+  }
+}

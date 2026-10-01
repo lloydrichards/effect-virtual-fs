@@ -207,6 +207,8 @@
     {
       "files": [
         "apps/demo-overlay/src/agent.ts",
+        "apps/demo-agent-tools/src/tools.ts",
+        "apps/demo-agent-tools/src/mcp.ts",
         "apps/demo-overlay/test/agent.test.ts",
         "apps/demo-r2-nfs/src/container-http.ts",
         "apps/demo-r2-nfs/src/container-main.ts",

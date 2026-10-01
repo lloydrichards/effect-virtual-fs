@@ -65,6 +65,8 @@ Reference repositories under `.reference/` are optional and excluded from builds
 
 `@repo/virtual-build` is a private example package that demonstrates Vite build and rebuild flows over virtual files.
 
+Try the independent [agent toolkit and MCP example](apps/demo-agent-tools/README.md) to edit a disposable virtual workspace from local MCPJam.
+
 ## License
 
 MIT

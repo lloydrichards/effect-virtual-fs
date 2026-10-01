@@ -11,7 +11,10 @@ sources:
   - id: nfs-source
     resource: ../../packages/nfs/src/NfsServer.ts
     title: NFS server public configuration
-generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
+  - id: agent-tools-example
+    resource: ../../apps/demo-agent-tools/README.md
+    title: Independent caller-bound MCP example
+generated: { by: codex/okf, at: 2026-10-01T18:00:00+02:00 }
 ---
 
 # System boundaries
@@ -25,6 +28,8 @@ generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 `@effect-vfs/nfs` exposes one live volume to native NFSv4.1 clients through an application-provided socket server. RPC, sessions, filehandles, protocol authentication, and resource limits belong to that package; it reaches the volume only through callers and object references and adds no rules to core.
 
 The virtual-build, overlay-demo, and nfs-preview applications are external consumers of public package exports. They demonstrate that a build integration, an overlay workflow, and a native mount can consume a volume without making their behavior part of the filesystem core.
+
+The independent `demo-agent-tools` application binds an Effect AI toolkit to a dedicated overlay and serves it over stdio MCP. Its text and listing limits, display errors, and client workflow belong to the example. A separate base reader demonstrates isolation. It adds no AI or transport dependencies to core.
 
 Multiple consumers may share one live volume. Snapshot restoration instead creates an independent volume; it does not replace live state or preserve runtime resources.
 
