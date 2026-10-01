@@ -1,5 +1,13 @@
 # @effect-vfs/memory
 
+## 0.7.1
+
+### Patch Changes
+
+- [#247](https://github.com/lloydrichards/effect-virtual-fs/pull/247) [`7beaeab`](https://github.com/lloydrichards/effect-virtual-fs/commit/7beaeabc3b003076bb3f208d1a387fc82eca3030) Thanks [@lloydrichards](https://github.com/lloydrichards)! - The packages now require stable Effect `^4.0.0` instead of `4.0.0-rc.117`. Update Effect and any platform or SQLite driver packages to `4.0.0` together. SQL consumers now import `SqlClient` from `effect/sql/SqlClient`.
+- Updated dependencies [[`7beaeab`](https://github.com/lloydrichards/effect-virtual-fs/commit/7beaeabc3b003076bb3f208d1a387fc82eca3030)]:
+  - @effect-vfs/core@0.7.1
+
 ## 0.7.0
 
 ### Minor Changes
