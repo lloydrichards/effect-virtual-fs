@@ -7,7 +7,7 @@ import { VolumeIdentity, VolumeOptions as VolumeOptionsSchema } from "../Volume.
 import { decodeConfiguration, imageFailure, OpContext, VfsError } from "./errors.js"
 import type { StoredMetadata } from "./metadata.js"
 import { inputBytes, isAttachedBytes, isDotComponent, preparePath } from "./path.js"
-import { makeVolume, VolumeSource } from "./virtualFileSystem.js"
+import { makeVolume, memoryCommitProvider, VolumeSource } from "./virtualFileSystem.js"
 import { assemble, Ino, type Link, type NodeSpec, ROOT_INO } from "./volumeState.js"
 
 const DEFAULT_MODE: Record<NodeSpec["kind"], number> = { directory: 0o755, file: 0o644, symlink: 0o777 }
@@ -189,9 +189,9 @@ export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
 
     const { identity, ...volumeOptions } = config
 
-    if (identity === undefined) return (yield* makeVolume(restored, volumeOptions)).volume
+    if (identity === undefined) return (yield* makeVolume(restored, memoryCommitProvider, volumeOptions)).volume
 
-    const { volume } = yield* makeVolume(restored, {
+    const { volume } = yield* makeVolume(restored, memoryCommitProvider, {
       ...volumeOptions,
       identity: VolumeIdentity.make(identity)
     })

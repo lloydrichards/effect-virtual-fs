@@ -2,6 +2,7 @@ import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Cause, Deferred, Effect, Exit, Fiber, Scheduler, Scope } from "effect"
 import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
+import * as LiveImage from "../src/internal/liveImage.js"
 import { makeVolume, VolumeSource } from "../src/internal/virtualFileSystem.js"
 import { entryNames, text } from "./support/text.js"
 
@@ -400,10 +401,16 @@ interface Pause {
 const pausedVolumeWith = Effect.fnUntraced(function*(options?: Vfs.VolumeOptions) {
   let pause: Pause | undefined
   let outcome: "committed" | "rejected" = "committed"
+  let commits = 0
+  let retained: ReadonlyArray<bigint> = []
 
-  const { volume } = yield* makeVolume(VolumeSource.Empty(), options, {
-    commit: () =>
+  const { volume } = yield* makeVolume(VolumeSource.Empty(), {
+    mode: "durable",
+    shutdown: Effect.void,
+    commit: (candidate) =>
       Effect.suspend(() => {
+        commits++
+        retained = LiveImage.retainedFiles(candidate).map((file) => file.metadata.ino)
         const paused = pause
 
         if (paused === undefined) return Effect.succeed(outcome)
@@ -414,7 +421,7 @@ const pausedVolumeWith = Effect.fnUntraced(function*(options?: Vfs.VolumeOptions
           Effect.as("committed" as const)
         )
       })
-  })
+  }, options)
 
   const caller = yield* volume.caller()
 
@@ -440,7 +447,7 @@ const pausedVolumeWith = Effect.fnUntraced(function*(options?: Vfs.VolumeOptions
       outcome = rejected ? "rejected" : "committed"
     })
 
-  return { volume, caller, hold, pauseNext, reject }
+  return { volume, caller, hold, pauseNext, reject, commits: () => commits, retained: () => retained }
 })
 
 const pausedVolume = pausedVolumeWith()
@@ -704,10 +711,13 @@ describe("handle lifecycles", () => {
     it.effect("should release a file when its scope closes while the volume is busy", () =>
       Effect.gen(function*() {
         const scope = yield* Scope.make()
-        const { volume, finish } = yield* busyWithUnlinkedOpen(scope)
+        const { volume, finish, commits, retained } = yield* busyWithUnlinkedOpen(scope)
+        const before = commits()
         const closing = yield* Scope.close(scope, Exit.void).pipe(Effect.forkChild({ startImmediately: true }))
         yield* finish
         yield* Fiber.join(closing)
+        assert.strictEqual(commits() - before, 1)
+        assert.deepEqual(retained(), [])
         assert.strictEqual((yield* volume.usage).usedBytes, 0n)
       }))
   })

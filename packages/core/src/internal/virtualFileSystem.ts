@@ -1,5 +1,6 @@
 import * as Arr from "effect/Array"
 import * as ByteSize from "effect/ByteSize"
+import * as Cause from "effect/Cause"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
@@ -32,6 +33,7 @@ import {
   WriteFileOptions
 } from "../Caller.js"
 import { DirectoryHandleId, FileHandleId, SeekMode } from "../FileHandle.js"
+import type { CommitOutcome } from "../LiveVolume.js"
 import { type Metadata, Mode, OwnerUpdate, Times, type TimeUpdate } from "../Metadata.js"
 import type { Snapshot } from "../Snapshot.js"
 import { type Entry, type EntryInput, isEntry, isTarget, type NameInput, Target, type TargetInput } from "../Target.js"
@@ -127,13 +129,19 @@ const SET_ID_BITS = 0o6000
 const STICKY_BIT = 0o1000
 const RELATIME_INTERVAL_NS = 86_400_000_000_000n // relatime, as Linux mounts by default: a read refreshes an access time at least this old, 24 hours.
 
-type CommitOutcome = "committed" | "rejected" | "unknown"
-
-interface CommitProvider<State> {
-  /** Preparation failures leave the volume available. */
-  readonly prepare?: (candidate: State) => Effect.Effect<void, FsFailure>
-  readonly commit: (candidate: State) => Effect.Effect<CommitOutcome>
+/** @internal */
+export interface CommitProvider<State> {
+  readonly mode: "memory" | "durable"
+  readonly commit: (candidate: State) => Effect.Effect<CommitOutcome, FsFailure & { readonly code: "StorageRejected" }>
+  readonly shutdown: Effect.Effect<void>
 }
+
+/** @internal */
+export const memoryCommitProvider: CommitProvider<VolumeState> = Object.freeze({
+  mode: "memory",
+  commit: () => Effect.succeed("committed" as const),
+  shutdown: Effect.void
+})
 
 interface ClassifiedCommit {
   readonly available: boolean
@@ -147,22 +155,33 @@ const offerCommit = <State>(
   candidate: State,
   cleanup: boolean
 ): Effect.Effect<ClassifiedCommit> =>
-  Effect.map(Effect.exit(Effect.suspend(() => provider.commit(candidate))), (committed): ClassifiedCommit => {
-    // TODO(#186): Preserve the cause of a provider defect or interruption.
-    if (Exit.isFailure(committed)) {
-      return { available: false, failure: fsFailure("OutcomeUnknown", operation) }
-    }
+  Effect.map(
+    Effect.exit(Effect.suspend(() => provider.commit(candidate))),
+    (committed): ClassifiedCommit => {
+      // TODO(#186): Preserve the cause of a provider defect or interruption.
+      if (Exit.isFailure(committed)) {
+        if (Cause.hasDies(committed.cause) || Cause.hasInterrupts(committed.cause)) {
+          return { available: false, failure: fsFailure("OutcomeUnknown", operation) }
+        }
 
-    if (committed.value === "rejected") {
-      return { available: !cleanup, failure: fsFailure("StorageRejected", operation) }
-    }
+        const failure = Cause.findErrorOption(committed.cause)
 
-    if (committed.value === "unknown") {
-      return { available: false, failure: fsFailure("OutcomeUnknown", operation) }
-    }
+        return Option.isSome(failure)
+          ? { available: !cleanup, failure: failure.value }
+          : { available: false, failure: fsFailure("OutcomeUnknown", operation) }
+      }
 
-    return { available: true, failure: undefined }
-  })
+      if (committed.value === "rejected") {
+        return { available: !cleanup, failure: fsFailure("StorageRejected", operation) }
+      }
+
+      if (committed.value === "unknown") {
+        return { available: false, failure: fsFailure("OutcomeUnknown", operation) }
+      }
+
+      return { available: true, failure: undefined }
+    }
+  )
 
 interface LookupOptions<R = never> {
   readonly followFinalSymlink?: boolean
@@ -562,8 +581,8 @@ const randomHex128 = Effect.gen(function*() {
 export const makeVolume = Effect.fnUntraced(
   function*(
     source: VolumeSource,
+    commitProvider: CommitProvider<VolumeState>,
     options?: VolumeOptions,
-    commitProvider?: CommitProvider<VolumeState>,
     durability: VolumeDurability = "memory-only"
   ) {
     const services = yield* Effect.context<Crypto.Crypto>()
@@ -708,33 +727,20 @@ export const makeVolume = Effect.fnUntraced(
       return [value, current] as const
     })
 
-    const applyDirect = Effect.fnUntraced(function*(
-      change: (draft: DraftOperations) => Effect.Effect<void, never, Draft>
-    ) {
-      const current = yield* Draft.make(state)
-      yield* Effect.provideService(change(current), Draft, current)
-      yield* install(current)
-    })
-
-    // Offers the finished draft's value to the store before installing it. A rejected candidate is discarded and
-    // the volume stays available; an uncertain answer stops the volume. A change that is a cleanup runs its
-    // release even when the store refuses, since the handle must not stay open.
+    // Cleanup releases local ownership even when storage refuses; that divergence disables the volume.
     const committed = Effect.fnUntraced(function*(
       op: OpContext,
-      provider: CommitProvider<VolumeState>,
       finished: DraftOperations,
-      onStorageFailure: (() => Effect.Effect<void>) | undefined
+      cleanup: boolean
     ) {
-      if (yield* finished.unchanged) return yield* install(finished)
+      if ((yield* finished.unchanged) || (cleanup && !available)) return yield* install(finished)
       const next = yield* finished.finish
-
-      if (provider.prepare !== undefined) yield* provider.prepare(next)
-      const answer = yield* offerCommit(provider, op.operation, next, onStorageFailure !== undefined)
+      const answer = yield* offerCommit(commitProvider, op.operation, next, cleanup)
 
       if (!answer.available) available = false
 
       if (answer.failure !== undefined) {
-        if (!answer.available && onStorageFailure !== undefined) yield* onStorageFailure()
+        if (cleanup) yield* install(finished)
 
         return yield* answer.failure
       }
@@ -742,33 +748,34 @@ export const makeVolume = Effect.fnUntraced(
       yield* install(finished)
     })
 
+    const applyCleanup = Effect.fnUntraced(function*(
+      change: (draft: DraftOperations) => Effect.Effect<void, never, Draft>
+    ) {
+      const current = yield* Draft.make(state)
+      yield* Effect.provideService(change(current), Draft, current)
+      yield* committed(OpContext.make("close"), current, true)
+    })
+
     const annotateFailure = (error: VfsError) =>
       Effect.annotateCurrentSpan({ operation: error.operation, code: error.code })
 
-    // Permit waits stay interruptible. A change and its publication run under every permit; with a store, the
-    // change itself stays interruptible and only the commit and installation are not.
+    // Permit waits stay interruptible. Memory transitions are masked; durable transitions remain
+    // interruptible until the candidate is ready. Every provider commit and installation is masked.
     const coordinated = <A, E, R>(
       op: OpContext,
       effect: Effect.Effect<A, E, R>,
-      onStorageFailure?: () => Effect.Effect<void>
+      cleanup = false
     ) =>
       admit(
         op,
-        changing(
-          commitProvider === undefined
-            ? Effect.uninterruptible(
-              Effect.flatMap(
-                transition(Effect.andThen(checkAvailable(op.operation), effect)),
-                ([value, finished]) => Effect.as(install(finished), value)
-              )
-            )
-            : Effect.uninterruptibleMask((restore) =>
-              Effect.flatMap(
-                restore(transition(Effect.andThen(checkAvailable(op.operation), effect))),
-                ([value, finished]) => Effect.as(committed(op, commitProvider, finished, onStorageFailure), value)
-              )
-            )
-        )
+        changing(Effect.uninterruptibleMask((restore) => {
+          const staged = transition(Effect.andThen(checkAvailable(op.operation), effect))
+
+          return Effect.flatMap(
+            commitProvider.mode === "memory" ? staged : restore(staged),
+            ([value, finished]) => Effect.as(committed(op, finished, cleanup), value)
+          )
+        }))
       ).pipe(Effect.tapError((error) => Schema.is(VfsError)(error) ? annotateFailure(error) : Effect.void))
 
     const coordinatedRead = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>) =>
@@ -800,9 +807,14 @@ export const makeVolume = Effect.fnUntraced(
 
     const coordinatedCleanup = <A, E, R>(effect: Effect.Effect<A, E, R>) => changing(Effect.uninterruptible(effect))
 
-    const shutdown = commitProvider === undefined ? undefined : changing(Effect.sync(() => {
-      available = false
-    }))
+    const shutdown = commitProvider.mode === "memory" ? commitProvider.shutdown : changing(Effect.uninterruptible(
+      Effect.andThen(
+        Effect.sync(() => {
+          available = false
+        }),
+        commitProvider.shutdown
+      )
+    ))
 
     const pathOf = (get: (ino: Ino) => Node | undefined, ino: Ino): string | undefined => {
       const names: Array<string> = []
@@ -1025,7 +1037,7 @@ export const makeVolume = Effect.fnUntraced(
       const node = getNode(state, ino)
 
       if (node?.kind === "directory" && node.metadata.nlink === 0) {
-        yield* applyDirect((d) => d.remove(ino))
+        yield* applyCleanup((d) => d.remove(ino))
       }
     })
 
@@ -1042,7 +1054,7 @@ export const makeVolume = Effect.fnUntraced(
         Effect.suspend(() =>
           reference.closed
             ? Effect.void
-            : coordinatedCleanup(releaseDirectory(reference))
+            : Effect.ignore(coordinatedCleanup(releaseDirectory(reference)))
         )
       )
 
@@ -1163,7 +1175,9 @@ export const makeVolume = Effect.fnUntraced(
     })
 
     const releaseOpenFile = (ref: FileReference) =>
-      coordinatedCleanup(Effect.suspend(() => ref.closed ? Effect.void : applyDirect(() => releaseFile(ref))))
+      Effect.ignore(
+        coordinatedCleanup(Effect.suspend(() => ref.closed ? Effect.void : applyCleanup(() => releaseFile(ref))))
+      )
 
     // Explicit close and scope cleanup share one release. A release whose commit fails still completes as
     // cleanup, so the handle never stays open; only an explicit close reports the failure. A close refused
@@ -1189,7 +1203,7 @@ export const makeVolume = Effect.fnUntraced(
             })
           })
         ),
-        () => applyDirect(() => releaseFile(ref))
+        true
       ).pipe(
         Effect.tapError((error) => error.code === "VolumeBusy" ? Effect.void : releaseOpenFile(ref))
       )
@@ -3758,7 +3772,7 @@ export const makeVolume = Effect.fnUntraced(
 
 /** @internal */
 export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: VolumeOptions) {
-  return (yield* makeVolume(VolumeSource.Empty(), options).pipe(
+  return (yield* makeVolume(VolumeSource.Empty(), memoryCommitProvider, options).pipe(
     Effect.catchIf((error) => Schema.is(VfsError)(error) && error.code !== "InvalidArgument", Effect.die)
   )).volume
 })
@@ -3783,43 +3797,29 @@ export const prepareEmptyLiveImage = Effect.fnUntraced(function*(options?: Volum
 export const openImageVolume = Effect.fnUntraced(function*(
   image: Uint8Array,
   maxImageBytes: ByteSize.ByteSize,
-  commit: (image: Uint8Array) => Effect.Effect<"committed" | "rejected" | "unknown">,
+  commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>,
   durability: VolumeDurability = "memory-only",
   options?: VolumeOptions
 ) {
   const restored = yield* LiveImage.decode(image, maxImageBytes)
-  let prepared: Uint8Array | undefined
-  const commitOp = OpContext.make("commit")
   const requested = yield* Effect.fromResult(Limits.fromOptions(options, "openImage"))
   const limits = yield* Effect.fromResult(Limits.fromStored(restored.limits, requested))
 
-  const { volume, shutdown } = yield* makeVolume(
-    VolumeSource.Live({ restored }),
-    options,
-    {
-      prepare: (candidate) =>
-        LiveImage.encode(candidate, restored, limits).pipe(
-          Effect.mapError((cause) => commitOp.fail("StorageRejected", { cause })),
-          Effect.flatMap((bytes) =>
-            ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxImageBytes)
-              ? commitOp.fail("StorageRejected")
-              : Effect.sync(() => {
-                prepared = bytes
-              })
-          )
-        ),
-      commit: () =>
-        Effect.suspend(() => {
-          const bytes = prepared
-          prepared = undefined
+  const provider: CommitProvider<VolumeState> = {
+    mode: "durable",
+    shutdown: Effect.void,
+    commit: (candidate) =>
+      LiveImage.encode(candidate, restored, limits).pipe(
+        Effect.mapError((cause) => makeError({ code: "StorageRejected", operation: "commit", cause })),
+        Effect.flatMap((bytes) =>
+          ByteSize.isGreaterThan(ByteSize.bytes(bytes.length), maxImageBytes)
+            ? Effect.fail(makeError({ code: "StorageRejected", operation: "commit" }))
+            : commit(bytes)
+        )
+      )
+  }
 
-          return bytes === undefined ? Effect.succeed("unknown" as const) : commit(bytes)
-        })
-    },
-    durability
-  )
-
-  if (shutdown === undefined) return yield* imageFailure("openImage", "InvalidStructure", { field: "liveImage" })
+  const { volume, shutdown } = yield* makeVolume(VolumeSource.Live({ restored }), provider, options, durability)
 
   return Object.freeze({ volume, shutdown })
 })
@@ -3840,7 +3840,11 @@ const changeOptions = (options?: OverlayChangesOptions) => {
 /** @internal */
 export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
   function*(snapshot: Snapshot, options?: VolumeOptions) {
-    return (yield* makeVolume(VolumeSource.Restored({ value: yield* Image.valueOf(snapshot) }), options)).volume
+    return (yield* makeVolume(
+      VolumeSource.Restored({ value: yield* Image.valueOf(snapshot) }),
+      memoryCommitProvider,
+      options
+    )).volume
   },
   Effect.mapError((error) => retargetFailure("fromSnapshot", error))
 )
@@ -3851,7 +3855,7 @@ export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
     const value = yield* Image.valueOf(base)
 
     const made = yield* Effect.mapError(
-      makeVolume(VolumeSource.Restored({ value }), options),
+      makeVolume(VolumeSource.Restored({ value }), memoryCommitProvider, options),
       (error) => retargetFailure("makeOverlay", error)
     )
 
