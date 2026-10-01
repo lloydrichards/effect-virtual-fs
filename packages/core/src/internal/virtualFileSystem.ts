@@ -35,7 +35,7 @@ import { DirectoryHandleId, FileHandleId, SeekMode } from "../FileHandle.js"
 import { type Metadata, Mode, OwnerUpdate, Times, type TimeUpdate } from "../Metadata.js"
 import type { Snapshot } from "../Snapshot.js"
 import { type Entry, type EntryInput, isEntry, isTarget, type NameInput, Target, type TargetInput } from "../Target.js"
-import { type FsFailure, type ImageFailure, make as makeError } from "../VfsError.js"
+import { type FsFailure, make as makeError } from "../VfsError.js"
 import type {
   Caller,
   Change,
@@ -45,7 +45,6 @@ import type {
   OverlayVolume,
   PathInput,
   Volume,
-  VolumeLimits,
   VolumeUsage,
   WalkEntry,
   WalkFailure
@@ -58,7 +57,7 @@ import {
   VolumeId,
   VolumeIdentity,
   VolumeIncarnation,
-  VolumeOptions
+  type VolumeOptions
 } from "../Volume.js"
 import { WatchOptions } from "../Watch.js"
 import { sameBytes } from "./bytes.js"
@@ -99,15 +98,15 @@ import {
 } from "./path.js"
 import { VolumeTestSeams } from "./testSeams.js"
 import { makeTurnstile } from "./turnstile.js"
+import * as Limits from "./volumeLimits.js"
 import {
   byEntryName,
   type Directory,
   directoryMetadata,
-  emptyRoot,
+  emptyState,
   getNode,
   Ino,
   type Link,
-  MAX_FILE_BYTES,
   type Node,
   type NodeMetadata,
   reachableValue,
@@ -278,14 +277,6 @@ interface ResolvedEntry {
 interface ResolvedNode {
   readonly ino: Ino
   readonly op: OpContext
-}
-
-interface RestoredVolumeOptions {
-  identity: VolumeIdentity
-  maxEntries?: number
-  maxBytes?: ByteSize.ByteSize
-  maxFileBytes?: ByteSize.ByteSize
-  maxPathBytes?: ByteSize.ByteSize
 }
 
 // One change gets one draft service. Its MutableRef contains the candidate and all
@@ -573,41 +564,18 @@ export const makeVolume = Effect.fnUntraced(
     source: VolumeSource,
     options?: VolumeOptions,
     commitProvider?: CommitProvider<VolumeState>,
-    captureInitial?: (
-      state: VolumeState,
-      naming: LiveImage.Naming,
-      limits: VolumeLimits
-    ) => Effect.Effect<Uint8Array, ImageFailure>,
     durability: VolumeDurability = "memory-only"
   ) {
     const services = yield* Effect.context<Crypto.Crypto>()
     // These accessors run inside synchronous transition callbacks. The runner is reached only when an invariant fails.
     const dieInvariant = (message: string): never => Effect.runSyncWith(services)(Effect.die(message))
     const live = Predicate.isTagged("Live")(source) ? source.restored : undefined
-    let restoredOptions = options
+    const requested = yield* Effect.fromResult(Limits.fromOptions(options))
+    const limits = live === undefined ? requested : yield* Effect.fromResult(Limits.fromStored(live.limits, requested))
 
-    if (live !== undefined) {
-      const recovered: RestoredVolumeOptions = { identity: live.identity }
-
-      if (live.limits.maxEntries !== undefined) recovered.maxEntries = live.limits.maxEntries
-
-      if (live.limits.maxBytes !== undefined) recovered.maxBytes = ByteSize.bytes(live.limits.maxBytes)
-
-      if (live.limits.maxFileBytes !== undefined) recovered.maxFileBytes = ByteSize.bytes(live.limits.maxFileBytes)
-
-      if (live.limits.maxPathBytes !== undefined) recovered.maxPathBytes = ByteSize.bytes(live.limits.maxPathBytes)
-      restoredOptions = recovered
-    }
-
-    const decoded = yield* Effect.fromResult(
-      decodeConfiguration(VolumeOptions, restoredOptions === undefined ? {} : restoredOptions, "make")
-    )
-
-    const settings = { ...decoded }
-
-    const identity = settings.identity === undefined
+    const identity = live?.identity ?? (options?.identity === undefined
       ? VolumeIdentity.make(yield* randomHex128)
-      : VolumeIdentity.make(settings.identity)
+      : VolumeIdentity.make(options.identity))
 
     const incarnation = VolumeIncarnation.make(yield* randomHex128)
     const epoch = live === undefined ? VolumeEpoch.make(yield* randomHex128) : live.epoch
@@ -652,7 +620,7 @@ export const makeVolume = Effect.fnUntraced(
       ino
     })
 
-    const maxPendingOperations = settings.maxPendingOperations ?? 64
+    const maxPendingOperations = limits.maxPendingOperations
     const permits = maxPendingOperations + 1
     const gate = Semaphore.makeUnsafe(permits)
     // The gate hands permits to whichever waiter it can satisfy, so a change waiting for every permit would be
@@ -678,27 +646,8 @@ export const makeVolume = Effect.fnUntraced(
         }))
       )
 
-    const root = emptyRoot(initialTime)
-
-    let state: VolumeState = {
-      inodes: InodeTable.set(InodeTable.empty<Node>(), ROOT_INO, root),
-      open: new Map(),
-      nextInode: Ino(2),
-      revision: 1n,
-      entries: 0,
-      usedBytes: 0n
-    }
-
-    const maxFileBytes = Number(ByteSize.toBigInt(settings.maxFileBytes ?? ByteSize.bytes(MAX_FILE_BYTES)))
-
-    const limits: VolumeLimits = Object.freeze({
-      maxBytes: settings.maxBytes,
-      maxFileBytes: ByteSize.bytes(maxFileBytes),
-      maxEntries: settings.maxEntries,
-      maxPathBytes: settings.maxPathBytes,
-      maxPendingOperations: settings.maxPendingOperations ?? 64,
-      maxWatchEvents: settings.maxWatchEvents ?? 256
-    })
+    let state = emptyState(initialTime)
+    const maxFileBytes = Number(ByteSize.toBigInt(limits.maxFileBytes))
 
     if (Predicate.isTagged("Restored")(source)) {
       const restored = yield* reachableValue(source.value)
@@ -708,8 +657,8 @@ export const makeVolume = Effect.fnUntraced(
       }
 
       if (
-        (settings.maxEntries !== undefined && restored.state.entries > settings.maxEntries) ||
-        (settings.maxBytes !== undefined && restored.state.usedBytes > ByteSize.toBigInt(settings.maxBytes))
+        (limits.maxEntries !== undefined && restored.state.entries > limits.maxEntries) ||
+        (limits.maxBytes !== undefined && restored.state.usedBytes > ByteSize.toBigInt(limits.maxBytes))
       ) {
         return yield* imageFailure("snapshot", "LimitExceeded", { field: "volume" })
       }
@@ -718,10 +667,6 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     if (live !== undefined) state = live.value
-
-    const initialImage = captureInitial === undefined
-      ? undefined
-      : yield* captureInitial(state, { identity, epoch, keySecret }, limits)
 
     const view = (ino: Ino): Effect.Effect<Node | undefined> =>
       Effect.flatMap(
@@ -738,7 +683,7 @@ export const makeVolume = Effect.fnUntraced(
 
     const watchHub = yield* WatchHub.make<WatchEvent, Installation, FsFailure>(
       watchCoordinate,
-      settings.maxWatchEvents ?? 256
+      limits.maxWatchEvents
     )
 
     const install = Effect.fnUntraced(function*(finished: DraftOperations) {
@@ -1140,7 +1085,7 @@ export const makeVolume = Effect.fnUntraced(
     const atEntryLimit = Effect.gen(function*() {
       const draft = yield* Draft
 
-      return settings.maxEntries !== undefined && (yield* draft.entries) >= settings.maxEntries
+      return limits.maxEntries !== undefined && (yield* draft.entries) >= limits.maxEntries
     })
 
     const reserveEntry = Effect.fnUntraced(function*(op: OpContext) {
@@ -1157,10 +1102,10 @@ export const makeVolume = Effect.fnUntraced(
       )
 
     const reserveBytes = Effect.fnUntraced(function*(op: OpContext, bytes: bigint) {
-      if (settings.maxBytes === undefined) return
+      if (limits.maxBytes === undefined) return
       const draft = yield* Draft
 
-      if (bytes > ByteSize.toBigInt(settings.maxBytes) - (yield* draft.usedBytes)) {
+      if (bytes > ByteSize.toBigInt(limits.maxBytes) - (yield* draft.usedBytes)) {
         return yield* op.fail("NoSpace")
       }
     })
@@ -1422,9 +1367,9 @@ export const makeVolume = Effect.fnUntraced(
 
             const draft = yield* Draft
 
-            const free = settings.maxBytes === undefined
+            const free = limits.maxBytes === undefined
               ? BigInt(maxFileBytes)
-              : ByteSize.toBigInt(settings.maxBytes) - (yield* draft.usedBytes)
+              : ByteSize.toBigInt(limits.maxBytes) - (yield* draft.usedBytes)
 
             const maximumEnd = BigInt(file.data.length) + free
             const end = Number(BigInt(maxFileBytes) < maximumEnd ? BigInt(maxFileBytes) : maximumEnd)
@@ -1762,8 +1707,8 @@ export const makeVolume = Effect.fnUntraced(
             const remaining = work.components.length - index - 1
 
             if (
-              settings.maxPathBytes !== undefined &&
-              ByteSize.isGreaterThan(ByteSize.bytes(child.target.length + suffix.length), settings.maxPathBytes)
+              limits.maxPathBytes !== undefined &&
+              ByteSize.isGreaterThan(ByteSize.bytes(child.target.length + suffix.length), limits.maxPathBytes)
             ) {
               return yield* pathOp.fail("PathTooLong")
             }
@@ -1771,7 +1716,7 @@ export const makeVolume = Effect.fnUntraced(
             const expansion = new Uint8Array(child.target.length + suffix.length)
             expansion.set(child.target)
             expansion.set(suffix, child.target.length)
-            const expanded = preparePath(ownedPath(expansion), op.operation, settings.maxPathBytes)
+            const expanded = preparePath(ownedPath(expansion), op.operation, limits.maxPathBytes)
 
             // The expansion is synthetic: its per-component limits are the caller's to hear about,
             // but the path in the error has to be the one the caller passed in, so the
@@ -2440,7 +2385,7 @@ export const makeVolume = Effect.fnUntraced(
         )
       }
 
-      const prepare = (input: PathInput, op: OpContext) => preparePath(input, op.operation, settings.maxPathBytes)
+      const prepare = (input: PathInput, op: OpContext) => preparePath(input, op.operation, limits.maxPathBytes)
 
       const handleNode = Effect.fnUntraced(function*(handle: FileHandle | DirectoryHandle, op: OpContext) {
         if (reference.ino === undefined) return yield* op.fail("ClosedCaller")
@@ -3806,7 +3751,7 @@ export const makeVolume = Effect.fnUntraced(
       capture: coordinatedRead(OpContext.make("capture"), captureState())
     })
 
-    return Object.freeze({ volume, shutdown, initialImage, observe })
+    return Object.freeze({ volume, shutdown, observe })
   }
 )
 
@@ -3819,14 +3764,17 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
 
 /** @internal */
 export const prepareEmptyLiveImage = Effect.fnUntraced(function*(options?: VolumeOptions) {
-  const { initialImage } = yield* Effect.mapError(
-    makeVolume(VolumeSource.Empty(), options, undefined, LiveImage.encode),
-    (error) => retargetFailure("prepareEmptyImage", error)
+  const limits = yield* Effect.fromResult(Limits.fromOptions(options, "prepareEmptyImage"))
+  const identity = options?.identity === undefined ? VolumeIdentity.make(yield* randomHex128) : options.identity
+  const epoch = VolumeEpoch.make(yield* randomHex128)
+  const keySecret = KeySecret.make(yield* randomHex128)
+  const now = yield* Clock.currentTimeNanos
+
+  if (!isTimestamp(now)) return yield* argumentFailure("prepareEmptyImage", "clock.currentTimeNanos")
+
+  return yield* LiveImage.encode(emptyState(now), { identity, epoch, keySecret }, limits).pipe(
+    Effect.mapError((error) => retargetFailure("prepareEmptyImage", error))
   )
-
-  if (initialImage === undefined) return yield* imageFailure("openImage", "InvalidStructure", { field: "liveImage" })
-
-  return initialImage
 })
 
 /** @internal */
@@ -3834,25 +3782,18 @@ export const openImageVolume = Effect.fnUntraced(function*(
   image: Uint8Array,
   maxImageBytes: ByteSize.ByteSize,
   commit: (image: Uint8Array) => Effect.Effect<"committed" | "rejected" | "unknown">,
-  durability: VolumeDurability = "memory-only"
+  durability: VolumeDurability = "memory-only",
+  options?: VolumeOptions
 ) {
   const restored = yield* LiveImage.decode(image, maxImageBytes)
   let prepared: Uint8Array | undefined
-  const { limits: stored } = restored
   const commitOp = OpContext.make("commit")
-
-  const limits: VolumeLimits = {
-    maxEntries: stored.maxEntries,
-    maxBytes: stored.maxBytes === undefined ? undefined : ByteSize.bytes(stored.maxBytes),
-    maxFileBytes: ByteSize.bytes(stored.maxFileBytes ?? MAX_FILE_BYTES),
-    maxPathBytes: stored.maxPathBytes === undefined ? undefined : ByteSize.bytes(stored.maxPathBytes),
-    maxPendingOperations: 64,
-    maxWatchEvents: 256
-  }
+  const requested = yield* Effect.fromResult(Limits.fromOptions(options, "openImage"))
+  const limits = yield* Effect.fromResult(Limits.fromStored(restored.limits, requested))
 
   const { volume, shutdown } = yield* makeVolume(
     VolumeSource.Live({ restored }),
-    undefined,
+    options,
     {
       prepare: (candidate) =>
         LiveImage.encode(candidate, restored, limits).pipe(
@@ -3873,7 +3814,6 @@ export const openImageVolume = Effect.fnUntraced(function*(
           return bytes === undefined ? Effect.succeed("unknown" as const) : commit(bytes)
         })
     },
-    undefined,
     durability
   )
 

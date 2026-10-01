@@ -148,6 +148,16 @@ export const emptyRoot = (now: bigint): Directory => ({
 })
 
 /** @internal */
+export const emptyState = (now: bigint): VolumeState => ({
+  inodes: InodeTable.set(InodeTable.empty<Node>(), ROOT_INO, emptyRoot(now)),
+  open: new Map(),
+  nextInode: Ino(2),
+  revision: 1n,
+  entries: 0,
+  usedBytes: 0n
+})
+
+/** @internal */
 export const storedMetadata = (metadata: NodeMetadata): StoredMetadata => ({
   uid: metadata.uid,
   gid: metadata.gid,

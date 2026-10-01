@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-10-01
+
+- **Durable volume limits (#237)**: Effective limits and stored capacity conversion have one core owner. Durable opens use their requested pending-operation and watch-event settings, while version 1 images retain capacity only. Compatibility compares effective defaults and explicit identity. Empty images encode a state value directly. The capacity contract records these rules.
+
 ## 2026-09-28
 
 - **Draft state service**: Core replaces the private `Draft` class with a transition-local `Context.Service` whose operations return Effects. Pending inode edits remain private to one change, and lookups read the provided draft service during a change. The persistent-tree decision records this implementation while its commit and rollback contract stays unchanged.

@@ -14,6 +14,7 @@ import type * as Crypto from "effect/Crypto"
 import type * as Scope from "effect/Scope"
 import { argumentFailure, retargetFailure } from "./internal/errors.js"
 import * as Model from "./internal/virtualFileSystem.js"
+import * as Limits from "./internal/volumeLimits.js"
 import { type ArgumentFailure, type StoreFailure, VfsError } from "./VfsError.js"
 import type { Volume, VolumeDurability, VolumeOptions } from "./VirtualFileSystem.js"
 
@@ -81,22 +82,22 @@ export const open: (options: Options) => Effect.Effect<
 
   const image = yield* store.loadOrCreate(initial)
 
-  const session = yield* openImage(image, options.maxImageBytes, store.commit, store.durability ?? "memory-only").pipe(
+  const requested = yield* Effect.fromResult(Limits.fromOptions(options.volume, "LiveVolume.open"))
+
+  const session = yield* Model.openImageVolume(
+    image,
+    options.maxImageBytes,
+    store.commit,
+    store.durability ?? "memory-only",
+    options.volume
+  ).pipe(
     Effect.mapError((cause) => new VfsError({ code: "CorruptStore", operation: "LiveVolume.open", cause }))
   )
 
   yield* Effect.addFinalizer(() => session.shutdown)
   const volume = session.volume
 
-  if (
-    volume.limits.maxEntries !== options.volume.maxEntries || volume.limits.maxBytes === undefined ||
-    volume.limits.maxPathBytes === undefined || options.volume.maxBytes === undefined ||
-    options.volume.maxFileBytes === undefined || options.volume.maxPathBytes === undefined ||
-    ByteSize.toBigInt(volume.limits.maxBytes) !== ByteSize.toBigInt(options.volume.maxBytes) ||
-    ByteSize.toBigInt(volume.limits.maxFileBytes) !== ByteSize.toBigInt(options.volume.maxFileBytes) ||
-    ByteSize.toBigInt(volume.limits.maxPathBytes) !== ByteSize.toBigInt(options.volume.maxPathBytes) ||
-    (options.volume.identity !== undefined && options.volume.identity !== volume.identity)
-  ) {
+  if (!Limits.compatible(volume.limits, requested, volume.identity, options.volume.identity)) {
     return yield* new VfsError({ code: "IncompatibleStore", operation: "LiveVolume.open" })
   }
 

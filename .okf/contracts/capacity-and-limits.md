@@ -9,9 +9,13 @@ sources:
     title: Volume options and quota implementation
   - resource: ../../packages/core/src/Snapshot.ts
     title: Snapshot decode limits
+  - resource: ../../packages/core/src/internal/volumeLimits.ts
+    title: Effective and stored volume limits
+  - resource: ../../packages/core/test/LiveVolume.test.ts
+    title: Durable runtime limits and capacity compatibility
   - resource: ../../packages/core/test/FileHandle.test.ts
     title: File quota behavior tests
-generated: { by: codex/okf, at: 2026-09-19T09:08:16Z }
+generated: { by: codex/okf, at: 2026-10-01T11:00:00Z }
 ---
 
 # Capacity and limits
@@ -25,3 +29,7 @@ Every constructed volume also publishes storage facts independent of capacity: a
 `Volume.limits` reports the effective static limits. Absent `maxBytes`, `maxEntries`, or `maxPathBytes` means unlimited; `maxFileBytes` always reports the smaller of the configured limit and the engine's 4,294,967,295-byte ceiling. The reusable `Volume.usage` effect samples `usedBytes` and `entries` together under the mutation gate. `usedBytes` includes content of open unlinked files until the last handle closes, while `entries` counts their removed names no longer. Restoring a snapshot starts the new volume's usage at the reachable content and entry totals.
 
 See [volume capacity accounting](../decisions/core/volume-capacity-accounting.md "constrained by"), [volume durability and usage facts](../decisions/core/volume-durability-and-usage-facts.md "refined by"), and [optional total path limit](../decisions/core/optional-total-path-limit.md "constrained by").
+
+Live images store capacity limits and identity. `LiveVolume.open` compares the requested effective capacities with those stored in the image and checks identity when explicitly supplied; a mismatch fails with `IncompatibleStore`. Omitted byte, entry, and path quotas mean unlimited, and an omitted file limit means the engine ceiling. Equal byte quantities compare equal regardless of their unit.
+
+`maxPendingOperations` and `maxWatchEvents` apply to each open and are excluded from the version 1 live image. Reopening may change them without changing stored capacity. Pending admission defaults to 64 plus one active-operation slot. Watch retention defaults to 256 per subscriber, including its reserved `Rescan` slot. The [watch overflow decision](../decisions/core/watch-event-overflow.md "constrained by") defines their behavior.
