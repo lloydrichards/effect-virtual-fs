@@ -1,6 +1,8 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Crypto, Effect, Encoding, Layer, Result, Schema } from "effect"
+import { ByteSize, Crypto, Effect, Layer, Result, Schema } from "effect"
+import * as Base64 from "effect/encoding/Base64"
+import * as Hex from "effect/encoding/Hex"
 import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
 const cryptoLayer = (...values: ReadonlyArray<number>) => {
@@ -198,9 +200,9 @@ describe("reference keys", () => {
           assert.strictEqual(encoded.ino, String((yield* fs.stat(reference)).ino))
           assert.strictEqual(
             encoded.identity,
-            Encoding.encodeBase64(Result.getOrThrow(Encoding.decodeHex(volume.identity)))
+            Base64.encode(Result.getOrThrow(Hex.decode(volume.identity)))
           )
-          assert.lengthOf(Result.getOrThrow(Encoding.decodeBase64(encoded.epoch)), 16)
+          assert.lengthOf(Result.getOrThrow(Base64.decode(encoded.epoch)), 16)
 
           const text = yield* Schema.encodeEffect(Schema.fromJsonString(Vfs.ReferenceKey))(key)
           const decoded = yield* Schema.decodeEffect(Schema.fromJsonString(Vfs.ReferenceKey))(text)
@@ -325,8 +327,8 @@ describe("reference keys", () => {
 
         assert.deepStrictEqual(secondKey.identity, firstKey.identity)
         assert.deepStrictEqual(secondKey.epoch, firstKey.epoch)
-        assert.strictEqual(Encoding.encodeHex(firstKey.tag), "5c9dea8d3ddda0cc23db0873f30caa04")
-        assert.strictEqual(Encoding.encodeHex(secondKey.tag), "9555879bfc92f3010843f8ec5d343df1")
+        assert.strictEqual(Hex.encode(firstKey.tag), "5c9dea8d3ddda0cc23db0873f30caa04")
+        assert.strictEqual(Hex.encode(secondKey.tag), "9555879bfc92f3010843f8ec5d343df1")
       }).pipe(Effect.provide(cryptoLayer(0x11, 0x22, 0x33, 0x11, 0x22, 0x44))))
   })
 

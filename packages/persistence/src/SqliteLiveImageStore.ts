@@ -5,7 +5,7 @@
  */
 import { LiveVolume, type VfsError } from "@effect-vfs/core"
 import { ByteSize, type Crypto, Effect, Exit, FileSystem, Layer, Path, Ref, Schema } from "effect"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
+import { SqlClient } from "effect/sql/SqlClient"
 import { makeDigest, type StoreFailures, storeFailures } from "./internal/storeSupport.js"
 
 /**

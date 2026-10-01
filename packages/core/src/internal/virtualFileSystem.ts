@@ -5,7 +5,7 @@ import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Exit from "effect/Exit"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
@@ -564,7 +564,7 @@ const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
 const randomHex128 = Effect.gen(function*() {
   const crypto = yield* Crypto.Crypto
 
-  return Encoding.encodeHex(yield* crypto.randomBytes(16))
+  return Hex.encode(yield* crypto.randomBytes(16))
 }).pipe(Effect.orDie)
 
 /** @internal */
@@ -612,9 +612,9 @@ export const makeVolume = Effect.fnUntraced(
     const incarnation = VolumeIncarnation.make(yield* randomHex128)
     const epoch = live === undefined ? VolumeEpoch.make(yield* randomHex128) : live.epoch
     const keySecret = live === undefined ? KeySecret.make(yield* randomHex128) : live.keySecret
-    const identityBytes = Result.getOrThrow(Encoding.decodeHex(identity))
-    const epochBytes = Result.getOrThrow(Encoding.decodeHex(epoch))
-    const keySecretBytes = Result.getOrThrow(Encoding.decodeHex(keySecret))
+    const identityBytes = Result.getOrThrow(Hex.decode(identity))
+    const epochBytes = Result.getOrThrow(Hex.decode(epoch))
+    const keySecretBytes = Result.getOrThrow(Hex.decode(keySecret))
     const clock = yield* Clock.clockWith(Effect.succeed)
     const initialTime = clock.currentTimeNanosUnsafe()
 
@@ -2522,7 +2522,7 @@ export const makeVolume = Effect.fnUntraced(
           bytes.includes(SLASH_BYTE)
         ) return Result.fail(op.fail("InvalidArgument"))
 
-        return Result.succeed(Encoding.encodeHex(new Uint8Array(bytes)))
+        return Result.succeed(Hex.encode(new Uint8Array(bytes)))
       }
 
       const prepareEntry = (input: EntryInput, op: OpContext): Result.Result<PreparedEntry, FsFailure> =>

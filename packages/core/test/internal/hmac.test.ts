@@ -1,8 +1,9 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Encoding, Result } from "effect"
+import { Result } from "effect"
+import * as Hex from "effect/encoding/Hex"
 import { hmacSha256, sameTag } from "../../src/internal/hmac.js"
 
-const hex = (text: string) => Result.getOrThrow(Encoding.decodeHex(text))
+const hex = (text: string) => Result.getOrThrow(Hex.decode(text))
 
 const ascii = (text: string) => new TextEncoder().encode(text)
 
@@ -33,7 +34,7 @@ describe("reference-key tag HMAC", () => {
     ]
 
     for (const [key, message, expected] of cases) {
-      assert.strictEqual(Encoding.encodeHex(hmacSha256(key, message)), expected)
+      assert.strictEqual(Hex.encode(hmacSha256(key, message)), expected)
     }
   })
 

@@ -2,7 +2,7 @@ import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
 import { Effect, Fiber, Layer, Predicate, Ref, Stream } from "effect"
-import { LanguageModel, type Response } from "effect/unstable/ai"
+import { LanguageModel, type Response } from "effect/ai"
 import { describe } from "vitest"
 import { AgentTurnLimitExceeded, runAgent, type ToolObservation } from "../src/agent.js"
 

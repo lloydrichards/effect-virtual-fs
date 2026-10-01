@@ -7,14 +7,14 @@ import * as ByteSize from "effect/ByteSize"
 import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Exit from "effect/Exit"
+import * as NetAddress from "effect/net/NetAddress"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
-import * as NetAddress from "effect/unstable/net/NetAddress"
 
 const live = <E>(
   name: string,
@@ -22,7 +22,7 @@ const live = <E>(
   timeout?: number
 ) => liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
 
-import * as SocketServer from "effect/unstable/socket/SocketServer"
+import * as SocketServer from "effect/socket/SocketServer"
 import * as Net from "node:net"
 import {
   ConfigurationError,
@@ -615,7 +615,7 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
       Effect.gen(function*() {
         const volume = yield* Vfs.Volume
         const nonce = yield* (yield* Crypto.Crypto).randomBytes(8)
-        const path = `/tmp/effect-vfs-nfs-${process.pid}-${Encoding.encodeHex(nonce)}.sock`
+        const path = `/tmp/effect-vfs-nfs-${process.pid}-${Hex.encode(nonce)}.sock`
         const socketServer = yield* NodeSocketServer.make({ path })
         let observed: unknown
 

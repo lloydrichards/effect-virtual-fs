@@ -15,14 +15,14 @@ import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Layer from "effect/Layer"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as SchemaIssue from "effect/SchemaIssue"
 import type * as Scope from "effect/Scope"
-import * as SocketServer from "effect/unstable/socket/SocketServer"
+import * as SocketServer from "effect/socket/SocketServer"
 import { makeExport } from "./internal/export.js"
 import { makeNfs4Handler } from "./internal/nfs4.js"
 import type { CompoundCall } from "./internal/rpc.js"
@@ -662,7 +662,7 @@ const make = (
       Effect.mapError((cause) => new NfsServerError({ cause }))
     )
 
-    const storageGeneration = Result.getOrThrow(Encoding.decodeHex(options.volume.incarnation))
+    const storageGeneration = Result.getOrThrow(Hex.decode(options.volume.incarnation))
     const export_ = makeExport(options.volume, options.caller ?? volumeCaller, limits)
     const callers = new Map<string, Vfs.Caller>()
     let writableIdentityKey: string | undefined

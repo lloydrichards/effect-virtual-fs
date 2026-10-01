@@ -1,6 +1,7 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, type Crypto, Effect, Encoding, Exit, Predicate, Schema } from "effect"
+import { ByteSize, type Crypto, Effect, Exit, Predicate, Schema } from "effect"
+import * as Base64 from "effect/encoding/Base64"
 import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import { type Document, documentText, toLines } from "./support/lines.js"
 import { entryNames, rawEntryNames } from "./support/text.js"
@@ -1009,7 +1010,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
           [{ ...source, changes: [{ ...added, path: "Lg==" }] }, "InvalidStructure at changes"],
           // One byte past NAME_MAX, which the snapshot tree and fixtures refuse as well.
           [
-            { ...source, changes: [{ ...added, path: Encoding.encodeBase64(`/${"a".repeat(256)}`) }] },
+            { ...source, changes: [{ ...added, path: Base64.encode(`/${"a".repeat(256)}`) }] },
             "InvalidStructure at changes"
           ],
           [{ ...source, changes: [{ ...added, node: { ...node, _tag: "directory" } }] }, "changes.0.node"],

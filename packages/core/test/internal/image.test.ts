@@ -1,6 +1,7 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, Encoding } from "effect"
+import { ByteSize, Effect } from "effect"
+import * as Hex from "effect/encoding/Hex"
 import { VirtualFileSystem as Vfs } from "../../src/index.js"
 import * as Image from "../../src/internal/image.js"
 import * as InodeTable from "../../src/internal/inodeTable.js"
@@ -37,7 +38,7 @@ describe("snapshot image base sharing", () => {
           // reads the base value's exact payload while a promoted one holds its own.
           // SAFETY: the base value's inode shapes are private; the test reaches the file payload through them.
           const rootNode = InodeTable.get(first.inodes, 1) as { entries: ReadonlyMap<string, number> } | undefined
-          const fileIno = rootNode?.entries.get(Encoding.encodeHex(new TextEncoder().encode("file")))
+          const fileIno = rootNode?.entries.get(Hex.encode(new TextEncoder().encode("file")))
           assert.isDefined(fileIno)
           // SAFETY: as above.
           const fileNode = InodeTable.get(first.inodes, fileIno) as { data: Uint8Array } | undefined

@@ -1,6 +1,6 @@
 // Validate each tree line as it arrives; check cross-node graph rules after the final line.
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
@@ -253,7 +253,7 @@ const makeReader = <H>(
       return broken(at([...path, "name"], "a name is 1 to 255 bytes without a NUL or a slash, and neither . nor .."))
     }
 
-    const key = Encoding.encodeHex(bytes)
+    const key = Hex.encode(bytes)
     names.push({ parent, key, bytes: bytes.length, path, directory })
     entries++
 
