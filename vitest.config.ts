@@ -19,6 +19,7 @@ export default defineConfig({
       project("nfs", "./packages/nfs/"),
       project("persistence", "./packages/persistence/"),
       project("demo-overlay", "./apps/demo-overlay/"),
+      project("demo-agent-tools", "./apps/demo-agent-tools/"),
       project("scratchpad", "./apps/scratchpad/"),
       project("virtual-build", "./apps/virtual-build/")
     ]

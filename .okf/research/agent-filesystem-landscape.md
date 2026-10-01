@@ -119,7 +119,10 @@ sources:
   - id: yjs
     resource: https://docs.yjs.dev/
     title: Yjs documentation
-generated: { by: claude/okf, at: 2026-09-24T09:00:00+02:00 }
+  - id: agent-tool-example
+    resource: ../../apps/demo-agent-tools/README.md
+    title: Caller-bound Effect toolkit and MCP example
+generated: { by: codex/okf, at: 2026-10-01T18:00:00+02:00 }
 ---
 
 # Agent filesystem landscape
@@ -132,7 +135,7 @@ Researched 2026-09-24. This page surveys filesystems built for agents and ideas 
 
 Ranked by fit with the current code and by effort (low effort first within similar fit):
 
-1. **An Effect AI toolkit and MCP server over a `Caller`** (high fit, low effort). The surveyed systems settle on a small tool surface. Alchemy's `Sandbox` service has six file methods (`readFile`, `writeFile`, `deleteFile`, `mkdir`, `listFiles`, `exists`) that fail with model-visible `string` errors ([Sandbox.ts](https://github.com/alchemy-run/alchemy/blob/sam/harness/packages/alchemy/src/AI/Sandbox.ts)). AgentFS's `serve mcp` exposes a similar set ([MANUAL.md](https://github.com/tursodatabase/agentfs/blob/main/MANUAL.md)). Effect's own `effect/unstable/ai` `Tool`, `Toolkit` and `McpServer` can express that surface with no dependency on any agent framework.
+1. **An Effect AI toolkit and MCP server over a `Caller`** (high fit, low effort). The surveyed systems settle on a small tool surface. Alchemy's `Sandbox` service has six file methods (`readFile`, `writeFile`, `deleteFile`, `mkdir`, `listFiles`, `exists`) that fail with model-visible `string` errors ([Sandbox.ts](https://github.com/alchemy-run/alchemy/blob/sam/harness/packages/alchemy/src/AI/Sandbox.ts)). AgentFS's `serve mcp` exposes a similar set ([MANUAL.md](https://github.com/tursodatabase/agentfs/blob/main/MANUAL.md)). Effect's own `effect/ai` `Tool`, `Toolkit` and `McpServer` can express that surface with no dependency on any agent framework.
 2. **Overlay as a first-class branch or fork** (high fit, medium effort). `makeOverlay`, `changes()`, `capture()` and snapshot deltas already give per-agent copy-on-write workspaces. Mesa, AgentFS, ArtifactFS and Cloudflare Artifacts all present this as fork/diff/merge, or as a whiteout-based overlay. The repo lacks a named fork/branch API and any merge. Merge is listed as deferred.
 3. **Change export as a patch or git commit, pushed by a trusted host** (high fit, medium effort). Today Alchemy's `pushBranch` puts a GitHub token into the push URL of a command that runs _inside_ the sandbox ([PushBranch.ts](https://github.com/alchemy-run/alchemy/blob/sam/harness/services/root/src/coding/PushBranch.ts)). An overlay `changes()` summary plus the bytes can become a git tree/commit or a unified diff _outside_ the sandbox, so the sandbox never holds credentials.
 4. **A search primitive (`grep`/`glob`) over the volume** (high fit, low–medium effort). Alchemy's `grep` and `glob` tools shell out to `rg` through `Sandbox.exec` ([Grep.ts](https://github.com/alchemy-run/alchemy/blob/sam/harness/services/root/src/coding/Grep.ts)). A volume with no shell needs its own search. ChromaFs shows the two-stage "coarse candidate filter, then in-memory regex" pattern ([Mintlify](https://www.mintlify.com/blog/how-we-built-a-virtual-filesystem-for-our-assistant)).
@@ -228,10 +231,10 @@ Automerge resolves concurrent writes to the same property by deterministic last-
 
 ### 1. Narrow agent-tool surface with Effect AI
 
-- **Exists.** `MemoryFileSystem.layer` provides Effect's `FileSystem.FileSystem` over a virtual volume (`packages/memory/src/MemoryFileSystem.ts`). The `Caller` interface has path and reference operations with typed `FsError`s (`packages/core/src/VirtualFileSystem.ts`). `apps/demo-overlay/src/agent.ts` already defines `read_file`, `write_file` and `list_directory` tools with `failureMode: "return"` over a volume. It returns failures as `${code}: ${operation}` strings and hand-rolls path confinement by rejecting absolute paths and `..`.
-- **Gap.** There is no reusable toolkit, no structured tool failure, no MCP exposure, no text paging or revision outputs, and no search.
-- **Direction.** Build an `apps/` example on `effect/unstable/ai` only: a `Toolkit` over a `Caller` whose failure schema carries `code`, `operation` and a display path, with `failureMode: "return"`. Serve the same toolkit through `McpServer`, so any MCP client can use a volume. `FsError` is a `Data.TaggedError` with a possibly byte-valued `path`, so the tool failure is a separate display schema. The library does not target any agent framework's shape. Alchemy's `Sandbox`, the `alchemy/FileSystem` floated in Discord, and Files SDK's tools are surveyed prior art, not compatibility targets. Promote the example to a package only once the tool shapes settle.
-- **Open questions.** Which tools form the minimal set? Should binary reads fail, return base64, or page? Should reads return a revision for guarded writes (point 6)? Can the example drop its own confinement once a confined caller exists (#28)?
+- **Exists.** The independent `apps/demo-agent-tools` example defines caller-bound read, write, list, stat, directory creation, removal, rename, and original-snapshot inspection tools. It uses object-shaped successes and structured display failures, serves them over Effect MCP stdio, and documents a local MCPJam walkthrough. Each process owns a fresh overlay and a separate original-snapshot reader. UTF-8 reads and writes are limited to 64 KiB; listings are limited to 200 entries. The older `demo-overlay` remains independent.
+- **Gap.** There is no published toolkit package, text paging, binary transfer, revision-paired reads, guarded content writes, or search.
+- **Direction.** Keep tool contracts in the private example until they settle. The current `VfsError` is a `Schema.TaggedError` with an encoded byte path; the tool schema deliberately exposes readable fields and excludes internal causes. The library does not target an agent framework's shape. The example's ownership boundary is [application-level integration](../architecture/system-boundaries.md "constrained by").
+- **Open questions.** Promotion to a package, binary and paged reads, revision-paired observations, and replacing lexical path policy with a confined caller remain separate work. The example accepts project-relative paths over a whole dedicated volume; it does not claim that lexical validation confines an arbitrary subtree caller.
 
 ### 2. Overlay as branch/fork, copy-on-write branching, merge
 
@@ -300,11 +303,11 @@ Automerge resolves concurrent writes to the same property by deterministic last-
 
 ## Directions and tracking
 
-Reviewed with the maintainer on 2026-09-24. The library stays Effect-first and does not privilege any consumer, agent framework or hosting choice. Every direction below is tracked, not accepted.
+Reviewed with the maintainer on 2026-09-24. The library stays Effect-first and does not privilege any consumer, agent framework or hosting choice. The agent-tool direction now has an independent private example. Other directions below remain tracked proposals unless their owning concepts state otherwise.
 
 | Direction                     | Tracking        | Position                                                                                                         |
 | ----------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1. Agent tool surface         | #175            | `apps/` example on `effect/unstable/ai`; structured tool failures; MCP from the same toolkit                     |
+| 1. Agent tool surface         | #175            | Private stdio example implemented in `apps/demo-agent-tools`; bounded UTF-8 tools and structured failures        |
 | 2. Fork and merge             | #174            | Three-way, path-level, conflicts as data; no text merge; names stay with the application; no fork helper tracked |
 | 3. Git or patch export        | Comment on #29  | A Stream sink; a trusted host builds and pushes; no issue until there is evidence                                |
 | 4. Search and glob            | #173            | Decide between a Stream recipe over snapshots and a dedicated API, from measurement                              |
