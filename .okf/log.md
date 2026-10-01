@@ -2,6 +2,8 @@
 
 ## 2026-10-01
 
+- **Resolution and token ownership (#241)**: Core moves draft-aware target and entry resolution into one module with tagged modes and results. A WeakMap-backed registry owns token validity and handle lifecycle, including cleanup before a late acquisition publication. Named-object restrictions remain operation policies, and engine callbacks retain ownership of inode counts, reclamation and commits. The volume/caller/handle model and explicit-close decision record the boundaries.
+
 - **Required commit providers (#237, stage two)**: Memory and durable providers share one candidate commit interface and defined shutdown. Encoding and storage no longer communicate through a prepared slot. Healthy changed cleanup candidates commit even when admission is full; failed cleanup releases locally and stops access, and later cleanup never retries storage. The close, mutation, and persistent-tree concepts record the behavior and preserve interruption boundaries.
 
 - **Durable volume limits (#237)**: Effective limits and stored capacity conversion have one core owner. Durable opens use their requested pending-operation and watch-event settings, while version 1 images retain capacity only. Compatibility compares effective defaults and explicit identity. Empty images encode a state value directly. The capacity contract records these rules.

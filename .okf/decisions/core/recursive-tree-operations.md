@@ -13,7 +13,10 @@ sources:
     title: WalkEntry, WalkFailure, and the walk, mkdir and remove contracts on Caller
   - id: engine
     resource: ../../../packages/core/src/internal/virtualFileSystem.ts
-    title: walkChildren, reachFrame, walkFrames, makeDirectories, the lookup createMissing option, and emptyDirectory
+    title: walkChildren, reachFrame, walkFrames, makeDirectories, and emptyDirectory
+  - id: resolution
+    resource: ../../../packages/core/src/internal/resolution.ts
+    title: Recursive traversal with the engine createMissing callback
   - id: walk-tests
     resource: ../../../packages/core/test/behaviour/walk.test.ts
     title: Order, bounds in both orders, links, vanished and renamed directories and roots, permissions, and access times
