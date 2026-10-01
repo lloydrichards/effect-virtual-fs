@@ -1,5 +1,11 @@
 # Alchemy R2 virtual notebook
 
+## Temporarily paused
+
+`alchemy@2.0.0-beta.79` imports modules removed in stable Effect v4. This demo is excluded from the root build, type check, lint, and test commands until Alchemy supports the installed Effect version. Its source and dependencies remain available. Do not deploy this version.
+
+To restore the demo, update Alchemy, remove the root Turbo filters and Oxlint ignore entry, and add `demo-alchemy` back to `vitest.config.ts`. Run full validation and the demo tests before deploying. A separate Effect release candidate cannot be used because the demo shares Effect values with the stable VFS packages.
+
 This demo runs an Effect VFS volume inside a Cloudflare Worker. A `POST` request creates a notebook, writes
 `/notes/hello.txt`, and publishes it by renaming the file to `/published/hello.txt`. A later `GET` request opens a new
 volume from the same R2 image and reads the published file.
