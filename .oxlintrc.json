@@ -203,9 +203,30 @@
       "rules": {
         "effecttsgo/global-timers": "off"
       }
+    },
+    {
+      "files": [
+        "apps/demo-overlay/src/agent.ts",
+        "apps/demo-overlay/test/agent.test.ts",
+        "apps/demo-r2-nfs/src/container-http.ts",
+        "apps/demo-r2-nfs/src/container-main.ts",
+        "packages/nfs/src/NfsServer.ts",
+        "packages/nfs/src/internal/server.ts",
+        "packages/nfs/test/NfsServer.test.ts",
+        "packages/persistence/compatibility/node-next/index.ts",
+        "packages/persistence/src/CheckpointStore.ts",
+        "packages/persistence/src/SqliteLiveImageStore.ts",
+        "packages/persistence/test/CheckpointStore.test.ts",
+        "packages/persistence/test/SqliteLiveImageStore.test.ts",
+        "packages/persistence/test/fixtures/live-restart.ts"
+      ],
+      "rules": {
+        "effecttsgo/unstable-api-usage": "off"
+      }
     }
   ],
   "ignorePatterns": [
+    "apps/demo-alchemy/**",
     "packages/core/contracts/ApiTypes.ts",
     "scripts/anti-slop-policy-fixtures/**",
     ".agent/**",

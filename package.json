@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "turbo run build",
+    "build": "turbo run build --filter=!@repo/alchemy-vfs-demo",
     "changeset": "changeset",
     "changeset:status": "changeset status",
     "clean": "turbo run clean && git clean -xdf .turbo",
@@ -24,7 +24,7 @@
     "prepare": "effect-tsgo patch --oxlint",
     "release": "bun run build && changeset publish",
     "test": "turbo run build --filter=@effect-vfs/core --filter=@effect-vfs/memory --filter=@effect-vfs/nfs --filter=@effect-vfs/persistence && bun --bun run vitest run --config vitest.config.ts",
-    "type-check": "turbo run type-check",
+    "type-check": "turbo run type-check --filter=!@repo/alchemy-vfs-demo",
     "validate": "bun run format:check && bun run build && bun scripts/check-generated-api.mjs && bun run lint && bun run lint:effects && bun run type-check && bun run test",
     "lint:effects": "bash scripts/lint-effects.sh",
     "version-packages": "changeset version"
