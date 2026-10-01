@@ -67,7 +67,12 @@ export const open: (options: Options) => Effect.Effect<
 > = Effect.fn("LiveVolume.open")(function*(options: Options) {
   const store = yield* LiveImageStore
 
-  const initial = yield* prepareEmptyImage(options.volume).pipe(
+  const { decoded, initial } = yield* Effect.gen(function*() {
+    const decoded = yield* Effect.fromResult(Limits.configuration(options.volume, "LiveVolume.open"))
+    const initial = yield* prepareEmptyImage(decoded.options)
+
+    return { decoded, initial }
+  }).pipe(
     // Names the nested option that failed, such as `volume.maxEntries`.
     Effect.mapError((cause) => {
       const field = "field" in cause ? cause.field : undefined
@@ -82,14 +87,14 @@ export const open: (options: Options) => Effect.Effect<
 
   const image = yield* store.loadOrCreate(initial)
 
-  const requested = yield* Effect.fromResult(Limits.fromOptions(options.volume, "LiveVolume.open"))
+  const requested = decoded.limits
 
   const session = yield* Model.openImageVolume(
     image,
     options.maxImageBytes,
     store.commit,
     store.durability ?? "memory-only",
-    options.volume
+    decoded.options
   ).pipe(
     Effect.mapError((cause) => new VfsError({ code: "CorruptStore", operation: "LiveVolume.open", cause }))
   )
@@ -97,7 +102,7 @@ export const open: (options: Options) => Effect.Effect<
   yield* Effect.addFinalizer(() => session.shutdown)
   const volume = session.volume
 
-  if (!Limits.compatible(volume.limits, requested, volume.identity, options.volume.identity)) {
+  if (!Limits.compatible(volume.limits, requested, volume.identity, decoded.identity)) {
     return yield* new VfsError({ code: "IncompatibleStore", operation: "LiveVolume.open" })
   }
 

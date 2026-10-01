@@ -570,12 +570,13 @@ export const makeVolume = Effect.fnUntraced(
     // These accessors run inside synchronous transition callbacks. The runner is reached only when an invariant fails.
     const dieInvariant = (message: string): never => Effect.runSyncWith(services)(Effect.die(message))
     const live = Predicate.isTagged("Live")(source) ? source.restored : undefined
-    const requested = yield* Effect.fromResult(Limits.fromOptions(options))
+    const decoded = yield* Effect.fromResult(Limits.configuration(options))
+    const requested = decoded.limits
     const limits = live === undefined ? requested : yield* Effect.fromResult(Limits.fromStored(live.limits, requested))
 
-    const identity = live?.identity ?? (options?.identity === undefined
+    const identity = live?.identity ?? (decoded.identity === undefined
       ? VolumeIdentity.make(yield* randomHex128)
-      : VolumeIdentity.make(options.identity))
+      : decoded.identity)
 
     const incarnation = VolumeIncarnation.make(yield* randomHex128)
     const epoch = live === undefined ? VolumeEpoch.make(yield* randomHex128) : live.epoch
@@ -3764,8 +3765,9 @@ export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: Volu
 
 /** @internal */
 export const prepareEmptyLiveImage = Effect.fnUntraced(function*(options?: VolumeOptions) {
-  const limits = yield* Effect.fromResult(Limits.fromOptions(options, "prepareEmptyImage"))
-  const identity = options?.identity === undefined ? VolumeIdentity.make(yield* randomHex128) : options.identity
+  const decoded = yield* Effect.fromResult(Limits.configuration(options, "prepareEmptyImage"))
+  const limits = decoded.limits
+  const identity = decoded.identity ?? VolumeIdentity.make(yield* randomHex128)
   const epoch = VolumeEpoch.make(yield* randomHex128)
   const keySecret = KeySecret.make(yield* randomHex128)
   const now = yield* Clock.currentTimeNanos

@@ -23,19 +23,26 @@ export const defaults: VolumeLimits = Object.freeze({
 })
 
 /** @internal */
-export const fromOptions = (options?: VolumeOptions, operation = "make") =>
+export const configuration = (options?: VolumeOptions, operation = "make") =>
   Result.map(
     decodeConfiguration(VolumeOptions, options === undefined ? {} : options, operation),
-    (decoded): VolumeLimits =>
-      Object.freeze({
+    (decoded) => ({
+      options: decoded,
+      identity: decoded.identity,
+      limits: Object.freeze({
         maxEntries: decoded.maxEntries,
         maxBytes: decoded.maxBytes,
         maxFileBytes: decoded.maxFileBytes ?? defaults.maxFileBytes,
         maxPathBytes: decoded.maxPathBytes,
         maxPendingOperations: decoded.maxPendingOperations ?? defaults.maxPendingOperations,
         maxWatchEvents: decoded.maxWatchEvents ?? defaults.maxWatchEvents
-      })
+      }) satisfies VolumeLimits
+    })
   )
+
+/** @internal */
+export const fromOptions = (options?: VolumeOptions, operation = "make") =>
+  Result.map(configuration(options, operation), (decoded) => decoded.limits)
 
 /** @internal */
 export const fromStored = (stored: StoredLimits, runtime: VolumeLimits = defaults) => {
