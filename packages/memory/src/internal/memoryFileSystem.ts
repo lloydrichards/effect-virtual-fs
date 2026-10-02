@@ -291,6 +291,21 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
 })
 
 /** @internal */
+export const layerFromFixture = (
+  fixture: Vfs.Fixture,
+  volumeOptions?: Vfs.VolumeOptions,
+  callerOptions?: Vfs.RootCallerOptions
+): Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto> =>
+  Layer.effect(
+    FileSystem.FileSystem,
+    Effect.gen(function*() {
+      const volume = yield* Vfs.fromFixture(fixture, volumeOptions)
+
+      return yield* bind(volume, callerOptions)
+    })
+  )
+
+/** @internal */
 export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = Effect.gen(function*() {
   const volume = yield* Vfs.fromFixture({ entries: [{ kind: "directory", path: "/tmp" }] })
 

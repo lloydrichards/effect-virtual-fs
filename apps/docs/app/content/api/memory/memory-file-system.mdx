@@ -80,7 +80,7 @@ declare const bind: (
 ) => Effect.Effect<FileSystem.FileSystem, Vfs.VfsError>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L211)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L253)
 
 Since v0.1.0
 
@@ -250,3 +250,55 @@ declare const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L153)
 
 Since v0.1.0
+
+### layerFromFixture
+
+Provides a `FileSystem.FileSystem` backed by a fresh fixture volume.
+
+Volume limits and caller options use the existing core types. Invalid fixtures
+and options remain typed `VfsError` construction failures. Provide `Crypto.Crypto`
+to build the volume. This layer adds no entries; include `/tmp` in the fixture
+when temporary-file operations need it.
+
+Separate builds get separate volumes. Reusing one layer value within a single
+layer graph shares its volume. Use `Layer.fresh` for independent state in that
+graph. Merge with `Path.layer` when a consumer also needs POSIX paths.
+
+**Example**
+
+```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import { Effect, FileSystem, Layer, Path } from "effect"
+
+const seeded = MemoryFileSystem.layerFromFixture({
+  entries: [{ kind: "file", path: "/greeting.txt", bytes: new TextEncoder().encode("hello") }]
+})
+const services = Layer.merge(seeded, Path.layer)
+const program = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  return yield* fs.readFileString(path.join("/", "greeting.txt"))
+})
+
+Effect.runPromise(program.pipe(Effect.provide(services), Effect.provide(NodeCrypto.layer))).then(console.log)
+// hello
+```
+
+**See**
+
+- `bind` when direct core callers must share the volume.
+
+**Signature**
+
+```ts
+declare const layerFromFixture: (
+  fixture: Vfs.Fixture,
+  volumeOptions?: Vfs.VolumeOptions,
+  callerOptions?: Vfs.RootCallerOptions
+) => Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L191)
+
+Since v0.8.0

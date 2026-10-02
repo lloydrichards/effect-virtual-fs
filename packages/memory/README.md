@@ -99,6 +99,37 @@ Reusing `MemoryFileSystem.layer` within one layer graph shares the service
 because Effect memoizes layers. Wrap it with `Layer.fresh` when separate parts
 of the same graph must receive independent filesystems.
 
+## Seed a filesystem layer
+
+Use the existing core fixture format with `MemoryFileSystem.layerFromFixture`:
+
+```ts
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { Effect, FileSystem, Layer, Path } from "effect"
+
+const seeded = MemoryFileSystem.layerFromFixture({
+  entries: [{ kind: "file", path: "/greeting.txt", bytes: new TextEncoder().encode("hello") }]
+})
+const services = Layer.merge(seeded, Path.layer)
+const program = Effect.gen(function*() {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  return yield* fs.readFileString(path.join("/", "greeting.txt"))
+})
+
+console.log(await Effect.runPromise(program.pipe(Effect.provide(services), Effect.provide(BunCrypto.layer))))
+// hello
+```
+
+Provide matching platform or deterministic Crypto at the boundary. `Path.layer` is optional and uses POSIX paths.
+The second argument accepts `Vfs.VolumeOptions`; the third accepts `Vfs.RootCallerOptions`.
+Invalid fixtures and options remain typed `VfsError` construction failures.
+
+Separate builds get separate volumes. One shared build lets actions and assertions see the same writes.
+Use `Layer.fresh` for independent state within a shared layer graph.
+The fixture layer adds no `/tmp`; declare that directory explicitly when temporary-file operations need it.
+
 ## Save and restore a volume
 
 Snapshots let a test or tool capture a prepared filesystem and restore clean,

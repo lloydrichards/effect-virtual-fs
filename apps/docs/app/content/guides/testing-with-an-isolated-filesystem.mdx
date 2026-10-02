@@ -76,57 +76,52 @@ from the second.
 Do not call `Effect.runPromise` or `Effect.runSync` inside an Effect test. `it.effect` runs the returned Effect, supplies
 Effect's test services, and keeps a scope open for the test.
 
-## Seed a test layer from a volume
+## Seed a test layer from a fixture
 
-Build a core volume with `VirtualFileSystem.fromFixture`, bind it to Effect's filesystem service, and provide the result
-to `it.effect`. This is useful when the code under test expects a project or another known directory structure to exist
-before the test begins:
+`MemoryFileSystem.layerFromFixture` builds a core fixture volume and binds it to Effect's filesystem service:
 
 ```ts
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, it } from "@effect/vitest"
-import { Effect, FileSystem, Layer } from "effect"
+import { Effect, FileSystem, Layer, Path } from "effect"
 
-const encoder = new TextEncoder()
+const seededFileSystem = MemoryFileSystem.layerFromFixture({
+  entries: [
+    { kind: "directory", path: "/project" },
+    {
+      kind: "file",
+      path: "/project/package.json",
+      bytes: new TextEncoder().encode('{"name":"example","version":"1.2.3"}')
+    }
+  ]
+})
+const services = Layer.merge(seededFileSystem, Path.layer)
 
-const seededFileSystem = Layer.effect(
-  FileSystem.FileSystem,
+it.effect("should read the seeded package version", () =>
   Effect.gen(function* () {
-    const volume = yield* Vfs.fromFixture({
-      entries: [
-        { kind: "directory", path: "/project" },
-        {
-          kind: "file",
-          path: "/project/package.json",
-          bytes: encoder.encode(
-            JSON.stringify({ name: "example", version: "1.2.3" })
-          )
-        }
-      ]
-    })
-
-    return yield* MemoryFileSystem.bind(volume)
-  })
-)
-
-it.effect(
-  "should read the version when the project fixture contains a package file",
-  () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const manifest = JSON.parse(
-        yield* fs.readFileString("/project/package.json")
-      )
-
-      assert.strictEqual(manifest.version, "1.2.3")
-    }).pipe(Effect.provide(seededFileSystem), Effect.provide(BunCrypto.layer))
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const manifest = JSON.parse(yield* fs.readFileString(path.join("/project", "package.json")))
+    assert.strictEqual(manifest.version, "1.2.3")
+  }).pipe(Effect.provide(services), Effect.provide(BunCrypto.layer))
 )
 ```
 
-Providing `seededFileSystem` inside `it.effect` builds a new volume for that test. Other tests can reuse the same layer
-definition without sharing mutations.
+Provide a matching platform Crypto layer, as above, or your deterministic `Crypto.Crypto` implementation at the test
+boundary. `Path.layer` provides POSIX paths in Effect 4. Omit the merge when the program does not need `Path`.
+
+Separate builds of the same layer get separate volumes. Actions and assertions inside one build observe the same
+writes. Reusing one layer value in a layer graph shares the volume through memoization; use `Layer.fresh` when a part
+of that graph needs independent state.
+
+The second argument accepts `Vfs.VolumeOptions`, including volume limits. The third accepts `Vfs.RootCallerOptions`,
+including credentials and umask. Pass `undefined` as the second argument when only caller options are needed.
+Invalid fixtures and options remain typed `VfsError` construction failures.
+
+The layer adds no entries to the fixture. Include `{ kind: "directory", path: "/tmp" }` when temporary-file operations
+need the default temporary directory. `MemoryFileSystem.layer` still creates `/tmp` for its empty filesystem.
+Use `Vfs.fromFixture` and `MemoryFileSystem.bind` directly when adapter code and core callers need the same volume.
 
 ## Test against a core volume directly
 
