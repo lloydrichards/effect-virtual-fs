@@ -275,3 +275,34 @@ export const snapshotGlobTypes = (snapshot: Vfs.Snapshot) => {
   Search.glob(snapshot, { root: "/", include: ["**"], limits: { maxPathBytes: 4096 } })
   return { collector, stream }
 }
+
+export const snapshotContentTypes = (snapshot: Vfs.Snapshot) => {
+  const query: Search.ContentQuery = {
+    root: "/",
+    include: ["**/*.ts"],
+    pattern: Search.Pattern.cases.Literal.make({ pattern: "TODO" }),
+    ignoreCase: true,
+    limits: { maxExcerptBytes: ByteSize.bytes(20) }
+  }
+  const lines: Effect.Effect<Search.LinesReport, Search.ContentFailure> = Search.lines(snapshot, query)
+  const files: Effect.Effect<Search.FilesReport, Search.ContentFailure> = Search.files(snapshot, query)
+  const counts: Effect.Effect<Search.CountLinesReport, Search.ContentFailure> = Search.countLines(snapshot, query)
+  const scanLines: Stream.Stream<Search.LineResult, Search.ScanContentFailure> = SearchModule.scanLines(snapshot, query)
+  const scanFiles: Stream.Stream<string, Search.ScanContentFailure> = SearchModule.scanFiles(snapshot, query)
+  const scanCounts: Stream.Stream<Search.CountResult, Search.ScanContentFailure> = SearchModule.scanCountLines(
+    snapshot,
+    query
+  )
+  Search.lines(snapshot, { ...query, pattern: Search.Pattern.cases.Regex.make({ pattern: "TODO|FIXME" }) })
+  // @ts-expect-error Content patterns always declare their interpretation.
+  Search.lines(snapshot, { ...query, pattern: "TODO" })
+  // @ts-expect-error Native RegExp objects do not supply flags to Search.
+  Search.lines(snapshot, { ...query, pattern: /TODO/iu })
+  // @ts-expect-error Content search always selects regular files.
+  Search.files(snapshot, { ...query, kinds: ["symlink"] })
+  // @ts-expect-error Pattern accepts source only, never caller flags.
+  Search.Pattern.cases.Regex.make({ pattern: "TODO", flags: "g" })
+  // @ts-expect-error Content byte limits remain Effect ByteSize.
+  Search.countLines(snapshot, { ...query, limits: { maxScannedBytes: 100 } })
+  return { lines, files, counts, scanLines, scanFiles, scanCounts }
+}

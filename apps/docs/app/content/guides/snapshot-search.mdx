@@ -1,4 +1,4 @@
-# Search filenames in a snapshot
+# Search filenames and content in a snapshot
 
 Use `Search.glob` to collect filenames with work and skip counts. Use `Search.scanGlob` to consume matching paths as
 an Effect Stream. Both search one explicit immutable snapshot without reading file contents or updating filesystem state.
@@ -81,3 +81,87 @@ any of its children are visited, because Search checks preparation capacity befo
 
 The memory adapter's `FileSystem.glob` keeps its separate UTF-16 wildcard, hidden-name, sorting and error behavior.
 Use `Search` when you want the snapshot dialect described here.
+
+## Search file content
+
+Use `Search.lines`, `Search.files`, or `Search.countLines` with an explicit content pattern. Their Stream counterparts
+are `scanLines`, `scanFiles`, and `scanCountLines`. All six select regular files using the same filename globs above.
+Discovered symlinks are never content candidates. Each selected hard-link name is scanned and charged independently.
+
+```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { Search, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect, Stream } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.fromFixture({ entries: [
+    { kind: "file", path: "/note.ts", bytes: new TextEncoder().encode("😀TODO\nTODO TODO\n") }
+  ] })
+  const snapshot = yield* volume.snapshot
+  const query: Search.ContentQuery = {
+    root: "/", include: ["**/*.ts"], pattern: Search.Pattern.cases.Literal.make({ pattern: "TODO" })
+  }
+  const lines = yield* Search.lines(snapshot, query)
+  const files = yield* Search.files(snapshot, query)
+  const counts = yield* Search.countLines(snapshot, query)
+  const lineRows = yield* Stream.runCollect(Search.scanLines(snapshot, query))
+  const fileRows = yield* Stream.runCollect(Search.scanFiles(snapshot, query))
+  const countRows = yield* Stream.runCollect(Search.scanCountLines(snapshot, query))
+  return {
+    firstRange: lines.results[0]?.range,
+    files: files.results,
+    counts: counts.results,
+    streamLengths: [lineRows.length, fileRows.length, countRows.length]
+  }
+})
+
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))))
+```
+
+The first range is `{ start: 4, end: 8 }`. Files returns `["note.ts"]`; counts returns `[{ path: "note.ts", count: 2 }]`.
+The Stream lengths are `[2, 1, 1]`. Counts measure matching lines, so two occurrences on the second line still count once.
+Files mode stops matching after its first hit. Count mode emits a row only after completing the file. If a line budget
+stops a file halfway through, preceding completed-file counts survive, and that incomplete file contributes no count row.
+
+`Pattern.cases.Literal` always interprets its string as text. It rejects empty text, NUL, CR, LF, and lone surrogates.
+Content `ignoreCase: true` uses Unicode simple folding without normalization; it never changes filename matching.
+For example, `É` can match literal `é`, but `ß` does not expand into `ss`.
+
+## Interpret text, ranges, and excerpts
+
+Search classifies the complete selected file for strict UTF-8 and NUL before emitting any hit. A matching prefix with an
+invalid or binary tail produces no result. Invalid UTF-8 takes precedence over NUL when both occur, so one file contributes
+one content skip. Oversized files skip before classification and consume no scanned-byte allowance. Other selected files
+charge their full size before classification, including invalid or binary skips and files-mode early hits.
+
+LF separates lines. Search removes CR only when it immediately precedes LF, and preserves lone CR and BOM. Empty files
+have no lines, and a final LF adds no synthetic empty line. Results preserve namespace traversal order and increasing
+line numbers within each file.
+
+A line result contains `path`, 1-based `lineNumber`, `range`, and `excerpt`. The range is the first whole match, with
+half-open file-absolute UTF-8 byte offsets. It is not a character column or UTF-16 index. The excerpt begins at the match;
+`excerpt.start` records its original byte offset, and `excerpt.truncated` is true when any prefix or suffix of the line
+is omitted. Truncation preserves UTF-8 boundaries. A match longer than `maxExcerptBytes` retains its full range even when
+the excerpt cannot contain it. A zero-width match at line end can produce an empty excerpt.
+
+Content defaults are 64 MiB scanned bytes, 1 MiB per file, 100,000 line evaluations, and 1 KiB excerpts. They share the
+namespace, 100-row, 64 KiB result-payload, and 4 KiB pattern-source defaults with filename search. Scanned bytes charge
+a selected eligible file once, rather than counting every internal byte pass. Raw result bytes count UTF-8 paths and
+excerpt text plus 16 bytes per line range, or path bytes plus 8 bytes per file count. Files mode counts path bytes only.
+Scalar metadata is excluded. These counters do not measure heap usage or escaped JSON size.
+
+Collectors preserve prior rows, skips, and work when a bound yields `Stopped`. Streams can emit prior rows and then fail
+with `SearchBudgetExceeded`. `Complete` covers the eligible policy domain and can still contain skips. Summed counts after
+skips or an early stop are lower bounds for the original scope, while each returned file count remains exact.
+
+## Choose native regex deliberately
+
+Use `Search.Pattern.cases.Regex.make({ pattern: "TODO|FIXME" })` to select native JavaScript regex interpretation. Search owns
+`u` and adds `i` only when `ignoreCase` is true. It accepts no caller-supplied flags. Runtime-supported grammar, including
+zero-width matches and scoped modifiers where supported, remains available. Empty regex sources are allowed.
+Syntax errors fail as `SearchQueryFailure` during query evaluation. Each regex call sees one line with LF removed.
+
+Native regex can block within one synchronous call. Source, file, and line-evaluation caps constrain input and call counts;
+they do not bound the cost of that call. Effect timeouts and interruption cannot preempt it. Search yields between its
+own bounded steps, and makes no hard-deadline guarantee. Agent adapters must explicitly opt into exposing model-generated
+regex and own their execution policy.

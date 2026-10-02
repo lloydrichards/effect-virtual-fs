@@ -79,6 +79,7 @@ Options of `open` on an entry.
 ```ts
 export type OpenEntryOptions = {
   readonly access: "read" | "write" | "readWrite"
+  readonly expected?: ObjectReference | null
   readonly mode?: number
   readonly create?: "never" | "ifMissing" | "exclusive"
   readonly append?: boolean
@@ -95,7 +96,6 @@ export type OpenEntryOptions = {
       | { readonly kind: "value"; readonly nanoseconds: bigint }
   }
   readonly owner?: { readonly uid?: number; readonly gid?: number }
-  readonly expected?: ObjectReference | null
   readonly followFinalSymlink?: boolean
   readonly initialSize?: bigint
   readonly expectedChild?: {
@@ -198,6 +198,7 @@ Attributes of `setattr`.
 
 ```ts
 export type SetattrOptions = {
+  readonly expected?: { readonly revision: bigint }
   readonly size?: bigint
   readonly mode?: number
   readonly times?: {
@@ -211,7 +212,6 @@ export type SetattrOptions = {
       | { readonly kind: "value"; readonly nanoseconds: bigint }
   }
   readonly owner?: { readonly uid?: number; readonly gid?: number }
-  readonly expected?: { readonly revision: bigint }
 }
 ```
 
