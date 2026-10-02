@@ -2,6 +2,10 @@
 
 ## 2026-10-02
 
+- **Repeated transfer paths**: All sinks reject repeated incoming paths as `InvalidEntry`, independently of overwrite and unsupported-entry skip policies. The contract distinguishes stream validity from destination conflicts.
+
+- **Transfer engine (#242)**: Memory shares live source ordering, budgets, placement, sink lifecycle, deferred directory completion, and reporting. Adapters retain their existing errors and cleanup identity checks. Core snapshot traversal remains independent, and the same FileSystem behaviors run against Node and memory.
+
 - **Fixture-backed memory layers (#244)**: The memory adapter provides `layerFromFixture` with existing volume and caller options, typed construction failures, explicit `/tmp`, and normal Effect layer sharing.
 
 - **Pattern tagged union (#257)**: Snapshot content patterns use `Pattern.cases.Literal` and `Pattern.cases.Regex`. Scanner dispatch uses exhaustive `Pattern.match` so literal escaping follows the current discriminants.

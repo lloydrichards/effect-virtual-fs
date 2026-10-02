@@ -9,18 +9,18 @@
  *
  * @since 0.6.0
  */
-import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import type * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import type * as Cause from "effect/Cause"
 import type * as Crypto from "effect/Crypto"
-import * as Data from "effect/Data"
 import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as PlatformError from "effect/PlatformError"
-import * as Schema from "effect/Schema"
+import type * as Schema from "effect/Schema"
 import type * as Sink from "effect/Sink"
 import type * as Stream from "effect/Stream"
 import * as internal from "./internal/treeTransfer.js"
+import * as engine from "./internal/treeTransferEngine.js"
 import * as host from "./internal/treeTransferFileSystem.js"
-import * as model from "./internal/treeTransferModel.js"
 
 /**
  * One transferred tree entry: a core fixture entry whose path is rooted at the
@@ -74,7 +74,8 @@ export type Entry = Vfs.Fixture["entries"][number]
  * @category errors
  * @since 0.6.0
  */
-export class TransferError extends Data.TaggedError("TransferError")<{
+export interface TransferError extends Cause.YieldableError {
+  readonly _tag: "TransferError"
   readonly code:
     | "LimitExceeded"
     | "InvalidEntry"
@@ -86,7 +87,32 @@ export class TransferError extends Data.TaggedError("TransferError")<{
     | "DestinationConflict"
   readonly field?: string
   readonly path?: Vfs.PathInput
-}> {}
+}
+
+/**
+ * Creates a transfer failure that is not a filesystem error.
+ *
+ * @example
+ * ```ts
+ * import { TreeTransfer } from "@effect-vfs/memory"
+ *
+ * const error = new TreeTransfer.TransferError({ code: "LimitExceeded", field: "maxEntries" })
+ *
+ * console.log(error.code, error.field)
+ * // LimitExceeded maxEntries
+ * ```
+ *
+ * @category errors
+ * @since 0.6.0
+ */
+export const TransferError: {
+  new(args: {
+    readonly code: TransferError["code"]
+    readonly field?: string
+    readonly path?: Vfs.PathInput
+  }): TransferError
+  prototype: TransferError
+} = engine.TransferError
 
 /**
  * A complete source work policy.
@@ -141,10 +167,20 @@ export type TreeTransferLimits = typeof TreeTransferLimits.Type
  * @category schemas
  * @since 0.6.0
  */
-export const TreeTransferLimits = Object.assign(model.TreeTransferLimitsSchema, {
-  default: model.defaultLimits,
-  constrained: model.constrainedLimits
-})
+export const TreeTransferLimits:
+  & Schema.Struct<
+    {
+      readonly maxEntries: Schema.Natural
+      readonly maxBytes: Schema.ByteSize
+      readonly maxFileBytes: Schema.ByteSize
+      readonly maxDepth: Schema.Natural
+      readonly maxPathBytes: Schema.ByteSize
+    }
+  >
+  & {
+    default: TreeTransferLimits
+    constrained: TreeTransferLimits
+  } = engine.TreeTransferLimits
 
 /**
  * Options for a source.
@@ -177,6 +213,8 @@ export interface ReadOptions {
  * `existing: "overwrite"` merges into existing directories, replaces files and
  * symbolic links, and never removes anything on failure. A file and directory
  * clash always fails. Deleted source entries are never propagated.
+ * Repeated stream paths fail `InvalidEntry`, even with overwrite or skip policies.
+ * These policies apply to destination conflicts and unsupported entries only.
  *
  * `times` defaults to `"mtime"`. Permission bits are always applied; setuid,
  * setgid, and sticky bits only with `specialBits: true`. Directory modes and
@@ -281,48 +319,49 @@ export interface FileSystemWriteOptions extends WriteOptions {
  * @category schemas
  * @since 0.6.0
  */
-export const SinkCapabilities = Object.assign(
-  Schema.Struct({
-    byteNames: Schema.Boolean,
-    timestampPrecision: Schema.Literals(["nanosecond", "millisecond"]),
-    changeAndBirthTimes: Schema.Boolean,
-    owner: Schema.Boolean,
-    symlinkMetadata: Schema.Boolean,
-    hardLinks: Schema.Literals(["exact", "bestEffort"])
-  }),
-  {
-    caller: Object.freeze(
+export const SinkCapabilities:
+  & Schema.Struct<
+    {
+      readonly byteNames: Schema.Boolean
+      readonly timestampPrecision: Schema.Literals<readonly ["nanosecond", "millisecond"]>
+      readonly changeAndBirthTimes: Schema.Boolean
+      readonly owner: Schema.Boolean
+      readonly symlinkMetadata: Schema.Boolean
+      readonly hardLinks: Schema.Literals<readonly ["exact", "bestEffort"]>
+    }
+  >
+  & {
+    caller: Readonly<
       {
-        byteNames: true,
-        timestampPrecision: "nanosecond",
-        changeAndBirthTimes: false,
-        owner: false,
-        symlinkMetadata: true,
-        hardLinks: "exact"
-      } as const
-    ),
-    volume: Object.freeze(
+        readonly byteNames: true
+        readonly timestampPrecision: "nanosecond"
+        readonly changeAndBirthTimes: false
+        readonly owner: false
+        readonly symlinkMetadata: true
+        readonly hardLinks: "exact"
+      }
+    >
+    volume: Readonly<
       {
-        byteNames: true,
-        timestampPrecision: "nanosecond",
-        changeAndBirthTimes: true,
-        owner: true,
-        symlinkMetadata: true,
-        hardLinks: "exact"
-      } as const
-    ),
-    fileSystem: Object.freeze(
+        readonly byteNames: true
+        readonly timestampPrecision: "nanosecond"
+        readonly changeAndBirthTimes: true
+        readonly owner: true
+        readonly symlinkMetadata: true
+        readonly hardLinks: "exact"
+      }
+    >
+    fileSystem: Readonly<
       {
-        byteNames: false,
-        timestampPrecision: "millisecond",
-        changeAndBirthTimes: false,
-        owner: false,
-        symlinkMetadata: false,
-        hardLinks: "bestEffort"
-      } as const
-    )
-  }
-)
+        readonly byteNames: false
+        readonly timestampPrecision: "millisecond"
+        readonly changeAndBirthTimes: false
+        readonly owner: false
+        readonly symlinkMetadata: false
+        readonly hardLinks: "bestEffort"
+      }
+    >
+  } = engine.SinkCapabilities
 
 /**
  * What a destination can preserve: `caller` for `toCaller`, `volume` for
@@ -360,10 +399,12 @@ export type SinkCapabilities = typeof SinkCapabilities.Type
  * @category schemas
  * @since 0.6.0
  */
-export const SkippedEntry = Schema.Struct({
-  path: Schema.Union([Schema.String, Vfs.BytePath]),
-  reason: Schema.Literals(["UnrepresentableName", "UnsupportedEntryType", "NameCollision"])
-})
+export const SkippedEntry: Schema.Struct<
+  {
+    readonly path: Schema.Union<readonly [Schema.String, typeof Vfs.BytePath]>
+    readonly reason: Schema.Literals<readonly ["UnrepresentableName", "UnsupportedEntryType", "NameCollision"]>
+  }
+> = engine.SkippedEntry
 
 /**
  * An entry that was left out of a transfer, with the reason.
@@ -437,13 +478,15 @@ export type TransferReport = typeof TransferReport.Type
  * @category schemas
  * @since 0.6.0
  */
-export const TransferReport = Schema.Struct({
-  entries: Schema.Natural,
-  files: Schema.Natural,
-  bytes: Schema.ByteSize,
-  skipped: Schema.Array(SkippedEntry),
-  hardLinksDegraded: Schema.Natural
-})
+export const TransferReport: Schema.Struct<
+  {
+    readonly entries: Schema.Natural
+    readonly files: Schema.Natural
+    readonly bytes: Schema.ByteSize
+    readonly skipped: Schema.$Array<typeof SkippedEntry>
+    readonly hardLinksDegraded: Schema.Natural
+  }
+> = engine.TransferReport
 
 /**
  * Streams the tree at `root` through a live caller.

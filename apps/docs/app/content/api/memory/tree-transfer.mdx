@@ -14,7 +14,39 @@ Since v0.6.0
 
 ## errors
 
-### TransferError (class)
+### TransferError
+
+Creates a transfer failure that is not a filesystem error.
+
+**Example**
+
+```ts
+import { TreeTransfer } from "@effect-vfs/memory"
+
+const error = new TreeTransfer.TransferError({ code: "LimitExceeded", field: "maxEntries" })
+
+console.log(error.code, error.field)
+// LimitExceeded maxEntries
+```
+
+**Signature**
+
+```ts
+declare const TransferError: {
+  new (args: {
+    readonly code: TransferError["code"]
+    readonly field?: string
+    readonly path?: Vfs.PathInput
+  }): TransferError
+  prototype: TransferError
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L108)
+
+Since v0.6.0
+
+### TransferError (interface)
 
 A transfer failure that is not a filesystem error.
 
@@ -44,7 +76,20 @@ console.log(error.code, error.field)
 **Signature**
 
 ```ts
-declare class TransferError
+export interface TransferError extends Cause.YieldableError {
+  readonly _tag: "TransferError"
+  readonly code:
+    | "LimitExceeded"
+    | "InvalidEntry"
+    | "InvalidArgument"
+    | "UnrepresentableName"
+    | "UnsupportedEntryType"
+    | "NameCollision"
+    | "EscapingSymlink"
+    | "DestinationConflict"
+  readonly field?: string
+  readonly path?: Vfs.PathInput
+}
 ```
 
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L77)
@@ -120,7 +165,7 @@ export interface FileSystemReadOptions extends ReadOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L233)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L271)
 
 Since v0.6.0
 
@@ -157,7 +202,7 @@ export interface FileSystemWriteOptions extends WriteOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L263)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L301)
 
 Since v0.6.0
 
@@ -185,7 +230,7 @@ export interface ReadOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L165)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L201)
 
 Since v0.6.0
 
@@ -218,7 +263,7 @@ export type SinkCapabilities = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L344)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L383)
 
 Since v0.6.0
 
@@ -246,7 +291,7 @@ export type SkippedEntry = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L384)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L425)
 
 Since v0.6.0
 
@@ -293,7 +338,7 @@ export type TransferReport = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L415)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L456)
 
 Since v0.6.0
 
@@ -338,7 +383,7 @@ export type TreeTransferLimits = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L121)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L147)
 
 Since v0.6.0
 
@@ -382,7 +427,7 @@ export interface VolumeTransferOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L613)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L656)
 
 Since v0.6.0
 
@@ -397,6 +442,8 @@ create and removes it if the transfer fails or is interrupted.
 `existing: "overwrite"` merges into existing directories, replaces files and
 symbolic links, and never removes anything on failure. A file and directory
 clash always fails. Deleted source entries are never propagated.
+Repeated stream paths fail `InvalidEntry`, even with overwrite or skip policies.
+These policies apply to destination conflicts and unsupported entries only.
 
 `times` defaults to `"mtime"`. Permission bits are always applied; setuid,
 setgid, and sticky bits only with `specialBits: true`. Directory modes and
@@ -426,7 +473,7 @@ export interface WriteOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L198)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L236)
 
 Since v0.6.0
 
@@ -483,7 +530,7 @@ declare const SinkCapabilities: Schema.Struct<{
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L284)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L322)
 
 Since v0.6.0
 
@@ -510,12 +557,12 @@ console.log(skipped.reason)
 
 ```ts
 declare const SkippedEntry: Schema.Struct<{
-  readonly path: Schema.Union<readonly [Schema.String, Schema.declare<Vfs.BytePath, Vfs.BytePath>]>
+  readonly path: Schema.Union<readonly [Schema.String, typeof Vfs.BytePath]>
   readonly reason: Schema.Literals<readonly ["UnrepresentableName", "UnsupportedEntryType", "NameCollision"]>
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L363)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L402)
 
 Since v0.6.0
 
@@ -548,17 +595,12 @@ declare const TransferReport: Schema.Struct<{
   readonly entries: Schema.Natural
   readonly files: Schema.Natural
   readonly bytes: Schema.ByteSize
-  readonly skipped: Schema.$Array<
-    Schema.Struct<{
-      readonly path: Schema.Union<readonly [Schema.String, Schema.declare<Vfs.BytePath, Vfs.BytePath>]>
-      readonly reason: Schema.Literals<readonly ["UnrepresentableName", "UnsupportedEntryType", "NameCollision"]>
-    }>
-  >
+  readonly skipped: Schema.$Array<typeof SkippedEntry>
   readonly hardLinksDegraded: Schema.Natural
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L440)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L481)
 
 Since v0.6.0
 
@@ -591,25 +633,10 @@ declare const TreeTransferLimits: Schema.Struct<{
   readonly maxFileBytes: Schema.ByteSize
   readonly maxDepth: Schema.Natural
   readonly maxPathBytes: Schema.ByteSize
-}> & {
-  default: {
-    readonly maxEntries: number
-    readonly maxBytes: ByteSize
-    readonly maxFileBytes: ByteSize
-    readonly maxDepth: number
-    readonly maxPathBytes: ByteSize
-  }
-  constrained: {
-    readonly maxEntries: number
-    readonly maxBytes: ByteSize
-    readonly maxFileBytes: ByteSize
-    readonly maxDepth: number
-    readonly maxPathBytes: ByteSize
-  }
-}
+}> & { default: TreeTransferLimits; constrained: TreeTransferLimits }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L144)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L170)
 
 Since v0.6.0
 
@@ -666,7 +693,7 @@ declare const toCaller: (
 ) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L578)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L621)
 
 Since v0.6.0
 
@@ -720,7 +747,7 @@ declare const toFileSystem: (
 ) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError | PlatformError.PlatformError>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L754)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L797)
 
 Since v0.6.0
 
@@ -771,7 +798,7 @@ declare const toVolume: <E, R>(
 ) => Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R | Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L661)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L704)
 
 Since v0.6.0
 
@@ -825,7 +852,7 @@ declare const fromCaller: (
 ) => Stream.Stream<Entry, TransferError | Vfs.VfsError>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L487)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L530)
 
 Since v0.6.0
 
@@ -874,7 +901,7 @@ declare const fromFileSystem: (
 ) => Stream.Stream<Entry, TransferError | PlatformError.PlatformError>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L706)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L749)
 
 Since v0.6.0
 
@@ -920,6 +947,6 @@ declare const fromSnapshot: (
 ) => Stream.Stream<Entry, TransferError | Vfs.VfsError>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L527)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L570)
 
 Since v0.6.0

@@ -26,7 +26,7 @@ sources:
   - id: host-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Host filesystem round-trip tests
-generated: { by: claude/okf, at: "2026-09-26T14:30:00+02:00" }
+generated: { by: codex/okf, at: "2026-10-02T12:00:00Z" }
 ---
 
 # Tree transfer
@@ -47,7 +47,7 @@ Every source enforces a complete `TreeTransferLimits` policy: `maxEntries`, `max
 
 ## Live sinks
 
-`toCaller` writes entries under a destination path through a caller, with that caller's permissions. The first entry must be the root, every entry's parent must already have been written, and no path component may be empty, `.`, or `..`. Otherwise the sink fails `InvalidEntry`; an empty stream fails too, rather than reporting an empty copy.
+`toCaller` writes entries under a destination path through a caller, with that caller's permissions. The first entry must be the root, every entry's parent must already have been written, and no path component may be empty, `.`, or `..`. Repeated stream paths fail `InvalidEntry` with field `path`, including paths whose first entry was skipped. Overwrite and skip policies never permit duplicates. Otherwise the sink fails `InvalidEntry`; an empty stream fails too, rather than reporting an empty copy.
 
 `existing: "reject"`, the default, creates the destination root exclusively, so an existing destination fails `AlreadyExists` before anything is written. If the transfer then fails or is interrupted, a scope finalizer removes the root it created, restoring owner access to each directory first, and only while the destination is still the object the sink created. Applying final directory modes and times is uninterruptible. If that cleanup fails, the failure joins the transfer's cause as a defect. A crash leaves the partial tree in place. Watchers see the partial tree while the transfer runs.
 
