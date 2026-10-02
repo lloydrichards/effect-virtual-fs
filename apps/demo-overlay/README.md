@@ -39,7 +39,7 @@ Read the demo in this order:
 - [`src/presentation.ts`](src/presentation.ts) formats the terminal output without changing the workspace.
 
 Actor-labelled `read` and `write` lines show which caller used the virtual filesystem. `VFS` lines are native watch events and
-contain only an operation and path—not an actor, content, intent, or history. The final `CHANGE` lines compare the
+contain only an operation and path. They do not include an actor, content, intent, or history. The final `CHANGE` lines compare the
 shared workspace with its immutable base. `RESTORED` lines are read from the captured snapshot after the live
 workspace has changed again.
 
@@ -57,4 +57,4 @@ overlays:
 bun test
 ```
 
-Portable compact deltas remain separate work and are not needed for this in-process collaboration flow.
+For portable changes and merge conflicts, see the [overlay guide](../docs/app/content/guides/overlay-filesystems.mdx).

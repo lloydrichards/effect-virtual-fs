@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: Snapshot delta merge
-description: Accepts a total path-level three-way merge of two snapshot deltas from one base, with conflicts returned as data, field-wise metadata, per-inode hard links and data resolutions, for issue 174.
+description: Accepts a total path-level three-way merge of two snapshot deltas from one base, with conflicts returned as data, field-wise metadata, per-inode hard links and data resolutions.
 status: stable
 tags: [overlay, snapshots, delta, merge, agents, conflicts]
 sources:

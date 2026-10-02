@@ -55,17 +55,16 @@ bun run test
 bun run build
 ```
 
-Run the private scratchpad with:
+## Examples and documentation
 
-```sh
-bun run --filter @repo/scratchpad dev
-```
+- [Getting started](apps/docs/app/content/getting-started.mdx) runs a program with the memory adapter.
+- [Testing guide](apps/docs/app/content/guides/testing-with-an-isolated-filesystem.mdx) covers isolated and seeded tests.
+- [Snapshot search](apps/docs/app/content/guides/snapshot-search.mdx) finds filenames and content in captured state.
+- [Overlay guide](apps/docs/app/content/guides/overlay-filesystems.mdx) combines independent edits with snapshot deltas.
+- [Agent toolkit and MCP demo](apps/demo-agent-tools/README.md) exposes a disposable virtual workspace through MCPJam.
+- [Virtual build example](apps/virtual-build/README.md) runs Vite over virtual files.
 
 Reference repositories under `.reference/` are optional and excluded from builds.
-
-`@repo/virtual-build` is a private example package that demonstrates Vite build and rebuild flows over virtual files.
-
-Try the independent [agent toolkit and MCP example](apps/demo-agent-tools/README.md) to edit a disposable virtual workspace from local MCPJam.
 
 ## License
 

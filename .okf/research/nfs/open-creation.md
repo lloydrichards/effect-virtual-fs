@@ -1,7 +1,7 @@
 ---
 type: Research Report
-title: NFS OPEN creation for issue 125
-description: Records all four internal writable OPEN create modes, atomic verifier storage, and the remaining public release gates.
+title: NFS OPEN creation
+description: Records all four internal writable OPEN create modes, atomic verifier storage, and the public writable export requirements.
 status: draft
 tags: [nfs, open, creation, replay]
 sources:
@@ -32,14 +32,17 @@ sources:
   - id: watch-tests
     resource: ../../../packages/core/test/Watch.test.ts
     title: Core watch event tests
-generated: { by: codex/okf, at: 2026-09-20T11:50:43Z }
+  - id: public
+    resource: ../../../packages/nfs/src/NfsServer.ts
+    title: Public writable export validation
+generated: { by: codex/okf, at: "2026-10-02T10:00:00+00:00" }
 ---
 
-# NFS OPEN creation for issue 125
+# NFS OPEN creation
 
 The internal writable handler supports `UNCHECKED4`, `GUARDED4`, `EXCLUSIVE4`, and `EXCLUSIVE4_1` regular-file creation. It passes the mapped caller, parent reference, name, access, and supported initial size, mode, ownership, and timestamp attributes to `openChildReference`. Core creates and opens the exact object in one staged mutation. An expected-child guard checks the result of the NFS share and budget preflight against the actual child before mutation, including when a direct VFS caller changes the name between those steps. The adapter checks filehandle capacity before that mutation and retains the scoped handle for the NFS open state. The response uses the core directory transition and reports the attributes applied. Session replay returns the cached reply without repeating creation. Read-only exports still reject `OPEN4_CREATE` after structural checks.[^core][^adapter][^dispatcher][^tests]
 
-For an existing `UNCHECKED4` file, the handler ignores create attributes except size zero, which truncates it; this includes unsupported attributes and invalid mode values. `GUARDED4` returns `EXIST` for an existing name before attribute support checks. New files reject unsupported attributes with `ATTRNOTSUPP`. An explicit NFS mode skips the caller's umask because the client has already applied one; core's permission policy still applies. Core's ordinary caller path still applies its configured umask. Filehandle admission permits an existing registered reference at capacity. Initial file sizing publishes one Create event without an earlier Update. Tests cover these boundaries alongside owner upgrades, share denial before truncation, mapped-caller authority, filehandle and file-size capacity, rejected and unknown storage outcomes, interrupted admission, replay, and reopening a confirmed live image. These are internal preparation; the [accepted writable scope](../../decisions/nfs/writable-export-scope.md "constrained by") and durability qualification still gate a public writable export.[^rfc][^umask-rfc][^tests][^watch-tests]
+For an existing `UNCHECKED4` file, the handler ignores create attributes except size zero, which truncates it; this includes unsupported attributes and invalid mode values. `GUARDED4` returns `EXIST` for an existing name before attribute support checks. New files reject unsupported attributes with `ATTRNOTSUPP`. An explicit NFS mode skips the caller's umask because the client has already applied one; core's permission policy still applies. Core's ordinary caller path still applies its configured umask. Filehandle admission permits an existing registered reference at capacity. Initial file sizing publishes one Create event without an earlier Update. Tests cover these boundaries alongside owner upgrades, share denial before truncation, mapped-caller authority, filehandle and file-size capacity, rejected and unknown storage outcomes, interrupted admission, replay, and reopening a confirmed live image. Public writable exports require a qualified `survives-power-loss` volume and explicit identity policy under the [accepted writable scope](../../decisions/nfs/writable-export-scope.md "constrained by").[^rfc][^umask-rfc][^tests][^watch-tests][^public]
 
 Both exclusive modes store the eight-byte verifier as two whole-second values in the new file's access and modification timestamps. The verifier, file, and initial attributes enter one core candidate and one storage commit. A matching retry opens the existing file without reapplying creation attributes. A different verifier returns `EXIST`. Later changes to the stored timestamps can end verifier matching. The reply reports `time_access` and `time_modify` as the verifier attributes.[^rfc][^exclusive-tests]
 
@@ -47,7 +50,7 @@ Both exclusive modes store the eight-byte verifier as two whole-second values in
 
 NFS observes the child before checking its share reservations and verifier. Core's `expectedChild` condition compares that exact reference, revision, and both timestamps under the volume gate before opening or mutating it. Timestamp comparison matters because reads can change access time without advancing the revision. A changed observation returns retryable `DELAY` without altering the replacement file.[^core][^adapter]
 
-Tests use an injected live-image store to prove that confirmed creation reopens with its verifier, rejected commits publish no file or reservation, and unknown outcomes block access. Cancellation during commit releases any acquired handle and leaves a consumed replay slot. This evidence does not qualify physical power-loss durability or persistent NFS session recovery. Public writable integration remains in #48, storage qualification in #144, and session recovery in #50.[^exclusive-tests]
+Tests use an injected live-image store to prove that confirmed creation reopens with its verifier, rejected commits publish no file or reservation, and unknown outcomes block access. Cancellation during commit releases any acquired handle and leaves a consumed replay slot. This evidence does not qualify physical power-loss durability or persistent NFS session recovery. The public server enables writable dispatch only for a qualified volume and explicit identity policy. Storage qualification and persistent session recovery remain separate requirements.[^exclusive-tests]
 
 [^core]: `OpenChildReferenceSettings`, `Caller.openChildReference`, and the staged `coordinated` mutation.
 
@@ -59,8 +62,10 @@ Tests use an injected live-image store to prove that confirmed creation reopens 
 
 [^dispatcher]: `decodeOperation` and `case "Open"` in `nfs4.ts`.
 
-[^tests]: `NfsOpenCreate.test.ts` exercises the internal writable flag; the public server does not enable it.
+[^tests]: `nfs4.test.ts` exercises writable OPEN creation and read-only rejection.
 
 [^rfc]: RFC 8881 Section 18.16.3 defines ordinary, guarded, and exclusive create behavior.
 
 [^exclusive-tests]: `NfsCreate.test.ts` exercises both exclusive modes, attribute restrictions, replay, stored-image recovery, and cancellation during commit.
+
+[^public]: `NfsServer.make` requires power-loss durability and an explicit identity policy for `writable: true`.

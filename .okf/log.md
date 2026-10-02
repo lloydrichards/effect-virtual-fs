@@ -2,6 +2,8 @@
 
 ## 2026-10-02
 
+- **Release knowledge cleanup**: Rename NFS operation reports and search maintenance guidance by concept. Correct the NFS reports to reflect guarded public writable exports. Remove the root documentation scratch directory, including historical benchmarks and completed planning notes. Ground retained search knowledge in current code and tests; remove measurement claims that depended on deleted artifacts.
+
 - **Snapshot delta merge (#174)**: Core merges two deltas from one base path by path, taking undisputed changes, combining metadata with content, merging hard links per node and returning conflicts and resolutions as data. The decision records the thirteen grilled choices, the delta contract records the rules, and the deferred-capabilities profile and delta research now hold only rebase and text-level merge open.
 
 - **Repeated transfer paths**: All sinks reject repeated incoming paths as `InvalidEntry`, independently of overwrite and unsupported-entry skip policies. The contract distinguishes stream validity from destination conflicts.

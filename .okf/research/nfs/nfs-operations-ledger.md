@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: NFS operations ledger
-description: Maps every RFC 8881 forward and callback operation to its requirement level, owning profile, current support, intended behavior, evidence, and follow-up issue.
+description: Maps every RFC 8881 forward and callback operation to its requirement level, owning profile, current support, intended behavior, evidence, and remaining work.
 status: draft
 tags: [nfs, ledger, operations, rfc8881]
 sources:
@@ -36,7 +36,7 @@ generated: { by: claude-code, at: "2026-09-26T13:20:00+02:00" }
 
 Rows follow RFC 8881 Table 16 and Table 17.[^rfc8881-17] Status uses the vocabulary from the [NFS profile ladder](../../decisions/nfs/nfs-profile-ladder.md "implements"): `supported`, `partial`, `rejected(error)`, `deferred(profile)`, `gap(issue)`, `excluded`, `planned`, `not-applicable`. "Required by" names the first profile in which the operation must do real work; a REQUIRED operation that a read-only export must merely reject correctly is required by `read-only-local` for rejection and by a later profile for implementation. Current support describes the dispatcher today.[^dispatcher] Evidence names the focused test file (`Nfs4.test`, `Profile.test`), the pynfs baseline (`pynfs`), or a client result.
 
-The default public export rejects CREATE, LINK, REMOVE, RENAME, and SETATTR as read-only. The guarded public `writable: true` option enables the internal writable handlers for a qualified power-loss-durable volume and an explicit identity policy. [Issue #126 wire tests](namespace-metadata-issue-126.md "refined by") exercise these operations; the table's rejected status describes the default read-only profile.
+The default public export rejects CREATE, LINK, REMOVE, RENAME, and SETATTR as read-only. The guarded public `writable: true` option enables the internal writable handlers for a qualified power-loss-durable volume and an explicit identity policy. [Namespace and metadata behavior](namespace-and-metadata.md "refined by") exercise these operations; the table's rejected status describes the default read-only profile.
 
 ## Forward operations (Table 16)
 

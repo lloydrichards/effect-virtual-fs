@@ -20,7 +20,7 @@ sources:
   - id: encoder
     resource: ../../../packages/nfs/src/internal/nfs4.ts
     title: GETATTR owner-string encoder
-generated: { by: codex/okf, at: 2026-09-26T10:00:00Z }
+generated: { by: codex/okf, at: "2026-10-02T10:00:00+00:00" }
 ---
 
 # Writable NFS owner strings
@@ -33,7 +33,7 @@ Translating a string does not authorize a change. The existing application polic
 
 An unprivileged caller must own the object, cannot change its uid, and may set its gid only to the caller's primary or supplementary groups. A privileged caller may set either ID within the accepted range. Translation does not require a local account lookup.[^core]
 
-This decision settled [#77](https://github.com/lloydrichards/effect-virtual-fs/issues/77) for implementation in [#126](https://github.com/lloydrichards/effect-virtual-fs/issues/126). The [internal writable handler](../../research/nfs/namespace-metadata-issue-126.md "implemented by") now parses both attributes and tests exact `SETATTR` to `GETATTR` round trips, malformed and out-of-range `BADOWNER` rejections, and ownership denials reported as `PERM`. Tests cover primary and supplementary groups and verify that uid zero alone grants no privilege. Public writable exports remain gated by #144 and #48.
+The [internal writable handler](../../research/nfs/namespace-and-metadata.md "implemented by") now parses both attributes and tests exact `SETATTR` to `GETATTR` round trips, malformed and out-of-range `BADOWNER` rejections, and ownership denials reported as `PERM`. Tests cover primary and supplementary groups and verify that uid zero alone grants no privilege. Public writable exports require a qualified power-loss-durable volume and an explicit identity policy.
 
 [^issue]: Issue #77 records the deferred reverse-translation choice; the user accepted decimal-only translation on 2026-09-20.
 

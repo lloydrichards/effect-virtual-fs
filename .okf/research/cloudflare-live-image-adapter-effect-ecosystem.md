@@ -59,13 +59,22 @@ sources:
   - id: do-driver
     resource: https://github.com/Effect-TS/effect/blob/main/packages/sql/sqlite-do/src/SqliteClient.ts
     title: Current Effect Durable Object SQLite driver
+  - id: alchemy-adapter
+    resource: ../../apps/demo-alchemy/src/from-alchemy.ts
+    title: Native Alchemy Worker image adapter
+  - id: alchemy-tests
+    resource: ../../apps/demo-alchemy/test/FromAlchemy.test.ts
+    title: Conditional writes and image metadata tests
+  - id: alchemy-worker
+    resource: ../../apps/demo-alchemy/src/notebook-worker.ts
+    title: Worker notebook lifecycle
   - id: alchemy-r2
     resource: https://alchemy.run/cloudflare/data/r2/
     title: Alchemy R2 provisioning and Effect runtime clients
   - id: alchemy-do
     resource: https://alchemy.run/cloudflare/compute/durable-objects/
     title: Alchemy Durable Object deployment and typed RPC
-generated: { by: codex/okf, at: 2026-09-21T14:29:00Z }
+generated: { by: codex/okf, at: "2026-10-02T10:00:00+00:00" }
 ---
 
 # Effect integration choices for a Cloudflare live image store
@@ -87,7 +96,9 @@ The official v4 source tree currently contains `@effect/sql-d1` and `@effect/sql
 
 ## Alchemy
 
-Alchemy now covers more than resource deployment. Its current R2 API provisions a bucket and supplies Effect-based `ReadBucket`, `WriteBucket`, and `ReadWriteBucket` capabilities. It also offers D1 bindings and typed Durable Object methods. Its `alchemy@2.0.0-beta.77` peer dependency accepts this repository's Effect `rc.114`. However, inspection of the installed `R2/WriteBucketHttp.ts` implementation found that it omits `onlyIf` and `customMetadata` from HTTP `put` requests, even though the `WriteBucketClient` interface accepts them. The Bun-hosted NFS process would use that HTTP path, so this version cannot safely perform the required conditional image replacement through Alchemy's R2 client. The Worker binding path is separate. Alchemy remains useful for provisioning or a future Durable Object coordinator; the current prototype uses the AWS S3 SDK for R2 transport. Neither client supplies this repository's `LiveImageStore` commit protocol, ownership, recovery, or NFS durability proof. [Alchemy R2](https://alchemy.run/cloudflare/data/r2/), [Alchemy Durable Objects](https://alchemy.run/cloudflare/compute/durable-objects/), [Cloudflare conditional R2 writes](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/).
+Alchemy provisions R2 buckets and provides Effect binding clients. The repository's Worker demo adapts the native `ReadWriteBucketClient` in `from-alchemy.ts`. It preserves image generation and digest metadata, ETags, and conditional creation or replacement. A failed condition remains distinct from a storage failure. `FromAlchemy.test.ts` covers the adapter behavior. The Worker notebook flow creates, reopens, updates, and deletes images through the binding.[^alchemy-adapter][^alchemy-tests][^alchemy-worker]
+
+The native Worker binding and Alchemy's HTTP or local clients are separate paths. The adapter requires the native binding because the HTTP and local paths do not forward the conditional-write and custom-metadata fields needed for live images. Local applications can use `R2LiveImageStore.fromS3`. Neither provisioning nor binding a bucket supplies volume ownership, uncertain-outcome recovery, or NFS storage qualification by itself.[^alchemy-adapter]
 
 ## Practical first experiment
 
@@ -100,3 +111,9 @@ Cloudflare documents a one-per-second limit for **concurrent** writes to the sam
 The basic adapter is small because the core supplies image serialization and staged mutation. The larger work is proving exclusive ownership, stale-writer fencing, recovery from ambiguous writes, size and throughput under whole-image replacement, and the stable-write guarantee through the NFS response path. A Durable Object can supply a serialized owner, but using it as the authoritative volume rather than a remote store changes the gateway design. [Existing Cloudflare feasibility note](cloudflare-durable-object-live-image.md "builds on").
 
 The [writable NFS test app](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/nfs-r2-writable-test/README.md) now uses public `NfsServer.make({ writable: true })` with a verified R2 S3 endpoint, an explicit one-identity policy, and a bounded image. The public constructor rejects `memory-only` volumes; the app explicitly asserts `survives-power-loss` from Cloudflare's documented rule that a successful R2 API write has been persisted to disk. The application must run one gateway for the image; there is no distributed lease. On 2026-09-21 independent macOS and Debian NFSv4.1 clients passed alternating writes and visibility; Debian passed acknowledged `fsync` plus gateway `SIGKILL` recovery. Through the public profile, Debian passed write, `fsync`, rename, readback, and fresh-process reopen. A real HTTP fault discarded R2's successful response during a file-content `WRITE`: Debian received `EIO`, and a fresh gateway recovered the complete new bytes. Another fault during `mkdir` returned `EIO`, refused the next mutation, and recovered only the first directory. The first mount earlier revealed a missing mapped-caller write grant in NFS `ACCESS`; that has a regression test. This evidence supports the narrow single-gateway R2 profile, but it does not test Cloudflare's physical infrastructure or provide unattended client state recovery. [R2 durability](https://developers.cloudflare.com/r2/reference/durability/).
+
+[^alchemy-adapter]: `fromAlchemy` adapts native R2 reads and conditional writes with image metadata.
+
+[^alchemy-tests]: In-memory native-binding tests exercise image metadata and ETag conditions.
+
+[^alchemy-worker]: The notebook Worker owns request authentication and image lifecycle.

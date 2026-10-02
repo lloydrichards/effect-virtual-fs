@@ -1,7 +1,7 @@
 ---
 type: Decision
-title: Snapshot search
-description: Accepts snapshot-only search with Unicode globs, explicit native regex, typed Streams and bounded report collectors for issue 173; filename and content search are implemented.
+title: Snapshot search design
+description: Accepts snapshot-only search with Unicode globs, explicit native regex, typed Streams and bounded report collectors with implemented filename and content queries.
 status: stable
 tags: [core, search, glob, snapshots, agents, limits]
 sources:
@@ -26,12 +26,12 @@ sources:
 generated: { by: codex/okf, at: 2026-10-02T08:55:40Z }
 ---
 
-# Snapshot search
+# Snapshot search design
 
 Accepted by the user on 2026-10-01 for [issue #173](https://github.com/lloydrichards/effect-virtual-fs/issues/173).
 Filename and content search are implemented by [the snapshot search contract](../contracts/snapshot-search.md "implemented by").
 The contract and focused tests record the implemented behavior; release publication is separate.
-The [research](../research/search-and-glob.md "evidenced by") retains the source findings and measurements.
+The [research](../research/search-and-glob.md "evidenced by") retains source findings and current test evidence.
 
 ## Ownership and authority
 

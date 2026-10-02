@@ -16,29 +16,17 @@ for the exact permission, path, timestamp, quota, and atomicity rules.
 npm install @effect-vfs/core@latest
 ```
 
-The package declares its exact Effect version as a peer dependency. Volume constructors and snapshot delta functions require Effect’s `Crypto` service. On Node, install the matching
+The package declares its exact Effect version as a peer dependency. Volume constructors and snapshot delta functions require Effect's `Crypto` service. On Node, install the matching
 provider and supply `NodeCrypto.layer` when running these effects:
 
 ```sh
 npm install "@effect/platform-node-shared@$(npm view @effect-vfs/core peerDependencies.effect)"
 ```
 
-## The mental model
-
-The API has three levels:
-
-- A `Volume` owns one isolated namespace and its file contents.
-- A `Caller` accesses that volume with its own identity, umask, and current directory.
-- File and directory handles are scoped capabilities. Effect closes them when their scope ends.
-
-Callers created from the same volume see the same files. A new volume starts with independent state. This separation
-lets you model access by several users without reaching for process globals or the host filesystem.
-
 ## Create an isolated workspace
 
-This example creates a bounded workspace, gives an unprivileged caller access to one directory, and uses a scoped file
-handle to read the result. It demonstrates the main benefit of the core API: storage, credentials, limits, and resource
-lifetime are explicit values that can be composed in one Effect program.
+A volume owns the files. A caller supplies identity, permissions, and a working directory. Scoped handles close when
+their Effect scope ends. This example gives an unprivileged caller access to one directory in a bounded volume.
 
 ```ts
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
@@ -89,230 +77,19 @@ callers default to umask `0o022`; the developer's `0o027` mask turns the request
 The root package exports `VirtualFileSystem` as a namespace. The equivalent direct module import is
 `import * as Vfs from "@effect-vfs/core/VirtualFileSystem"`.
 
-## Preserve path bytes exactly
+## Guides and reference
 
-JavaScript strings cannot represent every filename allowed by a byte-oriented filesystem. `BytePath` keeps arbitrary
-non-NUL path bytes intact. This matters when reproducing archives, protocol fixtures, or Unix directory trees that
-contain names which are not valid UTF-8.
+- [Fixtures and snapshots](../../apps/docs/app/content/guides/fixtures-and-snapshots.mdx) covers seeded trees, codecs, and portable deltas.
+- [Overlay workspaces](../../apps/docs/app/content/guides/overlay-filesystems.mdx) covers independent edits and `mergeSnapshotDeltas` conflicts.
+- [Snapshot search](../../apps/docs/app/content/guides/snapshot-search.mdx) covers filename globs, content matches, and bounded results.
+- [Filesystem model](../../apps/docs/app/content/concepts/filesystem-model.mdx) explains callers, handles, permissions, and byte paths.
+- [API reference](../../apps/docs/app/content/api/core/virtual-file-system.mdx) lists constructors, services, and operations.
 
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { Effect } from "effect"
+## Limits
 
-const program = Effect.gen(function*() {
-  const volume = yield* Vfs.make()
-  const fs = yield* volume.caller()
+The package is experimental. Public APIs may change between minor releases.
 
-  // Absolute path whose final component is the single byte 0xff.
-  const opaquePath = yield* Vfs.pathFromBytes(new Uint8Array([0x2f, 0xff]))
-  yield* fs.writeFile(opaquePath, new Uint8Array([1, 2, 3]), {
-    access: "write",
-    create: "exclusive"
-  })
-
-  const listing = yield* fs.readDirectory("/")
-  const roundTrip = yield* Vfs.pathToBytes(opaquePath)
-  return { names: listing.value.map((entry) => Array.from(entry.name)), roundTrip: Array.from(roundTrip) }
-})
-
-console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))))
-// { names: [[255]], roundTrip: [47, 255] }
-```
-
-The constructors and byte-returning operations copy their buffers, so later mutation cannot change stored paths.
-Directory listings, symbolic-link targets, and resolved paths come back as bytes; decoding them to text is the caller's
-choice, and a strict decoder reports a name that is not valid UTF-8.
-
-## Build fixtures and restore snapshots
-
-Fixtures make tests deterministic without a setup sequence. Snapshots let you capture that prepared state, serialize
-it, and create independent workspaces from the same image. This is useful for test isolation, preview environments, and
-resettable sandboxes.
-
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { Effect } from "effect"
-import * as ByteSize from "effect/ByteSize"
-
-const decodeLimits = {
-  maxEncodedBytes: ByteSize.megabytes(1),
-  maxRecords: 1_000,
-  maxEntries: 1_000,
-  maxDecodedBytes: ByteSize.megabytes(1)
-}
-
-const program = Effect.gen(function*() {
-  const template = yield* Vfs.fromFixture({
-    entries: [
-      { kind: "directory", path: "/project" },
-      {
-        kind: "file",
-        path: "/project/settings.json",
-        bytes: new TextEncoder().encode("{\"theme\":\"dark\"}")
-      }
-    ]
-  })
-
-  const encoded = yield* Vfs.encodeSnapshot(yield* template.snapshot)
-  const snapshot = yield* Vfs.decodeSnapshot(encoded, decodeLimits)
-  const workspaceA = yield* Vfs.fromSnapshot(snapshot)
-  const workspaceB = yield* Vfs.fromSnapshot(snapshot)
-  const a = yield* workspaceA.caller()
-  const b = yield* workspaceB.caller()
-
-  yield* a.writeFile("/project/settings.json", new TextEncoder().encode("{\"theme\":\"light\"}"), {
-    access: "write",
-    truncate: true
-  })
-
-  return new TextDecoder().decode(yield* b.readFile("/project/settings.json"))
-})
-
-console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))) // {"theme":"dark"}
-```
-
-Fixture paths must be absolute and unique, and parent directories must be listed explicitly. Fixtures can also contain
-symbolic links, metadata, and forward hard links.
-
-Snapshot decoding requires explicit work limits because encoded bytes may come from an untrusted source. A snapshot
-contains the reachable namespace and metadata. It excludes callers, open handles, cursor positions, watch
-subscriptions, and unlinked content. Each restored volume is independent.
-
-## Overlays and snapshot deltas
-
-An overlay creates a writable workspace from an immutable snapshot. Untouched file bytes remain shared until a
-workspace edits them. See the [overlay guide](../../apps/docs/app/content/guides/overlay-filesystems.mdx) for the
-workflow and conflict rules.
-
-Snapshot deltas encode exact changes between compatible images. They have separate decode and application limits;
-check those limits before accepting an untrusted delta. See the
-[snapshot delta API](../../apps/docs/app/content/api/core/snapshot-delta.mdx) for operations and defaults.
-
-## Use scoped handles for incremental I/O
-
-Whole-file operations are convenient, but handles give each open file an independent `bigint` cursor and support
-incremental reads, positional I/O, seeking, and truncation. `Effect.scoped` guarantees cleanup on success, failure, or
-interruption.
-
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { Effect } from "effect"
-
-const program = Effect.scoped(Effect.gen(function*() {
-  const fs = yield* (yield* Vfs.make()).caller()
-  yield* fs.writeFile("/events.log", new TextEncoder().encode("one\ntwo\n"), {
-    access: "write",
-    create: "exclusive"
-  })
-
-  const file = yield* fs.open("/events.log", { access: "read" })
-  const first = yield* file.read(4) // Advances this handle's cursor.
-  const second = yield* file.read(4)
-  const preview = yield* file.pread(3, 0n) // Does not move the cursor.
-
-  const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
-
-  // A positioned read also says whether it reached the end of the file.
-  return [decode(first), decode(second), decode(preview.bytes), preview.eof]
-}))
-
-console.log(await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))) // ["one\n", "two\n", "one", false]
-```
-
-Handles also expose an explicit `close` effect when early release matters. Calling explicit close twice fails, while
-scope cleanup remains safe after an explicit close.
-
-## Handle expected failures as data
-
-Every failure is a `VfsError` with a stable `code` and the `operation` that failed. A rejected option names its
-`field`, a path-addressed failure names its `path` as bytes, and a classified failure keeps its `cause`. Codec and
-store failures share the class with their own codes. Interruption and defects remain separate from these expected
-failures.
-
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { Effect } from "effect"
-
-const program = Effect.gen(function*() {
-  const fs = yield* (yield* Vfs.make()).caller()
-
-  return yield* fs.readFile("/optional.json").pipe(
-    Effect.catchTag("VfsError", (error) =>
-      error.code === "NotFound"
-        ? Effect.succeed(new TextEncoder().encode("{}"))
-        : Effect.fail(error))
-  )
-})
-
-const bytes = await Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer)))
-console.log(new TextDecoder().decode(bytes)) // {}
-```
-
-## Provide a volume and a caller as Effect services
-
-`Volume` and `Caller` are services with static layers. `Volume.layer()` builds a fresh empty volume,
-`Volume.layerFromSnapshot`, `Volume.layerFromFixture` and `Volume.layerOverlay` build one from existing state, and
-`Volume.layerLive` opens a durable one through the `LiveImageStore` in context. `Caller.layer(options)` makes a root
-caller on the volume in context. A caller supplied through the service keeps its original volume, identity, umask and
-working directory.
-
-```ts
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
-import { Effect } from "effect"
-
-const loadConfig = Effect.gen(function*() {
-  const fs = yield* Vfs.Caller
-  return yield* fs.readFile("/app/config.json")
-})
-
-const program = Effect.gen(function*() {
-  const fs = yield* Vfs.Caller
-  yield* fs.mkdir("/app")
-  yield* fs.writeFile("/app/config.json", new TextEncoder().encode("{}"), {
-    access: "write",
-    create: "exclusive"
-  })
-  return yield* loadConfig
-})
-
-const bytes = await Effect.runPromise(
-  program.pipe(Effect.provide(Vfs.Caller.layer()), Effect.provide(Vfs.Volume.layer()), Effect.provide(NodeCrypto.layer))
-)
-console.log(new TextDecoder().decode(bytes)) // {}
-```
-
-## When to use core or memory
-
-Choose `@effect-vfs/core` when you need direct access to volumes, callers, credentials, byte paths, quotas, watches,
-fixtures, or snapshots. Choose `@effect-vfs/memory` when existing code expects Effect's `FileSystem` service and you
-want an in-memory implementation. The memory adapter is built on this core, so you can create a core volume and bind
-the adapter to it when you need both interfaces.
-
-## Compatibility and behavioral limits
-
-This package is experimental. Its public API may change between minor releases while Effect v4 remains a release
-candidate.
-
-- Components are limited to 255 bytes. Symbolic-link traversal is limited to 40 links.
-- Omitted logical quotas are unbounded by configuration, apart from fixed file and component bounds.
-- Absolute paths ignore a supplied directory base. Relative paths can use a live, same-volume directory handle.
-- Operations coordinate through one permit per volume. At most 65 operations are admitted at once by
-  default, including the active operation; set `maxPendingOperations` to change the waiting budget.
-  Excess work fails with retryable `VfsError` code `VolumeBusy`
-  before mutation or storage commit. Interruption while waiting makes no change; interruption after a commit
-  does not roll it back.
-- Each watch subscriber retains at most 256 events by default; set `maxWatchEvents` to change this bound
-  (minimum 2). A subscriber that loses events receives `Rescan` with path `/` after its buffered events.
-  Rescan the volume, then continue consuming the watch; repeat the scan if another `Rescan` arrives.
-  Delivered events retain their order. The memory `FileSystem.watch` stream fails with a platform error
-  identified by `MemoryFileSystem.isWatchOverflow`. Open a new watch before rescanning its path so changes
-  during the scan remain observable.
-- `sync` checks handle liveness. An in-memory volume provides no host or crash durability.
-
-For the complete contract, read the
-[implemented profile](https://github.com/lloydrichards/effect-virtual-fs/blob/main/.okf/profiles/implemented-filesystem.md).
+Paths preserve arbitrary non-NUL bytes. Components are limited to 255 bytes, and symlink traversal to 40 links.
+Volume options bound entries, file sizes, pending operations, and watch queues. In-memory volumes provide no host or
+crash durability. See [compatibility and limits](../../apps/docs/app/content/reference/compatibility-and-limits.mdx)
+for the complete contract.

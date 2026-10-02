@@ -99,5 +99,4 @@ bun run test:live
 The live check covers authentication, creation, reopening in a separate request, deletion, and the final 404. The local
 test suite does not require Cloudflare credentials.
 
-See [the Alchemy R2 research note](../../docs/research/alchemy-r2-effect.md) for the adapter contract and validation
-evidence.
+See the [R2 store reference](../docs/app/content/api/persistence/r2-live-image-store.mdx) for the image-store contract.
