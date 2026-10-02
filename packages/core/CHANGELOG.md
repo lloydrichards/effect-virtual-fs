@@ -1,5 +1,89 @@
 # @effect-vfs/core
 
+## 0.8.0
+
+### Minor Changes
+
+- [#261](https://github.com/lloydrichards/effect-virtual-fs/pull/261) [`d861a32`](https://github.com/lloydrichards/effect-virtual-fs/commit/d861a3202dae7b297559a5de4729f8a7191ee18d) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `Search.glob` finds snapshot paths with Unicode-aware globs and reports coverage and skipped entries. Use `Search.scanGlob` to stream paths.
+
+  ```ts
+  import { Search, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+  import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+  import { Effect, Stream } from "effect"
+
+  const program = Effect.gen(function*() {
+    const volume = yield* Vfs.fromFixture({
+      entries: [{ kind: "file", path: "/😀.ts", bytes: new Uint8Array() }]
+    })
+    const snapshot = yield* volume.snapshot
+    const query = { root: "/", include: ["?.ts"] } as const
+    const report = yield* Search.glob(snapshot, query)
+    const paths = yield* Stream.runCollect(Search.scanGlob(snapshot, query))
+    return { report, paths }
+  })
+
+  Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
+  ```
+
+- [`33beb85`](https://github.com/lloydrichards/effect-virtual-fs/commit/33beb859f47965971b4275d93b6e2dd19c7e5ad6) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `mergeSnapshotDeltas` combines changes from two deltas built against the same base snapshot. Conflicts appear in the result, and `resolutions` can select either side for each conflict.
+
+  ```ts
+  import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+  import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+  import { Effect } from "effect"
+
+  const program = Effect.gen(function*() {
+    const volume = yield* Vfs.fromFixture({ entries: [] })
+    const base = yield* volume.snapshot
+    const ours = yield* Vfs.makeOverlay(base)
+    const theirs = yield* Vfs.makeOverlay(base)
+    const bytes = new TextEncoder().encode("hello")
+    yield* (yield* ours.caller()).writeFile("/ours.txt", bytes, { access: "write", create: "exclusive" })
+    yield* (yield* theirs.caller()).writeFile("/theirs.txt", bytes, { access: "write", create: "exclusive" })
+    const result = yield* Vfs.mergeSnapshotDeltas(
+      base,
+      yield* Vfs.diffSnapshots(base, (yield* ours.capture()).snapshot),
+      yield* Vfs.diffSnapshots(base, (yield* theirs.capture()).snapshot)
+    )
+    const merged = yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(base, result.delta))
+    return new TextDecoder().decode(yield* (yield* merged.caller()).readFile("/theirs.txt"))
+  })
+
+  Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
+  // hello
+  ```
+
+- [`8c410e7`](https://github.com/lloydrichards/effect-virtual-fs/commit/8c410e7877cf81f0fa1713d7eece13a9dd0caa0d) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Search snapshot content with `Search.lines`, `Search.files`, or `Search.countLines`. Each returns a report with coverage and skipped entries. Their `scan*` counterparts stream results.
+
+  ```ts
+  import { Search, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+  import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+  import { Effect, Stream } from "effect"
+
+  const program = Effect.gen(function*() {
+    const volume = yield* Vfs.fromFixture({
+      entries: [{ kind: "file", path: "/note.ts", bytes: new TextEncoder().encode("// TODO: finish\n") }]
+    })
+    const snapshot = yield* volume.snapshot
+    const query = {
+      root: "/",
+      include: ["**/*.ts"],
+      pattern: Search.Pattern.cases.Literal.make({ pattern: "TODO" })
+    } as const
+    const report = yield* Search.lines(snapshot, query)
+    const paths = yield* Stream.runCollect(Search.scanFiles(snapshot, query))
+    return { report, paths }
+  })
+
+  Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
+  ```
+
+### Patch Changes
+
+- [`7b8d32c`](https://github.com/lloydrichards/effect-virtual-fs/commit/7b8d32c2c85601159abf5544fa8cb2e4bbdbf4d6) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Durable handle cleanup persists reclaimed space even when the pending-operation limit is full, and stops the volume if persistence fails.
+
+- [`c9c1678`](https://github.com/lloydrichards/effect-virtual-fs/commit/c9c167890271e21587ff3ab60f8d34f978d46f51) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Durable volumes now enforce pending-operation and watch-event limits and compare default capacity limits consistently.
+
 ## 0.7.1
 
 ### Patch Changes

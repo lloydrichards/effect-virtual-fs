@@ -1,5 +1,12 @@
 # @effect-vfs/persistence
 
+## 0.8.0
+
+### Patch Changes
+
+- Updated dependencies [[`d861a32`](https://github.com/lloydrichards/effect-virtual-fs/commit/d861a3202dae7b297559a5de4729f8a7191ee18d), [`33beb85`](https://github.com/lloydrichards/effect-virtual-fs/commit/33beb859f47965971b4275d93b6e2dd19c7e5ad6), [`7b8d32c`](https://github.com/lloydrichards/effect-virtual-fs/commit/7b8d32c2c85601159abf5544fa8cb2e4bbdbf4d6), [`c9c1678`](https://github.com/lloydrichards/effect-virtual-fs/commit/c9c167890271e21587ff3ab60f8d34f978d46f51), [`8c410e7`](https://github.com/lloydrichards/effect-virtual-fs/commit/8c410e7877cf81f0fa1713d7eece13a9dd0caa0d)]:
+  - @effect-vfs/core@0.8.0
+
 ## 0.7.1
 
 ### Patch Changes
