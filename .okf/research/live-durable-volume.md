@@ -210,7 +210,7 @@ This boundary does not make the compound a transaction. If a later operation fai
 
 With `cachethis=false`, retain the consumed-slot record and return `NFS4ERR_RETRY_UNCACHED_REP` on retry instead of rerunning mutations. Fatal unknown storage outcomes invalidate the affected export/session lifetime, even if no final reply can be formed. A crash after storage commit but before replay publication requires remount; this proposal does not promise exactly-once execution across restart or durable session state. #50 owns that extension.
 
-Both exclusive `OPEN` create modes commit their verifier and required creation attributes in the same candidate as the file. NFS interprets the verifier; core stores its timestamp encoding. The [OPEN creation contract](nfs/open-create-issue-125.md "refined by") records the implemented modes, attribute restrictions, conditional child checks, and recovery evidence. Public writable dispatch still depends on the accepted scope and qualified storage.[^rfc]
+Both exclusive `OPEN` create modes commit their verifier and required creation attributes in the same candidate as the file. NFS interprets the verifier; core stores its timestamp encoding. The [OPEN creation contract](nfs/open-creation.md "refined by") records the implemented modes, attribute restrictions, conditional child checks, and recovery evidence. Public writable dispatch still depends on the accepted scope and qualified storage.[^rfc]
 
 ## Resource bounds
 

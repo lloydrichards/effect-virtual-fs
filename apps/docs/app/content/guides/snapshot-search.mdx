@@ -1,7 +1,8 @@
 # Search filenames and content in a snapshot
 
-Use `Search.glob` to collect filenames with work and skip counts. Use `Search.scanGlob` to consume matching paths as
-an Effect Stream. Both search one explicit immutable snapshot without reading file contents or updating filesystem state.
+Search an immutable snapshot by filename or text content. `Search.glob` collects matching paths with work and skip
+counts. `Search.scanGlob` emits paths as an Effect Stream. Use `Search.lines`, `Search.files`, or `Search.countLines`
+for content matches. None of these operations changes the filesystem.
 
 ## Collect matches and check completion
 

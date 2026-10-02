@@ -1,6 +1,6 @@
 ---
 type: Decision
-title: Tree transfer
+title: Tree transfer design
 description: Moves directory trees as Effect streams of fixture entries owned by the memory package, with bounded sources, rejecting sinks, and atomic new volumes.
 status: stable
 tags: [memory, transfer, interop, streams]
@@ -26,7 +26,7 @@ sources:
 generated: { by: claude/okf, at: "2026-10-02T13:25:00+02:00" }
 ---
 
-# Tree transfer
+# Tree transfer design
 
 A tree transfer is an Effect `Stream` of core fixture entries, rooted at the transfer root, run into a `Sink`. Users pass capabilities they already hold. There is no separate port interface for adapters to implement. The existing fixture entry type already carries byte paths, nanosecond timestamps, owners, symbolic-link target bytes, and hard links, so it is the only interchange type. Filtering, merging several roots, and progress use Effect's own `Stream` operators rather than transfer options. The [tree transfer contract](../contracts/tree-transfer.md "specifies") owns the exact rules.
 

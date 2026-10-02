@@ -1,6 +1,6 @@
 # Research
 
-- [Snapshot search and glob research](search-and-glob.md) retains the direct-scan benchmark, transfer recipe limitations, and native-regex Effect precedent supporting the accepted design for #173.
+- [Snapshot search and glob research](search-and-glob.md) records fixture recipe limitations, current search tests, and native-regex execution boundaries.
 
 - [Bounded POSIX requirements](posix-requirements.md) records the standards frame used to define and test the core without claiming full POSIX conformance.
 - [Effect adapter compatibility](effect-compatibility.md) retains the reasoning behind the adapter boundary that the memory-adapter contract now owns.
@@ -19,8 +19,8 @@
 - [NFS operations ledger](nfs/nfs-operations-ledger.md) maps every RFC 8881 operation to profile, status, and follow-up issue.
 - [NFS attributes ledger](nfs/nfs-attributes-ledger.md) does the same for REQUIRED and RECOMMENDED attributes.
 - [NFS protocol rules ledger](nfs/nfs-protocol-rules-ledger.md) covers cross-cutting requirements, errata, and the client matrix.
-- [NFS WRITE and COMMIT design](nfs/write-commit-issue-127.md) records protocol facts, staged behavior, accepted decisions, and remaining prerequisites for issue #127.
-- [NFS OPEN creation](nfs/open-create-issue-125.md) records all four internal create modes, atomic verifier storage, and the remaining public release gates.
-- [NFS namespace and metadata mutations](nfs/namespace-metadata-issue-126.md) records internal CREATE, LINK, REMOVE, RENAME, and SETATTR behavior and its wire evidence.
+- [NFS WRITE and COMMIT design](nfs/write-and-commit.md) records protocol facts, staged behavior, accepted decisions, and storage qualification requirements.
+- [NFS OPEN creation](nfs/open-creation.md) records all four internal create modes, atomic verifier storage, and the public writable export requirements.
+- [NFS namespace and metadata mutations](nfs/namespace-and-metadata.md) records internal CREATE, LINK, REMOVE, RENAME, and SETATTR behavior and its wire evidence.
 
 Path-workload measurements are not a separate concept. Their durable conclusion is represented by the accepted optional total-path-limit decision: repository workloads do not justify a universal fixed cap.

@@ -114,35 +114,27 @@ code when creating those directories is part of the application's job, as it is 
 
 ## Seed the preconditions your test asserts
 
-Use `Vfs.fromFixture` to describe existing files, then bind that volume to Effect's filesystem service. The following
-layer works with the currently published `@effect-vfs/memory@0.7.1`:
+Use `MemoryFileSystem.layerFromFixture` to provide Effect's filesystem service from a declared tree. Each independent
+layer build starts from the same fixture with fresh storage:
 
 ```ts title="fixtures.test.ts"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, it } from "@effect/vitest"
-import { Effect, FileSystem, Layer } from "effect"
+import { Effect, FileSystem } from "effect"
 
-const seededFileSystem = Layer.effect(
-	FileSystem.FileSystem,
-	Effect.gen(function* () {
-		const volume = yield* Vfs.fromFixture({
-			entries: [
-				{ kind: "directory", path: "/project" },
-				{
-					kind: "file",
-					path: "/project/package.json",
-					bytes: new TextEncoder().encode('{"version":"1.2.3"}')
-				},
-				{ kind: "directory", path: "/cache" },
-				{ kind: "file", path: "/cache/stale.json", bytes: new TextEncoder().encode("{}") }
-			]
-		})
-
-		return yield* MemoryFileSystem.bind(volume)
-	})
-)
+const seededFileSystem = MemoryFileSystem.layerFromFixture({
+	entries: [
+		{ kind: "directory", path: "/project" },
+		{
+			kind: "file",
+			path: "/project/package.json",
+			bytes: new TextEncoder().encode('{"version":"1.2.3"}')
+		},
+		{ kind: "directory", path: "/cache" },
+		{ kind: "file", path: "/cache/stale.json", bytes: new TextEncoder().encode("{}") }
+	]
+})
 
 const readPackageVersion = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem
@@ -181,8 +173,7 @@ Declare fixture parents explicitly. `MemoryFileSystem.make` and `layer` start wi
 `bind` leaves the supplied volume unchanged. Include `{ kind: "directory", path: "/tmp" }` in a fixture when its
 tests need the default temporary directory.
 
-The repository source also includes the shorter `MemoryFileSystem.layerFromFixture` constructor, planned for
-version 0.8.0. It adds no entries. The example above works without that unreleased helper. See the
+`layerFromFixture` adds no entries to your fixture. See the
 [`MemoryFileSystem` reference](/api/memory/memory-file-system) for constructor options and
 [Build and transport filesystem snapshots](/guides/fixtures-and-snapshots#create-a-volume-from-a-fixture) for fixture rules.
 

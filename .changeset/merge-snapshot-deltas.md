@@ -2,14 +2,30 @@
 "@effect-vfs/core": minor
 ---
 
-Merge two snapshot deltas from one base with `mergeSnapshotDeltas`, which takes every undisputed change, combines metadata fields changed on one side with content changed on the other, and reports path-level conflicts as data instead of failing ([#174](https://github.com/lloydrichards/effect-virtual-fs/issues/174)).
+`mergeSnapshotDeltas` combines changes from two deltas built against the same base snapshot. Conflicts appear in the result, and `resolutions` can select either side for each conflict.
 
 ```ts
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { Effect } from "effect"
+
 const program = Effect.gen(function*() {
-  const { delta, conflicts } = yield* Vfs.mergeSnapshotDeltas(base, ours, theirs)
-  const merged = yield* Vfs.applySnapshotDelta(base, delta)
-  const settled = yield* Vfs.mergeSnapshotDeltas(base, ours, theirs, {
-    resolutions: conflicts.map((conflict) => ({ path: conflict.path, take: "theirs" }))
-  })
+  const volume = yield* Vfs.fromFixture({ entries: [] })
+  const base = yield* volume.snapshot
+  const ours = yield* Vfs.makeOverlay(base)
+  const theirs = yield* Vfs.makeOverlay(base)
+  const bytes = new TextEncoder().encode("hello")
+  yield* (yield* ours.caller()).writeFile("/ours.txt", bytes, { access: "write", create: "exclusive" })
+  yield* (yield* theirs.caller()).writeFile("/theirs.txt", bytes, { access: "write", create: "exclusive" })
+  const result = yield* Vfs.mergeSnapshotDeltas(
+    base,
+    yield* Vfs.diffSnapshots(base, (yield* ours.capture()).snapshot),
+    yield* Vfs.diffSnapshots(base, (yield* theirs.capture()).snapshot)
+  )
+  const merged = yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(base, result.delta))
+  return new TextDecoder().decode(yield* (yield* merged.caller()).readFile("/theirs.txt"))
 })
+
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
+// hello
 ```

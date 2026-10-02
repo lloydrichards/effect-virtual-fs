@@ -38,7 +38,7 @@ generated: { by: claude/okf, at: 2026-09-19T10:02:47Z }
 
 ## Current state
 
-Implemented at `experimental` maturity by #74 and #75. Focused protocol and live TCP/UNIX socket tests cover identity mapping, denial, peer context, and non-loopback configuration. A networked kernel-client gate is not yet recorded, so this profile has not reached `preview`.
+Implemented at `experimental` maturity. Focused protocol and live TCP/UNIX socket tests cover identity mapping, denial, peer context, and non-loopback configuration. A networked kernel-client gate is not yet recorded, so this profile has not reached `preview`.
 
 [^rfc8881]: Sections 2.2.1.1, 2.6, 5.9, and 21.
 

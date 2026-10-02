@@ -2,4 +2,4 @@
 "@effect-vfs/core": patch
 ---
 
-Durable handle cleanup now commits reclamation immediately, including when admission is full, and stops the volume if cleanup cannot be stored.
+Durable handle cleanup persists reclaimed space even when the pending-operation limit is full, and stops the volume if persistence fails.

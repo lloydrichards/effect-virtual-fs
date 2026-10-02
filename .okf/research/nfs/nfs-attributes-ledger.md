@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: NFS attributes ledger
-description: Maps RFC 8881 REQUIRED and RECOMMENDED file attributes to their owning profile, current values, intended behavior, and follow-up issue.
+description: Maps RFC 8881 REQUIRED and RECOMMENDED file attributes to their owning profile, current values, intended behavior, and remaining work.
 status: draft
 tags: [nfs, ledger, attributes, rfc8881]
 sources:

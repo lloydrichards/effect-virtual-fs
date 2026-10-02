@@ -1,6 +1,6 @@
 ---
 type: Research Report
-title: NFS namespace and metadata mutations for issue 126
+title: NFS namespace and metadata mutations
 description: Records internal writable namespace and SETATTR handling, reference-based core boundaries, wire evidence, and the public durability gate.
 status: draft
 tags: [nfs, writable, namespace, setattr]
@@ -26,12 +26,15 @@ sources:
   - id: setattr-tests
     resource: ../../../packages/nfs/test/internal/nfs4.test.ts
     title: Metadata wire tests
-generated: { by: codex/okf, at: 2026-09-20T12:11:27Z }
+  - id: public
+    resource: ../../../packages/nfs/src/NfsServer.ts
+    title: Public writable export validation
+generated: { by: codex/okf, at: "2026-10-02T10:00:00+00:00" }
 ---
 
-# NFS namespace and metadata mutations for issue 126
+# NFS namespace and metadata mutations
 
-The internal writable dispatcher implements directory and symbolic-link `CREATE`, hard-link `LINK`, type-independent `REMOVE`, `RENAME`, and core-backed `SETATTR` for size, mode, owner, group, and access/modification times. Regular files continue to be created through `OPEN`. Unsupported CREATE types and attributes are rejected before mutation. Public exports remain read-only while the [writable export scope](../../decisions/nfs/writable-export-scope.md "constrained by") and durability qualification in #144 remain open.[^issue][^dispatcher]
+The internal writable dispatcher implements directory and symbolic-link `CREATE`, hard-link `LINK`, type-independent `REMOVE`, `RENAME`, and core-backed `SETATTR` for size, mode, owner, group, and access/modification times. Regular files continue to be created through `OPEN`. Unsupported CREATE types and attributes are rejected before mutation. Public exports default to read-only. The guarded writable option requires a qualified `survives-power-loss` volume and explicit identity policy under the [writable export scope](../../decisions/nfs/writable-export-scope.md "constrained by").[^issue][^dispatcher][^public]
 
 Each namespace operation uses the mapped caller's reference-based core method. `CREATE` checks filehandle capacity before mutation, registers the resulting reference after success, switches the compound's current filehandle to that object, and returns atomic parent change information and the applied attribute bitmap. `LINK`, `REMOVE`, and `RENAME` return coherent directory changes. Core's `removeReference` chooses file or empty-directory removal inside one volume mutation, so a direct caller cannot change the entry type between an NFS lookup and removal. `mkdirReference({ exactMode: true, mode })` preserves an explicit wire mode rather than reapplying the caller's umask.[^core][^adapter][^dispatcher]
 
@@ -39,7 +42,7 @@ Each namespace operation uses the mapped caller's reference-based core method. `
 
 An adversarial review found two wire edge cases: supported read-only attributes sent to `SETATTR` must return `INVAL`, while unsupported attributes return `ATTRNOTSUPP`; and access and modification server-time setters must be applied together so a mapped non-owner writer can use core's permitted combined timestamp operation. Wire tests cover both cases.[^rfc][^setattr-tests]
 
-Wire tests cover namespace identity and change information, mapped permissions, invalid operands, read-only rejection, ownership strings and authority, size stateids, timestamps, partial `attrsset`, and an injected committed live image reopened with namespace and metadata changes. That reopen proves internal image persistence for the injected store. It does not qualify physical power-loss durability or enable public writable NFS; those remain in #144 and #48.[^namespace-tests][^setattr-tests]
+Wire tests cover namespace identity and change information, mapped permissions, invalid operands, read-only rejection, ownership strings and authority, size stateids, timestamps, partial `attrsset`, and an injected committed live image reopened with namespace and metadata changes. That reopen proves internal image persistence for the injected store. It does not qualify physical power-loss durability. The public writable option checks the volume durability and identity policy separately.[^namespace-tests][^setattr-tests]
 
 [^issue]: Issue #126 defines the operation set and completion criteria.
 
@@ -54,3 +57,5 @@ Wire tests cover namespace identity and change information, mapped permissions, 
 [^namespace-tests]: `NfsNamespace.test.ts` checks wire replies and committed-image reopen.
 
 [^setattr-tests]: `NfsSetattr.test.ts` checks wire attributes, authority, stateids, and reply bitmaps.
+
+[^public]: `NfsServer.make` requires power-loss durability and an explicit identity policy for `writable: true`.
