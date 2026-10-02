@@ -297,3 +297,173 @@ export const SnapshotDeltaLimits = Object.assign(SnapshotDeltaLimitsSchema, {
   constrained,
   default: defaultLimits
 })
+
+/**
+ * Schema for what one side of a merge did at a conflicted path.
+ *
+ * `Unchanged` means the side did not touch the path itself; a conflict can
+ * still name it when the other side's change depends on it, for example a
+ * hard-link group whose membership diverged, or a name held at base because
+ * it shares a node with a conflicted name.
+ *
+ * @category schemas
+ * @since 0.8.0
+ */
+export const MergeSideChange = Schema.TaggedUnion({
+  Unchanged: {},
+  Added: { kind: SnapshotNodeKind },
+  Removed: { kind: SnapshotNodeKind },
+  Updated: {
+    beforeKind: SnapshotNodeKind,
+    afterKind: SnapshotNodeKind,
+    differences: SnapshotDifferences
+  }
+})
+
+/**
+ * What one side of a merge did at a conflicted path.
+ *
+ * @category models
+ * @since 0.8.0
+ */
+export type MergeSideChange = typeof MergeSideChange.Type
+
+/**
+ * Schema for the reasons a path-level merge reports a conflict.
+ *
+ * - `BothChanged`: both sides changed the same field of one node to different values.
+ * - `ChangedRemoved`: one side changed a node the other side removed, or linked a new name to it.
+ * - `BothAddedDifferent`: both sides added different nodes at one path.
+ * - `KindDiverged`: one side changed a node's kind while the other side changed or removed the node.
+ * - `ParentRemoved`: one side changed a path under a directory the other side removed or replaced.
+ * - `HardLinkGroupDiverged`: both sides changed which names share one hard-linked node.
+ *
+ * @category schemas
+ * @since 0.8.0
+ */
+export const MergeConflictReason = Schema.Literals([
+  "BothChanged",
+  "ChangedRemoved",
+  "BothAddedDifferent",
+  "KindDiverged",
+  "ParentRemoved",
+  "HardLinkGroupDiverged"
+])
+
+/**
+ * The reason a path-level merge reports a conflict.
+ *
+ * @category models
+ * @since 0.8.0
+ */
+export type MergeConflictReason = typeof MergeConflictReason.Type
+
+/**
+ * Schema for one conflict between two snapshot deltas from the same base.
+ *
+ * A conflict carries what each side did, as kinds and changed fields, and no
+ * payload bytes or metadata values. The application reads those from the base,
+ * ours, and theirs snapshots it already holds. Timestamp fields are left out of
+ * `differences`, because timestamps never conflict.
+ *
+ * @category schemas
+ * @since 0.8.0
+ */
+export const MergeConflict = Schema.Struct({
+  path: BytePath,
+  reason: MergeConflictReason,
+  ours: MergeSideChange,
+  theirs: MergeSideChange
+})
+
+/**
+ * One conflict between two snapshot deltas from the same base.
+ *
+ * @category models
+ * @since 0.8.0
+ */
+export type MergeConflict = typeof MergeConflict.Type
+
+/**
+ * Schema for the side a merge takes at one conflicted path.
+ *
+ * @category schemas
+ * @since 0.8.0
+ */
+export const MergeTake = Schema.Literals(["ours", "theirs", "base"])
+
+/**
+ * The side a merge takes at one conflicted path.
+ *
+ * @category models
+ * @since 0.8.0
+ */
+export type MergeTake = typeof MergeTake.Type
+
+/**
+ * Schema for one resolution of a reported merge conflict.
+ *
+ * The path must be one a previous merge of the same inputs reported.
+ * Conflicts that span several paths, a removed directory's subtree or a
+ * hard-link group, take one side as a whole: every reported path in the set
+ * must name the same side.
+ *
+ * @category schemas
+ * @since 0.8.0
+ */
+export const MergeResolution = Schema.Struct({
+  path: BytePath,
+  take: MergeTake
+})
+
+/**
+ * One resolution of a reported merge conflict.
+ *
+ * @category models
+ * @since 0.8.0
+ */
+export type MergeResolution = typeof MergeResolution.Type
+
+/**
+ * Schema for snapshot-delta merge options.
+ *
+ * @category schemas
+ * @since 0.8.0
+ */
+export const MergeOptions = Schema.Struct({
+  /** Sides to take at paths an earlier merge reported as conflicts. */
+  resolutions: Schema.optionalKey(Schema.Array(MergeResolution)),
+  /** Resource limits for verifying both deltas and building the merged one. Defaults to `SnapshotDeltaLimits.default`. */
+  limits: Schema.optionalKey(SnapshotDeltaLimitsSchema)
+})
+
+/**
+ * Snapshot-delta merge options.
+ *
+ * @category models
+ * @since 0.8.0
+ */
+export type MergeOptions = typeof MergeOptions.Type
+
+/**
+ * Schema for the result of merging two snapshot deltas.
+ *
+ * The delta applies every change neither side disputed, plus every resolved
+ * conflict; paths still in conflict keep the base node. It is bound to the
+ * same base as its inputs and applies with `applySnapshotDelta`.
+ *
+ * @category schemas
+ * @since 0.8.0
+ */
+export const MergeResult = Schema.Struct({
+  delta: SnapshotDelta,
+  conflicts: Schema.Array(MergeConflict)
+})
+
+/**
+ * The result of merging two snapshot deltas.
+ *
+ * @category models
+ * @since 0.8.0
+ */
+export type MergeResult = typeof MergeResult.Type

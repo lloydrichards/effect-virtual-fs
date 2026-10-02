@@ -39,8 +39,10 @@ import {
   type VolumeState
 } from "./volumeState.js"
 
-const FORMAT = "effect-vfs-delta"
-const OPERATION = "snapshotDelta"
+/** @internal */
+export const FORMAT = "effect-vfs-delta"
+/** @internal */
+export const OPERATION = "snapshotDelta"
 const RULE_CHECK = "@effect-vfs/core/deltaRuleCheck"
 
 const Path = CanonicalBase64.Encoded
@@ -48,18 +50,22 @@ const Path = CanonicalBase64.Encoded
 type Path = typeof Path.Type
 
 // Unchanged payloads come from the base; a new hard link points to the group's first changed path.
-const InlineContent = Schema.TaggedStruct("Inline", { bytes: CanonicalBase64.Encoded })
+/** @internal */
+export const InlineContent = Schema.TaggedStruct("Inline", { bytes: CanonicalBase64.Encoded })
 
-const DeltaNode = Schema.TaggedUnion({
+/** @internal */
+export const DeltaNode = Schema.TaggedUnion({
   directory: { metadata: StoredMetadata },
   file: { metadata: StoredMetadata, content: Schema.optionalKey(InlineContent) },
   symlink: { metadata: StoredMetadata, target: Schema.optionalKey(CanonicalBase64.Encoded) },
   link: { to: Path }
 })
 
-type DeltaNode = typeof DeltaNode.Type
+/** @internal */
+export type DeltaNode = typeof DeltaNode.Type
 
-const Change = Schema.TaggedUnion({
+/** @internal */
+export const Change = Schema.TaggedUnion({
   Added: { path: Path, kind: SnapshotNodeKind, node: DeltaNode },
   Removed: { path: Path, kind: SnapshotNodeKind },
   Updated: {
@@ -71,9 +77,11 @@ const Change = Schema.TaggedUnion({
   }
 })
 
-type Change = typeof Change.Type
+/** @internal */
+export type Change = typeof Change.Type
 
-const Document = Schema.Struct({
+/** @internal */
+export const Document = Schema.Struct({
   format: Schema.Literal(FORMAT),
   version: Schema.Literal(1),
   base: CanonicalBase64.Encoded,
@@ -81,18 +89,22 @@ const Document = Schema.Struct({
   changes: Schema.Array(Change)
 })
 
-type Document = typeof Document.Type
+/** @internal */
+export type Document = typeof Document.Type
 
 const VersionProbe = Schema.Struct({
   format: Schema.Literal(FORMAT),
   version: Schema.Unknown
 })
 
-const differenceOrder = SnapshotDifference.literals
+/** @internal */
+export const differenceOrder = SnapshotDifference.literals
 
-const timestampFields = new Set<SnapshotDifference>(["atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"])
+/** @internal */
+export const timestampFields = new Set<SnapshotDifference>(["atimeNs", "mtimeNs", "ctimeNs", "birthtimeNs"])
 
-const key = Hex.encode
+/** @internal */
+export const key = Hex.encode
 
 const validPath = (path: Uint8Array) => {
   if (path[0] !== SLASH_BYTE) return false
@@ -108,7 +120,8 @@ const validPath = (path: Uint8Array) => {
   return true
 }
 
-const splitNames = (path: Uint8Array): ReadonlyArray<string> => {
+/** @internal */
+export const splitNames = (path: Uint8Array): ReadonlyArray<string> => {
   const names: Array<string> = []
 
   if (path.length === 1) return names
@@ -124,16 +137,21 @@ const splitNames = (path: Uint8Array): ReadonlyArray<string> => {
   return names
 }
 
-const kindOf = (change: Change): SnapshotNodeKind => Change.guards.Updated(change) ? change.afterKind : change.kind
+/** @internal */
+export const kindOf = (change: Change): SnapshotNodeKind =>
+  Change.guards.Updated(change) ? change.afterKind : change.kind
 
-const payloadDifference = (kind: SnapshotNodeKind) => (kind === "file" ? "content" : "target")
+/** @internal */
+export const payloadDifference = (kind: SnapshotNodeKind) => (kind === "file" ? "content" : "target")
 
-const carriesPayload = (change: Change) =>
+/** @internal */
+export const carriesPayload = (change: Change) =>
   Change.guards.Added(change) ||
   (Change.guards.Updated(change) &&
     (change.differences.includes("kind") || change.differences.includes(payloadDifference(change.afterKind))))
 
-const carriedPayload = (node: DeltaNode): Path | undefined =>
+/** @internal */
+export const carriedPayload = (node: DeltaNode): Path | undefined =>
   DeltaNode.guards.file(node) ? node.content?.bytes : DeltaNode.guards.symlink(node) ? node.target : undefined
 
 const changesIssue = (changes: ReadonlyArray<Change>): Schema.FilterIssue | undefined => {
@@ -244,7 +262,8 @@ const decodeFailure = (error: Schema.SchemaError) => {
 
 const exceeds = (value: number, limit: ByteSize.ByteSize) => ByteSize.isGreaterThan(ByteSize.bytes(value), limit)
 
-const validate = (document: Document, limits: DeltaBudget): Result.Result<void, ImageFailure> => {
+/** @internal */
+export const validate = (document: Document, limits: DeltaBudget): Result.Result<void, ImageFailure> => {
   const fail = (code: "LimitExceeded" | "InvalidEncoding", field: string) =>
     Result.fail(imageFailure(OPERATION, code, { field }))
 
@@ -284,7 +303,8 @@ const validate = (document: Document, limits: DeltaBudget): Result.Result<void, 
   return Result.void
 }
 
-const baseBudget = (limits: DeltaBudget): Merkle.WalkBudget => ({
+/** @internal */
+export const baseBudget = (limits: DeltaBudget): Merkle.WalkBudget => ({
   operation: OPERATION,
   records: limits.baseRecords,
   recordsField: "baseRecords",
@@ -292,7 +312,8 @@ const baseBudget = (limits: DeltaBudget): Merkle.WalkBudget => ({
   identityBytes: limits.identityBytes
 })
 
-const targetBudget = (limits: DeltaBudget): Merkle.WalkBudget => ({
+/** @internal */
+export const targetBudget = (limits: DeltaBudget): Merkle.WalkBudget => ({
   operation: OPERATION,
   records: limits.targetRecords,
   recordsField: "targetRecords",
@@ -301,7 +322,8 @@ const targetBudget = (limits: DeltaBudget): Merkle.WalkBudget => ({
   payloadBytes: { limit: limits.outputBytes, field: "outputBytes" }
 })
 
-interface Output {
+/** @internal */
+export interface Output {
   readonly records: number
   readonly entries: number
   readonly payloadBytes: number
@@ -310,7 +332,8 @@ interface Output {
 }
 
 // Check target bounds first so applying and diffing report the same limit.
-const outputIssue = (limits: DeltaBudget, output: Output): Result.Result<void, ImageFailure> => {
+/** @internal */
+export const outputIssue = (limits: DeltaBudget, output: Output): Result.Result<void, ImageFailure> => {
   const fail = (field: string) => Result.fail(imageFailure(OPERATION, "LimitExceeded", { field }))
 
   if (output.records > limits.targetRecords) return fail("targetRecords")
@@ -326,7 +349,8 @@ const outputIssue = (limits: DeltaBudget, output: Output): Result.Result<void, I
   return Result.void
 }
 
-interface Side {
+/** @internal */
+export interface Side {
   readonly value: VolumeState
   readonly identity: Merkle.Identity
   readonly groupOf: ReadonlyMap<string, string>
@@ -335,7 +359,8 @@ interface Side {
 
 const groupKey = (paths: ReadonlyArray<Uint8Array>) => paths.map(key).join("/")
 
-const side = (value: VolumeState, identity: Merkle.Identity): Side => {
+/** @internal */
+export const side = (value: VolumeState, identity: Merkle.Identity): Side => {
   const groupOf = new Map<string, string>()
   const firstOf = new Map<Ino, Uint8Array>()
 
@@ -351,7 +376,8 @@ const side = (value: VolumeState, identity: Merkle.Identity): Side => {
 
 const groupAt = (side: Side, pathKey: string) => side.groupOf.get(pathKey) ?? pathKey
 
-const differencesOf = (before: Node, after: Node, hardLinks: boolean): ReadonlyArray<SnapshotDifference> =>
+/** @internal */
+export const differencesOf = (before: Node, after: Node, hardLinks: boolean): ReadonlyArray<SnapshotDifference> =>
   differenceOrder.filter((field) => {
     if (field === "kind") return before.kind !== after.kind
 
@@ -398,9 +424,11 @@ interface Found {
   readonly node: Node
 }
 
-type DirectoryNode = Node & { readonly kind: "directory" }
+/** @internal */
+export type DirectoryNode = Node & { readonly kind: "directory" }
 
-const lookup = (
+/** @internal */
+export const lookup = (
   get: (ino: Ino) => Node | undefined,
   entriesOf: (directory: DirectoryNode) => ReadonlyMap<string, Ino>,
   path: Uint8Array
@@ -422,7 +450,8 @@ const lookup = (
   return node === undefined ? undefined : { parent, name, node }
 }
 
-const valueEntries = (directory: DirectoryNode) => directory.entries
+/** @internal */
+export const valueEntries = (directory: DirectoryNode) => directory.entries
 
 // Equal digests skip a subtree; hard-link groups still need a separate path comparison.
 const compare = (base: Side, target: Side): ReadonlyArray<Change> => {
@@ -518,7 +547,8 @@ const compare = (base: Side, target: Side): ReadonlyArray<Change> => {
   return changes.sort(Order.mapInput(bytesOrder, (entry) => entry.path)).map(({ change }) => change)
 }
 
-const getDocument = (delta: SnapshotDelta): Effect.Effect<Document, ImageFailure> =>
+/** @internal */
+export const getDocument = (delta: SnapshotDelta): Effect.Effect<Document, ImageFailure> =>
   Effect.suspend(() => {
     const value = SnapshotDeltaModel.value(delta)
 
@@ -527,7 +557,8 @@ const getDocument = (delta: SnapshotDelta): Effect.Effect<Document, ImageFailure
       : Effect.fail(imageFailure(OPERATION, "InvalidStructure", { field: "delta" }))
   })
 
-interface Folded extends Output {
+/** @internal */
+export interface Folded extends Output {
   readonly value: VolumeState
   // Includes ancestors whose digests must be recomputed.
   readonly dirty: ReadonlySet<Ino>
@@ -544,7 +575,8 @@ interface Placed {
 
 // Detach deepest paths first, then attach from the root. Check each claimed change against the base: a matching
 // target digest alone cannot detect unreachable children or forged hard-link groups.
-const fold = (
+/** @internal */
+export const fold = (
   base: VolumeState,
   identity: Merkle.Identity,
   document: Document
@@ -810,7 +842,8 @@ const fold = (
 }
 
 // Reuse base digests for untouched nodes, but charge the meter for the whole target.
-const foldedIdentity = Effect.fnUntraced(function*(
+/** @internal */
+export const foldedIdentity = Effect.fnUntraced(function*(
   base: VolumeState,
   folded: Folded,
   identity: Merkle.Identity,
@@ -865,6 +898,28 @@ const verify = Effect.fnUntraced(function*(base: Snapshot, document: Document, l
   const value = yield* Image.valueOf(base)
   const identity = yield* Merkle.identify(value, baseBudget(limits))
 
+  return yield* verifyValidated(value, identity, document, limits)
+})
+
+// Verify a document against a base whose identity is already known; returns the folded target value.
+/** @internal */
+export const verifyWith = Effect.fnUntraced(function*(
+  value: VolumeState,
+  identity: Merkle.Identity,
+  document: Document,
+  limits: DeltaBudget
+) {
+  yield* Effect.fromResult(validate(document, limits))
+
+  return yield* verifyValidated(value, identity, document, limits)
+})
+
+const verifyValidated = Effect.fnUntraced(function*(
+  value: VolumeState,
+  identity: Merkle.Identity,
+  document: Document,
+  limits: DeltaBudget
+) {
   if (!sameBytes(identity.digest, CanonicalBase64.toBytes(document.base))) {
     return yield* new VfsError({ code: "BaseMismatch", operation: OPERATION })
   }

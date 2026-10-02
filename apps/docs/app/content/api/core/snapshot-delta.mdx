@@ -12,6 +12,257 @@ Since v0.1.0
 
 ## models
 
+### MergeConflict (type alias)
+
+One conflict between two snapshot deltas from the same base.
+
+**Signature**
+
+```ts
+export type MergeConflict = {
+  readonly path: BytePath
+  readonly reason:
+    | "BothChanged"
+    | "ChangedRemoved"
+    | "BothAddedDifferent"
+    | "KindDiverged"
+    | "ParentRemoved"
+    | "HardLinkGroupDiverged"
+  readonly ours:
+    | { readonly _tag: "Added"; readonly kind: "file" | "directory" | "symlink" }
+    | { readonly _tag: "Removed"; readonly kind: "file" | "directory" | "symlink" }
+    | {
+        readonly _tag: "Updated"
+        readonly beforeKind: "file" | "directory" | "symlink"
+        readonly afterKind: "file" | "directory" | "symlink"
+        readonly differences: readonly (
+          | "uid"
+          | "gid"
+          | "kind"
+          | "mode"
+          | "atimeNs"
+          | "mtimeNs"
+          | "ctimeNs"
+          | "birthtimeNs"
+          | "content"
+          | "target"
+          | "hardLinks"
+        )[]
+      }
+    | { readonly _tag: "Unchanged" }
+  readonly theirs:
+    | { readonly _tag: "Added"; readonly kind: "file" | "directory" | "symlink" }
+    | { readonly _tag: "Removed"; readonly kind: "file" | "directory" | "symlink" }
+    | {
+        readonly _tag: "Updated"
+        readonly beforeKind: "file" | "directory" | "symlink"
+        readonly afterKind: "file" | "directory" | "symlink"
+        readonly differences: readonly (
+          | "uid"
+          | "gid"
+          | "kind"
+          | "mode"
+          | "atimeNs"
+          | "mtimeNs"
+          | "ctimeNs"
+          | "birthtimeNs"
+          | "content"
+          | "target"
+          | "hardLinks"
+        )[]
+      }
+    | { readonly _tag: "Unchanged" }
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L385)
+
+Since v0.8.0
+
+### MergeConflictReason (type alias)
+
+The reason a path-level merge reports a conflict.
+
+**Signature**
+
+```ts
+export type MergeConflictReason =
+  | "BothChanged"
+  | "ChangedRemoved"
+  | "BothAddedDifferent"
+  | "KindDiverged"
+  | "ParentRemoved"
+  | "HardLinkGroupDiverged"
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L359)
+
+Since v0.8.0
+
+### MergeOptions (type alias)
+
+Snapshot-delta merge options.
+
+**Signature**
+
+```ts
+export type MergeOptions = {
+  readonly limits?: {
+    readonly maxEncodedBytes: ByteSize.ByteSize
+    readonly maxIdentityBytes: ByteSize.ByteSize
+    readonly maxDeltaRecords: number
+    readonly maxDecodedDeltaBytes: ByteSize.ByteSize
+    readonly maxBaseRecords: number
+    readonly maxTargetRecords: number
+    readonly maxEntries: number
+    readonly maxOutputRecords: number
+    readonly maxOutputBytes: ByteSize.ByteSize
+    readonly maxInheritedRecords: number
+  }
+  readonly resolutions?: readonly {
+    readonly path: BytePath
+    readonly take: "ours" | "theirs" | "base"
+  }[]
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L446)
+
+Since v0.8.0
+
+### MergeResolution (type alias)
+
+One resolution of a reported merge conflict.
+
+**Signature**
+
+```ts
+export type MergeResolution = { readonly path: BytePath; readonly take: "ours" | "theirs" | "base" }
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L425)
+
+Since v0.8.0
+
+### MergeResult (type alias)
+
+The result of merging two snapshot deltas.
+
+**Signature**
+
+```ts
+export type MergeResult = {
+  readonly delta: SnapshotDelta
+  readonly conflicts: readonly {
+    readonly path: BytePath
+    readonly reason:
+      | "BothChanged"
+      | "ChangedRemoved"
+      | "BothAddedDifferent"
+      | "KindDiverged"
+      | "ParentRemoved"
+      | "HardLinkGroupDiverged"
+    readonly ours:
+      | { readonly _tag: "Added"; readonly kind: "file" | "directory" | "symlink" }
+      | { readonly _tag: "Removed"; readonly kind: "file" | "directory" | "symlink" }
+      | {
+          readonly _tag: "Updated"
+          readonly beforeKind: "file" | "directory" | "symlink"
+          readonly afterKind: "file" | "directory" | "symlink"
+          readonly differences: readonly (
+            | "uid"
+            | "gid"
+            | "kind"
+            | "mode"
+            | "atimeNs"
+            | "mtimeNs"
+            | "ctimeNs"
+            | "birthtimeNs"
+            | "content"
+            | "target"
+            | "hardLinks"
+          )[]
+        }
+      | { readonly _tag: "Unchanged" }
+    readonly theirs:
+      | { readonly _tag: "Added"; readonly kind: "file" | "directory" | "symlink" }
+      | { readonly _tag: "Removed"; readonly kind: "file" | "directory" | "symlink" }
+      | {
+          readonly _tag: "Updated"
+          readonly beforeKind: "file" | "directory" | "symlink"
+          readonly afterKind: "file" | "directory" | "symlink"
+          readonly differences: readonly (
+            | "uid"
+            | "gid"
+            | "kind"
+            | "mode"
+            | "atimeNs"
+            | "mtimeNs"
+            | "ctimeNs"
+            | "birthtimeNs"
+            | "content"
+            | "target"
+            | "hardLinks"
+          )[]
+        }
+      | { readonly _tag: "Unchanged" }
+  }[]
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L469)
+
+Since v0.8.0
+
+### MergeSideChange (type alias)
+
+What one side of a merge did at a conflicted path.
+
+**Signature**
+
+```ts
+export type MergeSideChange =
+  | { readonly _tag: "Added"; readonly kind: "file" | "directory" | "symlink" }
+  | { readonly _tag: "Removed"; readonly kind: "file" | "directory" | "symlink" }
+  | {
+      readonly _tag: "Updated"
+      readonly beforeKind: "file" | "directory" | "symlink"
+      readonly afterKind: "file" | "directory" | "symlink"
+      readonly differences: readonly (
+        | "uid"
+        | "gid"
+        | "kind"
+        | "mode"
+        | "atimeNs"
+        | "mtimeNs"
+        | "ctimeNs"
+        | "birthtimeNs"
+        | "content"
+        | "target"
+        | "hardLinks"
+      )[]
+    }
+  | { readonly _tag: "Unchanged" }
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L329)
+
+Since v0.8.0
+
+### MergeTake (type alias)
+
+The side a merge takes at one conflicted path.
+
+**Signature**
+
+```ts
+export type MergeTake = "ours" | "theirs" | "base"
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L401)
+
+Since v0.8.0
+
 ### SnapshotChange (type alias)
 
 A path-oriented semantic difference between two snapshots.
@@ -150,6 +401,368 @@ export type SnapshotNodeKind = "file" | "directory" | "symlink"
 Since v0.1.0
 
 ## schemas
+
+### MergeConflict
+
+Schema for one conflict between two snapshot deltas from the same base.
+
+A conflict carries what each side did, as kinds and changed fields, and no
+payload bytes or metadata values. The application reads those from the base,
+ours, and theirs snapshots it already holds. Timestamp fields are left out of
+`differences`, because timestamps never conflict.
+
+**Signature**
+
+```ts
+declare const MergeConflict: Schema.Struct<{
+  readonly path: Schema.declare<BytePath, BytePath>
+  readonly reason: Schema.Literals<
+    readonly [
+      "BothChanged",
+      "ChangedRemoved",
+      "BothAddedDifferent",
+      "KindDiverged",
+      "ParentRemoved",
+      "HardLinkGroupDiverged"
+    ]
+  >
+  readonly ours: Schema.TaggedUnion<{
+    readonly Added: Schema.TaggedStruct<
+      "Added",
+      { readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]> }
+    >
+    readonly Removed: Schema.TaggedStruct<
+      "Removed",
+      { readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]> }
+    >
+    readonly Updated: Schema.TaggedStruct<
+      "Updated",
+      {
+        readonly beforeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+        readonly afterKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+        readonly differences: Schema.$Array<
+          Schema.Literals<
+            readonly [
+              "kind",
+              "content",
+              "target",
+              "hardLinks",
+              "mode",
+              "uid",
+              "gid",
+              "atimeNs",
+              "mtimeNs",
+              "ctimeNs",
+              "birthtimeNs"
+            ]
+          >
+        >
+      }
+    >
+    readonly Unchanged: Schema.TaggedStruct<"Unchanged", {}>
+  }>
+  readonly theirs: Schema.TaggedUnion<{
+    readonly Added: Schema.TaggedStruct<
+      "Added",
+      { readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]> }
+    >
+    readonly Removed: Schema.TaggedStruct<
+      "Removed",
+      { readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]> }
+    >
+    readonly Updated: Schema.TaggedStruct<
+      "Updated",
+      {
+        readonly beforeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+        readonly afterKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+        readonly differences: Schema.$Array<
+          Schema.Literals<
+            readonly [
+              "kind",
+              "content",
+              "target",
+              "hardLinks",
+              "mode",
+              "uid",
+              "gid",
+              "atimeNs",
+              "mtimeNs",
+              "ctimeNs",
+              "birthtimeNs"
+            ]
+          >
+        >
+      }
+    >
+    readonly Unchanged: Schema.TaggedStruct<"Unchanged", {}>
+  }>
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L372)
+
+Since v0.8.0
+
+### MergeConflictReason
+
+Schema for the reasons a path-level merge reports a conflict.
+
+- `BothChanged`: both sides changed the same field of one node to different values.
+- `ChangedRemoved`: one side changed a node the other side removed, or linked a new name to it.
+- `BothAddedDifferent`: both sides added different nodes at one path.
+- `KindDiverged`: one side changed a node's kind while the other side changed or removed the node.
+- `ParentRemoved`: one side changed a path under a directory the other side removed or replaced.
+- `HardLinkGroupDiverged`: both sides changed which names share one hard-linked node.
+
+**Signature**
+
+```ts
+declare const MergeConflictReason: Schema.Literals<
+  readonly [
+    "BothChanged",
+    "ChangedRemoved",
+    "BothAddedDifferent",
+    "KindDiverged",
+    "ParentRemoved",
+    "HardLinkGroupDiverged"
+  ]
+>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L344)
+
+Since v0.8.0
+
+### MergeOptions
+
+Schema for snapshot-delta merge options.
+
+**Signature**
+
+```ts
+declare const MergeOptions: Schema.Struct<{
+  readonly resolutions: Schema.optionalKey<
+    Schema.$Array<
+      Schema.Struct<{
+        readonly path: Schema.declare<BytePath, BytePath>
+        readonly take: Schema.Literals<readonly ["ours", "theirs", "base"]>
+      }>
+    >
+  >
+  readonly limits: Schema.optionalKey<
+    Schema.Struct<{
+      readonly maxEncodedBytes: Schema.ByteSize
+      readonly maxIdentityBytes: Schema.ByteSize
+      readonly maxDeltaRecords: Schema.Natural
+      readonly maxDecodedDeltaBytes: Schema.ByteSize
+      readonly maxBaseRecords: Schema.Natural
+      readonly maxTargetRecords: Schema.Natural
+      readonly maxEntries: Schema.Natural
+      readonly maxOutputRecords: Schema.Natural
+      readonly maxOutputBytes: Schema.ByteSize
+      readonly maxInheritedRecords: Schema.Natural
+    }>
+  >
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L433)
+
+Since v0.8.0
+
+### MergeResolution
+
+Schema for one resolution of a reported merge conflict.
+
+The path must be one a previous merge of the same inputs reported.
+Conflicts that span several paths, a removed directory's subtree or a
+hard-link group, take one side as a whole: every reported path in the set
+must name the same side.
+
+**Signature**
+
+```ts
+declare const MergeResolution: Schema.Struct<{
+  readonly path: Schema.declare<BytePath, BytePath>
+  readonly take: Schema.Literals<readonly ["ours", "theirs", "base"]>
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L414)
+
+Since v0.8.0
+
+### MergeResult
+
+Schema for the result of merging two snapshot deltas.
+
+The delta applies every change neither side disputed, plus every resolved
+conflict; paths still in conflict keep the base node. It is bound to the
+same base as its inputs and applies with `applySnapshotDelta`.
+
+**Signature**
+
+```ts
+declare const MergeResult: Schema.Struct<{
+  readonly delta: Schema.declare<SnapshotDelta, SnapshotDelta>
+  readonly conflicts: Schema.$Array<
+    Schema.Struct<{
+      readonly path: Schema.declare<BytePath, BytePath>
+      readonly reason: Schema.Literals<
+        readonly [
+          "BothChanged",
+          "ChangedRemoved",
+          "BothAddedDifferent",
+          "KindDiverged",
+          "ParentRemoved",
+          "HardLinkGroupDiverged"
+        ]
+      >
+      readonly ours: Schema.TaggedUnion<{
+        readonly Added: Schema.TaggedStruct<
+          "Added",
+          { readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]> }
+        >
+        readonly Removed: Schema.TaggedStruct<
+          "Removed",
+          { readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]> }
+        >
+        readonly Updated: Schema.TaggedStruct<
+          "Updated",
+          {
+            readonly beforeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+            readonly afterKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+            readonly differences: Schema.$Array<
+              Schema.Literals<
+                readonly [
+                  "kind",
+                  "content",
+                  "target",
+                  "hardLinks",
+                  "mode",
+                  "uid",
+                  "gid",
+                  "atimeNs",
+                  "mtimeNs",
+                  "ctimeNs",
+                  "birthtimeNs"
+                ]
+              >
+            >
+          }
+        >
+        readonly Unchanged: Schema.TaggedStruct<"Unchanged", {}>
+      }>
+      readonly theirs: Schema.TaggedUnion<{
+        readonly Added: Schema.TaggedStruct<
+          "Added",
+          { readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]> }
+        >
+        readonly Removed: Schema.TaggedStruct<
+          "Removed",
+          { readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]> }
+        >
+        readonly Updated: Schema.TaggedStruct<
+          "Updated",
+          {
+            readonly beforeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+            readonly afterKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+            readonly differences: Schema.$Array<
+              Schema.Literals<
+                readonly [
+                  "kind",
+                  "content",
+                  "target",
+                  "hardLinks",
+                  "mode",
+                  "uid",
+                  "gid",
+                  "atimeNs",
+                  "mtimeNs",
+                  "ctimeNs",
+                  "birthtimeNs"
+                ]
+              >
+            >
+          }
+        >
+        readonly Unchanged: Schema.TaggedStruct<"Unchanged", {}>
+      }>
+    }>
+  >
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L458)
+
+Since v0.8.0
+
+### MergeSideChange
+
+Schema for what one side of a merge did at a conflicted path.
+
+`Unchanged` means the side did not touch the path itself; a conflict can
+still name it when the other side's change depends on it, for example a
+hard-link group whose membership diverged, or a name held at base because
+it shares a node with a conflicted name.
+
+**Signature**
+
+```ts
+declare const MergeSideChange: Schema.TaggedUnion<{
+  readonly Added: Schema.TaggedStruct<
+    "Added",
+    { readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]> }
+  >
+  readonly Removed: Schema.TaggedStruct<
+    "Removed",
+    { readonly kind: Schema.Literals<readonly ["directory", "file", "symlink"]> }
+  >
+  readonly Updated: Schema.TaggedStruct<
+    "Updated",
+    {
+      readonly beforeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+      readonly afterKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
+      readonly differences: Schema.$Array<
+        Schema.Literals<
+          readonly [
+            "kind",
+            "content",
+            "target",
+            "hardLinks",
+            "mode",
+            "uid",
+            "gid",
+            "atimeNs",
+            "mtimeNs",
+            "ctimeNs",
+            "birthtimeNs"
+          ]
+        >
+      >
+    }
+  >
+  readonly Unchanged: Schema.TaggedStruct<"Unchanged", {}>
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L312)
+
+Since v0.8.0
+
+### MergeTake
+
+Schema for the side a merge takes at one conflicted path.
+
+**Signature**
+
+```ts
+declare const MergeTake: Schema.Literals<readonly ["ours", "theirs", "base"]>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L393)
+
+Since v0.8.0
 
 ### SnapshotChange
 

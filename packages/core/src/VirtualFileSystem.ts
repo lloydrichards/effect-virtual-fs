@@ -61,11 +61,19 @@ import * as FixtureInternal from "./internal/fixture.js"
 import * as Image from "./internal/image.js"
 import * as Path from "./internal/path.js"
 import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
+import * as SnapshotMergeInternal from "./internal/snapshotMerge.js"
 import * as VfsModel from "./internal/virtualFileSystem.js"
 import { type LiveImageStore, open as openLiveVolume, type Options as LiveVolumeOptions } from "./LiveVolume.js"
 import * as SnapshotDeltaModel from "./SnapshotDelta.js"
 
 export {
+  MergeConflict,
+  MergeConflictReason,
+  MergeOptions,
+  MergeResolution,
+  MergeResult,
+  MergeSideChange,
+  MergeTake,
   SnapshotChange,
   SnapshotChangesOptions,
   type SnapshotDelta,
@@ -2042,6 +2050,84 @@ export const applySnapshotDelta: (
     delta,
     yield* deltaLimits("applySnapshotDelta", limits)
   ).pipe(Effect.mapError((error) => retargetFailure("applySnapshotDelta", error)))
+})
+
+/**
+ * Merges two snapshot deltas that share one base into a single delta, reporting path-level conflicts as data.
+ *
+ * Changes only one side made are taken as they are. Where both sides changed one path the merge keeps the change
+ * when both agree, combines metadata fields that only one side changed, and otherwise reports a conflict and leaves
+ * the base node in place. Timestamps never conflict. The merged delta is bound to the same base as its inputs and
+ * applies with {@link applySnapshotDelta}. Pass `resolutions` to take one side at paths an earlier merge reported.
+ * Requires the platform-neutral `Crypto.Crypto` service for base identity. Provide
+ * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
+ *
+ * @example
+ * ```ts
+ * import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { Effect } from "effect"
+ *
+ * const encoder = new TextEncoder()
+ *
+ * const program = Effect.gen(function*() {
+ *   const source = yield* Vfs.fromFixture({
+ *     entries: [{ kind: "file", path: "/shared.txt", bytes: encoder.encode("v0") }]
+ *   })
+ *   const base = yield* source.snapshot
+ *
+ *   // Two agents work on separate overlays of one base.
+ *   const ours = yield* Vfs.makeOverlay(base)
+ *   const theirs = yield* Vfs.makeOverlay(base)
+ *   yield* (yield* ours.caller()).writeFile("/ours.txt", encoder.encode("a"), { access: "write", create: "exclusive" })
+ *   yield* (yield* theirs.caller()).writeFile("/shared.txt", encoder.encode("v1"), { access: "write", truncate: true })
+ *
+ *   const result = yield* Vfs.mergeSnapshotDeltas(
+ *     base,
+ *     yield* Vfs.diffSnapshots(base, (yield* ours.capture()).snapshot),
+ *     yield* Vfs.diffSnapshots(base, (yield* theirs.capture()).snapshot)
+ *   )
+ *
+ *   // Disjoint changes merge without conflicts; the delta applies to the shared base.
+ *   const merged = yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(base, result.delta))
+ *   const reader = yield* merged.caller()
+ *
+ *   return [result.conflicts.length, new TextDecoder().decode(yield* reader.readFile("/shared.txt"))]
+ * })
+ *
+ * Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
+ * // [ 0, 'v1' ]
+ * ```
+ *
+ * @see {@link diffSnapshots} to build each side's delta, {@link applySnapshotDelta} to apply the merged one.
+ * @category snapshots
+ * @since 0.8.0
+ */
+export const mergeSnapshotDeltas: (
+  base: Snapshot,
+  ours: SnapshotDeltaModel.SnapshotDelta,
+  theirs: SnapshotDeltaModel.SnapshotDelta,
+  options?: SnapshotDeltaModel.MergeOptions
+) => Effect.Effect<
+  SnapshotDeltaModel.MergeResult,
+  VfsError | PlatformError.PlatformError,
+  Crypto.Crypto
+> = Effect.fn("VirtualFileSystem.mergeSnapshotDeltas")(function*(
+  base: Snapshot,
+  ours: SnapshotDeltaModel.SnapshotDelta,
+  theirs: SnapshotDeltaModel.SnapshotDelta,
+  options?: SnapshotDeltaModel.MergeOptions
+) {
+  // Limits decode first so a bad limit names its own field; the rest of the options decode as one.
+  const limits = yield* deltaLimits("mergeSnapshotDeltas", options?.limits)
+
+  const decoded = yield* Effect.fromResult(
+    decodeConfiguration(SnapshotDeltaModel.MergeOptions, options ?? {}, "mergeSnapshotDeltas")
+  )
+
+  return yield* SnapshotMergeInternal.mergeSnapshotDeltas(base, ours, theirs, decoded.resolutions ?? [], limits).pipe(
+    Effect.mapError((error) => retargetFailure("mergeSnapshotDeltas", error))
+  )
 })
 
 const deltaSchemaIssue = (cause: VfsError, input: typeof Schema.Unknown.Type, options: SchemaAST.ParseOptions) =>
