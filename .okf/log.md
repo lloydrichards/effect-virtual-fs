@@ -2,6 +2,8 @@
 
 ## 2026-10-01
 
+- **Snapshot search design (#173)**: The accepted decision fixes snapshot authority, Unicode string globs, explicit native regex with application opt-in, paired Streams and collectors, and finite defaults. Source findings and the reproducible recipe benchmark support it. Delivery is split into adapter compatibility cleanup (#255), snapshot glob (#256), and content search (#257). The implementation workflow records shared contracts, ownership and release checks. Stale scratchpad proposals are removed; no production search API is claimed.
+
 - **Caller-bound MCP example (#175)**: An independent private app serves bounded UTF-8 filesystem tools over Effect MCP stdio, with immediate mutations in a disposable overlay and a separate original-snapshot reader. The system boundaries record that toolkit and transport policy remain application-owned; the agent filesystem research distinguishes the implemented example from remaining package, paging, and search work.
 
 - **Resolution and token ownership (#241)**: Core moves draft-aware target and entry resolution into one module with tagged modes and results. A WeakMap-backed registry owns token validity and handle lifecycle, including cleanup before a late acquisition publication. Named-object restrictions remain operation policies, and engine callbacks retain ownership of inode counts, reclamation and commits. The volume/caller/handle model and explicit-close decision record the boundaries.
