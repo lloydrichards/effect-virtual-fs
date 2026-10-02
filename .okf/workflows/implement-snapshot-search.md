@@ -19,8 +19,11 @@ sources:
     title: Snapshot content search streams and reports
   - id: existing-adapter
     resource: ../../packages/memory/src/internal/treeOperations.ts
-    title: Shared collected walk used by glob and recursive listings
-generated: { by: codex/okf, at: "2026-10-01T23:43:18+02:00" }
+    title: Private collected walk for recursive listings
+  - id: adapter-glob
+    resource: ../../packages/memory/src/internal/glob.ts
+    title: Adapter glob operation owning compilation, traversal and matching
+generated: { by: codex/okf, at: "2026-10-02T06:21:49+00:00" }
 ---
 
 # Implement snapshot search
@@ -42,8 +45,8 @@ separately. Keep matcher and snapshot traversal in #256 so it delivers a useful 
 matching, all three content modes, and their Stream/collector pairs in #257 because they share classification and
 accounting. Docs, types, tests and release notes belong to the slice introducing the behavior.
 
-In #255, retain a private collected walk for recursive `readDirectory` if needed. The current exported walk also serves
-that operation; it is not dead code once glob stops consuming it. Preserve collect-before-exclude error behavior, the
+In #255, `glob.ts` owns the internal adapter glob operation and `memoryFileSystem.ts` delegates to it.
+`treeOperations.ts` retains a private collected walk for recursive `readDirectory`. Preserve collect-before-exclude error behavior, the
 legacy UTF-16 matcher, dot rules and final-symlink resolution options.
 
 ## Fix shared contracts before splitting implementation files

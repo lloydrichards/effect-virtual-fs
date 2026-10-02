@@ -21,7 +21,7 @@ import * as Stream from "effect/Stream"
 import { at, info, openOptions, sizeInput, textOf, textPath, validateMode } from "./adapterSupport.js"
 import { makeCopyOperations } from "./copyOperations.js"
 import { makeOpen } from "./fileHandle.js"
-import { compileGlobPatterns, matchesGlob } from "./glob.js"
+import { makeGlob } from "./glob.js"
 import { argumentError, toPlatformError } from "./platformError.js"
 import { makeTreeOperations } from "./treeOperations.js"
 
@@ -57,7 +57,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
 
   const open = makeOpen(caller)
 
-  const { walk, remove, readDirectory } = makeTreeOperations(caller)
+  const { remove, readDirectory } = makeTreeOperations(caller)
   const { copy, copyFile } = makeCopyOperations(caller, volume.limits)
 
   const temp = Effect.fnUntraced(
@@ -165,7 +165,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
       ),
     rename: Effect.fnUntraced(
       function*(source, destination) {
-        const sourceInfo = yield* caller.stat(at(source, undefined, false))
+        const sourceInfo = yield* caller.stat(at(source, { followFinalSymlink: false }))
 
         const target = sourceInfo.kind === "directory" && destination.endsWith("/")
           ? destination.replace(/\/+$/, "") || "/"
@@ -286,37 +286,7 @@ export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Vol
           }
         }).pipe(Effect.mapError((error) => toPlatformError(error, "watch", path)))
       ),
-    glob: Effect.fnUntraced(function*(pattern, options) {
-      const include = yield* compileGlobPatterns("glob", pattern)
-
-      const exclude = (yield* Effect.forEach(options?.exclude ?? [], (pattern) => compileGlobPatterns("glob", pattern)))
-        .flat()
-
-      return yield* Effect.gen(function*() {
-        const entries = yield* walk(options?.root ?? "/")
-
-        if (exclude.some((pattern) => matchesGlob(pattern, [], true))) return []
-        const output = include.some((pattern) => matchesGlob(pattern, [], true)) ? ["."] : []
-        const excludedDirectories: Array<string> = []
-
-        for (const entry of entries) {
-          const parts = entry.relative.split("/")
-          const directory = entry.kind === "directory"
-
-          const excluded = excludedDirectories.some((prefix) => entry.relative.startsWith(`${prefix}/`)) ||
-            exclude.some((pattern) => matchesGlob(pattern, parts, directory))
-
-          if (excluded) {
-            if (directory) excludedDirectories.push(entry.relative)
-            continue
-          }
-
-          if (include.some((pattern) => matchesGlob(pattern, parts, directory))) output.push(entry.relative)
-        }
-
-        return output.sort()
-      }).pipe(Effect.mapError((error) => toPlatformError(error, "glob", options?.root ?? "/")))
-    })
+    glob: makeGlob(caller)
   })
 })
 

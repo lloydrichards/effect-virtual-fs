@@ -4,11 +4,16 @@
  * @internal
  * @since 0.1.0
  */
+import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import type * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import { badArgument } from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
+import * as Stream from "effect/Stream"
+import { textPath } from "./adapterSupport.js"
+import { toPlatformError } from "./platformError.js"
 
 const argumentError = (method: string, description: string) =>
   badArgument({ module: "FileSystem", method, description })
@@ -289,7 +294,7 @@ const compileGlobPattern = Effect.fnUntraced(function*(method: string, pattern: 
 })
 
 /** @internal */
-export const compileGlobPatterns = Effect.fnUntraced(function*(method: string, pattern: string) {
+const compileGlobPatterns = Effect.fnUntraced(function*(method: string, pattern: string) {
   const expanded = yield* expandBraces(method, pattern)
 
   return yield* Effect.forEach(expanded, (alternative) => compileGlobPattern(method, alternative))
@@ -344,7 +349,7 @@ const matchesGlobSegment = (pattern: GlobSegment, value: string): boolean => {
 }
 
 /** @internal */
-export const matchesGlob = (pattern: CompiledGlobPattern, path: ReadonlyArray<string>, directory: boolean): boolean => {
+const matchesGlob = (pattern: CompiledGlobPattern, path: ReadonlyArray<string>, directory: boolean): boolean => {
   if (pattern.directoryOnly && !directory) return false
   // Each row includes the terminal column; loop bounds keep every indexed cell present.
   let next = Array.from({ length: path.length + 1 }, (_, index) => index === path.length)
@@ -371,3 +376,43 @@ export const matchesGlob = (pattern: CompiledGlobPattern, path: ReadonlyArray<st
 
   return next[0]!
 }
+
+/** @internal */
+export const makeGlob = (caller: Vfs.Caller): FileSystem.FileSystem["glob"] =>
+  Effect.fnUntraced(function*(pattern, options) {
+    const include = yield* compileGlobPatterns("glob", pattern)
+
+    const exclude = (yield* Effect.forEach(options?.exclude ?? [], (pattern) => compileGlobPatterns("glob", pattern)))
+      .flat()
+
+    return yield* Effect.gen(function*() {
+      // Decode the entire walk before exclusions so excluded subtrees retain their failures.
+      const entries = yield* Stream.runCollect(
+        Stream.mapEffect(
+          caller.walk(options?.root ?? "/"),
+          (entry) => Effect.map(textPath(entry.path, "readDirectory"), (relative) => ({ relative, kind: entry.kind }))
+        )
+      )
+
+      if (exclude.some((pattern) => matchesGlob(pattern, [], true))) return []
+      const output = include.some((pattern) => matchesGlob(pattern, [], true)) ? ["."] : []
+      const excludedDirectories: Array<string> = []
+
+      for (const entry of entries) {
+        const parts = entry.relative.split("/")
+        const directory = entry.kind === "directory"
+
+        const excluded = excludedDirectories.some((prefix) => entry.relative.startsWith(`${prefix}/`)) ||
+          exclude.some((pattern) => matchesGlob(pattern, parts, directory))
+
+        if (excluded) {
+          if (directory) excludedDirectories.push(entry.relative)
+          continue
+        }
+
+        if (include.some((pattern) => matchesGlob(pattern, parts, directory))) output.push(entry.relative)
+      }
+
+      return output.sort()
+    }).pipe(Effect.mapError((error) => toPlatformError(error, "glob", options?.root ?? "/")))
+  })

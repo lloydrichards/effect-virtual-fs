@@ -50,5 +50,5 @@ export const makeTreeOperations = (caller: Vfs.Caller) => {
     }
   )
 
-  return { walk, remove, readDirectory }
+  return { remove, readDirectory }
 }

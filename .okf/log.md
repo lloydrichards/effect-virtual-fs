@@ -2,6 +2,8 @@
 
 ## 2026-10-02
 
+- **Memory glob ownership (#255)**: `glob.ts` owns compilation, collected traversal, exclusions, errors and sorting; recursive listings retain a private walk. Named path-target options preserve base selection and final-symlink behavior. Adapter compatibility contracts remain unchanged.
+
 - **Snapshot search reproduction (#258)**: The retained benchmark instructions now include dependency installation and core/memory builds before public-API execution and type checking. Package export sources ground the prerequisite; the historical measurements remain unchanged.
 
 ## 2026-10-01

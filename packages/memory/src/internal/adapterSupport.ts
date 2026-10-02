@@ -125,14 +125,13 @@ interface PathTargetFields {
 /** @internal */
 export const at = (
   path: Vfs.PathInput,
-  base?: Vfs.DirectoryHandle,
-  followFinalSymlink?: boolean
+  options?: { readonly relativeTo?: Vfs.DirectoryHandle | undefined; readonly followFinalSymlink?: boolean | undefined }
 ): Vfs.PathTarget => {
   const target: PathTargetFields = { path }
 
-  if (base !== undefined) target.relativeTo = base
+  if (options?.relativeTo !== undefined) target.relativeTo = options.relativeTo
 
-  if (followFinalSymlink !== undefined) target.followFinalSymlink = followFinalSymlink
+  if (options?.followFinalSymlink !== undefined) target.followFinalSymlink = options.followFinalSymlink
 
   return Vfs.Target.Path(target)
 }
