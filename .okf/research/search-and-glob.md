@@ -92,7 +92,7 @@ sources:
   - id: ripgrep
     resource: https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md#automatic-filtering
     title: Ripgrep application filtering defaults
-generated: { by: codex/okf, at: "2026-10-02T07:57:50.958690+00:00" }
+generated: { by: codex/okf, at: 2026-10-02T08:36:19Z }
 ---
 
 # Snapshot search and glob evidence
@@ -334,7 +334,8 @@ still allocates bounded line and excerpt strings. `scannedBytes` charges full el
 every internal validation, newline, offset, or excerpt pass. These measurements are not an allocation profile, worst-case
 latency bound, or deadline guarantee. The historical recipe and filename measurements remain separate evidence.
 
-Four targeted safe production mutations detected binary-tail admission, incorrect UTF-16-to-byte mapping, partial count
-emission, and rejecting exact-fit result payloads. Each focused public test failed with an assertion mismatch, and the
-restored content suite passed afterward. `content-regression-evidence.json` records the mutations and commands. This is
-selected regression evidence, not a mutation audit of every active test or proof of native regex interruption.
+Six targeted safe production mutations detected binary-tail admission, incorrect UTF-16-to-byte mapping, partial count
+emission, rejecting exact-fit result payloads, premature classification after a yield, and copies of borrowed line views.
+The last two previously passed the search suite; strengthened tests now reject both in isolated source/test copies and
+pass restored production. The late-tail fixture also covers a Unicode scalar crossing the classification checkpoint.
+`content-regression-evidence.json` records the mutations and commands. This is selected regression evidence, not a mutation audit of every active test or proof of native regex interruption.
