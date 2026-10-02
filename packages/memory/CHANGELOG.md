@@ -1,5 +1,34 @@
 # @effect-vfs/memory
 
+## 0.8.0
+
+### Minor Changes
+
+- [`4897f01`](https://github.com/lloydrichards/effect-virtual-fs/commit/4897f01bb21bab22a8fe0b3f0bb2d09a7528269a) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `MemoryFileSystem.layerFromFixture` creates an Effect `FileSystem` layer from core fixture entries.
+
+  ```ts
+  import { MemoryFileSystem } from "@effect-vfs/memory"
+  import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+  import { Effect, FileSystem } from "effect"
+
+  const seeded = MemoryFileSystem.layerFromFixture({
+    entries: [{ kind: "file", path: "/hello.txt", bytes: new TextEncoder().encode("hello") }]
+  })
+  const program = Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    return yield* fs.readFileString("/hello.txt")
+  })
+
+  Effect.runPromise(program.pipe(Effect.provide(seeded), Effect.provide(BunCrypto.layer))).then(console.log)
+  // hello
+  ```
+
+### Patch Changes
+
+- [`14b0a00`](https://github.com/lloydrichards/effect-virtual-fs/commit/14b0a00f84a17dd577c16827fdcbaf106ac42106) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Tree transfer sinks reject duplicate paths with `InvalidEntry`, including when overwriting existing destinations.
+- Updated dependencies [[`d861a32`](https://github.com/lloydrichards/effect-virtual-fs/commit/d861a3202dae7b297559a5de4729f8a7191ee18d), [`33beb85`](https://github.com/lloydrichards/effect-virtual-fs/commit/33beb859f47965971b4275d93b6e2dd19c7e5ad6), [`7b8d32c`](https://github.com/lloydrichards/effect-virtual-fs/commit/7b8d32c2c85601159abf5544fa8cb2e4bbdbf4d6), [`c9c1678`](https://github.com/lloydrichards/effect-virtual-fs/commit/c9c167890271e21587ff3ab60f8d34f978d46f51), [`8c410e7`](https://github.com/lloydrichards/effect-virtual-fs/commit/8c410e7877cf81f0fa1713d7eece13a9dd0caa0d)]:
+  - @effect-vfs/core@0.8.0
+
 ## 0.7.1
 
 ### Patch Changes
