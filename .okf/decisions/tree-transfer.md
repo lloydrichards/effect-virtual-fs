@@ -14,13 +14,16 @@ sources:
   - id: public-api
     resource: ../../packages/memory/src/TreeTransfer.ts
     title: Public tree transfer API
+  - id: transfer-engine
+    resource: ../../packages/memory/src/internal/treeTransferEngine.ts
+    title: Internal transfer ordering and sink coordination
   - id: behavior-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Tree transfer behavior tests
   - id: host-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
-    title: Host filesystem round-trip tests
-generated: { by: claude/okf, at: "2026-09-26T10:40:00+02:00" }
+    title: Node and memory FileSystem transfer tests
+generated: { by: claude/okf, at: "2026-10-02T13:25:00+02:00" }
 ---
 
 # Tree transfer
@@ -28,6 +31,12 @@ generated: { by: claude/okf, at: "2026-09-26T10:40:00+02:00" }
 A tree transfer is an Effect `Stream` of core fixture entries, rooted at the transfer root, run into a `Sink`. Users pass capabilities they already hold. There is no separate port interface for adapters to implement. The existing fixture entry type already carries byte paths, nanosecond timestamps, owners, symbolic-link target bytes, and hard links, so it is the only interchange type. Filtering, merging several roots, and progress use Effect's own `Stream` operators rather than transfer options. The [tree transfer contract](../contracts/tree-transfer.md "specifies") owns the exact rules.
 
 `@effect-vfs/memory` owns the module beside its existing traversal code and Effect `FileSystem` bridge. Core stays free of host filesystem services, as the [package boundaries](package-boundaries.md "preserves") require. The memory adapter's `FileSystem.copy` runs on the same engine, using the volume's own limits and no depth bound, so its public signature does not change.
+
+## Internal ownership
+
+The memory package's internal transfer engine owns the models, limits, sorted live walk, placement, sink lifecycle, directory completion, and reports. Caller and Effect `FileSystem` adapters supply concrete reads and writes. They retain their existing error, skipped-entry, link, and root-identity behavior. The public module exposes the same fixture entries and signatures without an import cycle.
+
+Core retains snapshot traversal because core cannot depend on memory. `fromSnapshot` delegates to `snapshotEntries` and applies the transfer budgets. A shared test compares ordering and first hard-link aliases across caller, snapshot, and FileSystem sources. The FileSystem behavior suite runs against both Node and memory adapters.
 
 ## Sources
 

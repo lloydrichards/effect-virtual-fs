@@ -3,6 +3,8 @@ import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Exit, FileSystem, Layer, Predicate, Result, Schema, Stream } from "effect"
+import type * as Crypto from "effect/Crypto"
+import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
 import * as TreeTransfer from "../src/TreeTransfer.js"
 import { snapshotEntries } from "./support/snapshotEntries.js"
 
@@ -66,6 +68,79 @@ const withoutChangeTimes = (entries: ReadonlyArray<TreeTransfer.Entry>) =>
 
     return { ...entry, metadata }
   })
+
+const repeatedPathStreams: ReadonlyArray<{ name: string; entries: ReadonlyArray<TreeTransfer.Entry> }> = [
+  {
+    name: "file",
+    entries: [
+      { kind: "file", path: "/duplicate", bytes: text.encode("first") },
+      { kind: "file", path: "/duplicate", bytes: text.encode("second") }
+    ]
+  },
+  {
+    name: "different entry kind",
+    entries: [
+      { kind: "file", path: "/duplicate", bytes: text.encode("first") },
+      { kind: "directory", path: "/duplicate" }
+    ]
+  },
+  {
+    name: "directory",
+    entries: [
+      { kind: "directory", path: "/duplicate" },
+      { kind: "directory", path: "/duplicate" }
+    ]
+  },
+  {
+    name: "symbolic link",
+    entries: [
+      { kind: "symlink", path: "/duplicate", target: "target" },
+      { kind: "symlink", path: "/duplicate", target: "target" }
+    ]
+  },
+  {
+    name: "hard link",
+    entries: [
+      { kind: "hardLink", path: "/duplicate", target: "/target" },
+      { kind: "hardLink", path: "/duplicate", target: "/target" }
+    ]
+  }
+]
+
+const repeatedPathStream = (entries: ReadonlyArray<TreeTransfer.Entry>) =>
+  Stream.fromIterable([
+    { kind: "directory", path: "/" } as const,
+    { kind: "file", path: "/target", bytes: text.encode("target") } as const,
+    ...entries
+  ])
+
+const assertRepeatedPath = Effect.fnUntraced(function*<A, E, R>(transfer: Effect.Effect<A, E, R>) {
+  const error = yield* Effect.flip(transfer)
+
+  if (!(error instanceof TreeTransfer.TransferError)) return assert.fail("Expected TransferError")
+
+  assert.deepStrictEqual(failure(error), ["InvalidEntry", "path"])
+  assert.strictEqual(error.path, "/duplicate")
+})
+
+it.layer(NodeCrypto.layer)("TreeTransfer repeated paths", (it) => {
+  for (const { name, entries } of repeatedPathStreams) {
+    it.effect(`should reject a repeated ${name} path when building a volume`, () =>
+      assertRepeatedPath(TreeTransfer.toVolume(repeatedPathStream(entries))))
+
+    for (const existing of ["reject", "overwrite"] as const) {
+      it.effect(`should reject a repeated ${name} path through a caller with ${existing}`, () =>
+        Effect.gen(function*() {
+          const volume = yield* Vfs.fromFixture({ entries: [] })
+
+          yield* assertRepeatedPath(Stream.run(
+            repeatedPathStream(entries),
+            TreeTransfer.toCaller(yield* volume.caller(), "/copy", { existing })
+          ))
+        }))
+    }
+  }
+})
 
 describe("TreeTransfer", () => {
   it.layer(NodeCrypto.layer)((it) => {
@@ -646,464 +721,601 @@ const withTemp = <A, E, R>(use: (fs: FileSystem.FileSystem, directory: string) =
     return yield* use(fs, yield* fs.makeTempDirectoryScoped({ prefix: "tree-transfer-" }))
   }))
 
-it.layer(NodeFileSystem.layer.pipe(Layer.provideMerge(NodeCrypto.layer)))("TreeTransfer host FileSystem", (it) => {
-  it.effect("should round-trip a representative tree within declared losses when transferred through the host", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const source = yield* hostTree
-        const expected = yield* snapshotEntries(source, "/src")
+const fileSystemSuite = (
+  name: string,
+  layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
+) =>
+  it.layer(layer.pipe(Layer.provideMerge(NodeCrypto.layer)))(`TreeTransfer FileSystem (${name})`, (it) => {
+    for (const { name, entries } of repeatedPathStreams) {
+      for (const existing of ["reject", "overwrite"] as const) {
+        it.effect(`should reject a repeated ${name} path through FileSystem with ${existing}`, () =>
+          withTemp((fs, directory) =>
+            assertRepeatedPath(Stream.run(
+              repeatedPathStream(entries),
+              TreeTransfer.toFileSystem(fs, `${directory}/copy`, { existing })
+            ))
+          ))
+      }
+    }
 
-        const exported = yield* Stream.run(
-          TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
-          TreeTransfer.toFileSystem(fs, `${directory}/export`, { times: "all" })
-        )
+    it.effect("should reject a repeated path even when its first entry was skipped", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const first: TreeTransfer.Entry = { kind: "file", path: "/duplicate", bytes: text.encode("first") }
+          const entries = [first, { kind: "file", path: "/duplicate", bytes: text.encode("second") } as const]
 
-        const imported = yield* TreeTransfer.toVolume(TreeTransfer.fromFileSystem(fs, `${directory}/export`))
-
-        assert.deepStrictEqual(declared(yield* snapshotEntries(imported, "/")), declared(expected))
-        assert.deepStrictEqual(exported.hardLinksDegraded, 0)
-        assert.strictEqual(
-          (yield* (yield* imported.caller()).stat(Vfs.Target.Path({ path: "/alias.bin", followFinalSymlink: false })))
-            .nlink,
-          2
-        )
-      })
-    ))
-
-  it.effect("should remove the claimed destination when a link escapes the tree", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "file", path: "/keep", bytes: text.encode("x") },
-          { kind: "symlink", path: "/passwd", target: "/etc/passwd" }
-        ]
-
-        const error = yield* Effect.flip(
-          Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
-        )
-
-        assert.deepStrictEqual(hostFailure(error), ["EscapingSymlink", "/passwd"])
-        assert.isFalse(yield* fs.exists(`${directory}/export`))
-      })
-    ))
-
-  it.effect("should resolve escape checks when links remain inside the tree", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const inside: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "directory", path: "/dir" },
-          { kind: "symlink", path: "/dir/up", target: ".." },
-          { kind: "symlink", path: "/ok", target: "dir/up/dir" }
-        ]
-
-        const outside: ReadonlyArray<TreeTransfer.Entry> = [...inside, {
-          kind: "symlink",
-          path: "/out",
-          target: "dir/up/.."
-        }]
-
-        yield* Stream.run(Stream.fromIterable(inside), TreeTransfer.toFileSystem(fs, `${directory}/inside`))
-
-        const error = yield* Effect.flip(
-          Stream.run(Stream.fromIterable(outside), TreeTransfer.toFileSystem(fs, `${directory}/outside`))
-        )
-
-        assert.strictEqual(yield* fs.readLink(`${directory}/inside/ok`), "dir/up/dir")
-        assert.deepStrictEqual(hostFailure(error), ["EscapingSymlink", "/out"])
-      })
-    ))
-
-  it.effect("should create an escaping link when escapes are allowed", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "symlink", path: "/passwd", target: "/etc/passwd" }
-        ]
-
-        yield* Stream.run(
-          Stream.fromIterable(entries),
-          TreeTransfer.toFileSystem(fs, `${directory}/export`, { escaping: "allow" })
-        )
-
-        assert.strictEqual(yield* fs.readLink(`${directory}/export/passwd`), "/etc/passwd")
-      })
-    ))
-
-  it.effect("should fail or report a non-UTF-8 name when the host cannot carry it", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const raw = yield* Vfs.pathFromBytes(new Uint8Array([...text.encode("/raw-"), 0xff]))
-
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "file", path: "/plain", bytes: text.encode("x") },
-          { kind: "file", path: raw, bytes: text.encode("y") }
-        ]
-
-        const error = yield* Effect.flip(
-          Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/strict`))
-        )
-
-        const report = yield* Stream.run(
-          Stream.fromIterable(entries),
-          TreeTransfer.toFileSystem(fs, `${directory}/lenient`, { unsupported: "skip" })
-        )
-
-        assert.deepStrictEqual(hostFailure(error), ["UnrepresentableName", raw])
-        assert.deepStrictEqual(report.skipped, [{ path: raw, reason: "UnrepresentableName" }])
-        assert.deepStrictEqual(yield* fs.readDirectory(`${directory}/lenient`), ["plain"])
-      })
-    ))
-
-  it.effect("should report a name collision when it occurs inside a claimed destination", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "file", path: "/name", bytes: text.encode("first") },
-          { kind: "file", path: "/name", bytes: text.encode("second") }
-        ]
-
-        const report = yield* Stream.run(
-          Stream.fromIterable(entries),
-          TreeTransfer.toFileSystem(fs, `${directory}/export`, { unsupported: "skip" })
-        )
-
-        assert.deepStrictEqual(report.skipped, [{ path: "/name", reason: "NameCollision" }])
-        assert.strictEqual(yield* fs.readFileString(`${directory}/export/name`), "first")
-      })
-    ))
-
-  it.effect("should replace a destination link without writing through it when overwriting", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        yield* fs.writeFileString(`${directory}/outside`, "untouched")
-        yield* fs.makeDirectory(`${directory}/export`)
-        yield* fs.symlink(`${directory}/outside`, `${directory}/export/file`)
-
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "file", path: "/file", bytes: text.encode("copied") }
-        ]
-
-        yield* Stream.run(
-          Stream.fromIterable(entries),
-          TreeTransfer.toFileSystem(fs, `${directory}/export`, { existing: "overwrite" })
-        )
-
-        assert.strictEqual(yield* fs.readFileString(`${directory}/outside`), "untouched")
-        assert.strictEqual(yield* fs.readFileString(`${directory}/export/file`), "copied")
-        assert.isTrue(Result.isFailure(yield* Effect.result(fs.readLink(`${directory}/export/file`))))
-      })
-    ))
-
-  it.effect("should refuse a merge when the destination directory is a link", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        yield* fs.makeDirectory(`${directory}/outside`)
-        yield* fs.makeDirectory(`${directory}/export`)
-        yield* fs.symlink(`${directory}/outside`, `${directory}/export/child`)
-
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "directory", path: "/child" },
-          { kind: "file", path: "/child/file", bytes: text.encode("copied") }
-        ]
-
-        const error = yield* Effect.flip(
-          Stream.run(
-            Stream.fromIterable(entries),
-            TreeTransfer.toFileSystem(fs, `${directory}/export`, { existing: "overwrite" })
-          )
-        )
-
-        assert.deepStrictEqual(hostFailure(error), ["DestinationConflict", "/child"])
-        assert.deepStrictEqual(yield* fs.readDirectory(`${directory}/outside`), [])
-      })
-    ))
-
-  it.effect("should fail or skip an entry when the host reports it as a FIFO", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        yield* fs.makeDirectory(`${directory}/tree`)
-        yield* fs.writeFileString(`${directory}/tree/file`, "x")
-        yield* fs.writeFileString(`${directory}/tree/pipe`, "never read")
-        const skipped: Array<TreeTransfer.SkippedEntry> = []
-
-        // Reports one regular file as a FIFO, so the adapter must classify it by type and never read it.
-        const withFifo: FileSystem.FileSystem = {
-          ...fs,
-          stat: (path) =>
-            fs.stat(path).pipe(Effect.map((info) => path.endsWith("/pipe") ? { ...info, type: "FIFO" as const } : info))
-        }
-
-        const error = yield* Effect.flip(Stream.runDrain(TreeTransfer.fromFileSystem(withFifo, `${directory}/tree`)))
-
-        const entries = yield* Stream.runCollect(
-          TreeTransfer.fromFileSystem(withFifo, `${directory}/tree`, {
-            unsupported: "skip",
-            onSkip: (entry) => Effect.sync(() => skipped.push(entry))
-          })
-        )
-
-        assert.deepStrictEqual(hostFailure(error), ["UnsupportedEntryType", "/pipe"])
-        assert.deepStrictEqual(entries.map((entry) => entry.path), ["/", "/file"])
-        assert.deepStrictEqual(skipped, [{ path: "/pipe", reason: "UnsupportedEntryType" }])
-      })
-    ))
-
-  it.effect("should fail before reading a host file when it exceeds the byte limit", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        yield* fs.writeFile(`${directory}/large`, new Uint8Array(1024))
-        const limits = { ...TreeTransfer.TreeTransferLimits.default, maxFileBytes: ByteSize.bytes(16) }
-
-        const error = yield* Effect.flip(
-          Stream.runDrain(TreeTransfer.fromFileSystem(fs, `${directory}/large`, { limits }))
-        )
-
-        assert.deepStrictEqual(hostFailure(error), ["LimitExceeded", "/"])
-      })
-    ))
-
-  it.effect("should reject a link when it escapes through a folded name", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "directory", path: "/d" },
-          { kind: "symlink", path: "/d/L", target: ".." },
-          { kind: "symlink", path: "/m", target: "d/l/../SECRET" }
-        ]
-
-        const error = yield* Effect.flip(
-          Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
-        )
-
-        assert.deepStrictEqual(hostFailure(error), ["EscapingSymlink", "/m"])
-        assert.isFalse(yield* fs.exists(`${directory}/export`))
-      })
-    ))
-
-  it.effect("should reject a link when it escapes through an existing destination link", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        yield* fs.makeDirectory(`${directory}/export`)
-        yield* fs.symlink("..", `${directory}/export/up`)
-
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "symlink", path: "/m", target: "up/SECRET" }
-        ]
-
-        const error = yield* Effect.flip(
-          Stream.run(
-            Stream.fromIterable(entries),
-            TreeTransfer.toFileSystem(fs, `${directory}/export`, { existing: "overwrite" })
-          )
-        )
-
-        assert.deepStrictEqual(hostFailure(error), ["EscapingSymlink", "/m"])
-        assert.isFalse(yield* fs.exists(`${directory}/export/m`))
-      })
-    ))
-
-  it.effect("should not write through a link when it replaces an overwritten entry", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        yield* fs.writeFileString(`${directory}/outside`, "untouched")
-        yield* fs.chmod(`${directory}/outside`, 0o600)
-        yield* fs.makeDirectory(`${directory}/export`)
-        yield* fs.writeFileString(`${directory}/export/file`, "old")
-
-        // Models another process replacing the name with a link between the removal and the write.
-        const racing: FileSystem.FileSystem = {
-          ...fs,
-          remove: (path, options) =>
-            fs.remove(path, options).pipe(
-              Effect.andThen(path.endsWith("/export/file") ? fs.symlink(`${directory}/outside`, path) : Effect.void)
+          const stream = repeatedPathStream(entries).pipe(
+            Stream.tap((entry) =>
+              entry === first ? fs.writeFileString(`${directory}/copy/duplicate`, "existing") : Effect.void
             )
-        }
-
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "file", path: "/file", bytes: text.encode("copied"), metadata: { mode: 0o777 } }
-        ]
-
-        yield* Effect.exit(
-          Stream.run(
-            Stream.fromIterable(entries),
-            TreeTransfer.toFileSystem(racing, `${directory}/export`, { existing: "overwrite" })
           )
-        )
 
-        assert.strictEqual(yield* fs.readFileString(`${directory}/outside`), "untouched")
-        assert.strictEqual((yield* fs.stat(`${directory}/outside`)).mode & 0o777, 0o600)
-      })
-    ))
+          yield* assertRepeatedPath(Stream.run(
+            stream,
+            TreeTransfer.toFileSystem(fs, `${directory}/copy`, { unsupported: "skip" })
+          ))
 
-  it.effect("should report a hard-link collision when a destination name already exists", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "file", path: "/a", bytes: text.encode("A") },
-          { kind: "file", path: "/b", bytes: text.encode("B") },
-          { kind: "hardLink", path: "/b", target: "/a" }
-        ]
+          assert.isFalse(yield* fs.exists(`${directory}/copy`))
+        })
+      ))
 
-        const report = yield* Stream.run(
-          Stream.fromIterable(entries),
-          TreeTransfer.toFileSystem(fs, `${directory}/export`, { unsupported: "skip" })
-        )
+    it.effect("should reject a string path repeated after its skipped byte-path equivalent", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const path = yield* Vfs.pathFromBytes(text.encode("/duplicate"))
 
-        assert.deepStrictEqual(report.skipped, [{ path: "/b", reason: "NameCollision" }])
-        assert.strictEqual(report.hardLinksDegraded, 0)
-        assert.strictEqual(yield* fs.readFileString(`${directory}/export/b`), "B")
-      })
-    ))
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "file", path, bytes: text.encode("first") },
+            { kind: "file", path: "/duplicate", bytes: text.encode("second") }
+          ]
 
-  it.effect("should fail a hard-link transfer when its name collides", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "file", path: "/a", bytes: text.encode("A") },
-          { kind: "file", path: "/b", bytes: text.encode("B") },
-          { kind: "hardLink", path: "/b", target: "/a" }
-        ]
+          yield* assertRepeatedPath(Stream.run(
+            repeatedPathStream(entries),
+            TreeTransfer.toFileSystem(fs, `${directory}/copy`, { unsupported: "skip" })
+          ))
+        })
+      ))
 
-        const error = yield* Effect.flip(
-          Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
-        )
+    it.effect("should keep the first write when overwrite rejects a repeated path", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          yield* fs.makeDirectory(`${directory}/copy`)
+          yield* fs.writeFileString(`${directory}/copy/duplicate`, "existing")
 
-        assert.deepStrictEqual(hostFailure(error), ["NameCollision", "/b"])
-      })
-    ))
+          yield* assertRepeatedPath(Stream.run(
+            repeatedPathStream(repeatedPathStreams[0]!.entries),
+            TreeTransfer.toFileSystem(fs, `${directory}/copy`, { existing: "overwrite" })
+          ))
+          assert.strictEqual(yield* fs.readFileString(`${directory}/copy/duplicate`), "first")
+        })
+      ))
 
-  it.effect("should preserve a link target when a hard link is rewritten as a symbolic link", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "directory", path: "/a" },
-          { kind: "symlink", path: "/a/l", target: "../x" },
-          { kind: "directory", path: "/b" },
-          { kind: "directory", path: "/b/c" },
-          { kind: "hardLink", path: "/b/c/l2", target: "/a/l" },
-          { kind: "file", path: "/x", bytes: text.encode("target") }
-        ]
+    it.effect("should preserve byte order and the first hard-link alias when reading each source", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const source = yield* Vfs.fromFixture({
+            entries: [
+              { kind: "directory", path: "/src" },
+              { kind: "directory", path: "/src/\uE000" },
+              { kind: "file", path: "/src/\uE000/data", bytes: text.encode("x") },
+              { kind: "hardLink", path: "/src/\u{10000}", target: "/src/\uE000/data" },
+              { kind: "hardLink", path: "/src/\u{10001}", target: "/src/\uE000/data" }
+            ]
+          })
 
-        const report = yield* Stream.run(
-          Stream.fromIterable(entries),
-          TreeTransfer.toFileSystem(fs, `${directory}/export`)
-        )
+          const snapshot = yield* source.snapshot
 
-        assert.strictEqual(report.hardLinksDegraded, 1)
-        assert.strictEqual(yield* fs.readLink(`${directory}/export/b/c/l2`), "../../x")
-        assert.strictEqual(yield* fs.readFileString(`${directory}/export/b/c/l2`), "target")
-      })
-    ))
+          yield* Stream.run(
+            TreeTransfer.fromSnapshot(snapshot, "/src"),
+            TreeTransfer.toFileSystem(fs, `${directory}/export`)
+          )
 
-  it.effect("should apply exact modes when the host umask differs", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/", metadata: { mode: 0o775 } },
-          { kind: "file", path: "/open", bytes: text.encode("x"), metadata: { mode: 0o777 } }
-        ]
+          const sources = [
+            yield* Stream.runCollect(TreeTransfer.fromSnapshot(snapshot, "/src")),
+            yield* Stream.runCollect(TreeTransfer.fromCaller(yield* source.caller(), "/src")),
+            yield* Stream.runCollect(TreeTransfer.fromFileSystem(fs, `${directory}/export`))
+          ]
 
-        yield* Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
+          for (const entries of sources) {
+            assert.deepStrictEqual(
+              entries.map((entry) =>
+                entry.kind === "hardLink"
+                  ? { kind: entry.kind, path: entry.path, target: entry.target }
+                  : { kind: entry.kind, path: entry.path }
+              ),
+              [
+                { kind: "directory", path: "/" },
+                { kind: "directory", path: "/\uE000" },
+                { kind: "file", path: "/\uE000/data" },
+                { kind: "hardLink", path: "/\u{10000}", target: "/\uE000/data" },
+                { kind: "hardLink", path: "/\u{10001}", target: "/\uE000/data" }
+              ]
+            )
+          }
+        })
+      ))
 
-        assert.strictEqual((yield* fs.stat(`${directory}/export`)).mode & 0o777, 0o775)
-        assert.strictEqual((yield* fs.stat(`${directory}/export/open`)).mode & 0o777, 0o777)
-      })
-    ))
+    it.effect("should round-trip a representative tree within declared losses when transferred through the host", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const source = yield* hostTree
+          const expected = yield* snapshotEntries(source, "/src")
 
-  it.effect("should truncate sub-millisecond times when transferred through the host", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "file", path: "/file", bytes: text.encode("x"), metadata: { mtimeNs: millis(5_000) + 123_456n } }
-        ]
+          const exported = yield* Stream.run(
+            TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"),
+            TreeTransfer.toFileSystem(fs, `${directory}/export`, { times: "all" })
+          )
 
-        yield* Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
-        const [, file] = yield* Stream.runCollect(TreeTransfer.fromFileSystem(fs, `${directory}/export`))
+          const imported = yield* TreeTransfer.toVolume(TreeTransfer.fromFileSystem(fs, `${directory}/export`))
 
-        assert.strictEqual(file?.kind === "file" && file.metadata?.mtimeNs, millis(5_000))
-      })
-    ))
+          assert.deepStrictEqual(declared(yield* snapshotEntries(imported, "/")), declared(expected))
+          assert.deepStrictEqual(exported.hardLinksDegraded, 0)
+          assert.strictEqual(
+            (yield* (yield* imported.caller()).stat(Vfs.Target.Path({ path: "/alias.bin", followFinalSymlink: false })))
+              .nlink,
+            2
+          )
+        })
+      ))
 
-  it.effect("should skip a directory subtree when its name collides", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const entries: ReadonlyArray<TreeTransfer.Entry> = [
-          { kind: "directory", path: "/" },
-          { kind: "directory", path: "/d" },
-          { kind: "file", path: "/d/x", bytes: text.encode("x") },
-          { kind: "directory", path: "/d" },
-          { kind: "file", path: "/d/y", bytes: text.encode("y") }
-        ]
+    it.effect("should remove the claimed destination when a link escapes the tree", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "file", path: "/keep", bytes: text.encode("x") },
+            { kind: "symlink", path: "/passwd", target: "/etc/passwd" }
+          ]
 
-        const report = yield* Stream.run(
-          Stream.fromIterable(entries),
-          TreeTransfer.toFileSystem(fs, `${directory}/export`, { unsupported: "skip" })
-        )
+          const error = yield* Effect.flip(
+            Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
+          )
 
-        assert.deepStrictEqual(report.skipped, [
-          { path: "/d", reason: "NameCollision" },
-          { path: "/d/y", reason: "NameCollision" }
-        ])
-        assert.deepStrictEqual(yield* fs.readDirectory(`${directory}/export/d`), ["x"])
-      })
-    ))
+          assert.deepStrictEqual(hostFailure(error), ["EscapingSymlink", "/passwd"])
+          assert.isFalse(yield* fs.exists(`${directory}/export`))
+        })
+      ))
 
-  it.effect("should fail or skip a host name when it is not valid UTF-8", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        yield* fs.makeDirectory(`${directory}/tree`)
-        yield* fs.writeFileString(`${directory}/tree/file`, "x")
+    it.effect("should resolve escape checks when links remain inside the tree", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const inside: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "directory", path: "/dir" },
+            { kind: "symlink", path: "/dir/up", target: ".." },
+            { kind: "symlink", path: "/ok", target: "dir/up/dir" }
+          ]
 
-        // Effect's FileSystem decodes names as UTF-8, so an undecodable host name arrives with U+FFFD.
-        const lossy: FileSystem.FileSystem = {
-          ...fs,
-          readDirectory: (path, options) =>
-            fs.readDirectory(path, options).pipe(Effect.map((names) => [...names, "bad\uFFFD"]))
-        }
+          const outside: ReadonlyArray<TreeTransfer.Entry> = [...inside, {
+            kind: "symlink",
+            path: "/out",
+            target: "dir/up/.."
+          }]
 
-        const error = yield* Effect.flip(Stream.runDrain(TreeTransfer.fromFileSystem(lossy, `${directory}/tree`)))
+          yield* Stream.run(Stream.fromIterable(inside), TreeTransfer.toFileSystem(fs, `${directory}/inside`))
 
-        const entries = yield* Stream.runCollect(
-          TreeTransfer.fromFileSystem(lossy, `${directory}/tree`, { unsupported: "skip", onSkip: () => Effect.void })
-        )
+          const error = yield* Effect.flip(
+            Stream.run(Stream.fromIterable(outside), TreeTransfer.toFileSystem(fs, `${directory}/outside`))
+          )
 
-        assert.deepStrictEqual(hostFailure(error), ["UnrepresentableName", "/bad\uFFFD"])
-        assert.deepStrictEqual(entries.map((entry) => entry.path), ["/", "/file"])
-      })
-    ))
+          assert.strictEqual(yield* fs.readLink(`${directory}/inside/ok`), "dir/up/dir")
+          assert.deepStrictEqual(hostFailure(error), ["EscapingSymlink", "/out"])
+        })
+      ))
 
-  it.effect("should emit a symbolic link when its target forms a loop", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        yield* fs.makeDirectory(`${directory}/tree`)
-        yield* fs.symlink("self", `${directory}/tree/self`)
+    it.effect("should create an escaping link when escapes are allowed", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "symlink", path: "/passwd", target: "/etc/passwd" }
+          ]
 
-        const entries = yield* Stream.runCollect(TreeTransfer.fromFileSystem(fs, `${directory}/tree`))
+          yield* Stream.run(
+            Stream.fromIterable(entries),
+            TreeTransfer.toFileSystem(fs, `${directory}/export`, { escaping: "allow" })
+          )
 
-        assert.deepStrictEqual(entries[1], { kind: "symlink", path: "/self", target: "self" })
-      })
-    ))
+          assert.strictEqual(yield* fs.readLink(`${directory}/export/passwd`), "/etc/passwd")
+        })
+      ))
 
-  it.effect("should reject a host transfer when its source stream is empty", () =>
-    withTemp((fs, directory) =>
-      Effect.gen(function*() {
-        const error = yield* Effect.flip(Stream.run(Stream.empty, TreeTransfer.toFileSystem(fs, `${directory}/export`)))
+    it.effect("should fail or report a non-UTF-8 name when the host cannot carry it", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const raw = yield* Vfs.pathFromBytes(new Uint8Array([...text.encode("/raw-"), 0xff]))
 
-        assert.deepStrictEqual(hostFailure(error), ["InvalidEntry", undefined])
-      })
-    ))
-})
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "file", path: "/plain", bytes: text.encode("x") },
+            { kind: "file", path: raw, bytes: text.encode("y") }
+          ]
+
+          const error = yield* Effect.flip(
+            Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/strict`))
+          )
+
+          const report = yield* Stream.run(
+            Stream.fromIterable(entries),
+            TreeTransfer.toFileSystem(fs, `${directory}/lenient`, { unsupported: "skip" })
+          )
+
+          assert.deepStrictEqual(hostFailure(error), ["UnrepresentableName", raw])
+          assert.deepStrictEqual(report.skipped, [{ path: raw, reason: "UnrepresentableName" }])
+          assert.deepStrictEqual(yield* fs.readDirectory(`${directory}/lenient`), ["plain"])
+        })
+      ))
+
+    it.effect("should report a name collision when it occurs inside a claimed destination", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "file", path: "/name", bytes: text.encode("second") }
+          ]
+
+          const report = yield* Stream.run(
+            Stream.fromIterable(entries).pipe(
+              Stream.tap((entry) =>
+                entry.path === "/name" ? fs.writeFileString(`${directory}/export/name`, "first") : Effect.void
+              )
+            ),
+            TreeTransfer.toFileSystem(fs, `${directory}/export`, { unsupported: "skip" })
+          )
+
+          assert.deepStrictEqual(report.skipped, [{ path: "/name", reason: "NameCollision" }])
+          assert.strictEqual(yield* fs.readFileString(`${directory}/export/name`), "first")
+        })
+      ))
+
+    it.effect("should replace a destination link without writing through it when overwriting", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          yield* fs.writeFileString(`${directory}/outside`, "untouched")
+          yield* fs.makeDirectory(`${directory}/export`)
+          yield* fs.symlink(`${directory}/outside`, `${directory}/export/file`)
+
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "file", path: "/file", bytes: text.encode("copied") }
+          ]
+
+          yield* Stream.run(
+            Stream.fromIterable(entries),
+            TreeTransfer.toFileSystem(fs, `${directory}/export`, { existing: "overwrite" })
+          )
+
+          assert.strictEqual(yield* fs.readFileString(`${directory}/outside`), "untouched")
+          assert.strictEqual(yield* fs.readFileString(`${directory}/export/file`), "copied")
+          assert.isTrue(Result.isFailure(yield* Effect.result(fs.readLink(`${directory}/export/file`))))
+        })
+      ))
+
+    it.effect("should refuse a merge when the destination directory is a link", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          yield* fs.makeDirectory(`${directory}/outside`)
+          yield* fs.makeDirectory(`${directory}/export`)
+          yield* fs.symlink(`${directory}/outside`, `${directory}/export/child`)
+
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "directory", path: "/child" },
+            { kind: "file", path: "/child/file", bytes: text.encode("copied") }
+          ]
+
+          const error = yield* Effect.flip(
+            Stream.run(
+              Stream.fromIterable(entries),
+              TreeTransfer.toFileSystem(fs, `${directory}/export`, { existing: "overwrite" })
+            )
+          )
+
+          assert.deepStrictEqual(hostFailure(error), ["DestinationConflict", "/child"])
+          assert.deepStrictEqual(yield* fs.readDirectory(`${directory}/outside`), [])
+        })
+      ))
+
+    it.effect("should fail or skip an entry when the host reports it as a FIFO", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          yield* fs.makeDirectory(`${directory}/tree`)
+          yield* fs.writeFileString(`${directory}/tree/file`, "x")
+          yield* fs.writeFileString(`${directory}/tree/pipe`, "never read")
+          const skipped: Array<TreeTransfer.SkippedEntry> = []
+
+          // Reports one regular file as a FIFO, so the adapter must classify it by type and never read it.
+          const withFifo: FileSystem.FileSystem = {
+            ...fs,
+            stat: (path) =>
+              fs.stat(path).pipe(
+                Effect.map((info) => path.endsWith("/pipe") ? { ...info, type: "FIFO" as const } : info)
+              )
+          }
+
+          const error = yield* Effect.flip(Stream.runDrain(TreeTransfer.fromFileSystem(withFifo, `${directory}/tree`)))
+
+          const entries = yield* Stream.runCollect(
+            TreeTransfer.fromFileSystem(withFifo, `${directory}/tree`, {
+              unsupported: "skip",
+              onSkip: (entry) => Effect.sync(() => skipped.push(entry))
+            })
+          )
+
+          assert.deepStrictEqual(hostFailure(error), ["UnsupportedEntryType", "/pipe"])
+          assert.deepStrictEqual(entries.map((entry) => entry.path), ["/", "/file"])
+          assert.deepStrictEqual(skipped, [{ path: "/pipe", reason: "UnsupportedEntryType" }])
+        })
+      ))
+
+    it.effect("should fail before reading a host file when it exceeds the byte limit", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          yield* fs.writeFile(`${directory}/large`, new Uint8Array(1024))
+          const limits = { ...TreeTransfer.TreeTransferLimits.default, maxFileBytes: ByteSize.bytes(16) }
+
+          const error = yield* Effect.flip(
+            Stream.runDrain(TreeTransfer.fromFileSystem(fs, `${directory}/large`, { limits }))
+          )
+
+          assert.deepStrictEqual(hostFailure(error), ["LimitExceeded", "/"])
+        })
+      ))
+
+    it.effect("should reject a link when it escapes through a folded name", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "directory", path: "/d" },
+            { kind: "symlink", path: "/d/L", target: ".." },
+            { kind: "symlink", path: "/m", target: "d/l/../SECRET" }
+          ]
+
+          const error = yield* Effect.flip(
+            Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
+          )
+
+          assert.deepStrictEqual(hostFailure(error), ["EscapingSymlink", "/m"])
+          assert.isFalse(yield* fs.exists(`${directory}/export`))
+        })
+      ))
+
+    it.effect("should reject a link when it escapes through an existing destination link", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          yield* fs.makeDirectory(`${directory}/export`)
+          yield* fs.symlink("..", `${directory}/export/up`)
+
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "symlink", path: "/m", target: "up/SECRET" }
+          ]
+
+          const error = yield* Effect.flip(
+            Stream.run(
+              Stream.fromIterable(entries),
+              TreeTransfer.toFileSystem(fs, `${directory}/export`, { existing: "overwrite" })
+            )
+          )
+
+          assert.deepStrictEqual(hostFailure(error), ["EscapingSymlink", "/m"])
+          assert.isFalse(yield* fs.exists(`${directory}/export/m`))
+        })
+      ))
+
+    it.effect("should not write through a link when it replaces an overwritten entry", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          yield* fs.writeFileString(`${directory}/outside`, "untouched")
+          yield* fs.chmod(`${directory}/outside`, 0o600)
+          yield* fs.makeDirectory(`${directory}/export`)
+          yield* fs.writeFileString(`${directory}/export/file`, "old")
+
+          // Models another process replacing the name with a link between the removal and the write.
+          const racing: FileSystem.FileSystem = {
+            ...fs,
+            remove: (path, options) =>
+              fs.remove(path, options).pipe(
+                Effect.andThen(path.endsWith("/export/file") ? fs.symlink(`${directory}/outside`, path) : Effect.void)
+              )
+          }
+
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "file", path: "/file", bytes: text.encode("copied"), metadata: { mode: 0o777 } }
+          ]
+
+          yield* Effect.exit(
+            Stream.run(
+              Stream.fromIterable(entries),
+              TreeTransfer.toFileSystem(racing, `${directory}/export`, { existing: "overwrite" })
+            )
+          )
+
+          assert.strictEqual(yield* fs.readFileString(`${directory}/outside`), "untouched")
+          assert.strictEqual((yield* fs.stat(`${directory}/outside`)).mode & 0o777, 0o600)
+        })
+      ))
+
+    it.effect("should report a hard-link collision when a destination name already exists", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "file", path: "/a", bytes: text.encode("A") },
+            { kind: "hardLink", path: "/b", target: "/a" }
+          ]
+
+          const report = yield* Stream.run(
+            Stream.fromIterable(entries).pipe(
+              Stream.tap((entry) =>
+                entry.path === "/b" ? fs.writeFileString(`${directory}/export/b`, "B") : Effect.void
+              )
+            ),
+            TreeTransfer.toFileSystem(fs, `${directory}/export`, { unsupported: "skip" })
+          )
+
+          assert.deepStrictEqual(report.skipped, [{ path: "/b", reason: "NameCollision" }])
+          assert.strictEqual(report.hardLinksDegraded, 0)
+          assert.strictEqual(yield* fs.readFileString(`${directory}/export/b`), "B")
+        })
+      ))
+
+    it.effect("should fail a hard-link transfer when its name collides", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "file", path: "/a", bytes: text.encode("A") },
+            { kind: "hardLink", path: "/b", target: "/a" }
+          ]
+
+          const error = yield* Effect.flip(
+            Stream.run(
+              Stream.fromIterable(entries).pipe(
+                Stream.tap((entry) =>
+                  entry.path === "/b" ? fs.writeFileString(`${directory}/export/b`, "B") : Effect.void
+                )
+              ),
+              TreeTransfer.toFileSystem(fs, `${directory}/export`)
+            )
+          )
+
+          assert.deepStrictEqual(hostFailure(error), ["NameCollision", "/b"])
+        })
+      ))
+
+    it.effect("should preserve a link target when a hard link is rewritten as a symbolic link", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "directory", path: "/a" },
+            { kind: "symlink", path: "/a/l", target: "../x" },
+            { kind: "directory", path: "/b" },
+            { kind: "directory", path: "/b/c" },
+            { kind: "hardLink", path: "/b/c/l2", target: "/a/l" },
+            { kind: "file", path: "/x", bytes: text.encode("target") }
+          ]
+
+          const report = yield* Stream.run(
+            Stream.fromIterable(entries),
+            TreeTransfer.toFileSystem(fs, `${directory}/export`)
+          )
+
+          assert.strictEqual(report.hardLinksDegraded, 1)
+          assert.strictEqual(yield* fs.readLink(`${directory}/export/b/c/l2`), "../../x")
+          assert.strictEqual(yield* fs.readFileString(`${directory}/export/b/c/l2`), "target")
+        })
+      ))
+
+    it.effect("should apply exact modes when the host umask differs", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/", metadata: { mode: 0o775 } },
+            { kind: "file", path: "/open", bytes: text.encode("x"), metadata: { mode: 0o777 } }
+          ]
+
+          yield* Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
+
+          assert.strictEqual((yield* fs.stat(`${directory}/export`)).mode & 0o777, 0o775)
+          assert.strictEqual((yield* fs.stat(`${directory}/export/open`)).mode & 0o777, 0o777)
+        })
+      ))
+
+    it.effect("should truncate sub-millisecond times when transferred through the host", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "file", path: "/file", bytes: text.encode("x"), metadata: { mtimeNs: millis(5_000) + 123_456n } }
+          ]
+
+          yield* Stream.run(Stream.fromIterable(entries), TreeTransfer.toFileSystem(fs, `${directory}/export`))
+          const [, file] = yield* Stream.runCollect(TreeTransfer.fromFileSystem(fs, `${directory}/export`))
+
+          assert.strictEqual(file?.kind === "file" && file.metadata?.mtimeNs, millis(5_000))
+        })
+      ))
+
+    it.effect("should skip a directory subtree when its name collides", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const entries: ReadonlyArray<TreeTransfer.Entry> = [
+            { kind: "directory", path: "/" },
+            { kind: "directory", path: "/d" },
+            { kind: "file", path: "/d/y", bytes: text.encode("y") }
+          ]
+
+          const report = yield* Stream.run(
+            Stream.fromIterable(entries).pipe(Stream.tap((entry) =>
+              entry.path === "/d"
+                ? fs.makeDirectory(`${directory}/export/d`).pipe(
+                  Effect.andThen(fs.writeFileString(`${directory}/export/d/x`, "x"))
+                )
+                : Effect.void
+            )),
+            TreeTransfer.toFileSystem(fs, `${directory}/export`, { unsupported: "skip" })
+          )
+
+          assert.deepStrictEqual(report.skipped, [
+            { path: "/d", reason: "NameCollision" },
+            { path: "/d/y", reason: "NameCollision" }
+          ])
+          assert.deepStrictEqual(yield* fs.readDirectory(`${directory}/export/d`), ["x"])
+        })
+      ))
+
+    it.effect("should fail or skip a host name when it is not valid UTF-8", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          yield* fs.makeDirectory(`${directory}/tree`)
+          yield* fs.writeFileString(`${directory}/tree/file`, "x")
+
+          // Effect's FileSystem decodes names as UTF-8, so an undecodable host name arrives with U+FFFD.
+          const lossy: FileSystem.FileSystem = {
+            ...fs,
+            readDirectory: (path, options) =>
+              fs.readDirectory(path, options).pipe(Effect.map((names) => [...names, "bad\uFFFD"]))
+          }
+
+          const error = yield* Effect.flip(Stream.runDrain(TreeTransfer.fromFileSystem(lossy, `${directory}/tree`)))
+
+          const entries = yield* Stream.runCollect(
+            TreeTransfer.fromFileSystem(lossy, `${directory}/tree`, { unsupported: "skip", onSkip: () => Effect.void })
+          )
+
+          assert.deepStrictEqual(hostFailure(error), ["UnrepresentableName", "/bad\uFFFD"])
+          assert.deepStrictEqual(entries.map((entry) => entry.path), ["/", "/file"])
+        })
+      ))
+
+    it.effect("should emit a symbolic link when its target forms a loop", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          yield* fs.makeDirectory(`${directory}/tree`)
+          yield* fs.symlink("self", `${directory}/tree/self`)
+
+          const entries = yield* Stream.runCollect(TreeTransfer.fromFileSystem(fs, `${directory}/tree`))
+
+          assert.deepStrictEqual(entries[1], { kind: "symlink", path: "/self", target: "self" })
+        })
+      ))
+
+    it.effect("should reject a host transfer when its source stream is empty", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const error = yield* Effect.flip(
+            Stream.run(Stream.empty, TreeTransfer.toFileSystem(fs, `${directory}/export`))
+          )
+
+          assert.deepStrictEqual(hostFailure(error), ["InvalidEntry", undefined])
+        })
+      ))
+  })
+
+fileSystemSuite("Node", NodeFileSystem.layer)
+
+fileSystemSuite("Memory", MemoryFileSystem.layer)
