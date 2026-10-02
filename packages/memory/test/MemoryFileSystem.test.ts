@@ -4,6 +4,7 @@ import { assert, describe, it } from "@effect/vitest"
 import {
   ByteSize,
   Cause,
+  Context,
   Crypto,
   Deferred,
   Effect,
@@ -12,6 +13,7 @@ import {
   FileSystem,
   Layer,
   Option,
+  Path,
   PlatformError,
   Result,
   Schema,
@@ -1418,6 +1420,112 @@ describe("memory adapter error mapping", () => {
         assert.strictEqual(reason._tag, "NotFound")
         assert.strictEqual(reason.method, "watch")
         assert.strictEqual(reason.pathOrDescriptor, "/missing")
+      }))
+  })
+})
+
+describe("fixture-backed layers", () => {
+  const fixture: Vfs.Fixture = {
+    entries: [{ kind: "file", path: "/seed.txt", bytes: encoder.encode("seed"), metadata: { mode: 0o600 } }]
+  }
+
+  const seeded = MemoryFileSystem.layerFromFixture(fixture)
+  const read = Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString("/seed.txt"))
+  const write = Effect.flatMap(FileSystem.FileSystem, (fs) => fs.writeFileString("/seed.txt", "changed"))
+
+  it.layer(NodeCrypto.layer)((it) => {
+    it.effect("should read seeded text when composed with POSIX Path", () =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        assert.strictEqual(path.sep, "/")
+        assert.strictEqual(yield* fs.readFileString(path.join("/", "seed.txt")), "seed")
+      }).pipe(Effect.provide(Layer.merge(seeded, Path.layer))))
+    it.effect("should isolate writes when the same layer is built separately", () =>
+      Effect.gen(function*() {
+        yield* write.pipe(Effect.provide(seeded))
+        assert.strictEqual(yield* read.pipe(Effect.provide(seeded)), "seed")
+      }))
+    it.effect.each([
+      { fresh: false, expected: "changed" },
+      { fresh: true, expected: "seed" }
+    ])("should apply graph sharing when sibling layers use fresh=$fresh", ({ fresh, expected }) => {
+      class Reader extends Context.Service<Reader, FileSystem.FileSystem>()("test/fixture/Reader") {}
+
+      class Writer extends Context.Service<Writer, FileSystem.FileSystem>()("test/fixture/Writer") {}
+
+      const reader = Layer.effect(Reader, FileSystem.FileSystem).pipe(
+        Layer.provide(fresh ? Layer.fresh(seeded) : seeded)
+      )
+
+      const writer = Layer.effect(Writer, FileSystem.FileSystem).pipe(
+        Layer.provide(fresh ? Layer.fresh(seeded) : seeded)
+      )
+
+      return Effect.gen(function*() {
+        const writeFs = yield* Writer
+        const readFs = yield* Reader
+        yield* writeFs.writeFileString("/seed.txt", "changed")
+
+        assert.strictEqual(yield* readFs.readFileString("/seed.txt"), expected)
+      }).pipe(Effect.provide(Layer.merge(reader, writer)))
+    })
+    it.effect("should leave tmp absent when the fixture does not declare it", () =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        assert.deepStrictEqual(yield* fs.readDirectory("/"), ["seed.txt"])
+        const error = yield* Effect.flip(fs.makeTempDirectory())
+        assert.strictEqual(error.reason._tag, "NotFound")
+      }).pipe(Effect.provide(seeded)))
+    it.effect("should create temporary resources when tmp is declared", () =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        assert.isTrue(yield* fs.exists(yield* fs.makeTempDirectoryScoped()))
+      }).pipe(Effect.provide(MemoryFileSystem.layerFromFixture({ entries: [{ kind: "directory", path: "/tmp" }] }))))
+    it.effect("should enforce supplied volume limits", () =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const error = yield* Effect.flip(fs.writeFileString("/seed.txt", "too long"))
+        assert.strictEqual(error.reason._tag, "Unknown")
+        assert.strictEqual(error.reason.description, "FileTooLarge")
+      }).pipe(Effect.provide(MemoryFileSystem.layerFromFixture(fixture, { maxFileBytes: ByteSize.bytes(4) }))))
+    it.effect("should enforce caller credentials when volume options are omitted", () =>
+      Effect.gen(function*() {
+        const error = yield* Effect.flip(read)
+        assert.strictEqual(error.reason._tag, "PermissionDenied")
+      }).pipe(Effect.provide(MemoryFileSystem.layerFromFixture(fixture, undefined, {
+        identity: { uid: 1000, gid: 1000, groups: [], privileged: false }
+      }))))
+    it.effect.each([
+      {
+        name: "fixture",
+        layer: MemoryFileSystem.layerFromFixture({
+          entries: [
+            { kind: "file", path: "/missing/seed.txt", bytes: encoder.encode("seed") }
+          ]
+        }),
+        code: "InvalidStructure",
+        field: "parent"
+      },
+      {
+        name: "volume options",
+        layer: MemoryFileSystem.layerFromFixture(fixture, { maxEntries: -1 }),
+        code: "InvalidArgument",
+        field: "maxEntries"
+      },
+      {
+        name: "caller options",
+        layer: MemoryFileSystem.layerFromFixture(fixture, undefined, { umask: -1 }),
+        code: "InvalidArgument",
+        field: "umask"
+      }
+    ])("should retain typed failures when $name is invalid", ({ layer, code, field }) =>
+      Effect.gen(function*() {
+        const error = yield* Effect.flip(read.pipe(Effect.provide(layer)))
+        assert(Schema.is(Vfs.VfsError)(error))
+
+        assert.strictEqual(error.code, code)
+        assert.strictEqual(error.field, field)
       }))
   })
 })

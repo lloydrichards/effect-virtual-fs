@@ -153,6 +153,48 @@ export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = 
 export const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto> = internal.layer
 
 /**
+ * Provides a `FileSystem.FileSystem` backed by a fresh fixture volume.
+ *
+ * Volume limits and caller options use the existing core types. Invalid fixtures
+ * and options remain typed `VfsError` construction failures. Provide `Crypto.Crypto`
+ * to build the volume. This layer adds no entries; include `/tmp` in the fixture
+ * when temporary-file operations need it.
+ *
+ * Separate builds get separate volumes. Reusing one layer value within a single
+ * layer graph shares its volume. Use `Layer.fresh` for independent state in that
+ * graph. Merge with `Path.layer` when a consumer also needs POSIX paths.
+ *
+ * @example
+ * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+ * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import { Effect, FileSystem, Layer, Path } from "effect"
+ *
+ * const seeded = MemoryFileSystem.layerFromFixture({
+ *   entries: [{ kind: "file", path: "/greeting.txt", bytes: new TextEncoder().encode("hello") }]
+ * })
+ * const services = Layer.merge(seeded, Path.layer)
+ * const program = Effect.gen(function*() {
+ *   const fs = yield* FileSystem.FileSystem
+ *   const path = yield* Path.Path
+ *   return yield* fs.readFileString(path.join("/", "greeting.txt"))
+ * })
+ *
+ * Effect.runPromise(program.pipe(Effect.provide(services), Effect.provide(NodeCrypto.layer))).then(console.log)
+ * // hello
+ * ```
+ *
+ * @see {@link bind} when direct core callers must share the volume.
+ * @category layers
+ * @since 0.8.0
+ */
+export const layerFromFixture: (
+  fixture: Vfs.Fixture,
+  volumeOptions?: Vfs.VolumeOptions,
+  callerOptions?: Vfs.RootCallerOptions
+) => Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto> = internal.layerFromFixture
+
+/**
  * Creates a `FileSystem.FileSystem` service backed by an existing core volume.
  *
  * **Details**

@@ -2,6 +2,8 @@
 
 ## 2026-10-02
 
+- **Fixture-backed memory layers (#244)**: The memory adapter provides `layerFromFixture` with existing volume and caller options, typed construction failures, explicit `/tmp`, and normal Effect layer sharing.
+
 - **Pattern tagged union (#257)**: Snapshot content patterns use `Pattern.cases.Literal` and `Pattern.cases.Regex`. Scanner dispatch uses exhaustive `Pattern.match` so literal escaping follows the current discriminants.
 
 - **Content search regression strength (#257)**: Late invalid/binary tails beyond the classification checkpoint and copies of returned byte views now have mutation-proven guards. Retained evidence distinguishes these targeted checks from a complete test mutation audit.
