@@ -673,8 +673,8 @@ A complete filesystem fixture accepted by `fromFixture`.
 export type Fixture = {
   readonly entries: readonly (
     | {
-        readonly kind: "directory"
         readonly path: string | BytePath
+        readonly kind: "directory"
         readonly metadata?: {
           readonly uid?: number
           readonly gid?: number
@@ -686,8 +686,8 @@ export type Fixture = {
         }
       }
     | {
-        readonly kind: "file"
         readonly path: string | BytePath
+        readonly kind: "file"
         readonly bytes: Uint8Array<ArrayBufferLike>
         readonly metadata?: {
           readonly uid?: number
@@ -700,8 +700,8 @@ export type Fixture = {
         }
       }
     | {
-        readonly kind: "symlink"
         readonly path: string | BytePath
+        readonly kind: "symlink"
         readonly target: string | BytePath
         readonly metadata?: {
           readonly uid?: number
@@ -801,7 +801,7 @@ Metadata for a directory, regular file, or symbolic link.
 
 ```ts
 export type Metadata = {
-  readonly kind: "directory" | "file" | "symlink"
+  readonly kind: "file" | "directory" | "symlink"
   readonly ino: bigint
   readonly nlink: number
   readonly size: bigint
@@ -1058,18 +1058,18 @@ export type OverlayChange =
   | {
       readonly _tag: "Added"
       readonly path: BytePath
-      readonly kind: "directory" | "file" | "symlink"
+      readonly kind: "file" | "directory" | "symlink"
     }
   | {
       readonly _tag: "Removed"
       readonly path: BytePath
-      readonly kind: "directory" | "file" | "symlink"
+      readonly kind: "file" | "directory" | "symlink"
     }
   | {
       readonly _tag: "Replaced"
       readonly path: BytePath
-      readonly beforeKind: "directory" | "file" | "symlink"
-      readonly afterKind: "directory" | "file" | "symlink"
+      readonly beforeKind: "file" | "directory" | "symlink"
+      readonly afterKind: "file" | "directory" | "symlink"
       readonly differences: readonly (
         "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
       )[]
@@ -1078,7 +1078,7 @@ export type OverlayChange =
       readonly _tag: "Renamed"
       readonly from: BytePath
       readonly to: BytePath
-      readonly kind: "directory" | "file" | "symlink"
+      readonly kind: "file" | "directory" | "symlink"
       readonly differences: readonly (
         "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
       )[]
@@ -1086,7 +1086,7 @@ export type OverlayChange =
   | {
       readonly _tag: "Updated"
       readonly path: BytePath
-      readonly kind: "directory" | "file" | "symlink"
+      readonly kind: "file" | "directory" | "symlink"
       readonly differences: readonly (
         "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
       )[]
@@ -1133,7 +1133,7 @@ A filesystem entry kind reported by an overlay summary.
 **Signature**
 
 ```ts
-export type OverlayNodeKind = "directory" | "file" | "symlink"
+export type OverlayNodeKind = "file" | "directory" | "symlink"
 ```
 
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1310)
@@ -1583,13 +1583,13 @@ Capacity, admission, watch retention, and path limits for a volume.
 
 ```ts
 export type VolumeOptions = {
-  readonly identity?: string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
   readonly maxEntries?: number
+  readonly maxPathBytes?: ByteSize.ByteSize
+  readonly maxFileBytes?: ByteSize.ByteSize
+  readonly identity?: string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
   readonly maxPendingOperations?: number
   readonly maxWatchEvents?: number
   readonly maxBytes?: ByteSize.ByteSize
-  readonly maxFileBytes?: ByteSize.ByteSize
-  readonly maxPathBytes?: ByteSize.ByteSize
 }
 ```
 
@@ -1668,9 +1668,9 @@ Settings for walking a directory tree.
 ```ts
 export type WalkOptions = {
   readonly maxEntries?: number
+  readonly maxDepth?: number
   readonly maxBytes?: ByteSize.ByteSize
   readonly order?: "pre" | "post"
-  readonly maxDepth?: number
 }
 ```
 

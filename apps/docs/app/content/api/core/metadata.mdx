@@ -108,7 +108,7 @@ Metadata of a filesystem object, including its revision.
 
 ```ts
 export type Metadata = {
-  readonly kind: "directory" | "file" | "symlink"
+  readonly kind: "file" | "directory" | "symlink"
   readonly ino: bigint
   readonly nlink: number
   readonly size: bigint

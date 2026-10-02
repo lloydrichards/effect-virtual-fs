@@ -18,8 +18,8 @@ A whole fixture.
 export type Fixture = {
   readonly entries: readonly (
     | {
-        readonly kind: "directory"
         readonly path: string | BytePath
+        readonly kind: "directory"
         readonly metadata?: {
           readonly uid?: number
           readonly gid?: number
@@ -31,8 +31,8 @@ export type Fixture = {
         }
       }
     | {
-        readonly kind: "file"
         readonly path: string | BytePath
+        readonly kind: "file"
         readonly bytes: Uint8Array<ArrayBufferLike>
         readonly metadata?: {
           readonly uid?: number
@@ -45,8 +45,8 @@ export type Fixture = {
         }
       }
     | {
-        readonly kind: "symlink"
         readonly path: string | BytePath
+        readonly kind: "symlink"
         readonly target: string | BytePath
         readonly metadata?: {
           readonly uid?: number
@@ -89,8 +89,8 @@ One fixture entry.
 ```ts
 export type FixtureEntry =
   | {
-      readonly kind: "directory"
       readonly path: string | BytePath
+      readonly kind: "directory"
       readonly metadata?: {
         readonly uid?: number
         readonly gid?: number
@@ -102,8 +102,8 @@ export type FixtureEntry =
       }
     }
   | {
-      readonly kind: "file"
       readonly path: string | BytePath
+      readonly kind: "file"
       readonly bytes: Uint8Array<ArrayBufferLike>
       readonly metadata?: {
         readonly uid?: number
@@ -116,8 +116,8 @@ export type FixtureEntry =
       }
     }
   | {
-      readonly kind: "symlink"
       readonly path: string | BytePath
+      readonly kind: "symlink"
       readonly target: string | BytePath
       readonly metadata?: {
         readonly uid?: number

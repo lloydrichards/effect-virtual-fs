@@ -23,18 +23,18 @@ export type SnapshotChange =
   | {
       readonly _tag: "Added"
       readonly path: BytePath
-      readonly kind: "directory" | "file" | "symlink"
+      readonly kind: "file" | "directory" | "symlink"
     }
   | {
       readonly _tag: "Removed"
       readonly path: BytePath
-      readonly kind: "directory" | "file" | "symlink"
+      readonly kind: "file" | "directory" | "symlink"
     }
   | {
       readonly _tag: "Updated"
       readonly path: BytePath
-      readonly beforeKind: "directory" | "file" | "symlink"
-      readonly afterKind: "directory" | "file" | "symlink"
+      readonly beforeKind: "file" | "directory" | "symlink"
+      readonly afterKind: "file" | "directory" | "symlink"
       readonly differences: readonly (
         | "uid"
         | "gid"
@@ -142,7 +142,7 @@ A filesystem entry kind reported by snapshot inspection.
 **Signature**
 
 ```ts
-export type SnapshotNodeKind = "directory" | "file" | "symlink"
+export type SnapshotNodeKind = "file" | "directory" | "symlink"
 ```
 
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/SnapshotDelta.ts#L63)

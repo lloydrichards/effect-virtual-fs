@@ -87,6 +87,10 @@
       "types": "./dist/Snapshot.d.ts",
       "import": "./dist/Snapshot.js"
     },
+    "./Search": {
+      "types": "./dist/Search.d.ts",
+      "import": "./dist/Search.js"
+    },
     "./SnapshotDelta": {
       "types": "./dist/SnapshotDelta.d.ts",
       "import": "./dist/SnapshotDelta.js"

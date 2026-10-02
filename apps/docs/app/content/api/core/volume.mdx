@@ -21,18 +21,18 @@ export type OverlayChange =
   | {
       readonly _tag: "Added"
       readonly path: BytePath
-      readonly kind: "directory" | "file" | "symlink"
+      readonly kind: "file" | "directory" | "symlink"
     }
   | {
       readonly _tag: "Removed"
       readonly path: BytePath
-      readonly kind: "directory" | "file" | "symlink"
+      readonly kind: "file" | "directory" | "symlink"
     }
   | {
       readonly _tag: "Replaced"
       readonly path: BytePath
-      readonly beforeKind: "directory" | "file" | "symlink"
-      readonly afterKind: "directory" | "file" | "symlink"
+      readonly beforeKind: "file" | "directory" | "symlink"
+      readonly afterKind: "file" | "directory" | "symlink"
       readonly differences: readonly (
         "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
       )[]
@@ -41,7 +41,7 @@ export type OverlayChange =
       readonly _tag: "Renamed"
       readonly from: BytePath
       readonly to: BytePath
-      readonly kind: "directory" | "file" | "symlink"
+      readonly kind: "file" | "directory" | "symlink"
       readonly differences: readonly (
         "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
       )[]
@@ -49,7 +49,7 @@ export type OverlayChange =
   | {
       readonly _tag: "Updated"
       readonly path: BytePath
-      readonly kind: "directory" | "file" | "symlink"
+      readonly kind: "file" | "directory" | "symlink"
       readonly differences: readonly (
         "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
       )[]
@@ -96,7 +96,7 @@ A kind of filesystem entry in an overlay summary.
 **Signature**
 
 ```ts
-export type OverlayNodeKind = "directory" | "file" | "symlink"
+export type OverlayNodeKind = "file" | "directory" | "symlink"
 ```
 
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L207)
@@ -176,13 +176,13 @@ Volume construction options.
 
 ```ts
 export type VolumeOptions = {
-  readonly identity?: string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
   readonly maxEntries?: number
+  readonly maxPathBytes?: ByteSize.ByteSize
+  readonly maxFileBytes?: ByteSize.ByteSize
+  readonly identity?: string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
   readonly maxPendingOperations?: number
   readonly maxWatchEvents?: number
   readonly maxBytes?: ByteSize.ByteSize
-  readonly maxFileBytes?: ByteSize.ByteSize
-  readonly maxPathBytes?: ByteSize.ByteSize
 }
 ```
 

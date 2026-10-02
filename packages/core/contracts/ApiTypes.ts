@@ -7,7 +7,10 @@ import * as Layer from "effect/Layer"
 import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
+import type * as Stream from "effect/Stream"
+import { Search } from "../src/index.js"
 import { VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../src/index.js"
+import * as SearchModule from "../src/Search.js"
 
 export const publicErrorIdentity: typeof Vfs.VfsError = VfsErrorModule.VfsError
 export const publicCodeIdentity: typeof Vfs.VfsCode = VfsErrorModule.VfsCode
@@ -251,4 +254,24 @@ export const rejectedFile = (caller: Vfs.Caller, file: Vfs.FileHandle) => {
   // @ts-expect-error Overlay construction requires an authentic opaque snapshot.
   Vfs.makeOverlay(new Uint8Array())
   return unscoped
+}
+
+export const snapshotGlobTypes = (snapshot: Vfs.Snapshot) => {
+  const query: Search.GlobQuery = {
+    root: "/",
+    include: ["**"],
+    kinds: ["file"],
+    limits: { maxResults: 5, maxResultBytes: ByteSize.bytes(100) }
+  }
+  const collector: Effect.Effect<Search.GlobReport, Search.GlobFailure> = Search.glob(snapshot, query)
+  const stream: Stream.Stream<string, Search.ScanGlobFailure> = SearchModule.scanGlob(snapshot, query)
+  // @ts-expect-error filenames have no regular-expression interpretation
+  Search.glob(snapshot, { root: "/", include: [/TODO/u] })
+  // @ts-expect-error every query chooses an explicit root
+  Search.glob(snapshot, { include: ["**"] })
+  // @ts-expect-error kind selectors use the finite namespace kinds
+  Search.glob(snapshot, { root: "/", include: ["**"], kinds: ["hardLink"] })
+  // @ts-expect-error byte limits preserve native Effect ByteSize contracts
+  Search.glob(snapshot, { root: "/", include: ["**"], limits: { maxPathBytes: 4096 } })
+  return { collector, stream }
 }

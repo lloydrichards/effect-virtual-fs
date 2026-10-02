@@ -110,10 +110,15 @@ const OPERATION = "snapshotEntries"
 
 const encoder = new TextEncoder()
 
-// Match privileged lookup: follow intermediate links, honor trailing slashes, and leave the final link intact.
-const resolve = (value: VolumeState, input: PathInput): Result.Result<Node, FsFailure> => {
-  const fail = (code: FsFailure["code"]) => Result.fail(fsFailure(code, OPERATION, { path: input }))
-  const prepared = preparePath(input, OPERATION, undefined)
+// Privileged immutable lookup follows intermediate links and honors trailing slashes.
+/** @internal */
+export const resolve = (
+  value: VolumeState,
+  input: PathInput,
+  options: { readonly operation: string; readonly followFinalSymlink: boolean }
+): Result.Result<Node, FsFailure> => {
+  const fail = (code: FsFailure["code"]) => Result.fail(fsFailure(code, options.operation, { path: input }))
+  const prepared = preparePath(input, options.operation, undefined)
 
   if (Result.isFailure(prepared)) return Result.fail(prepared.failure)
   const root = getNode(value, ROOT_INO)!
@@ -137,7 +142,10 @@ const resolve = (value: VolumeState, input: PathInput): Result.Result<Node, FsFa
 
     if (child === undefined) return fail("NotFound")
 
-    if (child.kind !== "symlink" || (index === work.components.length - 1 && !work.trailingSlash)) {
+    if (
+      child.kind !== "symlink" ||
+      (index === work.components.length - 1 && !work.trailingSlash && !options.followFinalSymlink)
+    ) {
       current = child
       continue
     }
@@ -149,7 +157,7 @@ const resolve = (value: VolumeState, input: PathInput): Result.Result<Node, FsFa
     const expansion = new Uint8Array(child.target.length + suffix.length)
     expansion.set(child.target)
     expansion.set(suffix, child.target.length)
-    const expanded = preparePath(ownedPath(expansion), OPERATION, undefined)
+    const expanded = preparePath(ownedPath(expansion), options.operation, undefined)
 
     if (Result.isFailure(expanded)) return fail(expanded.failure.code)
     work = expanded.success
@@ -217,7 +225,7 @@ export const snapshotEntries = (
 ): Stream.Stream<FixtureEntry, FsFailure | ImageFailure> =>
   Stream.unwrap(Effect.gen(function*() {
     const value = yield* valueOf(snapshot)
-    const node = yield* Effect.fromResult(resolve(value, root))
+    const node = yield* Effect.fromResult(resolve(value, root, { operation: OPERATION, followFinalSymlink: false }))
 
     // Bound each pulled chunk to one file's copied bytes.
     return Stream.fromIterable({ [Symbol.iterator]: () => walk(value, node) }, { chunkSize: 1 })

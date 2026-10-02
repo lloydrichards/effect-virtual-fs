@@ -1,0 +1,83 @@
+# Search filenames in a snapshot
+
+Use `Search.glob` to collect filenames with work and skip counts. Use `Search.scanGlob` to consume matching paths as
+an Effect Stream. Both search one explicit immutable snapshot without reading file contents or updating filesystem state.
+
+## Collect matches and check completion
+
+Choose a directory root and root-relative include patterns. Exclusions prune matching directories before their children
+are visited. Hidden names are included by default. The following query selects TypeScript files, including names with
+emoji, and excludes the build directory:
+
+```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { Search, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.fromFixture({ entries: [
+    { kind: "directory", path: "/src" },
+    { kind: "file", path: "/src/😀.ts", bytes: new Uint8Array() },
+    { kind: "directory", path: "/build" },
+    { kind: "file", path: "/build/generated.ts", bytes: new Uint8Array() }
+  ] })
+  const snapshot = yield* volume.snapshot
+  const report = yield* Search.glob(snapshot, {
+    root: "/", include: ["**/*.ts"], exclude: ["build/"], kinds: ["file"]
+  })
+  return { paths: report.results, completion: report.completion, skips: report.skips }
+})
+
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))))
+```
+
+The result contains `src/😀.ts` and reports `Complete`. Check `completion` before treating an empty result as proof
+that no eligible path matches. `Complete` can still include skips. Invalid UTF-8 names are skipped; an invalid directory
+name prunes its subtree and increments `invalidNameSubtrees` once, without estimating unseen descendants.
+
+To set a smaller output cap, pass `limits: { maxResults: 1 }`. Reaching that cap reports `Stopped` immediately,
+even if the returned path happens to be the last match. A stopped collector retains every preceding result and names
+the bound in `completion.limit`. Pattern and query errors remain failures, rather than stopped reports.
+
+## Consume a Stream
+
+Pass the same query to `Search.scanGlob` and consume it with Effect Stream operators:
+
+```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { Search, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect, Stream } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.fromFixture({ entries: [
+    { kind: "file", path: "/😀.ts", bytes: new Uint8Array() }
+  ] })
+  return yield* Stream.runCollect(Search.scanGlob(yield* volume.snapshot, {
+    root: "/", include: ["?.ts"]
+  }))
+})
+
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))))
+```
+
+`?` consumes one Unicode code point, so the result contains `😀.ts`. Wildcards and character classes do not normalize
+names. Paths have no leading slash and preserve their exact text. Results visit directories depth first, sorting each
+directory's children by raw filename bytes. Hard-link names are independent results.
+
+A Stream can emit preceding rows and then fail with `SearchBudgetExceeded`. If you take a Stream prefix, that prefix
+establishes no completion. Use the collector when you need coverage information. Repeated and concurrent evaluations
+have fresh counters and use the same supplied snapshot. Capture a newer snapshot explicitly to see later writes.
+
+## Choose roots and limits
+
+The root must resolve to a directory. Search follows its final directory symlink, but reports discovered symlinks without
+following them. The root itself is excluded from results. A snapshot grants access to its reachable namespace; choosing
+a root does not enforce caller permissions.
+
+Inspect `Search.defaultLimits` or [the API reference](/api/core/search) for the full finite policy. Byte limits use
+Effect `ByteSize`. Glob performs no content work, so `scannedBytes` and `lineEvaluations` remain zero. Output bytes count
+raw UTF-8 paths, rather than JavaScript heap usage or serialized JSON size. A wide directory can stop the query before
+any of its children are visited, because Search checks preparation capacity before allocating a sorted list.
+
+The memory adapter's `FileSystem.glob` keeps its separate UTF-16 wildcard, hidden-name, sorting and error behavior.
+Use `Search` when you want the snapshot dialect described here.

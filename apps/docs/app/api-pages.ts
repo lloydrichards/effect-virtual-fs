@@ -1,6 +1,15 @@
 export const apiPages = [
   {
     packageDir: "packages/core",
+    moduleName: "Search",
+    label: "Core · Search",
+    href: "/api/core/search",
+    routePath: "core/search",
+    contentPath: "content/api/core/search.mdx",
+    relatedLinks: [{ label: "Snapshot search guide", href: "/guides/snapshot-search" }]
+  },
+  {
+    packageDir: "packages/core",
     moduleName: "VirtualFileSystem",
     label: "Core · VirtualFileSystem",
     href: "/api/core/virtual-file-system",

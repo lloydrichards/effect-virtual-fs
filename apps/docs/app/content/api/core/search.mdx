@@ -1,0 +1,765 @@
+# Search.ts overview
+
+Bounded filename search over an explicit immutable snapshot.
+
+Search grants the snapshot's authority, without caller permission filtering.
+Paths are exact UTF-8 strings relative to the selected directory root. Hidden
+names are included, discovered symlinks are not followed, and hard-link names
+are searched independently. Glob never reads or copies file contents.
+
+Since v0.8.0
+
+---
+
+## defaults
+
+### defaultLimits
+
+Finite default work policy. Byte limits use exact `ByteSize` values.
+
+Defaults are 100,000 entries, depth 256, 4 KiB paths, 100 rows, 64 KiB
+result payload, 4 KiB per pattern, 128 pattern sources, 64 KiB aggregate
+sources, 1,024 expanded alternatives, 65,536 compiled tokens, and 10 million
+matching operations. Content bounds are shared for later content modes;
+glob performs no content work. These bounds do not promise a deadline or
+measure JavaScript heap or serialized JSON size.
+
+**Signature**
+
+```ts
+declare const defaultLimits: {
+  readonly maxEntries: number
+  readonly maxDepth: number
+  readonly maxPathBytes: ByteSize.ByteSize
+  readonly maxResults: number
+  readonly maxResultBytes: ByteSize.ByteSize
+  readonly maxPatternBytes: ByteSize.ByteSize
+  readonly maxPatterns: number
+  readonly maxPatternListBytes: ByteSize.ByteSize
+  readonly maxExpansions: number
+  readonly maxTokens: number
+  readonly maxMatchingWork: number
+  readonly maxScannedBytes: ByteSize.ByteSize
+  readonly maxFileBytes: ByteSize.ByteSize
+  readonly maxLineEvaluations: number
+  readonly maxExcerptBytes: ByteSize.ByteSize
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L149)
+
+Since v0.8.0
+
+## errors
+
+### BudgetExceeded (class)
+
+Typed runtime budget exhaustion.
+
+**Signature**
+
+```ts
+declare class BudgetExceeded
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L302)
+
+Since v0.8.0
+
+### GlobFailure (type alias)
+
+Query and snapshot failures preserved by collectors.
+
+**Signature**
+
+```ts
+type GlobFailure = QueryFailure | FsFailure | ImageFailure
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L313)
+
+Since v0.8.0
+
+### QueryFailure (class)
+
+Invalid query, pattern syntax or aggregate compilation limit.
+
+**Signature**
+
+```ts
+declare class QueryFailure
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L289)
+
+Since v0.8.0
+
+### ScanGlobFailure (type alias)
+
+Stream failures, including exhaustion after earlier rows.
+
+**Signature**
+
+```ts
+type ScanGlobFailure = GlobFailure | BudgetExceeded
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L321)
+
+Since v0.8.0
+
+## models
+
+### Completion (type alias)
+
+Query completion with an actual stopping bound.
+
+**Signature**
+
+```ts
+export type Completion =
+  | { readonly _tag: "Complete" }
+  | {
+      readonly _tag: "Stopped"
+      readonly limit:
+        | "maxEntries"
+        | "maxDepth"
+        | "maxPathBytes"
+        | "maxResults"
+        | "maxResultBytes"
+        | "maxPatternBytes"
+        | "maxPatterns"
+        | "maxPatternListBytes"
+        | "maxExpansions"
+        | "maxTokens"
+        | "maxMatchingWork"
+        | "maxScannedBytes"
+        | "maxFileBytes"
+        | "maxLineEvaluations"
+        | "maxExcerptBytes"
+      readonly path?: string
+    }
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L259)
+
+Since v0.8.0
+
+### GlobQuery (type alias)
+
+Filename query decoded by `GlobQuery`.
+
+**Signature**
+
+```ts
+export type GlobQuery = {
+  readonly root: string | BytePath
+  readonly include: readonly [string, ...string[]]
+  readonly exclude?: readonly string[]
+  readonly kinds?: readonly ("file" | "directory" | "symlink")[]
+  readonly limits?: {
+    readonly maxEntries?: number
+    readonly maxDepth?: number
+    readonly maxPathBytes?: ByteSize.ByteSize
+    readonly maxResults?: number
+    readonly maxResultBytes?: ByteSize.ByteSize
+    readonly maxPatternBytes?: ByteSize.ByteSize
+    readonly maxPatterns?: number
+    readonly maxPatternListBytes?: ByteSize.ByteSize
+    readonly maxExpansions?: number
+    readonly maxTokens?: number
+    readonly maxMatchingWork?: number
+    readonly maxScannedBytes?: ByteSize.ByteSize
+    readonly maxFileBytes?: ByteSize.ByteSize
+    readonly maxLineEvaluations?: number
+    readonly maxExcerptBytes?: ByteSize.ByteSize
+  }
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L193)
+
+Since v0.8.0
+
+### GlobReport (type alias)
+
+A selected root, preceding results, counters and completion.
+
+**Signature**
+
+```ts
+export type GlobReport = {
+  readonly root: string | BytePath
+  readonly results: readonly string[]
+  readonly work: {
+    readonly entries: number
+    readonly matchingWork: number
+    readonly resultBytes: ByteSize.ByteSize
+    readonly scannedBytes: ByteSize.ByteSize
+    readonly lineEvaluations: number
+  }
+  readonly skips: {
+    readonly invalidNames: number
+    readonly invalidNameSubtrees: number
+    readonly oversizedFiles: number
+    readonly invalidUtf8Files: number
+    readonly binaryFiles: number
+  }
+  readonly completion:
+    | { readonly _tag: "Complete" }
+    | {
+        readonly _tag: "Stopped"
+        readonly limit:
+          | "maxEntries"
+          | "maxDepth"
+          | "maxPathBytes"
+          | "maxResults"
+          | "maxResultBytes"
+          | "maxPatternBytes"
+          | "maxPatterns"
+          | "maxPatternListBytes"
+          | "maxExpansions"
+          | "maxTokens"
+          | "maxMatchingWork"
+          | "maxScannedBytes"
+          | "maxFileBytes"
+          | "maxLineEvaluations"
+          | "maxExcerptBytes"
+        readonly path?: string
+      }
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L281)
+
+Since v0.8.0
+
+### Kind (type alias)
+
+Entry kinds selected by filename queries.
+
+**Signature**
+
+```ts
+export type Kind = "file" | "directory" | "symlink"
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L36)
+
+Since v0.8.0
+
+### Limit (type alias)
+
+Names of compiler, traversal, output and content bounds.
+
+**Signature**
+
+```ts
+export type Limit =
+  | "maxEntries"
+  | "maxDepth"
+  | "maxPathBytes"
+  | "maxResults"
+  | "maxResultBytes"
+  | "maxPatternBytes"
+  | "maxPatterns"
+  | "maxPatternListBytes"
+  | "maxExpansions"
+  | "maxTokens"
+  | "maxMatchingWork"
+  | "maxScannedBytes"
+  | "maxFileBytes"
+  | "maxLineEvaluations"
+  | "maxExcerptBytes"
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L134)
+
+Since v0.8.0
+
+### LimitOverrides (type alias)
+
+Optional overrides applied to default limits.
+
+**Signature**
+
+```ts
+export type LimitOverrides = {
+  readonly maxEntries?: number
+  readonly maxDepth?: number
+  readonly maxPathBytes?: ByteSize.ByteSize
+  readonly maxResults?: number
+  readonly maxResultBytes?: ByteSize.ByteSize
+  readonly maxPatternBytes?: ByteSize.ByteSize
+  readonly maxPatterns?: number
+  readonly maxPatternListBytes?: ByteSize.ByteSize
+  readonly maxExpansions?: number
+  readonly maxTokens?: number
+  readonly maxMatchingWork?: number
+  readonly maxScannedBytes?: ByteSize.ByteSize
+  readonly maxFileBytes?: ByteSize.ByteSize
+  readonly maxLineEvaluations?: number
+  readonly maxExcerptBytes?: ByteSize.ByteSize
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L102)
+
+Since v0.8.0
+
+### Limits (type alias)
+
+Complete finite search limits.
+
+**Signature**
+
+```ts
+export type Limits = {
+  readonly maxEntries: number
+  readonly maxDepth: number
+  readonly maxPathBytes: ByteSize.ByteSize
+  readonly maxResults: number
+  readonly maxResultBytes: ByteSize.ByteSize
+  readonly maxPatternBytes: ByteSize.ByteSize
+  readonly maxPatterns: number
+  readonly maxPatternListBytes: ByteSize.ByteSize
+  readonly maxExpansions: number
+  readonly maxTokens: number
+  readonly maxMatchingWork: number
+  readonly maxScannedBytes: ByteSize.ByteSize
+  readonly maxFileBytes: ByteSize.ByteSize
+  readonly maxLineEvaluations: number
+  readonly maxExcerptBytes: ByteSize.ByteSize
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L70)
+
+Since v0.8.0
+
+### Skips (type alias)
+
+Counted policy skips.
+
+**Signature**
+
+```ts
+export type Skips = {
+  readonly invalidNames: number
+  readonly invalidNameSubtrees: number
+  readonly oversizedFiles: number
+  readonly invalidUtf8Files: number
+  readonly binaryFiles: number
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L237)
+
+Since v0.8.0
+
+### Work (type alias)
+
+Work counts, with exact raw UTF-8 result bytes.
+
+**Signature**
+
+```ts
+export type Work = {
+  readonly entries: number
+  readonly matchingWork: number
+  readonly resultBytes: ByteSize.ByteSize
+  readonly scannedBytes: ByteSize.ByteSize
+  readonly lineEvaluations: number
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L215)
+
+Since v0.8.0
+
+## operations
+
+### glob
+
+Collect bounded matches and preserve preceding rows when a work or output
+budget stops the query. Invalid queries, malformed patterns and snapshot
+failures remain typed failures; interruption remains interruption.
+
+Reaching the row cap always reports `Stopped`, even for the last possible
+result. Invalid UTF-8 names are counted skips, and invalid-name directories
+count one skipped subtree without examining its descendants.
+
+**Example**
+
+```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { Search, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.fromFixture({
+    entries: [
+      { kind: "file", path: "/a.ts", bytes: new Uint8Array() },
+      { kind: "file", path: "/b.ts", bytes: new Uint8Array() }
+    ]
+  })
+  return yield* Search.glob(yield* volume.snapshot, {
+    root: "/",
+    include: ["*.ts"],
+    limits: { maxResults: 1 }
+  })
+})
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then((report) => {
+  console.log(report.results, report.completion._tag)
+})
+// [ "a.ts" ] Stopped
+```
+
+**Signature**
+
+```ts
+declare const glob: (snapshot: Snapshot, query: GlobQuery) => Effect.Effect<GlobReport, GlobFailure>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L440)
+
+Since v0.8.0
+
+### scanGlob
+
+Stream ordinary root-relative strings in depth-first preorder, with each
+directory sorted by raw name bytes. Resolve the root through directory
+symlinks; never follow discovered symlinks or emit the root itself.
+
+A budget failure may follow earlier rows. Taking a prefix establishes no
+completion. Use `glob` when skip counts or coverage matter. Each evaluation
+owns fresh traversal and counters, including repeated or concurrent runs.
+
+**Example**
+
+```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { Search, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect, Stream } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.fromFixture({ entries: [{ kind: "file", path: "/😀.ts", bytes: new Uint8Array() }] })
+  const snapshot = yield* volume.snapshot
+  return yield* Stream.runCollect(Search.scanGlob(snapshot, { root: "/", include: ["?.ts"] }))
+})
+Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.log)
+// [ '😀.ts' ]
+```
+
+**Signature**
+
+```ts
+declare const scanGlob: (snapshot: Snapshot, query: GlobQuery) => Stream.Stream<string, ScanGlobFailure>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L394)
+
+Since v0.8.0
+
+## schemas
+
+### Completion
+
+`Complete` exhausts the eligible namespace, possibly with skips. `Stopped`
+names the exhausted bound and a root-relative path when representable.
+The empty string identifies the selected root. Stopping does not assert
+that another matching entry exists.
+
+**Signature**
+
+```ts
+declare const Completion: Schema.Union<
+  readonly [
+    Schema.TaggedStruct<"Complete", {}>,
+    Schema.TaggedStruct<
+      "Stopped",
+      {
+        readonly limit: Schema.Literals<
+          readonly [
+            "maxEntries",
+            "maxDepth",
+            "maxPathBytes",
+            "maxResults",
+            "maxResultBytes",
+            "maxPatternBytes",
+            "maxPatterns",
+            "maxPatternListBytes",
+            "maxExpansions",
+            "maxTokens",
+            "maxMatchingWork",
+            "maxScannedBytes",
+            "maxFileBytes",
+            "maxLineEvaluations",
+            "maxExcerptBytes"
+          ]
+        >
+        readonly path: Schema.optionalKey<Schema.String>
+      }
+    >
+  ]
+>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L248)
+
+Since v0.8.0
+
+### GlobQuery
+
+An explicit directory root, nonempty include list and optional exclusions,
+kinds and limits. All patterns are root-relative and case-sensitive.
+
+Wildcards and classes match Unicode code points without normalization.
+Supports `*`, `?`, classes, comma brace alternatives, whole-segment `**`,
+backslash escapes, and a directory-only trailing slash. Excluded directories
+prune traversal. Include selectors and kind filters do not prune directories.
+
+**Signature**
+
+```ts
+declare const GlobQuery: Schema.Struct<{
+  readonly root: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+  readonly include: Schema.NonEmptyArray<Schema.String>
+  readonly exclude: Schema.optionalKey<Schema.$Array<Schema.String>>
+  readonly kinds: Schema.optionalKey<Schema.$Array<Schema.Literals<readonly ["file", "directory", "symlink"]>>>
+  readonly limits: Schema.optionalKey<
+    Schema.Struct<{
+      readonly maxEntries: Schema.optionalKey<Schema.Natural>
+      readonly maxDepth: Schema.optionalKey<Schema.Natural>
+      readonly maxPathBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxResults: Schema.optionalKey<Schema.Natural>
+      readonly maxResultBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxPatternBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxPatterns: Schema.optionalKey<Schema.Natural>
+      readonly maxPatternListBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxExpansions: Schema.optionalKey<Schema.Natural>
+      readonly maxTokens: Schema.optionalKey<Schema.Natural>
+      readonly maxMatchingWork: Schema.optionalKey<Schema.Natural>
+      readonly maxScannedBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxFileBytes: Schema.optionalKey<Schema.ByteSize>
+      readonly maxLineEvaluations: Schema.optionalKey<Schema.Natural>
+      readonly maxExcerptBytes: Schema.optionalKey<Schema.ByteSize>
+    }>
+  >
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L179)
+
+Since v0.8.0
+
+### GlobReport
+
+A selected root, preceding results, counters and completion.
+
+**Signature**
+
+```ts
+declare const GlobReport: Schema.Struct<{
+  readonly root: Schema.Union<readonly [Schema.String, Schema.declare<BytePath, BytePath>]>
+  readonly results: Schema.$Array<Schema.String>
+  readonly work: Schema.Struct<{
+    readonly entries: Schema.Natural
+    readonly matchingWork: Schema.Natural
+    readonly resultBytes: Schema.ByteSize
+    readonly scannedBytes: Schema.ByteSize
+    readonly lineEvaluations: Schema.Natural
+  }>
+  readonly skips: Schema.Struct<{
+    readonly invalidNames: Schema.Natural
+    readonly invalidNameSubtrees: Schema.Natural
+    readonly oversizedFiles: Schema.Natural
+    readonly invalidUtf8Files: Schema.Natural
+    readonly binaryFiles: Schema.Natural
+  }>
+  readonly completion: Schema.Union<
+    readonly [
+      Schema.TaggedStruct<"Complete", {}>,
+      Schema.TaggedStruct<
+        "Stopped",
+        {
+          readonly limit: Schema.Literals<
+            readonly [
+              "maxEntries",
+              "maxDepth",
+              "maxPathBytes",
+              "maxResults",
+              "maxResultBytes",
+              "maxPatternBytes",
+              "maxPatterns",
+              "maxPatternListBytes",
+              "maxExpansions",
+              "maxTokens",
+              "maxMatchingWork",
+              "maxScannedBytes",
+              "maxFileBytes",
+              "maxLineEvaluations",
+              "maxExcerptBytes"
+            ]
+          >
+          readonly path: Schema.optionalKey<Schema.String>
+        }
+      >
+    ]
+  >
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L267)
+
+Since v0.8.0
+
+### Kind
+
+Entry kinds selected by filename queries.
+
+**Signature**
+
+```ts
+declare const Kind: Schema.Literals<readonly ["file", "directory", "symlink"]>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L28)
+
+Since v0.8.0
+
+### Limit
+
+Names of compiler, traversal, output and content bounds.
+
+**Signature**
+
+```ts
+declare const Limit: Schema.Literals<
+  readonly [
+    "maxEntries",
+    "maxDepth",
+    "maxPathBytes",
+    "maxResults",
+    "maxResultBytes",
+    "maxPatternBytes",
+    "maxPatterns",
+    "maxPatternListBytes",
+    "maxExpansions",
+    "maxTokens",
+    "maxMatchingWork",
+    "maxScannedBytes",
+    "maxFileBytes",
+    "maxLineEvaluations",
+    "maxExcerptBytes"
+  ]
+>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L110)
+
+Since v0.8.0
+
+### LimitOverrides
+
+Optional overrides applied to default limits.
+
+**Signature**
+
+```ts
+declare const LimitOverrides: Schema.Struct<{
+  readonly maxEntries: Schema.optionalKey<Schema.Natural>
+  readonly maxDepth: Schema.optionalKey<Schema.Natural>
+  readonly maxPathBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxResults: Schema.optionalKey<Schema.Natural>
+  readonly maxResultBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxPatternBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxPatterns: Schema.optionalKey<Schema.Natural>
+  readonly maxPatternListBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxExpansions: Schema.optionalKey<Schema.Natural>
+  readonly maxTokens: Schema.optionalKey<Schema.Natural>
+  readonly maxMatchingWork: Schema.optionalKey<Schema.Natural>
+  readonly maxScannedBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxFileBytes: Schema.optionalKey<Schema.ByteSize>
+  readonly maxLineEvaluations: Schema.optionalKey<Schema.Natural>
+  readonly maxExcerptBytes: Schema.optionalKey<Schema.ByteSize>
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L78)
+
+Since v0.8.0
+
+### Limits
+
+Complete finite search limits, including reserved content-work limits.
+
+**Signature**
+
+```ts
+declare const Limits: Schema.Struct<{
+  maxEntries: Schema.Natural
+  maxDepth: Schema.Natural
+  maxPathBytes: Schema.ByteSize
+  maxResults: Schema.Natural
+  maxResultBytes: Schema.ByteSize
+  maxPatternBytes: Schema.ByteSize
+  maxPatterns: Schema.Natural
+  maxPatternListBytes: Schema.ByteSize
+  maxExpansions: Schema.Natural
+  maxTokens: Schema.Natural
+  maxMatchingWork: Schema.Natural
+  maxScannedBytes: Schema.ByteSize
+  maxFileBytes: Schema.ByteSize
+  maxLineEvaluations: Schema.Natural
+  maxExcerptBytes: Schema.ByteSize
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L62)
+
+Since v0.8.0
+
+### Skips
+
+Counted policy skips. Descendants of skipped directories are not estimated.
+
+**Signature**
+
+```ts
+declare const Skips: Schema.Struct<{
+  readonly invalidNames: Schema.Natural
+  readonly invalidNameSubtrees: Schema.Natural
+  readonly oversizedFiles: Schema.Natural
+  readonly invalidUtf8Files: Schema.Natural
+  readonly binaryFiles: Schema.Natural
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L223)
+
+Since v0.8.0
+
+### Work
+
+Work counts, with exact raw UTF-8 result bytes.
+
+**Signature**
+
+```ts
+declare const Work: Schema.Struct<{
+  readonly entries: Schema.Natural
+  readonly matchingWork: Schema.Natural
+  readonly resultBytes: Schema.ByteSize
+  readonly scannedBytes: Schema.ByteSize
+  readonly lineEvaluations: Schema.Natural
+}>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L201)
+
+Since v0.8.0
+
+## Related documentation
+
+- [Snapshot search guide](/guides/snapshot-search)
