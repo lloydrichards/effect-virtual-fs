@@ -761,6 +761,19 @@ it.layer(NodeCrypto.layer)("TreeTransfer source ordering", (it) => {
     }))
 })
 
+const observeContentReads = (fs: FileSystem.FileSystem, observedPath: string, reads: Array<string>) => {
+  const recordRead = (path: string) =>
+    Effect.sync(() => {
+      if (path === observedPath) reads.push(path)
+    })
+
+  return FileSystem.make({
+    ...fs,
+    open: (path, options) => recordRead(path).pipe(Effect.andThen(fs.open(path, options))),
+    readFile: (path) => recordRead(path).pipe(Effect.andThen(fs.readFile(path)))
+  })
+}
+
 const fileSystemSuite = (
   name: string,
   layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
@@ -1061,27 +1074,21 @@ const fileSystemSuite = (
           yield* fs.makeDirectory(`${directory}/tree`)
           yield* fs.writeFileString(`${directory}/tree/file`, "x")
           yield* fs.writeFileString(`${directory}/tree/pipe`, "never read")
-          const opened: Array<string> = []
+          const reads: Array<string> = []
 
           // Reports one regular file as a FIFO, so the adapter must classify it by type and never read it.
-          const withFifo: FileSystem.FileSystem = {
-            ...fs,
-            open: (path, options) =>
-              fs.open(path, options).pipe(Effect.tap(() =>
-                Effect.sync(() => {
-                  if (path.endsWith("/pipe")) opened.push(path)
-                })
-              )),
+          const withFifo = FileSystem.make({
+            ...observeContentReads(fs, `${directory}/tree/pipe`, reads),
             stat: (path) =>
               fs.stat(path).pipe(
                 Effect.map((info) => path.endsWith("/pipe") ? { ...info, type: "FIFO" as const } : info)
               )
-          }
+          })
 
           const error = yield* Effect.flip(Stream.runDrain(TreeTransfer.fromFileSystem(withFifo, `${directory}/tree`)))
 
           assert.deepStrictEqual(hostFailure(error), ["UnsupportedEntryType", "/pipe"])
-          assert.deepStrictEqual(opened, [])
+          assert.deepStrictEqual(reads, [])
         })
       ))
 
@@ -1092,22 +1099,16 @@ const fileSystemSuite = (
           yield* fs.writeFileString(`${directory}/tree/file`, "x")
           yield* fs.writeFileString(`${directory}/tree/pipe`, "never read")
           const skipped: Array<TreeTransfer.SkippedEntry> = []
-          const opened: Array<string> = []
+          const reads: Array<string> = []
 
           // Reports one regular file as a FIFO, so the adapter must classify it by type and never read it.
-          const withFifo: FileSystem.FileSystem = {
-            ...fs,
-            open: (path, options) =>
-              fs.open(path, options).pipe(Effect.tap(() =>
-                Effect.sync(() => {
-                  if (path.endsWith("/pipe")) opened.push(path)
-                })
-              )),
+          const withFifo = FileSystem.make({
+            ...observeContentReads(fs, `${directory}/tree/pipe`, reads),
             stat: (path) =>
               fs.stat(path).pipe(
                 Effect.map((info) => path.endsWith("/pipe") ? { ...info, type: "FIFO" as const } : info)
               )
-          }
+          })
 
           const entries = yield* Stream.runCollect(
             TreeTransfer.fromFileSystem(withFifo, `${directory}/tree`, {
@@ -1118,7 +1119,7 @@ const fileSystemSuite = (
 
           assert.deepStrictEqual(entries.map((entry) => entry.path), ["/", "/file"])
           assert.deepStrictEqual(skipped, [{ path: "/pipe", reason: "UnsupportedEntryType" }])
-          assert.deepStrictEqual(opened, [])
+          assert.deepStrictEqual(reads, [])
         })
       ))
 
@@ -1130,11 +1131,7 @@ const fileSystemSuite = (
 
           const reads: Array<string> = []
 
-          const observed: FileSystem.FileSystem = {
-            ...fs,
-            open: (path, options) => Effect.sync(() => reads.push(path)).pipe(Effect.andThen(fs.open(path, options))),
-            readFile: (path) => Effect.sync(() => reads.push(path)).pipe(Effect.andThen(fs.readFile(path)))
-          }
+          const observed = observeContentReads(fs, `${directory}/large`, reads)
 
           const error = yield* Effect.flip(
             Stream.runDrain(TreeTransfer.fromFileSystem(observed, `${directory}/large`, { limits }))
