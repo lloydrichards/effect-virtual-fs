@@ -2,6 +2,10 @@
 
 ## 2026-10-02
 
+- **Pattern tagged union (#257)**: Snapshot content patterns use `Pattern.cases.Literal` and `Pattern.cases.Regex`. Scanner dispatch uses exhaustive `Pattern.match` so literal escaping follows the current discriminants.
+
+- **Content search regression strength (#257)**: Late invalid/binary tails beyond the classification checkpoint and copies of returned byte views now have mutation-proven guards. Retained evidence distinguishes these targeted checks from a complete test mutation audit.
+
 - **Snapshot content search (#257)**: Core Search implements all three content modes with paired Streams and collectors, whole-file strict classification, exact UTF-8 ranges, bounded excerpts and completed-file counts. The snapshot contract records text and accounting rules. Focused tests prove borrowing, interruption and observation neutrality; retained recipe comparisons support avoided copies while recording slower elapsed times.
 
 - **Snapshot filename search (#256)**: Core Search implements Unicode glob Streams and bounded reports over immutable namespace state. The filename contract records aliases, pruning, typed stops, preparation accounting and compiler presets. Public guarded tests cover payload and observation neutrality; a separate benchmark retains the no-copy versus CPU-cost comparison. Content search remains pending.

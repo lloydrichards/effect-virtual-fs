@@ -1,5 +1,5 @@
 {
-  "scope": "Four targeted safe production mutations; not an audit of every active test. Native regex was never made pathological. Source restored after each run.",
+  "scope": "Six targeted safe production mutations; not an audit of every active test. Native regex was never made pathological. Source restored after each run. The two review follow-ups ran against isolated source/test copies.",
   "cases": [
     {
       "name": "binary-tail-classification",
@@ -40,6 +40,31 @@
       "command": "bun run --cwd packages/core test test/SearchContent.test.ts -t 'preflights exact payload sizes'",
       "exitCode": 1,
       "detected": true
+    },
+    {
+      "name": "classification-resume",
+      "mutation": {
+        "before": "yield* Effect.yieldNow",
+        "after": "yield* Effect.yieldNow\n      return binary ? \"binary\" : \"text\"",
+        "location": "First yieldNow in classify, packages/core/src/internal/searchContent.ts"
+      },
+      "command": "bun run --cwd packages/core test test/SearchContent.test.ts -t 'resumes whole-file classification'",
+      "exitCode": 1,
+      "restoredExitCode": 0,
+      "detected": true,
+      "execution": "Ran the focused test against isolated copies of core src/test with repository dependencies; command shown targets the equivalent repository test."
+    },
+    {
+      "name": "borrowed-view-copy",
+      "mutation": {
+        "before": "decoder.decode(cursor.data.subarray(start, end))",
+        "after": "decoder.decode(cursor.data.subarray(start, end).slice())"
+      },
+      "command": "bun run --cwd packages/core test test/SearchContent.test.ts -t 'borrows immutable payload views'",
+      "exitCode": 1,
+      "restoredExitCode": 0,
+      "detected": true,
+      "execution": "Ran the focused test against isolated copies of core src/test with repository dependencies; command shown targets the equivalent repository test."
     }
   ]
 }

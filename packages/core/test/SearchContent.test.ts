@@ -43,6 +43,7 @@ describe("snapshot content search", () => {
         const lines = yield* Search.lines(snapshot, query)
         const files = yield* Search.files(snapshot, query)
         const counts = yield* Search.countLines(snapshot, query)
+
         assert.deepStrictEqual(lines.results, [rows("a", 1, 0, 3, "hit hit"), rows("a", 3, 13, 16, "hit")])
         assert.deepStrictEqual(files.results, ["a"])
         assert.deepStrictEqual(counts.results, [{ path: "a", count: 2 }])
@@ -59,6 +60,38 @@ describe("snapshot content search", () => {
         assert.deepStrictEqual(yield* Stream.runCollect(Search.scanCountLines(snapshot, query)), counts.results)
         assert.strictEqual(files.work.lineEvaluations, 1)
         assert.strictEqual(counts.work.lineEvaluations, 3)
+      }))
+
+    it.effect("resumes whole-file classification across scalar boundaries before exposing matches", () =>
+      Effect.gen(function*() {
+        // The emoji starts at byte 4095 and crosses the classifier's first checkpoint.
+        const text = "hit\n" + "x".repeat(4091) + "😀\nhit"
+        const bytes = encoder.encode(text)
+
+        const snapshot = yield* snapshotOf([
+          { kind: "file", path: "/valid", bytes },
+          { kind: "file", path: "/binary", bytes: new Uint8Array([...bytes, 0]) },
+          { kind: "file", path: "/invalid", bytes: new Uint8Array([...bytes, 255]) }
+        ])
+
+        const lines = yield* Search.lines(snapshot, query)
+        const files = yield* Search.files(snapshot, query)
+        const counts = yield* Search.countLines(snapshot, query)
+
+        assert.deepStrictEqual(lines.results, [rows("valid", 1, 0, 3, "hit"), rows("valid", 3, 4100, 4103, "hit")])
+        assert.deepStrictEqual(files.results, ["valid"])
+        assert.deepStrictEqual(counts.results, [{ path: "valid", count: 2 }])
+
+        for (const report of [lines, files, counts]) {
+          assert.strictEqual(report.skips.binaryFiles, 1)
+          assert.strictEqual(report.skips.invalidUtf8Files, 1)
+          assert.strictEqual(report.work.scannedBytes, ByteSize.bytes(bytes.length * 3 + 2))
+          assert.strictEqual(report.completion._tag, "Complete")
+        }
+
+        assert.deepStrictEqual(yield* Stream.runCollect(Search.scanLines(snapshot, query)), lines.results)
+        assert.deepStrictEqual(yield* Stream.runCollect(Search.scanFiles(snapshot, query)), files.results)
+        assert.deepStrictEqual(yield* Stream.runCollect(Search.scanCountLines(snapshot, query)), counts.results)
       }))
 
     it.effect("rejects every malformed UTF-8 sequence while accepting scalar boundary values", () =>
@@ -435,7 +468,14 @@ describe("snapshot content search", () => {
               return (start?: number, end?: number) => {
                 views.push([start, end])
 
-                return target.subarray(start, end)
+                const view = target.subarray(start, end)
+                Object.defineProperty(view, "slice", {
+                  value: () => {
+                    throw new Error("Search copied a borrowed file view")
+                  }
+                })
+
+                return view
               }
             }
 
