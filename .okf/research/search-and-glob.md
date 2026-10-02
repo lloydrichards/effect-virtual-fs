@@ -39,8 +39,8 @@ sources:
     resource: ../../packages/memory/src/internal/glob.ts
     title: Existing UTF-16 glob grammar and matcher
   - id: adapter-glob
-    resource: ../../packages/memory/src/internal/memoryFileSystem.ts
-    title: Adapter glob collection, exclusions, and string ordering
+    resource: ../../packages/memory/src/internal/glob.ts
+    title: Adapter glob compilation, collected traversal, exclusions, error mapping and sorted output
   - id: effect-regexp
     resource: https://github.com/Effect-TS/effect/blob/b5a2d4c1d62c9620a68d72b7f20248c69ef7663b/packages/effect/src/RegExp.ts#L37
     title: Effect 4 native RegExp constructor
