@@ -14,6 +14,12 @@ sources:
   - id: measurements
     resource: ../../docs/research/issue-173/benchmark-results.json
     title: Historical Bun baseline and alias/laziness probes
+  - id: core-package
+    resource: ../../packages/core/package.json
+    title: Core public imports resolve to built dist files
+  - id: memory-package
+    resource: ../../packages/memory/package.json
+    title: Memory public imports resolve to built dist files
   - id: snapshot-model
     resource: ../../packages/core/src/Snapshot.ts
     title: Immutable snapshot model
@@ -71,7 +77,7 @@ sources:
   - id: ripgrep
     resource: https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md#automatic-filtering
     title: Ripgrep application filtering defaults
-generated: { by: codex/okf, at: "2026-10-01T21:36:56Z" }
+generated: { by: codex/okf, at: "2026-10-02T06:15:06Z" }
 ---
 
 # Snapshot search and glob evidence
@@ -141,9 +147,12 @@ machine are not tail-latency, allocation, peak-memory, browser, regex, or worst-
 matches occurred near the beginning. End-minus-start process memory deltas are not an allocation profile. The
 replacement decoder and simple recipe do not validate the accepted strict-text search contract.[^benchmark]
 
-Reproduce from the repository root:
+On a fresh checkout, install workspace dependencies and build core and memory before reproducing from the repository
+root. Their public imports and types resolve to built `dist` files.[^core-package][^memory-package]
 
 ```sh
+bun install --frozen-lockfile
+bunx turbo run build --filter=@effect-vfs/core --filter=@effect-vfs/memory
 bun run docs/research/issue-173/benchmark.ts
 bunx tsc --project docs/research/issue-173/tsconfig.json --noEmit
 ```
@@ -240,6 +249,10 @@ larger contract than this issue establishes.[^git-ignore][^ripgrep]
 [^benchmark]: Retained source owns fixture construction, sampling, replacement decoding, counters, and relocated output.
 
 [^measurements]: Historical JSON owns fixture identity, samples, byte counters, and alias/oversized-file probes.
+
+[^core-package]: Core's public package exports and type declarations point into `dist`; its build script produces those files.
+
+[^memory-package]: Memory's public package exports and type declarations point into `dist`; its build script produces those files.
 
 [^legacy-glob]: `glob.ts` uses `charAt` around lines 189, 231, and 322; brace expansion is capped before compilation.
 
