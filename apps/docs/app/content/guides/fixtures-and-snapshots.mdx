@@ -187,6 +187,10 @@ Use [`SnapshotDeltaFromBytes`](/api/core/virtual-file-system#snapshotdeltafromby
 storage or transport boundary. Its default and constrained policies apply finite limits to the complete delta
 workflow.
 
+Two deltas from one base can be combined with
+[`mergeSnapshotDeltas`](/api/core/virtual-file-system#mergesnapshotdeltas); the
+[overlay guide](/guides/overlay-filesystems#merge-two-workspaces) shows the conflict and resolution flow.
+
 ## Next steps
 
 - [Create an isolated overlay workspace](/guides/overlay-filesystems) when you need a writable branch from a snapshot.

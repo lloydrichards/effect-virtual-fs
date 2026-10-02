@@ -111,6 +111,87 @@ and you can store it with `@effect-vfs/persistence`.
 Do not replace `capture()` with separate `workspace.snapshot` and `workspace.changes()` calls when the two results
 must match. A mutation can commit between those observations.
 
+## Merge two workspaces
+
+When several workspaces start from one base, combine their results with `mergeSnapshotDeltas`. It takes the base and
+one delta per side, applies every change the two sides do not dispute, and reports path-level conflicts as data instead
+of failing. The merged delta is bound to the same base and applies with `applySnapshotDelta`.
+
+```ts
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
+
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
+
+const program = Effect.gen(function* () {
+  const source = yield* Vfs.fromFixture({
+    entries: [
+      { kind: "file", path: "/README.md", bytes: encoder.encode("# Project\n") },
+      { kind: "file", path: "/config.json", bytes: encoder.encode("{}") }
+    ]
+  })
+  const base = yield* source.snapshot
+
+  const docs = yield* Vfs.makeOverlay(base)
+  const build = yield* Vfs.makeOverlay(base)
+  const docsFs = yield* docs.caller()
+  const buildFs = yield* build.caller()
+
+  yield* docsFs.writeFile("/README.md", encoder.encode("# Project\n\nSee docs/.\n"), {
+    access: "write",
+    truncate: true
+  })
+  yield* buildFs.writeFile("/config.json", encoder.encode('{"target":"es2024"}'), {
+    access: "write",
+    truncate: true
+  })
+  yield* buildFs.writeFile("/README.md", encoder.encode("# Project (build)\n"), {
+    access: "write",
+    truncate: true
+  })
+
+  const ours = yield* Vfs.diffSnapshots(base, (yield* docs.capture()).snapshot)
+  const theirs = yield* Vfs.diffSnapshots(base, (yield* build.capture()).snapshot)
+
+  const first = yield* Vfs.mergeSnapshotDeltas(base, ours, theirs)
+  const reasons = first.conflicts.map((conflict) => conflict.reason)
+
+  // Keep the docs workspace's README and merge again. The config change was never in dispute.
+  const resolved = yield* Vfs.mergeSnapshotDeltas(base, ours, theirs, {
+    resolutions: first.conflicts.map((conflict) => ({ path: conflict.path, take: "ours" as const }))
+  })
+  const merged = yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(base, resolved.delta))
+  const reader = yield* merged.caller()
+
+  return {
+    reasons,
+    remaining: resolved.conflicts.length,
+    readme: decoder.decode(yield* reader.readFile("/README.md")),
+    config: decoder.decode(yield* reader.readFile("/config.json"))
+  }
+})
+
+console.log(await Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))))
+```
+
+`reasons` is `["BothChanged"]` because both workspaces rewrote `/README.md`. The config change was taken on the first
+merge already, while the conflicted path kept the base file. Passing `resolutions` with `take` set to `ours`, `theirs`,
+or `base` settles each reported path; the second merge reports nothing and the restored volume holds the chosen README
+and the merged config.
+
+A conflict names each side's change as kinds and changed fields, never bytes; read the three snapshots when you need the
+contents. Fields merge independently, so a permission change on one side combines with a content change on the other,
+and timestamps never conflict. A directory removed or replaced on one side with additions or edits beneath it on the other reports
+`ParentRemoved` for each added or edited path and keeps the whole directory. A conflict also holds every name of a
+hard-linked file it touches at base, and reports any such name whose change it holds back. A rename appears to the merge as a removal and an
+addition, so renaming a file one side edited reports `ChangedRemoved` at the old name. Hard links merge per file: an edit
+through one name combines with a new or removed name on the other side, two sides that only remove names agree, and two
+sides that change which names share a file in different ways report `HardLinkGroupDiverged` for the group. Resolving a
+removed directory or a hard-link group means resolving every reported path in it the same way. Identical changes on
+both sides merge as one, which makes merging three or more deltas depend on the order you merge them in.
+
 ## Reset the workspace
 
 Create another overlay from the original base and replace the workspace reference in your application:
@@ -139,3 +220,5 @@ Effect `FileSystem` service for the isolation to apply.
 - [Test with an isolated filesystem](/guides/testing-with-an-isolated-filesystem) for the standard Effect
   `FileSystem` adapter.
 - Open the [`VirtualFileSystem` API reference](/api/core/virtual-file-system) for overlay constructors and models.
+- Open the [`SnapshotDelta` API reference](/api/core/snapshot-delta) for the merge conflict, resolution, and result
+  models.
