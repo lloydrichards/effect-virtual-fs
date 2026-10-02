@@ -169,7 +169,8 @@
     {
       "files": [
         "apps/docs/scripts/check-docs.ts",
-        "apps/docs/scripts/check-examples.ts"
+        "apps/docs/scripts/check-examples.ts",
+        "apps/docs/scripts/check-guide-examples.ts"
       ],
       "rules": {
         "effecttsgo/async-function": "off",
