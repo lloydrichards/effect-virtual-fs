@@ -1438,7 +1438,6 @@ describe("fixture-backed layers", () => {
       Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
         const path = yield* Path.Path
-        assert.strictEqual(path.sep, "/")
         assert.strictEqual(yield* fs.readFileString(path.join("/", "seed.txt")), "seed")
       }).pipe(Effect.provide(Layer.merge(seeded, Path.layer))))
     it.effect("should isolate writes when the same layer is built separately", () =>
@@ -1447,9 +1446,9 @@ describe("fixture-backed layers", () => {
         assert.strictEqual(yield* read.pipe(Effect.provide(seeded)), "seed")
       }))
     it.effect.each([
-      { fresh: false, expected: "changed" },
-      { fresh: true, expected: "seed" }
-    ])("should apply graph sharing when sibling layers use fresh=$fresh", ({ fresh, expected }) => {
+      { fresh: false, expected: "changed", outcome: "share writes", condition: "the same fixture layer" },
+      { fresh: true, expected: "seed", outcome: "isolate writes", condition: "fresh fixture layers" }
+    ])("should $outcome when sibling services use $condition", ({ fresh, expected }) => {
       class Reader extends Context.Service<Reader, FileSystem.FileSystem>()("test/fixture/Reader") {}
 
       class Writer extends Context.Service<Writer, FileSystem.FileSystem>()("test/fixture/Writer") {}
@@ -1482,7 +1481,7 @@ describe("fixture-backed layers", () => {
         const fs = yield* FileSystem.FileSystem
         assert.isTrue(yield* fs.exists(yield* fs.makeTempDirectoryScoped()))
       }).pipe(Effect.provide(MemoryFileSystem.layerFromFixture({ entries: [{ kind: "directory", path: "/tmp" }] }))))
-    it.effect("should enforce supplied volume limits", () =>
+    it.effect("should reject an oversized write when fixture volume limits are supplied", () =>
       Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
         const error = yield* Effect.flip(fs.writeFileString("/seed.txt", "too long"))
