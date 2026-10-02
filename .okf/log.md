@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-10-02
+
+- **Snapshot search reproduction (#258)**: The retained benchmark instructions now include dependency installation and core/memory builds before public-API execution and type checking. Package export sources ground the prerequisite; the historical measurements remain unchanged.
+
 ## 2026-10-01
 
 - **Snapshot search design (#173)**: The accepted decision fixes snapshot authority, Unicode string globs, explicit native regex with application opt-in, paired Streams and collectors, and finite defaults. Source findings and the reproducible recipe benchmark support it. Delivery is split into adapter compatibility cleanup (#255), snapshot glob (#256), and content search (#257). The implementation workflow records shared contracts, ownership and release checks. Stale scratchpad proposals are removed; no production search API is claimed.
