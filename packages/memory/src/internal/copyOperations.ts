@@ -32,8 +32,8 @@ export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits)
   const copy: FileSystem.FileSystem["copy"] = Effect.fn("MemoryFileSystem.copy")(
     function*(source, destination, options) {
       return yield* Effect.gen(function*() {
-        const sourceNode = yield* caller.stat(at(source, undefined, false))
-        const existing = yield* Effect.result(caller.stat(at(destination, undefined, false)))
+        const sourceNode = yield* caller.stat(at(source, { followFinalSymlink: false }))
+        const existing = yield* Effect.result(caller.stat(at(destination, { followFinalSymlink: false })))
 
         if (Result.isFailure(existing) && existing.failure.code !== "NotFound") return yield* existing.failure
 
