@@ -175,12 +175,12 @@ The guide includes complete application, parent-setup, fixture-parsing, seeded-r
 
 The fixture example uses `Vfs.fromFixture` with `MemoryFileSystem.bind`. The npm `0.7.1` memory declarations lack `layerFromFixture`. Its source implementation is identified as planned for `0.8.0`, not presented as a published helper.
 
-`apps/docs/scripts/check-guide-examples.ts` extracts every titled TypeScript block from the guide without rewriting its code, checks the snippets together, and executes their tests. It joins the shown `writeManifest.ts` with its importing test through their filenames. `docs:check` now runs this checker. The docs workspace declares its test and Bun Crypto dependencies, and the existing docs-script lint exception includes the new checker. Installing dependencies also synchronized two pre-existing core dependency ranges in the lockfile with their manifests.
+The exact titled TypeScript blocks were extracted from the guide without rewriting their code, checked together, and executed as tests. The shown `writeManifest.ts` joined its importing test through their filenames. This was one-time verification. At the user's request, the permanent guide checker, its dependencies, and its lint and script configuration were removed. The existing `docs:check` remains unchanged.
 
 Validation passed:
 
-- `bun run apps/docs/scripts/check-guide-examples.ts` compiled seven exact snippets and ran eight tests across six test files. Run it again to regenerate these counts.
-- `bun run docs:check` validated content structure, compiled 93 API examples, executed 58 with output assertions, and passed the guide examples. It required an unsandboxed run for the existing `tsx` IPC socket.
+- Before its removal, the guide checker compiled seven exact snippets and ran eight tests across six test files. These are historical verification results, not checks that remain in CI.
+- `bun run docs:check` validated content structure, compiled 93 API examples, executed 58 with output assertions, and, before removal of the checker, passed the guide examples. It required an unsandboxed run for the existing `tsx` IPC socket.
 - `bun run react-router build` from `apps/docs` built and prerendered the site. It required permission to open React Router's local server.
 - `bun run type-check` from `apps/docs` passed.
 - Targeted Oxlint, dprint, and `git diff --check` passed for the implementation files.
