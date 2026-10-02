@@ -93,3 +93,11 @@ export * as Volume from "./Volume.js"
  * @category re-exports
  */
 export * as Watch from "./Watch.js"
+
+/**
+ * Bounded filename search over immutable snapshots.
+ *
+ * @category re-exports
+ * @since 0.8.0
+ */
+export * as Search from "./Search.js"

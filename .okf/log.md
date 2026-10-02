@@ -2,6 +2,8 @@
 
 ## 2026-10-02
 
+- **Snapshot filename search (#256)**: Core Search implements Unicode glob Streams and bounded reports over immutable namespace state. The filename contract records aliases, pruning, typed stops, preparation accounting and compiler presets. Public guarded tests cover payload and observation neutrality; a separate benchmark retains the no-copy versus CPU-cost comparison. Content search remains pending.
+
 - **Memory glob ownership (#255)**: `glob.ts` owns compilation, collected traversal, exclusions, errors and sorting; recursive listings retain a private walk. Named path-target options preserve base selection and final-symlink behavior. Adapter compatibility contracts remain unchanged.
 
 - **Snapshot search reproduction (#258)**: The retained benchmark instructions now include dependency installation and core/memory builds before public-API execution and type checking. Package export sources ground the prerequisite; the historical measurements remain unchanged.

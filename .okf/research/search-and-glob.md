@@ -11,6 +11,12 @@ sources:
   - id: benchmark
     resource: ../../docs/research/issue-173/benchmark.ts
     title: Reproducible public-API recipe benchmark
+  - id: glob-benchmark
+    resource: ../../docs/research/issue-173/glob-benchmark.ts
+    title: Implemented glob versus recipe benchmark
+  - id: glob-measurements
+    resource: ../../docs/research/issue-173/glob-benchmark-results.json
+    title: Recorded filename query comparison
   - id: measurements
     resource: ../../docs/research/issue-173/benchmark-results.json
     title: Historical Bun baseline and alias/laziness probes
@@ -77,16 +83,15 @@ sources:
   - id: ripgrep
     resource: https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md#automatic-filtering
     title: Ripgrep application filtering defaults
-generated: { by: codex/okf, at: "2026-10-02T06:15:06Z" }
+generated: { by: codex/okf, at: "2026-10-02T09:06:00+02:00" }
 ---
 
 # Snapshot search and glob evidence
 
 Issue #173 asks whether filename/content search can use a snapshot Stream recipe or needs a dedicated API.
 This note retains source findings and executed probes. The [snapshot search decision](../decisions/snapshot-search.md "informs")
-owns the accepted, unimplemented design: core ownership, only Effect as a dependency, snapshot authority, Unicode
-string globs, native JavaScript regex, and explicit exclusions. These choices do not mean a production `Search` module
-already exists. Earlier engine, byte-glob, and API-shape proposals are superseded by that decision.
+owns the accepted design: core ownership, only Effect as a dependency, snapshot authority, Unicode
+string globs, native JavaScript regex, and explicit exclusions. Filename `Search` is now implemented; content APIs remain pending. Earlier engine, byte-glob, and API-shape proposals are superseded by that decision.
 
 ## Implemented foundations and recipe limitations
 
@@ -160,7 +165,23 @@ bunx tsc --project docs/research/issue-173/tsconfig.json --noEmit
 The retained JSON is unchanged historical evidence; its command points to the former scratchpad location. The
 relocated benchmark writes a fresh result to the OS temporary directory as
 `effect-vfs-issue-173-benchmark-latest.json`. It reads current tracked working-tree bytes, so changed tracked files alter
-the fixture hash. It measures the existing recipe, not the unimplemented final search design.[^benchmark]
+the fixture hash. It measures the existing recipe. The separate filename comparison below measures the implemented glob design.[^benchmark]
+
+## Implemented filename comparison
+
+The [filename contract](../contracts/snapshot-search.md "evidenced by") is tested with guarded payload access and
+preparation enumeration. The new `docs/research/issue-173/glob-benchmark.ts` compares `Search.scanGlob` with
+`snapshotEntries` followed by a `.ts` filename filter, against the same imported fixture and raised output caps.
+Build core first and run the script from the repository root. Both use Stream result counts, two warmups and five
+samples. The retained `glob-benchmark-results.json` records fixture identity and working-tree provenance.
+
+On Bun 1.4.0, Apple M4 Pro, the recorded tracked fixture returned 218 matching paths for both queries. Recipe median
+was 1.039 ms and Search median 16.230 ms; the recipe copied 4,818,420 payload bytes while Search accessed none.
+For 1,000 files at 64 KiB each, selecting ten `.ts` paths, medians were 2.085 ms and 9.495 ms; the recipe copied
+65,536,000 payload bytes. Neither query decoded content. Search's work reports charge zero scanned content bytes.
+Search's current explicit bounded matching incurs more CPU work in these cases; this evidence supports its alias,
+policy and no-copy contract, not a speed improvement. Timings are bounded observations on one machine, not allocation
+profiles or deadline guarantees.
 
 ## Unicode and text findings
 

@@ -22,6 +22,13 @@ export const contentPages = [
   },
   {
     section: "Guides",
+    label: "Search filenames in a snapshot",
+    href: "/guides/snapshot-search",
+    routePath: "guides/snapshot-search",
+    contentPath: "content/guides/snapshot-search.mdx"
+  },
+  {
+    section: "Guides",
     label: "Testing with an Isolated Filesystem",
     href: "/guides/testing-with-an-isolated-filesystem",
     routePath: "guides/testing-with-an-isolated-filesystem",

@@ -23,12 +23,12 @@ sources:
   - id: adapter-glob
     resource: ../../packages/memory/src/internal/glob.ts
     title: Adapter glob operation owning compilation, traversal and matching
-generated: { by: codex/okf, at: "2026-10-02T06:21:49+00:00" }
+generated: { by: codex/okf, at: "2026-10-02T09:06:00+02:00" }
 ---
 
 # Implement snapshot search
 
-Implement the [accepted design](../decisions/snapshot-search.md "implements") in three PRs. Implementation is pending.
+Implement the [accepted design](../decisions/snapshot-search.md "implements") in three PRs. Slices #255 and #256 are implemented; #257 remains pending.
 The [research](../research/search-and-glob.md "grounded in") owns measurements and source findings, rather than API rules.
 Keep #173 open until all three slices are delivered. Each child issue includes its scope, exclusions and acceptance checks.
 
@@ -80,6 +80,9 @@ before parallel edits. Keep matcher compilation internal unless a concrete publi
 For #257, one agent can own classification, line iteration and byte mapping, another the native/literal matcher and
 bounded excerpts. The integrator owns all six public content functions, collector/Stream completion, docs and releases.
 Test integrated behavior through public queries. With fewer agents, keep the same dependency order and combine ownership.
+
+The [filename search contract](../contracts/snapshot-search.md "implemented by") records #256's concrete public
+query, accounting and completion behavior.
 
 ## Verify observable behavior
 
