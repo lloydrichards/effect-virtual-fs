@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: Snapshot search
-description: Accepts snapshot-only search with Unicode globs, explicit native regex, typed Streams and bounded report collectors for issue 173; filename glob search is implemented; content search remains pending.
+description: Accepts snapshot-only search with Unicode globs, explicit native regex, typed Streams and bounded report collectors for issue 173; filename and content search are implemented.
 status: stable
 tags: [core, search, glob, snapshots, agents, limits]
 sources:
@@ -23,14 +23,14 @@ sources:
   - id: native-regexp
     resource: https://tc39.es/ecma262/multipage/text-processing.html#sec-regexp-regular-expression-objects
     title: JavaScript RegExp syntax, Unicode matching and execution
-generated: { by: codex/okf, at: "2026-10-02T09:06:00+02:00" }
+generated: { by: codex/okf, at: 2026-10-02T08:55:40Z }
 ---
 
 # Snapshot search
 
 Accepted by the user on 2026-10-01 for [issue #173](https://github.com/lloydrichards/effect-virtual-fs/issues/173).
-Filename glob search is implemented by [the snapshot search contract](../contracts/snapshot-search.md "implemented by").
-The content functions and pattern classes below remain the implementation target for #257, not a publication claim.
+Filename and content search are implemented by [the snapshot search contract](../contracts/snapshot-search.md "implemented by").
+The contract and focused tests record the implemented behavior; release publication is separate.
 The [research](../research/search-and-glob.md "evidenced by") retains the source findings and measurements.
 
 ## Ownership and authority

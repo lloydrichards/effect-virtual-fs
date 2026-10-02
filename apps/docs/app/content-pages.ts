@@ -22,7 +22,7 @@ export const contentPages = [
   },
   {
     section: "Guides",
-    label: "Search filenames in a snapshot",
+    label: "Search filenames and content in a snapshot",
     href: "/guides/snapshot-search",
     routePath: "guides/snapshot-search",
     contentPath: "content/guides/snapshot-search.mdx"

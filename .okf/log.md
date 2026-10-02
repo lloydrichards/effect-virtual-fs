@@ -2,6 +2,8 @@
 
 ## 2026-10-02
 
+- **Snapshot content search (#257)**: Core Search implements all three content modes with paired Streams and collectors, whole-file strict classification, exact UTF-8 ranges, bounded excerpts and completed-file counts. The snapshot contract records text and accounting rules. Focused tests prove borrowing, interruption and observation neutrality; retained recipe comparisons support avoided copies while recording slower elapsed times.
+
 - **Snapshot filename search (#256)**: Core Search implements Unicode glob Streams and bounded reports over immutable namespace state. The filename contract records aliases, pruning, typed stops, preparation accounting and compiler presets. Public guarded tests cover payload and observation neutrality; a separate benchmark retains the no-copy versus CPU-cost comparison. Content search remains pending.
 
 - **Memory glob ownership (#255)**: `glob.ts` owns compilation, collected traversal, exclusions, errors and sorting; recursive listings retain a private walk. Named path-target options preserve base selection and final-symlink behavior. Adapter compatibility contracts remain unchanged.

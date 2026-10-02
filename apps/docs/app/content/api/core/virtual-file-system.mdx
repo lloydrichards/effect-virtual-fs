@@ -928,6 +928,7 @@ This condition checks the named entry before any final symbolic-link traversal.
 ```ts
 export type OpenEntryOptions = {
   readonly access: "read" | "write" | "readWrite"
+  readonly expected?: ObjectReference | null
   readonly mode?: number
   readonly create?: "never" | "ifMissing" | "exclusive"
   readonly append?: boolean
@@ -944,7 +945,6 @@ export type OpenEntryOptions = {
       | { readonly kind: "value"; readonly nanoseconds: bigint }
   }
   readonly owner?: { readonly uid?: number; readonly gid?: number }
-  readonly expected?: ObjectReference | null
   readonly followFinalSymlink?: boolean
   readonly initialSize?: bigint
   readonly expectedChild?: {
@@ -1341,7 +1341,7 @@ The origin used by a file handle seek operation.
 **Signature**
 
 ```ts
-export type SeekMode = "start" | "current" | "end" | "data" | "hole"
+export type SeekMode = "start" | "end" | "current" | "data" | "hole"
 ```
 
 [Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L729)
@@ -1356,6 +1356,7 @@ The attributes `setattr` changes together.
 
 ```ts
 export type SetattrOptions = {
+  readonly expected?: { readonly revision: bigint }
   readonly size?: bigint
   readonly mode?: number
   readonly times?: {
@@ -1369,7 +1370,6 @@ export type SetattrOptions = {
       | { readonly kind: "value"; readonly nanoseconds: bigint }
   }
   readonly owner?: { readonly uid?: number; readonly gid?: number }
-  readonly expected?: { readonly revision: bigint }
 }
 ```
 

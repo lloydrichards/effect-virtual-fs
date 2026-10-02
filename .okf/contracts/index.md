@@ -7,7 +7,7 @@
 - [Permissions and metadata](permissions-and-metadata.md) - Access checks, ownership, modes, and timestamps.
 - [Capacity and limits](capacity-and-limits.md) - Volume accounting and implementation bounds.
 - [Mutation and observation](mutation-and-observation.md) - Coordination, cancellation, snapshots, and watches.
-- [Snapshot filename search](snapshot-search.md) - Unicode glob Streams, reports, immutable traversal and finite work limits.
+- [Snapshot search](snapshot-search.md) - Filename/content Streams, reports, byte ranges, immutable traversal and finite work limits.
 - [Snapshots and fixtures](snapshots-and-fixtures.md) - Construction, capture, encoding, decoding, and restoration.
 - [Portable snapshot deltas](snapshot-deltas.md) - Exact base-dependent reconstruction, deterministic inspection, Schema encoding, and work limits.
 - [Memory adapter compatibility](memory-adapter-compatibility.md) - Effect `FileSystem` behavior over core volumes.

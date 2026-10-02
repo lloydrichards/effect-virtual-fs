@@ -1,0 +1,45 @@
+{
+  "scope": "Four targeted safe production mutations; not an audit of every active test. Native regex was never made pathological. Source restored after each run.",
+  "cases": [
+    {
+      "name": "binary-tail-classification",
+      "mutation": {
+        "before": "return binary ? \"binary\" : \"text\"",
+        "after": "return \"text\""
+      },
+      "command": "bun run --cwd packages/core test test/SearchContent.test.ts -t 'classifies whole files'",
+      "exitCode": 1,
+      "detected": true
+    },
+    {
+      "name": "utf16-byte-offsets",
+      "mutation": {
+        "before": "units += width === 4 ? 2 : 1",
+        "after": "units += 1"
+      },
+      "command": "bun run --cwd packages/core test test/SearchContent.test.ts -t 'reports file byte ranges'",
+      "exitCode": 1,
+      "detected": true
+    },
+    {
+      "name": "partial-count-emission",
+      "mutation": {
+        "before": "return yield* new BudgetExceeded({ limit: \"maxLineEvaluations\", path: cursor.entry.path })",
+        "after": "if (mode === \"countLines\" && cursor.count > 0) { current = undefined; return { path: cursor.entry.path, count: cursor.count } as ContentRows[M] }\n        return yield* new BudgetExceeded({ limit: \"maxLineEvaluations\", path: cursor.entry.path })"
+      },
+      "command": "bun run --cwd packages/core test test/SearchContent.test.ts -t 'discards an incomplete file count'",
+      "exitCode": 1,
+      "detected": true
+    },
+    {
+      "name": "exact-fit-result-budget",
+      "mutation": {
+        "before": "if (size > limits.maxResultBytes - meter.work.resultBytes)",
+        "after": "if (size >= limits.maxResultBytes - meter.work.resultBytes)"
+      },
+      "command": "bun run --cwd packages/core test test/SearchContent.test.ts -t 'preflights exact payload sizes'",
+      "exitCode": 1,
+      "detected": true
+    }
+  ]
+}

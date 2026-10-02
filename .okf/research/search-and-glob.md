@@ -17,9 +17,18 @@ sources:
   - id: glob-measurements
     resource: ../../docs/research/issue-173/glob-benchmark-results.json
     title: Recorded filename query comparison
+  - id: content-benchmark
+    resource: ../../docs/research/issue-173/content-benchmark.ts
+    title: Implemented content modes versus recipe benchmark
+  - id: content-measurements
+    resource: ../../docs/research/issue-173/content-benchmark-results.json
+    title: Recorded content scan and copy comparison
   - id: measurements
     resource: ../../docs/research/issue-173/benchmark-results.json
     title: Historical Bun baseline and alias/laziness probes
+  - id: content-regressions
+    resource: ../../docs/research/issue-173/content-regression-evidence.json
+    title: Targeted safe content regression checks
   - id: core-package
     resource: ../../packages/core/package.json
     title: Core public imports resolve to built dist files
@@ -83,7 +92,7 @@ sources:
   - id: ripgrep
     resource: https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md#automatic-filtering
     title: Ripgrep application filtering defaults
-generated: { by: codex/okf, at: "2026-10-02T09:06:00+02:00" }
+generated: { by: codex/okf, at: "2026-10-02T07:57:50.958690+00:00" }
 ---
 
 # Snapshot search and glob evidence
@@ -91,7 +100,7 @@ generated: { by: codex/okf, at: "2026-10-02T09:06:00+02:00" }
 Issue #173 asks whether filename/content search can use a snapshot Stream recipe or needs a dedicated API.
 This note retains source findings and executed probes. The [snapshot search decision](../decisions/snapshot-search.md "informs")
 owns the accepted design: core ownership, only Effect as a dependency, snapshot authority, Unicode
-string globs, native JavaScript regex, and explicit exclusions. Filename `Search` is now implemented; content APIs remain pending. Earlier engine, byte-glob, and API-shape proposals are superseded by that decision.
+string globs, native JavaScript regex, and explicit exclusions. Filename and content `Search` are implemented. Earlier engine, byte-glob, and API-shape proposals are superseded by that decision.
 
 ## Implemented foundations and recipe limitations
 
@@ -198,7 +207,7 @@ extracting the legacy matcher unchanged would not produce scalar-character or ar
 An executed decoder probe showed `new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })` preserves leading U+FEFF;
 default BOM handling removes it. Fatal decoding rejects malformed bytes instead of inserting replacement characters.[^text-decoder]
 Classify an entire selected file before emitting any line if invalid UTF-8/NUL makes the file ineligible; a stream
-cannot retract a valid-prefix match after an invalid tail. This is a design consequence, not an implemented scanner.
+cannot retract a valid-prefix match after an invalid tail. The shared content scanner enforces this whole-file classification.
 
 Native regex `exec` reports UTF-16 positions even with `u`. Both Node 24.21.0 and Bun 1.4.0 returned `[2, 3)` for `x`
 in `😀x`; its UTF-8 range is `[4, 5)`. Map byte ranges against preserved original content, including BOM and newline
@@ -302,3 +311,30 @@ larger contract than this issue establishes.[^git-ignore][^ripgrep]
 [^git-ignore]: Git pattern format and parent-directory re-inclusion rules.
 
 [^ripgrep]: Automatic filtering is application behavior, not a VFS default.
+
+## Implemented content comparison
+
+Build core and run `bun run docs/research/issue-173/content-benchmark.ts` from the repository root. The script imports
+one tracked working-tree fixture and one selective synthetic fixture. It compares the retained snapshot recipe with
+all three content Streams, verifies matching filenames and line totals, and records counters with two warmups and five
+samples. The recipe fully decodes and splits selected valid text; files mode stops matching after the first hit.
+These are equivalent results with different internal work. Native fixture loading is outside the timed searches.
+
+The retained `content-benchmark-results.json` records Bun 1.4.0 on Apple M4 Pro. The tracked fixture produced 98 matching
+files and 1,787 matching lines. The recipe copied 4,977,053 payload bytes before selection; Search charged 2,935,469
+selected bytes. Recipe/files/lines/count medians were 4.361/45.850/98.093/94.058 ms.
+
+For 1,000 synthetic 64 KiB files selecting ten TypeScript paths, all modes agreed on ten matching files and lines.
+The recipe copied 65,536,000 payload bytes; Search classified 655,360 selected bytes, with ten line calls in files mode
+and twenty in lines/count mode. Recipe/files/lines/count medians were 2.316/10.518/14.038/13.288 ms. Search is slower in
+these workloads. The evidence supports selection before payload copying and deliberate coverage semantics, not a speed claim.
+
+Guarded tests establish borrowing without `.slice` payload copies and no excerpt views in files/count mode. The scanner
+still allocates bounded line and excerpt strings. `scannedBytes` charges full eligible files once and does not count
+every internal validation, newline, offset, or excerpt pass. These measurements are not an allocation profile, worst-case
+latency bound, or deadline guarantee. The historical recipe and filename measurements remain separate evidence.
+
+Four targeted safe production mutations detected binary-tail admission, incorrect UTF-16-to-byte mapping, partial count
+emission, and rejecting exact-fit result payloads. Each focused public test failed with an assertion mismatch, and the
+restored content suite passed afterward. `content-regression-evidence.json` records the mutations and commands. This is
+selected regression evidence, not a mutation audit of every active test or proof of native regex interruption.
