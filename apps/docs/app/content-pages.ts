@@ -29,7 +29,7 @@ export const contentPages = [
   },
   {
     section: "Guides",
-    label: "Testing with an Isolated Filesystem",
+    label: "Test with an isolated filesystem",
     href: "/guides/testing-with-an-isolated-filesystem",
     routePath: "guides/testing-with-an-isolated-filesystem",
     contentPath: "content/guides/testing-with-an-isolated-filesystem.mdx"

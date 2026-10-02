@@ -6,7 +6,7 @@
     "build": "react-router build",
     "clean": "git clean -xdf .cache .turbo build docs node_modules .react-router tsconfig.tsbuildinfo",
     "dev": "react-router dev",
-    "docs:check": "bun run docs:generate && bun run scripts/check-docs.ts && bun run scripts/check-examples.ts",
+    "docs:check": "bun run docs:generate && bun run scripts/check-docs.ts && bun run scripts/check-examples.ts && bun run scripts/check-guide-examples.ts",
     "docs:generate": "bun run scripts/generate-api-docs.ts",
     "prebuild": "bun run docs:check",
     "predev": "bun run docs:check",
@@ -35,6 +35,8 @@
     "unist-util-visit": "^5.0.0"
   },
   "devDependencies": {
+    "@effect/platform-bun": "4.0.0",
+    "@effect/vitest": "4.0.0",
     "@mdx-js/rollup": "^3.1.1",
     "@react-router/dev": "8.4.0",
     "@shikijs/transformers": "^4.5.0",

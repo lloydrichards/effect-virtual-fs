@@ -1,7 +1,10 @@
 # Test with an isolated filesystem
 
-Use `@effect/vitest` with `MemoryFileSystem.layer` when each test should receive disposable filesystem state without
-reading or writing the host disk.
+Replace temporary directories and filesystem stubs with a fresh in-memory volume. Run the action and its assertions
+in one provided Effect so the test checks the files the program changed.
+
+The code under test must request Effect's `FileSystem.FileSystem` service. The adapter cannot replace direct calls
+to `node:fs` or filesystem access from child processes.
 
 ## Install the test dependencies
 
@@ -12,35 +15,35 @@ npm install @effect-vfs/core@latest @effect-vfs/memory@latest
 npm install --save-dev "@effect/vitest@$(npm view @effect-vfs/memory peerDependencies.effect)" "@effect/platform-bun@$(npm view @effect-vfs/memory peerDependencies.effect)" vitest@^5.0.0
 ```
 
+Install Bun before running these examples, and use an ES module project. The examples run under Bun and provide `BunCrypto.layer` because volume construction
+requires Effect's `Crypto.Crypto` service. For another runtime, provide its matching Effect Crypto implementation.
+See [Package compatibility](/reference/compatibility-and-limits#package-compatibility) for version requirements.
+
 ## Keep production code independent of storage
 
-Write production code against Effect's `FileSystem.FileSystem` service:
+Save this function in `writeManifest.ts`. It requests a filesystem but leaves the implementation to its caller:
 
-```ts
+```ts title="writeManifest.ts"
 import { Effect, FileSystem } from "effect"
 
-export const writeManifest = (version: string) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
+export const writeManifest = Effect.fn("writeManifest")(function* (version: string) {
+	const fs = yield* FileSystem.FileSystem
 
-    yield* fs.makeDirectory("/dist", { recursive: true })
-    yield* fs.writeFileString(
-      "/dist/manifest.json",
-      JSON.stringify({ version })
-    )
+	yield* fs.makeDirectory("/dist", { recursive: true })
+	yield* fs.writeFileString("/dist/manifest.json", JSON.stringify({ version }))
 
-    return yield* fs.readFileString("/dist/manifest.json")
-  })
+	return yield* fs.readFileString("/dist/manifest.json")
+})
 ```
 
-The program requests a filesystem but does not choose its implementation. Production can provide a host filesystem;
-tests can provide a new in-memory volume.
+Production can provide a host filesystem. Tests can provide disposable state without changing the function.
 
-## Provide fresh state to each test
+## Run the action and assertions against one volume
 
-Import the test API from `@effect/vitest` and return an Effect from `it.effect`:
+Save the following test beside `writeManifest.ts`. Import the test API from `@effect/vitest` and return an Effect
+from `it.effect`:
 
-```ts
+```ts title="writeManifest.test.ts"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, describe, it } from "@effect/vitest"
@@ -48,134 +51,293 @@ import { Effect, FileSystem } from "effect"
 import { writeManifest } from "./writeManifest.js"
 
 describe("writeManifest", () => {
-  it.effect(
-    "should write the requested version when the filesystem is empty",
-    () =>
-      Effect.gen(function* () {
-        const result = yield* writeManifest("1.2.3")
+	it.effect("should write the requested version when the filesystem is empty", () =>
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
 
-        assert.deepStrictEqual(JSON.parse(result), { version: "1.2.3" })
-      }).pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(BunCrypto.layer))
-  )
+			yield* writeManifest("1.2.3")
 
-  it.effect(
-    "should start without files from another test when a fresh layer is provided",
-    () =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem
+			const output = JSON.parse(yield* fs.readFileString("/dist/manifest.json"))
+			assert.deepStrictEqual(output, { version: "1.2.3" })
+		}).pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(BunCrypto.layer))
+	)
 
-        assert.isFalse(yield* fs.exists("/dist/manifest.json"))
-      }).pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(BunCrypto.layer))
-  )
+	it.effect("should start without another test's files when a fresh layer is provided", () =>
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
+
+			assert.isFalse(yield* fs.exists("/dist/manifest.json"))
+		}).pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(BunCrypto.layer))
+	)
 })
 ```
 
-Each `it.effect` execution above materializes its own layer graph and volume. Files written by the first test are absent
-from the second.
+Run these tests with `bun run --bun vitest run`. The first test reads the file written by the application, rather
+than checking only its returned value. Each test provides its own filesystem layer, so the second starts without
+that file.
 
-Do not call `Effect.runPromise` or `Effect.runSync` inside an Effect test. `it.effect` runs the returned Effect, supplies
-Effect's test services, and keeps a scope open for the test.
+Keep one `Effect.provide(MemoryFileSystem.layer)` around both the action and the assertions. Separately building
+the layer for a write and a later read creates different volumes, even if both builds use the same layer value.
 
-## Seed a test layer from a fixture
+`it.layer` builds its layer once for its test group. Tests in that group share a volume. Use a separate provide
+for each test that needs independent state. Within one layer graph, repeated use of the same layer value shares
+its build. Use `Layer.fresh` when part of that graph needs an independent build.
 
-`MemoryFileSystem.layerFromFixture` builds a core fixture volume and binds it to Effect's filesystem service:
+## Create the parent directories your test needs
 
-```ts
+A temporary-directory setup may have created a parent directory without the test stating that precondition.
+Ordinary writes do not create missing parents. Make the required directory explicit:
+
+```ts title="parents.test.ts"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, it } from "@effect/vitest"
-import { Effect, FileSystem, Layer, Path } from "effect"
+import { Effect, FileSystem } from "effect"
 
-const seededFileSystem = MemoryFileSystem.layerFromFixture({
-  entries: [
-    { kind: "directory", path: "/project" },
-    {
-      kind: "file",
-      path: "/project/package.json",
-      bytes: new TextEncoder().encode('{"name":"example","version":"1.2.3"}')
-    }
-  ]
-})
-const services = Layer.merge(seededFileSystem, Path.layer)
+it.effect("should write metadata after its parent directory is created", () =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const error = yield* Effect.flip(fs.writeFileString("/output/_meta.json", "{}"))
 
-it.effect("should read the seeded package version", () =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-    const manifest = JSON.parse(yield* fs.readFileString(path.join("/project", "package.json")))
-    assert.strictEqual(manifest.version, "1.2.3")
-  }).pipe(Effect.provide(services), Effect.provide(BunCrypto.layer))
+		assert.strictEqual(error.reason._tag, "NotFound")
+
+		yield* fs.makeDirectory("/output", { recursive: true })
+		yield* fs.writeFileString("/output/_meta.json", "{}")
+
+		assert.strictEqual(yield* fs.readFileString("/output/_meta.json"), "{}")
+	}).pipe(Effect.provide(MemoryFileSystem.layer), Effect.provide(BunCrypto.layer))
 )
 ```
 
-Provide a matching platform Crypto layer, as above, or your deterministic `Crypto.Crypto` implementation at the test
-boundary. `Path.layer` provides POSIX paths in Effect 4. Omit the merge when the program does not need `Path`.
+Create parents in test setup when the application expects them to exist. Keep directory creation in production
+code when creating those directories is part of the application's job, as it is in `writeManifest`.
 
-Separate builds of the same layer get separate volumes. Actions and assertions inside one build observe the same
-writes. Reusing one layer value in a layer graph shares the volume through memoization; use `Layer.fresh` when a part
-of that graph needs independent state.
+## Seed the preconditions your test asserts
 
-The second argument accepts `Vfs.VolumeOptions`, including volume limits. The third accepts `Vfs.RootCallerOptions`,
-including credentials and umask. Pass `undefined` as the second argument when only caller options are needed.
-Invalid fixtures and options remain typed `VfsError` construction failures.
+Use `Vfs.fromFixture` to describe existing files, then bind that volume to Effect's filesystem service. The following
+layer works with the currently published `@effect-vfs/memory@0.7.1`:
 
-The layer adds no entries to the fixture. Include `{ kind: "directory", path: "/tmp" }` when temporary-file operations
-need the default temporary directory. `MemoryFileSystem.layer` still creates `/tmp` for its empty filesystem.
-Use `Vfs.fromFixture` and `MemoryFileSystem.bind` directly when adapter code and core callers need the same volume.
+```ts title="fixtures.test.ts"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import { assert, it } from "@effect/vitest"
+import { Effect, FileSystem, Layer } from "effect"
 
-## Test against a core volume directly
+const seededFileSystem = Layer.effect(
+	FileSystem.FileSystem,
+	Effect.gen(function* () {
+		const volume = yield* Vfs.fromFixture({
+			entries: [
+				{ kind: "directory", path: "/project" },
+				{
+					kind: "file",
+					path: "/project/package.json",
+					bytes: new TextEncoder().encode('{"version":"1.2.3"}')
+				},
+				{ kind: "directory", path: "/cache" },
+				{ kind: "file", path: "/cache/stale.json", bytes: new TextEncoder().encode("{}") }
+			]
+		})
 
-When the code under test takes the `Volume` or `Caller` services, provide `Testing.layer` from
-`@effect-vfs/core/Testing`. It builds a fresh volume, from a fixture when one is given, and a root caller on it.
-`callerAs` makes a caller with other credentials on the same volume, and `collectChanges` collects watch changes
-committed after the stream opened:
+		return yield* MemoryFileSystem.bind(volume)
+	})
+)
 
-```ts
+const readPackageVersion = Effect.gen(function* () {
+	const fs = yield* FileSystem.FileSystem
+	const manifest = JSON.parse(yield* fs.readFileString("/project/package.json"))
+	return manifest.version
+})
+
+const pruneCache = Effect.gen(function* () {
+	const fs = yield* FileSystem.FileSystem
+	yield* fs.remove("/cache", { recursive: true })
+})
+
+it.effect("should parse the version from the seeded package bytes", () =>
+	Effect.gen(function* () {
+		assert.strictEqual(yield* readPackageVersion, "1.2.3")
+	}).pipe(Effect.provide(seededFileSystem), Effect.provide(BunCrypto.layer))
+)
+
+it.effect("should remove the cache when it contains a stale file", () =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		assert.isTrue(yield* fs.exists("/cache/stale.json"))
+
+		yield* pruneCache
+
+		assert.isFalse(yield* fs.exists("/cache"))
+	}).pipe(Effect.provide(seededFileSystem), Effect.provide(BunCrypto.layer))
+)
+```
+
+Each test builds the seeded layer independently. The parsing test reads real fixture bytes instead of a canned
+parser result. The removal test proves that cleanup removes an existing tree. A successful stubbed `remove` call
+cannot prove that a tree existed or disappeared.
+
+Declare fixture parents explicitly. `MemoryFileSystem.make` and `layer` start with an empty `/tmp` directory.
+`bind` leaves the supplied volume unchanged. Include `{ kind: "directory", path: "/tmp" }` in a fixture when its
+tests need the default temporary directory.
+
+The repository source also includes the shorter `MemoryFileSystem.layerFromFixture` constructor, planned for
+version 0.8.0. It adds no entries. The example above works without that unreleased helper. See the
+[`MemoryFileSystem` reference](/api/memory/memory-file-system) for constructor options and
+[Build and transport filesystem snapshots](/guides/fixtures-and-snapshots#create-a-volume-from-a-fixture) for fixture rules.
+
+If the application also requests `Path.Path`, merge `Path.layer` with the filesystem layer. `Path.layer` supplies
+POSIX paths in Effect 4.
+
+## Use real filesystem failures
+
+Use filesystem rules when those rules cause the failure you need to test. Set caller credentials for a permission
+failure or volume limits for a capacity failure.
+
+### Test permissions with an unprivileged caller
+
+Bind the volume with an unprivileged identity to test an application that requests `FileSystem.FileSystem`:
+
+```ts title="permissions.test.ts"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as Testing from "@effect-vfs/core/Testing"
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import { assert, it } from "@effect/vitest"
+import { Effect, FileSystem } from "effect"
+
+const listPrivateDirectory = Effect.gen(function* () {
+	const fs = yield* FileSystem.FileSystem
+	return yield* fs.readDirectory("/private")
+})
+
+it.effect("should deny a guest access to a private directory", () =>
+	Effect.gen(function* () {
+		const volume = yield* Vfs.Volume
+		yield* (yield* Vfs.Caller).mkdir("/private", { mode: 0o700 })
+
+		const fs = yield* MemoryFileSystem.bind(volume, {
+			identity: { uid: 1000, gid: 1000, groups: [], privileged: false }
+		})
+		const error = yield* Effect.flip(
+			listPrivateDirectory.pipe(Effect.provideService(FileSystem.FileSystem, fs))
+		)
+		assert.strictEqual(error.reason._tag, "PermissionDenied")
+	}).pipe(Effect.provide(Testing.layer()), Effect.provide(BunCrypto.layer))
+)
+```
+
+The default binding is privileged, so changing a directory's mode alone does not make that binding fail.
+The test binds the existing volume with guest credentials and supplies that service to the application.
+
+#### Test code that uses core callers
+
+For code that uses core callers directly, use `Testing.callerAs` on the same volume. It returns a core caller,
+not a `FileSystem` service. Core errors use `AccessDenied`; the adapter translates that code to `PermissionDenied`:
+
+```ts title="core-permissions.test.ts"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as Testing from "@effect-vfs/core/Testing"
 import { assert, it } from "@effect/vitest"
 import { Effect } from "effect"
 
-it.effect("should report the directory a guest cannot read when it is private", () =>
-  Effect.gen(function* () {
-    const volume = yield* Vfs.Volume
-    const changes = yield* Testing.collectChanges(yield* volume.watch(), 1)
+it.effect("should deny a core guest access to a private directory", () =>
+	Effect.gen(function* () {
+		yield* (yield* Vfs.Caller).mkdir("/private", { mode: 0o700 })
 
-    yield* (yield* Vfs.Caller).mkdir("/private", { mode: 0o700 })
-
-    const guest = yield* Testing.callerAs({ uid: 1000, gid: 1000, groups: [], privileged: false })
-    const error = yield* Effect.flip(guest.readDirectory("/private"))
-
-    assert.strictEqual(error.code, "AccessDenied")
-    assert.deepStrictEqual((yield* changes).map((change) => change._tag), ["Create"])
-  }).pipe(Effect.provide(Testing.layer()), Effect.provide(BunCrypto.layer))
+		const guest = yield* Testing.callerAs({ uid: 1000, gid: 1000, groups: [], privileged: false })
+		const error = yield* Effect.flip(guest.readDirectory("/private"))
+		assert.strictEqual(error.code, "AccessDenied")
+	}).pipe(Effect.provide(Testing.layer()), Effect.provide(BunCrypto.layer))
 )
 ```
 
-`it.layer` from `@effect/vitest` builds its layer once for the whole `describe` block, so its tests share one volume.
-Provide `Testing.layer()` to each test that needs state of its own.
+### Test capacity with a volume limit
 
-## Write behavior-focused tests
+Set `maxBytes` to limit the volume's combined file and symbolic-link bytes. This adapter test attempts a write
+larger than its one-byte capacity:
 
-Keep each test centered on one observable promise:
+```ts title="capacity.test.ts"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as Testing from "@effect-vfs/core/Testing"
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import { assert, it } from "@effect/vitest"
+import { Effect } from "effect"
+import * as ByteSize from "effect/ByteSize"
 
-- Name it `should <observable outcome> when <relevant condition>`.
-- Assert returned values, public errors, emitted events, or filesystem state rather than implementation details.
-- Keep several assertions together only when they prove the same behavior.
-- Use `assert` from `@effect/vitest` for ordinary equality and narrowing checks.
-- Use Effect test services such as `TestClock` for time-dependent behavior instead of real sleeps.
-- Use `Deferred`, `Queue`, or another deterministic signal for concurrent tests instead of polling.
+it.effect("should reject a write that exceeds the volume's capacity", () =>
+	Effect.gen(function* () {
+		const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+		const error = yield* Effect.flip(fs.writeFileString("/output.txt", "too large"))
+
+		assert.strictEqual(error.reason._tag, "Unknown")
+		assert.strictEqual(error.reason.description, "NoSpace")
+	}).pipe(
+		Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(1) } })),
+		Effect.provide(BunCrypto.layer)
+	)
+)
+```
+
+The core reports `NoSpace`. Effect's filesystem error tags have no capacity-specific tag, so the adapter reports
+`Unknown` with the description `NoSpace`. See [Volume capacity limits](/reference/compatibility-and-limits#volume-capacity-limits)
+for the available limits and the [`Testing` reference](/api/core/testing) for test-layer options.
+
+### Choose when to inject a failure
+
+To make a selected write fail independently of permissions or capacity, inject a failure for that operation.
+For example, fail only the second write while the filesystem otherwise remains writable. Delegate other
+operations to the real filesystem so earlier writes still change its state.
+
+A fault helper and write spy are proposed in [issue #243](https://github.com/lloydrichards/effect-virtual-fs/issues/243).
+They are not available in the current API. Until they are implemented, keep any custom wrapper focused on the
+method your application calls and verify that other operations still delegate to real storage.
+
+## Choose an assertion that proves the promise
+
+Choose evidence that matches the behavior under test:
+
+| Promise | Assertion |
+| --- | --- |
+| The output contains the requested version | Read and parse the output file |
+| Cleanup removes the seeded tree | Assert that the tree exists before cleanup and is absent afterward |
+| The output bytes are unchanged | Compare `readFile` results before and after the action |
+| The build skips a write method | Count calls to that method during each build |
+
+For an unchanged-output test, byte equality proves the content promise. To compare a complete tree, use
+[`diffSnapshots` and `inspectSnapshotDelta`](/guides/fixtures-and-snapshots#compare-and-apply-snapshots).
+Delta inspection excludes timestamp-only changes by default. Pass `{ includeTimestamps: true }` when timestamps
+are part of the promised state.
+
+For a skipped-write test, observe the method the application calls. If the first build writes once and the second
+skips that method, assert one call during the first build and zero during the second. Equal bytes do not prove
+that no write occurred.
+
+Other observations have narrower meanings:
+
+- Equal modification times can hide a rewrite when clock resolution is too coarse to distinguish the writes.
+  In `it.effect`, the test clock can also stay unchanged between writes.
+- Core revisions describe committed mutations, not every attempted call.
+- An [overlay's final differences](/guides/overlay-filesystems#inspect-the-final-differences) describe final state.
+  A write followed by restoration can leave no content difference.
+
+When you spread an existing filesystem service and replace `writeFile`, its existing `writeFileString` helper
+still calls the original implementation. To observe string writes, wrap `writeFileString` itself, or rebuild the
+derived helpers with Effect's `FileSystem.make` after wrapping the base method. A `writeFile` counter does not
+count writes through open file handles or sinks. Choose the method that matches the promise.
 
 ## Let the test scope release resources
 
-`it.effect` already provides a scope. Open files, temporary resources, derived streams, and watch subscriptions can use
-that scope directly. You do not need to add `Effect.scoped` around the test body.
+`it.effect` runs the returned Effect, provides Effect's test services, and keeps a scope open for the test.
+Do not call `Effect.runPromise` or `Effect.runSync` inside the test. Open files, temporary resources, and watch
+subscriptions can use the test scope without another `Effect.scoped` around the body.
 
-Explicit cleanup still belongs in the test when cleanup itself is the behavior being asserted. Otherwise, let the test
+Keep explicit cleanup in a test when cleanup itself is the behavior being asserted. Otherwise, let the test
 scope release resources when the returned Effect completes.
 
-## Keep host access outside the assumption
+## Check which code can still access the host
 
 The memory adapter replaces Effect's `FileSystem` service. It cannot intercept code that directly uses:
 
@@ -184,10 +346,9 @@ The memory adapter replaces Effect's `FileSystem` service. It cannot intercept c
 - native extensions; or
 - another API that accesses the host filesystem independently.
 
-A test is isolated only when the code under test obtains filesystem access through the provided Effect service.
+Keep host-backed tests for those paths. Memory tests alone do not prove that another adapter or operating system
+has the same behavior. [Issue #245](https://github.com/lloydrichards/effect-virtual-fs/issues/245) tracks a shared host-adapter contract runner.
 
-For the adapter constructors and layer types, see the
-[`MemoryFileSystem` API reference](/api/memory/memory-file-system).
-
-Use [an overlay workspace](/guides/overlay-filesystems) instead when a test or preview must start from an immutable
-snapshot and report its final changes.
+Read [Volumes, callers, and handles](/concepts/filesystem-model) for state ownership and caller authority.
+Use [an overlay workspace](/guides/overlay-filesystems) when a test or preview starts from an immutable snapshot
+and needs its final changes.
