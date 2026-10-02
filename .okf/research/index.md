@@ -1,5 +1,7 @@
 # Research
 
+- [Snapshot search and glob research](search-and-glob.md) retains the direct-scan benchmark, transfer recipe limitations, and native-regex Effect precedent supporting the accepted design for #173.
+
 - [Bounded POSIX requirements](posix-requirements.md) records the standards frame used to define and test the core without claiming full POSIX conformance.
 - [Effect adapter compatibility](effect-compatibility.md) retains the reasoning behind the adapter boundary that the memory-adapter contract now owns.
 - [Overlay filesystem direction](overlay-filesystem.md) retains the alternatives considered for overlay v1 and the parity cases a future harness should cover.

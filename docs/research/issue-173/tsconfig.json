@@ -1,0 +1,10 @@
+{
+  "extends": "../../../packages/config-typescript/base.json",
+  "compilerOptions": {
+    "rootDir": "../../..",
+    "resolveJsonModule": true,
+    "lib": ["ES2023", "DOM"],
+    "types": ["bun"]
+  },
+  "include": ["benchmark.ts"]
+}
