@@ -4,7 +4,7 @@ title: Deferred capabilities
 description: Lists capabilities intentionally outside the current filesystem contract so future exploration is not mistaken for implemented support.
 status: draft
 tags: [profile, roadmap, deferred]
-generated: { by: codex/okf, at: 2026-09-19T15:39:46Z }
+generated: { by: claude/okf, at: 2026-10-02T18:30:00+02:00 }
 ---
 
 # Deferred capabilities
@@ -13,7 +13,7 @@ The current profile does not include:
 
 - FUSE or other host mounts, Vim integration, or access by arbitrary native tools other than the read-only NFS export;
 - distributed or unattended writable NFS recovery, Kerberos-authenticated NFS (excluded by decision), and WebDAV or other network filesystem protocols;
-- general-purpose live backing volumes, snapshot-delta merge or rebase, block-level copying, or changed-data budgets;
+- general-purpose live backing volumes, snapshot-delta rebase onto a different base, text-level merge of file contents, block-level copying, or changed-data budgets;
 - host-directory synchronization beyond explicit [tree transfer](../contracts/tree-transfer.md "narrowed by") copies, such as mirroring, deletion propagation, or owner preservation;
 - FIFOs, device files, filesystem sockets, or other special files;
 - advisory locks or descriptor duplication;
@@ -28,4 +28,4 @@ See [system boundaries](../architecture/system-boundaries.md "constrained by") a
 
 Overlay [v1 scope is implemented](../contracts/overlay-workspaces.md "contrasts with"). [Overlay research](../research/overlay-filesystem.md "explored by") retains alternatives and deferred delta questions.
 
-The [portable snapshot delta interface](../decisions/overlay/portable-snapshot-deltas.md "implemented by") is implemented by the [snapshot delta contract](../contracts/snapshot-deltas.md "refined by"). Its [representation research](../research/overlay-changes.md "explored by") now retains only future persistence, alternative encoding, merge and profiling questions.
+The [portable snapshot delta interface](../decisions/overlay/portable-snapshot-deltas.md "implemented by") is implemented by the [snapshot delta contract](../contracts/snapshot-deltas.md "refined by"). Its [representation research](../research/overlay-changes.md "explored by") now retains only future persistence, alternative encoding, rebase and profiling questions; the [merge decision](../decisions/overlay/snapshot-delta-merge.md "implemented by") covers path-level merging of two deltas from one base.

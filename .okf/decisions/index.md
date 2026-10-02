@@ -45,6 +45,7 @@ Architectural and behavioral decisions, grouped by domain. Accepted decisions ar
 - [Overlay content sharing](overlay/overlay-content-sharing.md)
 - [Overlay final-difference summary](overlay/overlay-final-difference-summary.md)
 - [Portable snapshot delta interface](overlay/portable-snapshot-deltas.md)
+- [Snapshot delta merge](overlay/snapshot-delta-merge.md) merges two deltas from one base path by path, returning conflicts as data and taking resolutions as data.
 
 ## NFS export
 

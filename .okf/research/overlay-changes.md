@@ -1,7 +1,7 @@
 ---
 type: Research Report
 title: Snapshot delta representation research
-description: Retains the open snapshot delta questions beyond the implemented contract, namely compressed encodings, checkpoint storage of deltas, cross-runtime profiling, and merge or rebase semantics.
+description: Retains the open snapshot delta questions beyond the implemented contract, namely compressed encodings, checkpoint storage of deltas, cross-runtime profiling, and rebase semantics; merge is decided.
 status: stable
 tags: [overlay, snapshots, persistence, delta]
 sources:
@@ -14,7 +14,7 @@ sources:
   - id: checkpoints
     resource: ../../packages/persistence/src/CheckpointStore.ts
     title: Checkpoint store accepts complete snapshots only
-generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
+generated: { by: claude/okf, at: 2026-10-02T18:30:00+02:00 }
 ---
 
 # Snapshot delta representation research
@@ -30,7 +30,7 @@ An exact delta reconstructs a state only with its specified immutable base. It d
 - **Alternative encodings.** Version 1 first stored the target object graph with same-path inherited payload references and inline changed payloads; since #185 it stores one change per differing path carrying only the node it leaves. Per-directory or compressed encodings were deferred as compatibility and profiling work; nothing in core compresses today.
 - **Checkpoint storage of deltas.** `CheckpointStore` accepts and returns complete snapshots only. Storing delta bytes needs a retention policy for the base, a way to name the base a delta depends on, and validation on load.[^checkpoints]
 - **Profiling.** The shipped `default` and `constrained` presets are conservative finite bounds, not measured workspace-size recommendations. Cross-runtime measurements of creation, codec and application cost would let them be justified or revised.
-- **Merge and rebase.** Applying a delta to a base other than its exact one, and reconciling two deltas from one base, need their own decisions on conflict detection and resolution.
+- **Rebase.** Applying a delta to a base other than its exact one still needs its own decision. Reconciling two deltas from one base is decided by the [snapshot delta merge](../decisions/overlay/snapshot-delta-merge.md "resolved by"): path-level, total, conflicts as data; text-level merge stays deferred and rename-aware input is tracked as issue #271.
 
 [^issue]: Issue #9 keeps names and package placement open for later work; the decision and contract record what was adopted.
 
