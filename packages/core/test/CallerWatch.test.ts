@@ -58,6 +58,24 @@ describe("caller watch", () => {
         ])
       }).pipe(Effect.provide(Testing.layer())))
 
+    it.effect("reports removal when one watched hard-link alias is replaced by rename", () =>
+      Effect.gen(function*() {
+        const { owner, caller } = yield* setup
+        yield* owner.link("/tenant/file", "/tenant/alias")
+        yield* owner.writeFile("/tenant/source", bytes("replacement"), options)
+        const stream = yield* caller.watch("/file")
+        const resolved = yield* caller.watch("/file", { alias: "resolved" })
+        yield* owner.rename("/tenant/source", "/tenant/file")
+        yield* owner.writeFile("/tenant/alias", bytes("changed"), { access: "write" })
+        yield* owner.remove("/tenant/alias")
+        assert.deepStrictEqual(yield* rendered(yield* Stream.runCollect(stream)), [
+          "Remove /file",
+          "Update /alias",
+          "Remove /alias"
+        ])
+        assert.deepStrictEqual(yield* rendered(yield* Stream.runCollect(resolved)), ["Remove /file"])
+      }).pipe(Effect.provide(Testing.layer())))
+
     it.effect("resolved watches follow the selected alias through rename and end on its unlink", () =>
       Effect.gen(function*() {
         const { owner, caller } = yield* setup

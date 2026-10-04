@@ -178,6 +178,27 @@ export const make = (options: {
     includes: () => failure === undefined,
     project: (event, { before, after }) => {
       if (failure !== undefined) return undefined
+
+      if (
+        terminal === undefined && event.ino !== options.target && Predicate.isTagged(event.change, "Create")
+      ) {
+        const name = eventName(event)
+        const parent = getNode(before, event.parent)
+        const replacedPath = entryPath(before, { parent: event.parent, name })
+
+        // Rename publishes the incoming object; its replaced alias needs the old target's removal.
+        if (
+          parent?.kind === "directory" && parent.entries.get(name) === options.target &&
+          replacedPath !== undefined && visible(before, previousRoot, oldSelected).includes(replacedPath)
+        ) {
+          return {
+            ...event,
+            ino: options.target,
+            change: Change.cases.Remove.make({ path: ownedPath(nameBytes(rebase(replacedPath, previousRoot))) })
+          }
+        }
+      }
+
       const removed = Predicate.isTagged(event.change, "Remove")
       const installed = removed ? before : after
       const root = removed ? previousRoot : currentRoot
