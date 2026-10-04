@@ -107,7 +107,7 @@ export type OpenEntryOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L329)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L331)
 
 Since v0.6.0
 
@@ -138,10 +138,14 @@ Options of `remove`.
 **Signature**
 
 ```ts
-export type RemoveOptions = { readonly recursive?: boolean; readonly force?: boolean }
+export type RemoveOptions = {
+  readonly expected?: ObjectReference
+  readonly recursive?: boolean
+  readonly force?: boolean
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L240)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L242)
 
 Since v0.6.0
 
@@ -215,7 +219,7 @@ export type SetattrOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L285)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L287)
 
 Since v0.6.0
 
@@ -240,7 +244,7 @@ export type SymlinkOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L258)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L260)
 
 Since v0.6.0
 
@@ -420,7 +424,7 @@ declare const OpenEntryOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L307)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L309)
 
 Since v0.6.0
 
@@ -449,6 +453,7 @@ Since v0.6.0
 
 Schema for the options of `remove`. `recursive` removes a directory and
 everything under it; `force` succeeds when the target itself is missing.
+`expected` pins object identity at each coordinated removal stage. A replacement fails `VolumeBusy`.
 
 **Signature**
 
@@ -456,10 +461,11 @@ everything under it; `force` succeeds when the target itself is missing.
 declare const RemoveOptions: Schema.Struct<{
   readonly recursive: Schema.optionalKey<Schema.Boolean>
   readonly force: Schema.optionalKey<Schema.Boolean>
+  readonly expected: Schema.optionalKey<Schema.suspend<Schema.declare<ObjectReference, ObjectReference>>>
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L229)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L230)
 
 Since v0.6.0
 
@@ -556,7 +562,7 @@ declare const SetattrOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L271)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L273)
 
 Since v0.6.0
 
@@ -589,7 +595,7 @@ declare const SymlinkOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L248)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Caller.ts#L250)
 
 Since v0.6.0
 

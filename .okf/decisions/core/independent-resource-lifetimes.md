@@ -8,7 +8,7 @@ sources:
   - id: core
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: Volume, caller, and handle lifetimes
-generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
+generated: { by: codex/okf, at: "2026-10-04T21:24:00+02:00" }
 ---
 
 # Independent resource lifetimes and explicit authority
@@ -16,3 +16,5 @@ generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 Derived callers and handles belong to their acquiring scopes and can outlive the caller from which they were derived. Finalizing one owner does not revoke independently owned live resources. Explicitly closing a shared handle invalidates that handle for every holder.
 
 Open-file I/O uses access granted at open. Authority-sensitive metadata changes and lookup from directory bases use the invoking caller's credentials, never privilege inherited from the opener. [Close semantics](explicit-close-and-scope-cleanup.md "refined by") define exact release behavior.
+
+[Confined capabilities](../../contracts/confined-callers.md "refined by") retain namespace restrictions when reopened or derived, independently of the original handle lifetime. Current membership may revoke and restore use; closing an owner scope alone does not revoke independently scoped descendants.

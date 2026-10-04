@@ -105,6 +105,22 @@ program needs the default temporary directory. For caller identity and volume li
 `layerFromVolume(volume)` supplies the same adapter as a layer. Add `@effect-vfs/core` as a direct dependency when
 creating volumes yourself. Several adapters bound to one volume see the same files.
 
+## Bind a confined caller
+
+`MemoryFileSystem.bindCaller(caller)` borrows an existing caller and preserves its root, working directory,
+credentials, and umask. Keep that caller's scope open while using the adapter.
+
+```ts
+const agent = yield * admin.withRoot("/workspaces/run-42")
+const fs = yield * MemoryFileSystem.bindCaller(agent)
+yield * fs.writeFileString("/output.txt", "done")
+```
+
+Default temporaries require `/tmp` inside the confined root. The binding creates no directories. Scoped temporary
+cleanup follows the created directory through rename, protects replacements by identity, and skips deletion when
+permission or confinement is lost. FileSystem watches select one path alias and translate terminal caller failures
+into `PlatformError` values.
+
 ## Guides and limits
 
 - [Test with an isolated filesystem](../../apps/docs/app/content/guides/testing-with-an-isolated-filesystem.mdx) covers seeded tests, failures, and watches.

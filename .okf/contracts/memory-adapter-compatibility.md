@@ -43,7 +43,7 @@ sources:
   - id: overlay-binding
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Overlay volume binding tests
-generated: { by: codex/okf, at: "2026-10-04T09:40:00+00:00" }
+generated: { by: codex/okf, at: "2026-10-04T21:24:00+02:00" }
 ---
 
 # Memory adapter compatibility
@@ -51,7 +51,7 @@ generated: { by: codex/okf, at: "2026-10-04T09:40:00+00:00" }
 `@effect-vfs/memory` exposes Effect's path-based `FileSystem` service while `@effect-vfs/core` owns filesystem behavior. A fresh adapter creates a volume containing `/tmp`; `bind` attaches to an existing volume without modifying it.
 `layerFromFixture(fixture, volumeOptions?, callerOptions?)` composes core fixture construction and binding. It requires Crypto, preserves typed construction failures, and adds no `/tmp`. Separate builds create independent volumes; a shared layer build shares writes, with `Layer.fresh` available for isolation. POSIX Path is optional through `Layer.merge(seeded, Path.layer)`.
 
-The binding composes file handles, recursive traversal, and copy operations from separate internal modules; core retains namespace, content, and watch ownership. `watch` follows the object its path resolves to when the watch starts, not the path: it keeps reporting after the object or an ancestor is renamed and ends after reporting the object's removal. A watched file reports only changes under the watched name, not under its other hard links; that name follows the file across renames of the file and its ancestors. A registration is kept only when the path still names its object once the watch is active, so a change landing as the watch opens cannot leave it following another object; a path removed in that window fails `NotFound`.
+The binding composes file handles, recursive traversal, and copy operations from separate internal modules; core retains namespace, content, and watch ownership. `watch` follows the object its path resolves to when the watch starts, not the path: it keeps reporting after the object or an ancestor is renamed and ends after reporting the object's removal. A watched file reports only changes under the watched name, not under its other hard links; that name follows the file across renames of the file and its ancestors. Core Caller watch registration resolves the path and selects its alias under the coordination gate. Resolved alias tracking happens at publication rather than when the adapter consumes queued events.
 
 Bindings share namespace and contents while retaining independent callers, descriptor tables, file cursors, and lifetimes. The adapter preserves Effect cursor and convenience behavior where it intentionally differs from the POSIX-oriented core, and maps expected core failures to `PlatformError`.
 It translates `FsError` only when an operation crosses into Effect's `FileSystem` service. The translation preserves the core error as the cause and records the public method and path or descriptor. It maps volume admission pressure to `Busy`; failures without a matching Effect system-error tag, including capacity rejection, use `Unknown` with the core code in the description.
@@ -75,3 +75,5 @@ Memory retains its stronger guarantees: closed handles report `BadResource`; cop
 The host command is `bun run --filter @effect-vfs/memory test:host`; Bun launches the script, but the script explicitly executes Vitest in Node. Runtime coverage beyond this target belongs to issue #275.
 
 This contract [depends on](resources-and-authority.md "depends on") core capabilities, [implements package boundaries](../decisions/package-boundaries.md "implements"), and is [grounded in the Effect compatibility research](../research/effect-compatibility.md "grounded in").
+
+Borrowed `bindCaller` preserves caller root, cwd, credentials, and umask. The [confined caller contract](confined-callers.md "constrained by") defines boundary failures, default `/tmp`, publication filtering, and identity-safe temporary cleanup. Ordinary volume binding retains its constructor defaults.

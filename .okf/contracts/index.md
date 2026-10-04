@@ -1,6 +1,7 @@
 # Behavioral contracts
 
 - [Paths and namespace](paths-and-namespace.md) - Path representation, resolution, links, and namespace mutation.
+- [Confined callers](confined-callers.md) - Identity roots, imported boundaries, watch publication, and borrowed FileSystem bindings.
 - [Resources and authority](resources-and-authority.md) - Caller identity, capabilities, lifetimes, and cleanup.
 - [Shared live-volume registry](live-volume-registry.md) - Keyed scoped volume and store ownership, idle retention, and capacity.
 - [Byte ownership](byte-ownership.md) - Copying and isolation rules for byte inputs and observations.

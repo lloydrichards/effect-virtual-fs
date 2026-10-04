@@ -11,7 +11,7 @@ sources:
     title: Reusable Effect and capability tests
   - resource: ../../packages/core/test/VirtualFileSystem.test.ts
     title: Volume and caller behavior tests
-generated: { by: codex/okf, at: 2026-09-10T00:00:00Z }
+generated: { by: codex/okf, at: "2026-10-04T21:24:00+02:00" }
 ---
 
 # Resources and authority
@@ -23,3 +23,5 @@ Root callers need no scope. Derived callers and open handles are scoped. Explici
 Privilege is explicit and independent of uid. The convenient root caller defaults to privileged uid and gid zero, but this API-level authority is not a JavaScript sandbox.
 
 See [explicit API and services](../decisions/core/explicit-api-and-effect-services.md "constrained by"), [independent resource lifetimes](../decisions/core/independent-resource-lifetimes.md "constrained by"), and [scope-free root callers](../decisions/core/scope-free-root-callers.md "constrained by").
+
+[Confined callers](confined-callers.md "refined by") add identity-rooted namespace membership checks to caller and direct handle operations. Imported boundaries survive reopening and caller derivation without coupling resource lifetimes.
