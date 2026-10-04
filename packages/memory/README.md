@@ -13,6 +13,21 @@ npm install @effect-vfs/memory@latest
 npm install "@effect/platform-bun@$(npm view @effect-vfs/memory peerDependencies.effect)"
 ```
 
+## Observe or reject selected calls
+
+`FileSystemTesting.make(base, factory)` decorates any Effect filesystem. The factory returns `{ handlers, state }`;
+the constructor returns `{ fileSystem, state }`. Allocate counters inside the factory to isolate independent
+builds. Sharing a built service or memoized layer shares its counters.
+
+Handlers succeed to delegate and fail with `PlatformError` to prevent the real operation. `writeFileString`
+reaches the `writeFile` handler, and consumed streams and sinks reach `open`. Returned file-handle methods,
+watch streams, and the backing service's internal cleanup remain unchanged. A rejected operation does not
+simulate a partial write or crash.
+
+See [Count writes and inject selected failures](https://effect-vfs.lloydrichards.dev/guides/testing-with-an-isolated-filesystem#count-writes-and-inject-selected-failures)
+for complete examples and [FileSystemTesting](https://effect-vfs.lloydrichards.dev/api/memory/file-system-testing)
+for the handler contract.
+
 ## Replace the host filesystem
 
 Write application code against Effect's `FileSystem` service, then choose the

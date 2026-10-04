@@ -2,6 +2,8 @@
 
 ## 2026-10-04
 
+- **Filesystem faults and spies (#243)**: Add `FileSystemTesting` in memory with execution-time handlers, success-to-delegate behavior, rebuilt derived helpers, and factory state per service build. Define stream/sink acquisition, unchanged file handles, shared counters, and cleanup boundaries without claiming partial-write or crash simulation.
+
 - **Shared host filesystem contract (#245)**: Run the layer-based suite against memory and the Effect Node adapter under an explicit Node process. Preserve strict memory guarantees and assert documented host differences separately. Add observable handle closure and interrupted temporary-resource cleanup, and name Node 24.21.0 / Ubuntu 24.04 as the first host qualification target.
 
 ## 2026-10-02

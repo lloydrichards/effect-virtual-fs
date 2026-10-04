@@ -148,6 +148,15 @@ export const apiPages = [
   },
   {
     packageDir: "packages/memory",
+    moduleName: "FileSystemTesting",
+    label: "Memory · FileSystemTesting",
+    href: "/api/memory/file-system-testing",
+    routePath: "memory/file-system-testing",
+    contentPath: "content/api/memory/file-system-testing.mdx",
+    relatedLinks: [{ label: "Isolated filesystem testing guide", href: "/guides/testing-with-an-isolated-filesystem" }]
+  },
+  {
+    packageDir: "packages/memory",
     moduleName: "TreeTransfer",
     label: "Memory · TreeTransfer",
     href: "/api/memory/tree-transfer",
