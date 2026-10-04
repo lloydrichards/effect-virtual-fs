@@ -197,12 +197,16 @@ for (const packagePath of packageDirs) {
     await cp(path.join(packageDir, "src"), stagedSource, { recursive: true })
     const facadePath = path.join(stagedSource, "VirtualFileSystem.ts")
     const facade = await readFile(facadePath, "utf8")
+    // Keep source line numbers stable for docgen's links to the original declarations.
     await writeFile(
       facadePath,
       facade.replace(
         /^export\s*\{[\s\S]*?\}\s*from\s*"\.\/(?:Snapshot|BytePath|SnapshotDelta)\.js"\n/gm,
-        ""
-      ).replace(/^export \{[\s\S]*?\} from "\.\/VfsError\.js"\n/gm, ""),
+        (statement) => statement.replace(/[^\n]/g, "")
+      ).replace(
+        /^export \{[\s\S]*?\} from "\.\/VfsError\.js"\n/gm,
+        (statement) => statement.replace(/[^\n]/g, "")
+      ),
       "utf8"
     )
   }

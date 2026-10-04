@@ -395,11 +395,14 @@ describe("confined callers", () => {
     it.effect("protects its root when dot components resolve to it", () =>
       Effect.gen(function*() {
         const { owner, caller } = yield* fixture
+        const expected = yield* caller.root
 
         for (const path of ["/.", "/child/..", "/../../", "child/../."]) {
           for (
             const operation of [
               Effect.asVoid(caller.remove(path, { recursive: true })),
+              Effect.asVoid(caller.remove(path, { expected, recursive: true })),
+              Effect.asVoid(caller.remove(path, { expected, force: true })),
               Effect.asVoid(caller.rmdir(path)),
               Effect.asVoid(caller.rename(path, "/new"))
             ]
