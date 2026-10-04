@@ -64,6 +64,7 @@ import {
 } from "../Volume.js"
 import { WatchOptions } from "../Watch.js"
 import { sameBytes } from "./bytes.js"
+import * as DirectoryEntries from "./directoryEntries.js"
 import {
   argumentFailure,
   decodeConfiguration,
@@ -463,12 +464,7 @@ class Draft extends Context.Service<Draft, DraftOperations>()("@effect-vfs/core/
 
 const withMetadata = (node: Node): Metadata => ({ ...node.metadata, revision: node.revision })
 
-const withEntries = (directory: Directory, edit: (entries: Map<string, Ino>) => void): Directory => {
-  const entries = new Map(directory.entries)
-  edit(entries)
-
-  return { ...directory, entries }
-}
+const withEntries = (directory: Directory, entries: ReadonlyMap<string, Ino>): Directory => ({ ...directory, entries })
 
 const withoutLink = (links: ReadonlyArray<Link>, parent: Ino, name: string): ReadonlyArray<Link> => {
   const index = links.findIndex((link) => link.parent === parent && link.name === name)
@@ -1031,7 +1027,7 @@ export const makeVolume = Effect.fnUntraced(
             ctimeNs: now
           }
         },
-        (entries) => entries.set(name, child.ino)
+        DirectoryEntries.set(parent.entries, name, child.ino)
       ))
 
       if (child.kind === "directory") yield* d.put({ ...child, parent: parent.ino, name })
@@ -1721,7 +1717,7 @@ export const makeVolume = Effect.fnUntraced(
               ctimeNs: now
             }
           },
-          (entries) => entries.delete(name)
+          DirectoryEntries.remove(parent.entries, name)
         ))
         yield* publishEntry("Remove", parent.ino, name, child.ino)
         yield* detach(child, parent.ino, name, now)
@@ -1890,7 +1886,7 @@ export const makeVolume = Effect.fnUntraced(
                 ctimeNs: now
               }
             },
-            (entries) => entries.delete(sourceName)
+            DirectoryEntries.remove(sourceDirectory.entries, sourceName)
           ))
 
           const destinationNow = yield* directoryNow(destination.parent)
@@ -1904,7 +1900,7 @@ export const makeVolume = Effect.fnUntraced(
                 ctimeNs: now
               }
             },
-            (entries) => entries.set(destinationName, child.ino)
+            DirectoryEntries.set(destinationNow.entries, destinationName, child.ino)
           ))
 
           const moved = yield* nodeNow(child.ino)

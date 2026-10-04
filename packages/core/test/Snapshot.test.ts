@@ -60,6 +60,43 @@ const SnapshotJson = Schema.fromJsonString(Schema.Struct({
 
 describe("snapshots", () => {
   it.layer(BunCrypto.layer)((it) => {
+    it.effect("should preserve captured names and overlays while a directory is repeatedly edited", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+        const names = Array.from({ length: 80 }, (_, index) => `f${String(index).padStart(2, "0")}`)
+
+        for (const [index, name] of names.entries()) {
+          yield* caller.writeFile(`/${name}`, new Uint8Array([index]), { access: "write", create: "exclusive" })
+        }
+
+        const captured = yield* volume.snapshot
+        const encoded = yield* Vfs.encodeSnapshot(captured)
+        const sibling = yield* Vfs.makeOverlay(captured)
+
+        for (const name of names.slice(0, 60)) yield* caller.unlink(`/${name}`)
+        yield* caller.writeFile("/f00", new Uint8Array([99]), { access: "write", create: "exclusive" })
+        yield* caller.rename("/f70", "/f75")
+
+        const expected = [...names.slice(60).filter((name) => name !== "f70"), "f00"]
+        assert.deepStrictEqual(entryNames(yield* caller.readDirectory("/")), expected)
+        assert.deepStrictEqual(yield* caller.readFile("/f75"), new Uint8Array([70]))
+        assert.deepStrictEqual(yield* Vfs.encodeSnapshot(captured), encoded)
+
+        const siblingCaller = yield* sibling.caller()
+        assert.deepStrictEqual(entryNames(yield* siblingCaller.readDirectory("/")), names)
+        assert.deepStrictEqual(yield* siblingCaller.readFile("/f75"), new Uint8Array([75]))
+        yield* siblingCaller.rename("/f79", "/sibling")
+        assert.strictEqual((yield* Effect.flip(caller.stat("/sibling"))).code, "NotFound")
+
+        const current = yield* volume.snapshot
+        const currentBytes = yield* Vfs.encodeSnapshot(current)
+        const decoded = yield* Vfs.decodeSnapshot(currentBytes, limits)
+        const restored = yield* (yield* Vfs.fromSnapshot(decoded)).caller()
+        assert.deepStrictEqual(entryNames(yield* restored.readDirectory("/")), expected.toSorted())
+        assert.deepStrictEqual(yield* restored.readFile("/f75"), new Uint8Array([70]))
+      }))
+
     it.effect(
       "should preserve canonical payloads and bytes when files span encoding chunks",
       () =>
