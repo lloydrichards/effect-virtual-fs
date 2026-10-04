@@ -4,6 +4,8 @@ Architectural and behavioral decisions, grouped by domain. Accepted decisions ar
 
 ## Core filesystem
 
+- [Measured workload and quota policy](core/measured-workload-policy.md) recommends a bounded workspace and retains current defaults and dense storage.
+
 - [Snapshot search](snapshot-search.md) accepts Unicode filename search and explicit native-regex content search over immutable snapshots, with paired Streams and bounded reports. Implementation is tracked in three slices.
 - [Explicit API and Effect services](core/explicit-api-and-effect-services.md)
 - [Strict string filename boundary](core/strict-string-filename-boundary.md)
