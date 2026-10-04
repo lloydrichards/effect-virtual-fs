@@ -283,6 +283,68 @@ describe("confined callers", () => {
         assert.strictEqual((yield* Effect.flip(reopened.read(1))).code, "AccessDenied")
       }).pipe(Effect.provide(Testing.layer())))
 
+    it.effect("retains imported entry-directory boundaries while following symlinks", () =>
+      Effect.gen(function*() {
+        const { owner, caller } = yield* fixture
+        yield* owner.symlink("../outside/file", "/tenant/relative")
+        yield* owner.symlink("/outside/file", "/tenant/absolute")
+        yield* owner.symlink("../outside/new", "/tenant/missing")
+        yield* owner.symlink("/outside/new", "/tenant/missing-absolute")
+        yield* owner.symlink("file", "/tenant/allowed")
+        const handle = yield* caller.openDirectory("/")
+
+        const directories = [
+          Vfs.Target.Handle({ handle }),
+          Vfs.Target.Path({ path: ".", relativeTo: handle })
+        ]
+
+        for (const directory of directories) {
+          for (const name of ["relative", "absolute"]) {
+            const entry = { directory, name }
+            assert.strictEqual((yield* Effect.flip(owner.open(entry, { access: "read" }))).code, "AccessDenied")
+            assert.strictEqual(
+              (yield* Effect.flip(owner.open(entry, { access: "write", truncate: true }))).code,
+              "AccessDenied"
+            )
+            assert.strictEqual(text(yield* owner.readFile("/outside/file")), "outside")
+            assert.strictEqual(
+              (yield* Effect.flip(owner.writeFile(entry, bytes("replaced"), { access: "write", truncate: true }))).code,
+              "AccessDenied"
+            )
+            assert.strictEqual(text(yield* owner.readFile("/outside/file")), "outside")
+          }
+
+          const allowed = yield* owner.open({ directory, name: "allowed" }, { access: "read" })
+          assert.strictEqual(text((yield* allowed.handle.pread(6, 0n)).bytes), "inside")
+
+          for (const name of ["missing", "missing-absolute"]) {
+            assert.strictEqual(
+              (yield* Effect.flip(owner.open({ directory, name }, {
+                access: "write",
+                create: "ifMissing"
+              }))).code,
+              "AccessDenied"
+            )
+            assert.strictEqual(
+              (yield* Effect.flip(owner.writeFile({ directory, name }, bytes("created"), {
+                access: "write",
+                create: "ifMissing"
+              }))).code,
+              "AccessDenied"
+            )
+          }
+
+          yield* owner.writeFile({ directory, name: "allowed" }, bytes("inside"), {
+            access: "write",
+            truncate: true
+          })
+          assert.strictEqual(text(yield* caller.readFile("/file")), "inside")
+        }
+
+        assert.strictEqual(text(yield* owner.readFile("/outside/file")), "outside")
+        assert.strictEqual((yield* Effect.flip(owner.stat("/outside/new"))).code, "NotFound")
+      }).pipe(Effect.provide(Testing.layer())))
+
     it.effect("keeps ancestor boundaries when deriving a nested root", () =>
       Effect.gen(function*() {
         const { owner, caller } = yield* fixture
