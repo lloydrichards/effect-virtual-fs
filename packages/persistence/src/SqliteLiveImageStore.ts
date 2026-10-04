@@ -135,6 +135,17 @@ export const layer = (options: Options): Layer.Layer<
 
       if (Exit.isFailure(lock)) return yield* opening.fail("Ownership", lock.cause)
 
+      // Release exclusive ownership before closing the client. Older Bun clients
+      // can retain prepared statements, delaying the physical close until GC.
+      // SQLite requires a database read after switching back to NORMAL:
+      // https://www.sqlite.org/pragma.html#pragma_locking_mode
+      yield* Effect.addFinalizer(() =>
+        run("PRAGMA locking_mode=NORMAL").pipe(
+          Effect.andThen(run("SELECT count(*) AS count FROM sqlite_schema")),
+          Effect.orDie
+        )
+      )
+
       const journal = (yield* query(Schema.Struct({ journal_mode: Schema.String }), "PRAGMA journal_mode"))[0]
       const synchronous = (yield* query(Schema.Struct({ synchronous: Schema.Finite }), "PRAGMA synchronous"))[0]
       const fullfsync = (yield* query(Schema.Struct({ fullfsync: Schema.Finite }), "PRAGMA fullfsync"))[0]

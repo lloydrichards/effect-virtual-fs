@@ -14,6 +14,9 @@ sources:
   - id: sqlite
     resource: ../../packages/persistence/test/SqliteLiveImageStore.test.ts
     title: Registry SQLite ownership release and committed-content reopen
+  - id: sqlite-release
+    resource: ../../packages/persistence/src/SqliteLiveImageStore.ts
+    title: Explicit exclusive-lock release before client close
 generated: { by: codex/okf, at: "2026-10-04T17:12:00Z" }
 ---
 
@@ -22,6 +25,8 @@ generated: { by: codex/okf, at: "2026-10-04T17:12:00Z" }
 `LiveVolume.makeRegistry` creates an explicit `get(key)` capability backed by Effect `RcMap`. The first borrower acquires a store Layer and opens its live volume. Concurrent borrowers of equal keys share that acquisition and volume. Each acquisition builds its store Layer with fresh memoization, so an inherited Layer memo cannot share mutable store ownership between entries or retain a retired store. Volume configuration is captured when the registry is created and applies to every key.
 
 Each `get` retains the volume until its borrowing scope closes. Keep that scope alive until the caller and its handles finish using the volume. The registry owner must outlive borrowers; closing it shuts down even borrowed volumes. Volume shutdown precedes store release. Reopening an equal key waits for both to finish, even after immediate release or idle expiry removes the old RcMap entry. Cancelling that wait does not release the previous owner. Different keys can acquire independently. Independent callers and handles retain their own authority, cursor, and close state under the [resource contract](resources-and-authority.md "constrained by").
+
+The SQLite adapter releases exclusive locking explicitly before its client closes. It switches to NORMAL locking and reads the database, following [SQLite’s locking-mode contract](https://www.sqlite.org/pragma.html#pragma_locking_mode). This prevents delayed client cleanup on older Bun versions from retaining ownership until garbage collection.
 
 Without an idle timeout, the last borrower closes the entry immediately. A configured timeout retains unused entries for reuse, including their decoded state and storage locks. This avoids rebuilding storage and decoding images for intermittent consumers. It does not improve operations on a volume that its application already keeps open.
 

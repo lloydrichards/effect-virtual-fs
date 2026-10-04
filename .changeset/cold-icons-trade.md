@@ -1,5 +1,6 @@
 ---
 "@effect-vfs/core": minor
+"@effect-vfs/persistence": patch
 ---
 
 `LiveVolume.makeRegistry` shares live volumes by storage identity across independent scopes, with optional idle reuse and an entry limit.
@@ -13,3 +14,5 @@ const registry = yield * LiveVolume.makeRegistry({
 })
 const volume = yield * registry.get("workspace")
 ```
+
+SQLite live stores release their exclusive lock before closing the client, so a registry can reopen the database without waiting for garbage collection on Bun 1.2.21.
