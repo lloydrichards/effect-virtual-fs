@@ -28,6 +28,10 @@
       "types": "./dist/MemoryFileSystem.d.ts",
       "import": "./dist/MemoryFileSystem.js"
     },
+    "./FileSystemTesting": {
+      "types": "./dist/FileSystemTesting.d.ts",
+      "import": "./dist/FileSystemTesting.js"
+    },
     "./TreeTransfer": {
       "types": "./dist/TreeTransfer.d.ts",
       "import": "./dist/TreeTransfer.js"

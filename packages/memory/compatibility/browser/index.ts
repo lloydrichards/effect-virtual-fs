@@ -1,5 +1,5 @@
-import { Crypto, Effect, Layer } from "effect"
-import { MemoryFileSystem } from "../../dist/index.js"
+import { Crypto, Effect, Layer, Ref } from "effect"
+import { FileSystemTesting, MemoryFileSystem } from "../../dist/index.js"
 
 const cryptoLayer = Layer.succeed(
   Crypto.Crypto,
@@ -14,8 +14,18 @@ export const smoke = () =>
   Effect.runPromise(
     Effect.gen(function*() {
       const fs = yield* MemoryFileSystem.make
-      yield* fs.writeFileString("/smoke", "browser bundle")
 
-      return yield* fs.readFileString("/smoke")
+      const { fileSystem, state } = yield* FileSystemTesting.make(
+        fs,
+        Effect.fnUntraced(function*() {
+          const writes = yield* Ref.make(0)
+
+          return { state: writes, handlers: { writeFile: () => Ref.update(writes, (count) => count + 1) } }
+        })
+      )
+
+      yield* fileSystem.writeFileString("/smoke", "browser bundle")
+
+      return `${yield* fs.readFileString("/smoke")}:${yield* Ref.get(state)}`
     }).pipe(Effect.provide(cryptoLayer))
   )

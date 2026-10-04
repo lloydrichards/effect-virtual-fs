@@ -180,6 +180,141 @@ tests need the default temporary directory.
 If the application also requests `Path.Path`, merge `Path.layer` with the filesystem layer. `Path.layer` supplies
 POSIX paths in Effect 4.
 
+## Count writes and inject selected failures
+
+These decorator examples require `@effect-vfs/memory` 0.9.0 or later.
+
+Use `FileSystemTesting.make` when a test needs to observe a call or reject one selected operation. Unhandled
+calls use the backing filesystem. A handler succeeds to allow the real operation and fails with `PlatformError`
+to prevent it. A successful handler cannot replace the operation's result.
+
+Allocate counters inside the factory. This test proves that an unchanged second build makes no write call:
+
+```ts title="write-count.test.ts"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { FileSystemTesting, MemoryFileSystem } from "@effect-vfs/memory"
+import { assert, it } from "@effect/vitest"
+import { Effect, FileSystem, Ref } from "effect"
+
+const buildManifest = Effect.gen(function* () {
+	const fs = yield* FileSystem.FileSystem
+	const path = "/manifest.json"
+	const content = '{"version":"1.2.3"}'
+	if (yield* fs.exists(path)) {
+		if ((yield* fs.readFileString(path)) === content) return
+	}
+	yield* fs.writeFileString(path, content)
+})
+
+it.effect("should skip the write when the manifest has not changed", () =>
+	Effect.gen(function* () {
+		const base = yield* MemoryFileSystem.make
+		const { fileSystem, state } = yield* FileSystemTesting.make(base, Effect.fnUntraced(function* () {
+			const writes = yield* Ref.make(0)
+			return {
+				state: writes,
+				handlers: { writeFile: () => Ref.update(writes, (count) => count + 1) }
+			}
+		}))
+		const build = buildManifest.pipe(Effect.provideService(FileSystem.FileSystem, fileSystem))
+
+		yield* build
+		assert.strictEqual(yield* Ref.get(state), 1)
+		yield* build
+		assert.strictEqual(yield* Ref.get(state), 1)
+		assert.strictEqual(yield* base.readFileString("/manifest.json"), '{"version":"1.2.3"}')
+	}).pipe(Effect.provide(BunCrypto.layer))
+)
+```
+
+`writeFileString` routes through the `writeFile` handler. Handlers run when the Effect executes, so constructing
+a write does not increment the counter. Executing the same write Effect twice increments it twice.
+
+To inspect successful output after a selected failure, reject the next write before it reaches the real filesystem:
+
+```ts title="selected-failure.test.ts"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { FileSystemTesting, MemoryFileSystem } from "@effect-vfs/memory"
+import { assert, it } from "@effect/vitest"
+import { Effect, PlatformError, Ref } from "effect"
+
+it.effect("should keep earlier output when the second write fails", () =>
+	Effect.gen(function* () {
+		const base = yield* MemoryFileSystem.make
+		const failure = PlatformError.systemError({
+			_tag: "Unknown", module: "FileSystem", method: "writeFile",
+			pathOrDescriptor: "/second", description: "Injected failure"
+		})
+		const { fileSystem } = yield* FileSystemTesting.make(base, Effect.fnUntraced(function* () {
+			const writes = yield* Ref.make(0)
+			return {
+				state: writes,
+				handlers: {
+					writeFile: () => Ref.updateAndGet(writes, (count) => count + 1).pipe(
+						Effect.flatMap((count) => count === 2 ? Effect.fail(failure) : Effect.void)
+					)
+				}
+			}
+		}))
+
+		yield* fileSystem.writeFileString("/first", "completed")
+		assert.strictEqual(yield* Effect.flip(fileSystem.writeFileString("/second", "rejected")), failure)
+		assert.strictEqual(yield* base.readFileString("/first"), "completed")
+		assert.isFalse(yield* base.exists("/second"))
+	}).pipe(Effect.provide(BunCrypto.layer))
+)
+```
+
+Separate constructor executions allocate separate factory state, even when they wrap the same base filesystem.
+The base filesystem's files remain shared in that case. Sharing one built service shares its counters. A layer
+such as `Layer.effect(FileSystem.FileSystem, FileSystemTesting.make(base, factory).pipe(Effect.map((built) => built.fileSystem)))`
+uses normal Layer memoization. Use `Layer.fresh` to rebuild it. A counter captured outside the factory remains
+shared even across fresh builds.
+
+### Observe scoped acquisition
+
+Streams and sinks call the `open` handler only when consumed. Their chunk reads and writes use unchanged file
+handles, so a `writeFile` spy does not count sink writes. Scoped calls keep their original scope requirements:
+
+```ts title="scoped-spy.test.ts"
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import { FileSystemTesting, MemoryFileSystem } from "@effect-vfs/memory"
+import { assert, it } from "@effect/vitest"
+import { Effect, Ref, Stream } from "effect"
+
+it.effect("should observe stream acquisition and clean up a scoped temporary file", () =>
+	Effect.gen(function* () {
+		const base = yield* MemoryFileSystem.make
+		const { fileSystem, state } = yield* FileSystemTesting.make(base, Effect.fnUntraced(function* () {
+			const opens = yield* Ref.make(0)
+			return { state: opens, handlers: { open: () => Ref.update(opens, (count) => count + 1) } }
+		}))
+
+		const path = yield* Effect.scoped(Effect.gen(function* () {
+			const path = yield* fileSystem.makeTempFileScoped()
+			yield* fileSystem.writeFileString(path, "temporary")
+			const stream = fileSystem.stream(path)
+			assert.strictEqual(yield* Ref.get(state), 0)
+			yield* Stream.runDrain(stream)
+			assert.strictEqual(yield* Ref.get(state), 1)
+			return path
+		}))
+
+		assert.isFalse(yield* base.exists(path))
+	}).pipe(Effect.provide(BunCrypto.layer))
+)
+```
+
+The decorator rebuilds `exists`, string reads and writes, streams, and sinks with Effect's standard
+`FileSystem.make` helpers. Custom implementations of those helpers on the supplied service are replaced.
+`watch` is forwarded unchanged. Internal operations in the backing service, including temporary-resource
+cleanup and writes performed by copying, do not re-enter unrelated handlers. Spies count documented public
+calls rather than every state mutation.
+
+See the [`FileSystemTesting` reference](/api/memory/file-system-testing) for handler arguments. Rejection before
+delegation does not simulate a partial write or a crash. Use actual filesystem rules for permission and capacity
+tests, as described below.
+
 ## Use real filesystem failures
 
 Use filesystem rules when those rules cause the failure you need to test. Set caller credentials for a permission
