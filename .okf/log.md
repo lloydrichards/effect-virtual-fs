@@ -2,6 +2,8 @@
 
 ## 2026-10-04
 
+- **Shared live-volume registry**: Add `LiveVolume.makeRegistry` with independent scoped borrowing, fresh per-entry store ownership, optional idle reuse, native capacity failures, and shutdown before storage release. Keep inode accounting unchanged and record canonical-key and owner-scope requirements without retaining experimental timing artifacts.
+
 - **Failure and resource qualification (#277)**: Add fixed-seed identity and rejected-mutation sequences, scoped watcher cleanup under admission pressure, and adapter cleanup across success, failure, and interruption. Record the lasting invariant coverage and its qualification limits; keep the probe execution record in the pull request.
 
 - **Workload qualification (#276)**: Add reproducible fresh-process measurements and a bounded 1,000-file quota example. Record large-file buffer costs, default delta identity-budget rejection, controlled admission and slow-watch recovery. Apply persistent ordered directory entries to reduce wide-directory copying, with before/after evidence and namespace isolation regression coverage; retain current capacity defaults and dense file storage.

@@ -1,9 +1,11 @@
 /**
- * The one error family of `@effect-vfs/core`. Every failure a volume, caller,
+ * Filesystem and configuration errors for `@effect-vfs/core`. Every failure a volume, caller,
  * handle, snapshot codec, delta codec, or live store reports is a `VfsError`
  * whose `code` says what went wrong, whose `operation` names the verb or
  * constructor, and which may name the offending option `field`, the `path`
  * it was addressing, and the underlying `cause` it classifies.
+ * Live-volume registry capacity additionally reports Effect's native
+ * `Cause.ExceededCapacityError`.
  *
  * @since 0.6.0
  */

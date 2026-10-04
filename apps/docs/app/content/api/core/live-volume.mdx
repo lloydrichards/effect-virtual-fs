@@ -13,6 +13,57 @@ Since v0.4.0
 
 ## constructors
 
+### makeRegistry
+
+Lazily share one live volume and its store per key through `RcMap`. Concurrent
+borrowers share acquisition. Reusing an idle entry avoids rebuilding its store
+and decoding its image, while retaining its memory and storage locks.
+
+The registry's owning scope must outlive all borrowers. Closing it shuts down
+every volume, including borrowed ones, before releasing their store Layers.
+Capacity exhaustion fails with `Cause.ExceededCapacityError`; it does not evict
+idle entries. Acquisition failures remain shared until the entry is released.
+
+Invalidation is intentionally unavailable: acquiring a replacement while an
+existing borrower remains would violate exclusive store ownership. Canonicalize
+keys before borrowing and use one registry for each set of backing stores.
+
+**Example**
+
+```ts
+import { LiveVolume } from "@effect-vfs/core"
+import { ByteSize, Effect, Layer } from "effect"
+
+declare const storeFor: (key: string) => Layer.Layer<LiveVolume.LiveImageStore>
+
+const program = Effect.gen(function* () {
+  const registry = yield* LiveVolume.makeRegistry({
+    store: storeFor,
+    volume: { maxImageBytes: ByteSize.megabytes(1), volume: {} },
+    capacity: 8,
+    idleTimeToLive: "5 seconds"
+  })
+  return yield* Effect.scoped(
+    Effect.gen(function* () {
+      const volume = yield* registry.get("workspace")
+      return yield* (yield* volume.caller()).readFile("/plan.md")
+    })
+  )
+})
+```
+
+**Signature**
+
+```ts
+declare const makeRegistry: <K, E, R>(
+  options: RegistryOptions<K, E, R>
+) => Effect.Effect<Registry<K, E>, ArgumentFailure, R | Crypto.Crypto | Scope.Scope>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L183)
+
+Since v0.9.0
+
 ### open
 
 Open a live volume using the supplied store Layer. The caller owns a Scope;
@@ -25,7 +76,7 @@ Requires `Crypto.Crypto` to mint a new volume or incarnation.
 declare const open: (options: Options) => Effect.Effect<Volume, VfsError, LiveImageStore | Scope.Scope | Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L63)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L64)
 
 Since v0.4.0
 
@@ -47,7 +98,7 @@ declare const openImage: (
 ) => Effect.Effect<ImageSession, VfsError, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L158)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L264)
 
 Since v0.4.0
 
@@ -63,7 +114,7 @@ Requires `Crypto.Crypto` for secure volume identifiers and reference keys.
 declare const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<Uint8Array, VfsError, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L139)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L245)
 
 Since v0.4.0
 
@@ -79,7 +130,7 @@ A storage commit's observed outcome.
 type CommitOutcome = "committed" | "rejected" | "unknown"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L27)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L28)
 
 Since v0.4.0
 
@@ -105,7 +156,7 @@ export interface ImageSession {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L126)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L232)
 
 Since v0.4.0
 
@@ -122,9 +173,51 @@ export interface Options {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L50)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L51)
 
 Since v0.4.0
+
+### Registry (interface)
+
+Scoped access to live volumes shared by canonical storage identity.
+Each `get` retains its volume until the borrowing scope closes. Keep that
+scope open until its callers and handles finish using the volume.
+
+**Signature**
+
+```ts
+export interface Registry<K, E = never> {
+  readonly get: (key: K) => Effect.Effect<Volume, E | VfsError | Cause.ExceededCapacityError, Scope.Scope>
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L121)
+
+Since v0.9.0
+
+### RegistryOptions (interface)
+
+Store Layers are built independently for each acquired entry. The same volume
+configuration applies to every key. Keys use Effect's equality rules and must
+identify canonical storage locations; different aliases can create competing
+owners. Coordinate ownership across processes outside this registry.
+
+**Signature**
+
+```ts
+export interface RegistryOptions<K, E = never, R = never> {
+  readonly store: (key: K) => Layer.Layer<LiveImageStore, E, R>
+  readonly volume: Options
+  /** Positive integer entry limit. Omission means unlimited; idle entries count. */
+  readonly capacity?: number
+  /** Retain unused entries for this duration. Omission releases them immediately. */
+  readonly idleTimeToLive?: Duration.Input
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L134)
+
+Since v0.9.0
 
 ## services
 
@@ -140,6 +233,6 @@ classify ambiguous commits as `unknown`.
 declare class LiveImageStore
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L37)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L38)
 
 Since v0.4.0

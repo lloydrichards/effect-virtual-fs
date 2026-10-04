@@ -8,11 +8,12 @@
  *
  * @since 0.4.0
  */
-import { Context, Effect } from "effect"
+import { Context, Duration, Effect, Layer, Option, RcMap, Schema } from "effect"
 import * as ByteSize from "effect/ByteSize"
+import type * as Cause from "effect/Cause"
 import type * as Crypto from "effect/Crypto"
 import type * as Scope from "effect/Scope"
-import { argumentFailure, retargetFailure } from "./internal/errors.js"
+import { argumentFailure, decodeConfiguration, retargetFailure } from "./internal/errors.js"
 import * as Model from "./internal/virtualFileSystem.js"
 import * as Limits from "./internal/volumeLimits.js"
 import { type ArgumentFailure, type StoreFailure, VfsError } from "./VfsError.js"
@@ -107,6 +108,111 @@ export const open: (options: Options) => Effect.Effect<
   }
 
   return volume
+})
+
+/**
+ * Scoped access to live volumes shared by canonical storage identity.
+ * Each `get` retains its volume until the borrowing scope closes. Keep that
+ * scope open until its callers and handles finish using the volume.
+ *
+ * @category models
+ * @since 0.9.0
+ */
+export interface Registry<K, E = never> {
+  readonly get: (key: K) => Effect.Effect<Volume, E | VfsError | Cause.ExceededCapacityError, Scope.Scope>
+}
+
+/**
+ * Store Layers are built independently for each acquired entry. The same volume
+ * configuration applies to every key. Keys use Effect's equality rules and must
+ * identify canonical storage locations; different aliases can create competing
+ * owners. Coordinate ownership across processes outside this registry.
+ *
+ * @category models
+ * @since 0.9.0
+ */
+export interface RegistryOptions<K, E = never, R = never> {
+  readonly store: (key: K) => Layer.Layer<LiveImageStore, E, R>
+  readonly volume: Options
+  /** Positive integer entry limit. Omission means unlimited; idle entries count. */
+  readonly capacity?: number
+  /** Retain unused entries for this duration. Omission releases them immediately. */
+  readonly idleTimeToLive?: Duration.Input
+}
+
+const RegistryCapacity = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
+
+/**
+ * Lazily share one live volume and its store per key through `RcMap`. Concurrent
+ * borrowers share acquisition. Reusing an idle entry avoids rebuilding its store
+ * and decoding its image, while retaining its memory and storage locks.
+ *
+ * The registry's owning scope must outlive all borrowers. Closing it shuts down
+ * every volume, including borrowed ones, before releasing their store Layers.
+ * Capacity exhaustion fails with `Cause.ExceededCapacityError`; it does not evict
+ * idle entries. Acquisition failures remain shared until the entry is released.
+ *
+ * Invalidation is intentionally unavailable: acquiring a replacement while an
+ * existing borrower remains would violate exclusive store ownership. Canonicalize
+ * keys before borrowing and use one registry for each set of backing stores.
+ *
+ * @example
+ * ```ts
+ * import { LiveVolume } from "@effect-vfs/core"
+ * import { ByteSize, Effect, Layer } from "effect"
+ *
+ * declare const storeFor: (key: string) => Layer.Layer<LiveVolume.LiveImageStore>
+ *
+ * const program = Effect.gen(function*() {
+ *   const registry = yield* LiveVolume.makeRegistry({
+ *     store: storeFor,
+ *     volume: { maxImageBytes: ByteSize.megabytes(1), volume: {} },
+ *     capacity: 8,
+ *     idleTimeToLive: "5 seconds"
+ *   })
+ *   return yield* Effect.scoped(Effect.gen(function*() {
+ *     const volume = yield* registry.get("workspace")
+ *     return yield* (yield* volume.caller()).readFile("/plan.md")
+ *   }))
+ * })
+ * ```
+ *
+ * @category constructors
+ * @since 0.9.0
+ */
+export const makeRegistry: <K, E, R>(options: RegistryOptions<K, E, R>) => Effect.Effect<
+  Registry<K, E>,
+  ArgumentFailure,
+  R | Crypto.Crypto | Scope.Scope
+> = Effect.fn("LiveVolume.makeRegistry")(function*<K, E, R>(options: RegistryOptions<K, E, R>) {
+  const capacity = options.capacity === undefined
+    ? Infinity
+    : yield* Effect.fromResult(decodeConfiguration(RegistryCapacity, options.capacity, "LiveVolume.makeRegistry")).pipe(
+      Effect.mapError((cause) => argumentFailure("LiveVolume.makeRegistry", "capacity", cause))
+    )
+
+  const idleTimeToLive = Duration.fromInput(options.idleTimeToLive ?? 0)
+
+  if (Option.isNone(idleTimeToLive)) return yield* argumentFailure("LiveVolume.makeRegistry", "idleTimeToLive")
+
+  const store = options.store
+  const volume: Options = { maxImageBytes: options.volume.maxImageBytes, volume: { ...options.volume.volume } }
+
+  const volumes = yield* RcMap.make({
+    lookup: Effect.fn("LiveVolume.Registry.open")(function*(key: K) {
+      // A parent Layer memo must not keep a retired store alive or share its
+      // mutable ownership state with a different volume entry.
+      const services = yield* Layer.build(Layer.fresh(store(key)))
+
+      return yield* open(volume).pipe(
+        Effect.provideService(LiveImageStore, Context.get(services, LiveImageStore))
+      )
+    }),
+    capacity,
+    idleTimeToLive: idleTimeToLive.value
+  })
+
+  return { get: (key: K) => RcMap.get(volumes, key) }
 })
 
 /**

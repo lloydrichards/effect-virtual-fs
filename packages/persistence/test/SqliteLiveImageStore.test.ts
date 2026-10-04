@@ -5,7 +5,7 @@ import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Data, Effect, FileSystem, Layer, Option, Path, Stream } from "effect"
+import { ByteSize, Data, Effect, Exit, FileSystem, Layer, Option, Path, Scope, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { SqlClient } from "effect/sql/SqlClient"
 import { ConnectionError, SqlError } from "effect/sql/SqlError"
@@ -42,6 +42,27 @@ const store = (filename: string, maxDatabaseBytes = ByteSize.megabytes(2)) =>
 
 // The restart tests poll and kill child processes on real time, so the suite runs without the test clock.
 it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it) => {
+  it.effect("should share a registry volume and release its SQLite ownership before reopening", () =>
+    Effect.gen(function*() {
+      const { filename } = yield* temporaryDatabase
+      const registry = yield* LiveVolume.makeRegistry({ store: (key: string) => store(key), volume: options })
+      const firstScope = yield* Scope.make()
+      const secondScope = yield* Scope.make()
+      const first = yield* registry.get(filename).pipe(Effect.provideService(Scope.Scope, firstScope))
+      const second = yield* registry.get(filename).pipe(Effect.provideService(Scope.Scope, secondScope))
+      assert.strictEqual(first, second)
+      yield* (yield* first.caller()).writeFile("/saved", new Uint8Array([4, 5]), {
+        access: "write",
+        create: "exclusive"
+      })
+      yield* Scope.close(firstScope, Exit.void)
+      assert.deepStrictEqual(yield* (yield* second.caller()).readFile("/saved"), new Uint8Array([4, 5]))
+      yield* Scope.close(secondScope, Exit.void)
+      const reopened = yield* registry.get(filename)
+      assert.notStrictEqual(reopened, first)
+      assert.deepStrictEqual(yield* (yield* reopened.caller()).readFile("/saved"), new Uint8Array([4, 5]))
+    }))
+
   for (const existing of [false, true]) {
     it.effect(
       existing

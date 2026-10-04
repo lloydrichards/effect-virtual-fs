@@ -1,10 +1,12 @@
 # VfsError.ts overview
 
-The one error family of `@effect-vfs/core`. Every failure a volume, caller,
+Filesystem and configuration errors for `@effect-vfs/core`. Every failure a volume, caller,
 handle, snapshot codec, delta codec, or live store reports is a `VfsError`
 whose `code` says what went wrong, whose `operation` names the verb or
 constructor, and which may name the offending option `field`, the `path`
 it was addressing, and the underlying `cause` it classifies.
+Live-volume registry capacity additionally reports Effect's native
+`Cause.ExceededCapacityError`.
 
 Since v0.6.0
 
@@ -34,7 +36,7 @@ console.log(failure.message)
 declare const make: <C extends VfsCode>(props: Props<C>) => VfsError & { readonly code: C }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L266)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L268)
 
 Since v0.6.0
 
@@ -80,7 +82,7 @@ export declare class VfsError extends Schema.TaggedError<VfsError>()("VfsError",
 }) {}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L177)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L179)
 
 Since v0.6.0
 
@@ -96,7 +98,7 @@ A `VfsError` reporting a rejected option, always `InvalidArgument` with the offe
 type ArgumentFailure = VfsError & { readonly code: "InvalidArgument" }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L224)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L226)
 
 Since v0.6.0
 
@@ -110,7 +112,7 @@ The code a delta reports when its base does not match.
 export type DeltaCode = "BaseMismatch"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L95)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L97)
 
 Since v0.6.0
 
@@ -149,7 +151,7 @@ export type FsCode =
   | "VolumeBusy"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L63)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L65)
 
 Since v0.6.0
 
@@ -163,7 +165,7 @@ A `VfsError` whose code is one an operation on a volume, caller, or handle repor
 type FsFailure = VfsError & { readonly code: FsCode }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L200)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L202)
 
 Since v0.6.0
 
@@ -178,7 +180,7 @@ export type ImageCode =
   "InvalidEncoding" | "UnsupportedVersion" | "InvalidStructure" | "LimitExceeded"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L79)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L81)
 
 Since v0.6.0
 
@@ -192,7 +194,7 @@ A `VfsError` whose code is one a snapshot, fixture, live image, or delta codec r
 type ImageFailure = VfsError & { readonly code: ImageCode }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L208)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L210)
 
 Since v0.6.0
 
@@ -213,7 +215,7 @@ export interface Props<C extends VfsCode> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L233)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L235)
 
 Since v0.6.0
 
@@ -227,7 +229,7 @@ A code a live image store reports while opening or recovering a volume.
 export type StoreCode = "Storage" | "Ownership" | "IncompatibleStore" | "CorruptStore"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L111)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L113)
 
 Since v0.6.0
 
@@ -241,7 +243,7 @@ A `VfsError` whose code is one a live image store reports.
 type StoreFailure = VfsError & { readonly code: StoreCode }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L216)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L218)
 
 Since v0.6.0
 
@@ -289,7 +291,7 @@ export type VfsCode =
   | "CorruptStore"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L132)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L134)
 
 Since v0.6.0
 
@@ -305,7 +307,7 @@ Schema for the code a delta reports when its base does not match.
 declare const DeltaCode: Schema.Literals<readonly ["BaseMismatch"]>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L87)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L89)
 
 Since v0.6.0
 
@@ -320,7 +322,7 @@ encoded as base64 bytes so the error survives a wire.
 declare const ErrorPath: Schema.decodeTo<Schema.declare<BytePath, BytePath>, Schema.Uint8ArrayFromBase64, never, never>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L141)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L143)
 
 Since v0.6.0
 
@@ -362,7 +364,7 @@ declare const FsCode: Schema.Literals<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L24)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L26)
 
 Since v0.6.0
 
@@ -378,7 +380,7 @@ declare const ImageCode: Schema.Literals<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L71)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L73)
 
 Since v0.6.0
 
@@ -392,7 +394,7 @@ Schema for the codes a live image store reports while opening or recovering a vo
 declare const StoreCode: Schema.Literals<readonly ["Storage", "Ownership", "IncompatibleStore", "CorruptStore"]>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L103)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L105)
 
 Since v0.6.0
 
@@ -443,6 +445,6 @@ declare const VfsCode: Schema.Literals<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L119)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VfsError.ts#L121)
 
 Since v0.6.0

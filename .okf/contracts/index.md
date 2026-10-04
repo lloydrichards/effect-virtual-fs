@@ -2,6 +2,7 @@
 
 - [Paths and namespace](paths-and-namespace.md) - Path representation, resolution, links, and namespace mutation.
 - [Resources and authority](resources-and-authority.md) - Caller identity, capabilities, lifetimes, and cleanup.
+- [Shared live-volume registry](live-volume-registry.md) - Keyed scoped volume and store ownership, idle retention, and capacity.
 - [Byte ownership](byte-ownership.md) - Copying and isolation rules for byte inputs and observations.
 - [Regular-file I/O](regular-file-io.md) - Handles, offsets, writes, truncation, and seeking.
 - [Permissions and metadata](permissions-and-metadata.md) - Access checks, ownership, modes, and timestamps.

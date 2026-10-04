@@ -8,6 +8,9 @@ sources:
   - id: core-source
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Core public implementation
+  - id: live-registry
+    resource: ../../packages/core/src/LiveVolume.ts
+    title: Scoped live-volume registry
   - id: memory-source
     resource: ../../packages/memory/src/MemoryFileSystem.ts
     title: Memory adapter public implementation
@@ -23,7 +26,7 @@ sources:
   - id: nfs-source
     resource: ../../packages/nfs/src/NfsServer.ts
     title: NFS server public implementation
-generated: { by: codex/okf, at: 2026-09-20T00:00:00Z }
+generated: { by: codex/okf, at: "2026-10-04T17:12:00Z" }
 ---
 
 # Implemented filesystem
@@ -31,6 +34,8 @@ generated: { by: codex/okf, at: 2026-09-20T00:00:00Z }
 The repository implements a runtime-neutral Effect filesystem core for regular files, directories, symbolic links, and hard links. The public core includes volume construction, callers, directory-relative lookup, file and directory handles, byte-preserving paths, metadata and permission operations, watches, fixtures, and isolated versioned snapshots. It also exposes runtime-only [object references](../contracts/object-references.md "refined by") and [mutation revisions](../contracts/mutation-revisions.md "refined by") for stable identity and coherent live observations.
 
 Live volumes bound admitted work and each watch subscriber's retained events. Overflow emits `Rescan`; the [mutation and observation contract](../contracts/mutation-and-observation.md "refined by") defines recovery and adapter behavior.
+
+`LiveVolume.makeRegistry` shares complete live volumes and their store ownership by canonical key across independent borrowing scopes. Its [registry contract](../contracts/live-volume-registry.md "refined by") defines idle reuse, capacity failures, shutdown order, and application ownership requirements.
 
 The core also creates writable [overlay workspaces](../contracts/overlay-workspaces.md "refined by") from immutable snapshots. They share untouched regular-file payloads, retain private writable state, expose identity-based final-difference summaries, and capture a matching summary plus complete version 1 snapshot.
 
