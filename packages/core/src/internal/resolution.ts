@@ -6,7 +6,7 @@ import * as Result from "effect/Result"
 import type { Identity } from "../Caller.js"
 import { type EntryInput, isEntry, isTarget, type NameInput, type Target } from "../Target.js"
 import type { FsFailure } from "../VfsError.js"
-import type { DirectoryHandle, PathInput } from "../VirtualFileSystem.js"
+import type { DirectoryHandle, FileHandle, PathInput } from "../VirtualFileSystem.js"
 import { type Confinement, make as makeConfinement } from "./confinement.js"
 import type { OpContext } from "./errors.js"
 import {
@@ -176,7 +176,7 @@ export const make = ({ caller, get, identity, maxPathBytes, registry, confinemen
 
   const walk = Effect.fnUntraced(function*<R = never>(
     path: PreparedPath,
-    base: DirectoryHandle | undefined,
+    base: DirectoryHandle | FileHandle | undefined,
     op: OpContext,
     mode: WalkMode<R>,
     referencedBase?: Directory
@@ -509,7 +509,15 @@ export const make = ({ caller, get, identity, maxPathBytes, registry, confinemen
 
       if (direct?.kind === "symlink" && mode.finalSymlink === "follow") {
         const path = yield* Effect.fromResult(preparePath(ownedPath(nameBytes(prepared.name)), op.operation, undefined))
-        result = yield* walk(path, undefined, op, mode, parent)
+
+        // Following an entry link must retain the directory capability's boundaries.
+        const base = Predicate.isTagged(prepared.directory, "Handle")
+          ? prepared.directory.handle
+          : Predicate.isTagged(prepared.directory, "Path")
+          ? prepared.directory.relativeTo
+          : undefined
+
+        result = yield* walk(path, base, op, mode, parent)
 
         // Entry writeFile rejects a followed directory before checking exclusive creation.
         if (
