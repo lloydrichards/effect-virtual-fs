@@ -56,6 +56,7 @@ describe("live volume registry", () => {
           const release = yield* Deferred.make<void>()
           let opened = 0
           const fixture = stores()
+
           const registry = yield* LiveVolume.makeRegistry({
             volume: options,
             idleTimeToLive,
@@ -72,13 +73,16 @@ describe("live volume registry", () => {
                         ? Deferred.succeed(closing, undefined).pipe(Effect.andThen(Deferred.await(release)))
                         : Effect.void
                   )
+
                   return yield* LiveVolume.LiveImageStore.pipe(Effect.provide(fixture.layer(key)))
                 })
               )
           })
+
           const first = yield* Scope.make()
           yield* registry.get("a").pipe(Effect.provideService(Scope.Scope, first))
           const close = yield* Scope.close(first, Exit.void).pipe(Effect.forkChild)
+
           if (idleTimeToLive > 0) yield* TestClock.adjust(idleTimeToLive)
           yield* Deferred.await(closing)
           const abandoned = yield* registry.get("a").pipe(Effect.forkChild)
