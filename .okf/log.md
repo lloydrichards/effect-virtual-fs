@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-10-04
+
+- **Shared host filesystem contract (#245)**: Run the layer-based suite against memory and the Effect Node adapter under an explicit Node process. Preserve strict memory guarantees and assert documented host differences separately. Add observable handle closure and interrupted temporary-resource cleanup, and name Node 24.21.0 / Ubuntu 24.04 as the first host qualification target.
+
 ## 2026-10-02
 
 - **Release knowledge cleanup**: Rename NFS operation reports and search maintenance guidance by concept. Correct the NFS reports to reflect guarded public writable exports. Remove the root documentation scratch directory, including historical benchmarks and completed planning notes. Ground retained search knowledge in current code and tests; remove measurement claims that depended on deleted artifacts.
