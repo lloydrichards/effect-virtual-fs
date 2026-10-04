@@ -1,6 +1,6 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { Deferred, Effect, Exit, Fiber, Option, Predicate, PubSub, Queue, Scope, Stream } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Predicate, PubSub, Queue, Scope, Stream } from "effect"
 import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import { withVolumeTestSeams } from "../src/internal/testSeams.js"
 import { entryNames, pathText } from "./support/text.js"
@@ -572,6 +572,68 @@ const paths = (events: Iterable<Vfs.Change>) =>
     ))
 
 describe("bounded watches", () => {
+  it.layer(BunCrypto.layer)((it) => {
+    for (const outcome of ["success", "failure", "interruption"] as const) {
+      it.effect(`should end a scoped watch and allow later work when ${outcome} closes its scope under admission pressure`, () =>
+        Effect.gen(function*() {
+          const volume = yield* Vfs.Volume
+          const caller = yield* Vfs.Caller
+          const ready = yield* Deferred.make<Stream.Stream<Vfs.Change>>()
+          const finish = yield* Deferred.make<void>()
+
+          const owner = yield* Effect.scoped(Effect.gen(function*() {
+            const stream = yield* volume.watch()
+            yield* Deferred.succeed(ready, stream)
+            yield* Deferred.await(finish)
+
+            if (outcome === "failure") return yield* Effect.fail("selected failure")
+          })).pipe(Effect.forkChild({ startImmediately: true }))
+
+          const closedWatch = yield* Deferred.await(ready)
+          const held = yield* Deferred.make<void>()
+          const release = yield* Deferred.make<void>()
+
+          const registration = yield* volume.watch().pipe(
+            withVolumeTestSeams({
+              afterSubscribe: Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release)))
+            }),
+            Effect.forkChild({ startImmediately: true })
+          )
+
+          yield* Deferred.await(held)
+          const waiting = yield* caller.mkdir("/accepted").pipe(Effect.forkChild({ startImmediately: true }))
+          assert.strictEqual((yield* Effect.flip(caller.mkdir("/rejected"))).code, "VolumeBusy")
+
+          const closing = yield* (outcome === "interruption"
+            ? Fiber.interrupt(owner)
+            : Deferred.succeed(finish, undefined).pipe(Effect.andThen(Fiber.await(owner))))
+            .pipe(Effect.forkChild({ startImmediately: true }))
+
+          yield* Deferred.succeed(release, undefined)
+          const liveWatch = yield* Fiber.join(registration)
+          yield* Fiber.join(waiting)
+          yield* Fiber.join(closing)
+          const exit = yield* Fiber.await(owner)
+          assert.strictEqual(Exit.isSuccess(exit), outcome === "success")
+
+          if (Exit.isFailure(exit)) {
+            if (outcome === "failure") {
+              assert.deepStrictEqual(Cause.findErrorOption(exit.cause), Option.some("selected failure"))
+            } else assert.isTrue(Cause.hasInterruptsOnly(exit.cause))
+          }
+
+          const stopped = yield* Effect.exit(Stream.runHead(closedWatch))
+          assert.isTrue(Exit.isFailure(stopped) && Cause.hasInterrupts(stopped.cause))
+          yield* caller.mkdir("/after")
+          assert.deepStrictEqual(yield* paths(yield* Stream.runCollect(Stream.take(liveWatch, 2))), [
+            "Create /accepted",
+            "Create /after"
+          ])
+          assert.deepStrictEqual(entryNames(yield* caller.readDirectory("/")), ["accepted", "after"])
+        }).pipe(Effect.provide(Testing.layer({ volume: { maxPendingOperations: 1 } }))))
+    }
+  })
+
   it.layer(BunCrypto.layer)((it) => {
     it.effect(
       "should reject excess admission before mutation and release cancelled waits when the queue is full",
