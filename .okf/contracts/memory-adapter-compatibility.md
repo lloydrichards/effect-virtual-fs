@@ -27,6 +27,14 @@ sources:
     title: Effect compatibility tests
   - resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Shared core binding tests
+  - resource: ../../packages/memory/test/FileSystemTest.ts
+    title: Shared assertions and explicit adapter expectations
+  - resource: ../../packages/memory/test/fixtures/host-watch-lifecycle.mjs
+    title: Native watcher interruption cleanup
+  - resource: ../../vitest.host.config.ts
+    title: Node host qualification configuration
+  - resource: ../../.github/workflows/pr-validation.yml
+    title: Named host CI configuration
   - id: adapter-tests
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Adapter behavior tests
@@ -35,7 +43,7 @@ sources:
   - id: overlay-binding
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Overlay volume binding tests
-generated: { by: claude-code, at: "2026-10-02T09:36:17+00:00" }
+generated: { by: codex/okf, at: "2026-10-04T09:40:00+00:00" }
 ---
 
 # Memory adapter compatibility
@@ -58,8 +66,12 @@ The internal `glob.ts` operation owns glob compilation, collected core traversal
 
 Directory copy rejects a destination child that is a symbolic link instead of following it as a directory. It also rejects copying `/` into one of its descendants before creating the destination. `copy` runs on the [tree transfer](tree-transfer.md "uses") engine with the volume's own limits and no depth bound; `overwrite` maps to `existing: "overwrite"`, `preserveTimestamps` to both timestamps, and source modes are copied with their special bits. A copy without `overwrite` claims its destination and removes it if the copy fails. An overwriting copy remains a sequence of core operations, so failures after earlier entries are copied can leave those entries in place.
 
-The shared adapter suite in `packages/memory/test/FileSystemTest.ts` states this contract as executable assertions, and it runs against the memory adapter alone. Its requirements are unconditional: a handle used after its scope closes reports `BadResource` against the descriptor it held; `copy` with `overwrite: false` onto an existing destination fails `AlreadyExists` without changing either path; `utimes` reports its failing method as `utimes`; `copy` with `preserveTimestamps` carries both the access and the modification time; `chmod` and `chown` apply the requested mode and ownership without host privileges; derived stream and sink handles finalize on success, failure, and interruption; and a watcher stops receiving events once it is released.
+The layer-based adapter suite in `packages/memory/test/FileSystemTest.ts` runs shared assertions against memory and the Effect Node adapter. `vitest.host.config.ts` runs both providers in Node, independently of the normal Bun workspace run. The first host qualification target is Node 24.21.0 on Ubuntu 24.04 with `@effect/platform-node-shared` 4.0.0; the PR validation host job prints its runtime, operating system, architecture and adapter version. This target does not imply Windows, browser or Bun host support.
 
-Effect's Node platform adapter diverges from four of those requirements, which is why the suite is not run against it: `copy` with `overwrite: false` skips an existing destination silently instead of failing, `utimes` reports its method as `utime`, `preserveTimestamps` carries only the modification time, and a closed handle surfaces `EBADF` as `Unknown` rather than `BadResource`. Ownership changes there also need host privileges. These are upstream behaviors, not adapter obligations; the suite must not be weakened to accommodate them.
+Shared behavior covers path failures, parents, links, open flags, independent cursors, append, truncation and open-unlinked files. Scoped temporary directories and files disappear after success, failure and interruption. Derived stream and sink handles fail structured `stat` checks immediately after success, failure and interruption, before another native descriptor can be acquired. Watch delivery is established by bounded setup mutations because native registration follows asynchronous `stat`; unrelated directory events do not satisfy the file assertion. Interruption stops consumption before a sentinel mutation. A separate host fixture observes the native watcher close event immediately after interruption, while its enclosing scope remains open.
+
+Memory retains its stronger guarantees: closed handles report `BadResource`; copy collisions with `overwrite: false` fail `AlreadyExists`; missing-path `utimes` errors name `utimes`; copying with `preserveTimestamps` retains both timestamps; and arbitrary uid/gid changes need no host privilege. The explicit Node profile instead requires copy collisions to succeed without changing either path, closed-handle `stat` to fail `Unknown` with an `EBADF` cause, missing-path timestamp errors to name `utime`, copying to preserve modification time without requiring original access-time preservation, and missing-path watch errors to name the preliminary `stat`. Host ownership assertions retain the existing uid/gid without elevated privileges. Each difference is explained beside its assertion; shared cursor and write correctness is not relaxed to accommodate runtime defects.
+
+The host command is `bun run --filter @effect-vfs/memory test:host`; Bun launches the script, but the script explicitly executes Vitest in Node. Runtime coverage beyond this target belongs to issue #275.
 
 This contract [depends on](resources-and-authority.md "depends on") core capabilities, [implements package boundaries](../decisions/package-boundaries.md "implements"), and is [grounded in the Effect compatibility research](../research/effect-compatibility.md "grounded in").

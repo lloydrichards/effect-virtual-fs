@@ -36,3 +36,24 @@ jobs:
       - run: bun run lint:effects
       - run: bun run type-check
       - run: bun run test
+
+  filesystem-host:
+    name: FileSystem contract, Node 24.21.0 / Ubuntu 24.04
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+      - run: bun install --frozen-lockfile
+      - name: Identify host configuration
+        run: |
+          node --version
+          uname -a
+          cat /etc/os-release
+          node -p "require('@effect/platform-node-shared/package.json').version"
+      - run: bun run --filter @effect-vfs/core build
+      - run: bun run --filter @effect-vfs/memory test:host

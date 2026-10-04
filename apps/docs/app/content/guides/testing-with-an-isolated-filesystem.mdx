@@ -338,7 +338,10 @@ The memory adapter replaces Effect's `FileSystem` service. It cannot intercept c
 - another API that accesses the host filesystem independently.
 
 Keep host-backed tests for those paths. Memory tests alone do not prove that another adapter or operating system
-has the same behavior. [Issue #245](https://github.com/lloydrichards/effect-virtual-fs/issues/245) tracks a shared host-adapter contract runner.
+has the same behavior. The shared contract runner compares memory with Effect's Node adapter under Node 24.21.0
+on Ubuntu 24.04. It checks common filesystem behavior and resource cleanup while preserving explicit differences
+in copy collisions, timestamps, ownership, and error attribution. This qualification does not establish support
+for other host runtimes or operating systems.
 
 Read [Volumes, callers, and handles](/concepts/filesystem-model) for state ownership and caller authority.
 Use [an overlay workspace](/guides/overlay-filesystems) when a test or preview starts from an immutable snapshot
