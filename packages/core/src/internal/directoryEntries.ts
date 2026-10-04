@@ -60,17 +60,18 @@ class DirectoryEntries implements ReadonlyMap<string, Ino> {
 }
 
 const fromEntries = (entries: ReadonlyMap<string, Ino>): DirectoryEntries => {
-  let names = HashMap.empty<string, Entry>()
   let slots = InodeTable.empty<Entry>()
   let length = 0
   const owner = Symbol()
 
-  for (const [name, ino] of entries) {
-    const entry = { name, ino, index: length }
-    names = HashMap.set(names, name, entry)
-    slots = InodeTable.set(slots, length, entry, owner)
-    length++
-  }
+  const names = HashMap.mutate(HashMap.empty<string, Entry>(), (mutable) => {
+    for (const [name, ino] of entries) {
+      const entry = { name, ino, index: length }
+      HashMap.set(mutable, name, entry)
+      slots = InodeTable.set(slots, length, entry, owner)
+      length++
+    }
+  })
 
   return new DirectoryEntries(names, slots, length)
 }
