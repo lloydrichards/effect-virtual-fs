@@ -2693,18 +2693,15 @@ export const makeVolume = Effect.fnUntraced(
 
         const guard = chosen.expected === undefined && imported.length === 0 ? Effect.void : Effect.gen(function*() {
           const entry = yield* resolveEntry(prepared, op)
+          const parent = yield* directoryNow(entry.parent)
 
-          if (
-            boundary !== undefined && entry.parent === boundary.root &&
-            (entry.name === undefined || isDotComponent(entry.name))
-          ) return yield* entry.op.fail("NotPermitted")
+          if (protectsRoot(parent, entry.name)) return yield* entry.op.fail("NotPermitted")
 
           if (chosen.expected === undefined) return
           const expected = yield* registry.referenceIdentity(chosen.expected, op)
           const expectedNode = yield* view(expected)
 
           if (expectedNode !== undefined && expectedNode.metadata.nlink > 0) yield* checkAuthority(expectedNode, op)
-          const parent = yield* directoryNow(entry.parent)
           yield* authorize(parent, identity, EXECUTE, entry.op)
           const found = entry.name === undefined ? parent.ino : parent.entries.get(entry.name)
 
