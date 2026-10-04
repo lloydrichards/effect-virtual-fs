@@ -2,6 +2,8 @@
 
 ## 2026-10-04
 
+- **Confined callers (#28)**: Implement identity-rooted lookup and direct handles, retain imported boundaries across conversions, select watch aliases at publication, and borrow callers in FileSystem bindings. Guard recursive removal by expected identity and make temporary cleanup respect authority. Record the authority rationale beside the implemented contract.
+
 - **Application-owned tracing**: Package operations use `Effect.fnUntraced` and do not create their own Effect or Stream spans. Applications choose their tracing boundaries.
 
 - **Shared live-volume registry**: Add `LiveVolume.makeRegistry` with independent scoped borrowing, fresh per-entry store ownership, optional idle reuse, native capacity failures, and shutdown before storage release. Keep inode accounting unchanged and record canonical-key and owner-scope requirements without retaining experimental timing artifacts.

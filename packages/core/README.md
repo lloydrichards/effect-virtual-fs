@@ -77,6 +77,27 @@ callers default to umask `0o022`; the developer's `0o027` mask turns the request
 The root package exports `VirtualFileSystem` as a namespace. The equivalent direct module import is
 `import * as Vfs from "@effect-vfs/core/VirtualFileSystem"`.
 
+## Confine an agent to a directory
+
+`caller.withRoot("/workspaces/run-42")` creates a scoped caller rooted at that directory's identity. Its `/src`
+means `/workspaces/run-42/src`. Absolute symlinks resolve from the same root, and `..` stops there.
+`withDirectory` changes only the working directory and retains any existing confinement.
+
+```ts
+const agent = yield * admin.withRoot("/workspaces/run-42")
+yield * agent.writeFile("/output.txt", new TextEncoder().encode("done"))
+```
+
+Renaming the root preserves access. Deleting it permanently invalidates the caller. Confined handles lose access
+when their object has no name inside the root and can regain it when membership returns. Closing their creating
+caller does not close resources acquired in another live scope. Imported confined handles retain their restrictions.
+Pass confined capabilities to agent code; an unrestricted volume or handle still grants its existing authority.
+
+This confines names, not file contents. Existing hard links may share content across roots. Privileged credentials
+cannot bypass the boundary. Caller watches filter and rebase committed events before queueing them. Their default
+`alias: "all"` reports authorized hard-link aliases; `alias: "resolved"` follows the alias selected by a path.
+`caller.limits` reports backing-volume configuration, not subtree quotas.
+
 ## Guides and reference
 
 - [Fixtures and snapshots](../../apps/docs/app/content/guides/fixtures-and-snapshots.mdx) covers seeded trees, codecs, and portable deltas.

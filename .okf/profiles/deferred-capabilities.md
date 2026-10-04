@@ -4,7 +4,7 @@ title: Deferred capabilities
 description: Lists capabilities intentionally outside the current filesystem contract so future exploration is not mistaken for implemented support.
 status: draft
 tags: [profile, roadmap, deferred]
-generated: { by: claude/okf, at: 2026-10-02T18:30:00+02:00 }
+generated: { by: codex/okf, at: "2026-10-04T21:24:00+02:00" }
 ---
 
 # Deferred capabilities
@@ -17,7 +17,6 @@ The current profile does not include:
 - host-directory synchronization beyond explicit [tree transfer](../contracts/tree-transfer.md "narrowed by") copies, such as mirroring, deletion propagation, or owner preservation;
 - FIFOs, device files, filesystem sockets, or other special files;
 - advisory locks or descriptor duplication;
-- caller-specific restricted roots or subtree confinement;
 - sparse allocation or copy-on-write storage optimization;
 - qualified local-device operating-system crash or power-loss durability for SQLite live writes, or host `fsync` semantics (the [durability and usage facts decision](../decisions/core/volume-durability-and-usage-facts.md "refined by") publishes the durability vocabulary; the R2 profile relies on Cloudflare's remote durable-write contract, while SQLite still reports `memory-only`);
 - complete Node package resolution, dependency installation, or HMR inside the virtual build integration.
@@ -29,3 +28,5 @@ See [system boundaries](../architecture/system-boundaries.md "constrained by") a
 Overlay [v1 scope is implemented](../contracts/overlay-workspaces.md "contrasts with"). [Overlay research](../research/overlay-filesystem.md "explored by") retains alternatives and deferred delta questions.
 
 The [portable snapshot delta interface](../decisions/overlay/portable-snapshot-deltas.md "implemented by") is implemented by the [snapshot delta contract](../contracts/snapshot-deltas.md "refined by"). Its [representation research](../research/overlay-changes.md "explored by") now retains only future persistence, alternative encoding, rebase and profiling questions; the [merge decision](../decisions/overlay/snapshot-delta-merge.md "implemented by") covers path-level merging of two deltas from one base.
+
+[Identity-rooted caller confinement](../contracts/confined-callers.md "contrasts with") is implemented, including borrowed FileSystem bindings. Shared hard-link contents are not independent tenant state.

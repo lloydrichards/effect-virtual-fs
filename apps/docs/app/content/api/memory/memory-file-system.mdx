@@ -84,6 +84,46 @@ declare const bind: (
 
 Since v0.1.0
 
+### bindCaller
+
+Creates a FileSystem service that borrows an existing caller.
+
+Preserves the caller's root, working directory, credentials, and umask. The
+binding neither closes the caller nor creates `/tmp`; file and watch resources
+retain their own scoped lifetimes.
+
+**Example**
+
+```ts
+import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { MemoryFileSystem } from "@effect-vfs/memory"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const volume = yield* Vfs.make()
+  const owner = yield* volume.caller()
+  yield* owner.mkdir("/agent")
+  const caller = yield* owner.withRoot("/agent")
+  const fs = yield* MemoryFileSystem.bindCaller(caller)
+  yield* fs.writeFileString("/output.txt", "done")
+  return yield* fs.readFileString("/output.txt")
+}).pipe(Effect.scoped)
+
+Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+// done
+```
+
+**Signature**
+
+```ts
+declare const bindCaller: (caller: Vfs.Caller) => Effect.Effect<FileSystem.FileSystem>
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L289)
+
+Since v0.9.0
+
 ### make
 
 Creates a `FileSystem.FileSystem` service backed by a fresh in-memory volume.

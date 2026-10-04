@@ -23,7 +23,7 @@ sources:
   - id: token-tests
     resource: ../../packages/core/test/internal/tokenRegistry.test.ts
     title: Direct token liveness and lifecycle tests
-generated: { by: codex/okf, at: 2026-10-01T14:45:00+02:00 }
+generated: { by: codex/okf, at: "2026-10-04T21:24:00+02:00" }
 ---
 
 # Volume, caller, and handle model
@@ -32,7 +32,7 @@ A `Volume` is one isolated, live filesystem. It owns the namespace, file identit
 
 A `Caller` carries independent credentials, supplementary groups, umask, and current-directory identity. Directory identity survives rename. Deriving or binding another caller does not share mutable caller context, and authority is explicit rather than inherited from the host process.
 
-A `FileHandle` is a scoped capability tied to one volume and open file. It owns its access mode, bigint cursor, and lifetime. Separate opens have independent cursors. A `DirectoryHandle` is a scoped directory capability used for metadata and as a relative lookup base. Open files may remain usable after rename or unlink until their final handle closes.
+A `FileHandle` is a scoped capability tied to one volume and open file. It owns its access mode, bigint cursor, and lifetime. Separate opens have independent cursors. A `DirectoryHandle` is a scoped directory capability used for metadata and as a relative lookup base. Unrestricted open files may remain usable after rename or unlink until their final handle closes. Confined handles require current in-root membership.
 
 Explicit close reports a repeated-close error, while scope cleanup is idempotent. The capability's reusable `stat`, `sync`, and `close` effects observe current state each time; volume `watch` and `snapshot` effects also acquire or observe fresh state on execution.
 
@@ -47,3 +47,5 @@ The model is [constrained by schema and capability modeling](../decisions/core/s
 [^resolution]: `resolution.ts` implements traversal and addressing-mode policies; `internal/resolution.test.ts` exercises it directly over a `VolumeState`.
 
 [^tokens]: `tokenRegistry.ts` implements token identity and lifecycle; `internal/tokenRegistry.test.ts` exercises liveness, staged release, and cleanup before late publication. The engine supplies the durable transition callbacks.
+
+[Confined callers](../contracts/confined-callers.md "refined by") add optional identity roots and retain imported authority through capability conversions.
