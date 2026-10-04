@@ -49,6 +49,56 @@ const stores = () => {
 
 describe("live volume registry", () => {
   it.layer(BunCrypto.layer)((it) => {
+    for (const idleTimeToLive of [0, 10]) {
+      it.effect(`waits for store cleanup before reopening with idle duration ${idleTimeToLive}`, () =>
+        Effect.gen(function*() {
+          const closing = yield* Deferred.make<void>()
+          const release = yield* Deferred.make<void>()
+          let opened = 0
+          const fixture = stores()
+          const registry = yield* LiveVolume.makeRegistry({
+            volume: options,
+            idleTimeToLive,
+            store: (key: string) =>
+              Layer.effect(
+                LiveVolume.LiveImageStore,
+                Effect.gen(function*() {
+                  yield* Effect.acquireRelease(
+                    Effect.sync(() => {
+                      opened++
+                    }),
+                    () =>
+                      opened === 1
+                        ? Deferred.succeed(closing, undefined).pipe(Effect.andThen(Deferred.await(release)))
+                        : Effect.void
+                  )
+                  return yield* LiveVolume.LiveImageStore.pipe(Effect.provide(fixture.layer(key)))
+                })
+              )
+          })
+          const first = yield* Scope.make()
+          yield* registry.get("a").pipe(Effect.provideService(Scope.Scope, first))
+          const close = yield* Scope.close(first, Exit.void).pipe(Effect.forkChild)
+          if (idleTimeToLive > 0) yield* TestClock.adjust(idleTimeToLive)
+          yield* Deferred.await(closing)
+          const abandoned = yield* registry.get("a").pipe(Effect.forkChild)
+          yield* Effect.yieldNow
+          yield* Fiber.interrupt(abandoned)
+          const second = yield* registry.get("a").pipe(Effect.forkChild)
+          yield* Effect.yieldNow
+          const openedWhileRetiring = opened
+          // A retiring key must not block unrelated stores.
+          yield* registry.get("b")
+          const openedWithOtherKey = opened
+          yield* Deferred.succeed(release, undefined)
+          yield* Fiber.join(close)
+          yield* Fiber.join(second)
+          assert.strictEqual(openedWhileRetiring, 1)
+          assert.strictEqual(openedWithOtherKey, 2)
+          assert.strictEqual(opened, 3)
+        }))
+    }
+
     for (const capacity of [0, -1, 1.5, NaN, Infinity]) {
       it.effect(`rejects capacity ${capacity} before acquiring storage`, () =>
         Effect.gen(function*() {

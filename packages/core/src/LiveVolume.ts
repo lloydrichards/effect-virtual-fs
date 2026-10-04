@@ -8,7 +8,7 @@
  *
  * @since 0.4.0
  */
-import { Context, Duration, Effect, Layer, Option, RcMap, Schema } from "effect"
+import { Context, Deferred, Duration, Effect, Layer, MutableHashMap, Option, RcMap, Schema } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import type * as Cause from "effect/Cause"
 import type * as Crypto from "effect/Crypto"
@@ -198,8 +198,30 @@ export const makeRegistry: <K, E, R>(options: RegistryOptions<K, E, R>) => Effec
   const store = options.store
   const volume: Options = { maxImageBytes: options.volume.maxImageBytes, volume: { ...options.volume.volume } }
 
+  const retiring = MutableHashMap.empty<K, Deferred.Deferred<void>>()
+
   const volumes = yield* RcMap.make({
     lookup: Effect.fn("LiveVolume.Registry.open")(function*(key: K) {
+      // RcMap removes an entry before its asynchronous finalizers finish. Keep
+      // equal keys waiting until both the volume and its store have shut down.
+      yield* Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function*() {
+          let previous = MutableHashMap.get(retiring, key)
+          while (Option.isSome(previous)) {
+            yield* restore(Deferred.await(previous.value))
+            previous = MutableHashMap.get(retiring, key)
+          }
+          const released = yield* Deferred.make<void>()
+          MutableHashMap.set(retiring, key, released)
+          // Registered first, this runs after the store and volume finalizers.
+          yield* Effect.addFinalizer(() =>
+            Effect.gen(function*() {
+              MutableHashMap.remove(retiring, key)
+              yield* Deferred.succeed(released, undefined)
+            })
+          )
+        })
+      )
       // A parent Layer memo must not keep a retired store alive or share its
       // mutable ownership state with a different volume entry.
       const services = yield* Layer.build(Layer.fresh(store(key)))
