@@ -207,10 +207,12 @@ export const makeRegistry: <K, E, R>(options: RegistryOptions<K, E, R>) => Effec
       yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function*() {
           let previous = MutableHashMap.get(retiring, key)
+
           while (Option.isSome(previous)) {
             yield* restore(Deferred.await(previous.value))
             previous = MutableHashMap.get(retiring, key)
           }
+
           const released = yield* Deferred.make<void>()
           MutableHashMap.set(retiring, key, released)
           // Registered first, this runs after the store and volume finalizers.
