@@ -65,7 +65,7 @@ export const open: (options: Options) => Effect.Effect<
   Volume,
   VfsError,
   LiveImageStore | Scope.Scope | Crypto.Crypto
-> = Effect.fn("LiveVolume.open")(function*(options: Options) {
+> = Effect.fnUntraced(function*(options: Options) {
   const store = yield* LiveImageStore
 
   const { decoded, initial } = yield* Effect.gen(function*() {
@@ -184,7 +184,7 @@ export const makeRegistry: <K, E, R>(options: RegistryOptions<K, E, R>) => Effec
   Registry<K, E>,
   ArgumentFailure,
   R | Crypto.Crypto | Scope.Scope
-> = Effect.fn("LiveVolume.makeRegistry")(function*<K, E, R>(options: RegistryOptions<K, E, R>) {
+> = Effect.fnUntraced(function*<K, E, R>(options: RegistryOptions<K, E, R>) {
   const capacity = options.capacity === undefined
     ? Infinity
     : yield* Effect.fromResult(decodeConfiguration(RegistryCapacity, options.capacity, "LiveVolume.makeRegistry")).pipe(
@@ -201,7 +201,7 @@ export const makeRegistry: <K, E, R>(options: RegistryOptions<K, E, R>) => Effec
   const retiring = MutableHashMap.empty<K, Deferred.Deferred<void>>()
 
   const volumes = yield* RcMap.make({
-    lookup: Effect.fn("LiveVolume.Registry.open")(function*(key: K) {
+    lookup: Effect.fnUntraced(function*(key: K) {
       // RcMap removes an entry before its asynchronous finalizers finish. Keep
       // equal keys waiting until both the volume and its store have shut down.
       yield* Effect.uninterruptibleMask((restore) =>

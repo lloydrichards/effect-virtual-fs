@@ -80,7 +80,7 @@ const asEntryPoint = (operation: "CheckpointStore.save" | "CheckpointStore.load"
 // Implemented at module scope so `make` and `layer` can be real static methods:
 // docgen only documents class members declared as methods, and silently skips
 // static properties, which left these entry points off the API page entirely.
-const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.DecodeLimits) {
+const makeStore = Effect.fnUntraced(function*(limits: Vfs.DecodeLimits) {
   const ownedLimits = yield* Schema.decodeEffect(Vfs.DecodeLimits, { onExcessProperty: "error" })(limits).pipe(
     Effect.mapError(() =>
       VfsError.make({ code: "InvalidArgument", operation: "CheckpointStore.make", field: "limits" })
@@ -92,7 +92,7 @@ const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.Decode
 
   // Encoding under the store's limits fails wherever decoding under them would, so a saved image is known to load
   // without being decoded here.
-  const save = Effect.fn("CheckpointStore.save")(function*(name: string, snapshot: Vfs.Snapshot) {
+  const save = Effect.fnUntraced(function*(name: string, snapshot: Vfs.Snapshot) {
     yield* checkName(name, "CheckpointStore.save")
 
     const image = yield* Vfs.encodeSnapshot(snapshot, ownedLimits).pipe(
@@ -111,7 +111,7 @@ const makeStore = Effect.fn("CheckpointStore.make")(function*(limits: Vfs.Decode
     }
   })
 
-  const load = Effect.fn("CheckpointStore.load")(function*(name: string) {
+  const load = Effect.fnUntraced(function*(name: string) {
     yield* checkName(name, "CheckpointStore.load")
 
     const rows = yield* sql`
@@ -294,7 +294,6 @@ export class CheckpointStore extends Context.Service<CheckpointStore, {
   }).pipe(
     Effect.catchDefect((cause) => cause instanceof Migrator.MigrationError ? Effect.fail(cause) : Effect.die(cause)),
     Effect.asVoid,
-    Effect.mapError((cause) => new CheckpointError({ code: "Storage", operation: "CheckpointStore.migrate", cause })),
-    Effect.withSpan("CheckpointStore.migrate")
+    Effect.mapError((cause) => new CheckpointError({ code: "Storage", operation: "CheckpointStore.migrate", cause }))
   )
 }

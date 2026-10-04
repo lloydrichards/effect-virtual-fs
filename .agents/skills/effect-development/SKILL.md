@@ -44,10 +44,10 @@ does not cover it.
 - Parse untrusted boundary data with `Schema`. Prefer Effect's existing
   predicates and utilities to locally reinvented runtime type guards.
 - Use `Effect.gen` for inline workflows. For reusable operations, follow the
-  installed guidance and local convention: traced `Effect.fn("...")` at useful
-  operation boundaries and `Effect.fnUntraced` for internal library helpers or
-  hot paths. The repository's Effect-aware lint enforces part of this
-  convention.
+  installed guidance and local convention: package implementations use
+  `Effect.fnUntraced` and leave tracing boundaries to consuming applications.
+  Do not add package spans through named `Effect.fn`, `Effect.withSpan`, or
+  `Stream.withSpan`.
 - Use `return yield*` for terminal Effect failures so control flow and types
   agree. Use Effect error and resource APIs instead of JavaScript `try` / `catch`
   around yielded Effects.

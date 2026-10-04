@@ -21,7 +21,7 @@ interface Declared {
 }
 
 /** @internal */
-export const fromFixture = Effect.fn("VirtualFileSystem.fromFixture")(
+export const fromFixture = Effect.fnUntraced(
   function*(fixture: Fixture, options?: VolumeOptions) {
     const config = yield* Effect.fromResult(decodeConfiguration(VolumeOptionsSchema, options ?? {}, "fromFixture"))
 

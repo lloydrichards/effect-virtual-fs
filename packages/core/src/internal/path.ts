@@ -81,7 +81,7 @@ export const isAttachedBytes = (bytes: Uint8Array): boolean =>
   Predicate.isUint8Array(bytes) && bytes.buffer instanceof ArrayBuffer && attachedBuffer(bytes)
 
 /** @internal */
-export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(function*(bytes: Uint8Array) {
+export const pathFromBytes = Effect.fnUntraced(function*(bytes: Uint8Array) {
   if (!isAttachedBytes(bytes)) return yield* fsFailure("InvalidArgument", "pathFromBytes")
   const owned = new Uint8Array(bytes)
 
@@ -93,7 +93,7 @@ export const pathFromBytes = Effect.fn("VirtualFileSystem.pathFromBytes")(functi
 })
 
 /** @internal */
-export const pathToBytes = Effect.fn("VirtualFileSystem.pathToBytes")(function*(path: BytePath) {
+export const pathToBytes = Effect.fnUntraced(function*(path: BytePath) {
   const bytes = getBytePathBytes(path)
 
   if (bytes === undefined) return yield* fsFailure("InvalidArgument", "pathToBytes")

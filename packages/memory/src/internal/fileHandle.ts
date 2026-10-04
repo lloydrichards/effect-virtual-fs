@@ -16,7 +16,7 @@ import { argumentError, resourceError, toPlatformError } from "./platformError.j
 export const makeOpen = (caller: Vfs.Caller): FileSystem.FileSystem["open"] => {
   let nextDescriptor = 3
 
-  return Effect.fn("MemoryFileSystem.open")(function*(path, options) {
+  return Effect.fnUntraced(function*(path, options) {
     const chosen = yield* openOptions(options?.flag ?? "r", options?.mode, "open")
 
     const handle = yield* caller.open(path, chosen).pipe(
@@ -88,7 +88,7 @@ export const makeOpen = (caller: Vfs.Caller): FileSystem.FileSystem["open"] => {
         Effect.flatMap((value) => info(value, fd))
       ),
       sync: handle.sync.pipe(Effect.mapError((error) => toPlatformError(error, "sync", fd))),
-      seek: Effect.fn("MemoryFile.seek")(function*(offset, from) {
+      seek: Effect.fnUntraced(function*(offset, from) {
         return yield* locked(Effect.gen(function*() {
           if (closed) return 0n
           const next = from === "start" ? offset : position + offset
@@ -102,7 +102,7 @@ export const makeOpen = (caller: Vfs.Caller): FileSystem.FileSystem["open"] => {
           return next
         }))
       }),
-      read: Effect.fn("MemoryFile.read")(function*(buffer) {
+      read: Effect.fnUntraced(function*(buffer) {
         return yield* locked(Effect.gen(function*() {
           const bytes = yield* read(buffer.length, "read")
           buffer.set(bytes)
@@ -110,7 +110,7 @@ export const makeOpen = (caller: Vfs.Caller): FileSystem.FileSystem["open"] => {
           return bytes.length
         }))
       }),
-      readAlloc: Effect.fn("MemoryFile.readAlloc")(function*(size) {
+      readAlloc: Effect.fnUntraced(function*(size) {
         const length = yield* sizeInput(size, "readAlloc")
 
         return yield* locked(
@@ -120,7 +120,7 @@ export const makeOpen = (caller: Vfs.Caller): FileSystem.FileSystem["open"] => {
           )
         )
       }),
-      truncate: Effect.fn("MemoryFile.truncate")(function*(length) {
+      truncate: Effect.fnUntraced(function*(length) {
         const size = yield* sizeInput(length, "truncate", 0)
 
         return yield* locked(Effect.gen(function*() {

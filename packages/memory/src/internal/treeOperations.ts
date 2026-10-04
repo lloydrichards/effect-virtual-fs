@@ -25,7 +25,7 @@ export const makeTreeOperations = (caller: Vfs.Caller) => {
 
   // Like Node, it removes a directory's entries only when removing the directory finds some, and `force` forgives
   // only the target itself going missing.
-  const remove: FileSystem.FileSystem["remove"] = Effect.fn("MemoryFileSystem.remove")(function*(path, options) {
+  const remove: FileSystem.FileSystem["remove"] = Effect.fnUntraced(function*(path, options) {
     const name = path.split("/").findLast((part) => part.length > 0)
 
     if (name === undefined || name === "." || name === "..") {
@@ -37,7 +37,7 @@ export const makeTreeOperations = (caller: Vfs.Caller) => {
     )
   })
 
-  const readDirectory: FileSystem.FileSystem["readDirectory"] = Effect.fn("MemoryFileSystem.readDirectory")(
+  const readDirectory: FileSystem.FileSystem["readDirectory"] = Effect.fnUntraced(
     function*(path, options) {
       const result = options?.recursive
         ? walk(path).pipe(Effect.map((entries) => entries.map((entry) => entry.relative).sort()))
