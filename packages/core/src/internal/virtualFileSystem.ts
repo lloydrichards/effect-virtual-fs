@@ -2570,8 +2570,15 @@ export const makeVolume = Effect.fnUntraced(
           const prefix = prepared.kind === "path" ? prepared.path.bytes : nameBytes(prepared.name)
           const locate = (path: Uint8Array): PathInput => ownedPath(joinPath(prefix, path))
 
+          const targetGuard = guard.pipe(
+            Effect.catchIf((error) => force && error.code === "NotFound", () => Effect.void)
+          )
+
           const listable = (directory: Directory, at: OpContext) =>
-            Effect.andThen(guard, directory.entries.size === 0 ? Effect.void : authorize(directory, identity, READ, at))
+            Effect.andThen(
+              targetGuard,
+              directory.entries.size === 0 ? Effect.void : authorize(directory, identity, READ, at)
+            )
 
           let anchor: WalkFrame | undefined
           let targetAt = preparedOp(prepared, op)
@@ -2609,7 +2616,7 @@ export const makeVolume = Effect.fnUntraced(
               coordinated(
                 op,
                 Effect.gen(function*() {
-                  yield* guard
+                  yield* targetGuard
 
                   if (anchor !== undefined && !holds(yield* view(anchor.parent), anchor)) {
                     return yield* (force ? Effect.void : Effect.fail(targetAt.fail("NotFound")))

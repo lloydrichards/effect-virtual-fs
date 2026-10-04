@@ -1,6 +1,6 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, Exit, Scope, Stream } from "effect"
+import { ByteSize, Effect, Exit, Result, Scope, Stream } from "effect"
 import { Caller as CallerModule, LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import { withVolumeTestSeams } from "../src/internal/testSeams.js"
 import { entryNames, pathText, text } from "./support/text.js"
@@ -492,6 +492,58 @@ describe("confined callers", () => {
         assert.strictEqual(text(yield* caller.readFile("/temporary/b")), "replacement")
         assert.strictEqual(text(yield* caller.readFile("/original/b")), "b")
         assert.strictEqual((yield* Effect.flip(caller.stat("/original/a"))).code, "NotFound")
+      }).pipe(Effect.provide(Testing.layer())))
+
+    it.effect("forgives a guarded target renamed away between recursive stages only with force", () =>
+      Effect.gen(function*() {
+        const { caller } = yield* fixture
+
+        for (const force of [false, true]) {
+          const expected = (yield* caller.mkdir("/temporary")).reference
+          yield* caller.writeFile("/temporary/a", bytes("a"), writeOptions)
+          yield* caller.writeFile("/temporary/b", bytes("b"), writeOptions)
+          let stages = 0
+
+          const beforeTreeRemoval = Effect.suspend(() =>
+            ++stages === 2 ? Effect.orDie(caller.rename("/temporary", `/moved-${force}`)) : Effect.void
+          )
+
+          const result = yield* Effect.result(
+            caller.remove("/temporary", { expected, recursive: true, force })
+              .pipe(withVolumeTestSeams({ beforeTreeRemoval }))
+          )
+
+          if (force) assert.isTrue(Result.isSuccess(result))
+          else {
+            assert.isTrue(Result.isFailure(result))
+
+            if (Result.isFailure(result)) assert.strictEqual(result.failure.code, "NotFound")
+          }
+
+          assert.strictEqual(text(yield* caller.readFile(`/moved-${force}/b`)), "b")
+          assert.strictEqual((yield* Effect.flip(caller.stat(`/moved-${force}/a`))).code, "NotFound")
+        }
+      }).pipe(Effect.provide(Testing.layer())))
+
+    it.effect("reports a missing child during guarded recursive removal even with force", () =>
+      Effect.gen(function*() {
+        const { caller } = yield* fixture
+        const expected = (yield* caller.mkdir("/temporary")).reference
+        yield* caller.writeFile("/temporary/a", bytes("a"), writeOptions)
+        yield* caller.writeFile("/temporary/b", bytes("b"), writeOptions)
+        let stages = 0
+
+        const beforeTreeRemoval = Effect.suspend(() =>
+          ++stages === 1 ? Effect.orDie(caller.unlink("/temporary/b")) : Effect.void
+        )
+
+        const error = yield* Effect.flip(
+          caller.remove("/temporary", { expected, recursive: true, force: true })
+            .pipe(withVolumeTestSeams({ beforeTreeRemoval }))
+        )
+
+        assert.strictEqual(error.code, "NotFound")
+        assert.strictEqual((yield* caller.stat("/temporary")).kind, "directory")
       }).pipe(Effect.provide(Testing.layer())))
 
     it.effect("uses stale expected references as identity guards and leaves replacements untouched", () =>
