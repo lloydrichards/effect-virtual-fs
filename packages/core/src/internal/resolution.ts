@@ -7,6 +7,7 @@ import type { Identity } from "../Caller.js"
 import { type EntryInput, isEntry, isTarget, type NameInput, type Target } from "../Target.js"
 import type { FsFailure } from "../VfsError.js"
 import type { DirectoryHandle, PathInput } from "../VirtualFileSystem.js"
+import { type Confinement, make as makeConfinement } from "./confinement.js"
 import type { OpContext } from "./errors.js"
 import {
   DOT_DOT_HEX,
@@ -100,6 +101,8 @@ export type CreateResult =
 
 const encoder = new TextEncoder()
 
+const EMPTY_AUTHORITIES: ReadonlyArray<Confinement> = []
+
 /** @internal */
 export const inGroup = (identity: Identity, gid: number) => identity.gid === gid || identity.groups.includes(gid)
 
@@ -130,13 +133,16 @@ export const entryName = (input: NameInput, op: OpContext): Result.Result<string
 }
 
 /** @internal */
-export const make = ({ caller, get, identity, maxPathBytes, registry }: {
+export const make = ({ caller, get, identity, maxPathBytes, registry, confinement, additional }: {
+  readonly additional?: ReadonlyArray<Confinement> | undefined
+  readonly confinement?: Confinement | undefined
   readonly caller: TokenRegistry.DirectoryReference
   readonly get: (ino: Ino) => Effect.Effect<Node | undefined>
   readonly identity: Identity
   readonly maxPathBytes: ByteSize.ByteSize | undefined
   readonly registry: TokenRegistry.TokenRegistry
 }) => {
+  const visibleRoot = confinement?.root ?? ROOT_INO
   const prepare = (input: PathInput, op: OpContext) => preparePath(input, op.operation, maxPathBytes)
 
   const prepareEntry = (input: EntryInput, op: OpContext): Result.Result<PreparedEntry, FsFailure> =>
@@ -176,6 +182,21 @@ export const make = ({ caller, get, identity, maxPathBytes, registry }: {
     referencedBase?: Directory
   ) {
     const pathOp = op.at(path.input)
+
+    const baseAuthorities = base === undefined
+      ? EMPTY_AUTHORITIES
+      : registry.handleBoundaries(base).map((roots) => makeConfinement(get, roots))
+
+    const authorizeDirectory = baseAuthorities.length === 0 ? authorize : Effect.fnUntraced(function*(
+      node: Node,
+      callerIdentity: Identity,
+      bits: number,
+      context: OpContext
+    ) {
+      for (const authority of baseAuthorities) yield* authority.check(node, context, true)
+      yield* authorize(node, callerIdentity, bits, context)
+    })
+
     const parentOnly = mode.kind === "Parent"
     const allowMissing = mode.kind === "OrCreate" && mode.create !== "never"
 
@@ -189,7 +210,27 @@ export const make = ({ caller, get, identity, maxPathBytes, registry }: {
       return yield* pathOp.fail("ClosedCaller")
     }
 
-    let current: Node = path.absolute ? (yield* nodeAt(ROOT_INO)) : yield* callerDirectory(pathOp)
+    if (additional !== undefined && additional.length > 0) {
+      for (const authority of additional) yield* authority.alive(pathOp)
+    }
+
+    if (confinement !== undefined) yield* confinement.alive(pathOp)
+
+    if (
+      path.absolute && base !== undefined &&
+      (confinement !== undefined || (additional?.length ?? 0) > 0 || baseAuthorities.length > 0)
+    ) {
+      const node = yield* TokenRegistry.nodeOrFail(yield* registry.resolve(base, "directory"), "handle", pathOp)
+      yield* registry.authorizeHandle(base, node, pathOp)
+
+      if (confinement !== undefined) yield* confinement.check(node, pathOp)
+
+      if (additional !== undefined && additional.length > 0) {
+        for (const authority of additional) yield* authority.check(node, pathOp)
+      }
+    }
+
+    let current: Node = path.absolute ? (yield* nodeAt(visibleRoot)) : yield* callerDirectory(pathOp)
 
     if (!path.absolute && referencedBase !== undefined) {
       current = referencedBase
@@ -198,8 +239,15 @@ export const make = ({ caller, get, identity, maxPathBytes, registry }: {
       const directory = yield* TokenRegistry.nodeOrFail(yield* registry.resolve(base, "directory"), "handle", pathOp)
 
       if (directory.kind !== "directory") return yield* pathOp.fail("InvalidHandle")
+      yield* registry.authorizeHandle(base, directory, pathOp)
       current = directory
       yield* authorize(current, identity, 0o1, pathOp)
+    }
+
+    if (confinement !== undefined) yield* confinement.check(current, pathOp)
+
+    if (additional !== undefined && additional.length > 0) {
+      for (const authority of additional) yield* authority.check(current, pathOp)
     }
 
     if (current.metadata.nlink === 0) {
@@ -219,7 +267,7 @@ export const make = ({ caller, get, identity, maxPathBytes, registry }: {
         return yield* pathOp.fail("NotDirectory")
       }
 
-      yield* authorize(current, identity, 0o1, pathOp)
+      yield* authorizeDirectory(current, identity, 0o1, pathOp)
       const component = work.components[index]
 
       if (component === undefined) break
@@ -227,7 +275,9 @@ export const make = ({ caller, get, identity, maxPathBytes, registry }: {
       if (component === DOT_HEX) continue
 
       if (component === DOT_DOT_HEX) {
-        current = yield* directoryAt(current.parent)
+        current = yield* directoryAt(
+          confinement !== undefined && current.ino === visibleRoot ? current.ino : current.parent
+        )
         parent = undefined
         name = undefined
         continue
@@ -287,9 +337,13 @@ export const make = ({ caller, get, identity, maxPathBytes, registry }: {
         work = expanded.success
         linked = work.components.length - remaining + Math.max(0, linked - index - 1)
 
-        if (work.absolute) current = yield* nodeAt(ROOT_INO)
+        if (work.absolute) current = yield* nodeAt(visibleRoot)
         index = -1
       } else current = child
+    }
+
+    if (baseAuthorities.length > 0) {
+      for (const authority of baseAuthorities) yield* authority.check(current, pathOp, true)
     }
 
     if (!parentOnly && work.trailingSlash && current.kind !== "directory") {
@@ -325,6 +379,14 @@ export const make = ({ caller, get, identity, maxPathBytes, registry }: {
         Predicate.isTagged(target, "Reference") ? "reference" : "handle",
         op
       )
+
+      if (!Predicate.isTagged(target, "Reference")) yield* registry.authorizeHandle(target.handle, node, op)
+
+      if (confinement !== undefined) yield* confinement.check(node, op)
+
+      if (additional !== undefined && additional.length > 0) {
+        for (const authority of additional) yield* authority.check(node, op)
+      }
 
       return { kind: "node", node, op }
     }

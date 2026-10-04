@@ -1125,7 +1125,22 @@ export interface FileHandle {
  */
 export interface Caller {
   readonly [CallerId]: true
-  /** The reference of the volume's root directory. */
+  /** Backing volume configuration; these are not subtree quotas. */
+  readonly limits: VolumeLimits
+  /** Watches current authorized names, rebasing events when each change commits. */
+  readonly watch: (
+    target: TargetInput,
+    options?: WatchModule.CallerWatchOptions
+  ) => Effect.Effect<Stream.Stream<Change, FsFailure>, FsFailure, Scope.Scope>
+  /**
+   * Narrows authority to a directory identity and resets the working directory. Absolute paths and symbolic
+   * links start at this root; `..` stops here. Nested roots retain their ancestor boundaries. References and
+   * direct handles check current membership on every use, including privileged callers. Root rename preserves
+   * authority; deletion permanently invalidates it. Existing hard links can share contents across roots.
+   * Independently scoped descendants and handles retain their own lifetime when their creator closes.
+   */
+  readonly withRoot: (directory: TargetInput) => Effect.Effect<Caller, FsFailure, Scope.Scope>
+  /** The reference of the caller's visible root directory. */
   readonly root: Effect.Effect<ObjectReference, FsFailure>
   /** The reference of a child of a directory, without following it. */
   readonly lookup: (entry: EntryInput) => Effect.Effect<ObjectReference, FsFailure>
@@ -1334,6 +1349,20 @@ export const WatchOptions: typeof WatchModule.WatchOptions = WatchModule.WatchOp
  * @since 0.6.0
  */
 export type WatchOptions = typeof WatchOptions.Type
+
+/**
+ * Caller watch publication and alias options.
+ * @category schemas
+ * @since 0.9.0
+ */
+export const CallerWatchOptions: typeof WatchModule.CallerWatchOptions = WatchModule.CallerWatchOptions
+
+/**
+ * Options for a caller watch.
+ * @category models
+ * @since 0.9.0
+ */
+export type CallerWatchOptions = typeof CallerWatchOptions.Type
 
 /**
  * Schema for the filesystem entry kinds reported by overlay summaries.

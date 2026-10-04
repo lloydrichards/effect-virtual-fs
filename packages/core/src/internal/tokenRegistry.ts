@@ -20,6 +20,9 @@ export type HandleLifecycle =
 export interface HandleReference {
   readonly volume: symbol
   lifecycle: HandleLifecycle
+  namespaceRoots?: ReadonlyArray<Ino> | undefined
+  boundaries?: ReadonlyArray<ReadonlyArray<Ino>> | undefined
+  authority?: ((node: Node, op: OpContext) => Effect.Effect<void, FsFailure>) | undefined
   scope: Scope.Closeable | undefined
 }
 
@@ -106,13 +109,18 @@ export const finalize = (
   close: Effect.Effect<unknown, FsFailure>,
   fallback: Effect.Effect<void>
 ) =>
-  Effect.uninterruptible(Effect.suspend(() =>
-    inode(reference) === undefined
-      ? Effect.sync(() => released(reference))
-      : Effect.ignore(close).pipe(
-        Effect.andThen(Effect.suspend(() => inode(reference) === undefined ? Effect.void : fallback))
-      )
-  ))
+  Effect.uninterruptible(Effect.suspend(() => {
+    if (inode(reference) === undefined) {
+      // Check and mark together: acquisition can publish between separate Effect steps.
+      released(reference)
+
+      return Effect.void
+    }
+
+    return Effect.ignore(close).pipe(
+      Effect.andThen(Effect.suspend(() => inode(reference) === undefined ? Effect.void : fallback))
+    )
+  }))
 
 // Register before waiting: a closed scope runs its finalizer immediately, and engine permits are not reentrant.
 /** @internal */
@@ -204,6 +212,21 @@ export const make = (volume: symbol, get: (ino: Ino) => Effect.Effect<Node | und
     })
 
   return {
+    referenceIdentity: (token: ObjectReference, op: OpContext): Effect.Effect<Ino, FsFailure> => {
+      const known = Predicate.isObject(token) ? references.get(token) : undefined
+
+      if (known === undefined) return Effect.fail(op.fail("InvalidReference"))
+
+      if (known.volume !== volume) return Effect.fail(op.fail("ForeignReference"))
+
+      return Effect.succeed(known.ino)
+    },
+    handleBoundaries: (token: Token) => (files.get(token) ?? directories.get(token))?.boundaries ?? [],
+    authorizeHandle: (token: Token, node: Node, op: OpContext) => {
+      const reference = files.get(token) ?? directories.get(token)
+
+      return reference?.authority?.(node, op) ?? Effect.void
+    },
     resolve: (token: Token, addressing: "reference" | "handle" | "directory") =>
       addressing === "reference" ? resolveReference(token) : resolveHandle(token, addressing === "directory"),
     resolveInode,

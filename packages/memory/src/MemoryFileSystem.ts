@@ -254,3 +254,36 @@ export const bind: (
   volume: Vfs.Volume,
   options?: Vfs.RootCallerOptions
 ) => Effect.Effect<FileSystem.FileSystem, Vfs.VfsError> = internal.bind
+
+/**
+ * Creates a FileSystem service that borrows an existing caller.
+ *
+ * Preserves the caller's root, working directory, credentials, and umask. The
+ * binding neither closes the caller nor creates `/tmp`; file and watch resources
+ * retain their own scoped lifetimes.
+ *
+ * @example
+ * ```ts
+ * import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+ * import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+ * import { MemoryFileSystem } from "@effect-vfs/memory"
+ * import { Effect } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const volume = yield* Vfs.make()
+ *   const owner = yield* volume.caller()
+ *   yield* owner.mkdir("/agent")
+ *   const caller = yield* owner.withRoot("/agent")
+ *   const fs = yield* MemoryFileSystem.bindCaller(caller)
+ *   yield* fs.writeFileString("/output.txt", "done")
+ *   return yield* fs.readFileString("/output.txt")
+ * }).pipe(Effect.scoped)
+ *
+ * Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.log)
+ * // done
+ * ```
+ *
+ * @category constructors
+ * @since 0.9.0
+ */
+export const bindCaller: (caller: Vfs.Caller) => Effect.Effect<FileSystem.FileSystem> = internal.bindCaller

@@ -317,3 +317,21 @@ export const snapshotContentTypes = (snapshot: Vfs.Snapshot) => {
   Search.countLines(snapshot, { ...query, limits: { maxScannedBytes: 100 } })
   return { lines, files, counts, scanLines, scanFiles, scanCounts }
 }
+
+export const confinedCaller = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
+  Effect.gen(function*() {
+    const confined = yield* caller.withRoot(reference)
+    const options: Vfs.CallerWatchOptions = { alias: "resolved", recursive: false }
+    const events: Stream.Stream<Vfs.Change, Vfs.FsFailure> = yield* confined.watch("/", options)
+    const removal = confined.remove("/temp", { expected: reference }) satisfies Effect.Effect<
+      Vfs.DirectoryChange,
+      Vfs.FsFailure
+    >
+    const forcedRemoval = confined.remove("/temp", { expected: reference, force: true }) satisfies Effect.Effect<
+      Vfs.DirectoryChange | undefined,
+      Vfs.FsFailure
+    >
+    // @ts-expect-error Conditional removal compares an object reference, never a pathname.
+    confined.remove("/temp", { expected: "/temp" })
+    return { events, removal, forcedRemoval, limits: confined.limits }
+  }) satisfies Effect.Effect<unknown, Vfs.FsFailure, Scope.Scope>

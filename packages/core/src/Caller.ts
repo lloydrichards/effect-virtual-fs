@@ -222,13 +222,15 @@ export type WalkOptions = typeof WalkOptions.Type
 /**
  * Schema for the options of `remove`. `recursive` removes a directory and
  * everything under it; `force` succeeds when the target itself is missing.
+ * `expected` pins object identity at each coordinated removal stage. A replacement fails `VolumeBusy`.
  *
  * @category schemas
  * @since 0.6.0
  */
 export const RemoveOptions = Schema.Struct({
   recursive: Schema.optionalKey(Schema.Boolean),
-  force: Schema.optionalKey(Schema.Boolean)
+  force: Schema.optionalKey(Schema.Boolean),
+  expected: Schema.optionalKey(Schema.suspend(() => ObjectReferenceSchema))
 })
 
 /**

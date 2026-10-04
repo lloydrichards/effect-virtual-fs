@@ -1252,18 +1252,18 @@ describe("core-backed memory bindings", () => {
       }).pipe(Effect.provide(Testing.layer())))
   })
 
-  // A volume whose first watch registration runs `change` first, as a change queued ahead of it would.
-  const changedBeforeFirstWatch = (volume: Vfs.Volume, change: Effect.Effect<unknown, Vfs.FsFailure>): Vfs.Volume => {
+  // Inject the mutation at the caller watch boundary, before atomic registration.
+  const changedBeforeFirstWatch = (caller: Vfs.Caller, change: Effect.Effect<unknown, Vfs.FsFailure>): Vfs.Caller => {
     let pending = true
 
     return {
-      ...volume,
-      watch: (options) =>
+      ...caller,
+      watch: (target, options) =>
         Effect.suspend(() => {
-          if (!pending) return volume.watch(options)
+          if (!pending) return caller.watch(target, options)
           pending = false
 
-          return Effect.andThen(Effect.orDie(change), volume.watch(options))
+          return Effect.andThen(Effect.orDie(change), caller.watch(target, options))
         })
     }
   }
@@ -1275,12 +1275,12 @@ describe("core-backed memory bindings", () => {
         yield* core.mkdir("/w")
         yield* core.mkdir("/x")
 
-        const volume = changedBeforeFirstWatch(
-          yield* Vfs.Volume,
+        const caller = changedBeforeFirstWatch(
+          core,
           Effect.andThen(core.rename("/w", "/x/w"), core.mkdir("/w"))
         )
 
-        const adapter = yield* MemoryFileSystem.bind(volume)
+        const adapter = yield* MemoryFileSystem.bindCaller(caller)
         const changes = yield* Testing.collectChanges(adapter.watch("/w"), 1)
 
         yield* core.mkdir("/x/w/other")
@@ -1294,7 +1294,7 @@ describe("core-backed memory bindings", () => {
       Effect.gen(function*() {
         const core = yield* Vfs.Caller
         yield* core.mkdir("/w")
-        const adapter = yield* MemoryFileSystem.bind(changedBeforeFirstWatch(yield* Vfs.Volume, core.rmdir("/w")))
+        const adapter = yield* MemoryFileSystem.bindCaller(changedBeforeFirstWatch(core, core.rmdir("/w")))
 
         const error = yield* Effect.flip(Stream.runCollect(adapter.watch("/w")))
         assert.strictEqual(error._tag, "PlatformError")

@@ -63,3 +63,23 @@ export const WatchOptions = Schema.Struct({
  * @since 0.6.0
  */
 export type WatchOptions = typeof WatchOptions.Type
+
+/**
+ * Options for a caller watch. `resolved` follows the selected path alias
+ * through rename and ends when that name is unlinked. `all` reports every
+ * currently authorized alias of the object.
+ *
+ * @category schemas
+ * @since 0.9.0
+ */
+export const CallerWatchOptions = Schema.Struct({
+  recursive: Schema.optionalKey(Schema.Boolean),
+  alias: Schema.optionalKey(Schema.Literals(["all", "resolved"]))
+})
+
+/**
+ * Options for a caller watch.
+ * @category models
+ * @since 0.9.0
+ */
+export type CallerWatchOptions = typeof CallerWatchOptions.Type
