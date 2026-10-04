@@ -1,6 +1,7 @@
 // Compile-only checks against the public core API. Never execute `rejected` or
 // `rejectedFile`: their invalid calls exist to make API regressions fail type-checking.
 import * as ByteSize from "effect/ByteSize"
+import type * as Cause from "effect/Cause"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -8,12 +9,22 @@ import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import type * as Stream from "effect/Stream"
-import { Search } from "../src/index.js"
+import { LiveVolume, Search } from "../src/index.js"
 import { VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as SearchModule from "../src/Search.js"
 
 export const publicErrorIdentity: typeof Vfs.VfsError = VfsErrorModule.VfsError
 export const publicCodeIdentity: typeof Vfs.VfsCode = VfsErrorModule.VfsCode
+
+export const liveVolumeRegistry = <K, E, R>(options: LiveVolume.RegistryOptions<K, E, R>) =>
+  LiveVolume.makeRegistry(options) satisfies Effect.Effect<
+    LiveVolume.Registry<K, E>,
+    Vfs.ArgumentFailure,
+    R | Crypto.Crypto | Scope.Scope
+  >
+
+export const borrowLiveVolume = <K, E>(registry: LiveVolume.Registry<K, E>, key: K) =>
+  registry.get(key) satisfies Effect.Effect<Vfs.Volume, E | Vfs.VfsError | Cause.ExceededCapacityError, Scope.Scope>
 
 export const conditionalChildOpen = (caller: Vfs.Caller, reference: Vfs.ObjectReference) =>
   Effect.gen(function*() {
