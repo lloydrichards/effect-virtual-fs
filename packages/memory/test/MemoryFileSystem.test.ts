@@ -994,6 +994,49 @@ describe("core-backed memory bindings", () => {
   })
 
   it.layer(NodeCrypto.layer)((it) => {
+    for (const outcome of ["success", "failure", "interruption"] as const) {
+      it.effect(`should release an unlinked file when ${outcome} closes its adapter scope`, () =>
+        Effect.gen(function*() {
+          const volume = yield* Vfs.Volume
+          const core = yield* Vfs.Caller
+          const adapter = yield* MemoryFileSystem.bind(volume)
+          yield* adapter.writeFileString("/f", "xy")
+          const ready = yield* Deferred.make<FileSystem.File>()
+          const finish = yield* Deferred.make<void>()
+
+          const owner = yield* Effect.scoped(Effect.gen(function*() {
+            const file = yield* adapter.open("/f")
+            yield* Deferred.succeed(ready, file)
+            yield* Deferred.await(finish)
+
+            if (outcome === "failure") return yield* Effect.fail("selected failure")
+          })).pipe(Effect.forkChild({ startImmediately: true }))
+
+          const file = yield* Deferred.await(ready)
+          yield* core.unlink("/f")
+          assert.deepStrictEqual(yield* volume.usage, { usedBytes: 2n, entries: 0 })
+          assert.deepStrictEqual(Option.getOrThrow(yield* file.readAlloc(2)), bytes.encode("xy"))
+
+          if (outcome === "interruption") yield* Fiber.interrupt(owner)
+          else yield* Deferred.succeed(finish, undefined)
+          const exit = yield* Fiber.await(owner)
+          assert.strictEqual(Exit.isSuccess(exit), outcome === "success")
+
+          if (Exit.isFailure(exit)) {
+            if (outcome === "failure") {
+              assert.deepStrictEqual(Cause.findErrorOption(exit.cause), Option.some("selected failure"))
+            } else assert.isTrue(Cause.hasInterruptsOnly(exit.cause))
+          }
+
+          assert.deepStrictEqual(yield* volume.usage, { usedBytes: 0n, entries: 0 })
+          assert.strictEqual((yield* Effect.flip(file.readAlloc(1))).reason._tag, "BadResource")
+          yield* adapter.writeFileString("/f", "new")
+          assert.strictEqual(yield* adapter.readFileString("/f"), "new")
+        }).pipe(Effect.provide(Testing.layer())))
+    }
+  })
+
+  it.layer(NodeCrypto.layer)((it) => {
     it.effect("should close only the handle owned by a binding when its scope closes", () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.Volume

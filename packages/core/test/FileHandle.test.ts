@@ -716,9 +716,9 @@ describe("handle lifecycles", () => {
         const closing = yield* Scope.close(scope, Exit.void).pipe(Effect.forkChild({ startImmediately: true }))
         yield* finish
         yield* Fiber.join(closing)
+        assert.strictEqual((yield* volume.usage).usedBytes, 0n)
         assert.strictEqual(commits() - before, 1)
         assert.deepEqual(retained(), [])
-        assert.strictEqual((yield* volume.usage).usedBytes, 0n)
       }))
   })
 
