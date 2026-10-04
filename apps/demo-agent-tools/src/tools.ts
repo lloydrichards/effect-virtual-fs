@@ -206,7 +206,7 @@ const listEntries = Effect.fn("Tools.listEntries")(function*(caller: Vfs.Caller,
   return { path, entries }
 })
 
-// Both callers own whole dedicated volumes. A working-directory caller alone would not confine symlinks.
+// Tool paths are relative to each caller’s assigned root, including symbolic-link lookup.
 export const handlersFor = (caller: Vfs.Caller, baseCaller: Vfs.Caller) =>
   VolumeTools.of({
     read_file: Effect.fn("Tools.read")(function*({ path }) {

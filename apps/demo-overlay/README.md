@@ -8,7 +8,10 @@ virtual tree. The demo shows two overlay arrangements:
 - an author and reviewer use separate callers on one shared overlay, so the reviewer can read the author's file.
 
 The demo then captures the shared tree, changes the live copy, and restores the captured files. The same base
-snapshot can therefore support isolated work, shared work, and a stable handoff.
+snapshot can therefore support isolated work, shared work, and a stable handoff. A final deterministic stage
+puts sibling projects on one overlay, gives each a `withRoot` caller, and watches the release caller’s `/`.
+Only its `/plan.md` appears in that watch. Renaming the assigned root preserves reads; the sibling’s
+`/note.md` is absent from the release caller’s view.
 
 ## Run the live demo
 
@@ -35,6 +38,7 @@ application reads the key through redacted Effect configuration and does not pri
 Read the demo in this order:
 
 - [`src/demo.ts`](src/demo.ts) creates a fixture and snapshots it. A planner works in a private overlay. An author and reviewer then work through separate callers on a shared overlay. Finally, the demo captures that overlay, edits the live copy, and reads the captured files back.
+- [`src/rooted-workspaces.ts`](src/rooted-workspaces.ts) demonstrates rooted paths, caller watches, and root rename without a model request.
 - [`src/agent.ts`](src/agent.ts) gives each agent caller-bound `list`, `read`, and `write` tools and limits the model loop to eight turns.
 - [`src/presentation.ts`](src/presentation.ts) formats the terminal output without changing the workspace.
 

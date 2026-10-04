@@ -10,6 +10,24 @@ const encode = (text: string) => new TextEncoder().encode(text)
 
 describe("bounded text toolkit", () => {
   it.layer(BunCrypto.layer)((it) => {
+    it.effect("keeps tool paths rooted after project rename and hides volume-level data", () =>
+      Effect.gen(function*() {
+        const { caller, baseCaller, owner } = yield* makeWorkspace()
+        const handlers = handlersFor(caller, baseCaller)
+        yield* owner.rename("/projects/release", "/projects/renamed-release")
+        yield* caller.symlink("/BRIEF.md", "/brief-link")
+        assert.match((yield* handlers.read_file({ path: "brief-link" })).content, /rollback/)
+        assert.strictEqual((yield* handlers.read_file({ path: "orchestrator.txt" }).pipe(Effect.flip)).code, "NotFound")
+        assert.deepStrictEqual(
+          (yield* handlers.list_directory({ path: "." })).entries.map((entry) => entry.name).sort(),
+          ["BRIEF.md", "brief-link", "plans", "temporary.txt"]
+        )
+        yield* handlers.write_file({ path: "plans/draft.md", content: "Revised plan." })
+        const original = yield* handlers.inspect_base({ path: "plans/draft.md", action: "read" })
+        assert.isTrue("content" in original)
+
+        if ("content" in original) assert.match(original.content, /Release on Friday/)
+      }))
     it.effect("rejects oversized and malformed file bytes and continues serving valid reads", () =>
       Effect.gen(function*() {
         const { caller, baseCaller } = yield* makeWorkspace()

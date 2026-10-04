@@ -14,7 +14,7 @@ sources:
   - id: agent-tools-example
     resource: ../../apps/demo-agent-tools/README.md
     title: Independent caller-bound MCP example
-generated: { by: codex/okf, at: 2026-10-01T18:00:00+02:00 }
+generated: { by: codex/okf, at: 2026-10-04T23:50:00+02:00 }
 ---
 
 # System boundaries
@@ -29,7 +29,7 @@ generated: { by: codex/okf, at: 2026-10-01T18:00:00+02:00 }
 
 The virtual-build, overlay-demo, and nfs-preview applications are external consumers of public package exports. They demonstrate that a build integration, an overlay workflow, and a native mount can consume a volume without making their behavior part of the filesystem core.
 
-The independent `demo-agent-tools` application binds an Effect AI toolkit to a dedicated overlay and serves it over stdio MCP. Its text and listing limits, display errors, and client workflow belong to the example. A separate base reader demonstrates isolation. It adds no AI or transport dependencies to core.
+The independent `demo-agent-tools` application binds an Effect AI toolkit to an identity-rooted project subtree on a dedicated overlay and serves it over stdio MCP. Volume-level orchestration data remains outside that caller view. Its text and listing limits, display errors, and client workflow belong to the example. A separate base reader demonstrates isolation. It adds no AI or transport dependencies to core.
 
 Multiple consumers may share one live volume. Snapshot restoration instead creates an independent volume; it does not replace live state or preserve runtime resources.
 
