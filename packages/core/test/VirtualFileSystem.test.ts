@@ -717,7 +717,7 @@ const traced = <A, E, R>(effect: Effect.Effect<A, E, R>) => {
 describe("public tracing boundaries", () => {
   it.layer(BunCrypto.layer)((it) => {
     it.effect(
-      "should emit one public span per delta operation when snapshot deltas are diffed inspected or applied",
+      "should leave tracing to the application when snapshot deltas are diffed inspected or applied",
       () =>
         Effect.gen(function*() {
           const volume = yield* Vfs.make()
@@ -727,21 +727,21 @@ describe("public tracing boundaries", () => {
           const inspect = yield* traced(Vfs.inspectSnapshotDelta(snapshot, diff.value))
           const apply = yield* traced(Vfs.applySnapshotDelta(snapshot, diff.value))
 
-          assert.deepStrictEqual(diff.names, ["VirtualFileSystem.diffSnapshots"])
-          assert.deepStrictEqual(inspect.names, ["VirtualFileSystem.inspectSnapshotDelta"])
-          assert.deepStrictEqual(apply.names, ["VirtualFileSystem.applySnapshotDelta"])
+          assert.deepStrictEqual(diff.names, [])
+          assert.deepStrictEqual(inspect.names, [])
+          assert.deepStrictEqual(apply.names, [])
         }).pipe(Effect.provide(BunCrypto.layer))
     )
   })
 
   it.layer(BunCrypto.layer)((it) => {
     it.effect(
-      "should trace the public constructor without the internal builder when a volume is created",
+      "should retain an application span without adding package spans when a volume is created",
       () =>
         Effect.gen(function*() {
-          const result = yield* traced(Vfs.make())
+          const result = yield* traced(Vfs.make().pipe(Effect.withSpan("application.openVolume")))
 
-          assert.deepStrictEqual(result.names, ["VirtualFileSystem.make"])
+          assert.deepStrictEqual(result.names, ["application.openVolume"])
         })
     )
   })

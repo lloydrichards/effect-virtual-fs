@@ -141,7 +141,7 @@ const intercept = <Args extends Array<unknown>, A, R>(
 export const make: <State, E, R>(
   base: FileSystem.FileSystem,
   factory: () => Effect.Effect<Configuration<State>, E, R>
-) => Effect.Effect<Built<State>, E, R> = Effect.fn("FileSystemTesting.make")(function*<State, E, R>(
+) => Effect.Effect<Built<State>, E, R> = Effect.fnUntraced(function*<State, E, R>(
   base: FileSystem.FileSystem,
   factory: () => Effect.Effect<Configuration<State>, E, R>
 ): Effect.fn.Return<Built<State>, E, R> {

@@ -29,7 +29,7 @@ export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits)
       finalMode: mode
     })
 
-  const copy: FileSystem.FileSystem["copy"] = Effect.fn("MemoryFileSystem.copy")(
+  const copy: FileSystem.FileSystem["copy"] = Effect.fnUntraced(
     function*(source, destination, options) {
       return yield* Effect.gen(function*() {
         const sourceNode = yield* caller.stat(at(source, { followFinalSymlink: false }))
@@ -75,7 +75,7 @@ export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits)
     }
   )
 
-  const copyFile: FileSystem.FileSystem["copyFile"] = Effect.fn("MemoryFileSystem.copyFile")(
+  const copyFile: FileSystem.FileSystem["copyFile"] = Effect.fnUntraced(
     function*(source, destination) {
       return yield* Effect.gen(function*() {
         const metadata = yield* caller.stat(source)

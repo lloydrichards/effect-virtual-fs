@@ -659,9 +659,7 @@ export const scanGlob = (snapshot: Snapshot, query: GlobQuery): Stream.Stream<st
  * @category operations
  * @since 0.8.0
  */
-export const glob: (snapshot: Snapshot, query: GlobQuery) => Effect.Effect<GlobReport, GlobFailure> = Effect.fn(
-  "Search.glob"
-)(
+export const glob: (snapshot: Snapshot, query: GlobQuery) => Effect.Effect<GlobReport, GlobFailure> = Effect.fnUntraced(
   function*(snapshot: Snapshot, query: GlobQuery): Effect.fn.Return<GlobReport, GlobFailure> {
     const evaluation = yield* evaluate(snapshot, query)
     const results: Array<string> = []
@@ -782,9 +780,10 @@ export const scanLines = (snapshot: Snapshot, query: ContentQuery): Stream.Strea
  * @category operations
  * @since 0.8.0
  */
-export const lines: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<LinesReport, ContentFailure> = Effect.fn(
-  "Search.lines"
-)((snapshot: Snapshot, query: ContentQuery) => collectContent(snapshot, query, "lines"))
+export const lines: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<LinesReport, ContentFailure> = Effect
+  .fnUntraced(function*(snapshot: Snapshot, query: ContentQuery) {
+    return yield* collectContent(snapshot, query, "lines")
+  })
 
 /**
  * Stream one root-relative filename per matching regular-file path. Classify
@@ -807,9 +806,10 @@ export const scanFiles = (snapshot: Snapshot, query: ContentQuery): Stream.Strea
  * @category operations
  * @since 0.8.0
  */
-export const files: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<FilesReport, ContentFailure> = Effect.fn(
-  "Search.files"
-)((snapshot: Snapshot, query: ContentQuery) => collectContent(snapshot, query, "files"))
+export const files: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<FilesReport, ContentFailure> = Effect
+  .fnUntraced(function*(snapshot: Snapshot, query: ContentQuery) {
+    return yield* collectContent(snapshot, query, "files")
+  })
 
 /**
  * Stream exact matching-line counts for completely scanned matching files.
@@ -837,6 +837,8 @@ export const scanCountLines = (
 export const countLines: (
   snapshot: Snapshot,
   query: ContentQuery
-) => Effect.Effect<CountLinesReport, ContentFailure> = Effect.fn("Search.countLines")(
-  (snapshot: Snapshot, query: ContentQuery) => collectContent(snapshot, query, "countLines")
+) => Effect.Effect<CountLinesReport, ContentFailure> = Effect.fnUntraced(
+  function*(snapshot: Snapshot, query: ContentQuery) {
+    return yield* collectContent(snapshot, query, "countLines")
+  }
 )

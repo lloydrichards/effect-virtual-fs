@@ -38,11 +38,11 @@ const MAX_WATCH_ATTEMPTS = 3
 const childPath = (parent: string, name: string) => parent === "/" ? `/${name}` : `${parent}/${name}`
 
 /** @internal */
-export const bind = Effect.fn("MemoryFileSystem.bind")(function*(volume: Vfs.Volume, options?: Vfs.RootCallerOptions) {
+export const bind = Effect.fnUntraced(function*(volume: Vfs.Volume, options?: Vfs.RootCallerOptions) {
   const caller = yield* volume.caller({ ...options, umask: options?.umask ?? 0 })
   let nextTemporary = 1
 
-  const makeDirectory = Effect.fn("MemoryFileSystem.makeDirectory")(
+  const makeDirectory = Effect.fnUntraced(
     function*(path: string, options?: { recursive?: boolean | undefined; mode?: number | undefined }) {
       yield* validateMode(options?.mode, "makeDirectory")
       const mode = (options?.mode ?? 0o755) & 0o7777

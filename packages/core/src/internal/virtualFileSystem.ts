@@ -1251,19 +1251,19 @@ export const makeVolume = Effect.fnUntraced(
 
       const handle: FileHandle = Object.freeze({
         [FileHandleId]: true as const,
-        read: Effect.fn("FileHandle.read")(function*(maximum: number) {
+        read: Effect.fnUntraced(function*(maximum: number) {
           return (yield* read(maximum)).bytes
         }),
-        pread: Effect.fn("FileHandle.pread")(function*(maximum: number, offset: bigint) {
+        pread: Effect.fnUntraced(function*(maximum: number, offset: bigint) {
           return yield* read(maximum, offset)
         }),
-        write: Effect.fn("FileHandle.write")(function*(bytes: Uint8Array) {
+        write: Effect.fnUntraced(function*(bytes: Uint8Array) {
           return yield* write(bytes)
         }),
-        pwrite: Effect.fn("FileHandle.pwrite")(function*(bytes: Uint8Array, offset: bigint) {
+        pwrite: Effect.fnUntraced(function*(bytes: Uint8Array, offset: bigint) {
           return yield* write(bytes, offset)
         }),
-        seek: Effect.fn("FileHandle.seek")(function*(offset: bigint, mode: SeekMode) {
+        seek: Effect.fnUntraced(function*(offset: bigint, mode: SeekMode) {
           const op = OpContext.make("seek")
 
           return yield* coordinatedRead(
@@ -1297,7 +1297,7 @@ export const makeVolume = Effect.fnUntraced(
             }))
           )
         }),
-        truncate: Effect.fn("FileHandle.truncate")(function*(length: bigint) {
+        truncate: Effect.fnUntraced(function*(length: bigint) {
           const op = OpContext.make("truncate")
 
           return yield* coordinated(
@@ -1310,13 +1310,10 @@ export const makeVolume = Effect.fnUntraced(
         stat: coordinatedRead(
           statOp,
           Effect.map(Effect.suspend(() => get(statOp)), withMetadata)
-        ).pipe(Effect.withSpan("FileHandle.stat")),
-        sync: coordinatedRead(syncOp, Effect.suspend(() => Effect.asVoid(get(syncOp)))).pipe(
-          Effect.withSpan("FileHandle.sync")
         ),
+        sync: coordinatedRead(syncOp, Effect.suspend(() => Effect.asVoid(get(syncOp)))),
         close: closeFile(ref, closeOp, Effect.suspend(() => get(closeOp))).pipe(
-          Effect.ensuring(closeReleasedScope(ref)),
-          Effect.withSpan("FileHandle.close")
+          Effect.ensuring(closeReleasedScope(ref))
         )
       })
 
@@ -2531,7 +2528,7 @@ export const makeVolume = Effect.fnUntraced(
         return yield* coordinated(op, Effect.flatMap(resolveEntry(prepared, op), (entry) => body(entry, op)))
       })
 
-      const openDispatch = Effect.fn("Caller.open")(
+      const openDispatch = Effect.fnUntraced(
         function*(input: TargetInput | Entry, options: OpenOptions | OpenEntryOptions) {
           const op = OpContext.make("open")
 
@@ -2556,7 +2553,7 @@ export const makeVolume = Effect.fnUntraced(
         return openDispatch(input, options)
       }
 
-      const removeDispatch = Effect.fn("Caller.remove")(function*(input: EntryInput, options?: RemoveOptions) {
+      const removeDispatch = Effect.fnUntraced(function*(input: EntryInput, options?: RemoveOptions) {
         const op = OpContext.make("remove")
         const prepared = yield* Effect.fromResult(prepareEntry(input, op))
 
@@ -2602,8 +2599,8 @@ export const makeVolume = Effect.fnUntraced(
               ? Effect.fail(rootOp.fail("ClosedCaller"))
               : Effect.succeed(referenceFor(ROOT_INO))
           )
-        ).pipe(Effect.withSpan("Caller.root")),
-        lookup: Effect.fn("Caller.lookup")(function*(input) {
+        ),
+        lookup: Effect.fnUntraced(function*(input) {
           const op = OpContext.make("lookup")
           const prepared = yield* Effect.fromResult(prepareEntry(input, op))
 
@@ -2626,7 +2623,7 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        parent: Effect.fn("Caller.parent")(function*(input) {
+        parent: Effect.fnUntraced(function*(input) {
           const op = OpContext.make("parent")
           const target = asTarget(input)
 
@@ -2640,7 +2637,7 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        stat: Effect.fn("Caller.stat")(function*(input) {
+        stat: Effect.fnUntraced(function*(input) {
           const op = OpContext.make("stat")
           const target = asTarget(input)
 
@@ -2649,7 +2646,7 @@ export const makeVolume = Effect.fnUntraced(
             Effect.map(resolveTarget(target, op), (resolved) => withMetadata(resolved.node))
           )
         }),
-        readDirectory: Effect.fn("Caller.readDirectory")(function*(input) {
+        readDirectory: Effect.fnUntraced(function*(input) {
           const op = OpContext.make("readDirectory")
           const target = asTarget(input)
 
@@ -2730,9 +2727,9 @@ export const makeVolume = Effect.fnUntraced(
                 kind: frame.kind,
                 depth: frame.depth
               }))
-          })).pipe(Stream.withSpan("Caller.walk"))
+          }))
         },
-        readLink: Effect.fn("Caller.readLink")(function*(input) {
+        readLink: Effect.fnUntraced(function*(input) {
           const op = OpContext.make("readLink")
           const target = asTarget(input)
 
@@ -2747,7 +2744,7 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        realPath: Effect.fn("Caller.realPath")(function*(input) {
+        realPath: Effect.fnUntraced(function*(input) {
           const op = OpContext.make("realPath")
           const target = asTarget(input)
 
@@ -2782,7 +2779,7 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        access: Effect.fn("Caller.access")(function*(input, bits = 0) {
+        access: Effect.fnUntraced(function*(input, bits = 0) {
           const op = OpContext.make("access")
           const target = asTarget(input)
 
@@ -2808,7 +2805,7 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        readFile: Effect.fn("Caller.readFile")(function*(input) {
+        readFile: Effect.fnUntraced(function*(input) {
           const op = OpContext.make("readFile")
           const target = asTarget(input)
 
@@ -2828,7 +2825,7 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        writeFile: Effect.fn("Caller.writeFile")(function*(input, bytes, options) {
+        writeFile: Effect.fnUntraced(function*(input, bytes, options) {
           const op = OpContext.make("writeFile")
 
           const prepared = yield* Effect.fromResult(prepareEntry(input, op))
@@ -2938,7 +2935,7 @@ export const makeVolume = Effect.fnUntraced(
           )
         }),
         open,
-        mkdir: Effect.fn("Caller.mkdir")(function*(input, options = {}) {
+        mkdir: Effect.fnUntraced(function*(input, options = {}) {
           const op = OpContext.make("mkdir")
           const prepared = yield* Effect.fromResult(prepareEntry(input, op))
           const optionsOp = preparedOp(prepared, op)
@@ -2960,7 +2957,7 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        symlink: Effect.fn("Caller.symlink")(function*(target, input, options = {}) {
+        symlink: Effect.fnUntraced(function*(target, input, options = {}) {
           const op = OpContext.make("symlink")
           const targetOp = op.at(target)
           const prepared = yield* Effect.fromResult(prepareEntry(input, op))
@@ -2984,7 +2981,7 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        link: Effect.fn("Caller.link")(function*(sourceInput, input) {
+        link: Effect.fnUntraced(function*(sourceInput, input) {
           const op = OpContext.make("link")
           const source = asTarget(sourceInput)
           const prepared = yield* Effect.fromResult(prepareEntry(input, op))
@@ -3005,14 +3002,14 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        unlink: Effect.fn("Caller.unlink")(function*(input) {
+        unlink: Effect.fnUntraced(function*(input) {
           return yield* entryVerb("unlink", input, unlinkEntry)
         }),
-        rmdir: Effect.fn("Caller.rmdir")(function*(input) {
+        rmdir: Effect.fnUntraced(function*(input) {
           return yield* entryVerb("rmdir", input, rmdirEntry)
         }),
         remove,
-        rename: Effect.fn("Caller.rename")(function*(fromInput, toInput) {
+        rename: Effect.fnUntraced(function*(fromInput, toInput) {
           const op = OpContext.make("rename")
           const from = yield* Effect.fromResult(prepareEntry(fromInput, op))
           const to = yield* Effect.fromResult(prepareEntry(toInput, op))
@@ -3027,34 +3024,34 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        chmod: Effect.fn("Caller.chmod")(function*(input, mode) {
+        chmod: Effect.fnUntraced(function*(input, mode) {
           const op = OpContext.make("chmod")
           const target = asTarget(input)
 
           if (!isMode(mode)) return yield* op.fail("InvalidArgument")
           yield* changeAttributes(() => asResolvedNode(target, op), { mode }, op)
         }),
-        chown: Effect.fn("Caller.chown")(function*(input, owner) {
+        chown: Effect.fnUntraced(function*(input, owner) {
           const op = OpContext.make("chown")
           const target = asTarget(input)
           const decoded = yield* decodeOwnerUpdate(owner).pipe(Effect.mapError((cause) => fail(op, cause)))
           yield* changeAttributes(() => asResolvedNode(target, op), { owner: decoded }, op)
         }),
-        utimes: Effect.fn("Caller.utimes")(function*(input, times) {
+        utimes: Effect.fnUntraced(function*(input, times) {
           const op = OpContext.make("utimes")
           const target = asTarget(input)
           const decoded = yield* decodeTimes(times).pipe(Effect.mapError((cause) => fail(op, cause)))
           yield* changeAttributes(() => asResolvedNode(target, op), { times: decoded }, op)
         }),
         // A negative length fails before the target resolves, as truncate(2) rejects it before the lookup.
-        truncate: Effect.fn("Caller.truncate")(function*(input, length) {
+        truncate: Effect.fnUntraced(function*(input, length) {
           const op = OpContext.make("truncate")
           const target = asTarget(input)
 
           if (!isLength(length)) return yield* op.fail("InvalidArgument")
           yield* changeAttributes(() => asResolvedNode(target, op), { size: length }, op)
         }),
-        setattr: Effect.fn("Caller.setattr")(function*(input, attributes) {
+        setattr: Effect.fnUntraced(function*(input, attributes) {
           const op = OpContext.make("setattr")
           const target = asTarget(input)
 
@@ -3089,12 +3086,12 @@ export const makeVolume = Effect.fnUntraced(
             op
           )
         }),
-        withDirectory: Effect.fn("Caller.withDirectory")(function*(input) {
+        withDirectory: Effect.fnUntraced(function*(input) {
           const acquired = yield* acquireDirectory(input, OpContext.make("withDirectory"))
 
           return createCaller(acquired, identity, umask)
         }),
-        openDirectory: Effect.fn("Caller.openDirectory")(function*(input) {
+        openDirectory: Effect.fnUntraced(function*(input) {
           const acquired = yield* acquireDirectory(input, OpContext.make("openDirectory"))
           const statOp = OpContext.make("stat")
 
@@ -3110,14 +3107,14 @@ export const makeVolume = Effect.fnUntraced(
                   ? Effect.fail(statOp.fail("InvalidHandle"))
                   : Effect.succeed(withMetadata(node)))
               })
-            ).pipe(Effect.withSpan("DirectoryHandle.stat")),
+            ),
             close: coordinatedCleanup(Effect.suspend(() => {
               if (TokenRegistry.inode(acquired) === undefined) {
                 return Effect.fail(OpContext.make("close").fail("InvalidHandle"))
               }
 
               return releaseDirectory(acquired)
-            })).pipe(Effect.ensuring(closeReleasedScope(acquired)), Effect.withSpan("DirectoryHandle.close"))
+            })).pipe(Effect.ensuring(closeReleasedScope(acquired)))
           })
 
           registry.registerDirectory(handle, acquired)
@@ -3138,11 +3135,8 @@ export const makeVolume = Effect.fnUntraced(
       usage: coordinatedRead(
         OpContext.make("usage"),
         Effect.sync((): VolumeUsage => ({ usedBytes: state.usedBytes, entries: state.entries }))
-      )
-        .pipe(
-          Effect.withSpan("Volume.usage")
-        ),
-      watch: Effect.fn("Volume.watch")(function*(options?: WatchOptions) {
+      ),
+      watch: Effect.fnUntraced(function*(options?: WatchOptions) {
         const op = OpContext.make("watch")
 
         const decoded = yield* Effect.fromResult(
@@ -3167,10 +3161,8 @@ export const makeVolume = Effect.fnUntraced(
 
         return Stream.map(stream, (event) => event.change)
       }),
-      snapshot: coordinatedRead(OpContext.make("snapshot"), Effect.sync(() => Image.make(state))).pipe(
-        Effect.withSpan("Volume.snapshot")
-      ),
-      referenceKey: Effect.fn("Volume.referenceKey")(function*(reference: ObjectReference) {
+      snapshot: coordinatedRead(OpContext.make("snapshot"), Effect.sync(() => Image.make(state))),
+      referenceKey: Effect.fnUntraced(function*(reference: ObjectReference) {
         const op = OpContext.make("referenceKey")
 
         return yield* coordinatedRead(
@@ -3188,7 +3180,7 @@ export const makeVolume = Effect.fnUntraced(
           })
         )
       }),
-      resolveReferenceKey: Effect.fn("Volume.resolveReferenceKey")(function*(key: ReferenceKey) {
+      resolveReferenceKey: Effect.fnUntraced(function*(key: ReferenceKey) {
         const op = OpContext.make("resolveReferenceKey")
 
         return yield* coordinatedRead(
@@ -3213,7 +3205,7 @@ export const makeVolume = Effect.fnUntraced(
         )
       }),
 
-      caller: Effect.fn("Volume.caller")(function*(options?: RootCallerOptions) {
+      caller: Effect.fnUntraced(function*(options?: RootCallerOptions) {
         const decoded = yield* Effect.fromResult(
           decodeConfiguration(RootCallerOptions, options === undefined ? {} : options, "caller")
         )
@@ -3244,7 +3236,7 @@ export const makeVolume = Effect.fnUntraced(
 )
 
 /** @internal */
-export const make = Effect.fn("VirtualFileSystem.make")(function*(options?: VolumeOptions) {
+export const make = Effect.fnUntraced(function*(options?: VolumeOptions) {
   return (yield* makeVolume(VolumeSource.Empty(), memoryCommitProvider, options).pipe(
     Effect.catchIf((error) => Schema.is(VfsError)(error) && error.code !== "InvalidArgument", Effect.die)
   )).volume
@@ -3311,7 +3303,7 @@ const changeOptions = (options?: OverlayChangesOptions) => {
 }
 
 /** @internal */
-export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
+export const fromSnapshot = Effect.fnUntraced(
   function*(snapshot: Snapshot, options?: VolumeOptions) {
     return (yield* makeVolume(
       VolumeSource.Restored({ value: yield* Image.valueOf(snapshot) }),
@@ -3323,7 +3315,7 @@ export const fromSnapshot = Effect.fn("VirtualFileSystem.fromSnapshot")(
 )
 
 /** @internal */
-export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
+export const makeOverlay = Effect.fnUntraced(
   function*(base: Snapshot, options?: VolumeOptions) {
     const value = yield* Image.valueOf(base)
 
@@ -3336,13 +3328,13 @@ export const makeOverlay = Effect.fn("VirtualFileSystem.makeOverlay")(
 
     const overlay: OverlayVolume = Object.freeze({
       ...made.volume,
-      changes: Effect.fn("OverlayVolume.changes")(function*(options?: OverlayChangesOptions) {
+      changes: Effect.fnUntraced(function*(options?: OverlayChangesOptions) {
         const selected = yield* changeOptions(options)
         const current = yield* made.observe.changes
 
         return publicChanges(compareOverlay(baseObservation, current, selected.includeTimestamps ?? false))
       }),
-      capture: Effect.fn("OverlayVolume.capture")(function*(options?: OverlayChangesOptions) {
+      capture: Effect.fnUntraced(function*(options?: OverlayChangesOptions) {
         const selected = yield* changeOptions(options)
         const current = yield* made.observe.capture
 

@@ -1919,7 +1919,7 @@ export const diffSnapshots: (
   SnapshotDeltaModel.SnapshotDelta,
   VfsError | PlatformError.PlatformError,
   Crypto.Crypto
-> = Effect.fn("VirtualFileSystem.diffSnapshots")(function*(
+> = Effect.fnUntraced(function*(
   base: Snapshot,
   target: Snapshot,
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
@@ -1974,7 +1974,7 @@ export const inspectSnapshotDelta: (
   ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
   VfsError | PlatformError.PlatformError,
   Crypto.Crypto
-> = Effect.fn("VirtualFileSystem.inspectSnapshotDelta")(function*(
+> = Effect.fnUntraced(function*(
   base: Snapshot,
   delta: SnapshotDeltaModel.SnapshotDelta,
   options?: SnapshotDeltaModel.SnapshotChangesOptions,
@@ -2040,7 +2040,7 @@ export const applySnapshotDelta: (
   Snapshot,
   VfsError | PlatformError.PlatformError,
   Crypto.Crypto
-> = Effect.fn("VirtualFileSystem.applySnapshotDelta")(function*(
+> = Effect.fnUntraced(function*(
   base: Snapshot,
   delta: SnapshotDeltaModel.SnapshotDelta,
   limits?: SnapshotDeltaModel.SnapshotDeltaLimits
@@ -2112,7 +2112,7 @@ export const mergeSnapshotDeltas: (
   SnapshotDeltaModel.MergeResult,
   VfsError | PlatformError.PlatformError,
   Crypto.Crypto
-> = Effect.fn("VirtualFileSystem.mergeSnapshotDeltas")(function*(
+> = Effect.fnUntraced(function*(
   base: Snapshot,
   ours: SnapshotDeltaModel.SnapshotDelta,
   theirs: SnapshotDeltaModel.SnapshotDelta,

@@ -717,7 +717,7 @@ only; scanned bytes still charge the full selected file before classification.
 declare const files: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<FilesReport, ContentFailure>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L810)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L809)
 
 Since v0.8.0
 
@@ -785,7 +785,7 @@ repeated hard-link scans. Empty files have no lines.
 declare const lines: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<LinesReport, ContentFailure>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L785)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L783)
 
 Since v0.8.0
 
@@ -822,7 +822,7 @@ use `files` for coverage and skip counters.
 declare const scanFiles: (snapshot: Snapshot, query: ContentQuery) => Stream.Stream<string, ScanContentFailure>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L798)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L797)
 
 Since v0.8.0
 
@@ -904,7 +904,7 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then((rows) => 
 declare const scanLines: (snapshot: Snapshot, query: ContentQuery) => Stream.Stream<LineResult, ScanContentFailure>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L768)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L766)
 
 Since v0.8.0
 
