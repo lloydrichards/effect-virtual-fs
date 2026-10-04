@@ -2,6 +2,8 @@
 
 ## 2026-10-04
 
+- **Failure and resource qualification (#277)**: Add fixed-seed identity and rejected-mutation sequences, scoped watcher cleanup under admission pressure, and adapter cleanup across success, failure, and interruption. Record the lasting invariant coverage and its qualification limits; keep the probe execution record in the pull request.
+
 - **Workload qualification (#276)**: Add reproducible fresh-process measurements and a bounded 1,000-file quota example. Record large-file buffer costs, default delta identity-budget rejection, controlled admission and slow-watch recovery. Apply persistent ordered directory entries to reduce wide-directory copying, with before/after evidence and namespace isolation regression coverage; retain current capacity defaults and dense file storage.
 
 - **Filesystem faults and spies (#243)**: Add `FileSystemTesting` in memory with execution-time handlers, success-to-delegate behavior, rebuilt derived helpers, and factory state per service build. Define stream/sink acquisition, unchanged file handles, shared counters, and cleanup boundaries without claiming partial-write or crash simulation.
