@@ -2,6 +2,8 @@
 
 ## 2026-10-04
 
+- **Rooted demo consumers**: Agent tools expose a project subtree through rooted callers while retaining a separate base reader. The overlay demo contrasts sibling caller views with shared contents and rebases caller watch paths. The scratchpad borrows a rooted caller for Effect FileSystem operations after root rename.
+
 - **Confined callers (#28)**: Implement identity-rooted lookup and direct handles, retain imported boundaries across conversions, select watch aliases at publication, and borrow callers in FileSystem bindings. Guard recursive removal by expected identity and make temporary cleanup respect authority. Record the authority rationale beside the implemented contract.
 
 - **Application-owned tracing**: Package operations use `Effect.fnUntraced` and do not create their own Effect or Stream spans. Applications choose their tracing boundaries.

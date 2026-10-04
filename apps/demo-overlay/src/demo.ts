@@ -14,6 +14,7 @@ import {
   showToolAction,
   showWatchEvent
 } from "./presentation.js"
+import { rootedWorkspaces } from "./rooted-workspaces.js"
 
 const encode = (value: string) => new TextEncoder().encode(value)
 
@@ -180,6 +181,19 @@ const program = Effect.scoped(Effect.gen(function*() {
   ])
   yield* showMessage("LIVE NOW", decode(yield* author.readFile("/release-plan.md")))
   yield* showMessage("CAPTURE", "still contains the agent output shown above")
+  yield* pacing
+  yield* showStage(
+    5,
+    "ROOTED VIEWS ON ONE OVERLAY",
+    "Sibling projects share a volume; each caller sees its own / and watch paths."
+  )
+  const rooted = yield* rootedWorkspaces()
+  yield* Effect.forEach(rooted.events, showWatchEvent)
+  yield* showMessage("ROOTED", `/plan.md still reads after root rename: ${rooted.content}`)
+  yield* showMessage(
+    "SIBLING",
+    Predicate.isTagged(rooted.sibling, "Failure") ? rooted.sibling.failure.code : "unexpected file"
+  )
   yield* pacing
   yield* showTakeaway
 }))

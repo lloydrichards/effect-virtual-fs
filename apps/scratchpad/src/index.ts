@@ -21,18 +21,24 @@ const SeededMemoryFileSystem = Layer.effect(
       ]
     })
 
-    return yield* MemoryFileSystem.bind(volume)
+    const owner = yield* volume.caller()
+    const work = yield* owner.withRoot("/workspace")
+    const fileSystem = yield* MemoryFileSystem.bindCaller(work)
+
+    // The borrowed binding follows the assigned directory through rename.
+    yield* owner.rename("/workspace", "/renamed-workspace")
+
+    return fileSystem
   })
 )
 
 const program = Effect.gen(function*() {
   const fileSystem = yield* FileSystem.FileSystem
 
-  yield* fileSystem.makeDirectory("/workspace", { recursive: true }) // mkdir -p /workspace
-  yield* fileSystem.writeFileString("/workspace/hello.txt", "Hello from @effect-vfs/memory") // echo "Hello from @effect-vfs/memory" > /workspace/hello.txt
-  yield* Console.log(yield* fileSystem.readFileString("/workspace/hello.txt")) // cat /workspace/hello.txt
+  yield* fileSystem.writeFileString("/hello.txt", "Hello from @effect-vfs/memory") // echo "Hello from @effect-vfs/memory" > /hello.txt
+  yield* Console.log(yield* fileSystem.readFileString("/hello.txt")) // cat /hello.txt
 
-  const config = yield* fileSystem.readFileString("/workspace/package.json") // cat /workspace/package.json
+  const config = yield* fileSystem.readFileString("/package.json") // cat /package.json
   yield* Console.log(config)
 })
 

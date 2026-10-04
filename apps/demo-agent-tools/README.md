@@ -2,7 +2,9 @@
 
 This independent example turns an Effect VFS caller into a typed `Toolkit`, then serves it over stdio with Effect's `McpServer`. Try the tools and chat in local MCPJam. The server has no model provider dependency and needs no API key.
 
-Each server process creates a fresh overlay from a seeded snapshot. Edits affect that overlay. `inspect_base` reads a separate restored copy of the original snapshot. Restarting the server discards all edits. Each connection that launches its own process gets its own workspace.
+Each server process creates a fresh overlay from a seeded snapshot. The project lives at `/projects/release`;
+rooted callers expose it to both the editing tools and `inspect_base` as `/`. Volume-level orchestration data stays
+outside that project view. Edits affect that overlay. `inspect_base` reads a separate restored copy of the original snapshot. Restarting the server discards all edits. Each connection that launches its own process gets its own workspace.
 
 ## Connect MCPJam
 
@@ -41,7 +43,7 @@ If chat does not invoke a tool, use the Playground's manual tool controls. For e
 
 ## Tool contract
 
-Paths are relative to the virtual project root. Use `.` for the root. Absolute paths, `..` segments, NUL, and malformed Unicode are rejected. Empty and dot segments are normalized. These tools hold whole dedicated virtual volumes. A caller whose current directory is a subtree would not provide the same isolation through symbolic links. No host filesystem paths are exposed.
+Paths are relative to the virtual project root. Use `.` for the root. Absolute paths, `..` segments, NUL, and malformed Unicode are rejected. Empty and dot segments are normalized. These tools use `withRoot`, so absolute symbolic-link targets also begin at the assigned project root. Renaming the project directory preserves the tool view. No host filesystem paths are exposed.
 
 | Tool               | Parameters                         | Result and behavior                                                                         |
 | ------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------- |
