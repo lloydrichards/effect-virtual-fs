@@ -43,10 +43,11 @@ html.dark code[data-theme] span {
 }
 
 /* Shiki transformer: focus notation */
-.has-focused .line:not(.focused) {
+.has-focused [data-line]:not(.focused) {
   @apply opacity-40 transition-opacity duration-150;
 }
-.has-focused:hover .line:not(.focused) {
+.has-focused:hover [data-line]:not(.focused),
+.has-focused:focus-within [data-line]:not(.focused) {
   @apply opacity-100;
 }
 
@@ -112,12 +113,28 @@ pre [data-line]:not([data-highlighted-line]):not(.highlighted) {
 }
 
 [data-rehype-pretty-code-title] {
-  @apply bg-code-block text-code-block-foreground border border-code-block-border border-b-0 px-3 py-2 text-sm font-semibold;
+  @apply bg-code-block text-code-block-foreground rounded-t-xl border border-code-block-border border-b-0 px-6 py-2 text-sm font-semibold;
 }
 
 figure[data-rehype-pretty-code-figure]:has(> [data-rehype-pretty-code-title])
   pre {
-  @apply border-t-0;
+  @apply rounded-t-none border-t-0;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .code-block > pre {
+    @apply pt-14;
+  }
+
+  .code-copy-button {
+    @apply top-2 right-2 size-11 opacity-100;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .has-focused [data-line]:not(.focused) {
+    transition: none;
+  }
 }
 
 /* Autolink headings */

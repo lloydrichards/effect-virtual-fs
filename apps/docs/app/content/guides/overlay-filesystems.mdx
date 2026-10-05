@@ -3,12 +3,16 @@
 Use an overlay when a preview, generator, or agent should edit a project without changing its starting state. An
 overlay is an ordinary writable `Volume` backed by one immutable snapshot.
 
-## Capture the base project
+Install the core package and your runtime's Crypto provider as described in
+[Build and transport filesystem snapshots](/guides/fixtures-and-snapshots#create-a-volume-from-a-fixture).
+The examples below run with Bun.
+
+## Create, edit, and capture a workspace
 
 Start with a snapshot of the files that every workspace should see. This example creates two workspaces from the same
 base, edits one of them, reviews the result, and captures it:
 
-```ts
+```ts {21-23,36-37,44-47}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
@@ -117,7 +121,7 @@ When several workspaces start from one base, combine their results with `mergeSn
 one delta per side, applies every change the two sides do not dispute, and reports path-level conflicts as data instead
 of failing. The merged delta is bound to the same base and applies with `applySnapshotDelta`.
 
-```ts
+```ts {35-39,42-46}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"

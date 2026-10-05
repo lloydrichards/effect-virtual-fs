@@ -16,10 +16,12 @@ npm install @effect-vfs/core@latest
 npm install "@effect/platform-bun@$(npm view @effect-vfs/core peerDependencies.effect)"
 ```
 
+### Capture and restore the fixture
+
 The following program creates a small project, captures it, transports the snapshot as bytes, and restores independent
 writable state:
 
-```ts
+```ts {28-29,32-34}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
@@ -119,7 +121,7 @@ the matching Bun provider.
 
 The following program creates two snapshots and reconstructs the second from their delta:
 
-```ts
+```ts {29-34}
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Effect } from "effect"

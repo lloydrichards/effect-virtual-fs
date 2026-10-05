@@ -12,7 +12,7 @@ Install `@effect-vfs/core`, `@effect-vfs/memory`, and the matching platform Cryp
 [Getting started](/getting-started). This example creates a workspace, writes through the confined adapter,
 and reads the result through the administrator:
 
-```ts
+```ts {18-20}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { MemoryFileSystem } from "@effect-vfs/memory"

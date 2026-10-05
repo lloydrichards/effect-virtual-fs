@@ -18,7 +18,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
   }, [])
 
   return (
-    <div className="group relative mb-4 min-w-0 max-w-full">
+    <div className="code-block group relative mb-4 min-w-0 max-w-full">
       <pre
         ref={preRef}
         className={cn(
@@ -31,7 +31,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
       </pre>
       <CopyButton
         getValue={getValue}
-        className="opacity-0 group-hover:opacity-100"
+        className="code-copy-button opacity-0 group-hover:opacity-100"
       />
     </div>
   )

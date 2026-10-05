@@ -4,13 +4,17 @@ Search an immutable snapshot by filename or text content. `Search.glob` collects
 counts. `Search.scanGlob` emits paths as an Effect Stream. Use `Search.lines`, `Search.files`, or `Search.countLines`
 for content matches. None of these operations changes the filesystem.
 
+Install the core package and your runtime's Crypto provider as described in
+[Build and transport filesystem snapshots](/guides/fixtures-and-snapshots#create-a-volume-from-a-fixture).
+The examples below run with Bun.
+
 ## Collect matches and check completion
 
 Choose a directory root and root-relative include patterns. Exclusions prune matching directories before their children
 are visited. Hidden names are included by default. The following query selects TypeScript files, including names with
 emoji, and excludes the build directory:
 
-```ts
+```ts {13-16}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Search, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect } from "effect"
@@ -44,7 +48,7 @@ the bound in `completion.limit`. Pattern and query errors remain failures, rathe
 
 Pass the same query to `Search.scanGlob` and consume it with Effect Stream operators:
 
-```ts
+```ts {9-11}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Search, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect, Stream } from "effect"
@@ -89,7 +93,7 @@ Use `Search.lines`, `Search.files`, or `Search.countLines` with an explicit cont
 are `scanLines`, `scanFiles`, and `scanCountLines`. All six select regular files using the same filename globs above.
 Discovered symlinks are never content candidates. Each selected hard-link name is scanned and charged independently.
 
-```ts
+```ts {10-18}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { Search, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Effect, Stream } from "effect"
