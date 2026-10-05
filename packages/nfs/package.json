@@ -40,7 +40,8 @@
     "build": "tsc --project tsconfig.build.json",
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "test": "bun --bun run vitest run --config ../../vitest.config.ts --project nfs",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "benchmark": "bun benchmarks/xdr-effect-benchmark.mjs"
   },
   "peerDependencies": {
     "effect": "^4.0.0"

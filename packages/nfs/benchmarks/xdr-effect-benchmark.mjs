@@ -1,9 +1,9 @@
 // Exploratory benchmark. Build packages/nfs first so dist/internal/xdr.js matches its source.
-// Run: node apps/scratchpad/benchmarks/xdr-effect-benchmark.mjs
+// Run: bun packages/nfs/benchmarks/xdr-effect-benchmark.mjs
 import { performance } from "node:perf_hooks"
 import { ByteSize, Effect, Iterable, MutableRef } from "effect"
-import { Reader as SyncReader, Writer as SyncWriter } from "../../../packages/nfs/dist/internal/xdr.js"
-import { make, XdrCodec, XdrDecodeError } from "../src/xdr-effect-proposal.ts"
+import { make as production, XdrCodec as ProductionCodec } from "../dist/internal/xdr.js"
+import { make, XdrCodec, XdrDecodeError } from "./xdr-effect-proposal.ts"
 
 const limits = {
   maxOpaqueBytes: ByteSize.bytes(1024),
@@ -15,26 +15,26 @@ const words = 256
 
 const wordBytes = new Uint8Array(words * 4).fill(1)
 
-const rpcBytes = new SyncWriter()
-  .uint32(7)
-  .uint32(0)
-  .uint32(2)
-  .opaque(Uint8Array.of(1, 2, 3))
-  .string("client")
-  .array([10, 11, 12], (writer, value) => writer.uint32(value))
-  .bytes()
+const productionRpcCodec = ProductionCodec.struct({
+  xid: ProductionCodec.uint32,
+  messageType: ProductionCodec.uint32,
+  rpcVersion: ProductionCodec.uint32,
+  opaque: ProductionCodec.opaque(),
+  name: ProductionCodec.string(),
+  values: ProductionCodec.array(ProductionCodec.uint32)
+})
 
-const syncWords = () => {
-  const reader = new SyncReader(wordBytes, limits)
-  let sum = 0
+const rpcBytes = Effect.runSync(production.encode({
+  xid: 7, messageType: 0, rpcVersion: 2, opaque: Uint8Array.of(1, 2, 3), name: "client", values: [10, 11, 12]
+}, productionRpcCodec, limits, 1024))
 
-  for (let index = 0; index < words; index++) sum += reader.uint32()
-  reader.finish()
+const productionWordCodec = ProductionCodec.fixedArray(ProductionCodec.uint32, words)
 
-  return sum
-}
+const productionWords = () => Effect.runSync(production.decode(wordBytes, limits, productionWordCodec).pipe(
+  Effect.map((values) => values.reduce((sum, value) => sum + value, 0))
+))
 
-const boundaryWords = () => Effect.runSync(Effect.sync(syncWords))
+const boundaryWords = () => Effect.runSync(Effect.sync(productionWords))
 
 const coarseWords = () => Effect.runSync(Effect.try({
   try: () => {
@@ -95,20 +95,11 @@ const mutableWords = () => Effect.runSync(Effect.gen(function*() {
   return sum
 }))
 
-const syncRpc = () => {
-  const reader = new SyncReader(rpcBytes, limits)
-  const xid = reader.uint32()
-  reader.uint32()
-  reader.uint32()
-  const opaque = reader.opaque()
-  const name = reader.string()
-  const values = reader.array((item) => item.uint32())
-  reader.finish()
+const productionRpc = () => Effect.runSync(production.decode(rpcBytes, limits, productionRpcCodec).pipe(
+  Effect.map((value) => value.xid + value.opaque.length + value.name.length + value.values.length)
+))
 
-  return xid + opaque.length + name.length + values.length
-}
-
-const boundaryRpc = () => Effect.runSync(Effect.sync(syncRpc))
+const boundaryRpc = () => Effect.runSync(Effect.sync(productionRpc))
 
 const rpcCodec = XdrCodec.struct({
   xid: XdrCodec.uint32,
@@ -123,9 +114,17 @@ const effectRpc = () => Effect.runSync(make.decode(rpcBytes, limits, rpcCodec).p
   Effect.map((value) => value.xid + value.opaque.length + value.name.length + value.values.length)
 ))
 
-const syncWrite = () => new SyncWriter().uint32(7).opaque(Uint8Array.of(1, 2, 3)).string("client").bytes().length
+const productionWriteCodec = ProductionCodec.struct({
+  xid: ProductionCodec.uint32,
+  opaque: ProductionCodec.opaque(),
+  name: ProductionCodec.string()
+})
 
-const boundaryWrite = () => Effect.runSync(Effect.sync(syncWrite))
+const productionWrite = () => Effect.runSync(production.encode(writeValue, productionWriteCodec, limits, 1024).pipe(
+  Effect.map((bytes) => bytes.length)
+))
+
+const boundaryWrite = () => Effect.runSync(Effect.sync(productionWrite))
 
 const writeCodec = XdrCodec.struct({
   xid: XdrCodec.uint32,
@@ -138,17 +137,17 @@ const writeValue = { xid: 7, opaque: Uint8Array.of(1, 2, 3), name: "client" }
 const effectWrite = () => Effect.runSync(make.encode(writeValue, writeCodec).pipe(Effect.map((bytes) => bytes.length)))
 
 const cases = [
-  ["words/sync", syncWords],
-  ["words/boundary", boundaryWords],
+  ["words/production", productionWords],
+  ["words/production-wrapped", boundaryWords],
   ["words/coarse", coarseWords],
   ["words/state", stateWords],
   ["words/codec", effectWords],
   ["words/mutable", mutableWords],
-  ["rpc/sync", syncRpc],
-  ["rpc/boundary", boundaryRpc],
+  ["rpc/production", productionRpc],
+  ["rpc/production-wrapped", boundaryRpc],
   ["rpc/codec", effectRpc],
-  ["write/sync", syncWrite],
-  ["write/boundary", boundaryWrite],
+  ["write/production", productionWrite],
+  ["write/production-wrapped", boundaryWrite],
   ["write/codec", effectWrite]
 ]
 
@@ -157,6 +156,15 @@ const iterations = 1000
 const rounds = 7
 
 const samples = new Map(cases.map(([name]) => [name, []]))
+
+// Each implementation must agree before any timing is accepted.
+for (const prefix of ["words", "rpc", "write"]) {
+  const expected = cases.find(([name]) => name === `${prefix}/production`)[1]()
+
+  for (const [name, run] of cases) {
+    if (name.startsWith(`${prefix}/`) && run() !== expected) throw new Error(`Checksum mismatch: ${String(name)}`)
+  }
+}
 
 let checksum = 0
 
@@ -175,6 +183,6 @@ for (let round = 0; round < rounds; round++) {
 
 const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]
 
-process.stdout.write(JSON.stringify({ runtime: process.version, iterations, rounds, words, checksum, mediansMs: Object.fromEntries(
+process.stdout.write(JSON.stringify({ runtime: process.versions.bun ? `Bun ${process.versions.bun}` : `Node ${process.versions.node}`, iterations, rounds, words, checksum, mediansMs: Object.fromEntries(
   [...samples].map(([name, values]) => [name, Number(median(values).toFixed(2))])
 ) }, null, 2) + "\n")
