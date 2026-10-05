@@ -3,9 +3,6 @@
 Use `caller.withRoot(path)` to give a consumer filesystem access within one directory. Bind that caller with
 `MemoryFileSystem.bindCaller` when the consumer requests Effect's `FileSystem` service.
 
-This guide requires `@effect-vfs/core` and `@effect-vfs/memory` v0.9.0 or later. Before that release is published,
-use a checkout containing these APIs.
-
 ## Create and bind the caller
 
 Install `@effect-vfs/core`, `@effect-vfs/memory`, and the matching platform Crypto provider as described in
