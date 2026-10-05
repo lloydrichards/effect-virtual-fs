@@ -429,3 +429,37 @@ export const dualDeltas = (
     Crypto.Crypto
   >
 })
+
+export const dualCallerMethods = (
+  caller: Vfs.Caller,
+  target: Vfs.TargetInput,
+  entry: Vfs.EntryInput,
+  bytes: Uint8Array,
+  options: Vfs.WriteFileOptions,
+  owner: Vfs.OwnerUpdate,
+  times: Vfs.Times,
+  attributes: Vfs.SetattrOptions
+) => ({
+  write: caller.writeFile(bytes, options)(entry) satisfies Effect.Effect<void, Vfs.FsFailure>,
+  link: caller.link(entry)(target) satisfies Effect.Effect<Vfs.ReferenceEntryResult, Vfs.FsFailure>,
+  rename: caller.rename(entry)(entry) satisfies Effect.Effect<Vfs.RenameReferenceResult, Vfs.FsFailure>,
+  chmod: caller.chmod(0o600)(target) satisfies Effect.Effect<void, Vfs.FsFailure>,
+  chown: caller.chown(owner)(target) satisfies Effect.Effect<void, Vfs.FsFailure>,
+  utimes: caller.utimes(times)(target) satisfies Effect.Effect<void, Vfs.FsFailure>,
+  truncate: caller.truncate(0n)(target) satisfies Effect.Effect<void, Vfs.FsFailure>,
+  setattr: caller.setattr(attributes)(target) satisfies Effect.Effect<void, Vfs.FsFailure>
+})
+
+export const dualHandleMethods = (handle: Vfs.FileHandle, bytes: Uint8Array) => ({
+  pwrite: handle.pwrite(0n)(bytes) satisfies Effect.Effect<number, Vfs.FsFailure>,
+  seek: handle.seek("start")(0n) satisfies Effect.Effect<bigint, Vfs.FsFailure>
+})
+
+export const rejectedDualMethods = (caller: Vfs.Caller, handle: Vfs.FileHandle) => {
+  // @ts-expect-error Curried writeFile requires contents and write options, not an entry.
+  caller.writeFile("/file", { access: "write" })
+  // @ts-expect-error Positional writes capture a bigint offset.
+  handle.pwrite(Uint8Array.of(1))
+  // @ts-expect-error Unary reads do not gain an empty-argument curried form.
+  caller.readFile()
+}
