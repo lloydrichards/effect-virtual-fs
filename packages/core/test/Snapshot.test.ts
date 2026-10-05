@@ -1,6 +1,6 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Effect, Fiber, Layer, Option, Predicate, Schema, Stream } from "effect"
+import { ByteSize, Effect, Fiber, Layer, Option, pipe, Predicate, Schema, Stream } from "effect"
 import * as Base64 from "effect/encoding/Base64"
 import * as Hex from "effect/encoding/Hex"
 import * as TestClock from "effect/testing/TestClock"
@@ -536,7 +536,7 @@ describe("snapshot capture", () => {
 const encoder = new TextEncoder()
 
 const entriesOf = (snapshot: Vfs.Snapshot, root: Vfs.PathInput) =>
-  Stream.runCollect(Vfs.snapshotEntries(snapshot, root))
+  pipe(snapshot, Vfs.snapshotEntries(root), Stream.runCollect)
 
 // What an entry says, with paths and targets as text or as their bytes in hex.
 const described = Effect.fnUntraced(function*(entries: ReadonlyArray<Vfs.Fixture["entries"][number]>) {
