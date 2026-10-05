@@ -133,8 +133,9 @@ export const entryName = (input: NameInput, op: OpContext): Result.Result<string
 }
 
 /** @internal */
-export const make = ({ caller, get, identity, maxPathBytes, registry, confinement, additional }: {
+export const make = ({ caller, get, identity, maxPathBytes, registry, confinement, additional, authorityView }: {
   readonly additional?: ReadonlyArray<Confinement> | undefined
+  readonly authorityView: Effect.Effect<(ino: Ino) => Node | undefined>
   readonly confinement?: Confinement | undefined
   readonly caller: TokenRegistry.DirectoryReference
   readonly get: (ino: Ino) => Effect.Effect<Node | undefined>
@@ -155,21 +156,21 @@ export const make = ({ caller, get, identity, maxPathBytes, registry, confinemen
       ? Result.map(prepare(input.path, op), (path): PreparedEntry => ({ kind: "path", path, base: input.relativeTo }))
       : Result.map(prepare(input, op), (path): PreparedEntry => ({ kind: "path", path, base: undefined }))
 
-  const nodeAt = Effect.fnUntraced(function*(ino: Ino) {
-    const node = yield* get(ino)
+  const nodeAt = Effect.fnUntraced(function*(lookup: (ino: Ino) => Node | undefined, ino: Ino) {
+    const node = lookup(ino)
 
     return node === undefined ? yield* Effect.die("Inode left the table during resolution") : node
   })
 
-  const directoryAt = Effect.fnUntraced(function*(ino: Ino) {
-    const node = yield* nodeAt(ino)
+  const directoryAt = Effect.fnUntraced(function*(lookup: (ino: Ino) => Node | undefined, ino: Ino) {
+    const node = yield* nodeAt(lookup, ino)
 
     return node.kind !== "directory" ? yield* Effect.die("Directory left the table during resolution") : node
   })
 
-  const callerDirectory = Effect.fnUntraced(function*(op: OpContext) {
+  const callerDirectory = Effect.fnUntraced(function*(lookup: (ino: Ino) => Node | undefined, op: OpContext) {
     const ino = TokenRegistry.inode(caller)
-    const node = ino === undefined ? undefined : yield* get(ino)
+    const node = ino === undefined ? undefined : lookup(ino)
 
     return node?.kind !== "directory" ? yield* op.fail("ClosedCaller") : node
   })
@@ -185,7 +186,7 @@ export const make = ({ caller, get, identity, maxPathBytes, registry, confinemen
 
     const baseAuthorities = base === undefined
       ? EMPTY_AUTHORITIES
-      : registry.handleBoundaries(base).map((roots) => makeConfinement(get, roots))
+      : registry.handleBoundaries(base).map((roots) => makeConfinement(authorityView, roots))
 
     const authorizeDirectory = baseAuthorities.length === 0 ? authorize : Effect.fnUntraced(function*(
       node: Node,
@@ -230,7 +231,9 @@ export const make = ({ caller, get, identity, maxPathBytes, registry, confinemen
       }
     }
 
-    let current: Node = path.absolute ? (yield* nodeAt(visibleRoot)) : yield* callerDirectory(pathOp)
+    // Reads remain live so recursive creation can revisit nodes added earlier in this walk.
+    const lookup = yield* authorityView
+    let current: Node = path.absolute ? (yield* nodeAt(lookup, visibleRoot)) : yield* callerDirectory(lookup, pathOp)
 
     if (!path.absolute && referencedBase !== undefined) {
       current = referencedBase
@@ -276,6 +279,7 @@ export const make = ({ caller, get, identity, maxPathBytes, registry, confinemen
 
       if (component === DOT_DOT_HEX) {
         current = yield* directoryAt(
+          lookup,
           confinement !== undefined && current.ino === visibleRoot ? current.ino : current.parent
         )
         parent = undefined
@@ -286,7 +290,7 @@ export const make = ({ caller, get, identity, maxPathBytes, registry, confinemen
       parent = current
       name = component
       const childIno = current.entries.get(component)
-      const child = childIno === undefined ? undefined : (yield* get(childIno))
+      const child = childIno === undefined ? undefined : lookup(childIno)
 
       if (child === undefined) {
         if (allowMissing && index === work.components.length - 1) {
@@ -337,7 +341,7 @@ export const make = ({ caller, get, identity, maxPathBytes, registry, confinemen
         work = expanded.success
         linked = work.components.length - remaining + Math.max(0, linked - index - 1)
 
-        if (work.absolute) current = yield* nodeAt(visibleRoot)
+        if (work.absolute) current = yield* nodeAt(lookup, visibleRoot)
         index = -1
       } else current = child
     }

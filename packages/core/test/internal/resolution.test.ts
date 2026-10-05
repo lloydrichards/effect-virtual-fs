@@ -5,7 +5,7 @@ import { DirectoryHandleId } from "../../src/FileHandle.js"
 import { OpContext } from "../../src/internal/errors.js"
 import * as Resolution from "../../src/internal/resolution.js"
 import * as Tokens from "../../src/internal/tokenRegistry.js"
-import { ROOT_INO } from "../../src/internal/volumeState.js"
+import { getNode, ROOT_INO } from "../../src/internal/volumeState.js"
 import { Target } from "../../src/Target.js"
 import type { DirectoryHandle, EntryInput } from "../../src/VirtualFileSystem.js"
 import { pathText } from "../support/text.js"
@@ -25,7 +25,16 @@ const setup = (identity = rootIdentity, maxPathBytes?: ByteSize.ByteSize) => {
   state.put(root)
   state.attach(root, "folder", folder)
   state.attach(folder, "file", content)
-  const resolver = Resolution.make({ caller, get: state.get, registry, identity, maxPathBytes })
+
+  const resolver = Resolution.make({
+    caller,
+    get: state.get,
+    authorityView: Effect.succeed((ino) => getNode(state.state, ino)),
+    registry,
+    identity,
+    maxPathBytes
+  })
+
   const prepare = (input: EntryInput) => Effect.fromResult(resolver.prepareEntry(input, op))
 
   return { state, registry, caller, root, folder, content, resolver, prepare }

@@ -2,6 +2,8 @@
 
 ## 2026-10-05
 
+- Updated `decisions/core/confined-caller-authority` with uncached draft-aware authorization and path-walk lookup, bounded ancestry traversal yields, package-owned benchmarks, and repeatable comparison controls. Keep issue-specific measurements in the PR discussion.
+
 - Replace completed persistent-tree rebuild sequencing with the current immutable-state and commit-provider decision. Remove superseded adapter research, repair its contract links, and keep unresolved overlay research as drafts. Correct overlay sharing and checkpoint validate-once claims against current source. Remove issue-only columns from capability ledgers; preserve protocol evidence and original decision sources.
 
 ## 2026-10-04

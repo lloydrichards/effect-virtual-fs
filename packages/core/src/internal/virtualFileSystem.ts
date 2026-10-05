@@ -312,6 +312,7 @@ interface DraftState {
 
 interface DraftOperations {
   readonly revision: bigint
+  readonly lookup: (ino: Ino) => Node | undefined
   readonly get: (ino: Ino) => Effect.Effect<Node | undefined>
   readonly put: (node: Node) => Effect.Effect<void>
   readonly putQuiet: (node: Node) => Effect.Effect<void>
@@ -352,12 +353,13 @@ class Draft extends Context.Service<Draft, DraftOperations>()("@effect-vfs/core/
       removed: []
     })
 
-    const get = (ino: Ino) =>
-      Effect.sync(() => {
-        const draft = MutableRef.get(cell)
+    const lookup = (ino: Ino) => {
+      const draft = MutableRef.get(cell)
 
-        return draft.pending.has(ino) ? draft.pending.get(ino) : InodeTable.get(base.inodes, ino)
-      })
+      return draft.pending.has(ino) ? draft.pending.get(ino) : InodeTable.get(base.inodes, ino)
+    }
+
+    const get = (ino: Ino) => Effect.sync(() => lookup(ino))
 
     const openCount = (ino: Ino) => Effect.sync(() => MutableRef.get(cell).opens?.get(ino) ?? base.open.get(ino) ?? 0)
 
@@ -373,6 +375,7 @@ class Draft extends Context.Service<Draft, DraftOperations>()("@effect-vfs/core/
 
     return {
       revision,
+      lookup,
       get,
       put: (node: Node) => put(node, true),
       putQuiet: (node: Node) => put(node, false),
@@ -629,6 +632,12 @@ export const makeVolume = Effect.fnUntraced(
         Effect.serviceOption(Draft),
         (draft) => Option.isSome(draft) ? draft.value.get(ino) : Effect.sync(() => getNode(state, ino))
       )
+
+    // Select the operation's namespace at execution time; never retain it across operations.
+    const authorityView = Effect.map(
+      Effect.serviceOption(Draft),
+      (draft) => Option.isSome(draft) ? draft.value.lookup : (ino: Ino) => getNode(state, ino)
+    )
 
     const registry = TokenRegistry.make(volumeIdentity, view)
     const referenceFor = registry.referenceFor
@@ -1338,14 +1347,14 @@ export const makeVolume = Effect.fnUntraced(
       roots: ReadonlyArray<Ino> = [],
       inherited: ReadonlyArray<ReadonlyArray<Ino>> = []
     ): Caller => {
-      const boundary = roots.length === 0 ? undefined : Confinement.make(view, roots)
+      const boundary = roots.length === 0 ? undefined : Confinement.make(authorityView, roots)
       inherited = inherited.filter((chain, index) =>
         !((chain.length <= roots.length && chain.every((ino, at) => roots[at] === ino)) ||
           inherited.slice(0, index).some((other) =>
             other.length === chain.length && chain.every((ino, at) => other[at] === ino)
           ))
       )
-      const additional = inherited.map((chain) => Confinement.make(view, chain))
+      const additional = inherited.map((chain) => Confinement.make(authorityView, chain))
 
       const checkAuthority = Effect.fnUntraced(function*(node: Node, op: OpContext) {
         if (boundary !== undefined) yield* boundary.check(node, op)
@@ -1374,7 +1383,7 @@ export const makeVolume = Effect.fnUntraced(
 
         if (chains.length === 0) return
         ref.boundaries = chains
-        const authorities = chains.map((chain) => Confinement.make(view, chain))
+        const authorities = chains.map((chain) => Confinement.make(authorityView, chain))
         ref.authority = Effect.fnUntraced(function*(node: Node, op: OpContext) {
           for (const authority of authorities) yield* authority.check(node, op, true)
         })
@@ -1387,6 +1396,7 @@ export const makeVolume = Effect.fnUntraced(
         confinement: boundary,
         additional: additional.length === 0 ? undefined : additional,
         get: view,
+        authorityView,
         identity,
         maxPathBytes: limits.maxPathBytes,
         registry
@@ -2881,7 +2891,7 @@ export const makeVolume = Effect.fnUntraced(
           const locate = (path: Uint8Array): PathInput =>
             ownedPath(prefix === undefined ? path : joinPath(prefix, path))
 
-          const authorities = inheritedFor(target).map((chain) => Confinement.make(view, chain))
+          const authorities = inheritedFor(target).map((chain) => Confinement.make(authorityView, chain))
 
           const readable = Effect.fnUntraced(function*(directory: Directory, at: OpContext) {
             for (const authority of authorities) yield* authority.check(directory, at, true)
