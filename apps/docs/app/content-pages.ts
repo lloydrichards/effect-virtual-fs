@@ -22,6 +22,13 @@ export const contentPages = [
   },
   {
     section: "Guides",
+    label: "Confine a workspace",
+    href: "/guides/confined-workspaces",
+    routePath: "guides/confined-workspaces",
+    contentPath: "content/guides/confined-workspaces.mdx"
+  },
+  {
+    section: "Guides",
     label: "Search filenames and content in a snapshot",
     href: "/guides/snapshot-search",
     routePath: "guides/snapshot-search",

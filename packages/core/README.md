@@ -77,26 +77,14 @@ callers default to umask `0o022`; the developer's `0o027` mask turns the request
 The root package exports `VirtualFileSystem` as a namespace. The equivalent direct module import is
 `import * as Vfs from "@effect-vfs/core/VirtualFileSystem"`.
 
-## Confine an agent to a directory
+## Confine a caller to a directory
 
-`caller.withRoot("/workspaces/run-42")` creates a scoped caller rooted at that directory's identity. Its `/src`
-means `/workspaces/run-42/src`. Absolute symlinks resolve from the same root, and `..` stops there.
-`withDirectory` changes only the working directory and retains any existing confinement.
+`caller.withRoot(path)` creates a scoped caller whose `/` is that directory. Absolute symlinks and `..` stay
+inside the root. Renaming the root preserves access; deleting it permanently invalidates the caller.
 
-```ts
-const agent = yield * admin.withRoot("/workspaces/run-42")
-yield * agent.writeFile("/output.txt", new TextEncoder().encode("done"))
-```
-
-Renaming the root preserves access. Deleting it permanently invalidates the caller. Confined handles lose access
-when their object has no name inside the root and can regain it when membership returns. Closing their creating
-caller does not close resources acquired in another live scope. Imported confined handles retain their restrictions.
-Pass confined capabilities to agent code; an unrestricted volume or handle still grants its existing authority.
-
-This confines names, not file contents. Existing hard links may share content across roots. Privileged credentials
-cannot bypass the boundary. Caller watches filter and rebase committed events before queueing them. Their default
-`alias: "all"` reports authorized hard-link aliases; `alias: "resolved"` follows the alias selected by a path.
-`caller.limits` reports backing-volume configuration, not subtree quotas.
+Keep the caller's scope open and pass only the capabilities the consumer needs. Existing hard links can share
+file contents across roots. See [Confine a workspace](../../apps/docs/app/content/guides/confined-workspaces.mdx)
+for a complete example with Effect's `FileSystem` service and the confinement limits.
 
 ## Guides and reference
 

@@ -245,7 +245,7 @@ Automerge resolves concurrent writes to the same property by deterministic last-
 
 ### 3. Git/patch export so a trusted host pushes on the sandbox's behalf
 
-- **Exists.** `changes()` gives the changed paths and kinds. `capture()` gives stable bytes. `TreeTransfer` Stream sources can walk a snapshot (`packages/memory/src/TreeTransfer.ts`; [tree transfer decision](../decisions/tree-transfer.md "builds on"), from issue #29).
+- **Exists.** `changes()` gives the changed paths and kinds. `capture()` gives stable bytes. `TreeTransfer` Stream sources can walk a snapshot (`packages/memory/src/TreeTransfer.ts`; [tree transfer decision](../decisions/tree-transfer.md "builds on"), from the recorded design).
 - **Gap.** Nothing turns changes into git objects or a unified diff.
 - **Direction.** Add an exporter from `(base snapshot, overlay changes)` to either (a) a unified diff or patch series, or (b) git tree/blob objects plus a commit on a given parent. Git tree entries only carry modes 100644, 100755, 120000 and 040000, so the exporter must map or reject other modes. The sandbox, or the agent's tools, only ever produce changes. A trusted host process holding the credentials (in Alchemy's terms, `Git.Credentials` or a `PublishToken`) builds the commit and pushes it through GitHub's REST API or git smart HTTP. This reverses today's `pushBranch` data flow ([PushBranch.ts](https://github.com/alchemy-run/alchemy/blob/sam/harness/services/root/src/coding/PushBranch.ts)). Alchemy's git engine or Cloudflare Artifacts could serve as a staging remote with short-lived tokens ([Git DESIGN.md](https://github.com/alchemy-run/alchemy/blob/sam/harness/packages/alchemy/src/Git/DESIGN.md), [Artifacts blog](https://blog.cloudflare.com/artifacts-git-for-agents-beta/)).
 - **Open questions.** Should this depend on an existing TS git library or hand-write the loose-object and tree encoding? The latter is small, but pack/push is not. How should the export handle symlinks, special bits and hard links, which git cannot represent? Is a base snapshot tied to a git commit id enough provenance?
@@ -301,21 +301,21 @@ Automerge resolves concurrent writes to the same property by deterministic last-
 - A durability vocabulary and compare-and-set live-image commits (`LiveVolume`, `R2LiveImageStore`). Archil and the FUSE adapters publish weaker or less explicit guarantees.
 - An Effect-native service and layer style (`Context.Service`, `Layer`), the same idioms Alchemy's Effect code uses.
 
-## Directions and tracking
+## Current directions
 
-Reviewed with the maintainer on 2026-09-24. The library stays Effect-first and does not privilege any consumer, agent framework or hosting choice. The agent-tool direction now has an independent private example. Other directions below remain tracked proposals unless their owning concepts state otherwise.
+Reviewed with the maintainer on 2026-09-24. The library stays Effect-first and does not privilege any consumer, agent framework or hosting choice. The agent-tool direction now has an independent private example. Other directions below remain proposals unless their owning concepts state otherwise.
 
-| Direction                     | Tracking        | Position                                                                                                         |
-| ----------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1. Agent tool surface         | #175            | Private stdio example implemented in `apps/demo-agent-tools`; bounded UTF-8 tools and structured failures        |
-| 2. Fork and merge             | #174            | Three-way, path-level, conflicts as data; no text merge; names stay with the application; no fork helper tracked |
-| 3. Git or patch export        | Comment on #29  | A Stream sink; a trusted host builds and pushes; no issue until there is evidence                                |
-| 4. Search and glob            | #173            | Decide between a Stream recipe over snapshots and a dedicated API, from measurement                              |
-| 5. just-bash                  | Comment on #30  | Candidate runtime in the existing comparison                                                                     |
-| 6. Conditional writes         | Comment on #31  | Revision guard under the coordination gate; digest guard later if restore or export needs it                     |
-| 7. External services          | Comment on #29  | Fixture-entry Streams into a read-only overlay base; lazy hydration is a separate core question                  |
-| 8. CRDT                       | Comment on #153 | Single writer per volume, overlay per agent, path-level merge; CRDT documents stay outside the VFS               |
-| 9. FUSE and overlayfs over R2 | Comment on #154 | FUSE stays deferred; NFS covers native tools                                                                     |
-| Confinement                   | Comment on #28  | The agent example's hand-rolled confinement and per-user pruning elsewhere motivate a confined caller            |
+| Direction                     | Position                                                                                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Agent tool surface         | Private stdio example implemented in `apps/demo-agent-tools`; bounded UTF-8 tools and structured failures                                           |
+| 2. Fork and merge             | Three-way, path-level, conflicts as data; no text merge; names stay with the application; no fork helper tracked                                    |
+| 3. Git or patch export        | A Stream sink; a trusted host builds and pushes; no issue until there is evidence                                                                   |
+| 4. Search and glob            | Snapshot filename and content queries are implemented; see [snapshot search](../contracts/snapshot-search.md "implemented by")                      |
+| 5. just-bash                  | Candidate runtime in the existing comparison                                                                                                        |
+| 6. Conditional writes         | Revision guard under the coordination gate; digest guard later if restore or export needs it                                                        |
+| 7. External services          | Fixture-entry Streams into a read-only overlay base; lazy hydration is a separate core question                                                     |
+| 8. CRDT                       | Single writer per volume, overlay per agent, path-level merge; CRDT documents stay outside the VFS                                                  |
+| 9. FUSE and overlayfs over R2 | FUSE stays deferred; NFS covers native tools                                                                                                        |
+| Confinement                   | Identity-rooted callers and borrowed FileSystem bindings are implemented; see [confined callers](../contracts/confined-callers.md "implemented by") |
 
 No outreach to Alchemy is planned from this research. It is ideation for this library only.

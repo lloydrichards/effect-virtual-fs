@@ -32,16 +32,16 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/209
     title: Atomic setattr and an unscoped open variant for NFS
-generated: { by: claude-code, at: "2026-09-26T13:20:00+02:00" }
+generated: { by: claude-code, at: 2026-10-05T00:00:00Z }
 ---
 
 # Atomic setattr
 
-Amends the [public API decision](public-api-targets-services-and-errors.md "amends"), which deferred a combined attribute change, and its `NotPermitted` amendment, whose two denial codes the check order interleaves. Amends decision 2 of the [reference-based mutations decision](reference-mutations.md "amends"), which had NFS apply SETATTR attributes in sequence. The decisions were grilled on 2026-09-25 and recorded on [issue #209](https://github.com/lloydrichards/effect-virtual-fs/issues/209 "decided on"); the adversarial review of 2026-09-26 moved set-ID sanitising into NFS (decision 8), and the owner then chose knfsd's treatment of an unchanged owner or group for NFS only (decision 9). The follow-up review round of 2026-09-26 added the expected-revision precondition that closes the race between NFS's observation and its change (decision 10), the first slice of [issue #31](https://github.com/lloydrichards/effect-virtual-fs/issues/31 "starts").
+Amends the [public API decision](public-api-targets-services-and-errors.md "amends"), which deferred a combined attribute change, and its `NotPermitted` amendment, whose two denial codes the check order interleaves. Amends decision 2 of the [reference-based mutations decision](reference-mutations.md "amends"), which had NFS apply SETATTR attributes in sequence. The expected-revision precondition closes the race between an observation and its change.
 
 ## Context
 
-NFS SETATTR made one core call per attribute, so a request took one revision and one watch event per attribute and a failure left the earlier attributes applied, which a test pinned. Reading the code showed that chown ran after chmod and cleared setuid and setgid, so a SETATTR of mode `04755` with a new owner ended at `0755`. That was first treated as a bug, but Linux knfsd reaches `0755` too, on purpose, so the outcome belongs to the protocol layer rather than to core's order. The issue also proposed an unscoped `open` so NFS could hold a handle without juggling a manual scope.
+NFS SETATTR made one core call per attribute, so a request took one revision and one watch event per attribute and a failure left the earlier attributes applied, which a test pinned. Reading the code showed that chown ran after chmod and cleared setuid and setgid, so a SETATTR of mode `04755` with a new owner ended at `0755`. That was first treated as a bug, but Linux knfsd reaches `0755` too, on purpose, so the outcome belongs to the protocol layer rather than to core's order. The design also considered an unscoped `open` so NFS could hold a handle without juggling a manual scope.
 
 ## Decisions
 

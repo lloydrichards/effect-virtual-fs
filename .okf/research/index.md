@@ -3,7 +3,6 @@
 - [Snapshot search and glob research](search-and-glob.md) records fixture recipe limitations, current search tests, and native-regex execution boundaries.
 
 - [Bounded POSIX requirements](posix-requirements.md) records the standards frame used to define and test the core without claiming full POSIX conformance.
-- [Effect adapter compatibility](effect-compatibility.md) retains the reasoning behind the adapter boundary that the memory-adapter contract now owns.
 - [Overlay filesystem direction](overlay-filesystem.md) retains the alternatives considered for overlay v1 and the parity cases a future harness should cover.
 - [Snapshot delta representation research](overlay-changes.md) retains the open delta questions: compressed encodings, checkpoint storage, profiling, and merge or rebase.
 - [Live durable volume proposal](live-durable-volume.md) records the staged core mutation boundary and proposes a bounded storage provider, with crash recovery and NFS replay prerequisites.
@@ -16,7 +15,7 @@
 ## NFS export
 
 - [NFSv4.1 server direction](nfs/nfs-server.md) retains the accepted read-only direction and the macOS interoperability result.
-- [NFS operations ledger](nfs/nfs-operations-ledger.md) maps every RFC 8881 operation to profile, status, and follow-up issue.
+- [NFS operations ledger](nfs/nfs-operations-ledger.md) maps every RFC 8881 operation to profile, status, evidence, and remaining behavior.
 - [NFS attributes ledger](nfs/nfs-attributes-ledger.md) does the same for REQUIRED and RECOMMENDED attributes.
 - [NFS protocol rules ledger](nfs/nfs-protocol-rules-ledger.md) covers cross-cutting requirements, errata, and the client matrix.
 - [NFS WRITE and COMMIT design](nfs/write-and-commit.md) records protocol facts, staged behavior, accepted decisions, and storage qualification requirements.

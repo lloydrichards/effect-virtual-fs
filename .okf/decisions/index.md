@@ -1,6 +1,6 @@
 # Decisions
 
-Architectural and behavioral decisions, grouped by domain. Accepted decisions are stable; a draft entry is a proposal awaiting acceptance on its tracking issue. Deprecated decisions are retained for their rationale; the linked contracts own their rules.
+Architectural and behavioral decisions, grouped by domain. Accepted decisions are stable; a draft entry is a proposal awaiting acceptance. Deprecated decisions are retained for their rationale; the linked contracts own their rules.
 
 ## Core filesystem
 
@@ -28,7 +28,7 @@ Architectural and behavioral decisions, grouped by domain. Accepted decisions ar
 - [Reference-based mutations](core/reference-mutations.md) adds directory-reference-and-name mutation operations beside the path operations and keeps share reservations and locks in adapters.
 - [Volume durability and usage facts](core/volume-durability-and-usage-facts.md) gives a volume a durability tier, an incarnation token, readable limits, and a live usage query.
 - [Watch event overflow](core/watch-event-overflow.md) defines bounded per-subscriber watches, a rescan marker, and retryable volume admission.
-- [Persistent tree rebuild](core/persistent-tree-rebuild.md) rebuilds the engine on a persistent volume value with one transition runner, composes staging, overlay, and watch over it, and stages the remaining serialisation and public API work as design issues.
+- [Persistent volume state](core/persistent-volume-state.md) defines immutable state, coordinated candidate installation, shared snapshots, and whole-image storage limits.
 - [Public API on targets, services, and one error family](core/public-api-targets-services-and-errors.md) addresses every verb by a Target or an Entry, provides Volume and Caller as services with layers, replaces the five error classes with one VfsError, and drops Crypto from construction.
 - [Permission mode and typed mode](core/permission-mode-and-typed-mode.md) keeps `Metadata.mode` as permission bits and derives the POSIX `st_mode` from the kind through `Metadata.typedMode`.
 - [Layer-based test volume](core/layer-based-test-volume.md) gives tests a public `Testing` module over the Volume and Caller layers, a fresh volume per test by default, and one NFS harness with a single lease-options constant.

@@ -16,7 +16,7 @@ generated: { by: claude/okf, at: 2026-10-02T18:30:00+02:00 }
 
 # Staged overlay delivery
 
-Accepted by the user on 2026-09-10 in Codex task `01a08acd-b076-7512-bab8-451137eaa712`. This concept records those decisions; issue #8 supplies the original questions, and code sources establish constraints rather than approval. The implemented behavior is recorded by the [overlay workspace contract](../../contracts/overlay-workspaces.md "implemented by"). Start here for v1 scope, then follow the focused decisions below.
+The implemented behavior is recorded by the [overlay workspace contract](../../contracts/overlay-workspaces.md "implemented by"). Start here for v1 scope, then follow the focused decisions below.
 
 ## V1 scope
 

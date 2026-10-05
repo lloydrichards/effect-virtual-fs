@@ -417,9 +417,8 @@ To make a selected write fail independently of permissions or capacity, inject a
 For example, fail only the second write while the filesystem otherwise remains writable. Delegate other
 operations to the real filesystem so earlier writes still change its state.
 
-A fault helper and write spy are proposed in [issue #243](https://github.com/lloydrichards/effect-virtual-fs/issues/243).
-They are not available in the current API. Until they are implemented, keep any custom wrapper focused on the
-method your application calls and verify that other operations still delegate to real storage.
+Use [`FileSystemTesting.make`](#count-writes-and-inject-selected-failures) to reject the selected operation
+before delegation. Assert that earlier writes remain in the filesystem and that the rejected write changes nothing.
 
 ## Choose an assertion that proves the promise
 

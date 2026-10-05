@@ -20,12 +20,12 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/200
     title: Relax atime so reads can share the read permit
-generated: { by: claude-code, at: "2026-09-26T10:40:00+02:00" }
+generated: { by: claude-code, at: 2026-10-05T00:00:00Z }
 ---
 
 # Relatime reads
 
-Follows the [persistent tree rebuild](persistent-tree-rebuild.md "follows"), whose gate lets observations share the volume while a change runs alone, and settles the lazy access-time question the [live durable volume research](../../research/live-durable-volume.md "resolves") left open. The decisions were grilled on 2026-09-25 and recorded on [issue #200](https://github.com/lloydrichards/effect-virtual-fs/issues/200 "decided on").
+Follows the [persistent volume state](persistent-volume-state.md "follows"), whose gate lets observations share the volume while a change runs alone, and settles the lazy access-time question the [live durable volume research](../../research/live-durable-volume.md "resolves") left open.
 
 ## Context
 
