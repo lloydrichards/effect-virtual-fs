@@ -1022,10 +1022,22 @@ export interface FileHandle {
   readonly pread: (maximumBytes: number, offset: bigint) => Effect.Effect<ReadResult, FsFailure>
   /** Writes at the cursor and advances it, or writes at end of file when opened for append. */
   readonly write: (bytes: Uint8Array) => Effect.Effect<number, FsFailure>
-  /** Writes at `offset` without changing the cursor. Append mode does not affect positional writes. */
-  readonly pwrite: (bytes: Uint8Array, offset: bigint) => Effect.Effect<number, FsFailure>
-  /** Moves the cursor and returns its new offset. `data` finds content and `hole` finds end of file. */
-  readonly seek: (offset: bigint, mode: SeekMode) => Effect.Effect<bigint, FsFailure>
+  /**
+   * Writes at `offset` without changing the cursor. Append mode does not affect positional writes.
+   * The curried form is `pwrite(offset)(bytes)`.
+   */
+  readonly pwrite: {
+    (offset: bigint): (bytes: Uint8Array) => Effect.Effect<number, FsFailure>
+    (bytes: Uint8Array, offset: bigint): Effect.Effect<number, FsFailure>
+  }
+  /**
+   * Moves the cursor and returns its new offset. `data` finds content and `hole` finds end of file.
+   * The curried form is `seek(mode)(offset)`.
+   */
+  readonly seek: {
+    (mode: SeekMode): (offset: bigint) => Effect.Effect<bigint, FsFailure>
+    (offset: bigint, mode: SeekMode): Effect.Effect<bigint, FsFailure>
+  }
   /** Sets the file length without changing the cursor. */
   readonly truncate: (length: bigint) => Effect.Effect<void, FsFailure>
   /** Reads metadata for the open file. */
@@ -1170,12 +1182,14 @@ export interface Caller {
   readonly access: (target: TargetInput, bits?: number) => Effect.Effect<number, FsFailure>
   /** The whole content of a regular file. */
   readonly readFile: (target: TargetInput) => Effect.Effect<Uint8Array, FsFailure>
-  /** Writes a whole file in one operation, creating or replacing it as the options say. */
-  readonly writeFile: (
-    entry: EntryInput,
-    bytes: Uint8Array,
-    options: WriteFileOptions
-  ) => Effect.Effect<void, FsFailure>
+  /**
+   * Writes a whole file in one operation, creating or replacing it as the options say.
+   * The curried form is `writeFile(bytes, options)(entry)`; the caller remains bound.
+   */
+  readonly writeFile: {
+    (bytes: Uint8Array, options: WriteFileOptions): (entry: EntryInput) => Effect.Effect<void, FsFailure>
+    (entry: EntryInput, bytes: Uint8Array, options: WriteFileOptions): Effect.Effect<void, FsFailure>
+  }
   /**
    * Opens a file. On a target, the file must exist and `create` is rejected. On an entry, the name is looked up
    * and created in one gate hold, and the result reports whether it was created.
@@ -1205,7 +1219,10 @@ export interface Caller {
     options?: SymlinkOptions
   ) => Effect.Effect<ReferenceEntryResult, FsFailure>
   /** Adds a name for an existing file or symbolic link. A path source follows a final symbolic link only when its target says so. */
-  readonly link: (source: TargetInput, entry: EntryInput) => Effect.Effect<ReferenceEntryResult, FsFailure>
+  readonly link: {
+    (entry: EntryInput): (source: TargetInput) => Effect.Effect<ReferenceEntryResult, FsFailure>
+    (source: TargetInput, entry: EntryInput): Effect.Effect<ReferenceEntryResult, FsFailure>
+  }
   /** Removes a file or symbolic link. */
   readonly unlink: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
   /** Removes an empty directory. */
@@ -1223,15 +1240,30 @@ export interface Caller {
     (entry: EntryInput, options: RemoveOptions): Effect.Effect<DirectoryChange | undefined, FsFailure>
   }
   /** Moves an entry, replacing a compatible destination. */
-  readonly rename: (from: EntryInput, to: EntryInput) => Effect.Effect<RenameReferenceResult, FsFailure>
+  readonly rename: {
+    (to: EntryInput): (from: EntryInput) => Effect.Effect<RenameReferenceResult, FsFailure>
+    (from: EntryInput, to: EntryInput): Effect.Effect<RenameReferenceResult, FsFailure>
+  }
   /** Sets the permission bits of a target. */
-  readonly chmod: (target: TargetInput, mode: number) => Effect.Effect<void, FsFailure>
+  readonly chmod: {
+    (mode: number): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, mode: number): Effect.Effect<void, FsFailure>
+  }
   /** Changes the owner or group of a target. */
-  readonly chown: (target: TargetInput, owner: OwnerUpdate) => Effect.Effect<void, FsFailure>
+  readonly chown: {
+    (owner: OwnerUpdate): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, owner: OwnerUpdate): Effect.Effect<void, FsFailure>
+  }
   /** Sets the access and modification times of a target. */
-  readonly utimes: (target: TargetInput, times: Times) => Effect.Effect<void, FsFailure>
+  readonly utimes: {
+    (times: Times): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, times: Times): Effect.Effect<void, FsFailure>
+  }
   /** Sets the size of a regular file. */
-  readonly truncate: (target: TargetInput, length: bigint) => Effect.Effect<void, FsFailure>
+  readonly truncate: {
+    (length: bigint): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, length: bigint): Effect.Effect<void, FsFailure>
+  }
   /**
    * Changes a target's size, owner, mode and times as one change. Every check passes before any attribute
    * applies, so a failure changes nothing. The attributes apply as size, owner, mode, then times, the POSIX
@@ -1240,7 +1272,10 @@ export interface Caller {
    * does so before it calls setattr, and passes the revision it read as `expected` so the change refuses a
    * target another change has moved.
    */
-  readonly setattr: (target: TargetInput, attributes: SetattrOptions) => Effect.Effect<void, FsFailure>
+  readonly setattr: {
+    (attributes: SetattrOptions): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, attributes: SetattrOptions): Effect.Effect<void, FsFailure>
+  }
   /** A caller whose working directory is the target, released with the scope. */
   readonly withDirectory: (directory: TargetInput) => Effect.Effect<Caller, FsFailure, Scope.Scope>
   /** A handle on a directory, released with the scope. */

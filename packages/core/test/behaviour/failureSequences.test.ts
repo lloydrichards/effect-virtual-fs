@@ -80,7 +80,9 @@ const runIdentity = Effect.fnUntraced(function*(script: ReadonlyArray<Command>) 
       case "rename":
       case "link": {
         if (object === undefined || names.has(command.to)) break
-        yield* caller[command.operation](path(command.from), path(command.to))
+        yield* command.operation === "rename"
+          ? caller.rename(path(command.from), path(command.to))
+          : caller.link(path(command.from), path(command.to))
         names.set(command.to, object)
 
         if (command.operation === "rename") names.delete(command.from)

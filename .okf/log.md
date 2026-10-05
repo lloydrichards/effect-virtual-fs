@@ -2,6 +2,8 @@
 
 ## 2026-10-05
 
+- Extend dual calls to fixed-argument caller mutations and file-handle `pwrite` and `seek`. Keep the receiver bound, the first explicit argument as data, and unary and optional-argument methods unchanged.
+
 - Extend the dual-call convention to snapshot constructors and layers, delta operations, entry construction, durability comparison, memory bindings and transfer sources/sinks, and S3 adapter construction. Record position-sensitive dispatch for snapshot diffs and matching re-export overloads.
 
 - Record data-first and data-last calls for selected core and memory functions in `decisions/core/schema-data-and-capability-interfaces`. Preserve bound capability methods, typed failures, scoped watch collection, and decorator state per execution.
