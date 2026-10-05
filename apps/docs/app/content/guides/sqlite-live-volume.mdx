@@ -2,13 +2,16 @@
 
 Use `SqliteLiveImageStore` with `LiveVolume.open` to commit a complete volume image for each mutation. This is separate from named, create-only [SQLite checkpoints](/guides/sqlite-checkpoints).
 
+This guide requires `@effect-vfs/persistence` and `@effect-vfs/core` v0.9.0 or later. Before that release is published,
+use a checkout containing the v0.9.0 changes. The write-and-reopen example does not work with persistence v0.8.0.
+
 ## Install the packages
 
-This example uses Bun and its SQLite provider. Install the persistence package and matching runtime dependencies:
+This example uses Bun and its SQLite provider. After v0.9.0 is published, install the persistence package and matching runtime dependencies:
 
 ```sh
-bun add @effect-vfs/persistence@latest
-bun add "effect@$(npm view @effect-vfs/persistence peerDependencies.effect)" "@effect/sql-sqlite-bun@$(npm view @effect-vfs/persistence peerDependencies.effect)" "@effect/platform-bun@$(npm view @effect-vfs/persistence peerDependencies.effect)"
+bun add @effect-vfs/persistence@^0.9.0
+bun add "effect@$(npm view @effect-vfs/persistence@^0.9.0 peerDependencies.effect)" "@effect/sql-sqlite-bun@$(npm view @effect-vfs/persistence@^0.9.0 peerDependencies.effect)" "@effect/platform-bun@$(npm view @effect-vfs/persistence@^0.9.0 peerDependencies.effect)"
 ```
 
 The persistence package includes `@effect-vfs/core`.

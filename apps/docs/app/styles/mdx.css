@@ -47,7 +47,7 @@ html.dark code[data-theme] span {
   @apply opacity-40 transition-opacity duration-150;
 }
 .has-focused:hover [data-line]:not(.focused),
-.has-focused:focus-within [data-line]:not(.focused) {
+.code-block:focus-within .has-focused [data-line]:not(.focused) {
   @apply opacity-100;
 }
 
