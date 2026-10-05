@@ -2,55 +2,114 @@
 
 Use `SqliteLiveImageStore` with `LiveVolume.open` to commit a complete volume image for each mutation. This is separate from named, create-only [SQLite checkpoints](/guides/sqlite-checkpoints).
 
-## Supply a dedicated database
+## Install the packages
 
-Create a dedicated SQLite `SqlClient` for one absolute local database path. Supply the same path to `SqliteLiveImageStore.layer`, along with explicit image and database byte limits. The application also provides Effect's `FileSystem`, `Path`, and `Crypto` services. The store reserves one SQL connection and holds an exclusive SQLite lock for its scope.
+This example uses Bun and its SQLite provider. Install the persistence package and matching runtime dependencies:
 
-```ts
-import * as SqliteLiveImageStore from "@effect-vfs/persistence/SqliteLiveImageStore"
-import { ByteSize } from "effect"
-
-const liveStore = SqliteLiveImageStore.layer({
-  filename: "/var/lib/my-app/live.sqlite",
-  maxImageBytes: ByteSize.megabytes(4),
-  maxDatabaseBytes: ByteSize.megabytes(16)
-})
+```sh
+bun add @effect-vfs/persistence@latest
+bun add "effect@$(npm view @effect-vfs/persistence peerDependencies.effect)" "@effect/sql-sqlite-bun@$(npm view @effect-vfs/persistence peerDependencies.effect)" "@effect/platform-bun@$(npm view @effect-vfs/persistence peerDependencies.effect)"
 ```
 
-Provide your SQLite and platform layers to `liveStore`, then provide the resulting layer to `LiveVolume.open(options)` inside an Effect scope. Reopening the same database restores the logical volume identity and creates a new runtime incarnation. A second open through the same store layer fails with `Ownership`.
+The persistence package includes `@effect-vfs/core`.
+
+## Write, close, and reopen a volume
+
+Save this as `live-volume.ts`. The program creates a local directory, writes a file to a live volume, closes it,
+and reads the file after reopening the database:
+
+```ts title="live-volume.ts" {15-20,28-38,40-45}
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
+import * as BunFileSystem from "@effect/platform-bun/BunFileSystem"
+import * as BunPath from "@effect/platform-bun/BunPath"
+import { LiveVolume } from "@effect-vfs/core"
+import * as SqliteLiveImageStore from "@effect-vfs/persistence/SqliteLiveImageStore"
+import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
+import { ByteSize, Effect, FileSystem, Layer, Path } from "effect"
+
+const platform = Layer.mergeAll(BunCrypto.layer, BunFileSystem.layer, BunPath.layer)
+const options = {
+	maxImageBytes: ByteSize.megabytes(4),
+	volume: { maxBytes: ByteSize.megabytes(1) }
+}
+
+const storeFor = (filename: string) =>
+	SqliteLiveImageStore.layer({
+		filename,
+		maxImageBytes: options.maxImageBytes,
+		maxDatabaseBytes: ByteSize.megabytes(16)
+	}).pipe(Layer.provide(SqliteClient.layer({ filename, disableWAL: true })))
+
+const program = Effect.gen(function* () {
+	const fs = yield* FileSystem.FileSystem
+	const path = yield* Path.Path
+	const filename = path.resolve("live-data/live.sqlite")
+	yield* fs.makeDirectory(path.dirname(filename), { recursive: true })
+
+	yield* Effect.scoped(
+		Effect.gen(function* () {
+			const volume = yield* LiveVolume.open(options)
+			const caller = yield* volume.caller()
+			yield* caller.writeFile("/hello.txt", new TextEncoder().encode("hello after reopen"), {
+				access: "write",
+				create: "ifMissing",
+				truncate: true
+			})
+		})
+	).pipe(Effect.provide(storeFor(filename)))
+
+	return yield* Effect.scoped(
+		Effect.gen(function* () {
+			const volume = yield* LiveVolume.open(options)
+			return new TextDecoder().decode(yield* (yield* volume.caller()).readFile("/hello.txt"))
+		})
+	).pipe(Effect.provide(storeFor(filename)))
+})
+
+console.log(await Effect.runPromise(program.pipe(Effect.provide(platform))))
+```
+
+Run `bun run live-volume.ts`. It prints `hello after reopen` and leaves the database in `live-data/`.
+Each acquisition uses a dedicated SQLite client for the same absolute filename as the store. The first scope closes
+its volume before releasing the store and database connection, so the second acquisition can obtain ownership.
+The store holds an exclusive SQLite lock while open. A second open through the same acquired store fails with `Ownership`.
 
 ## Share live volumes across requests
 
 This section requires `@effect-vfs/core` v0.9.0 or later. Before that release is published, use a checkout
 containing `LiveVolume.makeRegistry`.
 
-Use `LiveVolume.makeRegistry` when several requests need the same live volume. Supply a store Layer for each
-canonical key. Concurrent borrowers of that key share one acquisition and one volume:
+For several requests to share a volume, replace `program` in the preceding file with this definition.
+It reuses `storeFor`, `options`, and `platform`. Use the absolute database filename as the registry key:
 
-```ts
-import { LiveVolume } from "@effect-vfs/core"
-import { ByteSize, Effect, Layer } from "effect"
+```ts title="live-volume.ts" {8-13,15-20}
+const program = Effect.scoped(
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
+		const filename = path.resolve("live-data/live.sqlite")
+		yield* fs.makeDirectory(path.dirname(filename), { recursive: true })
 
-declare const storeFor: (key: string) => Layer.Layer<LiveVolume.LiveImageStore>
+		const registry = yield* LiveVolume.makeRegistry({
+			store: storeFor,
+			volume: options,
+			capacity: 8,
+			idleTimeToLive: "5 seconds"
+		})
 
-const serve = Effect.gen(function* () {
-	const registry = yield* LiveVolume.makeRegistry({
-		store: storeFor,
-		volume: { maxImageBytes: ByteSize.megabytes(4), volume: {} },
-		capacity: 8,
-		idleTimeToLive: "5 seconds"
+		return yield* Effect.scoped(
+			Effect.gen(function* () {
+				const volume = yield* registry.get(filename)
+				return yield* (yield* volume.caller()).readDirectory("/")
+			})
+		)
 	})
-
-	return yield* Effect.scoped(Effect.gen(function* () {
-		const volume = yield* registry.get("workspace")
-		return yield* (yield* volume.caller()).readDirectory("/")
-	}))
-})
+)
 ```
 
-Provide Crypto and run `serve` in the application's owning scope. Each request borrows in a shorter scope.
-Keep the registry alive until all requests finish. Closing its scope shuts down every volume before releasing
-its store Layer, including volumes with active borrowers.
+The outer scope owns the registry. Each request borrows in a shorter scope. Concurrent borrowers of one key
+share one acquisition and one volume. Keep the registry alive until all requests finish. Closing its scope shuts
+down every volume before releasing its store Layer, including volumes with active borrowers.
 
 The idle timeout keeps unused entries available for reuse while retaining their memory and storage locks.
 Capacity exhaustion fails with `Cause.ExceededCapacityError` instead of evicting an idle entry. Canonicalize keys

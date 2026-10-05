@@ -15,7 +15,7 @@ bun add "effect@$(npm view @effect-vfs/nfs peerDependencies.effect)" "@effect/pl
 
 Save this as `server.ts`. The fixture creates `/hello.txt`, and the caller supplies the authority used for every NFS read. `NfsServer.make` starts the socket server. `Effect.never` keeps its scope, volume, and caller alive until you stop the process.
 
-```ts
+```ts {16-17,22,25-28}
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { NfsServer } from "@effect-vfs/nfs"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"

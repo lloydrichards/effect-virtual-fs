@@ -23,7 +23,7 @@ See [Package compatibility](/reference/compatibility-and-limits#package-compatib
 
 Save this function in `writeManifest.ts`. It requests a filesystem but leaves the implementation to its caller:
 
-```ts title="writeManifest.ts"
+```ts title="writeManifest.ts" {4,6-7}
 import { Effect, FileSystem } from "effect"
 
 export const writeManifest = Effect.fn("writeManifest")(function* (version: string) {
@@ -43,7 +43,7 @@ Production can provide a host filesystem. Tests can provide disposable state wit
 Save the following test beside `writeManifest.ts`. Import the test API from `@effect/vitest` and return an Effect
 from `it.effect`:
 
-```ts title="writeManifest.test.ts"
+```ts title="writeManifest.test.ts" {12-16,23-24}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, describe, it } from "@effect/vitest"
@@ -88,7 +88,7 @@ its build. Use `Layer.fresh` when part of that graph needs an independent build.
 A temporary-directory setup may have created a parent directory without the test stating that precondition.
 Ordinary writes do not create missing parents. Make the required directory explicit:
 
-```ts title="parents.test.ts"
+```ts title="parents.test.ts" {9-16}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, it } from "@effect/vitest"
@@ -117,7 +117,7 @@ code when creating those directories is part of the application's job, as it is 
 Use `MemoryFileSystem.layerFromFixture` to provide Effect's filesystem service from a declared tree. Each independent
 layer build starts from the same fixture with fresh storage:
 
-```ts title="fixtures.test.ts"
+```ts title="fixtures.test.ts" {6-17,32-33,39-44}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, it } from "@effect/vitest"
@@ -190,7 +190,7 @@ to prevent it. A successful handler cannot replace the operation's result.
 
 Allocate counters inside the factory. This test proves that an unchanged second build makes no write call:
 
-```ts title="write-count.test.ts"
+```ts title="write-count.test.ts" {19-26,28-32}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { FileSystemTesting, MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, it } from "@effect/vitest"
@@ -232,7 +232,7 @@ a write does not increment the counter. Executing the same write Effect twice in
 
 To inspect successful output after a selected failure, reject the next write before it reaches the real filesystem:
 
-```ts title="selected-failure.test.ts"
+```ts title="selected-failure.test.ts" {18-20,25-28}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { FileSystemTesting, MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, it } from "@effect/vitest"
@@ -276,7 +276,7 @@ shared even across fresh builds.
 Streams and sinks call the `open` handler only when consumed. Their chunk reads and writes use unchanged file
 handles, so a `writeFile` spy does not count sink writes. Scoped calls keep their original scope requirements:
 
-```ts title="scoped-spy.test.ts"
+```ts title="scoped-spy.test.ts" {17-20,24}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { FileSystemTesting, MemoryFileSystem } from "@effect-vfs/memory"
 import { assert, it } from "@effect/vitest"
@@ -324,7 +324,7 @@ failure or volume limits for a capacity failure.
 
 Bind the volume with an unprivileged identity to test an application that requests `FileSystem.FileSystem`:
 
-```ts title="permissions.test.ts"
+```ts title="permissions.test.ts" {18-24}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as Testing from "@effect-vfs/core/Testing"
@@ -361,7 +361,7 @@ The test binds the existing volume with guest credentials and supplies that serv
 For code that uses core callers directly, use `Testing.callerAs` on the same volume. It returns a core caller,
 not a `FileSystem` service. Core errors use `AccessDenied`; the adapter translates that code to `PermissionDenied`:
 
-```ts title="core-permissions.test.ts"
+```ts title="core-permissions.test.ts" {11-13}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as Testing from "@effect-vfs/core/Testing"
@@ -384,7 +384,7 @@ it.effect("should deny a core guest access to a private directory", () =>
 Set `maxBytes` to limit the volume's combined file and symbolic-link bytes. This adapter test attempts a write
 larger than its one-byte capacity:
 
-```ts title="capacity.test.ts"
+```ts title="capacity.test.ts" {12,14-15,17}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as Testing from "@effect-vfs/core/Testing"

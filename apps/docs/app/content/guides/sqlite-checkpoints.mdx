@@ -24,7 +24,7 @@ the persistence package does not choose or open a database for you.
 Choose limits for the encoded snapshot and the filesystem data it can contain. The store applies the same limits
 when it saves and loads a checkpoint.
 
-```ts
+```ts title="checkpoints.ts" {16-19}
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { CheckpointError, CheckpointStore } from "@effect-vfs/persistence"
@@ -54,9 +54,9 @@ work. It is safe to run again on later startups. `CheckpointStore.layer` does no
 
 ## Save a named checkpoint
 
-Capture a snapshot explicitly and pass it to `save`:
+Continue in `checkpoints.ts`. Capture a snapshot explicitly and pass it to `save`:
 
-```ts
+```ts title="checkpoints.ts (continued)" {13}
 const save = Effect.gen(function* () {
   const store = yield* CheckpointStore
   const volume = yield* Vfs.fromFixture({
@@ -81,9 +81,9 @@ name.
 
 ## Load and restore the checkpoint
 
-Load the named snapshot and use it to create a fresh, independent volume:
+Continue in the same file. Load the named snapshot and use it to create a fresh, independent volume:
 
-```ts
+```ts title="checkpoints.ts (continued)" {3-7}
 const restore = Effect.gen(function* () {
   const store = yield* CheckpointStore
   const snapshot = yield* store.load("run-42")
@@ -107,13 +107,13 @@ hello
 ```
 
 The restore program can run in another process as long as it opens the same `checkpoints.sqlite` file and provides
-the same checkpoint layer setup.
+the same imports and checkpoint layer setup from `checkpoints.ts`.
 
 ## Handle checkpoint failures
 
 `CheckpointError` identifies naming, lookup, and SQLite failures. Handle it by tag, then inspect its `code`:
 
-```ts
+```ts title="checkpoints.ts (continued)" {2,7-12,19}
 const handleCheckpointError = (error: CheckpointError) => {
   switch (error.code) {
     case "InvalidName":
