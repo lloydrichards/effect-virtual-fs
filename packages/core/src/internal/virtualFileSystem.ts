@@ -8,6 +8,7 @@ import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as Exit from "effect/Exit"
+import { dual } from "effect/Function"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
@@ -1278,43 +1279,49 @@ export const makeVolume = Effect.fnUntraced(
         write: Effect.fnUntraced(function*(bytes: Uint8Array) {
           return yield* write(bytes)
         }),
-        pwrite: Effect.fnUntraced(function*(bytes: Uint8Array, offset: bigint) {
-          return yield* write(bytes, offset)
-        }),
-        seek: Effect.fnUntraced(function*(offset: bigint, mode: SeekMode) {
-          const op = OpContext.make("seek")
+        pwrite: dual(
+          2,
+          Effect.fnUntraced(function*(bytes: Uint8Array, offset: bigint) {
+            return yield* write(bytes, offset)
+          })
+        ),
+        seek: dual(
+          2,
+          Effect.fnUntraced(function*(offset: bigint, mode: SeekMode) {
+            const op = OpContext.make("seek")
 
-          return yield* coordinatedRead(
-            op,
-            Effect.uninterruptible(Effect.gen(function*() {
-              const file = yield* get(op)
+            return yield* coordinatedRead(
+              op,
+              Effect.uninterruptible(Effect.gen(function*() {
+                const file = yield* get(op)
 
-              if (!Predicate.isBigInt(offset) || !isSeekMode(mode)) {
-                return yield* op.fail("InvalidArgument")
-              }
+                if (!Predicate.isBigInt(offset) || !isSeekMode(mode)) {
+                  return yield* op.fail("InvalidArgument")
+                }
 
-              let next = mode === "current"
-                ? ref.offset + offset
-                : mode === "end"
-                ? file.metadata.size + offset
-                : offset
+                let next = mode === "current"
+                  ? ref.offset + offset
+                  : mode === "end"
+                  ? file.metadata.size + offset
+                  : offset
 
-              if (next < 0n || next > MAX_FILE_OFFSET) {
-                return yield* op.fail("InvalidArgument")
-              }
+                if (next < 0n || next > MAX_FILE_OFFSET) {
+                  return yield* op.fail("InvalidArgument")
+                }
 
-              if (mode === "data" || mode === "hole") {
-                if (offset >= file.metadata.size) return yield* op.fail("NoData")
+                if (mode === "data" || mode === "hole") {
+                  if (offset >= file.metadata.size) return yield* op.fail("NoData")
 
-                if (mode === "hole") next = file.metadata.size
-              }
+                  if (mode === "hole") next = file.metadata.size
+                }
 
-              ref.offset = next
+                ref.offset = next
 
-              return next
-            }))
-          )
-        }),
+                return next
+              }))
+            )
+          })
+        ),
         truncate: Effect.fnUntraced(function*(length: bigint) {
           const op = OpContext.make("truncate")
 
@@ -3045,115 +3052,122 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        writeFile: Effect.fnUntraced(function*(input, bytes, options) {
-          const op = OpContext.make("writeFile")
+        writeFile: dual(
+          3,
+          Effect.fnUntraced(function*(input: EntryInput, bytes: Uint8Array, options: WriteFileOptions) {
+            const op = OpContext.make("writeFile")
 
-          const prepared = yield* Effect.fromResult(prepareEntry(input, op))
-          const optionsOp = preparedOp(prepared, op)
+            const prepared = yield* Effect.fromResult(prepareEntry(input, op))
+            const optionsOp = preparedOp(prepared, op)
 
-          if (!isAttachedBytes(bytes)) return yield* optionsOp.fail("InvalidArgument")
-          const captured = new Uint8Array(bytes)
-          const chosen = yield* decodeWriteFileOptions(options).pipe(Effect.mapError((cause) => fail(optionsOp, cause)))
+            if (!isAttachedBytes(bytes)) return yield* optionsOp.fail("InvalidArgument")
 
-          return yield* coordinated(
-            op,
-            Effect.gen(function*() {
-              const resolved = yield* resolver.resolve(prepared, {
-                kind: "OrCreate",
-                create: chosen.create ?? "never",
-                finalSymlink: chosen.replaceFinalSymlink !== true && chosen.followFinalSymlink !== false
-                  ? "follow"
-                  : "preserve",
-                entryExclusive: "afterSymlink"
-              }, op)
+            const captured = new Uint8Array(bytes)
 
-              const { parent, name, trailingSlash, op: entryOp } = resolved
-              const found = resolved.kind === "existing" ? resolved.node : undefined
+            const chosen = yield* decodeWriteFileOptions(options).pipe(
+              Effect.mapError((cause) => fail(optionsOp, cause))
+            )
 
-              if (found?.kind === "directory" || (found === undefined && trailingSlash)) {
-                return yield* entryOp.fail("IsDirectory")
-              }
+            return yield* coordinated(
+              op,
+              Effect.gen(function*() {
+                const resolved = yield* resolver.resolve(prepared, {
+                  kind: "OrCreate",
+                  create: chosen.create ?? "never",
+                  finalSymlink: chosen.replaceFinalSymlink !== true && chosen.followFinalSymlink !== false
+                    ? "follow"
+                    : "preserve",
+                  entryExclusive: "afterSymlink"
+                }, op)
 
-              const replaced = found?.kind === "symlink" ? found : undefined
+                const { parent, name, trailingSlash, op: entryOp } = resolved
+                const found = resolved.kind === "existing" ? resolved.node : undefined
 
-              if (replaced !== undefined && !chosen.replaceFinalSymlink) return yield* entryOp.fail("SymlinkLoop")
-
-              if (chosen.access === "read") return yield* entryOp.fail("InvalidHandle")
-              const file = found?.kind === "file" ? found : undefined
-
-              if (file === undefined) {
-                yield* authorize(parent, identity, WRITE | EXECUTE, entryOp)
-
-                if (replaced !== undefined) yield* authorizeRemoval(parent, replaced, entryOp)
-
-                yield* (replaced === undefined ? reserveEntry(entryOp) : reserveInode(entryOp))
-              } else {
-                yield* authorize(file, identity, chosen.access === "readWrite" ? READ | WRITE : WRITE, entryOp)
-              }
-
-              const finalMode = chosen.finalMode === undefined ? undefined : yield* permittedMode(
-                file?.metadata ?? { kind: "file", uid: identity.uid, gid: parent.metadata.gid },
-                chosen.finalMode,
-                entryOp
-              )
-
-              const previous = file?.data.length ?? 0
-              const initial = chosen.truncate ? 0 : previous
-              const position = chosen.append ? initial : 0
-              const size = Math.max(initial, position + captured.length)
-
-              if (size > maxFileBytes) return yield* entryOp.fail("FileTooLarge")
-              const reclaimed = replaced !== undefined && replaced.metadata.nlink === 1 ? replaced.target.length : 0
-
-              yield* reserveBytes(entryOp, BigInt(size - previous) - BigInt(reclaimed))
-
-              if (file !== undefined && !chosen.truncate && captured.length === 0 && chosen.finalMode === undefined) {
-                return
-              }
-
-              let data = captured
-
-              if (position !== 0 || size !== captured.length) {
-                data = new Uint8Array(size)
-
-                if (file !== undefined && !chosen.truncate) data.set(file.data)
-                data.set(captured, position)
-              }
-
-              const now = yield* timestamp(op)
-              const d = yield* Draft
-
-              const node = file ??
-                (yield* newFile(parent, new Uint8Array(0), (chosen.mode ?? 0o666) & 0o777 & ~umask, now))
-
-              const written: RegularFile = {
-                ...node,
-                data,
-                metadata: {
-                  ...node.metadata,
-                  mode: finalMode ?? node.metadata.mode & ~SET_ID_BITS,
-                  size: BigInt(size),
-                  mtimeNs: now,
-                  ctimeNs: now
+                if (found?.kind === "directory" || (found === undefined && trailingSlash)) {
+                  return yield* entryOp.fail("IsDirectory")
                 }
-              }
 
-              yield* d.addUsedBytes(BigInt(size - previous))
+                const replaced = found?.kind === "symlink" ? found : undefined
 
-              if (file === undefined) {
-                if (replaced !== undefined) yield* detach(replaced, parent.ino, name, now)
+                if (replaced !== undefined && !chosen.replaceFinalSymlink) return yield* entryOp.fail("SymlinkLoop")
 
-                yield* attach(yield* directoryNow(parent.ino), name, written, now)
+                if (chosen.access === "read") return yield* entryOp.fail("InvalidHandle")
+                const file = found?.kind === "file" ? found : undefined
 
-                if (replaced === undefined) yield* d.addEntries(1)
-                yield* publishEntry(replaced === undefined ? "Create" : "Update", parent.ino, name, written.ino)
-              } else {
-                yield* d.put(written)
-                yield* publishNode(written.ino)
-              }
-            })
-          )
-        }),
+                if (file === undefined) {
+                  yield* authorize(parent, identity, WRITE | EXECUTE, entryOp)
+
+                  if (replaced !== undefined) yield* authorizeRemoval(parent, replaced, entryOp)
+
+                  yield* (replaced === undefined ? reserveEntry(entryOp) : reserveInode(entryOp))
+                } else {
+                  yield* authorize(file, identity, chosen.access === "readWrite" ? READ | WRITE : WRITE, entryOp)
+                }
+
+                const finalMode = chosen.finalMode === undefined ? undefined : yield* permittedMode(
+                  file?.metadata ?? { kind: "file", uid: identity.uid, gid: parent.metadata.gid },
+                  chosen.finalMode,
+                  entryOp
+                )
+
+                const previous = file?.data.length ?? 0
+                const initial = chosen.truncate ? 0 : previous
+                const position = chosen.append ? initial : 0
+                const size = Math.max(initial, position + captured.length)
+
+                if (size > maxFileBytes) return yield* entryOp.fail("FileTooLarge")
+                const reclaimed = replaced !== undefined && replaced.metadata.nlink === 1 ? replaced.target.length : 0
+
+                yield* reserveBytes(entryOp, BigInt(size - previous) - BigInt(reclaimed))
+
+                if (file !== undefined && !chosen.truncate && captured.length === 0 && chosen.finalMode === undefined) {
+                  return
+                }
+
+                let data = captured
+
+                if (position !== 0 || size !== captured.length) {
+                  data = new Uint8Array(size)
+
+                  if (file !== undefined && !chosen.truncate) data.set(file.data)
+                  data.set(captured, position)
+                }
+
+                const now = yield* timestamp(op)
+                const d = yield* Draft
+
+                const node = file ??
+                  (yield* newFile(parent, new Uint8Array(0), (chosen.mode ?? 0o666) & 0o777 & ~umask, now))
+
+                const written: RegularFile = {
+                  ...node,
+                  data,
+                  metadata: {
+                    ...node.metadata,
+                    mode: finalMode ?? node.metadata.mode & ~SET_ID_BITS,
+                    size: BigInt(size),
+                    mtimeNs: now,
+                    ctimeNs: now
+                  }
+                }
+
+                yield* d.addUsedBytes(BigInt(size - previous))
+
+                if (file === undefined) {
+                  if (replaced !== undefined) yield* detach(replaced, parent.ino, name, now)
+
+                  yield* attach(yield* directoryNow(parent.ino), name, written, now)
+
+                  if (replaced === undefined) yield* d.addEntries(1)
+                  yield* publishEntry(replaced === undefined ? "Create" : "Update", parent.ino, name, written.ino)
+                } else {
+                  yield* d.put(written)
+                  yield* publishNode(written.ino)
+                }
+              })
+            )
+          })
+        ),
         open,
         mkdir: Effect.fnUntraced(function*(input, options = {}) {
           const op = OpContext.make("mkdir")
@@ -3201,27 +3215,30 @@ export const makeVolume = Effect.fnUntraced(
             })
           )
         }),
-        link: Effect.fnUntraced(function*(sourceInput, input) {
-          const op = OpContext.make("link")
-          const source = asTarget(sourceInput)
-          const prepared = yield* Effect.fromResult(prepareEntry(input, op))
+        link: dual(
+          2,
+          Effect.fnUntraced(function*(sourceInput: TargetInput, input: EntryInput) {
+            const op = OpContext.make("link")
+            const source = asTarget(sourceInput)
+            const prepared = yield* Effect.fromResult(prepareEntry(input, op))
 
-          return yield* coordinated(
-            op,
-            Effect.gen(function*() {
-              const resolved = yield* resolveTarget(source, op, { followFinalSymlink: false })
-              const node = resolved.node
+            return yield* coordinated(
+              op,
+              Effect.gen(function*() {
+                const resolved = yield* resolveTarget(source, op, { followFinalSymlink: false })
+                const node = resolved.node
 
-              if (node.kind === "directory") return yield* resolved.op.fail("IsDirectory")
+                if (node.kind === "directory") return yield* resolved.op.fail("IsDirectory")
 
-              if (node.metadata.nlink === 0) return yield* resolved.op.fail("StaleReference")
-              const entry = yield* resolveEntry(prepared, op)
-              const directory = yield* linkNode(node, entry, op)
+                if (node.metadata.nlink === 0) return yield* resolved.op.fail("StaleReference")
+                const entry = yield* resolveEntry(prepared, op)
+                const directory = yield* linkNode(node, entry, op)
 
-              return { reference: referenceFor(node.ino), directory }
-            })
-          )
-        }),
+                return { reference: referenceFor(node.ino), directory }
+              })
+            )
+          })
+        ),
         unlink: Effect.fnUntraced(function*(input) {
           return yield* entryVerb("unlink", input, unlinkEntry)
         }),
@@ -3229,83 +3246,101 @@ export const makeVolume = Effect.fnUntraced(
           return yield* entryVerb("rmdir", input, rmdirEntry)
         }),
         remove,
-        rename: Effect.fnUntraced(function*(fromInput, toInput) {
-          const op = OpContext.make("rename")
-          const from = yield* Effect.fromResult(prepareEntry(fromInput, op))
-          const to = yield* Effect.fromResult(prepareEntry(toInput, op))
+        rename: dual(
+          2,
+          Effect.fnUntraced(function*(fromInput: EntryInput, toInput: EntryInput) {
+            const op = OpContext.make("rename")
+            const from = yield* Effect.fromResult(prepareEntry(fromInput, op))
+            const to = yield* Effect.fromResult(prepareEntry(toInput, op))
 
-          return yield* coordinated(
-            op,
-            Effect.gen(function*() {
-              const source = yield* resolveEntry(from, op)
-              const destination = yield* resolveEntry(to, op)
+            return yield* coordinated(
+              op,
+              Effect.gen(function*() {
+                const source = yield* resolveEntry(from, op)
+                const destination = yield* resolveEntry(to, op)
 
-              return yield* renameEntry(source, destination, op)
-            })
-          )
-        }),
-        chmod: Effect.fnUntraced(function*(input, mode) {
-          const op = OpContext.make("chmod")
-          const target = asTarget(input)
+                return yield* renameEntry(source, destination, op)
+              })
+            )
+          })
+        ),
+        chmod: dual(
+          2,
+          Effect.fnUntraced(function*(input: TargetInput, mode: number) {
+            const op = OpContext.make("chmod")
+            const target = asTarget(input)
 
-          if (!isMode(mode)) return yield* op.fail("InvalidArgument")
-          yield* changeAttributes(() => asResolvedNode(target, op), { mode }, op)
-        }),
-        chown: Effect.fnUntraced(function*(input, owner) {
-          const op = OpContext.make("chown")
-          const target = asTarget(input)
-          const decoded = yield* decodeOwnerUpdate(owner).pipe(Effect.mapError((cause) => fail(op, cause)))
-          yield* changeAttributes(() => asResolvedNode(target, op), { owner: decoded }, op)
-        }),
-        utimes: Effect.fnUntraced(function*(input, times) {
-          const op = OpContext.make("utimes")
-          const target = asTarget(input)
-          const decoded = yield* decodeTimes(times).pipe(Effect.mapError((cause) => fail(op, cause)))
-          yield* changeAttributes(() => asResolvedNode(target, op), { times: decoded }, op)
-        }),
+            if (!isMode(mode)) return yield* op.fail("InvalidArgument")
+            yield* changeAttributes(() => asResolvedNode(target, op), { mode }, op)
+          })
+        ),
+        chown: dual(
+          2,
+          Effect.fnUntraced(function*(input: TargetInput, owner: OwnerUpdate) {
+            const op = OpContext.make("chown")
+            const target = asTarget(input)
+            const decoded = yield* decodeOwnerUpdate(owner).pipe(Effect.mapError((cause) => fail(op, cause)))
+            yield* changeAttributes(() => asResolvedNode(target, op), { owner: decoded }, op)
+          })
+        ),
+        utimes: dual(
+          2,
+          Effect.fnUntraced(function*(input: TargetInput, times: Times) {
+            const op = OpContext.make("utimes")
+            const target = asTarget(input)
+            const decoded = yield* decodeTimes(times).pipe(Effect.mapError((cause) => fail(op, cause)))
+            yield* changeAttributes(() => asResolvedNode(target, op), { times: decoded }, op)
+          })
+        ),
         // A negative length fails before the target resolves, as truncate(2) rejects it before the lookup.
-        truncate: Effect.fnUntraced(function*(input, length) {
-          const op = OpContext.make("truncate")
-          const target = asTarget(input)
+        truncate: dual(
+          2,
+          Effect.fnUntraced(function*(input: TargetInput, length: bigint) {
+            const op = OpContext.make("truncate")
+            const target = asTarget(input)
 
-          if (!isLength(length)) return yield* op.fail("InvalidArgument")
-          yield* changeAttributes(() => asResolvedNode(target, op), { size: length }, op)
-        }),
-        setattr: Effect.fnUntraced(function*(input, attributes) {
-          const op = OpContext.make("setattr")
-          const target = asTarget(input)
+            if (!isLength(length)) return yield* op.fail("InvalidArgument")
+            yield* changeAttributes(() => asResolvedNode(target, op), { size: length }, op)
+          })
+        ),
+        setattr: dual(
+          2,
+          Effect.fnUntraced(function*(input: TargetInput, attributes: SetattrOptions) {
+            const op = OpContext.make("setattr")
+            const target = asTarget(input)
 
-          // A caller outside TypeScript can pass anything, so a non-object fails typed rather than as a defect;
-          // the check reads a widened copy so the attributes keep their type below.
-          const raw: unknown = attributes
+            // A caller outside TypeScript can pass anything, so a non-object fails typed rather than as a defect;
+            // the check reads a widened copy so the attributes keep their type below.
+            const raw: unknown = attributes
 
-          if (!Predicate.isObject(raw)) return yield* fail(op)
-          const unknown = Object.keys(attributes).find((key) => !SETATTR_FIELDS.includes(key))
+            if (!Predicate.isObject(raw)) return yield* fail(op)
+            const unknown = Object.keys(attributes).find((key) => !SETATTR_FIELDS.includes(key))
 
-          if (unknown !== undefined) return yield* fail(op, undefined, unknown)
+            if (unknown !== undefined) return yield* fail(op, undefined, unknown)
 
-          if (attributes.size !== undefined && !isLength(attributes.size)) return yield* fail(op, undefined, "size")
+            if (attributes.size !== undefined && !isLength(attributes.size)) return yield* fail(op, undefined, "size")
 
-          if (attributes.mode !== undefined && !isMode(attributes.mode)) return yield* fail(op, undefined, "mode")
+            if (attributes.mode !== undefined && !isMode(attributes.mode)) return yield* fail(op, undefined, "mode")
 
-          const owner = attributes.owner === undefined
-            ? undefined
-            : yield* decodeOwnerUpdate(attributes.owner).pipe(Effect.mapError((cause) => fail(op, cause, "owner")))
+            const owner = attributes.owner === undefined
+              ? undefined
+              : yield* decodeOwnerUpdate(attributes.owner).pipe(Effect.mapError((cause) => fail(op, cause, "owner")))
 
-          const times = attributes.times === undefined
-            ? undefined
-            : yield* decodeTimes(attributes.times).pipe(Effect.mapError((cause) => fail(op, cause, "times")))
+            const times = attributes.times === undefined
+              ? undefined
+              : yield* decodeTimes(attributes.times).pipe(Effect.mapError((cause) => fail(op, cause, "times")))
 
-          const expected = attributes.expected === undefined
-            ? undefined
-            : yield* decodeExpected(attributes.expected).pipe(Effect.mapError((cause) => fail(op, cause, "expected")))
+            const expected = attributes.expected === undefined
+              ? undefined
+              : yield* decodeExpected(attributes.expected).pipe(Effect.mapError((cause) => fail(op, cause, "expected")))
 
-          yield* changeAttributes(
-            () => asResolvedNode(target, op),
-            { size: attributes.size, mode: attributes.mode, owner, times, expected },
-            op
-          )
-        }),
+            yield* changeAttributes(
+              () => asResolvedNode(target, op),
+              { size: attributes.size, mode: attributes.mode, owner, times, expected },
+              op
+            )
+          })
+        ),
         withRoot: Effect.fnUntraced(function*(input) {
           const acquired = yield* acquireDirectory(input, OpContext.make("withRoot"))
 

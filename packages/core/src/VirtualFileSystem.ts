@@ -12,9 +12,11 @@ import type * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
+import { dual } from "effect/Function"
 import * as Layer from "effect/Layer"
 import type * as Order from "effect/Order"
 import type * as PlatformError from "effect/PlatformError"
+import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as SchemaAST from "effect/SchemaAST"
@@ -51,7 +53,7 @@ export {
 
 export { BytePath } from "./BytePath.js"
 
-import type { DecodeLimits, Snapshot } from "./Snapshot.js"
+import { type DecodeLimits, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 
 export { DecodeLimits, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 
@@ -301,10 +303,8 @@ export const VolumeDurabilityOrder: Order.Order<VolumeDurability> = VolumeModule
  * @category predicates
  * @since 0.1.0
  */
-export const isVolumeDurabilityAtLeast: (
-  actual: VolumeDurability,
-  required: VolumeDurability
-) => boolean = VolumeModule.isVolumeDurabilityAtLeast
+export const isVolumeDurabilityAtLeast: typeof VolumeModule.isVolumeDurabilityAtLeast =
+  VolumeModule.isVolumeDurabilityAtLeast
 
 /**
  * Schema for the stable logical identity of a volume.
@@ -1022,10 +1022,22 @@ export interface FileHandle {
   readonly pread: (maximumBytes: number, offset: bigint) => Effect.Effect<ReadResult, FsFailure>
   /** Writes at the cursor and advances it, or writes at end of file when opened for append. */
   readonly write: (bytes: Uint8Array) => Effect.Effect<number, FsFailure>
-  /** Writes at `offset` without changing the cursor. Append mode does not affect positional writes. */
-  readonly pwrite: (bytes: Uint8Array, offset: bigint) => Effect.Effect<number, FsFailure>
-  /** Moves the cursor and returns its new offset. `data` finds content and `hole` finds end of file. */
-  readonly seek: (offset: bigint, mode: SeekMode) => Effect.Effect<bigint, FsFailure>
+  /**
+   * Writes at `offset` without changing the cursor. Append mode does not affect positional writes.
+   * The curried form is `pwrite(offset)(bytes)`.
+   */
+  readonly pwrite: {
+    (offset: bigint): (bytes: Uint8Array) => Effect.Effect<number, FsFailure>
+    (bytes: Uint8Array, offset: bigint): Effect.Effect<number, FsFailure>
+  }
+  /**
+   * Moves the cursor and returns its new offset. `data` finds content and `hole` finds end of file.
+   * The curried form is `seek(mode)(offset)`.
+   */
+  readonly seek: {
+    (mode: SeekMode): (offset: bigint) => Effect.Effect<bigint, FsFailure>
+    (offset: bigint, mode: SeekMode): Effect.Effect<bigint, FsFailure>
+  }
   /** Sets the file length without changing the cursor. */
   readonly truncate: (length: bigint) => Effect.Effect<void, FsFailure>
   /** Reads metadata for the open file. */
@@ -1170,12 +1182,14 @@ export interface Caller {
   readonly access: (target: TargetInput, bits?: number) => Effect.Effect<number, FsFailure>
   /** The whole content of a regular file. */
   readonly readFile: (target: TargetInput) => Effect.Effect<Uint8Array, FsFailure>
-  /** Writes a whole file in one operation, creating or replacing it as the options say. */
-  readonly writeFile: (
-    entry: EntryInput,
-    bytes: Uint8Array,
-    options: WriteFileOptions
-  ) => Effect.Effect<void, FsFailure>
+  /**
+   * Writes a whole file in one operation, creating or replacing it as the options say.
+   * The curried form is `writeFile(bytes, options)(entry)`; the caller remains bound.
+   */
+  readonly writeFile: {
+    (bytes: Uint8Array, options: WriteFileOptions): (entry: EntryInput) => Effect.Effect<void, FsFailure>
+    (entry: EntryInput, bytes: Uint8Array, options: WriteFileOptions): Effect.Effect<void, FsFailure>
+  }
   /**
    * Opens a file. On a target, the file must exist and `create` is rejected. On an entry, the name is looked up
    * and created in one gate hold, and the result reports whether it was created.
@@ -1205,7 +1219,10 @@ export interface Caller {
     options?: SymlinkOptions
   ) => Effect.Effect<ReferenceEntryResult, FsFailure>
   /** Adds a name for an existing file or symbolic link. A path source follows a final symbolic link only when its target says so. */
-  readonly link: (source: TargetInput, entry: EntryInput) => Effect.Effect<ReferenceEntryResult, FsFailure>
+  readonly link: {
+    (entry: EntryInput): (source: TargetInput) => Effect.Effect<ReferenceEntryResult, FsFailure>
+    (source: TargetInput, entry: EntryInput): Effect.Effect<ReferenceEntryResult, FsFailure>
+  }
   /** Removes a file or symbolic link. */
   readonly unlink: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
   /** Removes an empty directory. */
@@ -1223,15 +1240,30 @@ export interface Caller {
     (entry: EntryInput, options: RemoveOptions): Effect.Effect<DirectoryChange | undefined, FsFailure>
   }
   /** Moves an entry, replacing a compatible destination. */
-  readonly rename: (from: EntryInput, to: EntryInput) => Effect.Effect<RenameReferenceResult, FsFailure>
+  readonly rename: {
+    (to: EntryInput): (from: EntryInput) => Effect.Effect<RenameReferenceResult, FsFailure>
+    (from: EntryInput, to: EntryInput): Effect.Effect<RenameReferenceResult, FsFailure>
+  }
   /** Sets the permission bits of a target. */
-  readonly chmod: (target: TargetInput, mode: number) => Effect.Effect<void, FsFailure>
+  readonly chmod: {
+    (mode: number): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, mode: number): Effect.Effect<void, FsFailure>
+  }
   /** Changes the owner or group of a target. */
-  readonly chown: (target: TargetInput, owner: OwnerUpdate) => Effect.Effect<void, FsFailure>
+  readonly chown: {
+    (owner: OwnerUpdate): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, owner: OwnerUpdate): Effect.Effect<void, FsFailure>
+  }
   /** Sets the access and modification times of a target. */
-  readonly utimes: (target: TargetInput, times: Times) => Effect.Effect<void, FsFailure>
+  readonly utimes: {
+    (times: Times): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, times: Times): Effect.Effect<void, FsFailure>
+  }
   /** Sets the size of a regular file. */
-  readonly truncate: (target: TargetInput, length: bigint) => Effect.Effect<void, FsFailure>
+  readonly truncate: {
+    (length: bigint): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, length: bigint): Effect.Effect<void, FsFailure>
+  }
   /**
    * Changes a target's size, owner, mode and times as one change. Every check passes before any attribute
    * applies, so a failure changes nothing. The attributes apply as size, owner, mode, then times, the POSIX
@@ -1240,7 +1272,10 @@ export interface Caller {
    * does so before it calls setattr, and passes the revision it read as `expected` so the change refuses a
    * target another change has moved.
    */
-  readonly setattr: (target: TargetInput, attributes: SetattrOptions) => Effect.Effect<void, FsFailure>
+  readonly setattr: {
+    (attributes: SetattrOptions): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, attributes: SetattrOptions): Effect.Effect<void, FsFailure>
+  }
   /** A caller whose working directory is the target, released with the scope. */
   readonly withDirectory: (directory: TargetInput) => Effect.Effect<Caller, FsFailure, Scope.Scope>
   /** A handle on a directory, released with the scope. */
@@ -1642,23 +1677,36 @@ export const Volume: Context.Service<Volume, Volume> & {
   /** A fresh empty volume. */
   readonly layer: (options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
   /** A fresh volume restored from a snapshot. */
-  readonly layerFromSnapshot: (
-    snapshot: Snapshot,
-    options?: VolumeOptions
-  ) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layerFromSnapshot: {
+    (options?: VolumeOptions): (snapshot: Snapshot) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (snapshot: Snapshot, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  }
   /** A fresh volume built from a fixture. */
-  readonly layerFromFixture: (fixture: Fixture, options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layerFromFixture: {
+    (options?: VolumeOptions): (fixture: Fixture) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (fixture: Fixture, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  }
   /** A writable overlay over a snapshot base. */
-  readonly layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layerOverlay: {
+    (options?: VolumeOptions): (base: Snapshot) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (base: Snapshot, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  }
   /** A durable volume opened through the `LiveImageStore` in context; it shuts down with the layer's scope. */
   readonly layerLive: (options: LiveVolumeOptions) => Layer.Layer<Volume, VfsError, LiveImageStore | Crypto.Crypto>
 } = Object.assign(Context.Service<Volume, Volume>("@effect-vfs/core/Volume"), {
   layer: (options?: VolumeOptions) => Layer.effect(Volume, VfsModel.make(options)),
-  layerFromSnapshot: (snapshot: Snapshot, options?: VolumeOptions) =>
-    Layer.effect(Volume, VfsModel.fromSnapshot(snapshot, options)),
-  layerFromFixture: (fixture: Fixture, options?: VolumeOptions) =>
-    Layer.effect(Volume, FixtureInternal.fromFixture(fixture, options)),
-  layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.effect(Volume, VfsModel.makeOverlay(base, options)),
+  layerFromSnapshot: dual(
+    (args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId),
+    (snapshot: Snapshot, options?: VolumeOptions) => Layer.effect(Volume, VfsModel.fromSnapshot(snapshot, options))
+  ),
+  layerFromFixture: dual(
+    (args) => args.length >= 2 || Predicate.hasProperty(args[0], "entries"),
+    (fixture: Fixture, options?: VolumeOptions) => Layer.effect(Volume, FixtureInternal.fromFixture(fixture, options))
+  ),
+  layerOverlay: dual(
+    (args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId),
+    (base: Snapshot, options?: VolumeOptions) => Layer.effect(Volume, VfsModel.makeOverlay(base, options))
+  ),
   layerLive: (options: LiveVolumeOptions) => Layer.effect(Volume, openLiveVolume(options))
 })
 
@@ -1730,14 +1778,17 @@ const optionalBudget = (operation: string, limits: DecodeLimits | undefined) =>
  * @category serialization
  * @since 0.6.0
  */
-export const encodeSnapshotStream: (
-  snapshot: Snapshot,
-  limits?: DecodeLimits
-) => Stream.Stream<Uint8Array, ImageFailure | ArgumentFailure> = (snapshot, limits) =>
-  Stream.unwrap(Effect.map(
-    optionalBudget("encodeSnapshotStream", limits),
-    (budget) => Image.encodeSnapshotStream(snapshot, budget)
-  )).pipe(Stream.mapError((error) => retargetFailure("encodeSnapshotStream", error)))
+export const encodeSnapshotStream: {
+  (limits?: DecodeLimits): (snapshot: Snapshot) => Stream.Stream<Uint8Array, ImageFailure | ArgumentFailure>
+  (snapshot: Snapshot, limits?: DecodeLimits): Stream.Stream<Uint8Array, ImageFailure | ArgumentFailure>
+} = dual(
+  (args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId),
+  (snapshot, limits) =>
+    Stream.unwrap(Effect.map(
+      optionalBudget("encodeSnapshotStream", limits),
+      (budget) => Image.encodeSnapshotStream(snapshot, budget)
+    )).pipe(Stream.mapError((error) => retargetFailure("encodeSnapshotStream", error)))
+)
 
 /**
  * Encodes a snapshot as owned UTF-8 bytes in the version 1 snapshot format.
@@ -1779,13 +1830,16 @@ export const encodeSnapshotStream: (
  * @category serialization
  * @since 0.1.0
  */
-export const encodeSnapshot: (
-  snapshot: Snapshot,
-  limits?: DecodeLimits
-) => Effect.Effect<Uint8Array, ImageFailure | ArgumentFailure> = (snapshot, limits) =>
-  Effect.flatMap(optionalBudget("encodeSnapshot", limits), (budget) => Image.encodeSnapshot(snapshot, budget)).pipe(
-    Effect.mapError((error) => retargetFailure("encodeSnapshot", error))
-  )
+export const encodeSnapshot: {
+  (limits?: DecodeLimits): (snapshot: Snapshot) => Effect.Effect<Uint8Array, ImageFailure | ArgumentFailure>
+  (snapshot: Snapshot, limits?: DecodeLimits): Effect.Effect<Uint8Array, ImageFailure | ArgumentFailure>
+} = dual(
+  (args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId),
+  (snapshot, limits) =>
+    Effect.flatMap(optionalBudget("encodeSnapshot", limits), (budget) => Image.encodeSnapshot(snapshot, budget)).pipe(
+      Effect.mapError((error) => retargetFailure("encodeSnapshot", error))
+    )
+)
 
 /**
  * A sink that decodes a stream of version 1 snapshot chunks while enforcing
@@ -1889,11 +1943,10 @@ export const decodeSnapshotSink: (
  * @category serialization
  * @since 0.1.0
  */
-export const decodeSnapshot: (
-  input: Uint8Array,
-  limits: DecodeLimits
-) => Effect.Effect<Snapshot, ImageFailure | ArgumentFailure> = (input, limits) =>
-  Stream.run(Stream.succeed(input), decodeSnapshotSink(limits))
+export const decodeSnapshot: {
+  (limits: DecodeLimits): (input: Uint8Array) => Effect.Effect<Snapshot, ImageFailure | ArgumentFailure>
+  (input: Uint8Array, limits: DecodeLimits): Effect.Effect<Snapshot, ImageFailure | ArgumentFailure>
+} = dual(2, (input, limits) => Stream.run(Stream.succeed(input), decodeSnapshotSink(limits)))
 
 const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDeltaLimits) =>
   Effect.fromResult(decodeConfiguration(
@@ -1940,24 +1993,31 @@ const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDelt
  * @category snapshots
  * @since 0.1.0
  */
-export const diffSnapshots: (
-  base: Snapshot,
-  target: Snapshot,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) => Effect.Effect<
-  SnapshotDeltaModel.SnapshotDelta,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
-> = Effect.fnUntraced(function*(
-  base: Snapshot,
-  target: Snapshot,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) {
-  // The delta codec fails under its own name; the public entry point names itself.
-  return yield* SnapshotDeltaInternal.diffSnapshots(base, target, yield* deltaLimits("diffSnapshots", limits)).pipe(
-    Effect.mapError((error) => retargetFailure("diffSnapshots", error))
-  )
-})
+export const diffSnapshots: {
+  (
+    target: Snapshot,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): (
+    base: Snapshot
+  ) => Effect.Effect<SnapshotDeltaModel.SnapshotDelta, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  (
+    base: Snapshot,
+    target: Snapshot,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): Effect.Effect<SnapshotDeltaModel.SnapshotDelta, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+} = dual(
+  (args) => args.length >= 3 || Predicate.hasProperty(args[1], SnapshotTypeId),
+  Effect.fnUntraced(function*(
+    base: Snapshot,
+    target: Snapshot,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ) {
+    // The delta codec fails under its own name; the public entry point names itself.
+    return yield* SnapshotDeltaInternal.diffSnapshots(base, target, yield* deltaLimits("diffSnapshots", limits)).pipe(
+      Effect.mapError((error) => retargetFailure("diffSnapshots", error))
+    )
+  })
+)
 
 /**
  * Verifies an exact snapshot delta against its base and derives an owned path-oriented summary.
@@ -1994,32 +2054,48 @@ export const diffSnapshots: (
  * @category snapshots
  * @since 0.1.0
  */
-export const inspectSnapshotDelta: (
-  base: Snapshot,
-  delta: SnapshotDeltaModel.SnapshotDelta,
-  options?: SnapshotDeltaModel.SnapshotChangesOptions,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) => Effect.Effect<
-  ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
-> = Effect.fnUntraced(function*(
-  base: Snapshot,
-  delta: SnapshotDeltaModel.SnapshotDelta,
-  options?: SnapshotDeltaModel.SnapshotChangesOptions,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) {
-  const decoded = yield* Effect.fromResult(
-    decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {}, "inspectSnapshotDelta")
-  )
+export const inspectSnapshotDelta: {
+  (
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.SnapshotChangesOptions,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): (
+    base: Snapshot
+  ) => Effect.Effect<
+    ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
+    VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >
+  (
+    base: Snapshot,
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.SnapshotChangesOptions,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): Effect.Effect<
+    ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
+    VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >
+} = dual(
+  (args) => args.length >= 4 || Predicate.hasProperty(args[0], SnapshotTypeId),
+  Effect.fnUntraced(function*(
+    base: Snapshot,
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.SnapshotChangesOptions,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ) {
+    const decoded = yield* Effect.fromResult(
+      decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {}, "inspectSnapshotDelta")
+    )
 
-  return yield* SnapshotDeltaInternal.inspectSnapshotDelta(
-    base,
-    delta,
-    decoded,
-    yield* deltaLimits("inspectSnapshotDelta", limits)
-  ).pipe(Effect.mapError((error) => retargetFailure("inspectSnapshotDelta", error)))
-})
+    return yield* SnapshotDeltaInternal.inspectSnapshotDelta(
+      base,
+      delta,
+      decoded,
+      yield* deltaLimits("inspectSnapshotDelta", limits)
+    ).pipe(Effect.mapError((error) => retargetFailure("inspectSnapshotDelta", error)))
+  })
+)
 
 /**
  * Applies an exact delta to its semantically matching base and returns a new snapshot.
@@ -2061,25 +2137,30 @@ export const inspectSnapshotDelta: (
  * @category snapshots
  * @since 0.1.0
  */
-export const applySnapshotDelta: (
-  base: Snapshot,
-  delta: SnapshotDeltaModel.SnapshotDelta,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) => Effect.Effect<
-  Snapshot,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
-> = Effect.fnUntraced(function*(
-  base: Snapshot,
-  delta: SnapshotDeltaModel.SnapshotDelta,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) {
-  return yield* SnapshotDeltaInternal.applySnapshotDelta(
-    base,
-    delta,
-    yield* deltaLimits("applySnapshotDelta", limits)
-  ).pipe(Effect.mapError((error) => retargetFailure("applySnapshotDelta", error)))
-})
+export const applySnapshotDelta: {
+  (
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): (base: Snapshot) => Effect.Effect<Snapshot, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  (
+    base: Snapshot,
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): Effect.Effect<Snapshot, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+} = dual(
+  (args) => args.length >= 3 || Predicate.hasProperty(args[0], SnapshotTypeId),
+  Effect.fnUntraced(function*(
+    base: Snapshot,
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ) {
+    return yield* SnapshotDeltaInternal.applySnapshotDelta(
+      base,
+      delta,
+      yield* deltaLimits("applySnapshotDelta", limits)
+    ).pipe(Effect.mapError((error) => retargetFailure("applySnapshotDelta", error)))
+  })
+)
 
 /**
  * Merges two snapshot deltas that share one base into a single delta, reporting path-level conflicts as data.
@@ -2118,7 +2199,7 @@ export const applySnapshotDelta: (
  *   )
  *
  *   // Disjoint changes merge without conflicts; the delta applies to the shared base.
- *   const merged = yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(base, result.delta))
+ *   const merged = yield* Vfs.applySnapshotDelta(base, result.delta).pipe(Effect.flatMap(Vfs.fromSnapshot()))
  *   const reader = yield* merged.caller()
  *
  *   return [result.conflicts.length, new TextDecoder().decode(yield* reader.readFile("/shared.txt"))]
@@ -2132,32 +2213,40 @@ export const applySnapshotDelta: (
  * @category snapshots
  * @since 0.8.0
  */
-export const mergeSnapshotDeltas: (
-  base: Snapshot,
-  ours: SnapshotDeltaModel.SnapshotDelta,
-  theirs: SnapshotDeltaModel.SnapshotDelta,
-  options?: SnapshotDeltaModel.MergeOptions
-) => Effect.Effect<
-  SnapshotDeltaModel.MergeResult,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
-> = Effect.fnUntraced(function*(
-  base: Snapshot,
-  ours: SnapshotDeltaModel.SnapshotDelta,
-  theirs: SnapshotDeltaModel.SnapshotDelta,
-  options?: SnapshotDeltaModel.MergeOptions
-) {
-  // Limits decode first so a bad limit names its own field; the rest of the options decode as one.
-  const limits = yield* deltaLimits("mergeSnapshotDeltas", options?.limits)
+export const mergeSnapshotDeltas: {
+  (
+    ours: SnapshotDeltaModel.SnapshotDelta,
+    theirs: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.MergeOptions
+  ): (
+    base: Snapshot
+  ) => Effect.Effect<SnapshotDeltaModel.MergeResult, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  (
+    base: Snapshot,
+    ours: SnapshotDeltaModel.SnapshotDelta,
+    theirs: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.MergeOptions
+  ): Effect.Effect<SnapshotDeltaModel.MergeResult, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+} = dual(
+  (args) => args.length >= 4 || Predicate.hasProperty(args[0], SnapshotTypeId),
+  Effect.fnUntraced(function*(
+    base: Snapshot,
+    ours: SnapshotDeltaModel.SnapshotDelta,
+    theirs: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.MergeOptions
+  ) {
+    // Limits decode first so a bad limit names its own field; the rest of the options decode as one.
+    const limits = yield* deltaLimits("mergeSnapshotDeltas", options?.limits)
 
-  const decoded = yield* Effect.fromResult(
-    decodeConfiguration(SnapshotDeltaModel.MergeOptions, options ?? {}, "mergeSnapshotDeltas")
-  )
+    const decoded = yield* Effect.fromResult(
+      decodeConfiguration(SnapshotDeltaModel.MergeOptions, options ?? {}, "mergeSnapshotDeltas")
+    )
 
-  return yield* SnapshotMergeInternal.mergeSnapshotDeltas(base, ours, theirs, decoded.resolutions ?? [], limits).pipe(
-    Effect.mapError((error) => retargetFailure("mergeSnapshotDeltas", error))
-  )
-})
+    return yield* SnapshotMergeInternal.mergeSnapshotDeltas(base, ours, theirs, decoded.resolutions ?? [], limits).pipe(
+      Effect.mapError((error) => retargetFailure("mergeSnapshotDeltas", error))
+    )
+  })
+)
 
 const deltaSchemaIssue = (cause: VfsError, input: typeof Schema.Unknown.Type, options: SchemaAST.ParseOptions) =>
   new SchemaIssue.InvalidValue(
@@ -2395,10 +2484,10 @@ export const make: (
  * @category snapshots
  * @since 0.6.0
  */
-export const snapshotEntries: (
-  snapshot: Snapshot,
-  root: PathInput
-) => Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure> = Image.snapshotEntries
+export const snapshotEntries: {
+  (root: PathInput): (snapshot: Snapshot) => Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure>
+  (snapshot: Snapshot, root: PathInput): Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure>
+} = dual(2, Image.snapshotEntries)
 
 /**
  * Restores a fresh volume from an opaque snapshot under the supplied destination limits.
@@ -2442,14 +2531,10 @@ export const snapshotEntries: (
  * @category constructors
  * @since 0.1.0
  */
-export const fromSnapshot: (
-  snapshot: Snapshot,
-  options?: VolumeOptions
-) => Effect.Effect<
-  Volume,
-  VfsError,
-  Crypto.Crypto
-> = VfsModel.fromSnapshot
+export const fromSnapshot: {
+  (options?: VolumeOptions): (snapshot: Snapshot) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
+  (snapshot: Snapshot, options?: VolumeOptions): Effect.Effect<Volume, VfsError, Crypto.Crypto>
+} = dual((args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId), VfsModel.fromSnapshot)
 
 /**
  * Creates an isolated writable volume relative to one immutable snapshot base.
@@ -2502,14 +2587,10 @@ export const fromSnapshot: (
  * @category constructors
  * @since 0.1.0
  */
-export const makeOverlay: (
-  base: Snapshot,
-  options?: VolumeOptions
-) => Effect.Effect<
-  OverlayVolume,
-  VfsError,
-  Crypto.Crypto
-> = VfsModel.makeOverlay
+export const makeOverlay: {
+  (options?: VolumeOptions): (base: Snapshot) => Effect.Effect<OverlayVolume, VfsError, Crypto.Crypto>
+  (base: Snapshot, options?: VolumeOptions): Effect.Effect<OverlayVolume, VfsError, Crypto.Crypto>
+} = dual((args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId), VfsModel.makeOverlay)
 
 /**
  * Builds a fresh volume from a validated final-state fixture.
@@ -2551,11 +2632,7 @@ export const makeOverlay: (
  * @category constructors
  * @since 0.1.0
  */
-export const fromFixture: (
-  fixture: Fixture,
-  options?: VolumeOptions
-) => Effect.Effect<
-  Volume,
-  VfsError,
-  Crypto.Crypto
-> = FixtureInternal.fromFixture
+export const fromFixture: {
+  (options?: VolumeOptions): (fixture: Fixture) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
+  (fixture: Fixture, options?: VolumeOptions): Effect.Effect<Volume, VfsError, Crypto.Crypto>
+} = dual((args) => args.length >= 2 || Predicate.hasProperty(args[0], "entries"), FixtureInternal.fromFixture)

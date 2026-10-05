@@ -31,7 +31,7 @@ const rows = (path: string, lineNumber: number, start: number, end: number, text
 
 describe("snapshot content search", () => {
   it.layer(BunCrypto.layer)((it) => {
-    it.effect("classifies whole files before all modes expose matching prefixes", () =>
+    it.effect("should classify whole files when any search mode exposes matching prefixes", () =>
       Effect.gen(function*() {
         const snapshot = yield* snapshotOf([
           file("/a", "hit hit\nmiss\nhit\n"),

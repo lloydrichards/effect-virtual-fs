@@ -58,10 +58,13 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const fromFixture: (fixture: Fixture, options?: VolumeOptions) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
+declare const fromFixture: {
+  (options?: VolumeOptions): (fixture: Fixture) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
+  (fixture: Fixture, options?: VolumeOptions): Effect.Effect<Volume, VfsError, Crypto.Crypto>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2554)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2635)
 
 Since v0.1.0
 
@@ -112,13 +115,13 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const fromSnapshot: (
-  snapshot: Snapshot,
-  options?: VolumeOptions
-) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
+declare const fromSnapshot: {
+  (options?: VolumeOptions): (snapshot: Snapshot) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
+  (snapshot: Snapshot, options?: VolumeOptions): Effect.Effect<Volume, VfsError, Crypto.Crypto>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2445)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2534)
 
 Since v0.1.0
 
@@ -163,7 +166,7 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 declare const make: (options?: VolumeOptions) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2348)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2437)
 
 Since v0.1.0
 
@@ -223,13 +226,13 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const makeOverlay: (
-  base: Snapshot,
-  options?: VolumeOptions
-) => Effect.Effect<OverlayVolume, VfsError, Crypto.Crypto>
+declare const makeOverlay: {
+  (options?: VolumeOptions): (base: Snapshot) => Effect.Effect<OverlayVolume, VfsError, Crypto.Crypto>
+  (base: Snapshot, options?: VolumeOptions): Effect.Effect<OverlayVolume, VfsError, Crypto.Crypto>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2505)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2590)
 
 Since v0.1.0
 
@@ -271,7 +274,7 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 declare const pathFromBytes: (bytes: Uint8Array) => Effect.Effect<BytePath, FsFailure>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2264)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2353)
 
 Since v0.1.0
 
@@ -287,7 +290,7 @@ Copies the bytes held by an opaque byte path.
 declare const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsFailure>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2272)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2361)
 
 Since v0.1.0
 
@@ -434,12 +437,14 @@ export interface Caller {
   readonly access: (target: TargetInput, bits?: number) => Effect.Effect<number, FsFailure>
   /** The whole content of a regular file. */
   readonly readFile: (target: TargetInput) => Effect.Effect<Uint8Array, FsFailure>
-  /** Writes a whole file in one operation, creating or replacing it as the options say. */
-  readonly writeFile: (
-    entry: EntryInput,
-    bytes: Uint8Array,
-    options: WriteFileOptions
-  ) => Effect.Effect<void, FsFailure>
+  /**
+   * Writes a whole file in one operation, creating or replacing it as the options say.
+   * The curried form is `writeFile(bytes, options)(entry)`; the caller remains bound.
+   */
+  readonly writeFile: {
+    (bytes: Uint8Array, options: WriteFileOptions): (entry: EntryInput) => Effect.Effect<void, FsFailure>
+    (entry: EntryInput, bytes: Uint8Array, options: WriteFileOptions): Effect.Effect<void, FsFailure>
+  }
   /**
    * Opens a file. On a target, the file must exist and `create` is rejected. On an entry, the name is looked up
    * and created in one gate hold, and the result reports whether it was created.
@@ -468,7 +473,10 @@ export interface Caller {
     options?: SymlinkOptions
   ) => Effect.Effect<ReferenceEntryResult, FsFailure>
   /** Adds a name for an existing file or symbolic link. A path source follows a final symbolic link only when its target says so. */
-  readonly link: (source: TargetInput, entry: EntryInput) => Effect.Effect<ReferenceEntryResult, FsFailure>
+  readonly link: {
+    (entry: EntryInput): (source: TargetInput) => Effect.Effect<ReferenceEntryResult, FsFailure>
+    (source: TargetInput, entry: EntryInput): Effect.Effect<ReferenceEntryResult, FsFailure>
+  }
   /** Removes a file or symbolic link. */
   readonly unlink: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
   /** Removes an empty directory. */
@@ -486,15 +494,30 @@ export interface Caller {
     (entry: EntryInput, options: RemoveOptions): Effect.Effect<DirectoryChange | undefined, FsFailure>
   }
   /** Moves an entry, replacing a compatible destination. */
-  readonly rename: (from: EntryInput, to: EntryInput) => Effect.Effect<RenameReferenceResult, FsFailure>
+  readonly rename: {
+    (to: EntryInput): (from: EntryInput) => Effect.Effect<RenameReferenceResult, FsFailure>
+    (from: EntryInput, to: EntryInput): Effect.Effect<RenameReferenceResult, FsFailure>
+  }
   /** Sets the permission bits of a target. */
-  readonly chmod: (target: TargetInput, mode: number) => Effect.Effect<void, FsFailure>
+  readonly chmod: {
+    (mode: number): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, mode: number): Effect.Effect<void, FsFailure>
+  }
   /** Changes the owner or group of a target. */
-  readonly chown: (target: TargetInput, owner: OwnerUpdate) => Effect.Effect<void, FsFailure>
+  readonly chown: {
+    (owner: OwnerUpdate): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, owner: OwnerUpdate): Effect.Effect<void, FsFailure>
+  }
   /** Sets the access and modification times of a target. */
-  readonly utimes: (target: TargetInput, times: Times) => Effect.Effect<void, FsFailure>
+  readonly utimes: {
+    (times: Times): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, times: Times): Effect.Effect<void, FsFailure>
+  }
   /** Sets the size of a regular file. */
-  readonly truncate: (target: TargetInput, length: bigint) => Effect.Effect<void, FsFailure>
+  readonly truncate: {
+    (length: bigint): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, length: bigint): Effect.Effect<void, FsFailure>
+  }
   /**
    * Changes a target's size, owner, mode and times as one change. Every check passes before any attribute
    * applies, so a failure changes nothing. The attributes apply as size, owner, mode, then times, the POSIX
@@ -503,7 +526,10 @@ export interface Caller {
    * does so before it calls setattr, and passes the revision it read as `expected` so the change refuses a
    * target another change has moved.
    */
-  readonly setattr: (target: TargetInput, attributes: SetattrOptions) => Effect.Effect<void, FsFailure>
+  readonly setattr: {
+    (attributes: SetattrOptions): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, attributes: SetattrOptions): Effect.Effect<void, FsFailure>
+  }
   /** A caller whose working directory is the target, released with the scope. */
   readonly withDirectory: (directory: TargetInput) => Effect.Effect<Caller, FsFailure, Scope.Scope>
   /** A handle on a directory, released with the scope. */
@@ -511,7 +537,7 @@ export interface Caller {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1126)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1138)
 
 Since v0.1.0
 
@@ -528,7 +554,7 @@ export type CallerWatchOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1365)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1400)
 
 Since v0.9.0
 
@@ -548,7 +574,7 @@ export type Change =
   | { readonly _tag: "Rescan"; readonly path: BytePath }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1298)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1333)
 
 Since v0.1.0
 
@@ -676,10 +702,22 @@ export interface FileHandle {
   readonly pread: (maximumBytes: number, offset: bigint) => Effect.Effect<ReadResult, FsFailure>
   /** Writes at the cursor and advances it, or writes at end of file when opened for append. */
   readonly write: (bytes: Uint8Array) => Effect.Effect<number, FsFailure>
-  /** Writes at `offset` without changing the cursor. Append mode does not affect positional writes. */
-  readonly pwrite: (bytes: Uint8Array, offset: bigint) => Effect.Effect<number, FsFailure>
-  /** Moves the cursor and returns its new offset. `data` finds content and `hole` finds end of file. */
-  readonly seek: (offset: bigint, mode: SeekMode) => Effect.Effect<bigint, FsFailure>
+  /**
+   * Writes at `offset` without changing the cursor. Append mode does not affect positional writes.
+   * The curried form is `pwrite(offset)(bytes)`.
+   */
+  readonly pwrite: {
+    (offset: bigint): (bytes: Uint8Array) => Effect.Effect<number, FsFailure>
+    (bytes: Uint8Array, offset: bigint): Effect.Effect<number, FsFailure>
+  }
+  /**
+   * Moves the cursor and returns its new offset. `data` finds content and `hole` finds end of file.
+   * The curried form is `seek(mode)(offset)`.
+   */
+  readonly seek: {
+    (mode: SeekMode): (offset: bigint) => Effect.Effect<bigint, FsFailure>
+    (offset: bigint, mode: SeekMode): Effect.Effect<bigint, FsFailure>
+  }
   /** Sets the file length without changing the cursor. */
   readonly truncate: (length: bigint) => Effect.Effect<void, FsFailure>
   /** Reads metadata for the open file. */
@@ -763,7 +801,7 @@ export type Fixture = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2313)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2402)
 
 Since v0.1.0
 
@@ -802,7 +840,7 @@ export type FsCode =
   | "VolumeBusy"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L139)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L141)
 
 Since v0.1.0
 
@@ -821,7 +859,7 @@ export type Identity = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L228)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L230)
 
 Since v0.1.0
 
@@ -1075,7 +1113,7 @@ export interface OverlayCapture {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1496)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1531)
 
 Since v0.1.0
 
@@ -1125,7 +1163,7 @@ export type OverlayChange =
     }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1418)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1453)
 
 Since v0.1.0
 
@@ -1139,7 +1177,7 @@ Filtering options for an overlay final-difference summary.
 export type OverlayChangesOptions = { readonly includeTimestamps?: boolean }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1457)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1492)
 
 Since v0.1.0
 
@@ -1154,7 +1192,7 @@ export type OverlayDifference =
   "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1397)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1432)
 
 Since v0.1.0
 
@@ -1168,7 +1206,7 @@ A filesystem entry kind reported by an overlay summary.
 export type OverlayNodeKind = "file" | "directory" | "symlink"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1381)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1416)
 
 Since v0.1.0
 
@@ -1213,7 +1251,7 @@ export interface OverlayVolume extends Volume {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1604)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1639)
 
 Since v0.1.0
 
@@ -1250,7 +1288,7 @@ strings are the normal case and byte paths are the escape hatch.
 type PathInput = string | BytePath
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L98)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L100)
 
 Since v0.1.0
 
@@ -1366,7 +1404,7 @@ export type RootCallerOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L272)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L274)
 
 Since v0.1.0
 
@@ -1536,7 +1574,7 @@ export interface Volume {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1536)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1571)
 
 Since v0.1.0
 
@@ -1554,7 +1592,7 @@ export type VolumeDurability =
   | "survives-power-loss"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L288)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L290)
 
 Since v0.1.0
 
@@ -1724,7 +1762,7 @@ Options of `Volume.watch`.
 export type WatchOptions = { readonly recursive?: boolean; readonly scope?: ObjectReference }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1351)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1386)
 
 Since v0.6.0
 
@@ -1826,7 +1864,7 @@ declare const VolumeDurabilityOrder: Order.Order<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L296)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L298)
 
 Since v0.1.0
 
@@ -1839,10 +1877,13 @@ Returns whether `actual` survives at least the failure boundary required by `req
 **Signature**
 
 ```ts
-declare const isVolumeDurabilityAtLeast: (actual: VolumeDurability, required: VolumeDurability) => boolean
+declare const isVolumeDurabilityAtLeast: {
+  (required: VolumeModule.VolumeDurability): (actual: VolumeModule.VolumeDurability) => boolean
+  (actual: VolumeModule.VolumeDurability, required: VolumeModule.VolumeDurability): boolean
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L304)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L306)
 
 Since v0.1.0
 
@@ -1861,7 +1902,7 @@ declare const CallerWatchOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1358)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1393)
 
 Since v0.9.0
 
@@ -1911,7 +1952,7 @@ declare const Change: Schema.TaggedUnion<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1288)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1323)
 
 Since v0.1.0
 
@@ -2034,7 +2075,7 @@ declare const Fixture: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2305)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2394)
 
 Since v0.1.0
 
@@ -2100,7 +2141,7 @@ declare const FsCode: Schema.Literals<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L131)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L133)
 
 Since v0.1.0
 
@@ -2119,7 +2160,7 @@ declare const Identity: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L220)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L222)
 
 Since v0.1.0
 
@@ -2382,7 +2423,7 @@ declare const OverlayChange: Schema.Union<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1410)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1445)
 
 Since v0.1.0
 
@@ -2420,7 +2461,7 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 declare const OverlayChangesOptions: Schema.Struct<{ readonly includeTimestamps: Schema.optionalKey<Schema.Boolean> }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1449)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1484)
 
 Since v0.1.0
 
@@ -2436,7 +2477,7 @@ declare const OverlayDifference: Schema.Literals<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1389)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1424)
 
 Since v0.1.0
 
@@ -2450,7 +2491,7 @@ Schema for the filesystem entry kinds reported by overlay summaries.
 declare const OverlayNodeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1373)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1408)
 
 Since v0.1.0
 
@@ -2612,7 +2653,7 @@ declare const RootCallerOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L264)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L266)
 
 Since v0.1.0
 
@@ -2724,7 +2765,7 @@ declare const SnapshotDeltaFromBytes: (
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2205)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2294)
 
 Since v0.1.0
 
@@ -2852,7 +2893,7 @@ declare const VolumeDurability: Schema.Literals<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L280)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L282)
 
 Since v0.1.0
 
@@ -3002,7 +3043,7 @@ declare const WatchOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1343)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1378)
 
 Since v0.6.0
 
@@ -3050,13 +3091,13 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const decodeSnapshot: (
-  input: Uint8Array,
-  limits: DecodeLimits
-) => Effect.Effect<Snapshot, ImageFailure | ArgumentFailure>
+declare const decodeSnapshot: {
+  (limits: DecodeLimits): (input: Uint8Array) => Effect.Effect<Snapshot, ImageFailure | ArgumentFailure>
+  (input: Uint8Array, limits: DecodeLimits): Effect.Effect<Snapshot, ImageFailure | ArgumentFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1892)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1946)
 
 Since v0.1.0
 
@@ -3125,7 +3166,7 @@ declare const decodeSnapshotSink: (
 ) => Sink.Sink<Snapshot, Uint8Array, never, ImageFailure | ArgumentFailure>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1845)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1899)
 
 Since v0.6.0
 
@@ -3174,13 +3215,13 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const encodeSnapshot: (
-  snapshot: Snapshot,
-  limits?: DecodeLimits
-) => Effect.Effect<Uint8Array, ImageFailure | ArgumentFailure>
+declare const encodeSnapshot: {
+  (limits?: DecodeLimits): (snapshot: Snapshot) => Effect.Effect<Uint8Array, ImageFailure | ArgumentFailure>
+  (snapshot: Snapshot, limits?: DecodeLimits): Effect.Effect<Uint8Array, ImageFailure | ArgumentFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1782)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1833)
 
 Since v0.1.0
 
@@ -3232,13 +3273,13 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const encodeSnapshotStream: (
-  snapshot: Snapshot,
-  limits?: DecodeLimits
-) => Stream.Stream<Uint8Array, ImageFailure | ArgumentFailure>
+declare const encodeSnapshotStream: {
+  (limits?: DecodeLimits): (snapshot: Snapshot) => Stream.Stream<Uint8Array, ImageFailure | ArgumentFailure>
+  (snapshot: Snapshot, limits?: DecodeLimits): Stream.Stream<Uint8Array, ImageFailure | ArgumentFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1733)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1781)
 
 Since v0.6.0
 
@@ -3258,7 +3299,7 @@ declare const Caller: Context.Service<Caller, Caller> & {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1673)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1721)
 
 Since v0.6.0
 
@@ -3293,17 +3334,23 @@ Effect.runPromise(
 ```ts
 declare const Volume: Context.Service<Volume, Volume> & {
   readonly layer: (options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
-  readonly layerFromSnapshot: (
-    snapshot: Snapshot,
-    options?: VolumeOptions
-  ) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
-  readonly layerFromFixture: (fixture: Fixture, options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
-  readonly layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layerFromSnapshot: {
+    (options?: VolumeOptions): (snapshot: Snapshot) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (snapshot: Snapshot, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  }
+  readonly layerFromFixture: {
+    (options?: VolumeOptions): (fixture: Fixture) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (fixture: Fixture, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  }
+  readonly layerOverlay: {
+    (options?: VolumeOptions): (base: Snapshot) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (base: Snapshot, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  }
   readonly layerLive: (options: LiveVolumeOptions) => Layer.Layer<Volume, VfsError, LiveImageStore | Crypto.Crypto>
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1641)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1676)
 
 Since v0.6.0
 
@@ -3354,14 +3401,20 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const applySnapshotDelta: (
-  base: Snapshot,
-  delta: SnapshotDeltaModel.SnapshotDelta,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) => Effect.Effect<Snapshot, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+declare const applySnapshotDelta: {
+  (
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): (base: Snapshot) => Effect.Effect<Snapshot, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  (
+    base: Snapshot,
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): Effect.Effect<Snapshot, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2064)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2140)
 
 Since v0.1.0
 
@@ -3408,14 +3461,22 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const diffSnapshots: (
-  base: Snapshot,
-  target: Snapshot,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) => Effect.Effect<SnapshotDeltaModel.SnapshotDelta, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+declare const diffSnapshots: {
+  (
+    target: Snapshot,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): (
+    base: Snapshot
+  ) => Effect.Effect<SnapshotDeltaModel.SnapshotDelta, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  (
+    base: Snapshot,
+    target: Snapshot,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): Effect.Effect<SnapshotDeltaModel.SnapshotDelta, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1943)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1996)
 
 Since v0.1.0
 
@@ -3458,19 +3519,32 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const inspectSnapshotDelta: (
-  base: Snapshot,
-  delta: SnapshotDeltaModel.SnapshotDelta,
-  options?: SnapshotDeltaModel.SnapshotChangesOptions,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) => Effect.Effect<
-  ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
->
+declare const inspectSnapshotDelta: {
+  (
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.SnapshotChangesOptions,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): (
+    base: Snapshot
+  ) => Effect.Effect<
+    ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
+    VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >
+  (
+    base: Snapshot,
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.SnapshotChangesOptions,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): Effect.Effect<
+    ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
+    VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1997)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2057)
 
 Since v0.1.0
 
@@ -3513,7 +3587,7 @@ const program = Effect.gen(function* () {
   )
 
   // Disjoint changes merge without conflicts; the delta applies to the shared base.
-  const merged = yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(base, result.delta))
+  const merged = yield* Vfs.applySnapshotDelta(base, result.delta).pipe(Effect.flatMap(Vfs.fromSnapshot()))
   const reader = yield* merged.caller()
 
   return [result.conflicts.length, new TextDecoder().decode(yield* reader.readFile("/shared.txt"))]
@@ -3530,15 +3604,24 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const mergeSnapshotDeltas: (
-  base: Snapshot,
-  ours: SnapshotDeltaModel.SnapshotDelta,
-  theirs: SnapshotDeltaModel.SnapshotDelta,
-  options?: SnapshotDeltaModel.MergeOptions
-) => Effect.Effect<SnapshotDeltaModel.MergeResult, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+declare const mergeSnapshotDeltas: {
+  (
+    ours: SnapshotDeltaModel.SnapshotDelta,
+    theirs: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.MergeOptions
+  ): (
+    base: Snapshot
+  ) => Effect.Effect<SnapshotDeltaModel.MergeResult, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  (
+    base: Snapshot,
+    ours: SnapshotDeltaModel.SnapshotDelta,
+    theirs: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.MergeOptions
+  ): Effect.Effect<SnapshotDeltaModel.MergeResult, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2135)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2216)
 
 Since v0.8.0
 
@@ -3593,13 +3676,13 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const snapshotEntries: (
-  snapshot: Snapshot,
-  root: PathInput
-) => Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure>
+declare const snapshotEntries: {
+  (root: PathInput): (snapshot: Snapshot) => Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure>
+  (snapshot: Snapshot, root: PathInput): Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2398)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2487)
 
 Since v0.6.0
 

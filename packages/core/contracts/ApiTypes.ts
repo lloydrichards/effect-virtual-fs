@@ -9,7 +9,7 @@ import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import type * as Stream from "effect/Stream"
-import { LiveVolume, Search } from "../src/index.js"
+import { LiveVolume, Search, Testing } from "../src/index.js"
 import { VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as SearchModule from "../src/Search.js"
 
@@ -335,3 +335,131 @@ export const confinedCaller = (caller: Vfs.Caller, reference: Vfs.ObjectReferenc
     confined.remove("/temp", { expected: "/temp" })
     return { events, removal, forcedRemoval, limits: confined.limits }
   }) satisfies Effect.Effect<unknown, Vfs.FsFailure, Scope.Scope>
+
+export const dualSearch = (snapshot: Vfs.Snapshot, glob: Search.GlobQuery, content: Search.ContentQuery) => ({
+  glob: Search.glob(glob)(snapshot) satisfies Effect.Effect<Search.GlobReport, Search.GlobFailure>,
+  scanGlob: Search.scanGlob(glob)(snapshot) satisfies Stream.Stream<string, Search.ScanGlobFailure>,
+  lines: Search.lines(content)(snapshot) satisfies Effect.Effect<Search.LinesReport, Search.ContentFailure>,
+  scanLines: Search.scanLines(content)(snapshot) satisfies Stream.Stream<Search.LineResult, Search.ScanContentFailure>,
+  files: Search.files(content)(snapshot) satisfies Effect.Effect<Search.FilesReport, Search.ContentFailure>,
+  scanFiles: Search.scanFiles(content)(snapshot) satisfies Stream.Stream<string, Search.ScanContentFailure>,
+  countLines: Search.countLines(content)(snapshot) satisfies Effect.Effect<
+    Search.CountLinesReport,
+    Search.ContentFailure
+  >,
+  scanCountLines: Search.scanCountLines(content)(snapshot) satisfies Stream.Stream<
+    Search.CountResult,
+    Search.ScanContentFailure
+  >
+})
+
+export const dualSnapshots = (snapshot: Vfs.Snapshot, bytes: Uint8Array, limits: Vfs.DecodeLimits) => ({
+  encode: Vfs.encodeSnapshot(limits)(snapshot) satisfies Effect.Effect<
+    Uint8Array,
+    Vfs.ImageFailure | Vfs.ArgumentFailure
+  >,
+  encodeWithoutLimits: Vfs.encodeSnapshot()(snapshot) satisfies Effect.Effect<
+    Uint8Array,
+    Vfs.ImageFailure | Vfs.ArgumentFailure
+  >,
+  encodeStream: Vfs.encodeSnapshotStream(limits)(snapshot) satisfies Stream.Stream<
+    Uint8Array,
+    Vfs.ImageFailure | Vfs.ArgumentFailure
+  >,
+  decode: Vfs.decodeSnapshot(limits)(bytes) satisfies Effect.Effect<
+    Vfs.Snapshot,
+    Vfs.ImageFailure | Vfs.ArgumentFailure
+  >,
+  entries: Vfs.snapshotEntries("/")(snapshot) satisfies Stream.Stream<
+    Vfs.Fixture["entries"][number],
+    Vfs.FsFailure | Vfs.ImageFailure
+  >
+})
+
+export const dualWatchCollection = <A, E, R>(stream: Stream.Stream<A, E, R>) =>
+  Testing.collectChanges(2)(stream) satisfies Effect.Effect<Effect.Effect<Array<A>, E>, never, R | Scope.Scope>
+
+export const dualConstruction = (snapshot: Vfs.Snapshot, fixture: Vfs.Fixture, options: Vfs.VolumeOptions) => ({
+  restore: Vfs.fromSnapshot(options)(snapshot) satisfies Effect.Effect<Vfs.Volume, Vfs.VfsError, Crypto.Crypto>,
+  overlay: Vfs.makeOverlay(options)(snapshot) satisfies Effect.Effect<Vfs.OverlayVolume, Vfs.VfsError, Crypto.Crypto>,
+  fixture: Vfs.fromFixture(options)(fixture) satisfies Effect.Effect<Vfs.Volume, Vfs.VfsError, Crypto.Crypto>,
+  restoreLayer: Vfs.Volume.layerFromSnapshot(options)(snapshot) satisfies Layer.Layer<
+    Vfs.Volume,
+    Vfs.VfsError,
+    Crypto.Crypto
+  >,
+  overlayLayer: Vfs.Volume.layerOverlay(options)(snapshot) satisfies Layer.Layer<
+    Vfs.Volume,
+    Vfs.VfsError,
+    Crypto.Crypto
+  >,
+  fixtureLayer: Vfs.Volume.layerFromFixture(options)(fixture) satisfies Layer.Layer<
+    Vfs.Volume,
+    Vfs.VfsError,
+    Crypto.Crypto
+  >,
+  entry: Vfs.Entry("file")("/") satisfies Vfs.Entry,
+  durability: Vfs.isVolumeDurabilityAtLeast("survives-process-crash")("memory-only") satisfies boolean
+})
+
+export const dualDeltas = (
+  base: Vfs.Snapshot,
+  target: Vfs.Snapshot,
+  ours: Vfs.SnapshotDelta,
+  theirs: Vfs.SnapshotDelta
+) => ({
+  diff: Vfs.diffSnapshots(target)(base) satisfies Effect.Effect<
+    Vfs.SnapshotDelta,
+    Vfs.VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >,
+  apply: Vfs.applySnapshotDelta(ours)(base) satisfies Effect.Effect<
+    Vfs.Snapshot,
+    Vfs.VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >,
+  inspect: Vfs.inspectSnapshotDelta(ours)(base) satisfies Effect.Effect<
+    ReadonlyArray<Vfs.SnapshotChange>,
+    Vfs.VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >,
+  merge: Vfs.mergeSnapshotDeltas(ours, theirs)(base) satisfies Effect.Effect<
+    Vfs.MergeResult,
+    Vfs.VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >
+})
+
+export const dualCallerMethods = (
+  caller: Vfs.Caller,
+  target: Vfs.TargetInput,
+  entry: Vfs.EntryInput,
+  bytes: Uint8Array,
+  options: Vfs.WriteFileOptions,
+  owner: Vfs.OwnerUpdate,
+  times: Vfs.Times,
+  attributes: Vfs.SetattrOptions
+) => ({
+  write: caller.writeFile(bytes, options)(entry) satisfies Effect.Effect<void, Vfs.FsFailure>,
+  link: caller.link(entry)(target) satisfies Effect.Effect<Vfs.ReferenceEntryResult, Vfs.FsFailure>,
+  rename: caller.rename(entry)(entry) satisfies Effect.Effect<Vfs.RenameReferenceResult, Vfs.FsFailure>,
+  chmod: caller.chmod(0o600)(target) satisfies Effect.Effect<void, Vfs.FsFailure>,
+  chown: caller.chown(owner)(target) satisfies Effect.Effect<void, Vfs.FsFailure>,
+  utimes: caller.utimes(times)(target) satisfies Effect.Effect<void, Vfs.FsFailure>,
+  truncate: caller.truncate(0n)(target) satisfies Effect.Effect<void, Vfs.FsFailure>,
+  setattr: caller.setattr(attributes)(target) satisfies Effect.Effect<void, Vfs.FsFailure>
+})
+
+export const dualHandleMethods = (handle: Vfs.FileHandle, bytes: Uint8Array) => ({
+  pwrite: handle.pwrite(0n)(bytes) satisfies Effect.Effect<number, Vfs.FsFailure>,
+  seek: handle.seek("start")(0n) satisfies Effect.Effect<bigint, Vfs.FsFailure>
+})
+
+export const rejectedDualMethods = (caller: Vfs.Caller, handle: Vfs.FileHandle) => {
+  // @ts-expect-error Curried writeFile requires contents and write options, not an entry.
+  caller.writeFile("/file", { access: "write" })
+  // @ts-expect-error Positional writes capture a bigint offset.
+  handle.pwrite(Uint8Array.of(1))
+  // @ts-expect-error Unary reads do not gain an empty-argument curried form.
+  caller.readFile()
+}

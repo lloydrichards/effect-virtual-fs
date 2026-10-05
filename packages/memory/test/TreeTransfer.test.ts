@@ -191,10 +191,9 @@ describe("TreeTransfer", () => {
         const source = yield* representativeTree
         const expected = yield* snapshotEntries(source, "/src")
 
-        const volume = yield* TreeTransfer.toVolume(TreeTransfer.fromSnapshot(yield* source.snapshot, "/src"), {
-          owner: true,
-          specialBits: true
-        })
+        const volume = yield* TreeTransfer.fromSnapshot(yield* source.snapshot, "/src").pipe(
+          TreeTransfer.toVolume({ owner: true, specialBits: true })
+        )
 
         assert.deepStrictEqual(yield* snapshotEntries(volume, "/"), expected)
         const caller = yield* volume.caller()
@@ -332,10 +331,9 @@ describe("TreeTransfer", () => {
       Effect.gen(function*() {
         const source = yield* representativeTree
 
-        const volume = yield* TreeTransfer.toVolume(
-          TreeTransfer.fromSnapshot(yield* source.snapshot, "/src").pipe(
-            Stream.filter((entry) => !Predicate.isString(entry.path) || !entry.path.startsWith("/nested"))
-          )
+        const volume = yield* TreeTransfer.fromSnapshot(yield* source.snapshot, "/src").pipe(
+          Stream.filter((entry) => !Predicate.isString(entry.path) || !entry.path.startsWith("/nested")),
+          TreeTransfer.toVolume()
         )
 
         const missing = yield* Effect.flip(

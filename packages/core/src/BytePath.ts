@@ -8,6 +8,7 @@
  */
 import * as Effect from "effect/Effect"
 import type * as Equal from "effect/Equal"
+import { dual } from "effect/Function"
 import * as Option from "effect/Option"
 import * as OrderModule from "effect/Order"
 import type { Pipeable } from "effect/Pipeable"
@@ -240,7 +241,10 @@ export const parent = (path: BytePath): BytePath => {
  * @category combinators
  * @since 0.6.0
  */
-export const join = (path: BytePath, name: string | Uint8Array): BytePath => {
+export const join: {
+  (name: string | Uint8Array): (path: BytePath) => BytePath
+  (path: BytePath, name: string | Uint8Array): BytePath
+} = dual(2, (path: BytePath, name: string | Uint8Array): BytePath => {
   const prefix = bytesOf(path)
   const suffix = Predicate.isString(name) ? encoder.encode(name) : name
   const separator = prefix.length > 0 && prefix[prefix.length - 1] === SLASH ? 0 : 1
@@ -251,4 +255,4 @@ export const join = (path: BytePath, name: string | Uint8Array): BytePath => {
   output.set(suffix, prefix.length + separator)
 
   return Internal.make(output)
-}
+})

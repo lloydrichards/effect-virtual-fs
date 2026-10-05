@@ -39,7 +39,7 @@ export interface ObjectRecord {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L30)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L31)
 
 Since v0.5.0
 
@@ -76,7 +76,7 @@ export interface Options {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L158)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L162)
 
 Since v0.5.0
 
@@ -113,7 +113,7 @@ export interface R2Client {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L54)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L55)
 
 Since v0.5.0
 
@@ -138,10 +138,10 @@ const client = R2LiveImageStore.fromS3(s3, "test-bucket")
 **Signature**
 
 ```ts
-declare const fromS3: (client: S3Client, bucket: string) => R2Client
+declare const fromS3: { (bucket: string): (client: S3Client) => R2Client; (client: S3Client, bucket: string): R2Client }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L88)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L89)
 
 Since v0.5.0
 
@@ -175,6 +175,6 @@ declare const layer: (
 ) => Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L195)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/persistence/src/R2LiveImageStore.ts#L199)
 
 Since v0.5.0

@@ -8,7 +8,21 @@ sources:
   - id: core
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: Schema data types and capability interfaces
-generated: { by: claude/okf, at: "2026-09-25T22:30:00+02:00" }
+  - resource: ../../../packages/core/src/Search.ts
+    title: Dual snapshot search operations
+  - resource: ../../../packages/memory/src/TreeTransfer.ts
+    title: Dual stream-to-volume construction
+  - resource: ../../../packages/memory/src/FileSystemTesting.ts
+    title: Dual filesystem decoration
+  - resource: ../../../packages/core/src/Target.ts
+    title: Dual entry construction
+  - resource: ../../../packages/core/src/Volume.ts
+    title: Dual durability comparison
+  - resource: ../../../packages/memory/src/MemoryFileSystem.ts
+    title: Dual filesystem construction
+  - resource: ../../../packages/persistence/src/R2LiveImageStore.ts
+    title: Dual S3 adapter construction
+generated: { by: codex/okf, at: "2026-10-05T16:00:00+00:00" }
 ---
 
 # Schema data and capability interfaces
@@ -18,3 +32,11 @@ Reusable identities, configuration, metadata, fixtures, and snapshot image recor
 Volume, Caller, FileHandle, and DirectoryHandle remain capability interfaces. BytePath, Snapshot, and SnapshotDelta are opaque controlled values with Effect-style string TypeIds and private authenticity registries; a decoded image tree is not itself a Snapshot. Schema validation does not imply deep immutability or serialize live resources.
 
 The resulting ownership model is described by the [volume, caller, and handle architecture](../../architecture/volume-caller-handle-model.md "implemented by").
+
+Selected standalone functions accept both data-first and data-last calls through Effect's `dual`. Core supports all eight `Search` operations, `BytePath.join`, `Target.Entry`, the durability predicate, snapshot entries and encoding/decoding, snapshot construction and its three volume layers, all four snapshot-delta operations, and `Testing.collectChanges`. Memory supports `bind`, `layerFromFixture`, all six `TreeTransfer` operations, and `FileSystemTesting.make`. Persistence supports `R2LiveImageStore.fromS3`.
+
+The curried form captures configuration and receives the same first data argument as the direct form. Effect-returning functions compose with `Effect.flatMap` over their resolved input. Re-exports retain the same overloads.
+
+Fixed required parameters use arity dispatch. Functions with optional configuration use predicates to distinguish data-first calls from curried calls. `diffSnapshots` checks the second argument for a snapshot because its first argument can be a snapshot in either call style. A curried decorator still runs its factory once per execution. Capability methods remain bound to their caller or handle; the dual functions do not change resource ownership, failure types, or tracing boundaries.
+
+Fixed-argument bound methods also support dual calls: caller `writeFile`, `link`, `rename`, `chmod`, `chown`, `utimes`, `truncate`, and `setattr`, plus file-handle `pwrite` and `seek`. The receiver remains captured; the first explicit argument is data. For example, `caller.writeFile(bytes, options)(entry)` and `handle.pwrite(offset)(bytes)` preserve their direct argument order. Unary methods already work as callbacks. Optional-argument methods, `open`, and `pread` retain their existing signatures. No parallel standalone capability-function family is introduced.

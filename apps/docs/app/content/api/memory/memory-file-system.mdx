@@ -74,13 +74,13 @@ Effect.runPromise(program.pipe(Effect.provide(seeded), Effect.provide(NodeCrypto
 **Signature**
 
 ```ts
-declare const bind: (
-  volume: Vfs.Volume,
-  options?: Vfs.RootCallerOptions
-) => Effect.Effect<FileSystem.FileSystem, Vfs.VfsError>
+declare const bind: {
+  (options?: Vfs.RootCallerOptions): (volume: Vfs.Volume) => Effect.Effect<FileSystem.FileSystem, Vfs.VfsError>
+  (volume: Vfs.Volume, options?: Vfs.RootCallerOptions): Effect.Effect<FileSystem.FileSystem, Vfs.VfsError>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L253)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L262)
 
 Since v0.1.0
 
@@ -120,7 +120,7 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 declare const bindCaller: (caller: Vfs.Caller) => Effect.Effect<FileSystem.FileSystem>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L289)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L298)
 
 Since v0.9.0
 
@@ -163,7 +163,7 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 declare const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L75)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L78)
 
 Since v0.1.0
 
@@ -197,7 +197,7 @@ console.log(MemoryFileSystem.isWatchOverflow(error))
 declare const isWatchOverflow: (error: PlatformError.PlatformError) => boolean
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L42)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L45)
 
 Since v0.4.0
 
@@ -287,7 +287,7 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 declare const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L153)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L156)
 
 Since v0.1.0
 
@@ -332,13 +332,19 @@ Effect.runPromise(program.pipe(Effect.provide(services), Effect.provide(NodeCryp
 **Signature**
 
 ```ts
-declare const layerFromFixture: (
-  fixture: Vfs.Fixture,
-  volumeOptions?: Vfs.VolumeOptions,
-  callerOptions?: Vfs.RootCallerOptions
-) => Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto>
+declare const layerFromFixture: {
+  (
+    volumeOptions?: Vfs.VolumeOptions,
+    callerOptions?: Vfs.RootCallerOptions
+  ): (fixture: Vfs.Fixture) => Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto>
+  (
+    fixture: Vfs.Fixture,
+    volumeOptions?: Vfs.VolumeOptions,
+    callerOptions?: Vfs.RootCallerOptions
+  ): Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L191)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L194)
 
 Since v0.8.0

@@ -2,6 +2,12 @@
 
 ## 2026-10-05
 
+- Extend dual calls to fixed-argument caller mutations and file-handle `pwrite` and `seek`. Keep the receiver bound, the first explicit argument as data, and unary and optional-argument methods unchanged.
+
+- Extend the dual-call convention to snapshot constructors and layers, delta operations, entry construction, durability comparison, memory bindings and transfer sources/sinks, and S3 adapter construction. Record position-sensitive dispatch for snapshot diffs and matching re-export overloads.
+
+- Record data-first and data-last calls for selected core and memory functions in `decisions/core/schema-data-and-capability-interfaces`. Preserve bound capability methods, typed failures, scoped watch collection, and decorator state per execution.
+
 - Add `workflows/package-benchmarks` for package-owned Vitest measurements, typed Effect configuration, scoped fixtures, independent source comparisons, and correctness-only CI smoke coverage. Keep generated timings and issue-specific measurements outside the bundle.
 
 - Updated `decisions/core/confined-caller-authority` with uncached draft-aware authorization and path-walk lookup, bounded ancestry traversal yields, package-owned benchmarks, and repeatable comparison controls. Keep issue-specific measurements in the PR discussion.

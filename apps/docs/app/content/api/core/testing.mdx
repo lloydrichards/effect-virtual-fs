@@ -55,13 +55,18 @@ Effect.runPromise(program.pipe(Effect.scoped, Effect.provide(Testing.layer()), E
 **Signature**
 
 ```ts
-declare const collectChanges: <A, E, R>(
-  stream: Stream.Stream<A, E, R>,
-  n: number
-) => Effect.Effect<Effect.Effect<Array<A>, E>, never, R | Scope.Scope>
+declare const collectChanges: {
+  (
+    n: number
+  ): <A, E, R>(stream: Stream.Stream<A, E, R>) => Effect.Effect<Effect.Effect<Array<A>, E>, never, R | Scope.Scope>
+  <A, E, R>(
+    stream: Stream.Stream<A, E, R>,
+    n: number
+  ): Effect.Effect<Effect.Effect<Array<A>, E>, never, R | Scope.Scope>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L147)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L148)
 
 Since v0.6.0
 
@@ -100,7 +105,7 @@ declare const callerAs: (
 ) => Effect.Effect<Caller, VfsError, Volume>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L107)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L108)
 
 Since v0.6.0
 
@@ -142,7 +147,7 @@ Effect.runPromise(program.pipe(Effect.provide(Testing.layer()), Effect.provide(B
 declare const layer: (options?: LayerOptions) => Layer.Layer<Volume | Caller, VfsError, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L73)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L74)
 
 Since v0.6.0
 
@@ -165,6 +170,6 @@ export interface LayerOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L33)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L34)
 
 Since v0.6.0

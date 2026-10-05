@@ -1,5 +1,5 @@
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { Effect, Stream } from "effect"
+import { Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { Effect } from "effect"
 
 const encode = (text: string) => new TextEncoder().encode(text)
 
@@ -13,15 +13,15 @@ export const rootedWorkspaces = Effect.fn("Demo.rootedWorkspaces")(function*() {
     ]
   })
 
-  const overlay = yield* Vfs.makeOverlay(yield* template.snapshot)
+  const overlay = yield* template.snapshot.pipe(Effect.flatMap(Vfs.makeOverlay()))
   const owner = yield* overlay.caller()
   const release = yield* owner.withRoot("/projects/release")
   const docs = yield* owner.withRoot("/projects/docs")
-  const watch = yield* release.watch("/")
+  const collectEvents = yield* release.watch("/").pipe(Effect.flatMap(Testing.collectChanges(1)))
 
   yield* docs.writeFile("/note.md", encode("Sibling documentation."), { access: "write", create: "exclusive" })
   yield* release.writeFile("/plan.md", encode("Release on Friday."), { access: "write", create: "exclusive" })
-  const events = yield* watch.pipe(Stream.take(1), Stream.runCollect)
+  const events = yield* collectEvents
 
   yield* owner.rename("/projects/release", "/projects/renamed-release")
   const content = new TextDecoder().decode(yield* release.readFile("/plan.md"))
