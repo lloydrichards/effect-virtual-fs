@@ -41,7 +41,7 @@
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "test": "bun --bun run vitest run --config ../../vitest.config.ts --project nfs",
     "type-check": "tsc --noEmit",
-    "benchmark": "bun benchmarks/xdr-effect-benchmark.mjs"
+    "benchmark": "bun --bun run vitest bench --run --config ../../vitest.config.ts --project 'nfs (bench)'"
   },
   "peerDependencies": {
     "effect": "^4.0.0"

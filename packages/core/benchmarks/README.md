@@ -1,40 +1,58 @@
 # Core benchmarks
 
-Run from the repository root. The confinement benchmark bundles committed baseline
-sources and working-tree candidate sources independently. Bun is needed to build
-both bundles; either Bun or Node can execute the measurements.
+Build core first, then run its Vitest benchmark project from the repository root:
 
 ```sh
+bun run --cwd packages/core build
 CONFINEMENT_BENCH_BASELINE=HEAD \
 CONFINEMENT_BENCH_BASELINE_CONFINED=1 \
 CONFINEMENT_BENCH_ITERATIONS=10000 \
 CONFINEMENT_BENCH_ROUNDS=9 \
 CONFINEMENT_BENCH_OUTPUT=/tmp/confinement-bun.json \
-bun packages/core/benchmarks/production-confinement-benchmark.mjs
+bun run --cwd packages/core benchmark
 ```
 
-Replace `bun` with `node` to measure Node. `bun run --cwd packages/core benchmark`
-runs with the defaults. Run measurements sequentially on an otherwise idle host.
-Keep the baseline commit fixed while evaluating candidate changes.
+Bun builds baseline and working-tree sources independently. To measure Node,
+use the same controls with:
 
-| Variable                              | Default                                                     | Meaning                                                                             |
-| ------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `CONFINEMENT_BENCH_BASELINE`          | `HEAD`                                                      | Git revision containing baseline core sources                                       |
-| `CONFINEMENT_BENCH_BASELINE_PATCH`    | unset                                                       | Apply a patch to the archived baseline sources before bundling                      |
-| `CONFINEMENT_BENCH_BASELINE_CONFINED` | unset                                                       | Set to `1` to measure old confined callers too; requires `withRoot` in the baseline |
-| `CONFINEMENT_BENCH_ITERATIONS`        | `1200`                                                      | Operations or read/write pairs per timed batch                                      |
-| `CONFINEMENT_BENCH_ROUNDS`            | `7`                                                         | Timed rounds, after three warmup rounds                                             |
-| `CONFINEMENT_BENCH_DEPTHS`            | `1,8,64`                                                    | Directory depths beneath `/tenant`                                                  |
-| `CONFINEMENT_BENCH_FILE_BYTES`        | `4`                                                         | File size and bytes read or written per operation                                   |
-| `CONFINEMENT_BENCH_OUTPUT`            | `production-confinement-benchmark.json` under `os.tmpdir()` | JSON output path under the host temporary directory by default                      |
+```sh
+node node_modules/vitest/vitest.mjs bench --run --config vitest.config.ts \
+  --project 'core (bench)' --reporter=json --outputFile=/tmp/core-vitest.json
+```
 
-The output retains samples, medians, runtime, host details, baseline revision, and
-source bundle hashes, and stable source-tree hashes. Source-tree hashes use sorted relative filenames and file contents; generated bundle hashes also include temporary-path comments. `confinedChangePercent` compares candidate and baseline
-confined medians; negative values mean less elapsed time. Ordinary callers compare
-against baseline ordinary callers. The confined-to-ordinary ratio compares the
-candidate callers, whose absolute paths omit the physical `/tenant` prefix.
+Run measurements sequentially on an idle host. Keep the baseline revision fixed.
+Configuration is decoded through Effect Config before setup or timing. Malformed
+values fail rather than falling back to defaults.
 
-Returned lengths, endpoint bytes, write counts, and checksums are checked in every
-batch. Setup, acquisition, and bundling are outside timed batches. Assertions and
-result allocations are inside them. These measurements do not quantify allocation
-or storage performance. Timing thresholds do not belong in unit tests.
+| Variable                              | Default                             | Meaning                                                                       |
+| ------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------- |
+| `CONFINEMENT_BENCH_BASELINE`          | `HEAD`                              | Revision containing baseline core sources                                     |
+| `CONFINEMENT_BENCH_BASELINE_PATCH`    | unset                               | Patch applied to archived baseline sources                                    |
+| `CONFINEMENT_BENCH_BASELINE_CONFINED` | `false`                             | Enable baseline confined callers with `1` or `true`; requires `withRoot`      |
+| `CONFINEMENT_BENCH_ITERATIONS`        | `1200`                              | Operations or read/write pairs per callback                                   |
+| `CONFINEMENT_BENCH_ROUNDS`            | `7`                                 | Independent comparisons, alternating candidate order                          |
+| `CONFINEMENT_BENCH_DEPTHS`            | `1,8,64`                            | Comma-separated depths beneath `/tenant`                                      |
+| `CONFINEMENT_BENCH_FILE_BYTES`        | `4`                                 | File size and bytes per operation                                             |
+| `CONFINEMENT_BENCH_OUTPUT`            | `.cache/confinement-benchmark.json` | Summary path relative to the command's working directory, or an absolute path |
+
+Each comparison warms each candidate with three batches, then measures one batch
+through Vitest/Tinybench. The summary retains samples and medians across rounds,
+percentage comparisons, runtime, host details, baseline revision, and source
+hashes. Vitest's optional JSON reporter also retains native benchmark statistics.
+Throughput in its tables means batches per second, not filesystem operations per
+second. A single round cannot establish statistical significance.
+
+Source-tree hashes use sorted relative filenames and contents. Bundle hashes also
+include temporary-path comments. Negative `confinedChangePercent` means less time
+than baseline confined callers. The confined-to-ordinary ratio compares current
+callers; confined paths omit the physical `/tenant` prefix.
+
+Fixtures, handle acquisition, Config decoding, and builds are outside timing.
+Every timed batch checks returned lengths, endpoint bytes, write counts, and
+checksums. Assertions, runtime execution, and result allocations are included.
+Scopes close handles on success and failure; temporary bundles are removed after
+the suite. These measurements do not quantify allocation or storage performance.
+
+Re-measure both revisions after changing runners. Earlier manual-runner medians
+and Vitest callback timings have different runtime boundaries. CI runs only a
+small correctness smoke; it does not impose speed thresholds.

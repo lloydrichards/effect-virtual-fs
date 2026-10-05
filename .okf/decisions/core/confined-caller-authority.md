@@ -7,7 +7,7 @@ tags: [callers, authority, confinement, resources, watches]
 sources:
   - resource: ../../../packages/core/src/internal/resolution.ts
     title: Confined resolver
-  - resource: ../../../packages/core/benchmarks/production-confinement-benchmark.mjs
+  - resource: ../../../packages/core/benchmarks/confinement.bench.ts
     title: Reproducible confinement benchmark
   - resource: ../../../packages/memory/src/internal/memoryFileSystem.ts
     title: Current adapter ownership and watch integration

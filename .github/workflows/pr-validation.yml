@@ -36,6 +36,18 @@ jobs:
       - run: bun run lint:effects
       - run: bun run type-check
       - run: bun run test
+      - name: Benchmark correctness smoke
+        env:
+          CONFINEMENT_BENCH_DEPTHS: "1,8"
+          CONFINEMENT_BENCH_ITERATIONS: "3"
+          CONFINEMENT_BENCH_ROUNDS: "2"
+          CONFINEMENT_BENCH_BASELINE_CONFINED: "1"
+          XDR_BENCH_TIME_MS: "5"
+          XDR_BENCH_ITERATIONS: "2"
+          XDR_BENCH_ROUNDS: "2"
+        run: |
+          bun run --cwd packages/core benchmark
+          bun run --cwd packages/nfs benchmark
 
   filesystem-host:
     name: FileSystem contract, Node 24.21.0 / Ubuntu 24.04
@@ -57,3 +69,15 @@ jobs:
           node -p "require('@effect/platform-node-shared/package.json').version"
       - run: bun run --filter @effect-vfs/core build
       - run: bun run --filter @effect-vfs/memory test:host
+      - run: bun run --filter @effect-vfs/nfs build
+      - name: Node benchmark correctness smoke
+        env:
+          CONFINEMENT_BENCH_DEPTHS: "1,8"
+          CONFINEMENT_BENCH_ITERATIONS: "3"
+          CONFINEMENT_BENCH_ROUNDS: "2"
+          CONFINEMENT_BENCH_BASELINE_CONFINED: "1"
+          XDR_BENCH_TIME_MS: "5"
+          XDR_BENCH_ITERATIONS: "2"
+          XDR_BENCH_ROUNDS: "2"
+        run: |
+          node node_modules/vitest/vitest.mjs bench --run --config vitest.config.ts --project 'core (bench)' --project 'nfs (bench)'
