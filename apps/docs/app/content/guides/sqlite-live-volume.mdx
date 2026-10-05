@@ -2,16 +2,13 @@
 
 Use `SqliteLiveImageStore` with `LiveVolume.open` to commit a complete volume image for each mutation. This is separate from named, create-only [SQLite checkpoints](/guides/sqlite-checkpoints).
 
-This guide requires `@effect-vfs/persistence` and `@effect-vfs/core` v0.9.0 or later. Before that release is published,
-use a checkout containing the v0.9.0 changes. The write-and-reopen example does not work with persistence v0.8.0.
-
 ## Install the packages
 
-This example uses Bun and its SQLite provider. After v0.9.0 is published, install the persistence package and matching runtime dependencies:
+This example uses Bun and its SQLite provider. Install the persistence package and matching runtime dependencies:
 
 ```sh
-bun add @effect-vfs/persistence@^0.9.0
-bun add "effect@$(npm view @effect-vfs/persistence@^0.9.0 peerDependencies.effect)" "@effect/sql-sqlite-bun@$(npm view @effect-vfs/persistence@^0.9.0 peerDependencies.effect)" "@effect/platform-bun@$(npm view @effect-vfs/persistence@^0.9.0 peerDependencies.effect)"
+bun add @effect-vfs/persistence@latest
+bun add "effect@$(npm view @effect-vfs/persistence@latest peerDependencies.effect)" "@effect/sql-sqlite-bun@$(npm view @effect-vfs/persistence@latest peerDependencies.effect)" "@effect/platform-bun@$(npm view @effect-vfs/persistence@latest peerDependencies.effect)"
 ```
 
 The persistence package includes `@effect-vfs/core`.
@@ -78,9 +75,6 @@ its volume before releasing the store and database connection, so the second acq
 The store holds an exclusive SQLite lock while open. A second open through the same acquired store fails with `Ownership`.
 
 ## Share live volumes across requests
-
-This section requires `@effect-vfs/core` v0.9.0 or later. Before that release is published, use a checkout
-containing `LiveVolume.makeRegistry`.
 
 For several requests to share a volume, replace `program` in the preceding file with this definition.
 It reuses `storeFor`, `options`, and `platform`. Use the absolute database filename as the registry key:
