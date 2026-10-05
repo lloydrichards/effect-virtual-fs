@@ -2,6 +2,8 @@
 
 ## 2026-10-05
 
+- Extend the dual-call convention to snapshot constructors and layers, delta operations, entry construction, durability comparison, memory bindings and transfer sources/sinks, and S3 adapter construction. Record position-sensitive dispatch for snapshot diffs and matching re-export overloads.
+
 - Record data-first and data-last calls for selected core and memory functions in `decisions/core/schema-data-and-capability-interfaces`. Preserve bound capability methods, typed failures, scoped watch collection, and decorator state per execution.
 
 - Add `workflows/package-benchmarks` for package-owned Vitest measurements, typed Effect configuration, scoped fixtures, independent source comparisons, and correctness-only CI smoke coverage. Keep generated timings and issue-specific measurements outside the bundle.

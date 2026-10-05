@@ -303,10 +303,8 @@ export const VolumeDurabilityOrder: Order.Order<VolumeDurability> = VolumeModule
  * @category predicates
  * @since 0.1.0
  */
-export const isVolumeDurabilityAtLeast: (
-  actual: VolumeDurability,
-  required: VolumeDurability
-) => boolean = VolumeModule.isVolumeDurabilityAtLeast
+export const isVolumeDurabilityAtLeast: typeof VolumeModule.isVolumeDurabilityAtLeast =
+  VolumeModule.isVolumeDurabilityAtLeast
 
 /**
  * Schema for the stable logical identity of a volume.
@@ -1644,23 +1642,36 @@ export const Volume: Context.Service<Volume, Volume> & {
   /** A fresh empty volume. */
   readonly layer: (options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
   /** A fresh volume restored from a snapshot. */
-  readonly layerFromSnapshot: (
-    snapshot: Snapshot,
-    options?: VolumeOptions
-  ) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layerFromSnapshot: {
+    (options?: VolumeOptions): (snapshot: Snapshot) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (snapshot: Snapshot, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  }
   /** A fresh volume built from a fixture. */
-  readonly layerFromFixture: (fixture: Fixture, options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layerFromFixture: {
+    (options?: VolumeOptions): (fixture: Fixture) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (fixture: Fixture, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  }
   /** A writable overlay over a snapshot base. */
-  readonly layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layerOverlay: {
+    (options?: VolumeOptions): (base: Snapshot) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (base: Snapshot, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  }
   /** A durable volume opened through the `LiveImageStore` in context; it shuts down with the layer's scope. */
   readonly layerLive: (options: LiveVolumeOptions) => Layer.Layer<Volume, VfsError, LiveImageStore | Crypto.Crypto>
 } = Object.assign(Context.Service<Volume, Volume>("@effect-vfs/core/Volume"), {
   layer: (options?: VolumeOptions) => Layer.effect(Volume, VfsModel.make(options)),
-  layerFromSnapshot: (snapshot: Snapshot, options?: VolumeOptions) =>
-    Layer.effect(Volume, VfsModel.fromSnapshot(snapshot, options)),
-  layerFromFixture: (fixture: Fixture, options?: VolumeOptions) =>
-    Layer.effect(Volume, FixtureInternal.fromFixture(fixture, options)),
-  layerOverlay: (base: Snapshot, options?: VolumeOptions) => Layer.effect(Volume, VfsModel.makeOverlay(base, options)),
+  layerFromSnapshot: dual(
+    (args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId),
+    (snapshot: Snapshot, options?: VolumeOptions) => Layer.effect(Volume, VfsModel.fromSnapshot(snapshot, options))
+  ),
+  layerFromFixture: dual(
+    (args) => args.length >= 2 || Predicate.hasProperty(args[0], "entries"),
+    (fixture: Fixture, options?: VolumeOptions) => Layer.effect(Volume, FixtureInternal.fromFixture(fixture, options))
+  ),
+  layerOverlay: dual(
+    (args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId),
+    (base: Snapshot, options?: VolumeOptions) => Layer.effect(Volume, VfsModel.makeOverlay(base, options))
+  ),
   layerLive: (options: LiveVolumeOptions) => Layer.effect(Volume, openLiveVolume(options))
 })
 
@@ -1947,24 +1958,31 @@ const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDelt
  * @category snapshots
  * @since 0.1.0
  */
-export const diffSnapshots: (
-  base: Snapshot,
-  target: Snapshot,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) => Effect.Effect<
-  SnapshotDeltaModel.SnapshotDelta,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
-> = Effect.fnUntraced(function*(
-  base: Snapshot,
-  target: Snapshot,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) {
-  // The delta codec fails under its own name; the public entry point names itself.
-  return yield* SnapshotDeltaInternal.diffSnapshots(base, target, yield* deltaLimits("diffSnapshots", limits)).pipe(
-    Effect.mapError((error) => retargetFailure("diffSnapshots", error))
-  )
-})
+export const diffSnapshots: {
+  (
+    target: Snapshot,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): (
+    base: Snapshot
+  ) => Effect.Effect<SnapshotDeltaModel.SnapshotDelta, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  (
+    base: Snapshot,
+    target: Snapshot,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): Effect.Effect<SnapshotDeltaModel.SnapshotDelta, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+} = dual(
+  (args) => args.length >= 3 || Predicate.hasProperty(args[1], SnapshotTypeId),
+  Effect.fnUntraced(function*(
+    base: Snapshot,
+    target: Snapshot,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ) {
+    // The delta codec fails under its own name; the public entry point names itself.
+    return yield* SnapshotDeltaInternal.diffSnapshots(base, target, yield* deltaLimits("diffSnapshots", limits)).pipe(
+      Effect.mapError((error) => retargetFailure("diffSnapshots", error))
+    )
+  })
+)
 
 /**
  * Verifies an exact snapshot delta against its base and derives an owned path-oriented summary.
@@ -2001,32 +2019,48 @@ export const diffSnapshots: (
  * @category snapshots
  * @since 0.1.0
  */
-export const inspectSnapshotDelta: (
-  base: Snapshot,
-  delta: SnapshotDeltaModel.SnapshotDelta,
-  options?: SnapshotDeltaModel.SnapshotChangesOptions,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) => Effect.Effect<
-  ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
-> = Effect.fnUntraced(function*(
-  base: Snapshot,
-  delta: SnapshotDeltaModel.SnapshotDelta,
-  options?: SnapshotDeltaModel.SnapshotChangesOptions,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) {
-  const decoded = yield* Effect.fromResult(
-    decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {}, "inspectSnapshotDelta")
-  )
+export const inspectSnapshotDelta: {
+  (
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.SnapshotChangesOptions,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): (
+    base: Snapshot
+  ) => Effect.Effect<
+    ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
+    VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >
+  (
+    base: Snapshot,
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.SnapshotChangesOptions,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): Effect.Effect<
+    ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
+    VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >
+} = dual(
+  (args) => args.length >= 4 || Predicate.hasProperty(args[0], SnapshotTypeId),
+  Effect.fnUntraced(function*(
+    base: Snapshot,
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.SnapshotChangesOptions,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ) {
+    const decoded = yield* Effect.fromResult(
+      decodeConfiguration(SnapshotDeltaModel.SnapshotChangesOptions, options ?? {}, "inspectSnapshotDelta")
+    )
 
-  return yield* SnapshotDeltaInternal.inspectSnapshotDelta(
-    base,
-    delta,
-    decoded,
-    yield* deltaLimits("inspectSnapshotDelta", limits)
-  ).pipe(Effect.mapError((error) => retargetFailure("inspectSnapshotDelta", error)))
-})
+    return yield* SnapshotDeltaInternal.inspectSnapshotDelta(
+      base,
+      delta,
+      decoded,
+      yield* deltaLimits("inspectSnapshotDelta", limits)
+    ).pipe(Effect.mapError((error) => retargetFailure("inspectSnapshotDelta", error)))
+  })
+)
 
 /**
  * Applies an exact delta to its semantically matching base and returns a new snapshot.
@@ -2068,25 +2102,30 @@ export const inspectSnapshotDelta: (
  * @category snapshots
  * @since 0.1.0
  */
-export const applySnapshotDelta: (
-  base: Snapshot,
-  delta: SnapshotDeltaModel.SnapshotDelta,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) => Effect.Effect<
-  Snapshot,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
-> = Effect.fnUntraced(function*(
-  base: Snapshot,
-  delta: SnapshotDeltaModel.SnapshotDelta,
-  limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-) {
-  return yield* SnapshotDeltaInternal.applySnapshotDelta(
-    base,
-    delta,
-    yield* deltaLimits("applySnapshotDelta", limits)
-  ).pipe(Effect.mapError((error) => retargetFailure("applySnapshotDelta", error)))
-})
+export const applySnapshotDelta: {
+  (
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): (base: Snapshot) => Effect.Effect<Snapshot, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  (
+    base: Snapshot,
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ): Effect.Effect<Snapshot, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+} = dual(
+  (args) => args.length >= 3 || Predicate.hasProperty(args[0], SnapshotTypeId),
+  Effect.fnUntraced(function*(
+    base: Snapshot,
+    delta: SnapshotDeltaModel.SnapshotDelta,
+    limits?: SnapshotDeltaModel.SnapshotDeltaLimits
+  ) {
+    return yield* SnapshotDeltaInternal.applySnapshotDelta(
+      base,
+      delta,
+      yield* deltaLimits("applySnapshotDelta", limits)
+    ).pipe(Effect.mapError((error) => retargetFailure("applySnapshotDelta", error)))
+  })
+)
 
 /**
  * Merges two snapshot deltas that share one base into a single delta, reporting path-level conflicts as data.
@@ -2139,32 +2178,40 @@ export const applySnapshotDelta: (
  * @category snapshots
  * @since 0.8.0
  */
-export const mergeSnapshotDeltas: (
-  base: Snapshot,
-  ours: SnapshotDeltaModel.SnapshotDelta,
-  theirs: SnapshotDeltaModel.SnapshotDelta,
-  options?: SnapshotDeltaModel.MergeOptions
-) => Effect.Effect<
-  SnapshotDeltaModel.MergeResult,
-  VfsError | PlatformError.PlatformError,
-  Crypto.Crypto
-> = Effect.fnUntraced(function*(
-  base: Snapshot,
-  ours: SnapshotDeltaModel.SnapshotDelta,
-  theirs: SnapshotDeltaModel.SnapshotDelta,
-  options?: SnapshotDeltaModel.MergeOptions
-) {
-  // Limits decode first so a bad limit names its own field; the rest of the options decode as one.
-  const limits = yield* deltaLimits("mergeSnapshotDeltas", options?.limits)
+export const mergeSnapshotDeltas: {
+  (
+    ours: SnapshotDeltaModel.SnapshotDelta,
+    theirs: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.MergeOptions
+  ): (
+    base: Snapshot
+  ) => Effect.Effect<SnapshotDeltaModel.MergeResult, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  (
+    base: Snapshot,
+    ours: SnapshotDeltaModel.SnapshotDelta,
+    theirs: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.MergeOptions
+  ): Effect.Effect<SnapshotDeltaModel.MergeResult, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+} = dual(
+  (args) => args.length >= 4 || Predicate.hasProperty(args[0], SnapshotTypeId),
+  Effect.fnUntraced(function*(
+    base: Snapshot,
+    ours: SnapshotDeltaModel.SnapshotDelta,
+    theirs: SnapshotDeltaModel.SnapshotDelta,
+    options?: SnapshotDeltaModel.MergeOptions
+  ) {
+    // Limits decode first so a bad limit names its own field; the rest of the options decode as one.
+    const limits = yield* deltaLimits("mergeSnapshotDeltas", options?.limits)
 
-  const decoded = yield* Effect.fromResult(
-    decodeConfiguration(SnapshotDeltaModel.MergeOptions, options ?? {}, "mergeSnapshotDeltas")
-  )
+    const decoded = yield* Effect.fromResult(
+      decodeConfiguration(SnapshotDeltaModel.MergeOptions, options ?? {}, "mergeSnapshotDeltas")
+    )
 
-  return yield* SnapshotMergeInternal.mergeSnapshotDeltas(base, ours, theirs, decoded.resolutions ?? [], limits).pipe(
-    Effect.mapError((error) => retargetFailure("mergeSnapshotDeltas", error))
-  )
-})
+    return yield* SnapshotMergeInternal.mergeSnapshotDeltas(base, ours, theirs, decoded.resolutions ?? [], limits).pipe(
+      Effect.mapError((error) => retargetFailure("mergeSnapshotDeltas", error))
+    )
+  })
+)
 
 const deltaSchemaIssue = (cause: VfsError, input: typeof Schema.Unknown.Type, options: SchemaAST.ParseOptions) =>
   new SchemaIssue.InvalidValue(
@@ -2449,14 +2496,10 @@ export const snapshotEntries: {
  * @category constructors
  * @since 0.1.0
  */
-export const fromSnapshot: (
-  snapshot: Snapshot,
-  options?: VolumeOptions
-) => Effect.Effect<
-  Volume,
-  VfsError,
-  Crypto.Crypto
-> = VfsModel.fromSnapshot
+export const fromSnapshot: {
+  (options?: VolumeOptions): (snapshot: Snapshot) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
+  (snapshot: Snapshot, options?: VolumeOptions): Effect.Effect<Volume, VfsError, Crypto.Crypto>
+} = dual((args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId), VfsModel.fromSnapshot)
 
 /**
  * Creates an isolated writable volume relative to one immutable snapshot base.
@@ -2509,14 +2552,10 @@ export const fromSnapshot: (
  * @category constructors
  * @since 0.1.0
  */
-export const makeOverlay: (
-  base: Snapshot,
-  options?: VolumeOptions
-) => Effect.Effect<
-  OverlayVolume,
-  VfsError,
-  Crypto.Crypto
-> = VfsModel.makeOverlay
+export const makeOverlay: {
+  (options?: VolumeOptions): (base: Snapshot) => Effect.Effect<OverlayVolume, VfsError, Crypto.Crypto>
+  (base: Snapshot, options?: VolumeOptions): Effect.Effect<OverlayVolume, VfsError, Crypto.Crypto>
+} = dual((args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId), VfsModel.makeOverlay)
 
 /**
  * Builds a fresh volume from a validated final-state fixture.
@@ -2558,11 +2597,7 @@ export const makeOverlay: (
  * @category constructors
  * @since 0.1.0
  */
-export const fromFixture: (
-  fixture: Fixture,
-  options?: VolumeOptions
-) => Effect.Effect<
-  Volume,
-  VfsError,
-  Crypto.Crypto
-> = FixtureInternal.fromFixture
+export const fromFixture: {
+  (options?: VolumeOptions): (fixture: Fixture) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
+  (fixture: Fixture, options?: VolumeOptions): Effect.Effect<Volume, VfsError, Crypto.Crypto>
+} = dual((args) => args.length >= 2 || Predicate.hasProperty(args[0], "entries"), FixtureInternal.fromFixture)

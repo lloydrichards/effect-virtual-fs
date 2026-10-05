@@ -6,6 +6,7 @@
  * @since 0.6.0
  */
 import * as ByteSize from "effect/ByteSize"
+import { dual } from "effect/Function"
 import * as Order from "effect/Order"
 import * as Schema from "effect/Schema"
 import { BytePath } from "./BytePath.js"
@@ -73,8 +74,13 @@ export const VolumeDurabilityOrder: Order.Order<VolumeDurability> = Order.mapInp
  * @category predicates
  * @since 0.6.0
  */
-export const isVolumeDurabilityAtLeast = (actual: VolumeDurability, required: VolumeDurability): boolean =>
-  VolumeDurabilityOrder(actual, required) >= 0
+export const isVolumeDurabilityAtLeast: {
+  (required: VolumeDurability): (actual: VolumeDurability) => boolean
+  (actual: VolumeDurability, required: VolumeDurability): boolean
+} = dual(
+  2,
+  (actual: VolumeDurability, required: VolumeDurability): boolean => VolumeDurabilityOrder(actual, required) >= 0
+)
 
 /**
  * Schema for a volume identity: 128 bits as lowercase hexadecimal, stable

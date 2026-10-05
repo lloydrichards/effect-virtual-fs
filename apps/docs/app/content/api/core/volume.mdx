@@ -56,7 +56,7 @@ export type OverlayChange =
     }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L268)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L274)
 
 Since v0.6.0
 
@@ -70,7 +70,7 @@ Options of an overlay change summary.
 export type OverlayChangesOptions = { readonly includeTimestamps?: boolean }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L286)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L292)
 
 Since v0.6.0
 
@@ -85,7 +85,7 @@ export type OverlayDifference =
   "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L232)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L238)
 
 Since v0.6.0
 
@@ -99,7 +99,7 @@ A kind of filesystem entry in an overlay summary.
 export type OverlayNodeKind = "file" | "directory" | "symlink"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L207)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L213)
 
 Since v0.6.0
 
@@ -118,7 +118,7 @@ export type ReferenceKey = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L153)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L159)
 
 Since v0.6.0
 
@@ -136,7 +136,7 @@ export type VolumeDurability =
   | "survives-power-loss"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L50)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L51)
 
 Since v0.6.0
 
@@ -150,7 +150,7 @@ A volume identity.
 export type VolumeIdentity = string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L94)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L100)
 
 Since v0.6.0
 
@@ -164,7 +164,7 @@ A volume incarnation.
 export type VolumeIncarnation = string & Brand.Brand<"@effect-vfs/core/VolumeIncarnation">
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L111)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L117)
 
 Since v0.6.0
 
@@ -186,7 +186,7 @@ export type VolumeOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L191)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L197)
 
 Since v0.6.0
 
@@ -204,7 +204,7 @@ declare const VolumeDurabilityOrder: Order.Order<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L65)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L66)
 
 Since v0.6.0
 
@@ -217,10 +217,13 @@ Returns whether `actual` survives at least the failure boundary required by `req
 **Signature**
 
 ```ts
-declare const isVolumeDurabilityAtLeast: (actual: VolumeDurability, required: VolumeDurability) => boolean
+declare const isVolumeDurabilityAtLeast: {
+  (required: VolumeDurability): (actual: VolumeDurability) => boolean
+  (actual: VolumeDurability, required: VolumeDurability): boolean
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L76)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L77)
 
 Since v0.6.0
 
@@ -285,7 +288,7 @@ declare const OverlayChange: Schema.Union<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L244)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L250)
 
 Since v0.6.0
 
@@ -299,7 +302,7 @@ Schema for the options of an overlay change summary.
 declare const OverlayChangesOptions: Schema.Struct<{ readonly includeTimestamps: Schema.optionalKey<Schema.Boolean> }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L276)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L282)
 
 Since v0.6.0
 
@@ -315,7 +318,7 @@ declare const OverlayDifference: Schema.Literals<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L215)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L221)
 
 Since v0.6.0
 
@@ -329,7 +332,7 @@ Schema for the kinds of filesystem entry an overlay summary reports.
 declare const OverlayNodeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L199)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L205)
 
 Since v0.6.0
 
@@ -364,7 +367,7 @@ declare const ReferenceKey: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L140)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L146)
 
 Since v0.6.0
 
@@ -380,7 +383,7 @@ declare const VolumeDurability: Schema.Literals<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L37)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L38)
 
 Since v0.6.0
 
@@ -395,7 +398,7 @@ across restarts of a durable volume.
 declare const VolumeIdentity: Schema.brand<Schema.String, "@effect-vfs/core/VolumeIdentity">
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L86)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L92)
 
 Since v0.6.0
 
@@ -410,7 +413,7 @@ on every construction.
 declare const VolumeIncarnation: Schema.brand<Schema.String, "@effect-vfs/core/VolumeIncarnation">
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L103)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L109)
 
 Since v0.6.0
 
@@ -432,7 +435,7 @@ declare const VolumeOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L161)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L167)
 
 Since v0.6.0
 
@@ -448,7 +451,7 @@ Brand key that marks a volume.
 declare const VolumeId: unique symbol
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L21)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L22)
 
 Since v0.6.0
 
@@ -462,6 +465,6 @@ Brand key that marks a volume.
 export type VolumeId = typeof VolumeId
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L29)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L30)
 
 Since v0.6.0

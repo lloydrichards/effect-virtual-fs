@@ -9,6 +9,7 @@
 import { GetObjectCommand, PutObjectCommand, type S3Client, S3ServiceException } from "@aws-sdk/client-s3"
 import { LiveVolume, type VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { ByteSize, type Crypto, Effect, Exit, Layer, Ref } from "effect"
+import { dual } from "effect/Function"
 import { makeDigest, storeFailures } from "./internal/storeSupport.js"
 
 /** A complete R2 image plus the metadata needed to validate and fence it.
@@ -85,7 +86,10 @@ const loading = storeFailures("R2LiveImageStore.loadOrCreate")
  *
  * @since 0.5.0
  */
-export const fromS3 = (client: S3Client, bucket: string): R2Client => ({
+export const fromS3: {
+  (bucket: string): (client: S3Client) => R2Client
+  (client: S3Client, bucket: string): R2Client
+} = dual(2, (client: S3Client, bucket: string): R2Client => ({
   read: (key) =>
     Effect.tryPromise({
       // oxlint-disable-next-line effecttsgo/async-function -- AWS SDK streams and requests use promises at this adapter boundary.
@@ -133,7 +137,7 @@ export const fromS3 = (client: S3Client, bucket: string): R2Client => ({
       },
       catch: (cause) => transport.fail("Storage", cause)
     })
-})
+}))
 
 /** Configuration for one experimental R2-backed image.
  *

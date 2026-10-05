@@ -14,7 +14,15 @@ sources:
     title: Dual stream-to-volume construction
   - resource: ../../../packages/memory/src/FileSystemTesting.ts
     title: Dual filesystem decoration
-generated: { by: codex/okf, at: "2026-10-05T13:17:21+00:00" }
+  - resource: ../../../packages/core/src/Target.ts
+    title: Dual entry construction
+  - resource: ../../../packages/core/src/Volume.ts
+    title: Dual durability comparison
+  - resource: ../../../packages/memory/src/MemoryFileSystem.ts
+    title: Dual filesystem construction
+  - resource: ../../../packages/persistence/src/R2LiveImageStore.ts
+    title: Dual S3 adapter construction
+generated: { by: codex/okf, at: "2026-10-05T13:35:00+00:00" }
 ---
 
 # Schema data and capability interfaces
@@ -25,6 +33,8 @@ Volume, Caller, FileHandle, and DirectoryHandle remain capability interfaces. By
 
 The resulting ownership model is described by the [volume, caller, and handle architecture](../../architecture/volume-caller-handle-model.md "implemented by").
 
-Selected standalone functions accept both data-first and data-last calls through Effect's `dual`. These are the eight `Search` operations, `BytePath.join`, `VirtualFileSystem.snapshotEntries`, `encodeSnapshot`, `encodeSnapshotStream`, `decodeSnapshot`, `Testing.collectChanges`, `TreeTransfer.toVolume`, and `FileSystemTesting.make`. The curried form captures configuration and receives the same first data argument as the direct form. Effect-returning functions compose with `Effect.flatMap` over their resolved input.
+Selected standalone functions accept both data-first and data-last calls through Effect's `dual`. Core supports all eight `Search` operations, `BytePath.join`, `Target.Entry`, the durability predicate, snapshot entries and encoding/decoding, snapshot construction and its three volume layers, all four snapshot-delta operations, and `Testing.collectChanges`. Memory supports `bind`, `layerFromFixture`, all six `TreeTransfer` operations, and `FileSystemTesting.make`. Persistence supports `R2LiveImageStore.fromS3`.
 
-Fixed required parameters use arity dispatch. Snapshot encoding and stream-to-volume construction use predicates to distinguish their data argument from optional configuration. A curried decorator still runs its factory once per execution. Capability methods remain bound to their caller or handle; the dual functions do not change resource ownership, failure types, or tracing boundaries.
+The curried form captures configuration and receives the same first data argument as the direct form. Effect-returning functions compose with `Effect.flatMap` over their resolved input. Re-exports retain the same overloads.
+
+Fixed required parameters use arity dispatch. Functions with optional configuration use predicates to distinguish data-first calls from curried calls. `diffSnapshots` checks the second argument for a snapshot because its first argument can be a snapshot in either call style. A curried decorator still runs its factory once per execution. Capability methods remain bound to their caller or handle; the dual functions do not change resource ownership, failure types, or tracing boundaries.
