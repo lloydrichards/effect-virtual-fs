@@ -9,8 +9,8 @@ interface CopyButtonProps {
 }
 
 export function CopyButton({ getValue, className }: CopyButtonProps) {
-  const [copied, setCopied] = useState(false)
-  const [status, setStatus] = useState("")
+  const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle")
+  const copied = status === "copied"
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>(null)
 
   useEffect(() => () => {
@@ -18,24 +18,21 @@ export function CopyButton({ getValue, className }: CopyButtonProps) {
   }, [])
 
   const handleCopy = useCallback(() => {
-    setStatus("")
+    setStatus("idle")
 
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
 
     if (!navigator.clipboard) {
-      setCopied(false)
-      setStatus("Could not copy code. Select the code and copy it manually.")
+      setStatus("failed")
 
       return
     }
 
     void navigator.clipboard.writeText(getValue()).then(() => {
-      setCopied(true)
-      setStatus("Code copied.")
-      timeoutRef.current = setTimeout(() => setCopied(false), 2000)
+      setStatus("copied")
+      timeoutRef.current = setTimeout(() => setStatus("idle"), 2000)
     }).catch(() => {
-      setCopied(false)
-      setStatus("Could not copy code. Select the code and copy it manually.")
+      setStatus("failed")
     })
   }, [getValue])
 
@@ -85,7 +82,16 @@ export function CopyButton({ getValue, className }: CopyButtonProps) {
             </svg>
           )}
       </button>
-      <span className="sr-only" role="status">{status}</span>
+      <div
+        className={status === "failed" ? "mt-2 break-words text-sm text-foreground" : "sr-only"}
+        role="status"
+      >
+        {status === "failed"
+          ? "Could not copy code. Select the code and copy it manually."
+          : status === "copied"
+          ? "Code copied."
+          : ""}
+      </div>
     </>
   )
 }
