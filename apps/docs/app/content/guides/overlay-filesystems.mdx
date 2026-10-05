@@ -166,7 +166,7 @@ const program = Effect.gen(function* () {
   const resolved = yield* Vfs.mergeSnapshotDeltas(base, ours, theirs, {
     resolutions: first.conflicts.map((conflict) => ({ path: conflict.path, take: "ours" as const }))
   })
-  const merged = yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(base, resolved.delta))
+  const merged = yield* Vfs.applySnapshotDelta(base, resolved.delta).pipe(Effect.flatMap(Vfs.fromSnapshot()))
   const reader = yield* merged.caller()
 
   return {

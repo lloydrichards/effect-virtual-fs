@@ -2164,7 +2164,7 @@ export const applySnapshotDelta: {
  *   )
  *
  *   // Disjoint changes merge without conflicts; the delta applies to the shared base.
- *   const merged = yield* Vfs.fromSnapshot(yield* Vfs.applySnapshotDelta(base, result.delta))
+ *   const merged = yield* Vfs.applySnapshotDelta(base, result.delta).pipe(Effect.flatMap(Vfs.fromSnapshot()))
  *   const reader = yield* merged.caller()
  *
  *   return [result.conflicts.length, new TextDecoder().decode(yield* reader.readFile("/shared.txt"))]

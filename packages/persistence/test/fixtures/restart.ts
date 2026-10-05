@@ -72,7 +72,12 @@ const program = Effect.gen(function*() {
 
   yield* caller.writeFile("/alias", new Uint8Array([8]), { access: "write", truncate: true })
   assert.deepEqual(yield* caller.readFile(binaryPath), new Uint8Array([8]))
-  const independent = yield* (yield* Vfs.fromSnapshot(yield* store.load("before"))).caller()
+
+  const independent = yield* store.load("before").pipe(
+    Effect.flatMap(Vfs.fromSnapshot()),
+    Effect.flatMap((volume) => volume.caller())
+  )
+
   assert.deepEqual(yield* independent.readFile("/alias"), content)
   const failure = yield* Effect.flip(Vfs.fromSnapshot(snapshot, { maxBytes: ByteSize.bytes(3) }))
   assert.ok(Schema.is(Vfs.VfsError)(failure))

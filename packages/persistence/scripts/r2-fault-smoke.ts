@@ -26,7 +26,9 @@ const s3 = new S3Client({
 
 const bucket = required("R2_BUCKET")
 
-const remote = R2LiveImageStore.fromS3(s3, bucket)
+const inBucket = R2LiveImageStore.fromS3(bucket)
+
+const remote = inBucket(s3)
 
 const bytes = (value: string) => new TextEncoder().encode(value)
 
@@ -136,7 +138,7 @@ try {
     })
 
     try {
-      const first = await makeStore(key, R2LiveImageStore.fromS3(faultS3, bucket))
+      const first = await makeStore(key, inBucket(faultS3))
       await Effect.runPromise(first.loadOrCreate(bytes("old")))
       await pause()
 

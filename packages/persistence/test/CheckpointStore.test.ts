@@ -52,7 +52,12 @@ it.layer(migrated)("SQLite checkpoints", (it) => {
       const error = yield* Effect.flip(store.save("run", empty))
       assert.instanceOf(error, CheckpointError)
       assert.deepStrictEqual([error.code, error.operation], ["AlreadyExists", "CheckpointStore.save"])
-      const restored = yield* (yield* Vfs.fromSnapshot(yield* store.load("run"))).caller()
+
+      const restored = yield* store.load("run").pipe(
+        Effect.flatMap(Vfs.fromSnapshot()),
+        Effect.flatMap((volume) => volume.caller())
+      )
+
       assert.deepStrictEqual(yield* restored.readFile("/f"), new Uint8Array([0, 255, 1]))
     }))
 

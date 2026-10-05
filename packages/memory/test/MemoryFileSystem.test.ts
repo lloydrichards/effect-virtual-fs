@@ -471,7 +471,7 @@ describe("memory adapter compatibility", () => {
   it.layer(NodeCrypto.layer)((it) => {
     it.effect("should preserve a destination symlink and its target when replacement exceeds capacity", () =>
       Effect.gen(function*() {
-        const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+        const fs = yield* Vfs.Volume.pipe(Effect.flatMap(MemoryFileSystem.bind()))
         yield* fs.writeFileString("/source", "x".repeat(32))
         yield* fs.writeFileString("/external", "safe")
         yield* fs.symlink("/external", "/destination")
@@ -491,7 +491,7 @@ describe("memory adapter compatibility", () => {
   it.layer(NodeCrypto.layer)((it) => {
     it.effect("should replace a symlink within capacity when its storage can be reused", () =>
       Effect.gen(function*() {
-        const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+        const fs = yield* Vfs.Volume.pipe(Effect.flatMap(MemoryFileSystem.bind()))
         yield* fs.writeFileString("/source", "copied")
         yield* fs.writeFileString("/external", "safe")
         yield* fs.symlink("/external", "/destination")
@@ -595,7 +595,7 @@ describe("memory adapter compatibility", () => {
   it.layer(NodeCrypto.layer)((it) => {
     it.effect("should report out of space when a copy exceeds volume capacity", () =>
       Effect.gen(function*() {
-        const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+        const fs = yield* Vfs.Volume.pipe(Effect.flatMap(MemoryFileSystem.bind()))
         yield* fs.makeDirectory("/source")
         yield* fs.writeFileString("/source/a", "0123456789")
 
@@ -623,7 +623,7 @@ describe("memory adapter compatibility", () => {
   it.layer(NodeCrypto.layer)((it) => {
     it.effect("should create no directory when a recursive makeDirectory fails partway", () =>
       Effect.gen(function*() {
-        const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+        const fs = yield* Vfs.Volume.pipe(Effect.flatMap(MemoryFileSystem.bind()))
 
         // The third directory is past the volume's entry limit, so the first two are not created either.
         const error = yield* Effect.flip(fs.makeDirectory("/a/b/c", { recursive: true }))
@@ -922,7 +922,7 @@ describe("adapter timestamp conversion", () => {
           Effect.gen(function*() {
             const caller = yield* Vfs.Caller
             const before = yield* caller.stat("/file")
-            const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+            const fs = yield* Vfs.Volume.pipe(Effect.flatMap(MemoryFileSystem.bind()))
             const file = yield* fs.open("/file")
             const pathError = yield* Effect.flip(fs.stat("/file"))
             const handleError = yield* Effect.flip(file.stat)
@@ -946,7 +946,7 @@ describe("adapter timestamp conversion", () => {
   it.layer(NodeCrypto.layer)((it) => {
     it.effect("should return independent valid dates when timestamps reach Date boundaries", () =>
       Effect.gen(function*() {
-        const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+        const fs = yield* Vfs.Volume.pipe(Effect.flatMap(MemoryFileSystem.bind()))
         const file = yield* fs.open("/file")
 
         for (const info of [yield* fs.stat("/file"), yield* file.stat]) {
@@ -1421,7 +1421,7 @@ describe("memory adapter error mapping", () => {
   it.layer(NodeCrypto.layer)((it) => {
     it.effect("should report NoSpace when a write exceeds capacity", () =>
       Effect.gen(function*() {
-        const fs = yield* MemoryFileSystem.bind(yield* Vfs.Volume)
+        const fs = yield* Vfs.Volume.pipe(Effect.flatMap(MemoryFileSystem.bind()))
 
         const error = yield* Effect.flip(fs.writeFileString("/file", "too large"))
 

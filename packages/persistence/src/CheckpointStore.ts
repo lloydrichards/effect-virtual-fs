@@ -232,7 +232,7 @@ export class CheckpointStore extends Context.Service<CheckpointStore, {
    *   yield* store.save("nightly", yield* volume.snapshot)
    *
    *   // Restoration always produces a fresh volume.
-   *   return yield* Vfs.fromSnapshot(yield* store.load("nightly"))
+   *   return yield* store.load("nightly").pipe(Effect.flatMap(Vfs.fromSnapshot()))
    * })
    *
    * // The package does not choose a driver; supply your own SQLite client.
