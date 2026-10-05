@@ -5,6 +5,7 @@
  */
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { dual } from "effect/Function"
 import type * as PlatformError from "effect/PlatformError"
 
 type Methods = Omit<Parameters<typeof FileSystem.make>[0], "watch">
@@ -138,42 +139,50 @@ const intercept = <Args extends Array<unknown>, A, R>(
  * @category constructors
  * @since 0.9.0
  */
-export const make: <State, E, R>(
-  base: FileSystem.FileSystem,
-  factory: () => Effect.Effect<Configuration<State>, E, R>
-) => Effect.Effect<Built<State>, E, R> = Effect.fnUntraced(function*<State, E, R>(
-  base: FileSystem.FileSystem,
-  factory: () => Effect.Effect<Configuration<State>, E, R>
-): Effect.fn.Return<Built<State>, E, R> {
-  const { handlers, state } = yield* factory()
+export const make: {
+  <State, E, R>(
+    factory: () => Effect.Effect<Configuration<State>, E, R>
+  ): (base: FileSystem.FileSystem) => Effect.Effect<Built<State>, E, R>
+  <State, E, R>(
+    base: FileSystem.FileSystem,
+    factory: () => Effect.Effect<Configuration<State>, E, R>
+  ): Effect.Effect<Built<State>, E, R>
+} = dual(
+  2,
+  Effect.fnUntraced(function*<State, E, R>(
+    base: FileSystem.FileSystem,
+    factory: () => Effect.Effect<Configuration<State>, E, R>
+  ): Effect.fn.Return<Built<State>, E, R> {
+    const { handlers, state } = yield* factory()
 
-  const fileSystem = FileSystem.make({
-    access: intercept(base.access, handlers.access),
-    copy: intercept(base.copy, handlers.copy),
-    copyFile: intercept(base.copyFile, handlers.copyFile),
-    chmod: intercept(base.chmod, handlers.chmod),
-    chown: intercept(base.chown, handlers.chown),
-    glob: intercept(base.glob, handlers.glob),
-    link: intercept(base.link, handlers.link),
-    makeDirectory: intercept(base.makeDirectory, handlers.makeDirectory),
-    makeTempDirectory: intercept(base.makeTempDirectory, handlers.makeTempDirectory),
-    makeTempDirectoryScoped: intercept(base.makeTempDirectoryScoped, handlers.makeTempDirectoryScoped),
-    makeTempFile: intercept(base.makeTempFile, handlers.makeTempFile),
-    makeTempFileScoped: intercept(base.makeTempFileScoped, handlers.makeTempFileScoped),
-    open: intercept(base.open, handlers.open),
-    readDirectory: intercept(base.readDirectory, handlers.readDirectory),
-    readFile: intercept(base.readFile, handlers.readFile),
-    readLink: intercept(base.readLink, handlers.readLink),
-    realPath: intercept(base.realPath, handlers.realPath),
-    remove: intercept(base.remove, handlers.remove),
-    rename: intercept(base.rename, handlers.rename),
-    stat: intercept(base.stat, handlers.stat),
-    symlink: intercept(base.symlink, handlers.symlink),
-    truncate: intercept(base.truncate, handlers.truncate),
-    utimes: intercept(base.utimes, handlers.utimes),
-    writeFile: intercept(base.writeFile, handlers.writeFile),
-    watch: base.watch
+    const fileSystem = FileSystem.make({
+      access: intercept(base.access, handlers.access),
+      copy: intercept(base.copy, handlers.copy),
+      copyFile: intercept(base.copyFile, handlers.copyFile),
+      chmod: intercept(base.chmod, handlers.chmod),
+      chown: intercept(base.chown, handlers.chown),
+      glob: intercept(base.glob, handlers.glob),
+      link: intercept(base.link, handlers.link),
+      makeDirectory: intercept(base.makeDirectory, handlers.makeDirectory),
+      makeTempDirectory: intercept(base.makeTempDirectory, handlers.makeTempDirectory),
+      makeTempDirectoryScoped: intercept(base.makeTempDirectoryScoped, handlers.makeTempDirectoryScoped),
+      makeTempFile: intercept(base.makeTempFile, handlers.makeTempFile),
+      makeTempFileScoped: intercept(base.makeTempFileScoped, handlers.makeTempFileScoped),
+      open: intercept(base.open, handlers.open),
+      readDirectory: intercept(base.readDirectory, handlers.readDirectory),
+      readFile: intercept(base.readFile, handlers.readFile),
+      readLink: intercept(base.readLink, handlers.readLink),
+      realPath: intercept(base.realPath, handlers.realPath),
+      remove: intercept(base.remove, handlers.remove),
+      rename: intercept(base.rename, handlers.rename),
+      stat: intercept(base.stat, handlers.stat),
+      symlink: intercept(base.symlink, handlers.symlink),
+      truncate: intercept(base.truncate, handlers.truncate),
+      utimes: intercept(base.utimes, handlers.utimes),
+      writeFile: intercept(base.writeFile, handlers.writeFile),
+      watch: base.watch
+    })
+
+    return { fileSystem, state }
   })
-
-  return { fileSystem, state }
-})
+)

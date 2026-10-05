@@ -46,7 +46,7 @@ declare const defaultLimits: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L150)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L151)
 
 Since v0.8.0
 
@@ -62,7 +62,7 @@ Typed runtime budget exhaustion.
 declare class BudgetExceeded
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L303)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L304)
 
 Since v0.8.0
 
@@ -76,7 +76,7 @@ Typed query, pattern-compilation and snapshot failures for content collectors.
 type ContentFailure = QueryFailure | FsFailure | ImageFailure
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L535)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L536)
 
 Since v0.8.0
 
@@ -90,7 +90,7 @@ Query and snapshot failures preserved by collectors.
 type GlobFailure = QueryFailure | FsFailure | ImageFailure
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L314)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L315)
 
 Since v0.8.0
 
@@ -104,7 +104,7 @@ Invalid query, pattern syntax or aggregate compilation limit.
 declare class QueryFailure
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L290)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L291)
 
 Since v0.8.0
 
@@ -118,7 +118,7 @@ Content Stream failures, including budget exhaustion after earlier rows.
 type ScanContentFailure = ContentFailure | BudgetExceeded
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L543)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L544)
 
 Since v0.8.0
 
@@ -132,7 +132,7 @@ Stream failures, including exhaustion after earlier rows.
 type ScanGlobFailure = GlobFailure | BudgetExceeded
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L322)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L323)
 
 Since v0.8.0
 
@@ -169,7 +169,7 @@ export type Completion =
     }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L260)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L261)
 
 Since v0.8.0
 
@@ -208,7 +208,7 @@ export type ContentQuery = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L377)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L378)
 
 Since v0.8.0
 
@@ -261,7 +261,7 @@ export type CountLinesReport = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L527)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L528)
 
 Since v0.8.0
 
@@ -275,7 +275,7 @@ One completed file matching-line count.
 export type CountResult = { readonly path: string; readonly count: number }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L455)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L456)
 
 Since v0.8.0
 
@@ -289,7 +289,7 @@ Bounded excerpt of one matching line.
 export type Excerpt = { readonly text: string; readonly start: number; readonly truncated: boolean }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L412)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L413)
 
 Since v0.8.0
 
@@ -342,7 +342,7 @@ export type FilesReport = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L503)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L504)
 
 Since v0.8.0
 
@@ -378,7 +378,7 @@ export type GlobQuery = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L194)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L195)
 
 Since v0.8.0
 
@@ -431,7 +431,7 @@ export type GlobReport = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L282)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L283)
 
 Since v0.8.0
 
@@ -445,7 +445,7 @@ Entry kinds selected by filename queries.
 export type Kind = "file" | "directory" | "symlink"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L37)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L38)
 
 Since v0.8.0
 
@@ -474,7 +474,7 @@ export type Limit =
   | "maxExcerptBytes"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L135)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L136)
 
 Since v0.8.0
 
@@ -504,7 +504,7 @@ export type LimitOverrides = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L103)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L104)
 
 Since v0.8.0
 
@@ -534,7 +534,7 @@ export type Limits = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L71)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L72)
 
 Since v0.8.0
 
@@ -553,7 +553,7 @@ export type LineResult = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L435)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L436)
 
 Since v0.8.0
 
@@ -611,7 +611,7 @@ export type LinesReport = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L479)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L480)
 
 Since v0.8.0
 
@@ -625,7 +625,7 @@ First whole-match byte range.
 export type MatchRange = { readonly start: number; readonly end: number }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L394)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L395)
 
 Since v0.8.0
 
@@ -641,7 +641,7 @@ export type Pattern =
   | { readonly _tag: "Regex"; readonly pattern: string }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L353)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L354)
 
 Since v0.8.0
 
@@ -661,7 +661,7 @@ export type Skips = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L238)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L239)
 
 Since v0.8.0
 
@@ -681,7 +681,7 @@ export type Work = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L216)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L217)
 
 Since v0.8.0
 
@@ -697,10 +697,13 @@ scalar metadata is excluded, as in the other content modes.
 **Signature**
 
 ```ts
-declare const countLines: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<CountLinesReport, ContentFailure>
+declare const countLines: {
+  (query: ContentQuery): (snapshot: Snapshot) => Effect.Effect<CountLinesReport, ContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Effect.Effect<CountLinesReport, ContentFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L837)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L874)
 
 Since v0.8.0
 
@@ -714,10 +717,13 @@ only; scanned bytes still charge the full selected file before classification.
 **Signature**
 
 ```ts
-declare const files: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<FilesReport, ContentFailure>
+declare const files: {
+  (query: ContentQuery): (snapshot: Snapshot) => Effect.Effect<FilesReport, ContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Effect.Effect<FilesReport, ContentFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L809)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L837)
 
 Since v0.8.0
 
@@ -760,10 +766,13 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then((report) =
 **Signature**
 
 ```ts
-declare const glob: (snapshot: Snapshot, query: GlobQuery) => Effect.Effect<GlobReport, GlobFailure>
+declare const glob: {
+  (query: GlobQuery): (snapshot: Snapshot) => Effect.Effect<GlobReport, GlobFailure>
+  (snapshot: Snapshot, query: GlobQuery): Effect.Effect<GlobReport, GlobFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L662)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L666)
 
 Since v0.8.0
 
@@ -782,10 +791,13 @@ repeated hard-link scans. Empty files have no lines.
 **Signature**
 
 ```ts
-declare const lines: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<LinesReport, ContentFailure>
+declare const lines: {
+  (query: ContentQuery): (snapshot: Snapshot) => Effect.Effect<LinesReport, ContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Effect.Effect<LinesReport, ContentFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L783)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L799)
 
 Since v0.8.0
 
@@ -799,13 +811,13 @@ ranges or excerpts. Use `countLines` when coverage information matters.
 **Signature**
 
 ```ts
-declare const scanCountLines: (
-  snapshot: Snapshot,
-  query: ContentQuery
-) => Stream.Stream<CountResult, ScanContentFailure>
+declare const scanCountLines: {
+  (query: ContentQuery): (snapshot: Snapshot) => Stream.Stream<CountResult, ScanContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Stream.Stream<CountResult, ScanContentFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L823)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L857)
 
 Since v0.8.0
 
@@ -819,10 +831,13 @@ use `files` for coverage and skip counters.
 **Signature**
 
 ```ts
-declare const scanFiles: (snapshot: Snapshot, query: ContentQuery) => Stream.Stream<string, ScanContentFailure>
+declare const scanFiles: {
+  (query: ContentQuery): (snapshot: Snapshot) => Stream.Stream<string, ScanContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Stream.Stream<string, ScanContentFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L797)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L819)
 
 Since v0.8.0
 
@@ -855,10 +870,13 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 **Signature**
 
 ```ts
-declare const scanGlob: (snapshot: Snapshot, query: GlobQuery) => Stream.Stream<string, ScanGlobFailure>
+declare const scanGlob: {
+  (query: GlobQuery): (snapshot: Snapshot) => Stream.Stream<string, ScanGlobFailure>
+  (snapshot: Snapshot, query: GlobQuery): Stream.Stream<string, ScanGlobFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L616)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L617)
 
 Since v0.8.0
 
@@ -901,10 +919,13 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then((rows) => 
 **Signature**
 
 ```ts
-declare const scanLines: (snapshot: Snapshot, query: ContentQuery) => Stream.Stream<LineResult, ScanContentFailure>
+declare const scanLines: {
+  (query: ContentQuery): (snapshot: Snapshot) => Stream.Stream<LineResult, ScanContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Stream.Stream<LineResult, ScanContentFailure>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L766)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L776)
 
 Since v0.8.0
 
@@ -952,7 +973,7 @@ declare const Completion: Schema.Union<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L249)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L250)
 
 Since v0.8.0
 
@@ -995,7 +1016,7 @@ declare const ContentQuery: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L362)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L363)
 
 Since v0.8.0
 
@@ -1058,7 +1079,7 @@ declare const CountLinesReport: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L513)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L514)
 
 Since v0.8.0
 
@@ -1073,7 +1094,7 @@ lines, not occurrences. Incomplete files never produce a count row.
 declare const CountResult: Schema.Struct<{ readonly path: Schema.String; readonly count: Schema.Int }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L444)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L445)
 
 Since v0.8.0
 
@@ -1093,7 +1114,7 @@ declare const Excerpt: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L404)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L405)
 
 Since v0.8.0
 
@@ -1156,7 +1177,7 @@ declare const FilesReport: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L489)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L490)
 
 Since v0.8.0
 
@@ -1200,7 +1221,7 @@ declare const GlobQuery: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L180)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L181)
 
 Since v0.8.0
 
@@ -1261,7 +1282,7 @@ declare const GlobReport: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L268)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L269)
 
 Since v0.8.0
 
@@ -1275,7 +1296,7 @@ Entry kinds selected by filename queries.
 declare const Kind: Schema.Literals<readonly ["file", "directory", "symlink"]>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L29)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L30)
 
 Since v0.8.0
 
@@ -1307,7 +1328,7 @@ declare const Limit: Schema.Literals<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L111)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L112)
 
 Since v0.8.0
 
@@ -1337,7 +1358,7 @@ declare const LimitOverrides: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L79)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L80)
 
 Since v0.8.0
 
@@ -1367,7 +1388,7 @@ declare const Limits: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L63)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L64)
 
 Since v0.8.0
 
@@ -1392,7 +1413,7 @@ declare const LineResult: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L422)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L423)
 
 Since v0.8.0
 
@@ -1466,7 +1487,7 @@ declare const LinesReport: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L465)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L466)
 
 Since v0.8.0
 
@@ -1481,7 +1502,7 @@ indices or character columns.
 declare const MatchRange: Schema.Struct<{ readonly start: Schema.Natural; readonly end: Schema.Natural }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L386)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L387)
 
 Since v0.8.0
 
@@ -1498,7 +1519,7 @@ declare const Pattern: Schema.TaggedUnion<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L330)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L331)
 
 Since v0.8.0
 
@@ -1518,7 +1539,7 @@ declare const Skips: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L224)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L225)
 
 Since v0.8.0
 
@@ -1538,7 +1559,7 @@ declare const Work: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L202)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Search.ts#L203)
 
 Since v0.8.0
 

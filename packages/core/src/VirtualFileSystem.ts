@@ -12,9 +12,11 @@ import type * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
+import { dual } from "effect/Function"
 import * as Layer from "effect/Layer"
 import type * as Order from "effect/Order"
 import type * as PlatformError from "effect/PlatformError"
+import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as SchemaAST from "effect/SchemaAST"
@@ -51,7 +53,7 @@ export {
 
 export { BytePath } from "./BytePath.js"
 
-import type { DecodeLimits, Snapshot } from "./Snapshot.js"
+import { type DecodeLimits, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 
 export { DecodeLimits, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 
@@ -1730,14 +1732,17 @@ const optionalBudget = (operation: string, limits: DecodeLimits | undefined) =>
  * @category serialization
  * @since 0.6.0
  */
-export const encodeSnapshotStream: (
-  snapshot: Snapshot,
-  limits?: DecodeLimits
-) => Stream.Stream<Uint8Array, ImageFailure | ArgumentFailure> = (snapshot, limits) =>
-  Stream.unwrap(Effect.map(
-    optionalBudget("encodeSnapshotStream", limits),
-    (budget) => Image.encodeSnapshotStream(snapshot, budget)
-  )).pipe(Stream.mapError((error) => retargetFailure("encodeSnapshotStream", error)))
+export const encodeSnapshotStream: {
+  (limits?: DecodeLimits): (snapshot: Snapshot) => Stream.Stream<Uint8Array, ImageFailure | ArgumentFailure>
+  (snapshot: Snapshot, limits?: DecodeLimits): Stream.Stream<Uint8Array, ImageFailure | ArgumentFailure>
+} = dual(
+  (args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId),
+  (snapshot, limits) =>
+    Stream.unwrap(Effect.map(
+      optionalBudget("encodeSnapshotStream", limits),
+      (budget) => Image.encodeSnapshotStream(snapshot, budget)
+    )).pipe(Stream.mapError((error) => retargetFailure("encodeSnapshotStream", error)))
+)
 
 /**
  * Encodes a snapshot as owned UTF-8 bytes in the version 1 snapshot format.
@@ -1779,13 +1784,16 @@ export const encodeSnapshotStream: (
  * @category serialization
  * @since 0.1.0
  */
-export const encodeSnapshot: (
-  snapshot: Snapshot,
-  limits?: DecodeLimits
-) => Effect.Effect<Uint8Array, ImageFailure | ArgumentFailure> = (snapshot, limits) =>
-  Effect.flatMap(optionalBudget("encodeSnapshot", limits), (budget) => Image.encodeSnapshot(snapshot, budget)).pipe(
-    Effect.mapError((error) => retargetFailure("encodeSnapshot", error))
-  )
+export const encodeSnapshot: {
+  (limits?: DecodeLimits): (snapshot: Snapshot) => Effect.Effect<Uint8Array, ImageFailure | ArgumentFailure>
+  (snapshot: Snapshot, limits?: DecodeLimits): Effect.Effect<Uint8Array, ImageFailure | ArgumentFailure>
+} = dual(
+  (args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId),
+  (snapshot, limits) =>
+    Effect.flatMap(optionalBudget("encodeSnapshot", limits), (budget) => Image.encodeSnapshot(snapshot, budget)).pipe(
+      Effect.mapError((error) => retargetFailure("encodeSnapshot", error))
+    )
+)
 
 /**
  * A sink that decodes a stream of version 1 snapshot chunks while enforcing
@@ -1889,11 +1897,10 @@ export const decodeSnapshotSink: (
  * @category serialization
  * @since 0.1.0
  */
-export const decodeSnapshot: (
-  input: Uint8Array,
-  limits: DecodeLimits
-) => Effect.Effect<Snapshot, ImageFailure | ArgumentFailure> = (input, limits) =>
-  Stream.run(Stream.succeed(input), decodeSnapshotSink(limits))
+export const decodeSnapshot: {
+  (limits: DecodeLimits): (input: Uint8Array) => Effect.Effect<Snapshot, ImageFailure | ArgumentFailure>
+  (input: Uint8Array, limits: DecodeLimits): Effect.Effect<Snapshot, ImageFailure | ArgumentFailure>
+} = dual(2, (input, limits) => Stream.run(Stream.succeed(input), decodeSnapshotSink(limits)))
 
 const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDeltaLimits) =>
   Effect.fromResult(decodeConfiguration(
@@ -2395,10 +2402,10 @@ export const make: (
  * @category snapshots
  * @since 0.6.0
  */
-export const snapshotEntries: (
-  snapshot: Snapshot,
-  root: PathInput
-) => Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure> = Image.snapshotEntries
+export const snapshotEntries: {
+  (root: PathInput): (snapshot: Snapshot) => Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure>
+  (snapshot: Snapshot, root: PathInput): Stream.Stream<Fixture["entries"][number], FsFailure | ImageFailure>
+} = dual(2, Image.snapshotEntries)
 
 /**
  * Restores a fresh volume from an opaque snapshot under the supplied destination limits.
