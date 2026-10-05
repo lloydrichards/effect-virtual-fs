@@ -53,13 +53,18 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 **Signature**
 
 ```ts
-declare const make: <State, E, R>(
-  base: FileSystem.FileSystem,
-  factory: () => Effect.Effect<Configuration<State>, E, R>
-) => Effect.Effect<Built<State>, E, R>
+declare const make: {
+  <State, E, R>(
+    factory: () => Effect.Effect<Configuration<State>, E, R>
+  ): (base: FileSystem.FileSystem) => Effect.Effect<Built<State>, E, R>
+  <State, E, R>(
+    base: FileSystem.FileSystem,
+    factory: () => Effect.Effect<Configuration<State>, E, R>
+  ): Effect.Effect<Built<State>, E, R>
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L141)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L142)
 
 Since v0.9.0
 
@@ -87,7 +92,7 @@ export interface Built<State> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L88)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L89)
 
 Since v0.9.0
 
@@ -119,7 +124,7 @@ export interface Configuration<State> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L69)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L70)
 
 Since v0.9.0
 
@@ -284,7 +289,7 @@ export type Handlers = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L43)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L44)
 
 Since v0.9.0
 

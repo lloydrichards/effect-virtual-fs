@@ -1,6 +1,6 @@
 import type { Effect, FileSystem, PlatformError, Ref, Scope } from "effect"
 import { expectTypeOf } from "vitest"
-import type * as FileSystemTesting from "../src/FileSystemTesting.js"
+import * as FileSystemTesting from "../src/FileSystemTesting.js"
 
 type WriteHandler = NonNullable<FileSystemTesting.Handlers["writeFile"]>
 
@@ -29,3 +29,8 @@ expectTypeOf<Effect.Effect<void, never, Scope.Scope>>().not.toExtend<ReturnType<
 expectTypeOf<FileSystemTesting.Built<Ref.Ref<number>>["state"]>().toEqualTypeOf<Ref.Ref<number>>()
 
 export type { StreamHandler, StringHandler, WatchHandler }
+
+export const curriedDecorator = <State, E, R>(
+  base: FileSystem.FileSystem,
+  factory: () => Effect.Effect<FileSystemTesting.Configuration<State>, E, R>
+) => FileSystemTesting.make(factory)(base) satisfies Effect.Effect<FileSystemTesting.Built<State>, E, R>

@@ -10,6 +10,7 @@
  */
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
+import { dual } from "effect/Function"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { BytePath } from "./BytePath.js"
@@ -613,7 +614,10 @@ const evaluate = Effect.fnUntraced(function*(snapshot: Snapshot, input: GlobQuer
  * @category operations
  * @since 0.8.0
  */
-export const scanGlob = (snapshot: Snapshot, query: GlobQuery): Stream.Stream<string, ScanGlobFailure> =>
+export const scanGlob: {
+  (query: GlobQuery): (snapshot: Snapshot) => Stream.Stream<string, ScanGlobFailure>
+  (snapshot: Snapshot, query: GlobQuery): Stream.Stream<string, ScanGlobFailure>
+} = dual(2, (snapshot: Snapshot, query: GlobQuery): Stream.Stream<string, ScanGlobFailure> =>
   Stream.unwrap(
     Effect.map(evaluate(snapshot, query), ({ next }) =>
       Stream.unfold(
@@ -624,7 +628,7 @@ export const scanGlob = (snapshot: Snapshot, query: GlobQuery): Stream.Stream<st
           return row === undefined ? undefined : [row, undefined] as const
         })
       ))
-  )
+  ))
 
 /**
  * Collect bounded matches and preserve preceding rows when a work or output
@@ -659,30 +663,36 @@ export const scanGlob = (snapshot: Snapshot, query: GlobQuery): Stream.Stream<st
  * @category operations
  * @since 0.8.0
  */
-export const glob: (snapshot: Snapshot, query: GlobQuery) => Effect.Effect<GlobReport, GlobFailure> = Effect.fnUntraced(
-  function*(snapshot: Snapshot, query: GlobQuery): Effect.fn.Return<GlobReport, GlobFailure> {
-    const evaluation = yield* evaluate(snapshot, query)
-    const results: Array<string> = []
+export const glob: {
+  (query: GlobQuery): (snapshot: Snapshot) => Effect.Effect<GlobReport, GlobFailure>
+  (snapshot: Snapshot, query: GlobQuery): Effect.Effect<GlobReport, GlobFailure>
+} = dual(
+  2,
+  Effect.fnUntraced(
+    function*(snapshot: Snapshot, query: GlobQuery): Effect.fn.Return<GlobReport, GlobFailure> {
+      const evaluation = yield* evaluate(snapshot, query)
+      const results: Array<string> = []
 
-    const completion: Completion = yield* Effect.gen(function*() {
-      for (let row = yield* evaluation.next(); row !== undefined; row = yield* evaluation.next()) results.push(row)
+      const completion: Completion = yield* Effect.gen(function*() {
+        for (let row = yield* evaluation.next(); row !== undefined; row = yield* evaluation.next()) results.push(row)
 
-      return Completion.members[0].make({})
-    }).pipe(Effect.catchTag("SearchBudgetExceeded", (error) =>
-      Effect.succeed(
-        error.path === undefined
-          ? Completion.members[1].make({ limit: error.limit })
-          : Completion.members[1].make({ limit: error.limit, path: error.path })
-      )))
+        return Completion.members[0].make({})
+      }).pipe(Effect.catchTag("SearchBudgetExceeded", (error) =>
+        Effect.succeed(
+          error.path === undefined
+            ? Completion.members[1].make({ limit: error.limit })
+            : Completion.members[1].make({ limit: error.limit, path: error.path })
+        )))
 
-    return {
-      root: evaluation.query.root,
-      results,
-      work: { ...evaluation.meter.work },
-      skips: { ...evaluation.meter.skips },
-      completion
+      return {
+        root: evaluation.query.root,
+        results,
+        work: { ...evaluation.meter.work },
+        skips: { ...evaluation.meter.skips },
+        completion
+      }
     }
-  }
+  )
 )
 
 const scanContent = <M extends Content.Mode>(
@@ -763,8 +773,14 @@ const collectContent = Effect.fnUntraced(function*<M extends Content.Mode>(
  * @category operations
  * @since 0.8.0
  */
-export const scanLines = (snapshot: Snapshot, query: ContentQuery): Stream.Stream<LineResult, ScanContentFailure> =>
-  scanContent(snapshot, query, "lines")
+export const scanLines: {
+  (query: ContentQuery): (snapshot: Snapshot) => Stream.Stream<LineResult, ScanContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Stream.Stream<LineResult, ScanContentFailure>
+} = dual(
+  2,
+  (snapshot: Snapshot, query: ContentQuery): Stream.Stream<LineResult, ScanContentFailure> =>
+    scanContent(snapshot, query, "lines")
+)
 
 /**
  * Collect matching lines, preceding rows, skips, work and completion. Catch only
@@ -780,10 +796,16 @@ export const scanLines = (snapshot: Snapshot, query: ContentQuery): Stream.Strea
  * @category operations
  * @since 0.8.0
  */
-export const lines: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<LinesReport, ContentFailure> = Effect
-  .fnUntraced(function*(snapshot: Snapshot, query: ContentQuery) {
-    return yield* collectContent(snapshot, query, "lines")
-  })
+export const lines: {
+  (query: ContentQuery): (snapshot: Snapshot) => Effect.Effect<LinesReport, ContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Effect.Effect<LinesReport, ContentFailure>
+} = dual(
+  2,
+  Effect
+    .fnUntraced(function*(snapshot: Snapshot, query: ContentQuery) {
+      return yield* collectContent(snapshot, query, "lines")
+    })
+)
 
 /**
  * Stream one root-relative filename per matching regular-file path. Classify
@@ -794,8 +816,14 @@ export const lines: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<L
  * @category operations
  * @since 0.8.0
  */
-export const scanFiles = (snapshot: Snapshot, query: ContentQuery): Stream.Stream<string, ScanContentFailure> =>
-  scanContent(snapshot, query, "files")
+export const scanFiles: {
+  (query: ContentQuery): (snapshot: Snapshot) => Stream.Stream<string, ScanContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Stream.Stream<string, ScanContentFailure>
+} = dual(
+  2,
+  (snapshot: Snapshot, query: ContentQuery): Stream.Stream<string, ScanContentFailure> =>
+    scanContent(snapshot, query, "files")
+)
 
 /**
  * Collect matching filenames with preceding rows, work, skips and completion.
@@ -806,10 +834,16 @@ export const scanFiles = (snapshot: Snapshot, query: ContentQuery): Stream.Strea
  * @category operations
  * @since 0.8.0
  */
-export const files: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<FilesReport, ContentFailure> = Effect
-  .fnUntraced(function*(snapshot: Snapshot, query: ContentQuery) {
-    return yield* collectContent(snapshot, query, "files")
-  })
+export const files: {
+  (query: ContentQuery): (snapshot: Snapshot) => Effect.Effect<FilesReport, ContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Effect.Effect<FilesReport, ContentFailure>
+} = dual(
+  2,
+  Effect
+    .fnUntraced(function*(snapshot: Snapshot, query: ContentQuery) {
+      return yield* collectContent(snapshot, query, "files")
+    })
+)
 
 /**
  * Stream exact matching-line counts for completely scanned matching files.
@@ -820,10 +854,13 @@ export const files: (snapshot: Snapshot, query: ContentQuery) => Effect.Effect<F
  * @category operations
  * @since 0.8.0
  */
-export const scanCountLines = (
+export const scanCountLines: {
+  (query: ContentQuery): (snapshot: Snapshot) => Stream.Stream<CountResult, ScanContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Stream.Stream<CountResult, ScanContentFailure>
+} = dual(2, (
   snapshot: Snapshot,
   query: ContentQuery
-): Stream.Stream<CountResult, ScanContentFailure> => scanContent(snapshot, query, "countLines")
+): Stream.Stream<CountResult, ScanContentFailure> => scanContent(snapshot, query, "countLines"))
 
 /**
  * Collect exact per-file matching-line counts with work, skips and completion.
@@ -834,11 +871,14 @@ export const scanCountLines = (
  * @category operations
  * @since 0.8.0
  */
-export const countLines: (
-  snapshot: Snapshot,
-  query: ContentQuery
-) => Effect.Effect<CountLinesReport, ContentFailure> = Effect.fnUntraced(
-  function*(snapshot: Snapshot, query: ContentQuery) {
-    return yield* collectContent(snapshot, query, "countLines")
-  }
+export const countLines: {
+  (query: ContentQuery): (snapshot: Snapshot) => Effect.Effect<CountLinesReport, ContentFailure>
+  (snapshot: Snapshot, query: ContentQuery): Effect.Effect<CountLinesReport, ContentFailure>
+} = dual(
+  2,
+  Effect.fnUntraced(
+    function*(snapshot: Snapshot, query: ContentQuery) {
+      return yield* collectContent(snapshot, query, "countLines")
+    }
+  )
 )

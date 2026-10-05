@@ -15,6 +15,7 @@
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import { dual } from "effect/Function"
 import * as Layer from "effect/Layer"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
@@ -144,11 +145,19 @@ export const callerAs = (
  * @category combinators
  * @since 0.6.0
  */
-export const collectChanges = <A, E, R>(
+export const collectChanges: {
+  (
+    n: number
+  ): <A, E, R>(stream: Stream.Stream<A, E, R>) => Effect.Effect<Effect.Effect<Array<A>, E>, never, R | Scope.Scope>
+  <A, E, R>(
+    stream: Stream.Stream<A, E, R>,
+    n: number
+  ): Effect.Effect<Effect.Effect<Array<A>, E>, never, R | Scope.Scope>
+} = dual(2, <A, E, R>(
   stream: Stream.Stream<A, E, R>,
   n: number
 ): Effect.Effect<Effect.Effect<Array<A>, E>, never, R | Scope.Scope> =>
   Stream.runCollect(Stream.take(stream, n)).pipe(
     Effect.forkScoped({ startImmediately: true }),
     Effect.map(Fiber.join)
-  )
+  ))

@@ -14,10 +14,11 @@ import type * as Cause from "effect/Cause"
 import type * as Crypto from "effect/Crypto"
 import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
+import { dual } from "effect/Function"
 import type * as PlatformError from "effect/PlatformError"
 import type * as Schema from "effect/Schema"
 import type * as Sink from "effect/Sink"
-import type * as Stream from "effect/Stream"
+import * as Stream from "effect/Stream"
 import * as internal from "./internal/treeTransfer.js"
 import * as engine from "./internal/treeTransferEngine.js"
 import * as host from "./internal/treeTransferFileSystem.js"
@@ -701,14 +702,20 @@ export interface VolumeTransferOptions {
  * @category sinks
  * @since 0.6.0
  */
-export const toVolume: <E, R>(
-  entries: Stream.Stream<Entry, E, R>,
-  options?: VolumeTransferOptions
-) => Effect.Effect<
-  Vfs.Volume,
-  E | TransferError | Vfs.VfsError,
-  R | Crypto.Crypto
-> = (entries, options) => internal.toVolume(entries, options)
+export const toVolume: {
+  (
+    options?: VolumeTransferOptions
+  ): <E, R>(
+    entries: Stream.Stream<Entry, E, R>
+  ) => Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R | Crypto.Crypto>
+  <E, R>(
+    entries: Stream.Stream<Entry, E, R>,
+    options?: VolumeTransferOptions
+  ): Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R | Crypto.Crypto>
+} = dual(
+  (args) => args.length >= 2 || Stream.isStream(args[0]),
+  <E, R>(entries: Stream.Stream<Entry, E, R>, options?: VolumeTransferOptions) => internal.toVolume(entries, options)
+)
 
 /**
  * Streams the tree at `root` through an application-provided Effect `FileSystem`.

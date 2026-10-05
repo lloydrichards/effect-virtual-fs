@@ -9,7 +9,7 @@ import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import type * as Stream from "effect/Stream"
-import { LiveVolume, Search } from "../src/index.js"
+import { LiveVolume, Search, Testing } from "../src/index.js"
 import { VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as SearchModule from "../src/Search.js"
 
@@ -335,3 +335,46 @@ export const confinedCaller = (caller: Vfs.Caller, reference: Vfs.ObjectReferenc
     confined.remove("/temp", { expected: "/temp" })
     return { events, removal, forcedRemoval, limits: confined.limits }
   }) satisfies Effect.Effect<unknown, Vfs.FsFailure, Scope.Scope>
+
+export const dualSearch = (snapshot: Vfs.Snapshot, glob: Search.GlobQuery, content: Search.ContentQuery) => ({
+  glob: Search.glob(glob)(snapshot) satisfies Effect.Effect<Search.GlobReport, Search.GlobFailure>,
+  scanGlob: Search.scanGlob(glob)(snapshot) satisfies Stream.Stream<string, Search.ScanGlobFailure>,
+  lines: Search.lines(content)(snapshot) satisfies Effect.Effect<Search.LinesReport, Search.ContentFailure>,
+  scanLines: Search.scanLines(content)(snapshot) satisfies Stream.Stream<Search.LineResult, Search.ScanContentFailure>,
+  files: Search.files(content)(snapshot) satisfies Effect.Effect<Search.FilesReport, Search.ContentFailure>,
+  scanFiles: Search.scanFiles(content)(snapshot) satisfies Stream.Stream<string, Search.ScanContentFailure>,
+  countLines: Search.countLines(content)(snapshot) satisfies Effect.Effect<
+    Search.CountLinesReport,
+    Search.ContentFailure
+  >,
+  scanCountLines: Search.scanCountLines(content)(snapshot) satisfies Stream.Stream<
+    Search.CountResult,
+    Search.ScanContentFailure
+  >
+})
+
+export const dualSnapshots = (snapshot: Vfs.Snapshot, bytes: Uint8Array, limits: Vfs.DecodeLimits) => ({
+  encode: Vfs.encodeSnapshot(limits)(snapshot) satisfies Effect.Effect<
+    Uint8Array,
+    Vfs.ImageFailure | Vfs.ArgumentFailure
+  >,
+  encodeWithoutLimits: Vfs.encodeSnapshot()(snapshot) satisfies Effect.Effect<
+    Uint8Array,
+    Vfs.ImageFailure | Vfs.ArgumentFailure
+  >,
+  encodeStream: Vfs.encodeSnapshotStream(limits)(snapshot) satisfies Stream.Stream<
+    Uint8Array,
+    Vfs.ImageFailure | Vfs.ArgumentFailure
+  >,
+  decode: Vfs.decodeSnapshot(limits)(bytes) satisfies Effect.Effect<
+    Vfs.Snapshot,
+    Vfs.ImageFailure | Vfs.ArgumentFailure
+  >,
+  entries: Vfs.snapshotEntries("/")(snapshot) satisfies Stream.Stream<
+    Vfs.Fixture["entries"][number],
+    Vfs.FsFailure | Vfs.ImageFailure
+  >
+})
+
+export const dualWatchCollection = <A, E, R>(stream: Stream.Stream<A, E, R>) =>
+  Testing.collectChanges(2)(stream) satisfies Effect.Effect<Effect.Effect<Array<A>, E>, never, R | Scope.Scope>
