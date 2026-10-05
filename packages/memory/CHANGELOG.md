@@ -1,5 +1,64 @@
 # @effect-vfs/memory
 
+## 0.9.0
+
+### Minor Changes
+
+- [#290](https://github.com/lloydrichards/effect-virtual-fs/pull/290) [`b88efde`](https://github.com/lloydrichards/effect-virtual-fs/commit/b88efde0a818853a3575ca1d2c32e8c75fff5f4f) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `Caller.withRoot` confines a caller's paths, references, handles, and watches to a directory. `MemoryFileSystem.bindCaller` exposes that caller as an Effect `FileSystem` with the same root, working directory, credentials, and umask.
+
+  ```ts
+  import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+  import { MemoryFileSystem } from "@effect-vfs/memory"
+  import { Effect } from "effect"
+
+  const program = Effect.gen(function*() {
+    const volume = yield* Vfs.make()
+    const admin = yield* volume.caller()
+    yield* admin.mkdir("/workspace")
+    const agent = yield* admin.withRoot("/workspace")
+    const fs = yield* MemoryFileSystem.bindCaller(agent)
+    yield* fs.writeFileString("/output.txt", "done")
+    return yield* admin.readFile("/workspace/output.txt")
+  }).pipe(Effect.scoped)
+  ```
+
+  The root follows the directory's identity after a rename. Existing hard links can still share file contents across roots. `withDirectory` continues to change only the working directory.
+
+  Scoped temporary cleanup follows renamed directories and preserves replacements at the original path. Custom structural `Caller` implementations must provide `withRoot`, `watch`, and `limits`.
+
+- [#281](https://github.com/lloydrichards/effect-virtual-fs/pull/281) [`883a895`](https://github.com/lloydrichards/effect-virtual-fs/commit/883a895b2af9da43c4f675856374ceb760c5efcd) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `FileSystemTesting.make` adds handlers that observe or reject calls before they reach a backing Effect `FileSystem`.
+
+  Count writes while preserving the real file contents:
+
+  ```ts
+  import { FileSystemTesting, MemoryFileSystem } from "@effect-vfs/memory"
+  import { Effect, Ref } from "effect"
+
+  const program = Effect.gen(function*() {
+    const base = yield* MemoryFileSystem.make
+    const { fileSystem, state } = yield* FileSystemTesting.make(
+      base,
+      Effect.fnUntraced(function*() {
+        const writes = yield* Ref.make(0)
+        return {
+          state: writes,
+          handlers: { writeFile: () => Ref.update(writes, (count) => count + 1) }
+        }
+      })
+    )
+    yield* fileSystem.writeFileString("/output.txt", "done")
+    return yield* Ref.get(state) // 1
+  })
+  ```
+
+  `writeFileString` routes through the `writeFile` handler. Allocate state inside the factory to give each build its own counter.
+
+### Patch Changes
+
+- [#288](https://github.com/lloydrichards/effect-virtual-fs/pull/288) [`a1c7840`](https://github.com/lloydrichards/effect-virtual-fs/commit/a1c784077ca27bbbfed0b06ce3a71ab05c504c9e) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Stop creating tracing spans in package operations. Applications can add spans around the operations they want to trace.
+- Updated dependencies [[`50d5587`](https://github.com/lloydrichards/effect-virtual-fs/commit/50d55877bfc4fc250d8d753cddf927218b39a3f7), [`b88efde`](https://github.com/lloydrichards/effect-virtual-fs/commit/b88efde0a818853a3575ca1d2c32e8c75fff5f4f), [`2fd33e4`](https://github.com/lloydrichards/effect-virtual-fs/commit/2fd33e458b1020ec8ac4f5123bbafafd234e7fa5), [`a1c7840`](https://github.com/lloydrichards/effect-virtual-fs/commit/a1c784077ca27bbbfed0b06ce3a71ab05c504c9e), [`ee57e86`](https://github.com/lloydrichards/effect-virtual-fs/commit/ee57e86544142324d9ad88179e2fe939580790e8)]:
+  - @effect-vfs/core@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes

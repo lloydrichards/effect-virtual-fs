@@ -1,5 +1,12 @@
 # @effect-vfs/nfs
 
+## 0.9.0
+
+### Patch Changes
+
+- Updated dependencies [[`50d5587`](https://github.com/lloydrichards/effect-virtual-fs/commit/50d55877bfc4fc250d8d753cddf927218b39a3f7), [`b88efde`](https://github.com/lloydrichards/effect-virtual-fs/commit/b88efde0a818853a3575ca1d2c32e8c75fff5f4f), [`2fd33e4`](https://github.com/lloydrichards/effect-virtual-fs/commit/2fd33e458b1020ec8ac4f5123bbafafd234e7fa5), [`a1c7840`](https://github.com/lloydrichards/effect-virtual-fs/commit/a1c784077ca27bbbfed0b06ce3a71ab05c504c9e), [`ee57e86`](https://github.com/lloydrichards/effect-virtual-fs/commit/ee57e86544142324d9ad88179e2fe939580790e8)]:
+  - @effect-vfs/core@0.9.0
+
 ## 0.8.0
 
 ### Patch Changes
