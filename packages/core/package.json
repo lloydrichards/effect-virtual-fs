@@ -22,8 +22,8 @@
     "build": "tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json",
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "test": "bun --bun run vitest run --config ../../vitest.config.ts --project core",
-    "type-check": "tsc --noEmit && tsc --project contracts/tsconfig.json",
-    "benchmark": "bun benchmarks/production-confinement-benchmark.mjs"
+    "type-check": "tsc --noEmit && tsc --project contracts/tsconfig.json && tsc --project tsconfig.benchmarks.json",
+    "benchmark": "bun --bun run vitest bench --run --config ../../vitest.config.ts --project 'core (bench)'"
   },
   "peerDependencies": {
     "effect": "^4.0.0"
@@ -33,7 +33,8 @@
     "@effect/platform-node-shared": "4.0.0",
     "@effect/vitest": "4.0.0",
     "@repo/config-typescript": "workspace:*",
-    "effect": "4.0.0"
+    "effect": "4.0.0",
+    "@types/node": "26.6.3"
   },
   "exports": {
     ".": {
