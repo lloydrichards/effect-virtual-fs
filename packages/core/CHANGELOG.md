@@ -1,5 +1,67 @@
 # @effect-vfs/core
 
+## 0.9.0
+
+### Minor Changes
+
+- [#288](https://github.com/lloydrichards/effect-virtual-fs/pull/288) [`50d5587`](https://github.com/lloydrichards/effect-virtual-fs/commit/50d55877bfc4fc250d8d753cddf927218b39a3f7) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `LiveVolume.makeRegistry` shares live volumes across scopes using canonical storage keys. Optional idle retention avoids reopening stores between borrowers.
+
+  ```ts
+  import { LiveVolume } from "@effect-vfs/core"
+  import { ByteSize, Effect, Layer } from "effect"
+
+  // Each key must identify one canonical storage location.
+  declare const storeFor: (key: string) => Layer.Layer<LiveVolume.LiveImageStore>
+
+  const program = Effect.gen(function*() {
+    const registry = yield* LiveVolume.makeRegistry({
+      store: storeFor,
+      volume: { maxImageBytes: ByteSize.megabytes(1), volume: {} },
+      capacity: 8,
+      idleTimeToLive: "5 seconds"
+    })
+    return yield* Effect.scoped(Effect.gen(function*() {
+      const volume = yield* registry.get("workspace")
+      const caller = yield* volume.caller()
+      return yield* caller.stat("/")
+    }))
+  }).pipe(Effect.scoped)
+  ```
+
+  Keep the registry's scope open until all borrowers finish. Idle entries count toward capacity and retain storage locks.
+
+  SQLite live stores now release their exclusive lock before closing the client, allowing a registry to reopen the database on Bun 1.2.21.
+
+- [#290](https://github.com/lloydrichards/effect-virtual-fs/pull/290) [`b88efde`](https://github.com/lloydrichards/effect-virtual-fs/commit/b88efde0a818853a3575ca1d2c32e8c75fff5f4f) Thanks [@lloydrichards](https://github.com/lloydrichards)! - `Caller.withRoot` confines a caller's paths, references, handles, and watches to a directory. `MemoryFileSystem.bindCaller` exposes that caller as an Effect `FileSystem` with the same root, working directory, credentials, and umask.
+
+  ```ts
+  import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+  import { MemoryFileSystem } from "@effect-vfs/memory"
+  import { Effect } from "effect"
+
+  const program = Effect.gen(function*() {
+    const volume = yield* Vfs.make()
+    const admin = yield* volume.caller()
+    yield* admin.mkdir("/workspace")
+    const agent = yield* admin.withRoot("/workspace")
+    const fs = yield* MemoryFileSystem.bindCaller(agent)
+    yield* fs.writeFileString("/output.txt", "done")
+    return yield* admin.readFile("/workspace/output.txt")
+  }).pipe(Effect.scoped)
+  ```
+
+  The root follows the directory's identity after a rename. Existing hard links can still share file contents across roots. `withDirectory` continues to change only the working directory.
+
+  Scoped temporary cleanup follows renamed directories and preserves replacements at the original path. Custom structural `Caller` implementations must provide `withRoot`, `watch`, and `limits`.
+
+### Patch Changes
+
+- [#283](https://github.com/lloydrichards/effect-virtual-fs/pull/283) [`2fd33e4`](https://github.com/lloydrichards/effect-virtual-fs/commit/2fd33e458b1020ec8ac4f5123bbafafd234e7fa5) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Speed up file creation in large directories while preserving directory listing order and snapshot isolation.
+
+- [#288](https://github.com/lloydrichards/effect-virtual-fs/pull/288) [`a1c7840`](https://github.com/lloydrichards/effect-virtual-fs/commit/a1c784077ca27bbbfed0b06ce3a71ab05c504c9e) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Stop creating tracing spans in package operations. Applications can add spans around the operations they want to trace.
+
+- [#292](https://github.com/lloydrichards/effect-virtual-fs/pull/292) [`ee57e86`](https://github.com/lloydrichards/effect-virtual-fs/commit/ee57e86544142324d9ad88179e2fe939580790e8) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reduce path-resolution and confined-handle ancestry-check overhead while preserving live revocation.
+
 ## 0.8.0
 
 ### Minor Changes
