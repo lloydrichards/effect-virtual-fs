@@ -37,7 +37,7 @@ generated: { by: claude/okf, at: 2026-10-02T20:00:00+02:00 }
 
 # Snapshot delta merge
 
-Accepted by the user on 2026-10-02 for [issue #174](https://github.com/lloydrichards/effect-virtual-fs/issues/174) after a grilling session over three research briefs: version-control tree merges, engine feasibility and agent-system merge APIs. It closes the merge question the [delta research](../../research/overlay-changes.md "resolves") held open and refines the [portable delta interface](portable-snapshot-deltas.md "refines"). The implemented rules are recorded by the [snapshot delta contract](../../contracts/snapshot-deltas.md "implemented by"). Text-level merge, conflict markers, rebase onto another base and branch names stay outside.[^issue]
+It closes the merge question the [delta research](../../research/overlay-changes.md "resolves") held open and refines the [portable delta interface](portable-snapshot-deltas.md "refines"). The implemented rules are recorded by the [snapshot delta contract](../../contracts/snapshot-deltas.md "implemented by"). Text-level merge, conflict markers, rebase onto another base and branch names stay outside.[^issue]
 
 ## Contract and output
 
@@ -55,7 +55,7 @@ Per path the trivial rules of git and Jujutsu apply: one side unchanged takes th
 
 A directory removed on one side, or replaced by another kind, with a path added or updated beneath it on the other yields `ParentRemoved` per touched path, reporting the removing side as the change that eliminated the directory, and the whole removed subtree stays at base. A kind change against any other change at a path, including its removal, is one `KindDiverged` at that path without descent. Identical implicit parents merge; different ones are `BothAddedDifferent`. Renames stay path-level: a rename beside an edit is `ChangedRemoved` at the old path and a clean addition at the new one, with no heuristic detection, because [equal bytes never prove a rename](overlay-final-difference-summary.md "constrained by").
 
-Hard links follow the node. Each side's final tree says which names share a node, so an edit through any name merges with a link, unlink or split from the other side, and a name one side unlinked and rewrote is a new node beside the old one. When both sides change which names a node holds and the results differ, every name involved is `HardLinkGroupDiverged` and the group stays at base, with two exceptions: two sides that only remove names agree and the removals add up (refining the issue comment of 2026-10-02 after review), and linking a new name to a node the other side removed entirely is `ChangedRemoved` at the new name. Two sides that point one existing name at different nodes are `BothChanged` at that name; a new name they give to different nodes is `BothAddedDifferent` there, and either case ties both nodes into the conflict. A changed name held at base only because it shares a node with a conflicted name is reported as well, so nothing is withheld silently. No version-control system models hard links, so this rule has no precedent to follow.
+Hard links follow the node. Each side's final tree says which names share a node, so an edit through any name merges with a link, unlink or split from the other side, and a name one side unlinked and rewrote is a new node beside the old one. When both sides change which names a node holds and the results differ, every name involved is `HardLinkGroupDiverged` and the group stays at base, with two exceptions: two sides that only remove names agree and the removals add up , and linking a new name to a node the other side removed entirely is `ChangedRemoved` at the new name. Two sides that point one existing name at different nodes are `BothChanged` at that name; a new name they give to different nodes is `BothAddedDifferent` there, and either case ties both nodes into the conflict. A changed name held at base only because it shares a node with a conflicted name is reported as well, so nothing is withheld silently. No version-control system models hard links, so this rule has no precedent to follow.
 
 ## Resolutions
 
@@ -67,7 +67,7 @@ The operation lives in `VirtualFileSystem.ts` beside `diffSnapshots` and `applyS
 
 ## Follow-up
 
-A rename-aware merge that accepts overlay captures, whose `Renamed` records carry lineage, so edits follow renames and rename/rename conflicts are reported, is tracked as [issue #271](https://github.com/lloydrichards/effect-virtual-fs/issues/271).
+A rename-aware merge that accepts overlay captures, whose `Renamed` records carry lineage, so edits follow renames and rename/rename conflicts are reported, is tracked as rename-aware merge input.
 
 [^issue]: The issue's decisions comment of 2026-10-02 lists the thirteen decisions and the follow-up.
 

@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-10-05
+
+- Replace completed persistent-tree rebuild sequencing with the current immutable-state and commit-provider decision. Remove superseded adapter research, repair its contract links, and keep unresolved overlay research as drafts. Correct overlay sharing and checkpoint validate-once claims against current source. Remove issue-only columns from capability ledgers; preserve protocol evidence and original decision sources.
+
 ## 2026-10-04
 
 - **Rooted demo consumers**: Agent tools expose a project subtree through rooted callers while retaining a separate base reader. The overlay demo contrasts sibling caller views with shared contents and rebases caller watch paths. The scratchpad borrows a rooted caller for Effect FileSystem operations after root rename.

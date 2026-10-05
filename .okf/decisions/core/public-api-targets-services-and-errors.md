@@ -20,16 +20,16 @@ sources:
   - id: table
     resource: ../../../packages/core/test/behaviour/operations.test.ts
     title: Side-by-side codes per addressing mode
-generated: { by: codex/okf, at: "2026-09-26T21:40:00Z" }
+generated: { by: codex/okf, at: 2026-10-05T00:00:00Z }
 ---
 
 # Public API on targets, services, and one error family
 
-Step 8 of the [persistent tree rebuild](persistent-tree-rebuild.md "extends"). The decisions were grilled against the code on 2026-09-25 and recorded on [issue #186](https://github.com/lloydrichards/effect-virtual-fs/issues/186 "decided on"); this file records what they fix.
+The public API follows the [persistent volume state](persistent-volume-state.md "extends").
 
 ## Context
 
-`Caller` carried 47 members for about 20 verbs: a path family, a `*Reference` family, three `*Handle` verbs, and three `*Bytes` twins. NFS used only the reference half and memory only the path half. Five unrelated `Data.TaggedError` classes reported failures, option validation split between `FsError` and `ConfigurationError`, every constructor required `Crypto.Crypto` for one identity mint, and 29 `typeof` re-exports leaked the engine module into the public declarations. The [operation families merge](https://github.com/lloydrichards/effect-virtual-fs/issues/179 "informed by") had given each verb one body but kept 35 rows of the side-by-side table returning different codes per family.
+`Caller` carried 47 members for about 20 verbs: a path family, a `*Reference` family, three `*Handle` verbs, and three `*Bytes` twins. NFS used only the reference half and memory only the path half. Five unrelated `Data.TaggedError` classes reported failures, option validation split between `FsError` and `ConfigurationError`, every constructor required `Crypto.Crypto` for one identity mint, and 29 `typeof` re-exports leaked the engine module into the public declarations. The [persistent state decision](persistent-volume-state.md "informed by") consolidates operation bodies; the public target API also consolidates their error behavior.
 
 ## Decisions
 
@@ -42,7 +42,7 @@ Step 8 of the [persistent tree rebuild](persistent-tree-rebuild.md "extends"). T
 7. **Identity from Crypto.** This decision originally made `Crypto` optional and used seedable `Random` as a fallback. The later reference-key requirement supersedes that choice: constructors require `Crypto.Crypto` and draw identity, incarnation, epoch, and the reference-key secret from it. Snapshot delta functions still require `Crypto` for hashing.
 8. **Services and layers.** `Volume` and `Caller` are Effect service keys carrying `Volume.layer`, `layerFromSnapshot`, `layerFromFixture`, `layerOverlay`, `layerLive`, and `Caller.layer`. A caller supplied through the service keeps its own volume, credentials, umask, and working directory. `CurrentFileSystem` goes.
 9. **Modules.** Per-concept subpaths own the schemas the engine imports: `Volume`, `Caller`, `Target`, `FileHandle`, `Metadata`, `VfsError`, `Snapshot`, `SnapshotDelta`, `BytePath`, `LiveVolume`, `Fixture`, `Watch`; `VirtualFileSystem` remains the barrel, and its declarations import nothing from `internal/`. `BytePath` gains a toolkit.
-10. **Declined at first for 0.6.0.** Recursive tree operations, path-scoped watch, file-type bits in `Metadata`, an atomic `setattr`, an unscoped open, and a serialisable reference key each got their own issue, and the `EPERM` versus `EACCES` split was declined here too. All but the unscoped open later joined 0.6.0: the split by the amendment below, file-type bits as `Metadata.typedMode` with `mode` kept as permission bits by the [permission mode and typed mode decision](permission-mode-and-typed-mode.md "amended by"), `setattr` by the [atomic setattr decision](atomic-setattr.md "amended by"), `walk`, `mkdir { recursive }` and `remove { recursive, force }` by the [recursive tree operations decision](recursive-tree-operations.md "amended by"), a watch scoped to a path by the [scoped watch decision](scoped-watch.md "amended by"), and `ReferenceKey` by the [reference keys decision](reference-keys.md "amended by"). Only the unscoped open stays declined, by the atomic setattr decision.
+10. **Declined at first for 0.6.0.** Recursive tree operations, path-scoped watch, file-type bits in `Metadata`, an atomic `setattr`, an unscoped open, and a serialisable reference key were considered separately, and the `EPERM` versus `EACCES` split was declined here too. All but the unscoped open later joined 0.6.0: the split by the amendment below, file-type bits as `Metadata.typedMode` with `mode` kept as permission bits by the [permission mode and typed mode decision](permission-mode-and-typed-mode.md "amended by"), `setattr` by the [atomic setattr decision](atomic-setattr.md "amended by"), `walk`, `mkdir { recursive }` and `remove { recursive, force }` by the [recursive tree operations decision](recursive-tree-operations.md "amended by"), a watch scoped to a path by the [scoped watch decision](scoped-watch.md "amended by"), and `ReferenceKey` by the [reference keys decision](reference-keys.md "amended by"). Only the unscoped open stays declined, by the atomic setattr decision.
 
 ## Consequences
 
@@ -51,9 +51,9 @@ Step 8 of the [persistent tree rebuild](persistent-tree-rebuild.md "extends"). T
 - Memory's and NFS's code tables are total over the code union. Memory addresses core through path targets with base handles; NFS wraps the entry verbs behind its export and answers `ACCESS` from one granted bitmask.
 - Two implementation refinements of the recorded decisions: `stat` returns a flat `Metadata` carrying `revision` rather than a nested observation, and the services are function-style keys with the layers attached rather than classes, so `Vfs.Volume` and `Vfs.Caller` keep naming the value types consumers write.
 
-## Amendment: NotPermitted beside AccessDenied (#207)
+## Permission denial codes
 
-Decided on [issue #207](https://github.com/lloydrichards/effect-virtual-fs/issues/207 "decided on") on 2026-09-25 and shipped inside the same 0.6.0, so that exhaustive matches over the code union break once rather than twice.
+`NotPermitted` and `AccessDenied` distinguish operation policy from permission checks.
 
 - **A new code, not a reason field.** `FsCode` gains `NotPermitted`, the EPERM case: the change needs ownership or privilege, whatever the mode bits say. `AccessDenied` stays EACCES: the mode bits deny the access. A `reason` field on `AccessDenied` was rejected because every adapter would have to read a second field on one code.
 - **Where each applies.** `NotPermitted` is what a non-owner chmod gets (writeFile's `finalMode` included), and likewise chown, explicit or mixed utimes by a non-owner, removal or replacement of another owner's entry in a sticky directory, and an unprivileged create that names an owner. Every mode-bit check, directory search included, and the both-now utimes that a writer may perform stay `AccessDenied`. Clearing set-ID bits stays silent.

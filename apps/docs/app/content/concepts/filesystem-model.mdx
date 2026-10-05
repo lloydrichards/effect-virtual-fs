@@ -28,8 +28,9 @@ A `Caller` combines filesystem operations with the context needed to evaluate th
 
 - a user ID, group ID, and supplementary groups;
 - an explicit `privileged` flag;
-- a creation mask, or umask; and
-- a current-directory identity.
+- a creation mask, or umask;
+- a current-directory identity; and
+- an optional root-directory identity that confines lookup.
 
 Each call to `volume.caller()` creates an independent root caller. It starts at `/` and does not require an Effect scope.
 Changing the options for one caller does not change another caller.
@@ -50,6 +51,16 @@ volume, the caller still refers to it.
 
 A derived caller is scoped. Keep its surrounding `Effect.scoped` workflow alive for as long as the caller is needed.
 Closing that scope releases the derived caller, but it does not release independently scoped handles created elsewhere.
+
+## Rooted callers limit name lookup
+
+`caller.withRoot(path)` derives a scoped caller whose `/` is the selected directory. Absolute paths and symlinks
+resolve inside that root, and `..` cannot move above it. `withDirectory` retains the root when changing the working
+directory. Root confinement still applies to privileged callers.
+
+The root is a directory identity, so rename preserves it and deletion permanently invalidates it. Existing hard
+links can share content across roots. This boundary controls virtual filesystem names, not access to host APIs.
+See [Confine a workspace](/guides/confined-workspaces) for an adapter example and resource limits.
 
 ## Handles own cursor and lifetime
 
@@ -111,6 +122,7 @@ watches, snapshots, overlays, or scoped directory-relative operations.
 The two packages can share state. `MemoryFileSystem.bind(volume)` exposes an existing core volume through Effect's
 `FileSystem` service. The binding sees the same namespace and contents, but it creates its own caller, descriptor table,
 and file cursors.
+`MemoryFileSystem.bindCaller(caller)` instead borrows a supplied caller and preserves its lookup context and authority.
 
 Read [Which package should I use?](/concepts/which-package) for the package-level decision or open the
 [`VirtualFileSystem` API reference](/api/core/virtual-file-system) for complete signatures.

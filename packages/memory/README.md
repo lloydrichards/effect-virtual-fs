@@ -13,21 +13,6 @@ npm install @effect-vfs/memory@latest
 npm install "@effect/platform-bun@$(npm view @effect-vfs/memory peerDependencies.effect)"
 ```
 
-## Observe or reject selected calls
-
-`FileSystemTesting.make(base, factory)` decorates any Effect filesystem. The factory returns `{ handlers, state }`;
-the constructor returns `{ fileSystem, state }`. Allocate counters inside the factory to isolate independent
-builds. Sharing a built service or memoized layer shares its counters.
-
-Handlers succeed to delegate and fail with `PlatformError` to prevent the real operation. `writeFileString`
-reaches the `writeFile` handler, and consumed streams and sinks reach `open`. Returned file-handle methods,
-watch streams, and the backing service's internal cleanup remain unchanged. A rejected operation does not
-simulate a partial write or crash.
-
-See [Count writes and inject selected failures](https://effect-vfs.lloydrichards.dev/guides/testing-with-an-isolated-filesystem#count-writes-and-inject-selected-failures)
-for complete examples and [FileSystemTesting](https://effect-vfs.lloydrichards.dev/api/memory/file-system-testing)
-for the handler contract.
-
 ## Replace the host filesystem
 
 Write application code against Effect's `FileSystem` service, then choose the
@@ -105,21 +90,22 @@ program needs the default temporary directory. For caller identity and volume li
 `layerFromVolume(volume)` supplies the same adapter as a layer. Add `@effect-vfs/core` as a direct dependency when
 creating volumes yourself. Several adapters bound to one volume see the same files.
 
-## Bind a confined caller
+## Bind an existing caller
 
-`MemoryFileSystem.bindCaller(caller)` borrows an existing caller and preserves its root, working directory,
-credentials, and umask. Keep that caller's scope open while using the adapter.
+`MemoryFileSystem.bindCaller(caller)` preserves a caller's root, working directory, credentials, and umask.
+The adapter borrows the caller, so keep its scope open. The binding creates no directories; default temporary
+operations need `/tmp` inside the caller's root.
 
-```ts
-const agent = yield * admin.withRoot("/workspaces/run-42")
-const fs = yield * MemoryFileSystem.bindCaller(agent)
-yield * fs.writeFileString("/output.txt", "done")
-```
+See [Confine a workspace](../../apps/docs/app/content/guides/confined-workspaces.mdx) for a complete example.
 
-Default temporaries require `/tmp` inside the confined root. The binding creates no directories. Scoped temporary
-cleanup follows the created directory through rename, protects replacements by identity, and skips deletion when
-permission or confinement is lost. FileSystem watches select one path alias and translate terminal caller failures
-into `PlatformError` values.
+## Observe or reject selected calls
+
+`FileSystemTesting.make(base, factory)` wraps an Effect filesystem with handlers that observe calls or reject
+selected operations before delegation. Allocate counters in the factory for independent builds.
+`writeFileString` reaches the `writeFile` handler; streams and sinks reach `open`.
+
+See [Count writes and inject selected failures](../../apps/docs/app/content/guides/testing-with-an-isolated-filesystem.mdx#count-writes-and-inject-selected-failures)
+for examples and handler limits.
 
 ## Guides and limits
 

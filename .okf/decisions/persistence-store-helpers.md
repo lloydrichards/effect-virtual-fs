@@ -20,12 +20,12 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/182
     title: Persistence store helpers
-generated: { by: claude-code, at: "2026-09-26T10:30:00+02:00" }
+generated: { by: claude-code, at: "2026-10-05T00:00:00Z" }
 ---
 
 # Persistence store helpers
 
-Follows the [public API decision](core/public-api-targets-services-and-errors.md "follows"), which made `VfsError` the single error family. The decisions were grilled on 2026-09-25 and recorded on [issue #182](https://github.com/lloydrichards/effect-virtual-fs/issues/182 "decided on").
+Follows the [public API decision](core/public-api-targets-services-and-errors.md "follows"), which made `VfsError` the single error family.
 
 ## Context
 
@@ -33,7 +33,7 @@ Follows the [public API decision](core/public-api-targets-services-and-errors.md
 
 ## Decisions
 
-1. **Validate-once moves to #185.** `CheckpointStore.save` still encodes and then decodes until the limits API is reshaped there.
+1. `CheckpointStore.save` encodes under its limits without decoding the result. `CheckpointStore.load` validates stored bytes on decode.
 2. **One naming scheme for `operation`: `Module.entry`.** `CheckpointError` reports `CheckpointStore.save`, `CheckpointStore.load` or `CheckpointStore.migrate`. The store's `VfsError`s, including snapshot encode and decode failures, report `CheckpointStore.make`, `CheckpointStore.save` or `CheckpointStore.load`. The live stores report `SqliteLiveImageStore.layer` and `.loadOrCreate`, and `R2LiveImageStore.layer`, `.loadOrCreate` and `.fromS3`. A commit reports an outcome, not a failure, so it has no operation.
 3. **One internal store-support module** holds the failure constructors, built per entry point, and the SHA-256 digest both live stores use.
 4. **Ownership lives in one `Ref` per store.** A successful commit advances the generation and keeps the availability flag as it finds it, so a commit that lands after another commit froze the store cannot unfreeze it.
@@ -41,4 +41,4 @@ Follows the [public API decision](core/public-api-targets-services-and-errors.md
 
 ## Consequences
 
-The service shapes, commit outcomes and shutdown order are unchanged. Sharing the checkpoint database exposed that the Bun SQLite driver drops a leading U+FEFF from bound names, tracked in #218.
+The service shapes, commit outcomes and shutdown order are unchanged. Sharing the checkpoint database exposed that the Bun SQLite driver drops a leading U+FEFF from bound names.

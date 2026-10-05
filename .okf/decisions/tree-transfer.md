@@ -10,7 +10,7 @@ sources:
     title: Import and export directory trees design issue
   - id: decision-summary
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/29#issuecomment-5809022897
-    title: Decision summary posted on the design issue
+    title: Decision summary posted during design
   - id: public-api
     resource: ../../packages/memory/src/TreeTransfer.ts
     title: Public tree transfer API
@@ -56,4 +56,4 @@ The host adapter is the Effect `FileSystem` interface itself, so any platform la
 
 ## Consequences
 
-Rejected alternatives recorded on the design issue include public source and sink ports, an Effect `FileSystem`-only engine, fixed `copy` and `toVolume` functions with endpoint objects, staging with rename, required limits, and per-entry reports of properties a destination could not preserve.
+Rejected alternatives recorded during design include public source and sink ports, an Effect `FileSystem`-only engine, fixed `copy` and `toVolume` functions with endpoint objects, staging with rename, required limits, and per-entry reports of properties a destination could not preserve.

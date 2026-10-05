@@ -72,8 +72,8 @@ Shared behavior covers path failures, parents, links, open flags, independent cu
 
 Memory retains its stronger guarantees: closed handles report `BadResource`; copy collisions with `overwrite: false` fail `AlreadyExists`; missing-path `utimes` errors name `utimes`; copying with `preserveTimestamps` retains both timestamps; and arbitrary uid/gid changes need no host privilege. The explicit Node profile instead requires copy collisions to succeed without changing either path, closed-handle `stat` to fail `Unknown` with an `EBADF` cause, missing-path timestamp errors to name `utime`, copying to preserve modification time without requiring original access-time preservation, and missing-path watch errors to name the preliminary `stat`. Host ownership assertions retain the existing uid/gid without elevated privileges. Each difference is explained beside its assertion; shared cursor and write correctness is not relaxed to accommodate runtime defects.
 
-The host command is `bun run --filter @effect-vfs/memory test:host`; Bun launches the script, but the script explicitly executes Vitest in Node. Runtime coverage beyond this target belongs to issue #275.
+The host command is `bun run --filter @effect-vfs/memory test:host`; Bun launches the script, but the script explicitly executes Vitest in Node. Other runtime and operating-system combinations remain unqualified.
 
-This contract [depends on](resources-and-authority.md "depends on") core capabilities, [implements package boundaries](../decisions/package-boundaries.md "implements"), and is [grounded in the Effect compatibility research](../research/effect-compatibility.md "grounded in").
+This contract [depends on](resources-and-authority.md "depends on") core capabilities, [implements package boundaries](../decisions/package-boundaries.md "implements").
 
 Borrowed `bindCaller` preserves caller root, cwd, credentials, and umask. The [confined caller contract](confined-callers.md "constrained by") defines boundary failures, default `/tmp`, publication filtering, and identity-safe temporary cleanup. Ordinary volume binding retains its constructor defaults.

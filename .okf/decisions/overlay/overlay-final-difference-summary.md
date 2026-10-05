@@ -19,7 +19,7 @@ generated: { by: codex/okf, at: 2026-09-10T11:48:22Z }
 
 # Overlay final-difference summary
 
-Accepted by the user on 2026-09-10 and implemented by `OverlayVolume.changes` and `capture`. This refines [staged delivery](staged-overlay-delivery.md "refines"). The summary describes current differences from the immutable base, not intermediate operations or audit history.
+changes`and`capture`. This refines [staged delivery](staged-overlay-delivery.md "refines"). The summary describes current differences from the immutable base, not intermediate operations or audit history.
 
 ## Final state and filtering
 

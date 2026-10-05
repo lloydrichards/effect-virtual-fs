@@ -19,6 +19,43 @@ const liveStore = SqliteLiveImageStore.layer({
 
 Provide your SQLite and platform layers to `liveStore`, then provide the resulting layer to `LiveVolume.open(options)` inside an Effect scope. Reopening the same database restores the logical volume identity and creates a new runtime incarnation. A second open through the same store layer fails with `Ownership`.
 
+## Share live volumes across requests
+
+This section requires `@effect-vfs/core` v0.9.0 or later. Before that release is published, use a checkout
+containing `LiveVolume.makeRegistry`.
+
+Use `LiveVolume.makeRegistry` when several requests need the same live volume. Supply a store Layer for each
+canonical key. Concurrent borrowers of that key share one acquisition and one volume:
+
+```ts
+import { LiveVolume } from "@effect-vfs/core"
+import { ByteSize, Effect, Layer } from "effect"
+
+declare const storeFor: (key: string) => Layer.Layer<LiveVolume.LiveImageStore>
+
+const serve = Effect.gen(function* () {
+	const registry = yield* LiveVolume.makeRegistry({
+		store: storeFor,
+		volume: { maxImageBytes: ByteSize.megabytes(4), volume: {} },
+		capacity: 8,
+		idleTimeToLive: "5 seconds"
+	})
+
+	return yield* Effect.scoped(Effect.gen(function* () {
+		const volume = yield* registry.get("workspace")
+		return yield* (yield* volume.caller()).readDirectory("/")
+	}))
+})
+```
+
+Provide Crypto and run `serve` in the application's owning scope. Each request borrows in a shorter scope.
+Keep the registry alive until all requests finish. Closing its scope shuts down every volume before releasing
+its store Layer, including volumes with active borrowers.
+
+The idle timeout keeps unused entries available for reuse while retaining their memory and storage locks.
+Capacity exhaustion fails with `Cause.ExceededCapacityError` instead of evicting an idle entry. Canonicalize keys
+and use one registry per set of backing stores. The registry coordinates ownership within one process only.
+
 ## Handle rejected and uncertain commits
 
 The store distinguishes a confirmed rejection from an unknown commit outcome. A confirmed rejection leaves the live volume unchanged. After an unknown outcome, the volume stops serving operations. Close and reopen it before continuing; do not retry writes against the frozen instance.

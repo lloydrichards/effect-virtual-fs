@@ -35,12 +35,12 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/206
     title: Path-scoped watch
-generated: { by: claude-code, at: "2026-09-26T13:25:00+02:00" }
+generated: { by: claude-code, at: 2026-10-05T00:00:00Z }
 ---
 
 # Scoped watch
 
-Amends the [public API decision](public-api-targets-services-and-errors.md "amends"), which had declined a path-scoped watch for 0.6.0, and the [watch event overflow decision](watch-event-overflow.md "amends"), whose `Rescan` at `/` assumed every watch covers the volume, and keeps its rule that `Volume.watch` is an effect registered before it returns. The decisions were grilled on 2026-09-25 and recorded on [issue #206](https://github.com/lloydrichards/effect-virtual-fs/issues/206 "decided on"); the review of 2026-09-26 amended decisions 6 and 7.
+Amends the [public API decision](public-api-targets-services-and-errors.md "amends"), which had declined a path-scoped watch for 0.6.0, and the [watch event overflow decision](watch-event-overflow.md "amends"), whose `Rescan` at `/` assumed every watch covers the volume, and keeps its rule that `Volume.watch` is an effect registered before it returns.
 
 ## Context
 
@@ -48,7 +48,7 @@ Every core watch covered the whole volume. The memory adapter narrowed it with a
 
 ## Decisions
 
-1. **The scope is an object reference.** `Volume.watch({ scope?, recursive? })` takes an `ObjectReference`, checked while the registration holds the volume: an unknown token fails `InvalidReference`, another volume's `ForeignReference`, and an object with no name left `StaleReference`. A value that is not a reference at all fails decoding as `InvalidArgument` with `field: "scope"`. Without a scope the watch covers the volume, as before. A path target is resolved by the caller, as memory does; a `Caller.watch` that resolves with the caller's identity waits for #28.
+1. **The scope is an object reference.** `Volume.watch({ scope?, recursive? })` takes an `ObjectReference`, checked while the registration holds the volume: an unknown token fails `InvalidReference`, another volume's `ForeignReference`, and an object with no name left `StaleReference`. A value that is not a reference at all fails decoding as `InvalidArgument` with `field: "scope"`. Without a scope the watch covers the volume, as before. A path target is resolved by the caller, as memory does; `Caller.watch` resolves within the caller's authority and publishes caller-relative paths, as the [confined callers contract](../../contracts/confined-callers.md "refined by") specifies.
 2. **Filter before enqueue.** Each subscriber's selection decides whether it takes an event before the event counts toward its queue, so changes outside the scope cannot overflow it. An event carries the directory holding its entry and the object the entry names. It is in scope when it names the scope object, or when its directory is the scope or, if recursive, lies below it on the installed tree's parent chain. The scope therefore follows renames of the object and its ancestors.
 3. **`Rescan` names the scope.** A scoped subscriber's marker carries the scope's current path, or its last one when the same change removed it. The `/` of the overflow decision applies to a volume-wide watch only. Memory ignores the marker's path.
 4. **Moves across the boundary.** Each event is tested on its own, so a move out of scope arrives as `Remove` and a move in as `Create`, with no events for the moved subtree, as for an unscoped watch. A rename of the scope object itself is reported as `Remove` at its old path and `Create` at its new one, since both name the object, and the watch goes on.

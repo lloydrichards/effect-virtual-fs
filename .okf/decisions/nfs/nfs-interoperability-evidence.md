@@ -34,7 +34,7 @@ generated: { by: claude/okf, at: 2026-09-24T09:00:00+02:00 }
 
 # NFS interoperability and fault evidence
 
-Accepted by the user on 2026-09-24 while resolving issue #51.[^issue] The [profile ladder](nfs-profile-ladder.md "refines") says how much evidence each maturity needs. This decision says where that evidence comes from and how it is kept current.
+The [profile ladder](nfs-profile-ladder.md "refines") says how much evidence each maturity needs. This decision says where that evidence comes from and how it is kept current.
 
 ## Clients and suites
 
@@ -62,11 +62,11 @@ External suites are evidence, not authority. RFC 8881 and its verified errata de
 | --------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `read-only-export`    | Deliberate exclusion: a mutating operation returns `NFS4ERR_ROFS`                                                     |
 | `object-kind`         | Deliberate exclusion: the core has no block, char, fifo, or socket objects                                            |
-| `deferred-capability` | Deliberate exclusion: the assertion needs behavior a later profile owns, and the entry names the owning issue         |
+| `deferred-capability` | Deliberate exclusion: the assertion needs behavior a later profile owns, and the entry names the owning capability    |
 | `suite-limitation`    | An assertion no NFSv4.1 server can satisfy, such as an NFSv4.2 attribute                                              |
 | `disputed`            | An assertion another server may pass but that conflicts with RFC 8881 or a verified erratum; the entry cites the rule |
 
-Defects are never listed; they are fixed. An entry whose test would also fail for a second reason says so, so that fixing the first cause does not surprise anyone. A disputed entry cites the RFC text it relies on without claiming more force than that text has. Where the RFC allows another reading, an issue owns the choice.
+Defects are never listed; they are fixed. An entry whose test would also fail for a second reason says so, so that fixing the first cause does not surprise anyone. A disputed entry cites the RFC text it relies on without claiming more force than that text has. Where the RFC allows another reading, a draft decision owns the choice.
 
 The verdict comes from pynfs's per-test outcome lines, not its JSON output, because the JSON records a warning, an unsupported result, or a dependency-omitted test the same way as a pass. The comparison is strict in both directions. The gate fails when the selected test codes differ from the pin, when a selected test ends in anything but a pass or a classified failure, and when a listed test passes. The first repeatable run showed why the gate is needed: session answers changed after the recorded baseline had turned into unrecorded pynfs failures.
 

@@ -59,6 +59,7 @@ bun run build
 
 - [Getting started](apps/docs/app/content/getting-started.mdx) runs a program with the memory adapter.
 - [Testing guide](apps/docs/app/content/guides/testing-with-an-isolated-filesystem.mdx) covers isolated and seeded tests.
+- [Confine a workspace](apps/docs/app/content/guides/confined-workspaces.mdx) gives a caller access within one directory.
 - [Snapshot search](apps/docs/app/content/guides/snapshot-search.mdx) finds filenames and content in captured state.
 - [Overlay guide](apps/docs/app/content/guides/overlay-filesystems.mdx) combines independent edits with snapshot deltas.
 - [Agent toolkit and MCP demo](apps/demo-agent-tools/README.md) exposes a disposable virtual workspace through MCPJam.

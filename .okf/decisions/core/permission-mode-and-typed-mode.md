@@ -17,12 +17,12 @@ sources:
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/208
     title: File-type bits in Metadata.mode
-generated: { by: claude-code, at: "2026-09-26T10:05:00+02:00" }
+generated: { by: claude-code, at: 2026-10-05T00:00:00Z }
 ---
 
 # Permission mode and typed mode
 
-Amends the [public API decision](public-api-targets-services-and-errors.md "amends"), which had declined file-type bits for 0.6.0. The decisions were grilled against the code on 2026-09-25 and recorded on [issue #208](https://github.com/lloydrichards/effect-virtual-fs/issues/208 "decided on").
+Amends the [public API decision](public-api-targets-services-and-errors.md "amends"), which had declined file-type bits for 0.6.0.
 
 ## Context
 
