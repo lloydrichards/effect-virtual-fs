@@ -72,7 +72,7 @@ describe("BytePath toolkit", () => {
   it.layer(BunCrypto.layer)((it) => {
     it.effect("should add path components when a joined name contains a slash", () =>
       Effect.gen(function*() {
-        const joined = BytePath.join(yield* BytePath.fromString("/a"), "b/c")
+        const joined = yield* BytePath.fromString("/a").pipe(Effect.map(BytePath.join("b/c")))
 
         assert.strictEqual(yield* BytePath.toString(joined), "/a/b/c")
         assert.strictEqual(yield* BytePath.toString(BytePath.parent(joined)), "/a/b")

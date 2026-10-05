@@ -73,13 +73,16 @@ describe("snapshot filename search", () => {
         assert.deepStrictEqual((yield* Search.glob(snapshot, { ...all, include: ["?"] })).results, ["*", "é"])
       }))
 
-    it.effect("accepts deeply nested alternatives within the default compiler allowance", () =>
+    it.effect("should accept deeply nested alternatives when they fit the default compiler allowance", () =>
       Effect.gen(function*() {
-        const snapshot = yield* snapshotOf([file("/z")])
         let nested = "z"
 
         for (let index = 0; index < 11; index++) nested = `{a${index},${nested}}`
-        const report = yield* Search.glob(snapshot, { ...all, include: [nested] })
+
+        const report = yield* snapshotOf([file("/z")]).pipe(
+          Effect.flatMap(Search.glob({ ...all, include: [nested] }))
+        )
+
         assert.deepStrictEqual(report.results, ["z"])
         assert.strictEqual(report.completion._tag, "Complete")
       }))
