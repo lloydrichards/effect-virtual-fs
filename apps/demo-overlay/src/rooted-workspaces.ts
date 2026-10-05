@@ -13,7 +13,7 @@ export const rootedWorkspaces = Effect.fn("Demo.rootedWorkspaces")(function*() {
     ]
   })
 
-  const overlay = yield* Vfs.makeOverlay(yield* template.snapshot)
+  const overlay = yield* template.snapshot.pipe(Effect.flatMap(Vfs.makeOverlay()))
   const owner = yield* overlay.caller()
   const release = yield* owner.withRoot("/projects/release")
   const docs = yield* owner.withRoot("/projects/docs")

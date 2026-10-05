@@ -139,7 +139,7 @@ const program = Effect.gen(function* () {
       }
     ]
   })
-  const targetVolume = yield* Vfs.fromSnapshot(yield* baseVolume.snapshot)
+  const targetVolume = yield* baseVolume.snapshot.pipe(Effect.flatMap(Vfs.fromSnapshot()))
   const targetFs = yield* targetVolume.caller()
   yield* targetFs.writeFile(
     "/config.json",
