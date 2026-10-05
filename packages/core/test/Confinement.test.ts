@@ -40,6 +40,34 @@ describe("confined callers", () => {
         assert.strictEqual(text(yield* cwd.readFile("/file")), "inside")
       }).pipe(Effect.provide(Testing.layer())))
 
+    it.effect("rechecks deep handle ancestry after a trusted move and restoration", () =>
+      Effect.gen(function*() {
+        const { owner, caller } = yield* fixture
+        const nested = "/child/" + Array.from({ length: 256 }, () => "d").join("/")
+        yield* caller.mkdir(nested, { recursive: true })
+        yield* caller.writeFile(`${nested}/file`, bytes("deep"), writeOptions)
+        const handle = yield* caller.open(`${nested}/file`, { access: "readWrite" })
+        assert.strictEqual(text((yield* handle.pread(4, 0n)).bytes), "deep")
+        yield* owner.rename("/tenant/child", "/outside/moved")
+        assert.strictEqual((yield* Effect.flip(handle.pread(4, 0n))).code, "AccessDenied")
+        assert.strictEqual((yield* Effect.flip(handle.pwrite(bytes("edit"), 0n))).code, "AccessDenied")
+        yield* owner.rename("/outside/moved", "/tenant/child")
+        assert.strictEqual(text((yield* handle.pread(4, 0n)).bytes), "deep")
+        assert.strictEqual(yield* handle.pwrite(bytes("edit"), 0n), 4)
+        assert.strictEqual(text(yield* caller.readFile(`${nested}/file`)), "edit")
+      }).pipe(Effect.provide(Testing.layer())))
+
+    it.effect("sees directories created earlier in the same path walk", () =>
+      Effect.gen(function*() {
+        const { owner, caller } = yield* fixture
+
+        for (const [active, prefix] of [[owner, "/tenant/ordinary"], [caller, "/confined"]] as const) {
+          yield* active.mkdir(`${prefix}/child/../../${prefix.split("/").at(-1)}/sibling`, { recursive: true })
+          assert.strictEqual((yield* active.stat(`${prefix}/child`)).kind, "directory")
+          assert.strictEqual((yield* active.stat(`${prefix}/sibling`)).kind, "directory")
+        }
+      }).pipe(Effect.provide(Testing.layer())))
+
     it.effect("confines recursive creation and preserves raw-byte names", () =>
       Effect.gen(function*() {
         const { owner, caller } = yield* fixture
