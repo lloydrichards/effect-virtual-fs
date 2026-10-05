@@ -297,3 +297,48 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
       fake.destroy()
     }))
 })
+
+it.effect("should use the selected bucket when an S3 adapter is constructed in either call style", () =>
+  Effect.gen(function*() {
+    const commands: Array<GetObjectCommand | PutObjectCommand> = []
+
+    const fake = new S3Client({
+      region: "auto",
+      endpoint: "https://example.invalid",
+      credentials: { accessKeyId: "test", secretAccessKey: "test" }
+    })
+
+    vi.spyOn(fake, "send").mockImplementation((command) => {
+      if (command instanceof GetObjectCommand) {
+        commands.push(command)
+
+        return Promise.resolve({
+          Body: { transformToByteArray: () => Promise.resolve(bytes("stored")) },
+          ETag: "\"first\"",
+          Metadata: { generation: "0", digest: "test" }
+        })
+      }
+
+      if (command instanceof PutObjectCommand) {
+        commands.push(command)
+
+        return Promise.resolve({ ETag: "\"second\"" })
+      }
+
+      throw new Error("unexpected S3 command")
+    })
+
+    const inBucket = R2LiveImageStore.fromS3("selected-bucket")
+
+    for (const client of [R2LiveImageStore.fromS3(fake, "selected-bucket"), inBucket(fake)]) {
+      assert.strictEqual(text((yield* client.read("key"))!.bytes), "stored")
+      assert.deepStrictEqual(
+        yield* client.write("key", bytes("next"), "1", "digest", { ifMatch: "\"first\"" }),
+        { etag: "\"second\"" }
+      )
+    }
+
+    assert.deepStrictEqual(commands.map((command) => command.input.Bucket), Array(4).fill("selected-bucket"))
+    assert.deepStrictEqual(commands.map((command) => command.input.Key), Array(4).fill("key"))
+    fake.destroy()
+  }))

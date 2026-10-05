@@ -9,11 +9,14 @@
  * @since 0.1.0
  */
 import type * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import { VolumeId } from "@effect-vfs/core/Volume"
 import type * as Crypto from "effect/Crypto"
 import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
+import { dual } from "effect/Function"
 import type * as Layer from "effect/Layer"
 import type * as PlatformError from "effect/PlatformError"
+import * as Predicate from "effect/Predicate"
 import * as internal from "./internal/memoryFileSystem.js"
 
 /**
@@ -188,11 +191,17 @@ export const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto> = i
  * @category layers
  * @since 0.8.0
  */
-export const layerFromFixture: (
-  fixture: Vfs.Fixture,
-  volumeOptions?: Vfs.VolumeOptions,
-  callerOptions?: Vfs.RootCallerOptions
-) => Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto> = internal.layerFromFixture
+export const layerFromFixture: {
+  (
+    volumeOptions?: Vfs.VolumeOptions,
+    callerOptions?: Vfs.RootCallerOptions
+  ): (fixture: Vfs.Fixture) => Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto>
+  (
+    fixture: Vfs.Fixture,
+    volumeOptions?: Vfs.VolumeOptions,
+    callerOptions?: Vfs.RootCallerOptions
+  ): Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto>
+} = dual((args) => args.length >= 3 || Predicate.hasProperty(args[0], "entries"), internal.layerFromFixture)
 
 /**
  * Creates a `FileSystem.FileSystem` service backed by an existing core volume.
@@ -250,10 +259,10 @@ export const layerFromFixture: (
  * @category constructors
  * @since 0.1.0
  */
-export const bind: (
-  volume: Vfs.Volume,
-  options?: Vfs.RootCallerOptions
-) => Effect.Effect<FileSystem.FileSystem, Vfs.VfsError> = internal.bind
+export const bind: {
+  (options?: Vfs.RootCallerOptions): (volume: Vfs.Volume) => Effect.Effect<FileSystem.FileSystem, Vfs.VfsError>
+  (volume: Vfs.Volume, options?: Vfs.RootCallerOptions): Effect.Effect<FileSystem.FileSystem, Vfs.VfsError>
+} = dual((args) => args.length >= 2 || Predicate.hasProperty(args[0], VolumeId), internal.bind)
 
 /**
  * Creates a FileSystem service that borrows an existing caller.

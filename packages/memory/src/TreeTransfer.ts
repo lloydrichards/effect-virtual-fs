@@ -9,6 +9,8 @@
  *
  * @since 0.6.0
  */
+import { CallerId } from "@effect-vfs/core/Caller"
+import { SnapshotTypeId } from "@effect-vfs/core/Snapshot"
 import type * as Vfs from "@effect-vfs/core/VirtualFileSystem"
 import type * as Cause from "effect/Cause"
 import type * as Crypto from "effect/Crypto"
@@ -16,6 +18,7 @@ import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import { dual } from "effect/Function"
 import type * as PlatformError from "effect/PlatformError"
+import * as Predicate from "effect/Predicate"
 import type * as Schema from "effect/Schema"
 import type * as Sink from "effect/Sink"
 import * as Stream from "effect/Stream"
@@ -528,12 +531,16 @@ export const TransferReport: Schema.Struct<
  * @category sources
  * @since 0.6.0
  */
-export const fromCaller: (
-  caller: Vfs.Caller,
-  root: Vfs.PathInput,
-  options?: ReadOptions
-) => Stream.Stream<Entry, TransferError | Vfs.VfsError> = (caller, root, options) =>
-  internal.fromCaller(caller, root, options)
+export const fromCaller: {
+  (
+    root: Vfs.PathInput,
+    options?: ReadOptions
+  ): (caller: Vfs.Caller) => Stream.Stream<Entry, TransferError | Vfs.VfsError>
+  (caller: Vfs.Caller, root: Vfs.PathInput, options?: ReadOptions): Stream.Stream<Entry, TransferError | Vfs.VfsError>
+} = dual(
+  (args) => args.length >= 3 || Predicate.hasProperty(args[0], CallerId),
+  (caller, root, options) => internal.fromCaller(caller, root, options)
+)
 
 /**
  * Streams the tree at `root` from an immutable snapshot.
@@ -568,14 +575,20 @@ export const fromCaller: (
  * @category sources
  * @since 0.6.0
  */
-export const fromSnapshot: (
-  snapshot: Vfs.Snapshot,
-  root: Vfs.PathInput,
-  options?: ReadOptions
-) => Stream.Stream<
-  Entry,
-  TransferError | Vfs.VfsError
-> = (snapshot, root, options) => internal.fromSnapshot(snapshot, root, options)
+export const fromSnapshot: {
+  (
+    root: Vfs.PathInput,
+    options?: ReadOptions
+  ): (snapshot: Vfs.Snapshot) => Stream.Stream<Entry, TransferError | Vfs.VfsError>
+  (
+    snapshot: Vfs.Snapshot,
+    root: Vfs.PathInput,
+    options?: ReadOptions
+  ): Stream.Stream<Entry, TransferError | Vfs.VfsError>
+} = dual(
+  (args) => args.length >= 3 || Predicate.hasProperty(args[0], SnapshotTypeId),
+  (snapshot, root, options) => internal.fromSnapshot(snapshot, root, options)
+)
 
 /**
  * Writes streamed entries under `destination` through a live caller.
@@ -619,12 +632,20 @@ export const fromSnapshot: (
  * @category sinks
  * @since 0.6.0
  */
-export const toCaller: (
-  caller: Vfs.Caller,
-  destination: Vfs.PathInput,
-  options?: WriteOptions
-) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError> = (caller, destination, options) =>
-  internal.toCaller(caller, destination, options)
+export const toCaller: {
+  (
+    destination: Vfs.PathInput,
+    options?: WriteOptions
+  ): (caller: Vfs.Caller) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError>
+  (
+    caller: Vfs.Caller,
+    destination: Vfs.PathInput,
+    options?: WriteOptions
+  ): Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError>
+} = dual(
+  (args) => args.length >= 3 || Predicate.hasProperty(args[0], CallerId),
+  (caller, destination, options) => internal.toCaller(caller, destination, options)
+)
 
 /**
  * Options for building a new volume from streamed entries.
@@ -753,12 +774,20 @@ export const toVolume: {
  * @category sources
  * @since 0.6.0
  */
-export const fromFileSystem: (
-  fs: FileSystem.FileSystem,
-  root: string,
-  options?: FileSystemReadOptions
-) => Stream.Stream<Entry, TransferError | PlatformError.PlatformError> = (fs, root, options) =>
-  host.fromFileSystem(fs, root, options)
+export const fromFileSystem: {
+  (
+    root: string,
+    options?: FileSystemReadOptions
+  ): (fs: FileSystem.FileSystem) => Stream.Stream<Entry, TransferError | PlatformError.PlatformError>
+  (
+    fs: FileSystem.FileSystem,
+    root: string,
+    options?: FileSystemReadOptions
+  ): Stream.Stream<Entry, TransferError | PlatformError.PlatformError>
+} = dual(
+  (args) => args.length >= 3 || Predicate.hasProperty(args[0], "readFile"),
+  (fs, root, options) => host.fromFileSystem(fs, root, options)
+)
 
 /**
  * Writes streamed entries under `destination` through an application-provided
@@ -801,12 +830,20 @@ export const fromFileSystem: (
  * @category sinks
  * @since 0.6.0
  */
-export const toFileSystem: (
-  fs: FileSystem.FileSystem,
-  destination: string,
-  options?: FileSystemWriteOptions
-) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError | PlatformError.PlatformError> = (
+export const toFileSystem: {
+  (
+    destination: string,
+    options?: FileSystemWriteOptions
+  ): (
+    fs: FileSystem.FileSystem
+  ) => Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError | PlatformError.PlatformError>
+  (
+    fs: FileSystem.FileSystem,
+    destination: string,
+    options?: FileSystemWriteOptions
+  ): Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError | PlatformError.PlatformError>
+} = dual((args) => args.length >= 3 || Predicate.hasProperty(args[0], "readFile"), (
   fs,
   destination,
   options
-) => host.toFileSystem(fs, destination, options)
+) => host.toFileSystem(fs, destination, options))

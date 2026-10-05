@@ -7,6 +7,7 @@
  * @since 0.6.0
  */
 import * as Data from "effect/Data"
+import { dual } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import { DirectoryHandleId, FileHandleId } from "./FileHandle.js"
@@ -173,7 +174,10 @@ export const isEntry = (value: unknown): value is Entry =>
  * @category constructors
  * @since 0.6.0
  */
-export const Entry = (directory: TargetInput, name: NameInput): Entry => ({ directory: Target.of(directory), name })
+export const Entry: {
+  (name: NameInput): (directory: TargetInput) => Entry
+  (directory: TargetInput, name: NameInput): Entry
+} = dual(2, (directory: TargetInput, name: NameInput): Entry => ({ directory: Target.of(directory), name }))
 
 /**
  * Whether a path input is a byte path rather than a string.

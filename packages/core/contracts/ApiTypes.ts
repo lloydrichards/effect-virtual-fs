@@ -378,3 +378,54 @@ export const dualSnapshots = (snapshot: Vfs.Snapshot, bytes: Uint8Array, limits:
 
 export const dualWatchCollection = <A, E, R>(stream: Stream.Stream<A, E, R>) =>
   Testing.collectChanges(2)(stream) satisfies Effect.Effect<Effect.Effect<Array<A>, E>, never, R | Scope.Scope>
+
+export const dualConstruction = (snapshot: Vfs.Snapshot, fixture: Vfs.Fixture, options: Vfs.VolumeOptions) => ({
+  restore: Vfs.fromSnapshot(options)(snapshot) satisfies Effect.Effect<Vfs.Volume, Vfs.VfsError, Crypto.Crypto>,
+  overlay: Vfs.makeOverlay(options)(snapshot) satisfies Effect.Effect<Vfs.OverlayVolume, Vfs.VfsError, Crypto.Crypto>,
+  fixture: Vfs.fromFixture(options)(fixture) satisfies Effect.Effect<Vfs.Volume, Vfs.VfsError, Crypto.Crypto>,
+  restoreLayer: Vfs.Volume.layerFromSnapshot(options)(snapshot) satisfies Layer.Layer<
+    Vfs.Volume,
+    Vfs.VfsError,
+    Crypto.Crypto
+  >,
+  overlayLayer: Vfs.Volume.layerOverlay(options)(snapshot) satisfies Layer.Layer<
+    Vfs.Volume,
+    Vfs.VfsError,
+    Crypto.Crypto
+  >,
+  fixtureLayer: Vfs.Volume.layerFromFixture(options)(fixture) satisfies Layer.Layer<
+    Vfs.Volume,
+    Vfs.VfsError,
+    Crypto.Crypto
+  >,
+  entry: Vfs.Entry("file")("/") satisfies Vfs.Entry,
+  durability: Vfs.isVolumeDurabilityAtLeast("survives-process-crash")("memory-only") satisfies boolean
+})
+
+export const dualDeltas = (
+  base: Vfs.Snapshot,
+  target: Vfs.Snapshot,
+  ours: Vfs.SnapshotDelta,
+  theirs: Vfs.SnapshotDelta
+) => ({
+  diff: Vfs.diffSnapshots(target)(base) satisfies Effect.Effect<
+    Vfs.SnapshotDelta,
+    Vfs.VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >,
+  apply: Vfs.applySnapshotDelta(ours)(base) satisfies Effect.Effect<
+    Vfs.Snapshot,
+    Vfs.VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >,
+  inspect: Vfs.inspectSnapshotDelta(ours)(base) satisfies Effect.Effect<
+    ReadonlyArray<Vfs.SnapshotChange>,
+    Vfs.VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >,
+  merge: Vfs.mergeSnapshotDeltas(ours, theirs)(base) satisfies Effect.Effect<
+    Vfs.MergeResult,
+    Vfs.VfsError | PlatformError.PlatformError,
+    Crypto.Crypto
+  >
+})

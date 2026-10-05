@@ -27,10 +27,13 @@ const bare = Entry("/var", "log")
 **Signature**
 
 ```ts
-declare const Entry: (directory: TargetInput, name: NameInput) => Entry
+declare const Entry: {
+  (name: NameInput): (directory: TargetInput) => Entry
+  (directory: TargetInput, name: NameInput): Entry
+}
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L176)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L177)
 
 Since v0.6.0
 
@@ -128,7 +131,7 @@ declare const Target: {
 } & { readonly of: (input: TargetInput) => Target }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L68)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L69)
 
 Since v0.6.0
 
@@ -147,7 +150,7 @@ export interface Entry {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L130)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L131)
 
 Since v0.6.0
 
@@ -163,7 +166,7 @@ whose prefix is the directory.
 type EntryInput = Entry | PathInput | PathTarget
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L143)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L144)
 
 Since v0.6.0
 
@@ -177,7 +180,7 @@ A well-formed entry name, as bytes.
 export type Name = Uint8Array<ArrayBufferLike>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L122)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L123)
 
 Since v0.6.0
 
@@ -192,7 +195,7 @@ bytes with no NUL and no slash. `.` and `..` are well formed but reserved.
 type NameInput = string | Uint8Array
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L94)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L95)
 
 Since v0.6.0
 
@@ -206,7 +209,7 @@ The path variant of `Target`.
 type PathTarget = Extract<Target, { readonly _tag: "Path" }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L151)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L152)
 
 Since v0.6.0
 
@@ -231,7 +234,7 @@ type Target = Data.TaggedEnum<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L23)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L24)
 
 Since v0.6.0
 
@@ -246,7 +249,7 @@ path, reference, or handle it would wrap.
 type TargetInput = Target | PathInput | ObjectReference | FileHandle | DirectoryHandle
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L59)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L60)
 
 Since v0.6.0
 
@@ -262,7 +265,7 @@ Whether a path input is a byte path rather than a string.
 declare const isBytePathInput: (input: PathInput) => boolean
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L184)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L188)
 
 Since v0.6.0
 
@@ -276,7 +279,7 @@ Whether a value is an `Entry`.
 declare const isEntry: (value: unknown) => value is Entry
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L159)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L160)
 
 Since v0.6.0
 
@@ -290,7 +293,7 @@ Whether a value is a `Target`.
 declare const isTarget: (value: unknown) => value is Target
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L49)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L50)
 
 Since v0.6.0
 
@@ -306,6 +309,6 @@ Schema for a well-formed entry name, as bytes.
 declare const Name: Schema.Uint8Array
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L102)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Target.ts#L103)
 
 Since v0.6.0
