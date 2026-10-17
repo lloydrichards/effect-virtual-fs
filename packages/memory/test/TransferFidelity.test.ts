@@ -171,6 +171,31 @@ it.layer(NodeCrypto.layer)("Transfer fidelity", (it) => {
       }))
   }
 
+  for (const destination of ["caller", "fileSystem"] as const) {
+    it.effect(`should retain merged directory modes when ${destination} requires the enabled special-bit policy`, () =>
+      Effect.gen(function*() {
+        const caller = yield* (yield* Vfs.make()).caller()
+        const fs = yield* MemoryFileSystem.bindCaller(caller)
+        yield* fs.makeDirectory("/copy", { mode: 0o700 })
+        const source = yield* Vfs.fromFixture({ ...FOUR_FILES_FIXTURE, rootMetadata: { mode: 0o1777 } })
+        yield* (yield* source.caller()).chmod("/a", 0o4755)
+
+        const options: TreeTransfer.WriteOptions = {
+          existing: "overwrite",
+          specialBits: true,
+          required: { specialBits: true }
+        }
+
+        const sink = destination === "caller"
+          ? TreeTransfer.toCaller(caller, "/copy", options)
+          : TreeTransfer.toFileSystem(fs, "/copy", options)
+
+        yield* Stream.run(TreeTransfer.fromSnapshot(yield* source.snapshot, "/"), sink)
+        assert.strictEqual((yield* caller.stat("/copy")).mode, 0o700)
+        assert.strictEqual((yield* caller.stat("/copy/a")).mode, 0o4755)
+      }))
+  }
+
   it.effect("should preserve required volume fidelity when owner and special bits are enabled", () =>
     Effect.gen(function*() {
       const source = yield* representativeTree

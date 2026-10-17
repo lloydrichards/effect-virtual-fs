@@ -429,10 +429,26 @@ export const toFileSystem = (
         function*(path: string, host: string, contents: Uint8Array, metadata: EntryMetadata | undefined) {
           const mode = modeOf(metadata, DEFAULT_FILE_MODE)
 
-          const wrote = yield* fs.writeFile(host, contents, { flag: "wx", mode }).pipe(
-            Effect.as(true),
-            Effect.catchIf(isReason("AlreadyExists"), collision(path))
-          )
+          const wrote = path === "/"
+            ? yield* Effect.scoped(Effect.uninterruptibleMask((restore) =>
+              Effect.gen(function*() {
+                const opened = yield* Effect.result(fs.open(host, { flag: "wx", mode }))
+
+                if (Result.isFailure(opened)) return yield* collision(path)(opened.failure)
+                const file = opened.success
+                yield* state.claim(file.stat.pipe(Effect.map((info) => ({
+                  dev: info.dev,
+                  ino: Option.getOrUndefined(info.ino)
+                }))))
+                yield* restore(file.writeAll(contents))
+
+                return true
+              })
+            ))
+            : yield* fs.writeFile(host, contents, { flag: "wx", mode }).pipe(
+              Effect.as(true),
+              Effect.catchIf(isReason("AlreadyExists"), collision(path))
+            )
 
           if (!wrote) return false
 
@@ -467,7 +483,22 @@ export const toFileSystem = (
         switch (entry.kind) {
           case "directory": {
             const mode = modeOf(entry.metadata, DEFAULT_DIRECTORY_MODE)
-            const outcome = yield* makeDirectory(path, host, mode)
+
+            const outcome = yield* Effect.uninterruptible(Effect.gen(function*() {
+              const outcome = yield* makeDirectory(path, host, mode)
+
+              if (outcome === "skipped") return outcome
+
+              if (path === "/" && outcome === "created") yield* claim
+              createdDirectories.push({
+                path,
+                host,
+                mode: outcome === "created" ? mode : undefined,
+                metadata: entry.metadata
+              })
+
+              return outcome
+            }))
 
             if (outcome === "skipped") {
               skippedDirectories.set(path, "NameCollision")
@@ -475,17 +506,7 @@ export const toFileSystem = (
               return false
             }
 
-            if (path === "/") {
-              if (outcome === "created") yield* claim
-              canonicalRoot = yield* fs.realPath(host)
-            }
-
-            createdDirectories.push({
-              path,
-              host,
-              mode: outcome === "created" ? mode : undefined,
-              metadata: entry.metadata
-            })
+            if (path === "/") canonicalRoot = yield* fs.realPath(host)
 
             return
           }
@@ -495,7 +516,6 @@ export const toFileSystem = (
 
             if (!(yield* createFile(path, host, entry.bytes, entry.metadata))) return
 
-            if (path === "/") yield* claim
             state.file(entry.bytes.length)
 
             return
@@ -614,7 +634,8 @@ export const toFileSystem = (
             Effect.catchIf(isReason("AlreadyExists"), collision(link.path))
           )
 
-          if (made && link.path === "/") yield* claim
+          // A root symlink is the terminal create in uninterruptible finalization. It has no children,
+          // and stat would identify its target rather than the link, so it needs no intermediate claim.
 
           if (made && escaping === "reject" && !(yield* staysInside(link))) {
             yield* fs.remove(link.host)
