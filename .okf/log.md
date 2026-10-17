@@ -2,6 +2,8 @@
 
 ## 2026-10-17
 
+- Add a bounded overlay/fromSnapshot comparison for handle and alias identity, namespace replacement and recreation, rejected mutations, quota-limited writes, metadata and watch traces. Reuse the snapshot observer and link fixture; keep runtime revision identity and broader parity gaps explicit. No production mismatch was exposed.
+
 - Qualify cross-parent hard-linked symbolic links through captured and encoded snapshots, sibling overlays, and exact caller/volume transfers. Record per-alias relative resolution and retained reference lifetime separately from the FileSystem sink's counted retargeting. The added cases required no production behavior change.
 
 ## 2026-10-16

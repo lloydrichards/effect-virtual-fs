@@ -20,10 +20,13 @@ sources:
   - id: changes
     resource: ../../packages/core/test/behaviour/overlay.test.ts
     title: Final-difference summary tests
+  - id: parity
+    resource: ../../packages/core/test/behaviour/overlayParity.test.ts
+    title: Paired ordinary-volume behavior
   - id: checkpoint
     resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Captured snapshot checkpoint compatibility
-generated: { by: codex/okf, at: "2026-10-17T08:16:03Z" }
+generated: { by: codex/okf, at: "2026-10-17T08:20:42Z" }
 ---
 
 # Overlay workspaces
@@ -47,3 +50,9 @@ This contract implements the accepted [staged overlay delivery](../decisions/ove
 [^behavior]: Core, memory-adapter and persistence tests cover the public behavior and complete-snapshot integration.
 
 [^sharing]: The white-box test proves two constructed workspaces retain the same cached payload after reads and metadata changes.
+
+## Ordinary-volume comparison
+
+A bounded paired suite compares overlays with `fromSnapshot(base)` for retained file and directory handles, hard-link peers, relative symlink lookup, destination replacement, directory recreation, rejected mutations, and quota-limited writes. It compares portable tree metadata and alias topology, usage, and committed watch traces under a controlled clock. Runtime inode/reference values and revision tokens are not equated between independent volumes. Physical content sharing remains a separate invariant.[^parity]
+
+[^parity]: The paired suite reuses the snapshot tree observer and hard-linked symlink fixture. Its finite coverage and remaining gaps are recorded in [overlay research](../research/overlay-filesystem.md "evidenced by").

@@ -1,7 +1,7 @@
 ---
 type: Research Report
 title: Overlay filesystem direction
-description: Retains the alternatives considered for overlay v1, the OverlayFS and OCI lessons that shaped it, and the parity cases a future overlay test harness should cover.
+description: Retains the alternatives considered for overlay v1, the OverlayFS and OCI lessons that shaped it, and the bounded ordinary-volume parity evidence with remaining qualification gaps.
 status: draft
 tags: [overlay, architecture, identity, roadmap]
 sources:
@@ -14,13 +14,19 @@ sources:
   - id: overlay-tests
     resource: ../../packages/core/test/behaviour/overlay.test.ts
     title: Representative overlay behavior, summaries and capture races
+  - id: parity-tests
+    resource: ../../packages/core/test/behaviour/overlayParity.test.ts
+    title: Paired overlay and restored-volume scenarios
+  - id: tree-observer
+    resource: ../../packages/core/test/support/describeTree.ts
+    title: Shared portable tree observation
   - id: linux
     resource: https://docs.kernel.org/filesystems/overlayfs.html
     title: Linux OverlayFS semantics and limitations
   - id: oci
     resource: https://specs.opencontainers.org/image-spec/layer/
     title: OCI image layer changesets
-generated: { by: claude/okf, at: 2026-10-05T00:00:00Z }
+generated: { by: codex/okf, at: "2026-10-17T08:20:42Z" }
 ---
 
 # Overlay filesystem direction
@@ -45,26 +51,32 @@ OCI layers describe serialized changesets, not live behavior. Their reserved `.w
 
 [Object references](../contracts/object-references.md "related to") and [mutation revisions](../contracts/mutation-revisions.md "related to") were considered as overlay prerequisites and rejected as such; comparison of retained base and current state supports overlay summaries independently of those public APIs.
 
-## Open: a parity harness
+## Bounded parity with ordinary volumes
 
-The overlay suites execute representative cases for workspace isolation, promotion and quotas, raw names, summary identity, capture races and reset behavior, but no harness compares an overlay against `fromSnapshot(base)` operation by operation.[^overlay-tests] Such a harness would run both under a controlled clock and compare bytes, errors, metadata, events and alias topology, normalizing inode numbers by relationship. Cases it should cover beyond the current suites:
+The paired suite starts makeOverlay(base) and fromSnapshot(base) from the same fixture snapshot and runs identical public operations under TestClock. It reuses the hard-linked symlink fixture and the existing snapshot suite's portable-tree observer. Each case compares its result, tree contents and metadata, alias groups, usage, and watch trace, with independent expected results for the selected behavior.[^parity-tests]
 
-- open hard-link `/b`, then write alias `/a`: both paths and the old handle see one updated object;
-- unlink `/a`, recreate it, retain the old handle: the new path names a new object and the old handle keeps old contents;
-- delete `/d/x`, remove empty `/d`, recreate `/d`: the old child stays absent;
-- move a directory with edited and untouched children: the whole visible tree moves and directory callers keep identity;
-- rename onto an occupied destination: prior destination handles retain their object;
-- resolve a symlink into an overridden or deleted path, including relative targets and `..`;
-- reject an unauthorized or impossible mutation: no changed bytes, metadata, entries or phantom watch event;
-- write past remaining capacity: the allowed prefix is kept and a later `NoSpace` preserves state;
-- remove all aliases while a file stays open: the logical charge remains until final close;
-- hard links to symlinks, root metadata, create-exclusive after deletion, writes through unlinked handles, no-op rename to an alias, and mixed direct and adapter writers.
+The finite scenario set covers:
+
+- editing through an old handle, unlinking and recreating its path, and retaining its hard-link peer;
+- moving a base directory while retaining its directory handle and relative symbolic-link lookup;
+- renaming onto an occupied file while the former destination handle remains readable;
+- deleting a base child and directory, then recreating the empty directory without reviving old children;
+- rejecting missing-source, occupied-name, and exclusive-create mutations without state changes or watch events;
+- retaining a quota-limited write prefix and rejecting further growth without changing file metadata.
+
+The observer groups paths by inode relationships instead of equating independent runtime identities. It excludes revision tokens from cross-volume tree equality; the rejected-mutation cases additionally assert unchanged metadata within each volume. Initial reads settle relatime before watches begin. A final committed sentinel ends event collection without sleeps and makes unexpected rejection events visible.[^tree-observer][^parity-tests]
+
+This is bounded evidence, not operation-complete parity. Remaining extensions include unauthorized mutations, independent revision-change relationships, removing every file alias while a handle stays open, no-op rename to an alias, raw names, and mixed direct/adapter writers. The separate hard-linked symlink suite owns detailed cross-parent identity and dangling-target assertions rather than duplicating them here.[^overlay-tests]
 
 Physical payload sharing is proven separately, as the content-sharing decision requires.
 
 [^core]: `makeVolume` owns one node graph, allocator, quota counters, publisher and gate; `makeOverlay` builds on it.
 
 [^overlay-tests]: Sibling isolation, mutation paths, quota accounting, summaries, consistent capture and reset lifetimes.
+
+[^parity-tests]: Six paired public-API scenarios, with controlled time and independent assertions.
+
+[^tree-observer]: Extracted unchanged from snapshot tests; compares content, portable metadata, and alias topology.
 
 [^linux]: Linux OverlayFS: Upper and Lower, Whiteouts and Opaque Directories, Renaming directories, Non-directories, Non-standard behavior. Consulted 2026-09-10.
 
