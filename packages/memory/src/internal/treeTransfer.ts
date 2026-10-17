@@ -18,6 +18,7 @@ import type * as Sink from "effect/Sink"
 import * as Stream from "effect/Stream"
 import { at } from "./adapterSupport.js"
 import {
+  checkFidelity,
   childPath,
   DEFAULT_DIRECTORY_MODE,
   DEFAULT_FILE_MODE,
@@ -259,13 +260,18 @@ export const toCaller = (
       )
 
       const applyTimes = (target: Vfs.PathTarget, metadata: EntryMetadata | undefined) => {
-        if (times === "none" || metadata?.mtimeNs === undefined) return Effect.void
+        if (
+          times === "none" || metadata === undefined ||
+          (metadata.mtimeNs === undefined && (times !== "all" || metadata.atimeNs === undefined))
+        ) return Effect.void
 
         return caller.utimes(target, {
           access: times === "all" && metadata.atimeNs !== undefined
             ? { kind: "value", nanoseconds: metadata.atimeNs }
             : { kind: "omit" },
-          modification: { kind: "value", nanoseconds: metadata.mtimeNs }
+          modification: metadata.mtimeNs === undefined
+            ? { kind: "omit" }
+            : { kind: "value", nanoseconds: metadata.mtimeNs }
         })
       }
 
@@ -340,6 +346,14 @@ export const toCaller = (
             if (existing === "overwrite") yield* clearExisting(name, base)
 
             yield* caller.symlink(entry.target, at(name, { relativeTo: base }))
+
+            if (entry.metadata?.mode !== undefined) {
+              yield* caller.chmod(
+                at(name, { relativeTo: base, followFinalSymlink: false }),
+                modeOf(entry.metadata, 0o777)
+              )
+            }
+
             break
           }
 
@@ -417,6 +431,7 @@ export const toVolume = Effect.fnUntraced(function*<E, R>(
   entries: Stream.Stream<Entry, E, R>,
   options?: VolumeTransferOptions
 ) {
+  yield* checkFidelity("volume", options)
   const [root, ...rest] = yield* Stream.runCollect(entries)
 
   if (root === undefined || root.kind !== "directory" || !(yield* isRootPath(root.path))) {

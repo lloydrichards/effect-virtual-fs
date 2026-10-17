@@ -58,12 +58,14 @@ export type Entry = Vfs.Fixture["entries"][number]
  * `LimitExceeded` names the exceeded `field` of the source limits.
  * `InvalidEntry` reports an entry a sink cannot place, such as a missing root,
  * a child before its parent, or a hard link to an unwritten target.
- * `InvalidArgument` reports an incomplete or malformed limits policy.
+ * `InvalidArgument` reports an incomplete or malformed limits policy or fidelity requirements.
  * `UnrepresentableName`, `UnsupportedEntryType`, and `NameCollision` report
  * entries a filesystem adapter cannot carry; the `unsupported: "skip"` option
  * turns them into reported skips instead. `EscapingSymlink` reports a symbolic
  * link whose target leaves the transferred tree. `DestinationConflict` reports an
  * existing destination entry that an overwrite cannot safely replace.
+ * `UnsupportedFidelity` names a required guarantee the destination or options cannot meet,
+ * before any destination change. Malformed requirements fail `InvalidArgument` with field `required`.
  *
  * @example
  * ```ts
@@ -89,6 +91,7 @@ export interface TransferError extends Cause.YieldableError {
     | "NameCollision"
     | "EscapingSymlink"
     | "DestinationConflict"
+    | "UnsupportedFidelity"
   readonly field?: string
   readonly path?: Vfs.PathInput
 }
@@ -238,6 +241,8 @@ export interface ReadOptions {
  * @since 0.6.0
  */
 export interface WriteOptions {
+  /** Minimum preservation guarantees, checked before writing. Omission keeps existing behavior. */
+  readonly required?: RequiredFidelity | undefined
   /** How an existing destination is treated. Defaults to `"reject"`. */
   readonly existing?: "reject" | "overwrite" | undefined
   /** Which source timestamps are applied. Defaults to `"mtime"`. */
@@ -385,6 +390,38 @@ export const SinkCapabilities:
  * @since 0.6.0
  */
 export type SinkCapabilities = typeof SinkCapabilities.Type
+
+/**
+ * Minimum destination guarantees for the metadata supplied by an entry stream.
+ *
+ * Boolean `true` requires a capability; `false` or omission adds no constraint.
+ * Nanosecond precision satisfies millisecond requirements, and exact hard links
+ * satisfy best-effort requirements. Precision applies to the selected `times`;
+ * requiring precision with `times: "none"` fails. Owner and special-bit
+ * requirements need their corresponding options enabled. Requirements never
+ * enable options or recover metadata that a source has already omitted.
+ *
+ * Preserving metadata does not preserve Caller authority or create an execution sandbox.
+ *
+ * @example
+ * ```ts
+ * import { TreeTransfer } from "@effect-vfs/memory"
+ *
+ * const options: TreeTransfer.WriteOptions = {
+ *   times: "all",
+ *   required: { hardLinks: "exact", timestampPrecision: "nanosecond", times: "all" }
+ * }
+ * ```
+ *
+ * @category models
+ * @since 0.10.0
+ */
+export interface RequiredFidelity extends Partial<SinkCapabilities> {
+  /** Minimum timestamp selection. `"all"` means access and modification times on live sinks. */
+  readonly times?: "none" | "mtime" | "all"
+  /** Requires setuid, setgid, and sticky-bit preservation. */
+  readonly specialBits?: boolean
+}
 
 /**
  * Schema for an entry that was left out of a transfer.
@@ -676,6 +713,8 @@ export const toCaller: {
  * @since 0.6.0
  */
 export interface VolumeTransferOptions {
+  /** Minimum preservation guarantees, checked before consuming entries. */
+  readonly required?: RequiredFidelity | undefined
   /** Options for the new volume. */
   readonly volume?: Vfs.VolumeOptions | undefined
   /** Keeps source owners. Defaults to `false`. */

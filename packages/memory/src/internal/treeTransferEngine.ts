@@ -64,6 +64,7 @@ export class TransferError extends Data.TaggedError("TransferError")<{
     | "NameCollision"
     | "EscapingSymlink"
     | "DestinationConflict"
+    | "UnsupportedFidelity"
   readonly field?: string
   readonly path?: Vfs.PathInput
 }> {}
@@ -85,6 +86,7 @@ export interface ReadOptions {
 
 /** @ignore */
 export interface WriteOptions {
+  readonly required?: RequiredFidelity | undefined
   /** How an existing destination is treated. Defaults to `"reject"`. */
   readonly existing?: "reject" | "overwrite" | undefined
   /** Which source timestamps are applied. Defaults to `"mtime"`. */
@@ -155,6 +157,72 @@ export const SinkCapabilities = Object.assign(
 
 /** @ignore */
 export type SinkCapabilities = typeof SinkCapabilities.Type
+
+/** @ignore */
+const RequiredFidelitySchema = Schema.Struct({
+  byteNames: Schema.optionalKey(SinkCapabilities.fields.byteNames),
+  timestampPrecision: Schema.optionalKey(SinkCapabilities.fields.timestampPrecision),
+  changeAndBirthTimes: Schema.optionalKey(SinkCapabilities.fields.changeAndBirthTimes),
+  owner: Schema.optionalKey(SinkCapabilities.fields.owner),
+  symlinkMetadata: Schema.optionalKey(SinkCapabilities.fields.symlinkMetadata),
+  hardLinks: Schema.optionalKey(SinkCapabilities.fields.hardLinks),
+  times: Schema.optionalKey(Schema.Literals(["none", "mtime", "all"])),
+  specialBits: Schema.optionalKey(Schema.Boolean)
+})
+
+/** @ignore */
+export type RequiredFidelity = typeof RequiredFidelitySchema.Type
+
+/** @ignore */
+export const checkFidelity = Effect.fnUntraced(function*(
+  destination: "caller" | "volume" | "fileSystem",
+  options: {
+    readonly required?: RequiredFidelity | undefined
+    readonly times?: "none" | "mtime" | "all" | undefined
+    readonly owner?: boolean | undefined
+    readonly specialBits?: boolean | undefined
+  } | undefined
+) {
+  if (options?.required === undefined) return
+
+  const required = yield* Schema.decodeEffect(RequiredFidelitySchema, { onExcessProperty: "error" })(
+    options.required
+  ).pipe(
+    Effect.mapError(() => new TransferError({ code: "InvalidArgument", field: "required" }))
+  )
+
+  const capabilities = SinkCapabilities[destination]
+  const times = destination === "volume" ? "all" : options.times ?? "mtime"
+
+  for (const field of ["byteNames", "changeAndBirthTimes", "symlinkMetadata"] as const) {
+    if (required[field] === true && !capabilities[field]) {
+      return yield* new TransferError({ code: "UnsupportedFidelity", field })
+    }
+  }
+
+  if (required.owner === true && (!capabilities.owner || options.owner !== true)) {
+    return yield* new TransferError({ code: "UnsupportedFidelity", field: "owner" })
+  }
+
+  if (required.hardLinks === "exact" && capabilities.hardLinks !== "exact") {
+    return yield* new TransferError({ code: "UnsupportedFidelity", field: "hardLinks" })
+  }
+
+  if (required.timestampPrecision === "nanosecond" && capabilities.timestampPrecision !== "nanosecond") {
+    return yield* new TransferError({ code: "UnsupportedFidelity", field: "timestampPrecision" })
+  }
+
+  if (
+    (required.timestampPrecision !== undefined && times === "none") ||
+    (required.times === "all" && times !== "all") || (required.times === "mtime" && times === "none")
+  ) {
+    return yield* new TransferError({ code: "UnsupportedFidelity", field: "times" })
+  }
+
+  if (required.specialBits === true && options.specialBits !== true) {
+    return yield* new TransferError({ code: "UnsupportedFidelity", field: "specialBits" })
+  }
+})
 
 /** @ignore */
 export const SkippedEntry = Schema.Struct({
@@ -343,6 +411,7 @@ export const isRootPath = (path: Vfs.PathInput) =>
 
 /** @ignore */
 export interface VolumeTransferOptions {
+  readonly required?: RequiredFidelity | undefined
   readonly volume?: Vfs.VolumeOptions | undefined
   readonly owner?: boolean | undefined
   readonly specialBits?: boolean | undefined
@@ -546,6 +615,7 @@ export const sink = <D, C, E>(
   setup: (state: SinkState<D, C, E>) => Effect.Effect<SinkStep<D, C, E>, E, Scope.Scope>
 ): Sink.Sink<TransferReport, Entry, never, E | TransferError | Vfs.VfsError> =>
   Sink.unwrap(Effect.gen(function*() {
+    yield* checkFidelity(policy, options)
     const existing = options?.existing ?? "reject"
     const times = options?.times ?? "mtime"
     const modeMask = options?.specialBits ? MODE_BITS : PERMISSION_BITS
