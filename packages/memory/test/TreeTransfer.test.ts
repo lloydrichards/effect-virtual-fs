@@ -37,6 +37,43 @@ const FOUR_FILES_FIXTURE: Vfs.Fixture = {
   entries: ["a", "b", "c", "d"].map((name) => ({ kind: "file", path: `/${name}`, bytes: new Uint8Array() }))
 }
 
+const crossParentSymlinks: Vfs.Fixture = {
+  entries: [
+    ...["a", "b", "c"].flatMap((parent) => [
+      { kind: "directory" as const, path: `/${parent}` },
+      { kind: "file" as const, path: `/${parent}/target`, bytes: text.encode(parent) }
+    ]),
+    { kind: "symlink", path: "/a/link", target: "target" },
+    { kind: "hardLink", path: "/b/link", target: "/a/link" },
+    { kind: "hardLink", path: "/c/link", target: "/b/link" },
+    { kind: "symlink", path: "/a/dangling", target: "missing" },
+    { kind: "hardLink", path: "/b/dangling", target: "/a/dangling" }
+  ]
+}
+
+const assertCrossParentSymlinks = Effect.fnUntraced(function*(caller: Vfs.Caller) {
+  for (
+    const { name, parents, target } of [
+      { name: "link", parents: ["a", "b", "c"], target: "target" },
+      { name: "dangling", parents: ["a", "b"], target: "missing" }
+    ]
+  ) {
+    const reference = yield* caller.lookup(`/a/${name}`)
+
+    for (const parent of parents) {
+      const path = `/${parent}/${name}`
+      const metadata = yield* caller.stat(Vfs.Target.Path({ path, followFinalSymlink: false }))
+      assert.strictEqual(metadata.kind, "symlink")
+      assert.strictEqual(metadata.nlink, parents.length)
+      assert.strictEqual(yield* caller.lookup(path), reference)
+      assert.deepStrictEqual(yield* caller.readLink(path), text.encode(target))
+
+      if (name === "link") assert.deepStrictEqual(yield* caller.readFile(path), text.encode(parent))
+      else assert.strictEqual((yield* Effect.flip(caller.readFile(path))).code, "NotFound")
+    }
+  }
+})
+
 const representativeTree = Effect.gen(function*() {
   const invalidName = yield* Vfs.pathFromBytes(new Uint8Array([...text.encode("/src/raw-"), 0xff]))
 
@@ -154,6 +191,30 @@ it.layer(NodeCrypto.layer)("TreeTransfer repeated paths", (it) => {
 
 describe("TreeTransfer", () => {
   it.layer(NodeCrypto.layer)((it) => {
+    for (const sourceKind of ["caller", "snapshot"] as const) {
+      for (const destinationKind of ["caller", "volume"] as const) {
+        it.effect(`should retain cross-parent symlink identity when transferring from ${sourceKind} to ${destinationKind}`, () =>
+          Effect.gen(function*() {
+            const source = yield* Vfs.fromFixture(crossParentSymlinks)
+
+            const entries = sourceKind === "caller"
+              ? TreeTransfer.fromCaller(yield* source.caller(), "/")
+              : TreeTransfer.fromSnapshot(yield* source.snapshot, "/")
+
+            if (destinationKind === "volume") {
+              const destination = yield* TreeTransfer.toVolume(entries)
+              yield* assertCrossParentSymlinks(yield* destination.caller())
+            } else {
+              const destination = yield* Vfs.make()
+              const caller = yield* destination.caller()
+              const report = yield* Stream.run(entries, TreeTransfer.toCaller(caller, "/copy"))
+              assert.strictEqual(report.hardLinksDegraded, 0)
+              yield* assertCrossParentSymlinks(yield* caller.withRoot("/copy"))
+            }
+          }))
+      }
+    }
+
     it.effect("should round-trip a representative tree between callers when all metadata is requested", () =>
       Effect.gen(function*() {
         const source = yield* representativeTree
@@ -777,6 +838,30 @@ const fileSystemSuite = (
   layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
 ) =>
   it.layer(layer.pipe(Layer.provideMerge(NodeCrypto.layer)))(`TreeTransfer FileSystem (${name})`, (it) => {
+    it.effect("should report rewritten symlink aliases when exporting cross-parent hard links", () =>
+      withTemp((fs, directory) =>
+        Effect.gen(function*() {
+          const source = yield* Vfs.fromFixture(crossParentSymlinks)
+          const root = `${directory}/export`
+
+          const report = yield* Stream.run(
+            TreeTransfer.fromSnapshot(yield* source.snapshot, "/"),
+            TreeTransfer.toFileSystem(fs, root)
+          )
+
+          assert.strictEqual(report.hardLinksDegraded, 3)
+
+          for (const parent of ["b", "c"]) {
+            assert.strictEqual(yield* fs.readLink(`${root}/${parent}/link`), "../a/target")
+            assert.strictEqual(yield* fs.readFileString(`${root}/${parent}/link`), "a")
+          }
+
+          assert.strictEqual(yield* fs.readLink(`${root}/b/dangling`), "../a/missing")
+          assert.isFalse(yield* fs.exists(`${root}/b/dangling`))
+          yield* assertCrossParentSymlinks(yield* source.caller())
+        })
+      ))
+
     for (const { name, entries } of repeatedPathStreams) {
       for (const existing of ["reject", "overwrite"] as const) {
         it.effect(`should reject a repeated ${name} path when FileSystem destination policy is ${existing}`, () =>

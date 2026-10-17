@@ -7,6 +7,7 @@ import * as TestClock from "effect/testing/TestClock"
 import { BytePath, LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as LiveImage from "../src/internal/liveImage.js"
 import { ENCODED_CHUNK_BYTES } from "../src/internal/tree.js"
+import { assertHardLinkedSymlinks, hardLinkedSymlinks } from "./support/hardLinkedSymlinks.js"
 import { documentText, readLines, toLines, toLines as encode } from "./support/lines.js"
 import { entryNames, text } from "./support/text.js"
 
@@ -60,6 +61,16 @@ const SnapshotJson = Schema.fromJsonString(Schema.Struct({
 
 describe("snapshots", () => {
   it.layer(BunCrypto.layer)((it) => {
+    it.effect("should retain cross-parent symlink identity when restoring captured and encoded snapshots", () =>
+      Effect.gen(function*() {
+        const source = yield* Vfs.fromFixture(hardLinkedSymlinks)
+        yield* assertHardLinkedSymlinks(yield* source.caller())
+        const snapshot = yield* source.snapshot
+        yield* assertHardLinkedSymlinks(yield* (yield* Vfs.fromSnapshot(snapshot)).caller())
+        const decoded = yield* Vfs.decodeSnapshot(yield* Vfs.encodeSnapshot(snapshot), limits)
+        yield* assertHardLinkedSymlinks(yield* (yield* Vfs.fromSnapshot(decoded)).caller())
+      }))
+
     it.effect("should preserve captured names and overlays while a directory is repeatedly edited", () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.make()
