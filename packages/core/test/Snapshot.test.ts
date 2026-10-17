@@ -2,11 +2,11 @@ import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Fiber, Layer, Option, pipe, Predicate, Schema, Stream } from "effect"
 import * as Base64 from "effect/encoding/Base64"
-import * as Hex from "effect/encoding/Hex"
 import * as TestClock from "effect/testing/TestClock"
 import { BytePath, LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as LiveImage from "../src/internal/liveImage.js"
 import { ENCODED_CHUNK_BYTES } from "../src/internal/tree.js"
+import { describeTree } from "./support/describeTree.js"
 import { assertHardLinkedSymlinks, hardLinkedSymlinks } from "./support/hardLinkedSymlinks.js"
 import { documentText, readLines, toLines, toLines as encode } from "./support/lines.js"
 import { entryNames, text } from "./support/text.js"
@@ -1284,37 +1284,6 @@ describe("snapshot entries", () => {
       { kind: "symlink", path: "/a/raw-target", target: rawTarget },
       { kind: "symlink", path: "/a/empty-target", target: "" }
     ]
-  })
-
-  const describeTree = Effect.fnUntraced(function*(caller: Vfs.Caller) {
-    const walked = yield* Stream.runCollect(caller.walk("/"))
-
-    const objects: Array<{ path: Uint8Array; reference: Vfs.ObjectReference }> = [
-      { path: bytes("/"), reference: yield* caller.root }
-    ]
-
-    for (const entry of walked) objects.push({ path: yield* BytePath.toBytes(entry.path), reference: entry.reference })
-    const paths = new Map<bigint, Array<string>>()
-    const rows: Array<{ key: string; ino: bigint; metadata: object; payload: string | undefined }> = []
-
-    for (const { path, reference } of objects) {
-      const { ino, revision: _revision, ...metadata } = yield* caller.stat(reference)
-      const key = Hex.encode(path)
-      paths.set(ino, [...(paths.get(ino) ?? []), key])
-
-      const payload = metadata.kind === "file"
-        ? yield* caller.readFile(reference)
-        : metadata.kind === "symlink"
-        ? yield* caller.readLink(reference)
-        : undefined
-
-      rows.push({ key, ino, metadata, payload: payload === undefined ? undefined : Hex.encode(payload) })
-    }
-
-    // Inode numbers are not portable, so each row names the paths that share its object instead.
-    return rows
-      .map(({ ino, ...row }) => ({ ...row, links: [...(paths.get(ino) ?? [])].sort() }))
-      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
   })
 
   const inodes = Effect.fnUntraced(function*(caller: Vfs.Caller) {
