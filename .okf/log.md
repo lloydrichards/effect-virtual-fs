@@ -1,5 +1,11 @@
 # Bundle update log
 
+## 2026-10-16
+
+- Reframe Node comparison follow-ups as Effect-first link qualification, required transfer fidelity, destination cleanup, and overlay parity. Withdraw the optional Node adapter direction; retain the experiment as supporting evidence.
+
+- Consolidate Node 26.12 composition and snapshot bridge research into draft concepts. Record verified identity differences, interruption cleanup, metadata omissions, and hard-linked symlink semantic loss. Link bounded follow-up issues without changing accepted package or core contracts.
+
 ## 2026-10-05
 
 - Extend dual calls to fixed-argument caller mutations and file-handle `pwrite` and `seek`. Keep the receiver bound, the first explicit argument as data, and unary and optional-argument methods unchanged.
