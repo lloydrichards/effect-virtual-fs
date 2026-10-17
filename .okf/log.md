@@ -2,6 +2,8 @@
 
 ## 2026-10-17
 
+- Add opt-in transfer fidelity requirements checked before destination changes or source consumption. Reuse capability fields and enabled options, distinguish minimum precision and link guarantees, and retain the source-metadata and Caller-authority boundaries. Fix dropped symlink modes and access-only timestamps exposed by preservation tests.
+
 - Qualify live transfer cleanup under interruption, timeout, root replacement, and removal failure. Restore overwrite directory modes from children to parents so an unsearchable root cannot leave descendants at temporary permissions. Record that an interruption during successful uninterruptible finalization leaves the complete tree in place.
 
 - Add a bounded overlay/fromSnapshot comparison for handle and alias identity, namespace replacement and recreation, rejected mutations, quota-limited writes, metadata and watch traces. Reuse the snapshot observer and link fixture; keep runtime revision identity and broader parity gaps explicit. No production mismatch was exposed.

@@ -407,8 +407,14 @@ export const toFileSystem = (
         })
 
       const applyTimes = Effect.fnUntraced(function*(path: string, host: string, metadata: EntryMetadata | undefined) {
-        if (times === "none" || metadata?.mtimeNs === undefined) return
-        const modification = yield* hostDate(path, metadata.mtimeNs)
+        if (
+          times === "none" || metadata === undefined ||
+          (metadata.mtimeNs === undefined && (times !== "all" || metadata.atimeNs === undefined))
+        ) return
+
+        const modification = metadata.mtimeNs === undefined
+          ? Option.getOrUndefined((yield* fs.stat(host)).mtime) ?? DateTime.toDateUtc(yield* DateTime.now)
+          : yield* hostDate(path, metadata.mtimeNs)
 
         const access = times === "all" && metadata.atimeNs !== undefined
           ? yield* hostDate(path, metadata.atimeNs)

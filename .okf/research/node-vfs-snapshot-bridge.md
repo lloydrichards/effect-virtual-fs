@@ -20,7 +20,7 @@ sources:
   - id: transfer
     resource: ../../packages/memory/src/TreeTransfer.ts
     title: Existing capabilities, preservation options, and typed transfer failures
-generated: { by: codex/okf, at: "2026-10-17T08:20:42Z" }
+generated: { by: codex/okf, at: "2026-10-17T08:46:00Z" }
 ---
 
 # Effect VFS lessons from the Node comparison
@@ -31,7 +31,7 @@ The Node comparison is evidence for improving Effect-first modules. No bridge, N
 
 **Link identity.** Node's tested linkSync behavior dereferences a symbolic link. A second alias can become a regular file reading the wrong parent's target; a dangling target fails. Our exact destinations should retain symlink objects, stored target bytes, alias identity, and resolution from each name's parent. FileSystem transfer has an explicit retargeting and counted-degradation policy, which must be asserted separately rather than called lossless.[^links]
 
-**Transfer fidelity.** The copy experiment dropped mode, owners, and timestamps even though Node could set some of them. That omission is not a defect in Effect VFS. Our [tree transfer contract](../contracts/tree-transfer.md "constrained by") already distinguishes destination capabilities, enabled options, precision and deliberate losses. Issue #295 proposes an opt-in check that rejects unsupported required guarantees before destination changes. Reuse SinkCapabilities and preserve existing defaults.[^metadata][^transfer]
+**Transfer fidelity.** The copy experiment dropped mode, owners, and timestamps even though Node could set some of them. That omission is not a defect in Effect VFS. Our [tree transfer contract](../contracts/tree-transfer.md "constrained by") already distinguishes destination capabilities, enabled options, precision and deliberate losses. The opt-in `required` check introduced for #295 rejects unsupported guarantees before destination changes. It reuses SinkCapabilities and checks enabled preservation options without changing their defaults. The owning contract records minimum-guarantee semantics and the source-metadata boundary.[^metadata][^transfer]
 
 **Destination ownership.** Ordinary interruption success does not prove recovery when release itself fails. Apply that fault model to transfer-owned roots: partial streams, source waits, restrictive final modes, replacement-root identity, timeout, and cleanup defects. Existing core/memory resource qualification remains valid; #296 targets missing transfer-specific cases rather than duplicating it.[^cleanup]
 
@@ -44,7 +44,11 @@ Core owns link and overlay invariants. Memory owns transfer fidelity and destina
 The [Node comparison](node-vfs-interoperability.md "informed by") supplies examples and justification. A difference observed there is not evidence of a local defect. Add focused tests first, then fix only demonstrated Effect VFS violations. API changes remain proposals until their contracts are reviewed.
 
 [^links]: Issue #294 retains a minimal Node reproducer and distinguishes core/exact-sink semantics from adapter degradation.
+
 [^metadata]: Issue #295 retains the field-level comparison and its limitations.
+
 [^cleanup]: Issue #296 records the finite interruption and injected-release-failure model, without importing Node mount ownership into this project.
+
 [^parity]: Issue #297 records useful counterexamples and the local reference semantics.
+
 [^transfer]: Public capability declarations and preservation options remain the owning API.

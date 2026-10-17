@@ -23,6 +23,9 @@ sources:
   - id: behavior-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Tree transfer behavior tests
+  - id: fidelity-tests
+    resource: ../../packages/memory/test/TransferFidelity.test.ts
+    title: Required destination fidelity and metadata preservation regressions
   - id: cleanup-tests
     resource: ../../packages/memory/test/TreeTransferCleanup.test.ts
     title: Transfer cancellation, root identity, cleanup failures, and restrictive directory modes
@@ -32,7 +35,7 @@ sources:
   - id: host-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Host filesystem round-trip tests
-generated: { by: codex/okf, at: "2026-10-17T08:31:00Z" }
+generated: { by: codex/okf, at: "2026-10-17T08:46:00Z" }
 ---
 
 # Tree transfer
@@ -64,6 +67,27 @@ Every source enforces a complete `TreeTransferLimits` policy: `maxEntries`, `max
 The sink returns a `TransferReport` with the number of entries, files, and file bytes written, the skipped entries, and the number of degraded hard links. `toCaller` never skips or degrades. Exact caller and volume sinks retain shared symbolic-link identity, including chained aliases and dangling targets. Stored relative target bytes remain unchanged, so aliases in different parents resolve from their respective parents. FileSystem sinks deliberately use the degraded, retargeted behavior described below instead.
 
 The cleanup tests exercise `toCaller` with unprivileged credentials and `toFileSystem` with memory and host filesystems. Deferred barriers stop transfers after a partial write while the source waits, and at a final directory mode change; tests await fiber completion before observing state. They cover interruption and timeout, restrictive-mode restoration, moved roots replaced by directories or symbolic links, and typed removal failures that become defects alongside the original source failure or interruption. Root replacement checks cover replacement before cleanup begins, not every possible concurrent path-resolution race. Restoration in overwrite mode remains best-effort if a permission change itself fails.
+
+## Required fidelity
+
+All sinks accept an optional `required: RequiredFidelity` in their existing options. Requirements reuse `SinkCapabilities` fields, plus the existing `times` and `specialBits` policy names. The check runs before destination setup or stream consumption. An impossible destination or option combination fails `TransferError` with code `UnsupportedFidelity` and the unmet `field`, even when this particular stream would not contain an affected entry. A malformed requirement fails `InvalidArgument` with field `required`. Omitting requirements keeps the existing transfer policies.
+
+Requirements are minimum guarantees. Boolean `true` requires support; `false` and omission impose no constraint. Nanosecond precision meets a millisecond requirement. Exact hard links meet a best-effort requirement, while FileSystem always rejects required exact hard links, including when `unsupported: "skip"` is selected. Accepted best-effort transfers still report degraded hard links through `hardLinksDegraded`.
+
+Capabilities do not enable policies. Required owner preservation needs both the volume capability and `owner: true`; live sinks reject it. Required special bits need `specialBits: true`. Required `times: "all"` needs that option on live sinks and is always supported by `toVolume`. On live sinks `"all"` selects access and modification times; change and birth times remain a separate volume-only guarantee. Required timestamp precision applies to selected times, so it rejects live `times: "none"`. Symlink metadata support covers the fields the destination declares and the enabled policies, including no-follow mode changes in `toCaller`.
+
+```ts
+const options: TreeTransfer.WriteOptions = {
+  times: "all",
+  required: {
+    hardLinks: "exact",
+    timestampPrecision: "nanosecond",
+    times: "all"
+  }
+}
+```
+
+These requirements describe how a destination handles metadata supplied by the entry stream. They cannot recover fields a source omitted or prevent a source filter from dropping entries. A supplied access time is applied with `times: "all"` even when modification time is omitted. Preserving owner identifiers or metadata does not preserve Caller authority and does not create an execution sandbox.
 
 ## New volumes
 
