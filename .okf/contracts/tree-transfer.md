@@ -26,7 +26,7 @@ sources:
   - id: host-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Host filesystem round-trip tests
-generated: { by: codex/okf, at: "2026-10-02T12:00:00Z" }
+generated: { by: codex/okf, at: "2026-10-17T08:16:03Z" }
 ---
 
 # Tree transfer
@@ -55,7 +55,7 @@ Every source enforces a complete `TreeTransferLimits` policy: `maxEntries`, `max
 
 `times` selects which timestamps are applied: `"none"`, `"mtime"` (the default), or `"all"`. Permission bits are always applied. setuid, setgid, and sticky bits are applied only with `specialBits: true`. Directories are created with owner access and receive their exact mode and times after all their children are written, so read-only source directories can be copied by unprivileged callers. Final modes are exact and bypass the caller's umask, as file modes already do; a mode that is already exact is not reapplied. Owner fields are not applied.
 
-The sink returns a `TransferReport` with the number of entries, files, and file bytes written, the skipped entries, and the number of degraded hard links. `toCaller` never skips or degrades.
+The sink returns a `TransferReport` with the number of entries, files, and file bytes written, the skipped entries, and the number of degraded hard links. `toCaller` never skips or degrades. Exact caller and volume sinks retain shared symbolic-link identity, including chained aliases and dangling targets. Stored relative target bytes remain unchanged, so aliases in different parents resolve from their respective parents. FileSystem sinks deliberately use the degraded, retargeted behavior described below instead.
 
 ## New volumes
 

@@ -23,12 +23,12 @@ sources:
   - id: checkpoint
     resource: ../../packages/persistence/test/CheckpointStore.test.ts
     title: Captured snapshot checkpoint compatibility
-generated: { by: codex/okf, at: "2026-09-18T06:04:59Z" }
+generated: { by: codex/okf, at: "2026-10-17T08:16:03Z" }
 ---
 
 # Overlay workspaces
 
-`makeOverlay` creates an ordinary `Volume` from one immutable `Snapshot`. Workspaces made from the same snapshot share unchanged regular-file payloads, while their namespace, metadata, coordination, callers, handles and watches are private. Every content mutation replaces the workspace's whole-file payload, including same-sized handle writes. Reads and metadata operations retain the shared payload. Public byte results remain owned copies.[^core][^sharing]
+`makeOverlay` creates an ordinary `Volume` from one immutable `Snapshot`. Workspaces made from the same snapshot share unchanged regular-file payloads, while their namespace, metadata, coordination, callers, handles and watches are private. Every content mutation replaces the workspace's whole-file payload, including same-sized handle writes. Reads and metadata operations retain the shared payload. Public byte results remain owned copies. Hard-linked symbolic links retain one workspace object and their stored target bytes, while relative resolution starts at each alias's parent. Rename and unlink preserve retained references until the last symbolic-link name is removed; sibling overlays and the immutable base remain unchanged.[^core][^sharing]
 
 Logical entry and byte limits apply to the complete visible volume. Shared base contents count once per inode; promotion is not an extra charge. Unlinked-open files retain their existing charge, and writes may return the prefix that fits remaining capacity.[^core][^behavior]
 

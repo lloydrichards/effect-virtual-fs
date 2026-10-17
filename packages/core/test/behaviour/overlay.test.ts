@@ -21,10 +21,38 @@ const changePaths = (changes: ReadonlyArray<Vfs.OverlayChange>) =>
     return pathText(change.path).pipe(Effect.map((path) => `${change._tag}:${path}`))
   })
 
+import { assertHardLinkedSymlinks, hardLinkedSymlinks } from "../support/hardLinkedSymlinks.js"
 import { entryNames } from "../support/text.js"
 
 describe("overlay volumes", () => {
   it.layer(BunCrypto.layer)((it) => {
+    it.effect("should keep cross-parent symlink aliases isolated when one workspace renames and unlinks them", () =>
+      Effect.gen(function*() {
+        const source = yield* Vfs.fromFixture(hardLinkedSymlinks)
+        const base = yield* source.snapshot
+        const changed = yield* Vfs.makeOverlay(base)
+        const sibling = yield* Vfs.makeOverlay(base)
+        const caller = yield* changed.caller()
+        yield* assertHardLinkedSymlinks(caller)
+        const reference = yield* caller.lookup("/b/link")
+        yield* caller.rename("/b/link", "/c/moved")
+        yield* caller.unlink("/a/link")
+        assert.strictEqual(yield* caller.lookup("/c/moved"), reference)
+        assert.strictEqual(yield* caller.lookup("/c/link"), reference)
+        assert.strictEqual((yield* caller.stat(reference)).nlink, 2)
+        assert.strictEqual((yield* caller.stat(reference)).kind, "symlink")
+        assert.deepStrictEqual(yield* caller.readLink(reference), bytes("target"))
+        assert.deepStrictEqual(yield* caller.readFile("/c/moved"), bytes("c"))
+        assert.strictEqual((yield* Effect.flip(caller.readFile("/a/link"))).code, "NotFound")
+        yield* assertHardLinkedSymlinks(yield* sibling.caller())
+        yield* assertHardLinkedSymlinks(yield* source.caller())
+        yield* assertHardLinkedSymlinks(yield* (yield* Vfs.fromSnapshot(base)).caller())
+        yield* caller.unlink("/c/moved")
+        assert.deepStrictEqual(yield* caller.readLink(reference), bytes("target"))
+        yield* caller.unlink("/c/link")
+        assert.strictEqual((yield* Effect.flip(caller.stat(reference))).code, "StaleReference")
+      }))
+
     it.effect(
       "should expose an isolated Volume when creating sibling overlays from one base",
       () =>

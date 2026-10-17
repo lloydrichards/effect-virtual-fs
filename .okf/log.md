@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-10-17
+
+- Qualify cross-parent hard-linked symbolic links through captured and encoded snapshots, sibling overlays, and exact caller/volume transfers. Record per-alias relative resolution and retained reference lifetime separately from the FileSystem sink's counted retargeting. The added cases required no production behavior change.
+
 ## 2026-10-16
 
 - Reframe Node comparison follow-ups as Effect-first link qualification, required transfer fidelity, destination cleanup, and overlay parity. Withdraw the optional Node adapter direction; retain the experiment as supporting evidence.
