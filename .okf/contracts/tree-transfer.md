@@ -23,10 +23,16 @@ sources:
   - id: behavior-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Tree transfer behavior tests
+  - id: cleanup-tests
+    resource: ../../packages/memory/test/TreeTransferCleanup.test.ts
+    title: Transfer cancellation, root identity, cleanup failures, and restrictive directory modes
+  - id: sink-engine
+    resource: ../../packages/memory/src/internal/treeTransferEngine.ts
+    title: Shared live sink lifecycle and directory finalization
   - id: host-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Host filesystem round-trip tests
-generated: { by: codex/okf, at: "2026-10-17T08:16:03Z" }
+generated: { by: codex/okf, at: "2026-10-17T08:31:00Z" }
 ---
 
 # Tree transfer
@@ -49,13 +55,15 @@ Every source enforces a complete `TreeTransferLimits` policy: `maxEntries`, `max
 
 `toCaller` writes entries under a destination path through a caller, with that caller's permissions. The first entry must be the root, every entry's parent must already have been written, and no path component may be empty, `.`, or `..`. Repeated stream paths fail `InvalidEntry` with field `path`, including paths whose first entry was skipped. Overwrite and skip policies never permit duplicates. Otherwise the sink fails `InvalidEntry`; an empty stream fails too, rather than reporting an empty copy.
 
-`existing: "reject"`, the default, creates the destination root exclusively, so an existing destination fails `AlreadyExists` before anything is written. If the transfer then fails or is interrupted, a scope finalizer removes the root it created, restoring owner access to each directory first, and only while the destination is still the object the sink created. Applying final directory modes and times is uninterruptible. If that cleanup fails, the failure joins the transfer's cause as a defect. A crash leaves the partial tree in place. Watchers see the partial tree while the transfer runs.
+`existing: "reject"`, the default, creates the destination root exclusively, so an existing destination fails `AlreadyExists` before anything is written. If the transfer stops before completing finalization, a scope finalizer removes the root it created, restoring owner access to each directory first, and only while the destination is still the object the sink created. Applying final directory modes and times is uninterruptible. An interruption requested during that finalization waits for it to finish; a fully finalized tree remains even when the fiber then reports interruption. If that cleanup fails, the failure joins the transfer's cause as a defect. A crash leaves the partial tree in place. Watchers see the partial tree while the transfer runs.
 
-`existing: "overwrite"` merges into existing directories and replaces existing files and symbolic links. A file replacement is one atomic write that can replace a final symbolic link. A file and directory clash, or an existing destination directory where a symbolic link is expected, fails. Destination symbolic links are never followed as directories. Overwrite never removes anything on failure, but directories it created get their final modes back. Entries deleted from the source are never removed from the destination.
+`existing: "overwrite"` merges into existing directories and replaces existing files and symbolic links. A file replacement is one atomic write that can replace a final symbolic link. A file and directory clash, or an existing destination directory where a symbolic link is expected, fails. Destination symbolic links are never followed as directories. Overwrite never removes anything on failure, but directories it created get their final modes back, from children to parents. Locking a parent before its children would prevent an unprivileged sink from restoring descendant modes. Entries deleted from the source are never removed from the destination.
 
 `times` selects which timestamps are applied: `"none"`, `"mtime"` (the default), or `"all"`. Permission bits are always applied. setuid, setgid, and sticky bits are applied only with `specialBits: true`. Directories are created with owner access and receive their exact mode and times after all their children are written, so read-only source directories can be copied by unprivileged callers. Final modes are exact and bypass the caller's umask, as file modes already do; a mode that is already exact is not reapplied. Owner fields are not applied.
 
 The sink returns a `TransferReport` with the number of entries, files, and file bytes written, the skipped entries, and the number of degraded hard links. `toCaller` never skips or degrades. Exact caller and volume sinks retain shared symbolic-link identity, including chained aliases and dangling targets. Stored relative target bytes remain unchanged, so aliases in different parents resolve from their respective parents. FileSystem sinks deliberately use the degraded, retargeted behavior described below instead.
+
+The cleanup tests exercise `toCaller` with unprivileged credentials and `toFileSystem` with memory and host filesystems. Deferred barriers stop transfers after a partial write while the source waits, and at a final directory mode change; tests await fiber completion before observing state. They cover interruption and timeout, restrictive-mode restoration, moved roots replaced by directories or symbolic links, and typed removal failures that become defects alongside the original source failure or interruption. Root replacement checks cover replacement before cleanup begins, not every possible concurrent path-resolution race. Restoration in overwrite mode remains best-effort if a permission change itself fails.
 
 ## New volumes
 
