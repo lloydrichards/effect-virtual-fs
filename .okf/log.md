@@ -2,6 +2,8 @@
 
 ## 2026-10-17
 
+- Qualify live transfer cleanup under interruption, timeout, root replacement, and removal failure. Restore overwrite directory modes from children to parents so an unsearchable root cannot leave descendants at temporary permissions. Record that an interruption during successful uninterruptible finalization leaves the complete tree in place.
+
 - Add a bounded overlay/fromSnapshot comparison for handle and alias identity, namespace replacement and recreation, rejected mutations, quota-limited writes, metadata and watch traces. Reuse the snapshot observer and link fixture; keep runtime revision identity and broader parity gaps explicit. No production mismatch was exposed.
 
 - Qualify cross-parent hard-linked symbolic links through captured and encoded snapshots, sibling overlays, and exact caller/volume transfers. Record per-alias relative resolution and retained reference lifetime separately from the FileSystem sink's counted retargeting. The added cases required no production behavior change.

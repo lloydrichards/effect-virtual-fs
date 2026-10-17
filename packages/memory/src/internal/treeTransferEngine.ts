@@ -580,9 +580,13 @@ export const sink = <D, C, E>(
     const positions = placement(policy)
     yield* Effect.addFinalizer((exit) => {
       const cleanup = completed ? Effect.void : claimed === undefined
-        ? Effect.forEach(directories, (directory) => adapter.restoreMode(directory).pipe(Effect.ignore), {
-          discard: true
-        })
+        ? Effect.forEach(
+          [...directories].reverse(),
+          (directory) => adapter.restoreMode(directory).pipe(Effect.ignore),
+          {
+            discard: true
+          }
+        )
         : adapter.removeClaimed(claimed)
 
       return cleanup.pipe(Effect.orDie, Effect.ensuring(adapter.close?.(exit) ?? Effect.void))

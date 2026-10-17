@@ -8,6 +8,7 @@ import * as TestClock from "effect/testing/TestClock"
 import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
 import * as TreeTransfer from "../src/TreeTransfer.js"
 import { snapshotEntries } from "./support/snapshotEntries.js"
+import { FOUR_FILES_FIXTURE } from "./support/treeTransferFixtures.js"
 
 const entryNames = (listing: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>>) =>
   listing.value.map((entry) => new TextDecoder().decode(entry.name))
@@ -32,10 +33,6 @@ const FILE_ROOT_FIXTURE: Vfs.Fixture = {
 }
 
 const LONG_SYMLINK_FIXTURE: Vfs.Fixture = { entries: [{ kind: "symlink", path: "/link", target: "0123456789" }] }
-
-const FOUR_FILES_FIXTURE: Vfs.Fixture = {
-  entries: ["a", "b", "c", "d"].map((name) => ({ kind: "file", path: `/${name}`, bytes: new Uint8Array() }))
-}
 
 const crossParentSymlinks: Vfs.Fixture = {
   entries: [
