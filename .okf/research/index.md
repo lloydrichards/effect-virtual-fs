@@ -1,5 +1,8 @@
 # Research
 
+- [Node VFS interoperability](node-vfs-interoperability.md) compares verified Node 26.12 provider composition with snapshot overlays.
+- [Effect VFS lessons from the Node comparison](node-vfs-snapshot-bridge.md) separates comparative evidence from Effect-native follow-up work.
+
 - [Snapshot search and glob research](search-and-glob.md) records fixture recipe limitations, current search tests, and native-regex execution boundaries.
 
 - [Bounded POSIX requirements](posix-requirements.md) records the standards frame used to define and test the core without claiming full POSIX conformance.
