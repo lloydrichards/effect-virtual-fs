@@ -318,11 +318,13 @@ export const toCaller = (
         switch (entry.kind) {
           case "directory": {
             const mode = modeOf(entry.metadata, DEFAULT_DIRECTORY_MODE)
-            const created = yield* makeDirectory(name, base, mode)
+            yield* Effect.uninterruptible(Effect.gen(function*() {
+              const created = yield* makeDirectory(name, base, mode)
 
-            if (base === undefined && created) yield* claim
+              if (base === undefined && created) yield* claim
+              directories.push({ base, name, mode: created ? mode : undefined, metadata: entry.metadata })
+            }))
             bases.set(location.key, yield* Scope.provide(caller.openDirectory(at(name, { relativeTo: base })), handles))
-            directories.push({ base, name, mode: created ? mode : undefined, metadata: entry.metadata })
 
             return
           }
@@ -330,7 +332,7 @@ export const toCaller = (
           case "file": {
             const mode = modeOf(entry.metadata, DEFAULT_FILE_MODE)
 
-            yield* caller.writeFile(at(name, { relativeTo: base }), entry.bytes, {
+            const writing = caller.writeFile(at(name, { relativeTo: base }), entry.bytes, {
               access: "write",
               create,
               truncate: true,
@@ -338,6 +340,10 @@ export const toCaller = (
               finalMode: mode,
               replaceFinalSymlink: true
             })
+
+            if (base === undefined) {
+              yield* Effect.uninterruptible(writing.pipe(Effect.andThen(claim)))
+            } else yield* writing
             state.file(entry.bytes.length)
             break
           }
@@ -345,7 +351,11 @@ export const toCaller = (
           case "symlink": {
             if (existing === "overwrite") yield* clearExisting(name, base)
 
-            yield* caller.symlink(entry.target, at(name, { relativeTo: base }))
+            const creating = caller.symlink(entry.target, at(name, { relativeTo: base }))
+
+            if (base === undefined) {
+              yield* Effect.uninterruptible(creating.pipe(Effect.andThen(claim)))
+            } else yield* creating
 
             if (entry.metadata?.mode !== undefined) {
               yield* caller.chmod(
@@ -374,7 +384,6 @@ export const toCaller = (
           }
         }
 
-        if (base === undefined) yield* claim
         written.set(location.key, { base, name })
         yield* applyTimes(at(name, { relativeTo: base, followFinalSymlink: false }), entry.metadata)
       })

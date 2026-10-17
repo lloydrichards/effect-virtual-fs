@@ -42,7 +42,7 @@ declare const TransferError: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L112)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L115)
 
 Since v0.6.0
 
@@ -55,12 +55,14 @@ A transfer failure that is not a filesystem error.
 `LimitExceeded` names the exceeded `field` of the source limits.
 `InvalidEntry` reports an entry a sink cannot place, such as a missing root,
 a child before its parent, or a hard link to an unwritten target.
-`InvalidArgument` reports an incomplete or malformed limits policy.
+`InvalidArgument` reports an incomplete or malformed limits policy or fidelity requirements.
 `UnrepresentableName`, `UnsupportedEntryType`, and `NameCollision` report
 entries a filesystem adapter cannot carry; the `unsupported: "skip"` option
 turns them into reported skips instead. `EscapingSymlink` reports a symbolic
 link whose target leaves the transferred tree. `DestinationConflict` reports an
 existing destination entry that an overwrite cannot safely replace.
+`UnsupportedFidelity` names a required guarantee the destination or options cannot meet,
+before any destination change. Malformed requirements fail `InvalidArgument` with field `required`.
 
 **Example**
 
@@ -87,12 +89,13 @@ export interface TransferError extends Cause.YieldableError {
     | "NameCollision"
     | "EscapingSymlink"
     | "DestinationConflict"
+    | "UnsupportedFidelity"
   readonly field?: string
   readonly path?: Vfs.PathInput
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L81)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L83)
 
 Since v0.6.0
 
@@ -165,7 +168,7 @@ export interface FileSystemReadOptions extends ReadOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L275)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L280)
 
 Since v0.6.0
 
@@ -202,7 +205,7 @@ export interface FileSystemWriteOptions extends WriteOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L305)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L310)
 
 Since v0.6.0
 
@@ -230,9 +233,49 @@ export interface ReadOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L205)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L208)
 
 Since v0.6.0
+
+### RequiredFidelity (interface)
+
+Minimum destination guarantees for the metadata supplied by an entry stream.
+
+Boolean `true` requires a capability; `false` or omission adds no constraint.
+Nanosecond precision satisfies millisecond requirements, and exact hard links
+satisfy best-effort requirements. Precision applies to the selected `times`;
+requiring precision with `times: "none"` fails. Owner and special-bit
+requirements need their corresponding options enabled. Requirements never
+enable options or recover metadata that a source has already omitted.
+Overwrite retains existing directory modes; requirements do not change that merge policy.
+
+Preserving metadata does not preserve Caller authority or create an execution sandbox.
+
+**Example**
+
+```ts
+import { TreeTransfer } from "@effect-vfs/memory"
+
+const options: TreeTransfer.WriteOptions = {
+  times: "all",
+  required: { hardLinks: "exact", timestampPrecision: "nanosecond", times: "all" }
+}
+```
+
+**Signature**
+
+```ts
+export interface RequiredFidelity extends Partial<SinkCapabilities> {
+  /** Minimum timestamp selection. `"all"` means access and modification times on live sinks. */
+  readonly times?: "none" | "mtime" | "all"
+  /** Requires setuid, setgid, and sticky-bit preservation. */
+  readonly specialBits?: boolean
+}
+```
+
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L420)
+
+Since v0.10.0
 
 ### SinkCapabilities (type alias)
 
@@ -263,7 +306,7 @@ export type SinkCapabilities = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L387)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L392)
 
 Since v0.6.0
 
@@ -291,7 +334,7 @@ export type SkippedEntry = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L429)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L467)
 
 Since v0.6.0
 
@@ -338,7 +381,7 @@ export type TransferReport = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L460)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L498)
 
 Since v0.6.0
 
@@ -383,7 +426,7 @@ export type TreeTransferLimits = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L151)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L154)
 
 Since v0.6.0
 
@@ -418,6 +461,8 @@ console.log(exact.owner)
 
 ```ts
 export interface VolumeTransferOptions {
+  /** Minimum preservation guarantees, checked before consuming entries. */
+  readonly required?: RequiredFidelity | undefined
   /** Options for the new volume. */
   readonly volume?: Vfs.VolumeOptions | undefined
   /** Keeps source owners. Defaults to `false`. */
@@ -427,7 +472,7 @@ export interface VolumeTransferOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L678)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L716)
 
 Since v0.6.0
 
@@ -464,6 +509,8 @@ console.log(refresh.existing)
 
 ```ts
 export interface WriteOptions {
+  /** Minimum preservation guarantees, checked before writing. Omission keeps existing behavior. */
+  readonly required?: RequiredFidelity | undefined
   /** How an existing destination is treated. Defaults to `"reject"`. */
   readonly existing?: "reject" | "overwrite" | undefined
   /** Which source timestamps are applied. Defaults to `"mtime"`. */
@@ -473,7 +520,7 @@ export interface WriteOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L240)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L243)
 
 Since v0.6.0
 
@@ -530,7 +577,7 @@ declare const SinkCapabilities: Schema.Struct<{
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L326)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L331)
 
 Since v0.6.0
 
@@ -562,7 +609,7 @@ declare const SkippedEntry: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L406)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L444)
 
 Since v0.6.0
 
@@ -600,7 +647,7 @@ declare const TransferReport: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L485)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L523)
 
 Since v0.6.0
 
@@ -636,7 +683,7 @@ declare const TreeTransferLimits: Schema.Struct<{
 }> & { default: TreeTransferLimits; constrained: TreeTransferLimits }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L174)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L177)
 
 Since v0.6.0
 
@@ -699,7 +746,7 @@ declare const toCaller: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L635)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L673)
 
 Since v0.6.0
 
@@ -761,7 +808,7 @@ declare const toFileSystem: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L833)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L873)
 
 Since v0.6.0
 
@@ -819,7 +866,7 @@ declare const toVolume: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L726)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L766)
 
 Since v0.6.0
 
@@ -875,7 +922,7 @@ declare const fromCaller: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L534)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L572)
 
 Since v0.6.0
 
@@ -930,7 +977,7 @@ declare const fromFileSystem: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L777)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L817)
 
 Since v0.6.0
 
@@ -982,6 +1029,6 @@ declare const fromSnapshot: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L578)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/TreeTransfer.ts#L616)
 
 Since v0.6.0

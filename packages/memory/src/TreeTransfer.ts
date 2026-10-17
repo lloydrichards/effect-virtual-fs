@@ -400,6 +400,7 @@ export type SinkCapabilities = typeof SinkCapabilities.Type
  * requiring precision with `times: "none"` fails. Owner and special-bit
  * requirements need their corresponding options enabled. Requirements never
  * enable options or recover metadata that a source has already omitted.
+ * Overwrite retains existing directory modes; requirements do not change that merge policy.
  *
  * Preserving metadata does not preserve Caller authority or create an execution sandbox.
  *

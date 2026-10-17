@@ -36,16 +36,16 @@ The comparison is pinned to Node 26.12, which adds `ComposableProvider`. The art
 
 Comparative probes ran on official Node 26.12, macOS arm64. Node used memory providers. The retained issue context records the observations; existing core tests independently own Effect overlay guarantees. The observations are bounded behavioral evidence, not a benchmark or cross-platform conformance claim.[^evidence]
 
-| Case | Node composition | Snapshot overlay |
-| --- | --- | --- |
-| Mutate the source after creating the view | Mutable lower bytes remain visible until copy-up | Captured base remains unchanged |
-| Read an existing handle after writing its path | Handle retains lower bytes | Handle observes the edited workspace object |
-| Read a hard-link peer after writing one name | Peer can retain lower bytes | Both names retain one edited object |
-| Resolve a lower symlink to an overridden file | Resolves inside its provider | Resolves through the workspace namespace |
-| Traverse a lower symlink directory | Tested case fails with `ENOTDIR` | Reads the target |
-| Rename a nonempty base directory over an empty base directory | Tested case fails with `EXDEV` | Succeeds |
-| Delete then reconstruct state | Reconstructing a composition from the same providers loses hidden deletions | Complete snapshot capture and restoration retain deletion |
-| Watch before copy-up | Selected lower watch misses the upper write and sees a later hidden lower change | Volume watch receives the workspace update |
+| Case                                                          | Node composition                                                                 | Snapshot overlay                                          |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Mutate the source after creating the view                     | Mutable lower bytes remain visible until copy-up                                 | Captured base remains unchanged                           |
+| Read an existing handle after writing its path                | Handle retains lower bytes                                                       | Handle observes the edited workspace object               |
+| Read a hard-link peer after writing one name                  | Peer can retain lower bytes                                                      | Both names retain one edited object                       |
+| Resolve a lower symlink to an overridden file                 | Resolves inside its provider                                                     | Resolves through the workspace namespace                  |
+| Traverse a lower symlink directory                            | Tested case fails with `ENOTDIR`                                                 | Reads the target                                          |
+| Rename a nonempty base directory over an empty base directory | Tested case fails with `EXDEV`                                                   | Succeeds                                                  |
+| Delete then reconstruct state                                 | Reconstructing a composition from the same providers loses hidden deletions      | Complete snapshot capture and restoration retain deletion |
+| Watch before copy-up                                          | Selected lower watch misses the upper write and sees a later hidden lower change | Volume watch receives the workspace update                |
 
 The deletion row compares two different lifecycle operations. It establishes that Node's provider list alone does not contain its hidden-deletion state, not that unmounting the same composition loses deletions. The watch row compares a polled file watch with a volume watch and includes a bounded negative observation.[^node-probe][^overlay-probe]
 
@@ -60,7 +60,11 @@ Node is not the semantic reference for our volumes. Compare overlays against res
 Do not infer speed, startup cost, memory advantage, worker behavior, or other provider behavior from these probes. The [overlay research](overlay-filesystem.md "complements") retains the separate ordinary-volume parity questions.
 
 [^node-api]: Versioned Node API and security statements, not an execution sandbox claim.
+
 [^node-release]: ComposableProvider was added after the original article baseline.
+
 [^node-probe]: Retained issue evidence covers mutable and read-only lowers, handles, aliases, hidden deletion, symlinks, renames and watches.
+
 [^overlay-probe]: The core suite protects immutable bases, coherent handles and aliases, rename, watch delivery, and captured state.
+
 [^evidence]: The issue comment records the tested version, platform, observations and exclusions. Transient logs and generated reports are not part of the durable bundle.

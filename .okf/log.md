@@ -2,6 +2,8 @@
 
 ## 2026-10-17
 
+- Qualify root acquisition and confined transfer cleanup. Capture FileSystem root-file ownership before writing and caller roots before metadata, defer cancellation until root acquisition completes, and finish allowed dangling symlink roots without following their targets for identity. Clarify that fidelity requirements retain existing-directory merge modes.
+
 - Add opt-in transfer fidelity requirements checked before destination changes or source consumption. Reuse capability fields and enabled options, distinguish minimum precision and link guarantees, and retain the source-metadata and Caller-authority boundaries. Fix dropped symlink modes and access-only timestamps exposed by preservation tests.
 
 - Qualify live transfer cleanup under interruption, timeout, root replacement, and removal failure. Restore overwrite directory modes from children to parents so an unsearchable root cannot leave descendants at temporary permissions. Record that an interruption during successful uninterruptible finalization leaves the complete tree in place.
