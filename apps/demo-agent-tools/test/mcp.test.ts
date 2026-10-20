@@ -5,6 +5,7 @@ import { Effect, Option, Schema } from "effect"
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { expect } from "vitest"
+import { CodeModeTools, RunResult } from "../src/codemode.js"
 import { ToolFailure } from "../src/tools.js"
 
 const ResultSchema = Schema.Struct({
@@ -58,9 +59,9 @@ const stop = Effect.fnUntraced(function*(child: ChildProcessWithoutNullStreams) 
   }
 })
 
-const connect = Effect.fnUntraced(function*(protocolVersion = "2025-11-25") {
+const connect = Effect.fnUntraced(function*(protocolVersion = "2025-11-25", entry = "mcp.ts") {
   const child = yield* Effect.acquireRelease(
-    Effect.sync(() => spawn("bun", [fileURLToPath(new URL("../src/mcp.ts", import.meta.url))], { stdio: "pipe" })),
+    Effect.sync(() => spawn("bun", [fileURLToPath(new URL(`../src/${entry}`, import.meta.url))], { stdio: "pipe" })),
     stop
   )
 
@@ -214,4 +215,59 @@ it.live("should recover from tool errors when requests contain invalid parameter
     const unicode = "😀".repeat(16384)
     yield* call("write_file", { path: "unicode-boundary", content: unicode })
     expect((yield* call("read_file", { path: "unicode-boundary" })).structuredContent!["content"]).toBe(unicode)
+  }))
+
+it.live("should serve captured artifacts and preserve the base when Code Mode runs over stdio", () =>
+  Effect.gen(function*() {
+    const { call, request } = yield* connect("2025-11-25", "codemode-mcp.ts")
+    expect((yield* request("tools/list", {})).result!.tools!.map((tool) => tool.name).sort()).toEqual([
+      "execute",
+      "inspect_base",
+      "inspect_run"
+    ])
+
+    const executed = yield* call("execute", {
+      code: `
+      const original = await tools.workspace.read_file({path: "plans/draft.md"});
+      await tools.workspace.write_file({path: "plans/draft.md", content: "Tests pass. Rollback ready."});
+      await tools.workspace.write_file({path: "report.txt", content: "Review this artifact."});
+      return {original: original.value.content, names: (await tools.workspace.list_directory({path:"."})).value.entries.map(e=>e.name)};
+    `
+    })
+
+    expect(executed.isError).toBe(false)
+    const first = yield* Schema.decodeUnknownEffect(RunResult)(executed.structuredContent)
+    expect(first.execution.ok).toBe(true)
+    expect(first.changes.map((change) => `${change._tag}:${change.path}`).sort((a, b) => a.localeCompare(b))).toEqual([
+      "Added:report.txt",
+      "Updated:plans/draft.md"
+    ])
+    const inspected = yield* call("inspect_run", { runId: first.runId, action: "read", path: "report.txt" })
+
+    const artifact = yield* Schema.decodeUnknownEffect(CodeModeTools.tools.inspect_run.successSchema)(
+      inspected.structuredContent
+    )
+
+    expect(artifact.entry).toEqual({ path: "report.txt", content: "Review this artifact." })
+    expect(artifact.changes).toEqual(first.changes)
+    expect((yield* call("inspect_base", { action: "read", path: "plans/draft.md" })).structuredContent!["content"])
+      .toContain("Release on Friday.")
+    const second = yield* call("execute", { code: "return await tools.workspace.read_file({path:\"report.txt\"})" })
+    const fresh = yield* Schema.decodeUnknownEffect(RunResult)(second.structuredContent)
+    expect(fresh.execution).toMatchObject({ ok: true, value: { ok: false, error: { code: "NotFound" } } })
+    expect(fresh.changes).toEqual([])
+
+    const failed = yield* call("execute", {
+      code: "await tools.workspace.write_file({path:\"partial.txt\",content:\"kept\"}); throw new Error(\"stop\")"
+    })
+
+    expect(failed.isError).toBe(false)
+    const partial = yield* Schema.decodeUnknownEffect(RunResult)(failed.structuredContent)
+    expect(partial.execution).toMatchObject({ ok: false, error: { kind: "ExecutionFailure" } })
+    expect(
+      (yield* call("inspect_run", { runId: partial.runId, action: "read", path: "partial.txt" }))
+        .structuredContent!["entry"]
+    )
+      .toEqual({ path: "partial.txt", content: "kept" })
+    expect((yield* failure(yield* call("inspect_base", { action: "read", path: "partial.txt" }))).code).toBe("NotFound")
   }))

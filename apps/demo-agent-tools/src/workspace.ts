@@ -3,7 +3,9 @@ import { Effect } from "effect"
 
 const encode = (text: string) => new TextEncoder().encode(text)
 
-export const makeWorkspace = Effect.fn("Workspace.make")(function*() {
+export const projectRoot = "/projects/release"
+
+export const makeBaseSnapshot = Effect.fn("Workspace.base")(function*() {
   const template = yield* Vfs.fromFixture({
     entries: [
       { kind: "directory", path: "/projects" },
@@ -28,7 +30,11 @@ export const makeWorkspace = Effect.fn("Workspace.make")(function*() {
     ]
   })
 
-  const base = yield* template.snapshot
+  return yield* template.snapshot
+})
+
+export const makeWorkspace = Effect.fn("Workspace.make")(function*() {
+  const base = yield* makeBaseSnapshot()
   const overlay = yield* Vfs.makeOverlay(base)
   const original = yield* Vfs.fromSnapshot(base)
 
@@ -36,8 +42,8 @@ export const makeWorkspace = Effect.fn("Workspace.make")(function*() {
   const originalOwner = yield* original.caller()
 
   return {
-    caller: yield* owner.withRoot("/projects/release"),
-    baseCaller: yield* originalOwner.withRoot("/projects/release"),
+    caller: yield* owner.withRoot(projectRoot),
+    baseCaller: yield* originalOwner.withRoot(projectRoot),
     owner
   }
 })

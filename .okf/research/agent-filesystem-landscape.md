@@ -122,7 +122,7 @@ sources:
   - id: agent-tool-example
     resource: ../../apps/demo-agent-tools/README.md
     title: Caller-bound Effect toolkit and MCP example
-generated: { by: codex/okf, at: 2026-10-01T18:00:00+02:00 }
+generated: { by: codex/okf, at: 2026-10-20T00:00:00+02:00 }
 ---
 
 # Agent filesystem landscape
@@ -231,10 +231,10 @@ Automerge resolves concurrent writes to the same property by deterministic last-
 
 ### 1. Narrow agent-tool surface with Effect AI
 
-- **Exists.** The independent `apps/demo-agent-tools` example defines caller-bound read, write, list, stat, directory creation, removal, rename, and original-snapshot inspection tools. It uses object-shaped successes and structured display failures, serves them over Effect MCP stdio, and documents a local MCPJam walkthrough. Each process owns a fresh overlay and a separate original-snapshot reader. UTF-8 reads and writes are limited to 64 KiB; listings are limited to 200 entries. The older `demo-overlay` remains independent.
+- **Exists.** The independent `apps/demo-agent-tools` example defines caller-bound read, write, list, stat, directory creation, removal, rename, and original-snapshot inspection tools. It uses object-shaped successes and structured display failures, serves them over Effect MCP stdio, and documents a local MCPJam walkthrough. Each process owns a fresh overlay and a separate original-snapshot reader. UTF-8 reads and writes are limited to 64 KiB; listings are limited to 200 entries. A separate OpenCode Code Mode entry point supplies read/write/list/stat to a fresh rooted overlay per execution and retains captures for inspection; its [ownership model](../architecture/codemode-example.md "refined by") records the implemented boundary. Runtime comparisons and follow-up research are retained in [issue #30](https://github.com/lloydrichards/effect-virtual-fs/issues/30#issuecomment-6298896502). The older `demo-overlay` remains independent.
 - **Gap.** There is no published toolkit package, text paging, binary transfer, revision-paired reads, guarded content writes, or search.
 - **Direction.** Keep tool contracts in the private example until they settle. The current `VfsError` is a `Schema.TaggedError` with an encoded byte path; the tool schema deliberately exposes readable fields and excludes internal causes. The library does not target an agent framework's shape. The example's ownership boundary is [application-level integration](../architecture/system-boundaries.md "constrained by").
-- **Open questions.** Promotion to a package, binary and paged reads, revision-paired observations, and replacing lexical path policy with a confined caller remain separate work. The example accepts project-relative paths over a whole dedicated volume; it does not claim that lexical validation confines an arbitrary subtree caller.
+- **Open questions.** Promotion to a package, binary and paged reads, and revision-paired observations remain separate work. The example uses identity-rooted callers for subtree authority; its lexical path policy controls the accepted project-relative syntax.
 
 ### 2. Overlay as branch/fork, copy-on-write branching, merge
 
