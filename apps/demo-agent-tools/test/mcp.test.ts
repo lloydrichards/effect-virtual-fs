@@ -106,6 +106,13 @@ const connect = Effect.fnUntraced(function*(protocolVersion = "2025-11-25", entr
   child.on("error", (error) => rejectPending(new ClientError({ message: String(error) })))
   child.on("exit", () => rejectPending(new ClientError({ message: `Server exited: ${stderr}` })))
 
+  const send = Effect.fnUntraced(function*(message: Schema.Json) {
+    const line = yield* Schema.encodeEffect(WireJson)(message)
+    yield* Effect.sync(() => {
+      child.stdin.write(`${line}\n`)
+    })
+  })
+
   const request = Effect.fnUntraced(function*(method: string, params: Schema.Json) {
     const id = ++sequence
     const line = yield* Schema.encodeEffect(WireJson)({ jsonrpc: "2.0", id, method, params })
@@ -138,7 +145,7 @@ const connect = Effect.fnUntraced(function*(protocolVersion = "2025-11-25", entr
     return reply.result!
   })
 
-  return { child, request, call }
+  return { child, request, call, send }
 })
 
 const failure = Effect.fnUntraced(function*(result: Result) {
@@ -270,4 +277,39 @@ it.live("should serve captured artifacts and preserve the base when Code Mode ru
     )
       .toEqual({ path: "partial.txt", content: "kept" })
     expect((yield* failure(yield* call("inspect_base", { action: "read", path: "partial.txt" }))).code).toBe("NotFound")
+  }))
+
+it.live("should discard the workspace and recover when an MCP client cancels execution", () =>
+  Effect.gen(function*() {
+    const { call, request, send } = yield* connect("2025-11-25", "codemode-mcp.ts")
+    yield* send({
+      jsonrpc: "2.0",
+      id: 100,
+      method: "tools/call",
+      params: {
+        name: "execute",
+        arguments: {
+          code: "await tools.workspace.write_file({path:'cancelled.txt',content:'discard me'}); while (true) {}"
+        }
+      }
+    })
+    yield* request("ping", {})
+    yield* send({
+      jsonrpc: "2.0",
+      method: "notifications/cancelled",
+      params: { requestId: 100, reason: "Client cancelled execution" }
+    })
+    expect((yield* failure(yield* call("inspect_run", { runId: "1", path: ".", action: "list" }))).code)
+      .toBe("RunNotFound")
+    expect((yield* failure(yield* call("inspect_base", { path: "cancelled.txt", action: "read" }))).code)
+      .toBe("NotFound")
+
+    const fresh = yield* Schema.decodeUnknownEffect(RunResult)(
+      (yield* call("execute", { code: "return await tools.workspace.read_file({path:'cancelled.txt'})" }))
+        .structuredContent
+    )
+
+    expect(fresh.runId).toBe("1")
+    expect(fresh.execution).toMatchObject({ ok: true, value: { ok: false, error: { code: "NotFound" } } })
+    expect(fresh.changes).toEqual([])
   }))

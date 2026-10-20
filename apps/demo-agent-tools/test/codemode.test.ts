@@ -186,6 +186,58 @@ describe("Code Mode workspaces", () => {
         assert.deepStrictEqual(tooLarge.changes, [])
       }))
 
+    it.effect("should capture a write when its text is exactly 64 KiB", () =>
+      Effect.gen(function*() {
+        const handlers = yield* makeCodeModeHandlers()
+
+        const result = yield* handlers.execute({
+          code: "return await tools.workspace.write_file({path:\"boundary.txt\", content:\"x\".repeat(65536)})"
+        })
+
+        assert.deepStrictEqual(result.execution.ok && result.execution.value, {
+          ok: true,
+          value: { path: "boundary.txt", message: "Wrote boundary.txt" }
+        })
+        assert.deepStrictEqual(result.changes.map((change) => change.path), ["boundary.txt"])
+        assert.deepStrictEqual(
+          (yield* handlers.inspect_run({ runId: result.runId, action: "read", path: "boundary.txt" })).entry,
+          { path: "boundary.txt", content: "x".repeat(65536) }
+        )
+      }))
+
+    it.effect("should retain completed writes and bound diagnostics when a program throws a large multibyte error", () =>
+      Effect.gen(function*() {
+        const handlers = yield* makeCodeModeHandlers()
+
+        const result = yield* handlers.execute({
+          code: `
+          await tools.workspace.write_file({path:"diagnostic.txt", content:"saved before throw"});
+          console.log("before throw");
+          throw new Error("😀".repeat(2000));
+        `
+        })
+
+        assert.isFalse(result.execution.ok)
+
+        if (!result.execution.ok) {
+          assert.strictEqual(result.execution.error.kind, "ExecutionFailure")
+          assert.isAtMost(new TextEncoder().encode(result.execution.error.message).byteLength, 2048)
+          assert.match(result.execution.error.message, /\[diagnostic truncated\]$/u)
+          assert.notInclude(result.execution.error.message, "\uFFFD")
+          assert.isTrue(result.execution.truncated)
+          assert.deepStrictEqual(result.execution.logs, ["before throw"])
+          assert.deepStrictEqual(result.execution.toolCalls, [{ name: "workspace.write_file" }])
+        }
+
+        const retained = yield* handlers.inspect_run({ runId: result.runId, action: "read", path: "diagnostic.txt" })
+        assert.deepStrictEqual(retained.execution, result.execution)
+        assert.deepStrictEqual(retained.entry, { path: "diagnostic.txt", content: "saved before throw" })
+        assert.strictEqual(
+          (yield* handlers.inspect_base({ action: "read", path: "diagnostic.txt" }).pipe(Effect.flip)).code,
+          "NotFound"
+        )
+      }))
+
     it.effect("should stop guest calls when the tool call limit is exceeded", () =>
       Effect.gen(function*() {
         const handlers = yield* makeCodeModeHandlers()
