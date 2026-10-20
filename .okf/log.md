@@ -2,6 +2,8 @@
 
 ## 2026-10-20
 
+- Qualify Code Mode storage in binary byte units, bound retained UTF-8 failure diagnostics separately from interpreter output, and verify cancellation over real MCP stdio. Keep runtime comparison and startup measurement open in #30.
+
 - Record the private OpenCode Code Mode MCP prototype: fresh rooted overlays per execution, four guest filesystem tools, retained snapshots and change summaries, unchanged-base inspection, and application-owned execution and retention limits. Keep interpreter and transport dependencies outside core. Record failure and timeout capture, external interruption discard, and independent inspection in `architecture/codemode-example`; correct the landscape’s stale confinement description. Preserve runtime alternatives in issue #30 and remote-workspace implications in #153 instead of repository research dumps.
 
 ## 2026-10-17

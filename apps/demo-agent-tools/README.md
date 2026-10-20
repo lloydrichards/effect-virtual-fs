@@ -168,7 +168,9 @@ race it against termination.
 Executions are serialized. The process retains at most eight captured runs and rejects further executions until
 restart. Each overlay allows 256 KiB of file content, 64 KiB per file, 128 entries, and 16 pending filesystem
 operations. A script is limited to 8 KiB of source, 32 admitted calls including discovery, a five-second cooperative
-timeout, and 16 KiB of retained interpreter output. Inspection reads still use the 64 KiB text limit. Restarting
+timeout, and the interpreter’s 16 KiB return-value and log budget, with a separate warning budget. The host caps
+failure messages at 2 KiB of UTF-8 and marks shortened diagnostics with `execution.truncated`. These limits do not
+bound the complete MCP response size. Inspection reads still use the 64 KiB text limit. Restarting
 discards all run IDs and artifacts.
 
 This is the interpreter's JavaScript subset. TypeScript annotations, imports, shell commands, and network access
@@ -188,7 +190,7 @@ bun --bun run vitest run --config vitest.config.ts --project demo-agent-tools
 bun run --filter @repo/agent-tools-demo type-check
 ```
 
-Tests cover the public toolkit's byte/entry limits and encoding behavior, plus real stdio initialization, discovery, mutations, failures, reset, base isolation, and signal shutdown. Code Mode checks additionally cover per-execution isolation, retained partial writes after failure and timeout, external interruption without retention, recovery, and capacity limits. Optional MCPJam CLI inspection:
+Tests cover the public toolkit's byte/entry limits and encoding behavior, plus real stdio initialization, discovery, mutations, failures, reset, base isolation, and signal shutdown. Code Mode checks additionally cover per-execution isolation, retained partial writes after failure and timeout, external interruption and MCP cancellation without retention, recovery, exact byte boundaries, bounded failure diagnostics, and capacity limits. Optional MCPJam CLI inspection:
 
 ```sh
 npx -y @mcpjam/cli@latest server doctor \

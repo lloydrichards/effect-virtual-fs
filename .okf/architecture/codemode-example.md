@@ -52,7 +52,7 @@ Capture follows interpreter completion and its scoped pending-work cleanup. The 
 
 An expected filesystem failure becomes `{ ok: false, error }` inside a guest tool result. The script decides whether to handle or throw it. Interpreter completion is separate from task success: `execution.ok` can be true while its returned value contains a tool failure, and warnings or truncation require caller interpretation.[^execution]
 
-Program failure and cooperative timeout return an interpreter diagnostic and still capture completed writes. External Effect interruption propagates and skips capture and run retention. Tests verify that an interrupted execution consumes no run ID or retention slot, and that timeout captures an awaited write without exposing it to the base or next execution.[^tests]
+Program failure and cooperative timeout return an interpreter diagnostic and still capture completed writes. External Effect interruption propagates and skips capture and run retention. Tests verify that an interrupted execution consumes no run ID or retention slot, and that timeout captures an awaited write without exposing it to the base or next execution. A real stdio cancellation test verifies that an MCP client can cancel an execution request and then obtain a fresh run without a retained artifact.[^mcp-tests][^tests]
 
 ## Inspection and retention
 
@@ -64,7 +64,7 @@ The process serializes executions and retains at most eight runs with no evictio
 
 The host is TypeScript with Effect. The guest is OpenCode's JavaScript subset, not arbitrary TypeScript, Node, npm modules, or guest Effect. The example pins `@opencode/codemode@2.1.1` while the repository's existing Effect override resolves `4.0.0`; the upstream package declares `4.0.1`. Tests qualify this combination only. Dependency upgrades must repeat the example's checks.[^usage]
 
-Application policies bound source to 8 KiB, calls including discovery to 32, cooperative execution time to five seconds, and retained interpreter output to 16 KiB. Each overlay allows 256 KiB of content, 64 KiB per file, 128 entries, and 16 pending VFS operations. Existing text tools limit reads/writes to 64 KiB and listings to 200 entries.[^execution][^usage]
+Application policies bound source to 8 KiB, calls including discovery to 32, cooperative execution time to five seconds, and the interpreter’s return-value/log budget to 16 KiB with a separate warning budget. The host caps failure messages at 2 KiB of UTF-8 and sets `execution.truncated` when shortening them. These are separate payload budgets, not a cap on the complete MCP response. Each overlay allows 256 KiB of content, 64 KiB per file, 128 entries, and 16 pending VFS operations. Existing text tools limit reads/writes to 64 KiB and listings to 200 entries.[^execution][^usage]
 
 VFS quotas constrain filesystem operations, not the interpreter heap. The in-process interpreter supplies no separate process or hard CPU boundary, and output truncation follows result accumulation. Successful timeout and unavailable-global tests do not establish containment against hostile code. Runtime alternatives and remaining investigation belong to the linked issue rather than this implemented architecture.[^research]
 
@@ -81,3 +81,5 @@ The example is [constrained by system boundaries](system-boundaries.md "constrai
 [^usage]: The example README records the pinned dependency combination, guest restrictions, and configured limits.
 
 [^research]: The linked issue comment retains source-based interpreter limitations and unimplemented runtime alternatives.
+
+[^mcp-tests]: `mcp.test.ts` sends `notifications/cancelled` for an execution request and verifies missing retained state, unchanged base, and run-ID reuse.

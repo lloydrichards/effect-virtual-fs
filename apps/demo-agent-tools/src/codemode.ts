@@ -9,7 +9,25 @@ export const maxSourceBytes = 8 * 1024
 
 export const maxRetainedRuns = 8
 
+export const maxDiagnosticBytes = 2 * 1024
+
 const encoder = new TextEncoder()
+
+const boundDiagnostic = (execution: CodeMode.Result): CodeMode.Result => {
+  if (execution.ok) return execution
+
+  const bytes = encoder.encode(execution.error.message)
+
+  if (bytes.byteLength <= maxDiagnosticBytes) return execution
+
+  const suffix = "\n[diagnostic truncated]"
+
+  const prefix = new TextDecoder().decode(bytes.subarray(0, maxDiagnosticBytes - encoder.encode(suffix).byteLength), {
+    stream: true
+  })
+
+  return { ...execution, error: { ...execution.error, message: prefix + suffix }, truncated: true }
+}
 
 const infrastructureFailure = (error: Vfs.VfsError) =>
   Effect.fail({ code: error.code, operation: error.operation, message: error.message })
@@ -190,8 +208,8 @@ export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
         }
 
         const overlay = yield* Vfs.makeOverlay(base, {
-          maxBytes: ByteSize.kilobytes(256),
-          maxFileBytes: ByteSize.kilobytes(64),
+          maxBytes: ByteSize.kibibytes(256),
+          maxFileBytes: ByteSize.kibibytes(64),
           maxEntries: 128,
           maxPendingOperations: 16
         })
@@ -203,7 +221,7 @@ export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
           limits: { timeoutMs: 5_000, maxToolCalls: 32, maxOutputBytes: 16_384 }
         })
 
-        const execution = yield* runtime.execute(code)
+        const execution = boundDiagnostic(yield* runtime.execute(code))
         const captured = yield* overlay.capture()
         const result = { runId: String(++sequence), execution, changes: yield* summarize(captured.changes) }
         runs.set(result.runId, { snapshot: captured.snapshot, result })
