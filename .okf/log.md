@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-10-20
+
+- Record the private OpenCode Code Mode MCP prototype: fresh rooted overlays per execution, four guest filesystem tools, retained snapshots and change summaries, unchanged-base inspection, and application-owned execution and retention limits. Keep interpreter and transport dependencies outside core. Record failure and timeout capture, external interruption discard, and independent inspection in `architecture/codemode-example`; correct the landscape’s stale confinement description. Preserve runtime alternatives in issue #30 and remote-workspace implications in #153 instead of repository research dumps.
+
 ## 2026-10-17
 
 - Qualify root acquisition and confined transfer cleanup. Capture FileSystem root-file ownership before writing and caller roots before metadata, defer cancellation until root acquisition completes, and finish allowed dangling symlink roots without following their targets for identity. Clarify that fidelity requirements retain existing-directory merge modes.

@@ -7,11 +7,13 @@
     "build": "tsc --noEmit",
     "type-check": "tsc --noEmit",
     "start": "bun src/mcp.ts",
+    "start:codemode": "bun src/codemode-mcp.ts",
     "test": "bun --bun run vitest run --config ../../vitest.config.ts --project demo-agent-tools"
   },
   "dependencies": {
     "@effect-vfs/core": "workspace:*",
     "@effect/platform-bun": "4.0.0",
+    "@opencode/codemode": "2.1.1",
     "effect": "4.0.0"
   },
   "devDependencies": {
