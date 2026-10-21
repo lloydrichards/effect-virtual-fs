@@ -2,6 +2,8 @@
 
 ## 2026-10-21
 
+- Separate basic filesystem copy from public TreeTransfer. Record the copy-only runtime import audit, retained byte/link/metadata behavior, partial overwrite progress and identity-guarded cleanup with both failure values preserved.
+
 - Consolidate #305 into the persistent-state decision and focused collection evidence. Record private inode identity, transient ownership, explicit directory order and accepted CPU/heap costs. Remove superseded research, intermediate measurements and scratchpad experiments; retain final raw VFS trials.
 
 - Review #273 with three independent slices. Resolve abstraction ownership and hidden transfer/identity dependencies, add installed-to-target API obligations and a method profile, and link PR-sized tasks #303–#311 with existing sync/release issues. Keep initial upstream watch unsupported pending acceptance and distinguish the newer Node proposal from earlier withdrawn experiments.

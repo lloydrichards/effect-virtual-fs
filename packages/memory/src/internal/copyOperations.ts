@@ -4,14 +4,15 @@
  * @internal
  * @since 0.1.0
  */
-import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import { VfsError } from "@effect-vfs/core/VfsError"
+import type * as Vfs from "@effect-vfs/core/VirtualFileSystem"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import * as Result from "effect/Result"
-import * as Stream from "effect/Stream"
 import { at, textPath } from "./adapterSupport.js"
+import { copyTree } from "./copyTree.js"
 import { toPlatformError } from "./platformError.js"
-import { fromCaller, toCaller, volumeLimits } from "./treeTransfer.js"
 
 /** @internal */
 export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits) => {
@@ -38,11 +39,11 @@ export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits)
         if (Result.isFailure(existing) && existing.failure.code !== "NotFound") return yield* existing.failure
 
         if (Result.isSuccess(existing) && existing.success.ino === sourceNode.ino) {
-          return yield* new Vfs.VfsError({ code: "InvalidArgument", operation: "copy" })
+          return yield* new VfsError({ code: "InvalidArgument", operation: "copy" })
         }
 
         if (Result.isSuccess(existing) && !options?.overwrite) {
-          return yield* new Vfs.VfsError({ code: "AlreadyExists", operation: "copy" })
+          return yield* new VfsError({ code: "AlreadyExists", operation: "copy" })
         }
 
         if (sourceNode.kind === "directory") {
@@ -53,25 +54,16 @@ export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits)
           const parent = yield* textPath(yield* caller.realPath(parentPath), "copy")
 
           if (canonicalSource === "/" || parent === canonicalSource || parent.startsWith(`${canonicalSource}/`)) {
-            return yield* new Vfs.VfsError({ code: "InvalidArgument", operation: "copy" })
+            return yield* new VfsError({ code: "InvalidArgument", operation: "copy" })
           }
         }
 
-        yield* Stream.run(
-          fromCaller(caller, source, { limits: volumeLimits(limits) }),
-          toCaller(caller, destination, {
-            existing: options?.overwrite ? "overwrite" : "reject",
-            times: options?.preserveTimestamps ? "all" : "none",
-            specialBits: true
-          })
-        ).pipe(Effect.catchTag("TransferError", (error) =>
-          Effect.fail(
-            new Vfs.VfsError({
-              code: error.code === "LimitExceeded" ? "NoSpace" : "InvalidArgument",
-              operation: "copy"
-            })
-          )))
-      }).pipe(Effect.mapError((error) => toPlatformError(error, "copy", source)))
+        yield* copyTree(caller, source, destination, limits, options)
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.failCause(Cause.map(cause, (error) => toPlatformError(error, "copy", source)))
+        )
+      )
     }
   )
 
@@ -80,7 +72,7 @@ export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits)
       return yield* Effect.gen(function*() {
         const metadata = yield* caller.stat(source)
 
-        if (metadata.kind !== "file") return yield* new Vfs.VfsError({ code: "IsDirectory", operation: "copyFile" })
+        if (metadata.kind !== "file") return yield* new VfsError({ code: "IsDirectory", operation: "copyFile" })
         const target = yield* Effect.result(caller.stat(destination))
 
         if (Result.isSuccess(target) && target.success.ino === metadata.ino) return

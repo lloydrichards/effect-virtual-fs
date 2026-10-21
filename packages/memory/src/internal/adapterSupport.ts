@@ -4,7 +4,11 @@
  * @internal
  * @since 0.1.0
  */
-import { Metadata, VirtualFileSystem as Vfs } from "@effect-vfs/core"
+import * as BytePath from "@effect-vfs/core/BytePath"
+import * as Metadata from "@effect-vfs/core/Metadata"
+import * as Target from "@effect-vfs/core/Target"
+import { VfsError } from "@effect-vfs/core/VfsError"
+import type * as Vfs from "@effect-vfs/core/VirtualFileSystem"
 import * as ByteSize from "effect/ByteSize"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -109,13 +113,13 @@ const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
 export const textOf = (bytes: Uint8Array, method: string): Effect.Effect<string, Vfs.VfsError> =>
   Effect.try({
     try: () => decoder.decode(bytes),
-    catch: () => new Vfs.VfsError({ code: "UnrepresentableName", operation: method })
+    catch: () => new VfsError({ code: "UnrepresentableName", operation: method })
   })
 
 // The text of a byte path.
 /** @internal */
 export const textPath = (path: Vfs.BytePath, method: string): Effect.Effect<string, Vfs.VfsError> =>
-  Effect.flatMap(Vfs.pathToBytes(path), (bytes) => textOf(bytes, method))
+  Effect.flatMap(BytePath.toBytes(path), (bytes) => textOf(bytes, method))
 
 interface PathTargetFields {
   path: Vfs.PathInput
@@ -135,7 +139,7 @@ export const at = (
 
   if (options?.followFinalSymlink !== undefined) target.followFinalSymlink = options.followFinalSymlink
 
-  return Vfs.Target.Path(target)
+  return Target.Target.Path(target)
 }
 
 // The names in a listing, as text.

@@ -21,8 +21,12 @@ sources:
     title: Named path-target options preserving bases and final-symlink policy
   - resource: ../../packages/memory/src/internal/copyOperations.ts
     title: Adapter copy operations
-  - resource: ../../packages/memory/src/internal/treeTransfer.ts
-    title: Tree transfer engine used by copy
+  - resource: ../../packages/memory/src/internal/copyTree.ts
+    title: Private Caller-based copy traversal and guarded cleanup
+  - resource: ../../packages/memory/test/CopyCleanup.test.ts
+    title: Copy failure, interruption, replacement and byte-fidelity checks
+  - resource: ../../packages/memory/compatibility/copy-imports/check.mjs
+    title: Copy runtime import boundary audit
   - resource: ../../packages/memory/src/internal/platformError.ts
     title: Core-to-Effect error translation
   - resource: ../../packages/memory/test/MemoryFileSystem.test.ts
@@ -45,7 +49,7 @@ sources:
   - id: overlay-binding
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Overlay volume binding tests
-generated: { by: codex/okf, at: "2026-10-21T20:50:00+02:00" }
+generated: { by: codex/okf, at: "2026-10-21T21:30:00+02:00" }
 ---
 
 # Memory adapter compatibility
@@ -81,3 +85,15 @@ The host command is `bun run --filter @effect-vfs/memory test:host`; Bun launche
 This contract [depends on](resources-and-authority.md "depends on") core capabilities, [implements package boundaries](../decisions/package-boundaries.md "implements").
 
 Borrowed `bindCaller` preserves caller root, cwd, credentials, and umask. The [confined caller contract](confined-callers.md "constrained by") defines boundary failures, default `/tmp`, publication filtering, and identity-safe temporary cleanup. Ordinary volume binding retains its constructor defaults.
+
+## Copy ownership and cleanup
+
+`FileSystem.copy` uses a private iterative Caller traversal, not the public TreeTransfer engine. It retains volume-derived entry, path, file and stored-byte limits, byte-sorted traversal, raw descendant names and link targets, hard-link topology, exact modes and optional original atime/mtime. Each file is buffered whole and written atomically; a tree is live and observable throughout copying.
+
+`copy` copies source link objects and replaces final destination file links. A destination directory link is rejected. `copyFile` follows final source and destination links, retains an existing destination inode and its aliases/open handles, and treats a same-inode request as an event- and metadata-neutral no-op. `copy` rejects the same inode.
+
+Failure or interruption in reject mode removes the newly claimed unfinished root. Cleanup reopens copy-created restrictive directories by object reference and uses core recursive removal with an expected root reference. Every removal checks the root and the child identities observed by that walk. A root moved or replaced before cleanup is preserved; a replacement after observation stops removal and remains intact. Entries added inside the owned root before the walk lists them may be removed. A concurrently added restrictive directory can prevent cleanup if its permissions prohibit traversal. Cleanup is not a journal of copy-created entries.
+
+Overwrite retains partial progress and restores created directory modes on failure. Directory metadata finishes bottom-up without interruption; a late interruption can leave a completed copy. Cleanup errors remain defects alongside the original typed failure or interruption, including after PlatformError translation. This does not promise an atomic tree publication or consistency under arbitrary concurrent source and ancestor changes.
+
+`bun run --cwd packages/memory check:copy-imports`, also run by the memory build, traces runtime workspace imports from the copy module after TypeScript type erasure. Core leaf imports keep that graph free of project transfer, snapshot, image, fixture and codec modules. Whole-provider construction still uses the core engine; its separation belongs to #307.

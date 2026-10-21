@@ -35,13 +35,15 @@ sources:
   - id: adapter-glob
     resource: ../../../packages/memory/src/internal/glob.ts
     title: Adapter glob owning compilation and collected core traversal
+  - resource: ../../../packages/memory/src/internal/copyTree.ts
+    title: Private filesystem copy and guarded cleanup
   - id: transfer
     resource: ../../../packages/memory/src/internal/treeTransfer.ts
     title: fromCaller reaching every entry by its path
   - id: issue
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/205
     title: Recursive tree operations
-generated: { by: claude-code, at: 2026-10-05T00:00:00Z }
+generated: { by: claude-code, at: "2026-10-21T21:30:00+02:00" }
 ---
 
 # Recursive tree operations
@@ -54,7 +56,7 @@ Recursive traversal, `mkdir -p` and `rm -r` lived in the memory adapter as compo
 
 ## Decisions
 
-1. **What core gets.** `Caller.walk(directory, options?)` as a `Stream` over references, `mkdir(entry, { recursive })` in one transition, and `remove(entry, { recursive, force })` over a post-order walk. `copy` stays in memory, where `FileSystem.copy` and `TreeTransfer.toCaller` already share the transfer engine.
+1. **What core gets.** `Caller.walk(directory, options?)` as a `Stream` over references, `mkdir(entry, { recursive })` in one transition, and `remove(entry, { recursive, force })` over a post-order walk. `copy` stays in memory. Following #306, `FileSystem.copy` uses a private Caller traversal and guarded core removal for cleanup; public `TreeTransfer.toCaller` keeps its separate transfer engine.
 2. **walk.** Each `WalkEntry` carries its path relative to the walk's root with no leading slash, its name, its reference, the reference of the directory it was listed in, its kind, and its depth (1 for a child of the root); the root itself is not an entry. Entries arrive depth first, pre-order by default or post-order with `order: "post"`, each directory's names in byte order. Every directory is read in its own observation under one permit, the children's kinds come from the same read, and nothing is written, so a walk holds no handle and refreshes no access time. A path root follows a final symbolic link as a path does; below it, links are reported and never followed. A directory is listed only with read permission, and a directory below the root is reached by name from the root, as a path lookup reaches it: every directory above it must be searchable and must still hold the name the walk listed for the object it listed. A directory below one the caller may read but not search so fails `AccessDenied`, as Node and `find` do. A directory that went away or was renamed out of the tree after it was listed is skipped silently, while the entry that named it has already been reported. A path root is reached by the name its path ends on in turn, so a root renamed away after it was listed has nothing more to walk; a root reached through a final symbolic link, a reference or a handle is held by the object it resolved to, as a descriptor holds it.
 3. **Walk bounds.** `maxDepth`, `maxEntries` and `maxBytes` (a file's size or a link's target length) are optional and unbounded by default; directories have one name and links are not followed, so a walk always ends. Passing a bound fails with `LimitExceeded`, the bound in `field` and the entry in `path`, after the entries before it are handed on. A directory deeper than `maxDepth` is never read: a post-order walk, which reports a directory after its entries, fails at that directory before reading it. `WalkFailure` is `FsFailure` or that failure, so the code union of every other verb stays as it was. A failure names the entry's path under the root's path when the root was a path, and the relative path when it was a reference or a handle.
 4. **mkdir recursive is one transition.** It resolves the path as `lookup` does and creates each missing directory inside one draft, so any failure (a limit, a denied parent, a directory the caller just created but cannot search) discards all of them and watchers receive every `Create` from one installation. Dot names are walked, never created; a symbolic link on the way is followed; a final directory, or a link to one, that already exists is success with no change and its parent's revision reported unchanged. The result names the directory the path ends on, with its parent's revision before and after the call, so a path that leaves a directory it created, such as `new/..`, reports the change it made. Only the components the caller wrote are created, never a name inside a link's target, so a dangling link fails `NotFound`, as `mkdir -p` does. A file on the way fails `NotDirectory` and a final file `AlreadyExists`. The mode applies to every directory created, as Node gives each the mode (not POSIX's `u+wx` for intermediates, which memory never had), and the times to the final one. An entry names one child, created unless it is already a directory; its dot names stay `InvalidArgument`.
