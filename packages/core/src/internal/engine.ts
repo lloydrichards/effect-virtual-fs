@@ -428,7 +428,10 @@ const makeTurnstile = (): Turnstile => {
   }
 }
 
-type CommitOutcome = "committed" | "rejected" | "unknown"
+type CommitOutcome = "committed" | "rejected" | "unknown" | {
+  readonly _tag: "Rejected"
+  readonly cause: Cause.Cause<never>
+}
 
 /** Private addressing; the public Target module is a compatibility view. @internal */
 export namespace Address {
@@ -2311,6 +2314,7 @@ export const memoryCommitProvider: CommitProvider<VolumeState> = Object.freeze({
 })
 
 interface ClassifiedCommit {
+  readonly cause?: Cause.Cause<never>
   readonly available: boolean
   readonly failure: FsFailure | undefined
 }
@@ -2325,6 +2329,10 @@ const offerCommit = <State>(
   Effect.map(
     Effect.exit(Effect.suspend(() => provider.commit(candidate))),
     (committed): ClassifiedCommit => {
+      if (Exit.isSuccess(committed) && Predicate.isTagged("Rejected")(committed.value)) {
+        return { available: !cleanup, failure: undefined, cause: committed.value.cause }
+      }
+
       // TODO(#186): Preserve the cause of a provider defect or interruption.
       if (Exit.isFailure(committed)) {
         if (Cause.hasDies(committed.cause) || Cause.hasInterrupts(committed.cause)) {
@@ -2768,6 +2776,12 @@ export const makeEngine = Effect.fnUntraced(
       const answer = yield* offerCommit(commitProvider, op.operation, next, cleanup)
 
       if (!answer.available) available = false
+
+      if (answer.cause !== undefined) {
+        if (cleanup) yield* install(finished)
+
+        return yield* Effect.failCause(answer.cause)
+      }
 
       if (answer.failure !== undefined) {
         if (cleanup) yield* install(finished)

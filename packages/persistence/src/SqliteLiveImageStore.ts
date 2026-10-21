@@ -322,7 +322,10 @@ export const layer = (options: Options): Layer.Layer<
 
           if (generation === Number.MAX_SAFE_INTEGER) return "rejected" as const
 
-          const hash = yield* digest(image)
+          const hashing = yield* Effect.exit(digest(image))
+
+          if (Exit.isFailure(hashing)) return { _tag: "Rejected" as const, cause: hashing.cause }
+          const hash = hashing.value
 
           const began = yield* Effect.exit(run("BEGIN IMMEDIATE"))
 

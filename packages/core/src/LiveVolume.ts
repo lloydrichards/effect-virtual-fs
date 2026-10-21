@@ -24,11 +24,16 @@ const { argumentFailure, decodeConfiguration } = Errors
 
 /**
  * A storage commit's observed outcome.
+ * A provider may return a rejected Cause only when no storage write was attempted.
+ * Ordinary mutations preserve that cause and leave the volume available; uncertain writes use `unknown`.
  *
  * @category models
  * @since 0.4.0
  */
-export type CommitOutcome = "committed" | "rejected" | "unknown"
+export type CommitOutcome = "committed" | "rejected" | "unknown" | {
+  readonly _tag: "Rejected"
+  readonly cause: Cause.Cause<never>
+}
 
 /**
  * One exclusively owned store. Its Layer holds the storage resource until the
