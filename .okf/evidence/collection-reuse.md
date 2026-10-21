@@ -6,7 +6,7 @@ status: stable
 tags: [core, collections, performance, memory]
 sources:
   - id: measurements
-    resource: ../../research/305-vfs-integration-final.json
+    resource: ./collection-reuse-data.json
     title: Final paired trials, normalized traces and source hashes
   - id: ownership
     resource: ../../packages/core/test/internal/volumeState.test.ts
@@ -23,7 +23,7 @@ The project accepted HashMap for private inode records and explicit directory sl
 
 ## Actual VFS measurements
 
-The final comparison uses installed Effect 4.0.0, Bun 1.4.0 and Node 24.21.0 on macOS arm64. The trie baseline is `bfbc3a003a002ed4d6fa3f2cd39c99aa41fdf00c`. The accepted candidate's core sources match the hashes in `research/305-vfs-integration-final.json`.
+The final comparison uses installed Effect 4.0.0, Bun 1.4.0 and Node 24.21.0 on macOS arm64. The trie baseline is `bfbc3a003a002ed4d6fa3f2cd39c99aa41fdf00c`. The accepted candidate's core sources match the hashes in `collection-reuse-data.json` retained beside this concept.
 
 Five paired trials per runtime and variant run in fresh processes with alternating variant order and one complete warmup trace. Setup, imports and bundling are outside the timed groups. Assertions and result allocation are included. Values are median elapsed milliseconds, with the ratio of candidate and baseline medians. They are scenario measurements, not confidence intervals.
 

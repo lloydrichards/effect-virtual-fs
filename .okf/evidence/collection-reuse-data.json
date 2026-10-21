@@ -1,0 +1,1698 @@
+{
+  "methodology": "Fresh paired processes, alternating variant order; one full-trace warmup per process; public VFS operations; GC before/after measured trace; post-GC heap includes runtime overhead, not per-inode cost; byte-identical public behavior traces required",
+  "trialsPerRuntimeAndVariant": 5,
+  "metadata": {
+    "baselineHead": "bfbc3a003a002ed4d6fa3f2cd39c99aa41fdf00c",
+    "sourceHashes": {
+      "baseline": {
+        "BytePath.ts": "b6eb84b57ad18faaffed1a3b77b675ecd8a855e6314ebd41c71e85d9f92c0c4d",
+        "Caller.ts": "7705e5fc2fdded70ceb2e0c90d768a3a7425f82dd2cd4dd3073611a81b6e59a1",
+        "FileHandle.ts": "563bc7ecbd1d6cc55fc5730cc38b8644da7d099e72db9454b738075626a4c042",
+        "Fixture.ts": "bbb32186e57f0844900a533ee5e50bee09849340ff1a3c0b0f4989d65dcca9ba",
+        "LiveVolume.ts": "8da25da9a0bef03eb95ba8c1fb18ed11ebcc50dffd37b5059d34df0108038381",
+        "Metadata.ts": "9ae5d8225e24cd84c88d8c849a2d0c78be65d743421f9f7af269b41260fae104",
+        "Search.ts": "a31681c9457d5dc7dab397e025394874ab769e54233f8d370aba22fa780d9cd0",
+        "Snapshot.ts": "0cb964a2d68d2a7b8923bc7b46bba4b17d7071a510e71c1574b82af79b63d5a0",
+        "SnapshotDelta.ts": "c37c74b9718fd4a4520726a4a5c22939f5280bbd9aebe04fdaf51d0e4ed6972f",
+        "Target.ts": "6c6d855dfe39ba4292c53b3ba6cb40c02768d891578c283cdf9f8876d83e9a49",
+        "Testing.ts": "9be576840b8c716c0c02b90828972453194cb9496935e92a785dc2aa29ade99d",
+        "VfsError.ts": "9bcedf02cab9ec7c121f2e3472abf2cb9f6c9c08c8c1a67777fd49dd8fac51b4",
+        "VirtualFileSystem.ts": "7bef10a3cace968913e9cfcf80b6a6026315a74c8ac261bcc5cbcbaac4800852",
+        "Volume.ts": "bf2e59a80a951cd187cb1ec37c0553ad5d49db5e16c3c1a66b11ef27f4970aa5",
+        "Watch.ts": "06a47874cc72463319c13ff7529b11b63241b5c6f2b963a3b1448a213f3fe687",
+        "index.ts": "6737b8fc69a3b74a342ffa02eb9956f612cef72cce3834fc1b10d9f7702e8d3d",
+        "internal/budget.ts": "52f58f02cebaad0b3ca9589f3dd4247929b2bbda5a7155c53854f07e45c9b39f",
+        "internal/bytePath.ts": "51ec16ac560a4499697947bdc8c7d2868fd773f315a63e79e748b6929373f9ce",
+        "internal/bytes.ts": "2b0e1a4be08f5437f536a2c8cb65d22c82ce2e1e37076bb2b99a9773dc4d6300",
+        "internal/callerWatch.ts": "646c7d101b8625a9300bd941edd4b2fbce270be8c3cff7c98612873f56797589",
+        "internal/canonicalBase64.ts": "54ea03e097c2c29e85a7f34d4d6f1abb876e742597bf32eaf37d004056c2243e",
+        "internal/confinement.ts": "1cea7785ea048def8553aef69a218b6075757d8e2a65a589d1c2f904e1a7ec70",
+        "internal/directoryEntries.ts": "7d3c91c33029577924434c08db4489ab45fbec36f5b75e6954a5a2ecd5f56865",
+        "internal/errors.ts": "cfb8d1011b8e29a451289e4bd7e0f38e584afee6016dfc4b20a19d18c2104734",
+        "internal/fixture.ts": "4a6f04e2ce9cf38a1f7eae729ccfdbcf6d876570d44f404058e69df1297f94fd",
+        "internal/glob.ts": "afdf00014c033acfe18db2ce881f29734eeccc1751d9ed0b0f46096eb7aec62a",
+        "internal/hex128.ts": "6a68c2308d7120dfc7d3432edab7d746e9d9417940ab6392ae1903d8010b82ae",
+        "internal/hmac.ts": "d11f05a95b8fa81e0a285cc3c2b1703e128f14e9d338a753f8138e2203a65c3f",
+        "internal/image.ts": "59ccec9c71b05d4c3b814ead92b2da5820be94abf7e037a6c83911a83b22d128",
+        "internal/inodeTable.ts": "af4325d995e6a90c4c683c543f6cc24ae703f62986f809437bdb3ec3c249222d",
+        "internal/lines.ts": "872964d075fe0ac1e909a433221cc34b1ae17773c3901b9c14d29e9871843db0",
+        "internal/liveImage.ts": "cbb8985f8f589778ec9a90c2bead1cd888eceb1779dbb4c2d00281aef34589ec",
+        "internal/merkle.ts": "d0ffbcab778fcae3f86d19688547d78726206fcd69600c6765e714da68919344",
+        "internal/metadata.ts": "513214f454ea3cf8bcb826cf45f25f6e08588eb58a71ad2a801aa8b9672cd0a3",
+        "internal/overlayDiff.ts": "ca0af3c83b804183bd01129a83e139580f55d81b8e3c136eaad795edc91dae97",
+        "internal/path.ts": "d5eb548823a3a10e041946359be9bb32b5aa1d91a3c8944ded5811eb219b37ba",
+        "internal/resolution.ts": "a7c9e0cf043581c7a2b9adc04669eb5da61ce92cf338e903c9d7655c30ca01d4",
+        "internal/search.ts": "00458932c422a82646675469cc8d82defb1afdacaca57ee088e948d8c0ae6d50",
+        "internal/searchContent.ts": "5511f3a18dacf4f889b3f7e44972c4c5ae9a1564048293c834324dba19fb8392",
+        "internal/searchModel.ts": "c63ca3b84544a3f71b24e572bdd38c47573d3a9ca90c7f28470e9c1f6ab88755",
+        "internal/snapshotDelta.ts": "a8582a53ee44987503535600e0916cde70b6c42c85f37110d2ffaa7bc5a499a3",
+        "internal/snapshotDeltaModel.ts": "5b3fc5a2b0d59a338dc54f11c13ad60bada3a7bff82a91730b0df0e664ab0e5b",
+        "internal/snapshotMerge.ts": "228a6a106996cccaef9d4609a54bd364ee42a1eb936efb0593e69be126872561",
+        "internal/testSeams.ts": "866152b083fc1d97d5c8a1a9f410fe4ffcf29dcbb27fc211fa01f8252e8a8475",
+        "internal/tokenRegistry.ts": "5a04c6dac5d17c53331f2bb4c40f7bab8acf86047d5a0a0776a5bc183f23c9d1",
+        "internal/tree.ts": "16a144665a23da28765fe22024fcfaa9c9a5aa747681fc4afcf91ff40013607b",
+        "internal/turnstile.ts": "dcf4297ab132cb6e02d068e1d06815ec606354337b85d066cd3b4ea441519262",
+        "internal/virtualFileSystem.ts": "ef5295900069cdca6f1a60c6efa63e0f4cb02792f29c13726e80de23d17160a5",
+        "internal/volumeLimits.ts": "b8a743360bd08cab6a44fae6f71329e49fee7de51c4e3a77ebb36bfb3487e37c",
+        "internal/volumeState.ts": "264189c4064a604ea2c421538ad8a9066dbff2191959b1c9f9032eeddb33e62e",
+        "internal/watchHub.ts": "b382b207fc1912098589101084e35ec304786108f83179bbbc95de2a73dc7925"
+      },
+      "candidate": {
+        "BytePath.ts": "b6eb84b57ad18faaffed1a3b77b675ecd8a855e6314ebd41c71e85d9f92c0c4d",
+        "Caller.ts": "7705e5fc2fdded70ceb2e0c90d768a3a7425f82dd2cd4dd3073611a81b6e59a1",
+        "FileHandle.ts": "563bc7ecbd1d6cc55fc5730cc38b8644da7d099e72db9454b738075626a4c042",
+        "Fixture.ts": "bbb32186e57f0844900a533ee5e50bee09849340ff1a3c0b0f4989d65dcca9ba",
+        "LiveVolume.ts": "8da25da9a0bef03eb95ba8c1fb18ed11ebcc50dffd37b5059d34df0108038381",
+        "Metadata.ts": "9ae5d8225e24cd84c88d8c849a2d0c78be65d743421f9f7af269b41260fae104",
+        "Search.ts": "a31681c9457d5dc7dab397e025394874ab769e54233f8d370aba22fa780d9cd0",
+        "Snapshot.ts": "0cb964a2d68d2a7b8923bc7b46bba4b17d7071a510e71c1574b82af79b63d5a0",
+        "SnapshotDelta.ts": "c37c74b9718fd4a4520726a4a5c22939f5280bbd9aebe04fdaf51d0e4ed6972f",
+        "Target.ts": "6c6d855dfe39ba4292c53b3ba6cb40c02768d891578c283cdf9f8876d83e9a49",
+        "Testing.ts": "9be576840b8c716c0c02b90828972453194cb9496935e92a785dc2aa29ade99d",
+        "VfsError.ts": "9bcedf02cab9ec7c121f2e3472abf2cb9f6c9c08c8c1a67777fd49dd8fac51b4",
+        "VirtualFileSystem.ts": "7bef10a3cace968913e9cfcf80b6a6026315a74c8ac261bcc5cbcbaac4800852",
+        "Volume.ts": "bf2e59a80a951cd187cb1ec37c0553ad5d49db5e16c3c1a66b11ef27f4970aa5",
+        "Watch.ts": "06a47874cc72463319c13ff7529b11b63241b5c6f2b963a3b1448a213f3fe687",
+        "index.ts": "6737b8fc69a3b74a342ffa02eb9956f612cef72cce3834fc1b10d9f7702e8d3d",
+        "internal/budget.ts": "52f58f02cebaad0b3ca9589f3dd4247929b2bbda5a7155c53854f07e45c9b39f",
+        "internal/bytePath.ts": "51ec16ac560a4499697947bdc8c7d2868fd773f315a63e79e748b6929373f9ce",
+        "internal/bytes.ts": "2b0e1a4be08f5437f536a2c8cb65d22c82ce2e1e37076bb2b99a9773dc4d6300",
+        "internal/callerWatch.ts": "646c7d101b8625a9300bd941edd4b2fbce270be8c3cff7c98612873f56797589",
+        "internal/canonicalBase64.ts": "54ea03e097c2c29e85a7f34d4d6f1abb876e742597bf32eaf37d004056c2243e",
+        "internal/confinement.ts": "1cea7785ea048def8553aef69a218b6075757d8e2a65a589d1c2f904e1a7ec70",
+        "internal/directoryEntries.ts": "b04e708072fbf61a87b07e31287f3a5728fd0639d1ecac9ad5a7a593b59148ac",
+        "internal/errors.ts": "cfb8d1011b8e29a451289e4bd7e0f38e584afee6016dfc4b20a19d18c2104734",
+        "internal/fixture.ts": "4a6f04e2ce9cf38a1f7eae729ccfdbcf6d876570d44f404058e69df1297f94fd",
+        "internal/glob.ts": "afdf00014c033acfe18db2ce881f29734eeccc1751d9ed0b0f46096eb7aec62a",
+        "internal/hex128.ts": "6a68c2308d7120dfc7d3432edab7d746e9d9417940ab6392ae1903d8010b82ae",
+        "internal/hmac.ts": "d11f05a95b8fa81e0a285cc3c2b1703e128f14e9d338a753f8138e2203a65c3f",
+        "internal/image.ts": "59ccec9c71b05d4c3b814ead92b2da5820be94abf7e037a6c83911a83b22d128",
+        "internal/lines.ts": "872964d075fe0ac1e909a433221cc34b1ae17773c3901b9c14d29e9871843db0",
+        "internal/liveImage.ts": "cbb8985f8f589778ec9a90c2bead1cd888eceb1779dbb4c2d00281aef34589ec",
+        "internal/merkle.ts": "d0ffbcab778fcae3f86d19688547d78726206fcd69600c6765e714da68919344",
+        "internal/metadata.ts": "513214f454ea3cf8bcb826cf45f25f6e08588eb58a71ad2a801aa8b9672cd0a3",
+        "internal/overlayDiff.ts": "ca0af3c83b804183bd01129a83e139580f55d81b8e3c136eaad795edc91dae97",
+        "internal/path.ts": "d5eb548823a3a10e041946359be9bb32b5aa1d91a3c8944ded5811eb219b37ba",
+        "internal/resolution.ts": "a7c9e0cf043581c7a2b9adc04669eb5da61ce92cf338e903c9d7655c30ca01d4",
+        "internal/search.ts": "00458932c422a82646675469cc8d82defb1afdacaca57ee088e948d8c0ae6d50",
+        "internal/searchContent.ts": "5511f3a18dacf4f889b3f7e44972c4c5ae9a1564048293c834324dba19fb8392",
+        "internal/searchModel.ts": "c63ca3b84544a3f71b24e572bdd38c47573d3a9ca90c7f28470e9c1f6ab88755",
+        "internal/snapshotDelta.ts": "7e03b8ddf721b8a6b955eec447cd5a983abe5419b78fd5ea454ca201ee287565",
+        "internal/snapshotDeltaModel.ts": "5b3fc5a2b0d59a338dc54f11c13ad60bada3a7bff82a91730b0df0e664ab0e5b",
+        "internal/snapshotMerge.ts": "228a6a106996cccaef9d4609a54bd364ee42a1eb936efb0593e69be126872561",
+        "internal/testSeams.ts": "866152b083fc1d97d5c8a1a9f410fe4ffcf29dcbb27fc211fa01f8252e8a8475",
+        "internal/tokenRegistry.ts": "5a04c6dac5d17c53331f2bb4c40f7bab8acf86047d5a0a0776a5bc183f23c9d1",
+        "internal/tree.ts": "16a144665a23da28765fe22024fcfaa9c9a5aa747681fc4afcf91ff40013607b",
+        "internal/turnstile.ts": "dcf4297ab132cb6e02d068e1d06815ec606354337b85d066cd3b4ea441519262",
+        "internal/virtualFileSystem.ts": "8de726811d904afa1d5fa6063e993b80d8936b5cd534a08f3b12ceed23310654",
+        "internal/volumeLimits.ts": "b8a743360bd08cab6a44fae6f71329e49fee7de51c4e3a77ebb36bfb3487e37c",
+        "internal/volumeState.ts": "36f4a3764bc7b77caa4354ca4b4b7347a58b8a1694552c69c1e5048d63eaf841",
+        "internal/watchHub.ts": "b382b207fc1912098589101084e35ec304786108f83179bbbc95de2a73dc7925"
+      }
+    },
+    "workerSha256": "a7d60ca6eacc46c70a32071e24e25afdf8f6e95a5dfdb783ee74aec2573724a5",
+    "effectVersion": "4.0.0"
+  },
+  "results": [
+    {
+      "label": "baseline",
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "6b22e87e5484122aab2e02ae03888bafeedecd2b71dbc81ab8611b2f1351f5e6",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 34.25654199999997
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 36.18074999999999
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 63.04545900000005
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 74.95629200000008
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 37.579458000000045
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 77.58662500000003
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.2125419999999849
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.6768749999999955
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 193391,
+        "retainedHeapDelta": 193391,
+        "beforeHeap": 29167284,
+        "afterHeap": 29360675,
+        "externalDelta": 173967,
+        "arrayBuffersDelta": 0,
+        "rss": 330907648
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 0,
+      "orderWithinPair": 0
+    },
+    {
+      "label": "candidate",
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "23d6bca68cda1ef1645ab9f64cb6b029c0532c073dbcc28e2ca785d98c57894a",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 36.83062499999994
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 42.13962499999991
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 65.85662500000001
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 74.48304200000007
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 39.55854099999999
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 90.041875
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.18004099999996015
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.5993750000000091
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 799305,
+        "retainedHeapDelta": 799305,
+        "beforeHeap": 33533874,
+        "afterHeap": 34333179,
+        "externalDelta": 740089,
+        "arrayBuffersDelta": 0,
+        "rss": 347914240
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 0,
+      "orderWithinPair": 1
+    },
+    {
+      "label": "candidate",
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "23d6bca68cda1ef1645ab9f64cb6b029c0532c073dbcc28e2ca785d98c57894a",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 37.76141700000005
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 41.10420900000008
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 61.106042
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 73.874458
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 38.13291600000002
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 96.62920899999995
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.3273750000000746
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.6697920000000295
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 764162,
+        "retainedHeapDelta": 764162,
+        "beforeHeap": 33493739,
+        "afterHeap": 34257901,
+        "externalDelta": 749618,
+        "arrayBuffersDelta": 0,
+        "rss": 341409792
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 1,
+      "orderWithinPair": 0
+    },
+    {
+      "label": "baseline",
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "6b22e87e5484122aab2e02ae03888bafeedecd2b71dbc81ab8611b2f1351f5e6",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 33.79929199999992
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 35.224958000000015
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 55.13083300000005
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 64.64279199999999
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 35.36929199999997
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 80.34620799999993
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.15533300000004147
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.5475420000000213
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 195626,
+        "retainedHeapDelta": 195626,
+        "beforeHeap": 29140150,
+        "afterHeap": 29335776,
+        "externalDelta": 181706,
+        "arrayBuffersDelta": 0,
+        "rss": 326402048
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 1,
+      "orderWithinPair": 1
+    },
+    {
+      "label": "baseline",
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "6b22e87e5484122aab2e02ae03888bafeedecd2b71dbc81ab8611b2f1351f5e6",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 35.60962500000005
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 36.12404200000003
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 64.87012499999992
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 82.26237500000002
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 38.083541999999966
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 82.02529200000004
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.15862499999991542
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.5380830000000287
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 300615,
+        "retainedHeapDelta": 300615,
+        "beforeHeap": 29061185,
+        "afterHeap": 29361800,
+        "externalDelta": 288263,
+        "arrayBuffersDelta": 0,
+        "rss": 315539456
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 2,
+      "orderWithinPair": 0
+    },
+    {
+      "label": "candidate",
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "23d6bca68cda1ef1645ab9f64cb6b029c0532c073dbcc28e2ca785d98c57894a",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 39.65554200000008
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 44.71424999999999
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 75.52020900000002
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 96.07995800000003
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 39.31895799999995
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 96.87649999999996
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.18062499999996362
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.5577920000000631
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 834655,
+        "retainedHeapDelta": 834655,
+        "beforeHeap": 33513731,
+        "afterHeap": 34348386,
+        "externalDelta": 773199,
+        "arrayBuffersDelta": 0,
+        "rss": 332644352
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 2,
+      "orderWithinPair": 1
+    },
+    {
+      "label": "candidate",
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "23d6bca68cda1ef1645ab9f64cb6b029c0532c073dbcc28e2ca785d98c57894a",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 37.25862499999994
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 45.737540999999965
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 67.529541
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 78.07854199999997
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 36.31829200000004
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 89.94908299999997
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.1808330000000069
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.616292000000044
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 825984,
+        "retainedHeapDelta": 825984,
+        "beforeHeap": 33515564,
+        "afterHeap": 34341548,
+        "externalDelta": 764544,
+        "arrayBuffersDelta": 0,
+        "rss": 345571328
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 3,
+      "orderWithinPair": 0
+    },
+    {
+      "label": "baseline",
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "6b22e87e5484122aab2e02ae03888bafeedecd2b71dbc81ab8611b2f1351f5e6",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 34.71433300000001
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 37.392291
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 56.42399999999998
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 70.03262499999994
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 32.16595799999993
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 78.96112499999992
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.1742500000000291
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.6138329999999996
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 195389,
+        "retainedHeapDelta": 195389,
+        "beforeHeap": 29158311,
+        "afterHeap": 29353700,
+        "externalDelta": 181821,
+        "arrayBuffersDelta": 0,
+        "rss": 319406080
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 3,
+      "orderWithinPair": 1
+    },
+    {
+      "label": "baseline",
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "6b22e87e5484122aab2e02ae03888bafeedecd2b71dbc81ab8611b2f1351f5e6",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 36.41441700000007
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 36.61170900000002
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 59.19695800000011
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 71.64095799999996
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 34.615208999999936
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 80.59079199999996
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.18841700000007222
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.6470419999999422
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 197831,
+        "retainedHeapDelta": 197831,
+        "beforeHeap": 29165029,
+        "afterHeap": 29362860,
+        "externalDelta": 181863,
+        "arrayBuffersDelta": 0,
+        "rss": 315441152
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 4,
+      "orderWithinPair": 0
+    },
+    {
+      "label": "candidate",
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "23d6bca68cda1ef1645ab9f64cb6b029c0532c073dbcc28e2ca785d98c57894a",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 39.270624999999995
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 41.206249999999955
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 71.39233300000001
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 88.55325000000005
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 38.82912500000009
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 89.83524999999997
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.17595799999992323
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.66962500000011
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 807398,
+        "retainedHeapDelta": 807398,
+        "beforeHeap": 33509850,
+        "afterHeap": 34317248,
+        "externalDelta": 747222,
+        "arrayBuffersDelta": 0,
+        "rss": 349323264
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 4,
+      "orderWithinPair": 1
+    },
+    {
+      "label": "baseline",
+      "runtime": {
+        "node": "24.21.0",
+        "bun": null,
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "6b22e87e5484122aab2e02ae03888bafeedecd2b71dbc81ab8611b2f1351f5e6",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 68.10495900000001
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 44.67933400000004
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 56.41941700000007
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 64.98004100000003
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 41.43091700000002
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 80.98195900000007
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.13558400000010806
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.596958000000086
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 15361056,
+        "retainedHeapDelta": 15357048,
+        "beforeHeap": 23239816,
+        "afterHeap": 38596864,
+        "externalDelta": -511708,
+        "arrayBuffersDelta": 3702738,
+        "rss": 488538112
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 0,
+      "orderWithinPair": 0
+    },
+    {
+      "label": "candidate",
+      "runtime": {
+        "node": "24.21.0",
+        "bun": null,
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "23d6bca68cda1ef1645ab9f64cb6b029c0532c073dbcc28e2ca785d98c57894a",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 72.96875
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 47.46245799999997
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 62.09545800000001
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 72.30854199999999
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 48.624874999999975
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 94.02054199999998
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.13429100000007566
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.27995800000007875
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 18866616,
+        "retainedHeapDelta": 18862608,
+        "beforeHeap": 23772776,
+        "afterHeap": 42635384,
+        "externalDelta": 223558,
+        "arrayBuffersDelta": 13867875,
+        "rss": 352108544
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 0,
+      "orderWithinPair": 1
+    },
+    {
+      "label": "candidate",
+      "runtime": {
+        "node": "24.21.0",
+        "bun": null,
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "23d6bca68cda1ef1645ab9f64cb6b029c0532c073dbcc28e2ca785d98c57894a",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 73.26662499999998
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 50.20962499999996
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 77.01154199999996
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 97.58012499999995
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 52.86245900000017
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 97.23170899999991
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.14779199999998127
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.647083000000066
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 18841424,
+        "retainedHeapDelta": 18837416,
+        "beforeHeap": 23716072,
+        "afterHeap": 42553488,
+        "externalDelta": 324028,
+        "arrayBuffersDelta": 330496,
+        "rss": 498761728
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 1,
+      "orderWithinPair": 0
+    },
+    {
+      "label": "baseline",
+      "runtime": {
+        "node": "24.21.0",
+        "bun": null,
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "6b22e87e5484122aab2e02ae03888bafeedecd2b71dbc81ab8611b2f1351f5e6",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 67.78508299999999
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 44.771999999999935
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 57.91583400000002
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 64.62099999999998
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 41.69683300000008
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 80.13029200000005
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.12316699999996672
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.5956249999999272
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 15356472,
+        "retainedHeapDelta": 15352464,
+        "beforeHeap": 23244360,
+        "afterHeap": 38596824,
+        "externalDelta": -460484,
+        "arrayBuffersDelta": 3747924,
+        "rss": 486309888
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 1,
+      "orderWithinPair": 1
+    },
+    {
+      "label": "baseline",
+      "runtime": {
+        "node": "24.21.0",
+        "bun": null,
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "6b22e87e5484122aab2e02ae03888bafeedecd2b71dbc81ab8611b2f1351f5e6",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 70.21879100000001
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 44.161500000000046
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 57.002000000000066
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 64.20512499999995
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 43.05854199999999
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 82.06283399999995
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.14383300000008603
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.47387499999990723
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 15353176,
+        "retainedHeapDelta": 15349168,
+        "beforeHeap": 23241320,
+        "afterHeap": 38590488,
+        "externalDelta": -513168,
+        "arrayBuffersDelta": 7895979,
+        "rss": 474923008
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 2,
+      "orderWithinPair": 0
+    },
+    {
+      "label": "candidate",
+      "runtime": {
+        "node": "24.21.0",
+        "bun": null,
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "23d6bca68cda1ef1645ab9f64cb6b029c0532c073dbcc28e2ca785d98c57894a",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 71.34254099999998
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 47.48691699999995
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 63.16379200000006
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 72.61570799999993
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 49.837084000000004
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 93.47258399999998
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.13829199999986486
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.2783329999999751
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 18875376,
+        "retainedHeapDelta": 18871368,
+        "beforeHeap": 23770696,
+        "afterHeap": 42642064,
+        "externalDelta": 223558,
+        "arrayBuffersDelta": 13862475,
+        "rss": 352665600
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 2,
+      "orderWithinPair": 1
+    },
+    {
+      "label": "candidate",
+      "runtime": {
+        "node": "24.21.0",
+        "bun": null,
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "23d6bca68cda1ef1645ab9f64cb6b029c0532c073dbcc28e2ca785d98c57894a",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 74.14645799999994
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 49.04962499999999
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 67.56420800000001
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 81.07174999999995
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 45.999915999999985
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 93.92512499999998
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.13937499999997272
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.6264999999998508
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 18860400,
+        "retainedHeapDelta": 18856392,
+        "beforeHeap": 23781464,
+        "afterHeap": 42637856,
+        "externalDelta": 195490,
+        "arrayBuffersDelta": 6500945,
+        "rss": 334168064
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 3,
+      "orderWithinPair": 0
+    },
+    {
+      "label": "baseline",
+      "runtime": {
+        "node": "24.21.0",
+        "bun": null,
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "6b22e87e5484122aab2e02ae03888bafeedecd2b71dbc81ab8611b2f1351f5e6",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 70.63575000000003
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 45.10850000000005
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 56.683874999999944
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 64.82491700000003
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 43.22666699999991
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 82.03441700000008
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.13800000000014734
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.3836670000000595
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 15358904,
+        "retainedHeapDelta": 15354896,
+        "beforeHeap": 23240584,
+        "afterHeap": 38595480,
+        "externalDelta": -506464,
+        "arrayBuffersDelta": 12097398,
+        "rss": 473694208
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 3,
+      "orderWithinPair": 1
+    },
+    {
+      "label": "baseline",
+      "runtime": {
+        "node": "24.21.0",
+        "bun": null,
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "6b22e87e5484122aab2e02ae03888bafeedecd2b71dbc81ab8611b2f1351f5e6",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 69.327
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 44.73654099999999
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 56.71408299999996
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 64.11599999999999
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 42.68941700000005
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 82.36954100000003
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.15012499999988904
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.51887499999998
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 15358600,
+        "retainedHeapDelta": 15354592,
+        "beforeHeap": 23241952,
+        "afterHeap": 38596544,
+        "externalDelta": -511790,
+        "arrayBuffersDelta": 13138820,
+        "rss": 475463680
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 4,
+      "orderWithinPair": 0
+    },
+    {
+      "label": "candidate",
+      "runtime": {
+        "node": "24.21.0",
+        "bun": null,
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "bundleSha256": "23d6bca68cda1ef1645ab9f64cb6b029c0532c073dbcc28e2ca785d98c57894a",
+      "measurements": [
+        {
+          "workload": "tool-build-2000-files",
+          "ms": 72.60945800000002
+        },
+        {
+          "workload": "tool-stat-10k",
+          "ms": 47.63233300000002
+        },
+        {
+          "workload": "wide-list-10k-20x",
+          "ms": 66.44549999999992
+        },
+        {
+          "workload": "wide-mixed-100commits-32stats-list-every10",
+          "ms": 75.41704199999992
+        },
+        {
+          "workload": "long-lived-delete-recreate-1024-retain16",
+          "ms": 51.392708000000084
+        },
+        {
+          "workload": "bulk-delete-6000-trigger-compaction",
+          "ms": 98.5463749999999
+        },
+        {
+          "workload": "cold-chmod-four-1MiB-files",
+          "ms": 0.14729200000010678
+        },
+        {
+          "workload": "read-four-1MiB-files",
+          "ms": 0.6389999999998963
+        }
+      ],
+      "trace": {
+        "checksum": 4916704,
+        "liveNames": [
+          "zeta",
+          "beta",
+          "alpha"
+        ],
+        "restoredNames": [
+          "alpha",
+          "beta",
+          "zeta"
+        ],
+        "wideEntries": 4000,
+        "wideBytes": "128000",
+        "snapshots": 16
+      },
+      "memory": {
+        "heapUsedDelta": 18873472,
+        "retainedHeapDelta": 18869464,
+        "beforeHeap": 23768048,
+        "afterHeap": 42637512,
+        "externalDelta": 223558,
+        "arrayBuffersDelta": 13856918,
+        "rss": 352223232
+      },
+      "retainedRoots": [
+        "tool",
+        "wide",
+        "snapshots",
+        "ordered",
+        "restored",
+        "overlay"
+      ],
+      "trial": 4,
+      "orderWithinPair": 1
+    }
+  ]
+}
