@@ -329,19 +329,24 @@ export const makeVolume = Effect.fnUntraced(function*(
 
       return { identity: identityBytes.slice(), epoch: epochBytes.slice(), ino, tag: keyTag(ino) }
     }),
-    resolveReferenceKey: Effect.fnUntraced(function*(key: ReferenceKey) {
+    resolveReferenceKey: (key: ReferenceKey) => {
       const op = OpContext.make("resolveReferenceKey")
 
-      if (!Schema.is(ReferenceKey)(key)) return yield* op.fail("InvalidReference")
+      return engine.objectFor(
+        Effect.gen(function*() {
+          if (!Schema.is(ReferenceKey)(key)) return yield* op.fail("InvalidReference")
 
-      if (!sameBytes(key.identity, identityBytes) || !sameBytes(key.epoch, epochBytes)) {
-        return yield* op.fail("ForeignReference")
-      }
+          if (!sameBytes(key.identity, identityBytes) || !sameBytes(key.epoch, epochBytes)) {
+            return yield* op.fail("ForeignReference")
+          }
 
-      if (!sameTag(key.tag, keyTag(key.ino))) return yield* op.fail("InvalidReference")
+          if (!sameTag(key.tag, keyTag(key.ino))) return yield* op.fail("InvalidReference")
 
-      return yield* engine.objectFor(Ino(Number(key.ino)), op)
-    }),
+          return Ino(Number(key.ino))
+        }),
+        op
+      )
+    },
 
     caller: Effect.fnUntraced(function*(options?: RootCallerOptions) {
       return wrapContext(yield* engine.context(options))

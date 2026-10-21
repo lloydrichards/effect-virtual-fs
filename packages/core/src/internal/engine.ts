@@ -5373,7 +5373,10 @@ export const makeEngine = Effect.fnUntraced(
         Effect.sync((): VolumeUsage => ({ usedBytes: state.usedBytes, entries: state.entries }))
       ),
       context: Effect.fnUntraced(function*(options?: RootCallerOptions) {
-        const decoded = yield* Effect.fromResult(decodeConfiguration(RootCallerOptions, options ?? {}, "caller"))
+        const decoded = yield* Effect.fromResult(
+          decodeConfiguration(RootCallerOptions, options === undefined ? {} : options, "caller")
+        )
+
         const chosen = decoded.identity ?? { uid: 0, gid: 0, groups: [], privileged: true }
         const identity = Object.freeze({ ...chosen, groups: Object.freeze([...chosen.groups]) })
 
@@ -5395,10 +5398,11 @@ export const makeEngine = Effect.fnUntraced(
               .ino
           })
         ),
-      objectFor: (ino: Ino, op: OpContext) =>
+      objectFor: (resolveInode: Effect.Effect<Ino, FsFailure>, op: OpContext) =>
         coordinatedRead(
           op,
           Effect.gen(function*() {
+            const ino = yield* resolveInode
             yield* TokenRegistry.nodeOrFail(yield* registry.resolveInode(ino), "reference", op)
 
             return referenceFor(ino)

@@ -6,6 +6,9 @@ import { LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
 import { readLines } from "./support/lines.js"
 import { entryNames } from "./support/text.js"
 
+// @ts-expect-error Exercise malformed reference keys received from JavaScript.
+const malformedKey: Vfs.ReferenceKey = {}
+
 const options = {
   maxImageBytes: ByteSize.kilobytes(64),
   volume: {
@@ -186,6 +189,7 @@ describe("live image store service", () => {
             )
 
             const caller = yield* volume.caller()
+            const key = yield* volume.referenceKey(yield* caller.root)
             const failure = yield* Effect.flip(caller.mkdir("/dir"))
 
             assert.strictEqual(failure.code, "OutcomeUnknown")
@@ -199,6 +203,17 @@ describe("live image store service", () => {
 
             if (Predicate.isTagged("VfsError")(callerFailure)) {
               assert.strictEqual(callerFailure.code, "VolumeUnavailable")
+            }
+
+            for (
+              const candidate of [
+                key,
+                malformedKey,
+                { ...key, identity: key.identity.map((byte) => byte ^ 1) },
+                { ...key, tag: key.tag.map((byte) => byte ^ 1) }
+              ]
+            ) {
+              assert.strictEqual((yield* Effect.flip(volume.resolveReferenceKey(candidate))).code, "VolumeUnavailable")
             }
 
             assert.strictEqual((yield* Effect.flip(volume.watch())).code, "VolumeUnavailable")
@@ -458,11 +473,24 @@ describe("live runtime limits", () => {
         const volume = yield* LiveVolume.open({ ...options, volume: { ...options.volume, maxPendingOperations: 1 } })
         assert.strictEqual(volume.limits.maxPendingOperations, 1)
         const caller = yield* volume.caller()
+        const key = yield* volume.referenceKey(yield* caller.root)
         const active = yield* caller.mkdir("/active").pipe(Effect.forkChild({ startImmediately: true }))
         yield* Deferred.await(entered)
         const cancelled = yield* caller.mkdir("/cancelled").pipe(Effect.forkChild({ startImmediately: true }))
         yield* settle
         assert.isUndefined(cancelled.pollUnsafe())
+
+        for (
+          const candidate of [
+            key,
+            malformedKey,
+            { ...key, identity: key.identity.map((byte) => byte ^ 1) },
+            { ...key, tag: key.tag.map((byte) => byte ^ 1) }
+          ]
+        ) {
+          assert.strictEqual((yield* Effect.flip(volume.resolveReferenceKey(candidate))).code, "VolumeBusy")
+        }
+
         const full = yield* caller.mkdir("/full").pipe(Effect.forkChild({ startImmediately: true }))
         yield* settle
         const completed = full.pollUnsafe()
