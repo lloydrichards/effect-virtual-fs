@@ -320,3 +320,16 @@ it.effect("copy completes restrictive directory metadata before a late interrupt
     assert.strictEqual((yield* fs.stat("/copy/nested")).mode & 0o777, 0o555)
     assert.strictEqual(yield* fs.readFileString("/copy/a"), "a")
   }).pipe(Effect.provide(NodeCrypto.layer)))
+
+it.effect("copy overwrites root and dot-ending directory destinations", () =>
+  Effect.gen(function*() {
+    for (const destination of ["/", "/destination/.", "/destination/child/.."]) {
+      const { caller } = yield* setup()
+      yield* caller.mkdir("/destination/child", { recursive: true })
+      const fs = yield* MemoryFileSystem.bindCaller(caller)
+      yield* fs.copy("/source", destination, { overwrite: true })
+      const prefix = destination === "/" ? "" : "/destination"
+      assert.strictEqual(yield* fs.readFileString(`${prefix}/a`), "a")
+      assert.strictEqual(yield* fs.readFileString(`${prefix}/b`), "b")
+    }
+  }).pipe(Effect.provide(NodeCrypto.layer)))
