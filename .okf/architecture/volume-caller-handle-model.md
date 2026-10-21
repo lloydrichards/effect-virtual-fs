@@ -5,6 +5,8 @@ description: Assigns shared filesystem state to a volume, authority and lookup c
 status: stable
 tags: [architecture, state, authority, resources]
 sources:
+  - resource: ../../packages/core/test/Execution.test.ts
+    title: Execution policy and resource lifecycle regressions
   - id: core-source
     resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Core public contracts
@@ -37,7 +39,7 @@ sources:
   - id: token-tests
     resource: ../../packages/core/test/Engine.test.ts
     title: Direct token liveness and lifecycle tests
-generated: { by: codex/okf, at: "2026-10-21T21:14:27+00:00" }
+generated: { by: codex/okf, at: "2026-10-21T21:43:54+00:00" }
 ---
 
 # Volume, caller, and handle model
@@ -58,7 +60,15 @@ Handle lifecycle is `acquiring`, `open`, `releasedPendingCommit`, or `closed`. C
 
 Community assembly in `internal/virtualFileSystem.ts` retains random identities, authenticated references, snapshot/image restoration, overlay observation and watch hubs. The engine emits private installation facts to that assembly and uses one private commit hook for durable installation. Memory installation uses the same path without storage. Minimal construction allocates no watch hub and requires no Crypto service. Its private limits exclude the community watch budget. Community watch path reconstruction reuses the engine’s private state helpers. Public constructors retain their existing requirements and defaults.
 
-Keep engine mechanics in this one file. Filesystem path preparation, error construction, the FIFO coordination gate and private test hooks live beside resolution, state and handles. The forwarding modules are removed; callers import the engine directly. Image/codec-specific diagnostics remain community-owned in `errors.ts`, and tree assembly/restoration remains in `volumeState.ts`; those modules no longer re-export engine helpers. Moving the existing gate changes its location only. Its scheduling and synchronous execution qualification remain #302.
+Keep engine mechanics in this one file. Filesystem path preparation, error construction, the FIFO coordination gate and private test hooks live beside resolution, state and handles. The forwarding modules are removed; callers import the engine directly. Image/codec-specific diagnostics remain community-owned in `errors.ts`, and tree assembly/restoration remains in `volumeState.ts`; those modules no longer re-export engine helpers. Cooperative mode retains that gate. Sync mode allocates no waiting gate or turnstile and holds one non-waiting ownership guard through installation and deferred releases.
+
+## Live execution policy
+
+VolumeOptions.execution is cooperative by default and accepts sync for constructor-owned memory backends. The policy is not serialized. Fresh restoration and overlays choose independently. All derived callers and handles share the mode. Live stores and arbitrary private commit providers are rejected before provider work; a memory label does not establish eligibility.
+
+Sync sections mask interruption and suppress automatic and confined-walk yields while owning state. Ordinary reentry fails with VolumeBusy before scoped acquisition. A private checked binding supports future adapter preflight, not arbitrary-Effect execution. Handle finalization immediately marks ownership releasedPendingCommit, then drains direct release actions against current state before returning, even if the outer draft failed. All queued releases are attempted and failures remain visible. File and directory handles reject logically released ownership before reclamation completes.
+
+Community watch teardown directly removes subscribers and shuts down queues without waiting for the active engine section. Sync snapshot/overlay processing runs after immutable-state capture; cooperative capture preserves its established ordering. Effect-valued test seams are rejected before sync operations invoke them. The `packages/core/test/Execution.test.ts` exercise mixed access, reentry, late publication, interruption and cleanup. These guarantees do not establish native Node integration or acceptance of the upstream Effect API.
 
 ## Dependency ownership for the Effect port
 

@@ -78,6 +78,8 @@ export const open: (options: Options) => Effect.Effect<
 
   const { decoded, initial } = yield* Effect.gen(function*() {
     const decoded = yield* Effect.fromResult(Limits.configuration(options.volume, "LiveVolume.open"))
+
+    if (decoded.options.execution === "sync") return yield* argumentFailure("LiveVolume.open", "execution")
     const initial = yield* prepareEmptyImage(decoded.options)
 
     return { decoded, initial }
@@ -202,6 +204,10 @@ export const makeRegistry: <K, E, R>(options: RegistryOptions<K, E, R>) => Effec
   const idleTimeToLive = Duration.fromInput(options.idleTimeToLive ?? 0)
 
   if (Option.isNone(idleTimeToLive)) return yield* argumentFailure("LiveVolume.makeRegistry", "idleTimeToLive")
+
+  if (options.volume.volume.execution === "sync") {
+    return yield* argumentFailure("LiveVolume.makeRegistry", "volume.volume.execution")
+  }
 
   const store = options.store
   const volume: Options = { maxImageBytes: options.volume.maxImageBytes, volume: { ...options.volume.volume } }

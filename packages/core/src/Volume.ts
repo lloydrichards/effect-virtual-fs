@@ -167,6 +167,8 @@ export type ReferenceKey = typeof ReferenceKey.Type
  * @since 0.6.0
  */
 export const VolumeOptions = Schema.Struct({
+  /** Selects live-volume scheduling; omitted means cooperative. Never stored in images. */
+  execution: Schema.optionalKey(Schema.Literals(["cooperative", "sync"])),
   identity: Schema.optionalKey(VolumeIdentity),
   maxEntries: Schema.optionalKey(Schema.Natural),
   maxPendingOperations: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),

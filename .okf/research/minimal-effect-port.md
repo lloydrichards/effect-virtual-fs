@@ -11,7 +11,7 @@ sources:
     title: Upstream engine ownership and acceptance
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/309
     title: Upstream FileSystem method and resource profile
-generated: { by: codex/okf, at: "2026-10-21T21:12:09+00:00" }
+generated: { by: codex/okf, at: "2026-10-21T21:43:54+00:00" }
 ---
 
 # Minimal Effect filesystem port
@@ -32,7 +32,7 @@ Effect service compatibility, shared filesystem semantics and native Node integr
 
 #303 proposes an independent BytePath value and codecs in Effect-TS/effect#9730. Public manipulation helpers are deferred. Filesystem-specific assembly stays private; generic byte operations should reuse upstream Bytes once ported. Hex128 remains local Schema composition unless independent demand justifies extraction.
 
-#302 owns scheduling, reentry and finalizer qualification. Local FIFO coordination is preserved during extraction, not accepted as an upstream generic algorithm. A failed synchronous call must not mutate later. The reduced candidate must pass those gates before #308; arbitrary Effect implementations cannot be presumed synchronous.
+#302 adds local opt-in sync memory execution, with cooperative FIFO coordination retained as the default. The [engine ownership model](../architecture/volume-caller-handle-model.md "described by") records reentry, finalizer and immutable-capture rules. The upstream candidate must requalify those guarantees at its accepted baseline before #308; arbitrary Effect implementations cannot be presumed synchronous. Native Node binding remains #310.
 
 #309 owns every target FileSystem method and option, structured error translation, fresh/shared construction, scoped files, streams, sinks, temporary cleanup and copy. Its proposed initial watch fails on consumption with PlatformError reason Unknown, module FileSystem, method watch and description WatchUnsupported. Community watches remain supported. Maintainers must accept the limited upstream profile.
 

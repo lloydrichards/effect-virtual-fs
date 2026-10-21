@@ -60,7 +60,7 @@ declare const makeRegistry: <K, E, R>(
 ) => Effect.Effect<Registry<K, E>, ArgumentFailure, R | Crypto.Crypto | Scope.Scope>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L191)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L193)
 
 Since v0.9.0
 
@@ -98,7 +98,7 @@ declare const openImage: (
 ) => Effect.Effect<ImageSession, VfsError, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L296)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L302)
 
 Since v0.4.0
 
@@ -114,7 +114,7 @@ Requires `Crypto.Crypto` for secure volume identifiers and reference keys.
 declare const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<Uint8Array, VfsError, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L277)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L283)
 
 Since v0.4.0
 
@@ -165,7 +165,7 @@ export interface ImageSession {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L264)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L270)
 
 Since v0.4.0
 
@@ -200,7 +200,7 @@ export interface Registry<K, E = never> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L129)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L131)
 
 Since v0.9.0
 
@@ -224,7 +224,7 @@ export interface RegistryOptions<K, E = never, R = never> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L142)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L144)
 
 Since v0.9.0
 

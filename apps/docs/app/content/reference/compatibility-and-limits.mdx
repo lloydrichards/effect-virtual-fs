@@ -24,6 +24,39 @@ The published manifests do not declare a consumer Node.js version. The repositor
 1.2.21 for development and validation. That contributor-toolchain requirement is not evidence that every earlier Node.js
 release works. Bun is required by the documented SQLite provider and its runtime tests, not by the core or memory APIs.
 
+## Memory execution mode
+
+Memory volumes default to `execution: "cooperative"`. Opt in to `execution: "sync"` when namespace and handle operations
+must complete synchronously. Operations still return Effects, and construction can require asynchronous setup.
+
+```ts
+import { Effect } from "effect"
+import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
+
+const program = Effect.gen(function*() {
+  const volume = yield* Vfs.make({ execution: "sync" })
+  const caller = yield* volume.caller()
+  yield* caller.mkdir("/work")
+  return yield* caller.stat("/work")
+})
+```
+
+All callers and handles on that volume share the mode. Fixture, snapshot and overlay constructors accept the same
+option. Restoring without it selects cooperative scheduling; snapshots and images do not store execution policy.
+`MemoryFileSystem.layerFromFixture(fixture, { execution: "sync" })` also supports the mode. Existing `make` and `layer`
+values keep their cooperative defaults. A live storage constructor rejects sync mode, even for a store reporting
+memory-only durability.
+
+Sync coordination does not yield while owning state. Large paths, files, directories or subscriber sets can therefore
+block the thread. Snapshot and overlay processing can yield after immutable capture, and watch streams wait for events.
+The mode does not promise synchronous completion for arbitrary Effect programs, custom runtime hooks or community
+work outside the engine. It does not provide a native `node:fs` adapter.
+
+Ordinary same-volume reentry fails with `VolumeBusy`. Scope cleanup can invalidate a handle during an active operation
+and reclaim its inode before that operation returns. Once a transition starts, installation and cleanup finish before
+interruption is delivered; an interruption can therefore report a completed mutation. Recursive helpers retain their
+existing partial-progress boundaries. No failed synchronous operation is left queued to mutate later.
+
 ## Runtime evidence
 
 Runtime-neutral means the core does not import Node.js or Bun filesystem APIs. It does not mean that every operation has

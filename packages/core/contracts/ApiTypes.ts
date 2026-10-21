@@ -464,3 +464,15 @@ export const rejectedDualMethods = (caller: Vfs.Caller, handle: Vfs.FileHandle) 
   // @ts-expect-error Unary reads do not gain an empty-argument curried form.
   caller.readFile()
 }
+
+export const executionModes = () => ({
+  cooperative: Vfs.make({ execution: "cooperative" }),
+  synchronous: Vfs.make({ execution: "sync" }),
+  restored: (snapshot: Vfs.Snapshot) => Vfs.fromSnapshot(snapshot, { execution: "sync" }),
+  overlay: (snapshot: Vfs.Snapshot) => Vfs.makeOverlay(snapshot, { execution: "sync" })
+})
+
+export const rejectedExecutionMode = () => {
+  // @ts-expect-error Only the two supported scheduling policies are public.
+  Vfs.make({ execution: "async" })
+}

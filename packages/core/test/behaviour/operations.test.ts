@@ -16,7 +16,10 @@ const name = (value: string) => new TextEncoder().encode(value)
 
 type FsError = VfsErrorModule.VfsError
 
+type Execution = NonNullable<Vfs.VolumeOptions["execution"]>
+
 interface Fixture {
+  readonly execution: Execution
   readonly admin: Vfs.Caller
   readonly guest: Vfs.Caller
   readonly root: Vfs.ObjectReference
@@ -30,23 +33,24 @@ interface Fixture {
 
 // Builds /dir, /dir/existing, /file, a removed /gone, and /sticky holding file and subdir. The root stays
 // 0o755 and owned by uid 0, so the guest can search it but not write it.
-const arrange = Effect.gen(function*() {
-  const admin = yield* Vfs.Caller
-  const guest = yield* Testing.callerAs(GUEST)
-  const root = yield* admin.root
-  const dir = (yield* admin.mkdir(Vfs.Entry(root, name("dir")))).reference
-  yield* admin.mkdir(Vfs.Entry(dir, name("existing")))
-  const file = yield* admin.open(Vfs.Entry(root, name("file")), { access: "write", create: "exclusive" })
-  yield* file.handle.close
-  const gone = (yield* admin.mkdir(Vfs.Entry(root, name("gone")))).reference
-  yield* admin.rmdir(Vfs.Entry(root, name("gone")))
-  const sticky = (yield* admin.mkdir(Vfs.Entry(root, name("sticky")), { mode: 0o1777 })).reference
-  const owned = yield* admin.open(Vfs.Entry(sticky, name("file")), { access: "write", create: "exclusive" })
-  yield* owned.handle.close
-  yield* admin.mkdir(Vfs.Entry(sticky, name("subdir")))
+const arrange = (execution: Execution) =>
+  Effect.gen(function*() {
+    const admin = yield* Vfs.Caller
+    const guest = yield* Testing.callerAs(GUEST)
+    const root = yield* admin.root
+    const dir = (yield* admin.mkdir(Vfs.Entry(root, name("dir")))).reference
+    yield* admin.mkdir(Vfs.Entry(dir, name("existing")))
+    const file = yield* admin.open(Vfs.Entry(root, name("file")), { access: "write", create: "exclusive" })
+    yield* file.handle.close
+    const gone = (yield* admin.mkdir(Vfs.Entry(root, name("gone")))).reference
+    yield* admin.rmdir(Vfs.Entry(root, name("gone")))
+    const sticky = (yield* admin.mkdir(Vfs.Entry(root, name("sticky")), { mode: 0o1777 })).reference
+    const owned = yield* admin.open(Vfs.Entry(sticky, name("file")), { access: "write", create: "exclusive" })
+    yield* owned.handle.close
+    yield* admin.mkdir(Vfs.Entry(sticky, name("subdir")))
 
-  return { admin, guest, root, dir, file: file.reference, gone, sticky } satisfies Fixture
-}).pipe(Effect.provide(Testing.layer({ caller: { umask: 0 } })))
+    return { execution, admin, guest, root, dir, file: file.reference, gone, sticky } satisfies Fixture
+  }).pipe(Effect.provide(Testing.layer({ volume: { execution }, caller: { umask: 0 } })))
 
 interface Row {
   readonly scenario: string
@@ -85,8 +89,8 @@ const missingAt = (path: string) => ({ admin }: Fixture) =>
     (found) => assert.strictEqual(Result.isFailure(found) ? found.failure.code : "present", "NotFound")
   )
 
-const outcome = Effect.fnUntraced(function*(row: Row, family: "path" | "reference") {
-  const fixture = yield* arrange
+const outcome = Effect.fnUntraced(function*(row: Row, family: "path" | "reference", execution: Execution) {
+  const fixture = yield* arrange(execution)
   const acted = yield* Effect.result(row[family](fixture))
 
   if (Result.isFailure(acted)) return yield* report(acted.failure)
@@ -284,10 +288,11 @@ const linkRows: ReadonlyArray<Row> = [
 ]
 
 // Its byte limit sits below an eight-byte link target.
-const smallVolume = Vfs.Caller.pipe(
-  Effect.provide(Testing.layer({ volume: { maxBytes: ByteSize.bytes(4) } })),
-  Effect.orDie
-)
+const smallVolume = (execution: Execution) =>
+  Vfs.Caller.pipe(
+    Effect.provide(Testing.layer({ volume: { execution, maxBytes: ByteSize.bytes(4) } })),
+    Effect.orDie
+  )
 
 const symlinkRows: ReadonlyArray<Row> = [
   {
@@ -354,10 +359,10 @@ const symlinkRows: ReadonlyArray<Row> = [
   },
   {
     scenario: "charges the target bytes against the volume limit",
-    path: () => Effect.flatMap(smallVolume, (fs) => fs.symlink("/missing", "/new")),
-    reference: () =>
+    path: ({ execution }) => Effect.flatMap(smallVolume(execution), (fs) => fs.symlink("/missing", "/new")),
+    reference: ({ execution }) =>
       Effect.flatMap(
-        smallVolume,
+        smallVolume(execution),
         (fs) => Effect.flatMap(fs.root, (root) => fs.symlink("/missing", Vfs.Entry(root, name("new"))))
       ),
     expected: { path: "NoSpace at /new", reference: "NoSpace" }
@@ -1058,17 +1063,17 @@ const setattrRows: ReadonlyArray<Row> = [
   },
   {
     scenario: "charges a larger size against the volume limit at apply",
-    path: () =>
+    path: ({ execution }) =>
       Effect.flatMap(
-        smallVolume,
+        smallVolume(execution),
         (fs) =>
           Effect.andThen(
             fs.writeFile("/f", new Uint8Array(), { access: "write", create: "exclusive" }),
             fs.setattr("/f", { size: 8n })
           )
       ),
-    reference: () =>
-      Effect.flatMap(smallVolume, (fs) =>
+    reference: ({ execution }) =>
+      Effect.flatMap(smallVolume(execution), (fs) =>
         Effect.flatMap(fs.root, (root) =>
           Effect.flatMap(
             Effect.scoped(fs.open(Vfs.Entry(root, name("f")), { access: "write", create: "exclusive" })),
@@ -1124,23 +1129,25 @@ const TABLE: ReadonlyArray<readonly [verb: string, rows: ReadonlyArray<Row>]> = 
   ["setattr", setattrRows]
 ]
 
-describe("operation families", () => {
-  for (const [verb, rows] of TABLE) {
-    describe(verb, () => {
-      for (const row of rows) {
-        it.layer(BunCrypto.layer)((it) => {
-          it.effect(
-            `should report the expected path and reference outcomes when ${verb} ${row.scenario}`,
-            () =>
-              Effect.gen(function*() {
-                const path = yield* outcome(row, "path")
-                const reference = yield* outcome(row, "reference")
+for (const execution of ["cooperative", "sync"] as const) {
+  describe(`operation families (${execution})`, () => {
+    for (const [verb, rows] of TABLE) {
+      describe(verb, () => {
+        for (const row of rows) {
+          it.layer(BunCrypto.layer)((it) => {
+            it.effect(
+              `should report the expected path and reference outcomes when ${verb} ${row.scenario}`,
+              () =>
+                Effect.gen(function*() {
+                  const path = yield* outcome(row, "path", execution)
+                  const reference = yield* outcome(row, "reference", execution)
 
-                assert.deepStrictEqual({ path, reference }, row.expected)
-              })
-          )
-        })
-      }
-    })
-  }
-})
+                  assert.deepStrictEqual({ path, reference }, row.expected)
+                })
+            )
+          })
+        }
+      })
+    }
+  })
+}

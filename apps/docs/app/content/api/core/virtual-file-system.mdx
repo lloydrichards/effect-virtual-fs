@@ -64,7 +64,7 @@ declare const fromFixture: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2638)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2639)
 
 Since v0.1.0
 
@@ -121,7 +121,7 @@ declare const fromSnapshot: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2537)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2538)
 
 Since v0.1.0
 
@@ -166,7 +166,7 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 declare const make: (options?: VolumeOptions) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2440)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2441)
 
 Since v0.1.0
 
@@ -232,7 +232,7 @@ declare const makeOverlay: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2593)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2594)
 
 Since v0.1.0
 
@@ -274,7 +274,7 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 declare const pathFromBytes: (bytes: Uint8Array) => Effect.Effect<BytePath, FsFailure>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2356)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2357)
 
 Since v0.1.0
 
@@ -290,7 +290,7 @@ Copies the bytes held by an opaque byte path.
 declare const pathToBytes: (path: BytePath) => Effect.Effect<Uint8Array, FsFailure>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2364)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2365)
 
 Since v0.1.0
 
@@ -537,7 +537,7 @@ export interface Caller {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1141)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1142)
 
 Since v0.1.0
 
@@ -554,7 +554,7 @@ export type CallerWatchOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1403)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1404)
 
 Since v0.9.0
 
@@ -574,7 +574,7 @@ export type Change =
   | { readonly _tag: "Rescan"; readonly path: BytePath }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1336)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1337)
 
 Since v0.1.0
 
@@ -588,7 +588,7 @@ A directory revision transition captured inside one coordinated operation.
 export type DirectoryChange = { readonly before: bigint; readonly after: bigint }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L622)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L623)
 
 Since v0.4.0
 
@@ -605,7 +605,7 @@ export interface DirectoryEntry {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L554)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L555)
 
 Since v0.1.0
 
@@ -656,7 +656,7 @@ export interface DirectoryHandle {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L754)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L755)
 
 Since v0.1.0
 
@@ -729,7 +729,7 @@ export interface FileHandle {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1020)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1021)
 
 Since v0.1.0
 
@@ -801,7 +801,7 @@ export type Fixture = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2405)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2406)
 
 Since v0.1.0
 
@@ -886,7 +886,7 @@ export type Metadata = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L496)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L497)
 
 Since v0.1.0
 
@@ -916,7 +916,7 @@ export type MkdirOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L835)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L836)
 
 Since v0.4.0
 
@@ -963,7 +963,7 @@ export interface ObjectObservation<A> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L543)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L544)
 
 Since v0.1.0
 
@@ -979,7 +979,7 @@ export interface ObjectReference {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L504)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L505)
 
 Since v0.1.0
 
@@ -1026,7 +1026,7 @@ export type OpenEntryOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L911)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L912)
 
 Since v0.4.0
 
@@ -1045,7 +1045,7 @@ export interface OpenEntryResult {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L919)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L920)
 
 Since v0.4.0
 
@@ -1065,7 +1065,7 @@ export type OpenOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L815)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L816)
 
 Since v0.1.0
 
@@ -1113,7 +1113,7 @@ export interface OverlayCapture {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1534)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1535)
 
 Since v0.1.0
 
@@ -1163,7 +1163,7 @@ export type OverlayChange =
     }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1456)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1457)
 
 Since v0.1.0
 
@@ -1177,7 +1177,7 @@ Filtering options for an overlay final-difference summary.
 export type OverlayChangesOptions = { readonly includeTimestamps?: boolean }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1495)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1496)
 
 Since v0.1.0
 
@@ -1192,7 +1192,7 @@ export type OverlayDifference =
   "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1435)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1436)
 
 Since v0.1.0
 
@@ -1206,7 +1206,7 @@ A filesystem entry kind reported by an overlay summary.
 export type OverlayNodeKind = "file" | "directory" | "symlink"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1419)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1420)
 
 Since v0.1.0
 
@@ -1251,7 +1251,7 @@ export interface OverlayVolume extends Volume {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1642)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1643)
 
 Since v0.1.0
 
@@ -1265,7 +1265,7 @@ An owner update for `chown` operations.
 export type OwnerUpdate = { readonly uid?: number; readonly gid?: number }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L665)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L666)
 
 Since v0.1.0
 
@@ -1305,7 +1305,7 @@ export interface ReadResult {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L983)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L984)
 
 Since v0.6.0
 
@@ -1322,7 +1322,7 @@ export interface ReferenceEntryResult {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L630)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L631)
 
 Since v0.4.0
 
@@ -1359,7 +1359,7 @@ export type RemoveOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L852)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L853)
 
 Since v0.6.0
 
@@ -1382,7 +1382,7 @@ export type RenameReferenceResult =
     }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L649)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L650)
 
 Since v0.4.0
 
@@ -1418,7 +1418,7 @@ The origin used by a file handle seek operation.
 export type SeekMode = "start" | "end" | "current" | "data" | "hole"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L774)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L775)
 
 Since v0.1.0
 
@@ -1447,7 +1447,7 @@ export type SetattrOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L888)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L889)
 
 Since v0.6.0
 
@@ -1472,7 +1472,7 @@ export type SymlinkOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L868)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L869)
 
 Since v0.4.0
 
@@ -1495,7 +1495,7 @@ export type Times = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L718)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L719)
 
 Since v0.1.0
 
@@ -1574,7 +1574,7 @@ export interface Volume {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1574)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1575)
 
 Since v0.1.0
 
@@ -1644,13 +1644,14 @@ export interface VolumeLimits {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L435)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L436)
 
 Since v0.1.0
 
 ### VolumeOptions (type alias)
 
-Capacity, admission, watch retention, and path limits for a volume.
+Execution policy, capacity, admission, watch retention, and path limits for a volume.
+`execution` defaults to `"cooperative"`; `"sync"` opts memory operations into non-yielding coordination.
 `maxPendingOperations` defaults to 64 and `maxWatchEvents` defaults to 256.
 
 **Signature**
@@ -1661,13 +1662,14 @@ export type VolumeOptions = {
   readonly maxPathBytes?: ByteSize.ByteSize
   readonly maxFileBytes?: ByteSize.ByteSize
   readonly identity?: string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
+  readonly execution?: "cooperative" | "sync"
   readonly maxPendingOperations?: number
   readonly maxWatchEvents?: number
   readonly maxBytes?: ByteSize.ByteSize
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L426)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L427)
 
 Since v0.1.0
 
@@ -1685,7 +1687,7 @@ export interface VolumeUsage {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L453)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L454)
 
 Since v0.1.0
 
@@ -1714,7 +1716,7 @@ export interface WalkEntry {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L573)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L574)
 
 Since v0.6.0
 
@@ -1729,7 +1731,7 @@ What a walk fails with: a failure of the directory it lists, or
 type WalkFailure = FsFailure | (VfsError & { readonly code: "LimitExceeded" })
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L589)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L590)
 
 Since v0.6.0
 
@@ -1748,7 +1750,7 @@ export type WalkOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L606)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L607)
 
 Since v0.6.0
 
@@ -1762,7 +1764,7 @@ Options of `Volume.watch`.
 export type WatchOptions = { readonly recursive?: boolean; readonly scope?: ObjectReference }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1389)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1390)
 
 Since v0.6.0
 
@@ -1823,7 +1825,7 @@ declare const WriteFileOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L967)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L968)
 
 Since v0.1.0
 
@@ -1846,7 +1848,7 @@ export type WriteFileOptions = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L975)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L976)
 
 Since v0.1.0
 
@@ -1902,7 +1904,7 @@ declare const CallerWatchOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1396)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1397)
 
 Since v0.9.0
 
@@ -1952,7 +1954,7 @@ declare const Change: Schema.TaggedUnion<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1326)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1327)
 
 Since v0.1.0
 
@@ -1966,7 +1968,7 @@ A directory revision transition captured inside one coordinated operation.
 declare const DirectoryChange: Schema.Struct<{ readonly before: Schema.BigInt; readonly after: Schema.BigInt }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L614)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L615)
 
 Since v0.4.0
 
@@ -2075,7 +2077,7 @@ declare const Fixture: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2397)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2398)
 
 Since v0.1.0
 
@@ -2212,7 +2214,7 @@ declare const Metadata: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L488)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L489)
 
 Since v0.1.0
 
@@ -2250,7 +2252,7 @@ declare const MkdirOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L825)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L826)
 
 Since v0.4.0
 
@@ -2309,7 +2311,7 @@ declare const OpenEntryOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L897)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L898)
 
 Since v0.4.0
 
@@ -2355,7 +2357,7 @@ declare const OpenOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L807)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L808)
 
 Since v0.1.0
 
@@ -2423,7 +2425,7 @@ declare const OverlayChange: Schema.Union<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1448)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1449)
 
 Since v0.1.0
 
@@ -2461,7 +2463,7 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 declare const OverlayChangesOptions: Schema.Struct<{ readonly includeTimestamps: Schema.optionalKey<Schema.Boolean> }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1487)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1488)
 
 Since v0.1.0
 
@@ -2477,7 +2479,7 @@ declare const OverlayDifference: Schema.Literals<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1427)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1428)
 
 Since v0.1.0
 
@@ -2491,7 +2493,7 @@ Schema for the filesystem entry kinds reported by overlay summaries.
 declare const OverlayNodeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1411)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1412)
 
 Since v0.1.0
 
@@ -2508,7 +2510,7 @@ declare const OwnerUpdate: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L657)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L658)
 
 Since v0.1.0
 
@@ -2574,7 +2576,7 @@ declare const RemoveOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L844)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L845)
 
 Since v0.6.0
 
@@ -2600,7 +2602,7 @@ declare const RenameReferenceResult: Schema.TaggedUnion<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L641)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L642)
 
 Since v0.4.0
 
@@ -2667,7 +2669,7 @@ Schema for file seek origins, including dense-file data and hole queries.
 declare const SeekMode: Schema.Literals<readonly ["start", "current", "end", "data", "hole"]>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L766)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L767)
 
 Since v0.1.0
 
@@ -2713,7 +2715,7 @@ declare const SetattrOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L880)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L881)
 
 Since v0.6.0
 
@@ -2765,7 +2767,7 @@ declare const SnapshotDeltaFromBytes: (
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2297)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2298)
 
 Since v0.1.0
 
@@ -2798,7 +2800,7 @@ declare const SymlinkOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L860)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L861)
 
 Since v0.4.0
 
@@ -2818,7 +2820,7 @@ declare const TimeUpdate: Schema.Union<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L673)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L674)
 
 Since v0.1.0
 
@@ -2877,7 +2879,7 @@ declare const Times: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L710)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L711)
 
 Since v0.1.0
 
@@ -2960,6 +2962,7 @@ Effect.runPromise(program.pipe(Effect.provide(BunCrypto.layer))).then(console.lo
 
 ```ts
 declare const VolumeOptions: Schema.Struct<{
+  readonly execution: Schema.optionalKey<Schema.Literals<readonly ["cooperative", "sync"]>>
   readonly identity: Schema.optionalKey<Schema.brand<Schema.String, "@effect-vfs/core/VolumeIdentity">>
   readonly maxEntries: Schema.optionalKey<Schema.Natural>
   readonly maxPendingOperations: Schema.optionalKey<Schema.Int>
@@ -2990,7 +2993,7 @@ declare const WalkOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L598)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L599)
 
 Since v0.6.0
 
@@ -3043,7 +3046,7 @@ declare const WatchOptions: Schema.Struct<{
 }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1381)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1382)
 
 Since v0.6.0
 
@@ -3097,7 +3100,7 @@ declare const decodeSnapshot: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1949)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1950)
 
 Since v0.1.0
 
@@ -3166,7 +3169,7 @@ declare const decodeSnapshotSink: (
 ) => Sink.Sink<Snapshot, Uint8Array, never, ImageFailure | ArgumentFailure>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1902)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1903)
 
 Since v0.6.0
 
@@ -3221,7 +3224,7 @@ declare const encodeSnapshot: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1836)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1837)
 
 Since v0.1.0
 
@@ -3279,7 +3282,7 @@ declare const encodeSnapshotStream: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1784)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1785)
 
 Since v0.6.0
 
@@ -3299,7 +3302,7 @@ declare const Caller: Context.Service<Caller, Caller> & {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1724)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1725)
 
 Since v0.6.0
 
@@ -3350,7 +3353,7 @@ declare const Volume: Context.Service<Volume, Volume> & {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1679)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1680)
 
 Since v0.6.0
 
@@ -3414,7 +3417,7 @@ declare const applySnapshotDelta: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2143)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2144)
 
 Since v0.1.0
 
@@ -3476,7 +3479,7 @@ declare const diffSnapshots: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L1999)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2000)
 
 Since v0.1.0
 
@@ -3544,7 +3547,7 @@ declare const inspectSnapshotDelta: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2060)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2061)
 
 Since v0.1.0
 
@@ -3621,7 +3624,7 @@ declare const mergeSnapshotDeltas: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2219)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2220)
 
 Since v0.8.0
 
@@ -3682,7 +3685,7 @@ declare const snapshotEntries: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2490)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/VirtualFileSystem.ts#L2491)
 
 Since v0.6.0
 

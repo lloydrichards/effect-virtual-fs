@@ -1,11 +1,20 @@
 import { assert, it } from "@effect/vitest"
 import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
+import * as FileSystem from "effect/FileSystem"
+import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as FileSystemTest from "./FileSystemTest.js"
 import * as Minimal from "./support/minimalFileSystem.js"
 
 FileSystemTest.suite("private minimal engine", Minimal.layer, "memory", { watch: "unsupported" })
+
+FileSystemTest.suite(
+  "private sync engine",
+  Layer.effect(FileSystem.FileSystem, Minimal.make({ execution: "sync" })),
+  "memory",
+  { watch: "unsupported" }
+)
 
 it.effect("minimal construction and copy need no Crypto provider and retain the seeded defaults", () =>
   Effect.gen(function*() {

@@ -34,7 +34,7 @@ import type { VolumeOptions } from "./Volume.js"
 export interface LayerOptions {
   /** Entries the volume starts with; without one the volume starts empty. */
   readonly fixture?: Fixture
-  /** Limits and identity of the volume. */
+  /** Execution mode, limits and identity of the volume. */
   readonly volume?: VolumeOptions
   /** Credentials and umask of the root caller the layer provides. */
   readonly caller?: RootCallerOptions
