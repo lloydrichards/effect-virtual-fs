@@ -60,7 +60,7 @@ declare const makeRegistry: <K, E, R>(
 ) => Effect.Effect<Registry<K, E>, ArgumentFailure, R | Crypto.Crypto | Scope.Scope>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L186)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L191)
 
 Since v0.9.0
 
@@ -76,7 +76,7 @@ Requires `Crypto.Crypto` to mint a new volume or incarnation.
 declare const open: (options: Options) => Effect.Effect<Volume, VfsError, LiveImageStore | Scope.Scope | Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L67)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L72)
 
 Since v0.4.0
 
@@ -98,7 +98,7 @@ declare const openImage: (
 ) => Effect.Effect<ImageSession, VfsError, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L291)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L296)
 
 Since v0.4.0
 
@@ -114,7 +114,7 @@ Requires `Crypto.Crypto` for secure volume identifiers and reference keys.
 declare const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<Uint8Array, VfsError, Crypto.Crypto>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L272)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L277)
 
 Since v0.4.0
 
@@ -123,14 +123,23 @@ Since v0.4.0
 ### CommitOutcome (type alias)
 
 A storage commit's observed outcome.
+A provider may return a rejected Cause only when no storage write was attempted.
+Ordinary mutations preserve that cause and leave the volume available; uncertain writes use `unknown`.
 
 **Signature**
 
 ```ts
-type CommitOutcome = "committed" | "rejected" | "unknown"
+type CommitOutcome =
+  | "committed"
+  | "rejected"
+  | "unknown"
+  | {
+      readonly _tag: "Rejected"
+      readonly cause: Cause.Cause<never>
+    }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L31)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L33)
 
 Since v0.4.0
 
@@ -156,7 +165,7 @@ export interface ImageSession {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L259)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L264)
 
 Since v0.4.0
 
@@ -173,7 +182,7 @@ export interface Options {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L54)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L59)
 
 Since v0.4.0
 
@@ -191,7 +200,7 @@ export interface Registry<K, E = never> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L124)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L129)
 
 Since v0.9.0
 
@@ -215,7 +224,7 @@ export interface RegistryOptions<K, E = never, R = never> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L137)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L142)
 
 Since v0.9.0
 
@@ -233,6 +242,6 @@ classify ambiguous commits as `unknown`.
 declare class LiveImageStore
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L41)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L46)
 
 Since v0.4.0
