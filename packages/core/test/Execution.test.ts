@@ -18,7 +18,7 @@ import {
   Stream
 } from "effect"
 import type * as Tracer from "effect/Tracer"
-import { LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
+import { BytePath, LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
 import { makeEngine, memoryCommitProvider, State, withVolumeTestSeams } from "../src/internal/engine.js"
 
 const run = Effect.runSync
@@ -68,6 +68,54 @@ describe("volume execution", () => {
     run(Scope.close(scope, Exit.void))
     assert.strictEqual(failure(rooted.stat("/")).code, "ClosedCaller")
   })
+
+  for (const operation of ["handle", "realPath"] as const) {
+    it(`should complete deep confined ${operation} traversal and scope cleanup synchronously`, async () => {
+      const volume = await make({ execution: "sync" })
+      const caller = run(volume.caller())
+      const deep = "/" + Array(160).fill("d").join("/")
+      run(caller.mkdir("/root" + deep, { recursive: true }))
+      const scope = Scope.makeUnsafe()
+      const rooted = run(caller.withRoot("/root").pipe(Effect.provideService(Scope.Scope, scope)))
+
+      const ordinary = new Scheduler.MixedScheduler("sync")
+      let scheduled = 0
+
+      const scheduler: Scheduler.Scheduler = {
+        executionMode: "sync",
+        shouldYield: () => false,
+        makeDispatcher: () => {
+          const dispatcher = ordinary.makeDispatcher()
+
+          return {
+            scheduleTask: (task, priority) => {
+              scheduled++
+              dispatcher.scheduleTask(task, priority)
+            },
+            flush: () => dispatcher.flush()
+          }
+        }
+      }
+
+      const result = Effect.runSyncExit(
+        Effect.gen(function*() {
+          const handle = yield* rooted.openDirectory(deep)
+
+          if (operation === "handle") assert.strictEqual((yield* handle.stat).kind, "directory")
+          else assert.strictEqual(yield* BytePath.toString(yield* rooted.realPath(handle)), deep)
+
+          return handle
+        }).pipe(Effect.provideService(Scope.Scope, scope), Effect.provideService(Scheduler.Scheduler, scheduler))
+      )
+
+      run(Scope.close(scope, Exit.void))
+      assert.isTrue(Exit.isSuccess(result))
+      assert.strictEqual(scheduled, 0)
+
+      if (Exit.isSuccess(result)) assert.strictEqual(failure(result.value.stat).code, "InvalidHandle")
+      assert.strictEqual(failure(rooted.stat("/")).code, "ClosedCaller")
+    })
+  }
 
   for (const execution of ["cooperative", "sync"] as const) {
     it(`should preserve positional I/O, links, open-unlinked files and admission reuse in ${execution} mode`, async () => {
