@@ -20,12 +20,12 @@ sources:
   - id: transfer
     resource: ../../packages/memory/src/TreeTransfer.ts
     title: Existing capabilities, preservation options, and typed transfer failures
-generated: { by: codex/okf, at: "2026-10-17T08:46:00Z" }
+generated: { by: codex/okf, at: "2026-10-21T09:54:58+00:00" }
 ---
 
 # Effect VFS lessons from the Node comparison
 
-The Node comparison is evidence for improving Effect-first modules. No bridge, Node adapter package, or loader integration is planned. The earlier experimental adapter direction is withdrawn. Reproduction details that remain useful live in issue comments; transient prototypes, logs, and generated reports are not bundle dependencies.
+The Node comparison is evidence for improving Effect-first modules. The earlier comparison withdrew its experimental adapter direction. The later [minimal Effect port proposal](minimal-effect-port.md "contrasts with") under #273 now separately proposes native Node qualification after synchronous memory execution is proven. This does not change the earlier comparative findings or establish implemented adapter support. Reproduction details that remain useful live in issue comments; transient prototypes, logs, and generated reports are not bundle dependencies.
 
 ## Protect the guarantees we already own
 

@@ -23,7 +23,7 @@ sources:
   - id: overlay-tests
     resource: ../../packages/core/test/behaviour/overlay.test.ts
     title: Core overlay behavior
-generated: { by: codex/okf, at: "2026-10-16T19:02:37Z" }
+generated: { by: codex/okf, at: "2026-10-21T09:54:58+00:00" }
 ---
 
 # Node VFS interoperability
@@ -53,7 +53,7 @@ A locked read-only Node memory lower with independent uppers passes sibling isol
 
 ## Effect-first direction
 
-Use Node's design and the [retained copy experiment](node-vfs-snapshot-bridge.md "informs") as comparative evidence for Effect VFS improvements. Useful reproduction context is retained in issues rather than a committed research artifact tree. The current work targets link identity, required transfer fidelity, destination cleanup, and overlay parity. No Node bridge or adapter package is planned.
+Use Node's design and the [retained copy experiment](node-vfs-snapshot-bridge.md "informs") as comparative evidence for Effect VFS improvements. Useful reproduction context is retained in issues rather than a committed research artifact tree. The current work targets link identity, required transfer fidelity, destination cleanup, and overlay parity. That comparison did not plan a Node adapter. The later [minimal Effect port proposal](minimal-effect-port.md "contrasts with") under #273 separately scopes native Node work after synchronous execution qualification; it remains proposed, not implemented.
 
 Node is not the semantic reference for our volumes. Compare overlays against restored snapshots and preserve explicit callers, scoped resources, typed failures, and existing package ownership. Successful Node loading experiments do not create a product requirement for Node integration.
 
