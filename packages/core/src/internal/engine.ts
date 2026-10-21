@@ -1077,6 +1077,28 @@ export namespace State {
   })
 
   /** @internal */
+  export const pathOf = (get: (ino: Ino) => Node | undefined, ino: Ino): string | undefined => {
+    const names: Array<string> = []
+    let node = get(ino)
+
+    if (node?.kind !== "directory" || node.metadata.nlink === 0) return undefined
+
+    while (node.ino !== ROOT_INO) {
+      names.push(node.name)
+      const parent = get(node.parent)
+
+      if (parent?.kind !== "directory" || parent.metadata.nlink === 0) return undefined
+      node = parent
+    }
+
+    return SLASH_HEX + names.reverse().join(SLASH_HEX)
+  }
+
+  /** @internal */
+  export const entryPath = (prefix: string, name: string) =>
+    ownedPath(nameBytes(prefix + (prefix === SLASH_HEX ? "" : SLASH_HEX) + name))
+
+  /** @internal */
   export const emptyRoot = (now: bigint): Directory => ({
     kind: "directory",
     ino: ROOT_INO,
@@ -1103,6 +1125,8 @@ const Ino = State.Ino
 const ROOT_INO = State.ROOT_INO
 const MAX_FILE_BYTES = State.MAX_FILE_BYTES
 const WALK_YIELD_INTERVAL = State.WALK_YIELD_INTERVAL
+
+const { entryPath, pathOf } = State
 
 const getNode = State.getNode
 
@@ -2207,8 +2231,7 @@ const readLimits = (options: BasicLimits | undefined) =>
         maxBytes: value.maxBytes,
         maxPathBytes: value.maxPathBytes,
         maxFileBytes: value.maxFileBytes ?? ByteSize.bytes(MAX_FILE_BYTES),
-        maxPendingOperations: value.maxPendingOperations ?? 64,
-        maxWatchEvents: 256
+        maxPendingOperations: value.maxPendingOperations ?? 64
       })
   )
 
@@ -2244,7 +2267,9 @@ export interface WatchTarget {
 }
 
 /** @internal */
-export type EngineOperations = Omit<Caller, symbol | "watch" | "withRoot" | "withDirectory">
+export type EngineOperations = Omit<Caller, symbol | "watch" | "withRoot" | "withDirectory" | "limits"> & {
+  readonly limits: Omit<Caller["limits"], "maxWatchEvents">
+}
 
 /** @internal */
 export interface EngineContext {
@@ -2821,23 +2846,6 @@ export const makeEngine = Effect.fnUntraced(
       )
     ))
 
-    const pathOf = (get: (ino: Ino) => Node | undefined, ino: Ino): string | undefined => {
-      const names: Array<string> = []
-      let node = get(ino)
-
-      if (node?.kind !== "directory" || node.metadata.nlink === 0) return undefined
-
-      while (node.ino !== ROOT_INO) {
-        names.push(node.name)
-        const parent = get(node.parent)
-
-        if (parent?.kind !== "directory" || parent.metadata.nlink === 0) return undefined
-        node = parent
-      }
-
-      return SLASH_HEX + names.reverse().join(SLASH_HEX)
-    }
-
     const pathOfCurrent = Effect.fnUntraced(function*(ino: Ino) {
       const names: Array<string> = []
       const first = yield* view(ino)
@@ -2855,9 +2863,6 @@ export const makeEngine = Effect.fnUntraced(
 
       return SLASH_HEX + names.reverse().join(SLASH_HEX)
     })
-
-    const entryPath = (prefix: string, name: string) =>
-      ownedPath(nameBytes(prefix + (prefix === SLASH_HEX ? "" : SLASH_HEX) + name))
 
     const publishEntry = Effect.fnUntraced(
       function*(_tag: "Create" | "Update" | "Remove", parent: Ino, name: string, ino: Ino) {

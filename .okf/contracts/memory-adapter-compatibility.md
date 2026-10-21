@@ -55,7 +55,7 @@ sources:
   - id: overlay-binding
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Overlay volume binding tests
-generated: { by: codex/okf, at: "2026-10-21T23:00:00+02:00" }
+generated: { by: codex/okf, at: "2026-10-21T21:14:27+00:00" }
 ---
 
 # Memory adapter compatibility
@@ -80,7 +80,7 @@ Published Effect 4.0.5 supplies bigint metadata, positioned reads, final-compone
 
 Portable Glob, public readDirectoryEntries/lstat, and the SecureRandom/Digest service split remain unreleased. The published FileSystem/Crypto interfaces remain the public contracts. Local TODOs name the upstream replacement condition; no parallel service is exposed. Provider failures in existing Crypto digest/random operations are defects, matching the future providers, while filesystem and storage I/O failures retain their typed errors.
 
-The layer-based adapter suite in `packages/memory/test/FileSystemTest.ts` runs shared assertions against memory and the Effect Node adapter. `vitest.host.config.ts` runs both providers in Node, independently of the normal Bun workspace run. The first host qualification target is Node 24.21.0 on Ubuntu 24.04 with `@effect/platform-node-shared` 4.0.0; the PR validation host job prints its runtime, operating system, architecture and adapter version. This target does not imply Windows, browser or Bun host support.
+The layer-based adapter suite in `packages/memory/test/FileSystemTest.ts` runs shared assertions against memory and the Effect Node adapter. `vitest.host.config.ts` runs both providers in Node, independently of the normal Bun workspace run. The historical first host qualification target was Node 24.21.0 on Ubuntu 24.04 with `@effect/platform-node-shared` 4.0.0. Current CI qualification retains that Node and operating-system target with `@effect/platform-node-shared` 4.0.5; the PR validation host job prints its runtime, operating system, architecture and adapter version. This target does not imply Windows, browser or Bun host support.
 
 Shared behavior covers path failures, parents, links, open flags, independent cursors, append, truncation and open-unlinked files. Scoped temporary directories and files disappear after success, failure and interruption. Derived stream and sink handles fail structured `stat` checks immediately after success, failure and interruption, before another native descriptor can be acquired. Watch delivery is established by bounded setup mutations because native registration follows asynchronous `stat`; unrelated directory events do not satisfy the file assertion. Interruption stops consumption before a sentinel mutation. A separate host fixture observes the native watcher close event immediately after interruption, while its enclosing scope remains open.
 

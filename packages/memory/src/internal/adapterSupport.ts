@@ -153,4 +153,6 @@ export const listingNames = (
  * Private operation port; no caller construction or watch capability is required.
  * @internal
  */
-export type FileSystemOperations = Omit<Vfs.Caller, symbol | "watch" | "withRoot" | "withDirectory">
+export type FileSystemOperations = Omit<Vfs.Caller, symbol | "watch" | "withRoot" | "withDirectory" | "limits"> & {
+  readonly limits: Omit<Vfs.Caller["limits"], "maxWatchEvents">
+}
