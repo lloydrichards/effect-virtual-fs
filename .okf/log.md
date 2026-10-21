@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-10-22
+
+- Distinguish proven pre-write rejection from uncertain storage commits. Preserve digest failure Causes without publishing the candidate or disabling the volume; retain conservative shutdown for ambiguous writes and failed cleanup.
+
 ## 2026-10-21
 
 - Retain the final collection measurement data beside its evidence summary. Replace temporary port-plan sources with durable ownership and issue contracts, distinguish published 4.0.5 preparation from unreleased upstream substitutions, and preserve the historical host baseline.

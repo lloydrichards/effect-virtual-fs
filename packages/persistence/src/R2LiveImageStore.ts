@@ -274,7 +274,10 @@ export const layer = (
 
           if (BigInt(image.length) > maxImage || generation === Number.MAX_SAFE_INTEGER) return "rejected" as const
 
-          const hashed = yield* digest(image)
+          const hashing = yield* Effect.exit(digest(image))
+
+          if (Exit.isFailure(hashing)) return { _tag: "Rejected" as const, cause: hashing.cause }
+          const hashed = hashing.value
 
           const written = yield* Effect.exit(options.client.write(
             options.key,

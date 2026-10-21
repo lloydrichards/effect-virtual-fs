@@ -2,7 +2,7 @@ import { GetObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from
 import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it, vi } from "@effect/vitest"
-import { ByteSize, Deferred, Effect } from "effect"
+import { ByteSize, Cause, Crypto, Deferred, Effect, Exit } from "effect"
 import * as R2LiveImageStore from "../src/R2LiveImageStore.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
@@ -53,6 +53,45 @@ const layer = (client: R2LiveImageStore.R2Client) =>
 
 // The stores digest images with Crypto; LiveVolume.open itself needs none.
 it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
+  it.effect("should preserve pre-write digest defects without disabling the live volume", () =>
+    Effect.gen(function*() {
+      const crypto = yield* Crypto.Crypto
+      const remote = makeClient()
+      let failed = false
+      let writes = 0
+      const defect = new Error("digest failed before write")
+
+      const client = {
+        ...remote.client,
+        write: (...args: Parameters<R2LiveImageStore.R2Client["write"]>) => {
+          writes++
+
+          return remote.client.write(...args)
+        }
+      }
+
+      const volume = yield* LiveVolume.open({ maxImageBytes: ByteSize.kilobytes(64), volume: {} }).pipe(
+        Effect.provide(layer(client)),
+        Effect.provideService(Crypto.Crypto, {
+          ...crypto,
+          digest: (algorithm, bytes) => failed ? Effect.die(defect) : crypto.digest(algorithm, bytes)
+        })
+      )
+
+      const caller = yield* volume.caller()
+      const before = writes
+      failed = true
+      const result = yield* Effect.exit(caller.mkdir("/failed"))
+      assert.isTrue(Exit.isFailure(result))
+
+      if (Exit.isFailure(result)) assert.strictEqual(Cause.squash(result.cause), defect)
+      assert.strictEqual(writes, before)
+      assert.strictEqual((yield* Effect.flip(caller.stat("/failed"))).code, "NotFound")
+      failed = false
+      yield* caller.mkdir("/retry")
+      assert.strictEqual((yield* caller.stat("/retry")).kind, "directory")
+    }))
+
   it.effect("should report power-loss durability when the application qualifies the R2 transport", () =>
     Effect.gen(function*() {
       const remote = makeClient()
