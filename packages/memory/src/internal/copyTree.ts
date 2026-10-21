@@ -20,7 +20,7 @@ interface Written {
 }
 
 interface Directory {
-  readonly reference: Vfs.ObjectReference
+  readonly reference: Vfs.ObjectReference | Vfs.DirectoryHandle
   readonly metadata: Vfs.Metadata
   readonly created: boolean
 }
@@ -49,7 +49,7 @@ const removeClaimed = Effect.fnUntraced(function*(
   }
 
   if (current.success !== reference) return
-  const restored: Array<{ reference: Vfs.ObjectReference; mode: number }> = []
+  const restored: Array<{ reference: Vfs.ObjectReference | Vfs.DirectoryHandle; mode: number }> = []
 
   const prepare = Effect.gen(function*() {
     // Only copy-created directories need their finalized restrictive modes reopened.
@@ -165,7 +165,7 @@ export const copyTree = Effect.fnUntraced(function*(
           return yield* noSpace()
         }
 
-        const reference = yield* Effect.uninterruptible(Effect.gen(function*() {
+        const base = yield* Effect.uninterruptible(Effect.gen(function*() {
           const made = yield* Effect.result(caller.mkdir(target, { mode: metadata.mode | 0o700 }))
           const created = Result.isSuccess(made)
 
@@ -173,20 +173,15 @@ export const copyTree = Effect.fnUntraced(function*(
             return yield* made.failure
           }
 
-          const reference = created ? made.success.reference : yield* caller.lookup(target)
-
-          if (root && created && !options?.overwrite) claimed = reference
-
-          if (!created && (yield* caller.stat(reference)).kind !== "directory") {
-            return yield* new VfsError({ code: "NotDirectory", operation: "copy" })
-          }
+          if (root && created && !options?.overwrite) claimed = made.success.reference
+          const base = yield* Scope.provide(caller.openDirectory(created ? made.success.reference : target), handles)
+          const reference = created ? made.success.reference : base
 
           directories.push({ reference, metadata, created })
 
-          return reference
+          return base
         }))
 
-        const base = yield* Scope.provide(caller.openDirectory(reference), handles)
         const sourceBytes = yield* BytePath.toBytes(yield* BytePath.fromInput(next.source))
 
         for (let index = children.length - 1; index >= 0; index--) {
