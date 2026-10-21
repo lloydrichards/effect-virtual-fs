@@ -54,6 +54,15 @@ it.layer(BunCrypto.layer)((it) => {
       }
     }))
 
+  it.effect("should reject null caller options instead of constructing a privileged caller", () =>
+    Effect.gen(function*() {
+      const volume = yield* Vfs.make()
+      // @ts-expect-error Exercise malformed options received from JavaScript.
+      const result = yield* Effect.flip(volume.caller(null))
+      assert.strictEqual(result.code, "InvalidArgument")
+      assert.strictEqual(result.operation, "caller")
+    }))
+
   it.effect(
     "should publish durability identity and incarnation when a memory volume is constructed",
     () =>
