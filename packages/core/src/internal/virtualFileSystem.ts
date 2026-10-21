@@ -9,6 +9,7 @@ import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as Exit from "effect/Exit"
 import { dual } from "effect/Function"
+import * as HashMap from "effect/HashMap"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
@@ -82,7 +83,6 @@ import {
 import { KeySecret, VolumeEpoch } from "./hex128.js"
 import { hmacSha256, sameTag } from "./hmac.js"
 import * as Image from "./image.js"
-import * as InodeTable from "./inodeTable.js"
 import * as LiveImage from "./liveImage.js"
 import * as MetadataDomain from "./metadata.js"
 import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./overlayDiff.js"
@@ -117,6 +117,7 @@ import {
   reachableValue,
   type RegularFile,
   ROOT_INO,
+  setNode,
   storedMetadata,
   type SymbolicLink,
   type VolumeState,
@@ -297,7 +298,6 @@ interface ResolvedNode {
 // One change gets one draft service. Its MutableRef contains the candidate and all
 // actions that may become visible only after the candidate is installed.
 interface DraftState {
-  readonly owner: InodeTable.Owner
   readonly pending: Map<Ino, Node | undefined>
   readonly opens: ReadonlyMap<Ino, number> | undefined
   readonly nextInode: Ino
@@ -340,7 +340,6 @@ class Draft extends Context.Service<Draft, DraftOperations>()("@effect-vfs/core/
     const revision = base.revision + 1n
 
     const cell = MutableRef.make<DraftState>({
-      owner: Symbol(),
       pending: new Map(),
       opens: undefined,
       nextInode: base.nextInode,
@@ -357,7 +356,7 @@ class Draft extends Context.Service<Draft, DraftOperations>()("@effect-vfs/core/
     const lookup = (ino: Ino) => {
       const draft = MutableRef.get(cell)
 
-      return draft.pending.has(ino) ? draft.pending.get(ino) : InodeTable.get(base.inodes, ino)
+      return draft.pending.has(ino) ? draft.pending.get(ino) : getNode(base, ino)
     }
 
     const get = (ino: Ino) => Effect.sync(() => lookup(ino))
@@ -438,9 +437,14 @@ class Draft extends Context.Service<Draft, DraftOperations>()("@effect-vfs/core/
         const draft = MutableRef.get(cell)
 
         if (draft.finished !== undefined) return draft.finished
-        let inodes = base.inodes
 
-        for (const [ino, node] of draft.pending) inodes = InodeTable.set(inodes, ino, node, draft.owner)
+        const inodes = HashMap.mutate(base.inodes, (mutable) => {
+          for (const [ino, node] of draft.pending) {
+            if (node === undefined) HashMap.remove(mutable, ino)
+            else setNode(mutable, node)
+          }
+        })
+
         let open = base.open
 
         if (draft.opens !== undefined) {
@@ -2879,7 +2883,7 @@ export const makeVolume = Effect.fnUntraced(
               yield* authorize(directory.node, identity, READ, directory.op)
 
               const value = Object.freeze(
-                [...directory.node.entries].map(([name, child]) =>
+                DirectoryEntries.toArray(directory.node.entries).map(([name, child]) =>
                   Object.freeze({ name: nameBytes(name), reference: referenceFor(child) })
                 )
               )

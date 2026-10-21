@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
-import * as InodeTable from "../../src/internal/inodeTable.js"
+import * as HashMap from "effect/HashMap"
 import {
   type Directory,
   directoryMetadata,
@@ -10,6 +10,7 @@ import {
   type Node,
   type RegularFile,
   ROOT_INO,
+  setNode,
   type SymbolicLink
 } from "../../src/internal/volumeState.js"
 
@@ -52,10 +53,9 @@ export const symlink = (ino: number, target: string): SymbolicLink => ({
 
 export const volumeState = () => {
   let state = emptyState(0n)
-  const owner = Symbol()
 
   const put = (node: Node) => {
-    state = { ...state, inodes: InodeTable.set(state.inodes, node.ino, node, owner) }
+    state = { ...state, inodes: setNode(state.inodes, node) }
   }
 
   return {
@@ -65,7 +65,7 @@ export const volumeState = () => {
     get: (ino: Ino) => Effect.sync(() => getNode(state, ino)),
     put,
     remove: (ino: Ino) => {
-      state = { ...state, inodes: InodeTable.set(state.inodes, ino, undefined, owner) }
+      state = { ...state, inodes: HashMap.remove(state.inodes, ino) }
     },
     attach: (parent: Directory, entry: string, node: Node) => {
       put(node)
@@ -91,7 +91,7 @@ export const volumeState = () => {
           ...state,
           open,
           inodes: count <= 0 && node?.metadata.nlink === 0
-            ? InodeTable.set(state.inodes, ino, undefined, owner)
+            ? HashMap.remove(state.inodes, ino)
             : state.inodes
         }
       })

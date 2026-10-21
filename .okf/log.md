@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-10-21
+
+- Consolidate #305 into the persistent-state decision and focused collection evidence. Record private inode identity, transient ownership, explicit directory order and accepted CPU/heap costs. Remove superseded research, intermediate measurements and scratchpad experiments; retain final raw VFS trials.
+
 ## 2026-10-20
 
 - Qualify Code Mode storage in binary byte units, bound retained UTF-8 failure diagnostics separately from interpreter output, and verify cancellation over real MCP stdio. Keep runtime comparison and startup measurement open in #30.

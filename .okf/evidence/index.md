@@ -1,5 +1,7 @@
 # Evidence
 
+- [Effect HashMap collection tradeoffs](collection-reuse.md) records the accepted CPU and retained-heap costs of replacing the integer trie.
+
 - [Measured core and memory workloads](workload-envelope.md) records reproducible workload qualification and its memory limits.
 
 - [Current validation conclusions](current-validation.md) records only evidence that changes present maintenance or interpretation of the supported surface.

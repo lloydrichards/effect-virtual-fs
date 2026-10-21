@@ -4,7 +4,7 @@ import { ByteSize, Effect } from "effect"
 import * as Hex from "effect/encoding/Hex"
 import { VirtualFileSystem as Vfs } from "../../src/index.js"
 import * as Image from "../../src/internal/image.js"
-import * as InodeTable from "../../src/internal/inodeTable.js"
+import { getNode, ROOT_INO } from "../../src/internal/volumeState.js"
 
 describe("snapshot image base sharing", () => {
   it.layer(BunCrypto.layer)((it) => {
@@ -36,13 +36,17 @@ describe("snapshot image base sharing", () => {
 
           // Deliberately violate the private immutable-buffer convention to prove an untouched workspace still
           // reads the base value's exact payload while a promoted one holds its own.
-          // SAFETY: the base value's inode shapes are private; the test reaches the file payload through them.
-          const rootNode = InodeTable.get(first.inodes, 1) as { entries: ReadonlyMap<string, number> } | undefined
+          const rootNode = getNode(first, ROOT_INO)
+          assert.isDefined(rootNode)
+          assert.strictEqual(rootNode.kind, "directory")
+
+          if (rootNode.kind !== "directory") return assert.fail("Expected directory root")
           const fileIno = rootNode?.entries.get(Hex.encode(new TextEncoder().encode("file")))
           assert.isDefined(fileIno)
-          // SAFETY: as above.
-          const fileNode = InodeTable.get(first.inodes, fileIno) as { data: Uint8Array } | undefined
+          const fileNode = getNode(first, fileIno)
           assert.isDefined(fileNode)
+
+          if (fileNode.kind !== "file") return assert.fail("Expected regular file")
           fileNode.data[0] = 9
           assert.deepStrictEqual(yield* a.readFile("/file"), new Uint8Array([7, 2, 3]))
           assert.deepStrictEqual(yield* b.readFile("/file"), new Uint8Array([9, 2, 3]))

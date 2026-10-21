@@ -1,6 +1,5 @@
 import * as HashMap from "effect/HashMap"
 import * as Option from "effect/Option"
-import * as InodeTable from "./inodeTable.js"
 import type { Ino } from "./volumeState.js"
 
 interface Entry {
@@ -15,7 +14,7 @@ class DirectoryEntries implements ReadonlyMap<string, Ino> {
 
   constructor(
     readonly names: HashMap.HashMap<string, Entry>,
-    readonly slots: InodeTable.InodeTable<Entry>,
+    readonly slots: HashMap.HashMap<number, Entry>,
     readonly length: number
   ) {}
 
@@ -35,7 +34,7 @@ class DirectoryEntries implements ReadonlyMap<string, Ino> {
 
   *entries(): IterableIterator<[string, Ino]> {
     for (let index = 0; index < this.length; index++) {
-      const entry = InodeTable.get(this.slots, index)
+      const entry = Option.getOrUndefined(HashMap.get(this.slots, index))
 
       if (entry !== undefined) yield [entry.name, entry.ino]
     }
@@ -60,20 +59,19 @@ class DirectoryEntries implements ReadonlyMap<string, Ino> {
 }
 
 const fromEntries = (entries: ReadonlyMap<string, Ino>): DirectoryEntries => {
-  let slots = InodeTable.empty<Entry>()
+  const slots = HashMap.beginMutation(HashMap.empty<number, Entry>())
   let length = 0
-  const owner = Symbol()
 
   const names = HashMap.mutate(HashMap.empty<string, Entry>(), (mutable) => {
     for (const [name, ino] of entries) {
       const entry = { name, ino, index: length }
       HashMap.set(mutable, name, entry)
-      slots = InodeTable.set(slots, length, entry, owner)
+      HashMap.set(slots, length, entry)
       length++
     }
   })
 
-  return new DirectoryEntries(names, slots, length)
+  return new DirectoryEntries(names, HashMap.endMutation(slots), length)
 }
 
 /** @internal */
@@ -86,7 +84,7 @@ export const set = (entries: ReadonlyMap<string, Ino>, name: string, ino: Ino): 
 
   return new DirectoryEntries(
     HashMap.set(current.names, name, entry),
-    InodeTable.set(current.slots, index, entry),
+    HashMap.set(current.slots, index, entry),
     Option.isSome(existing) ? current.length : current.length + 1
   )
 }
@@ -100,9 +98,23 @@ export const remove = (entries: ReadonlyMap<string, Ino>, name: string): Readonl
 
   const removed = new DirectoryEntries(
     HashMap.remove(current.names, name),
-    InodeTable.set(current.slots, existing.value.index, undefined),
+    HashMap.remove(current.slots, existing.value.index),
     current.length
   )
 
   return removed.length > removed.size * 2 ? fromEntries(removed) : removed
+}
+
+// Full directory observations already materialize every entry. Populate indices once instead of hashing every
+// slot lookup; lazy iterators above keep their incremental traversal for bounded snapshot/search consumers.
+/** @internal */
+export const toArray = (entries: ReadonlyMap<string, Ino>): Array<[string, Ino]> => {
+  // Larger logical indices are not array elements; retain the incremental fallback for that domain.
+  if (!(entries instanceof DirectoryEntries) || entries.length > 0xffffffff) return Array.from(entries)
+  const ordered: Array<[string, Ino] | undefined> = []
+  HashMap.forEach(entries.slots, (entry) => {
+    ordered[entry.index] = [entry.name, entry.ino]
+  })
+
+  return ordered.filter((entry) => entry !== undefined)
 }
