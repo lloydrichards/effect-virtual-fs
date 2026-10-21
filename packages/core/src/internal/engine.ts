@@ -17,6 +17,7 @@ import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
+import * as Scheduler from "effect/Scheduler"
 import type { SchedulerDispatcher } from "effect/Scheduler"
 import * as Schema from "effect/Schema"
 import type * as SchemaIssue from "effect/SchemaIssue"
@@ -1534,6 +1535,9 @@ export namespace TokenRegistry {
   export type TokenRegistry = ReturnType<typeof make>
 }
 
+// Only engine-owned sections set this reference; cooperative callers keep explicit walk yields.
+const SyncSection = Context.Reference<boolean>("@effect-vfs/core/SyncSection", { defaultValue: () => false })
+
 /** @internal */
 namespace Confinement {
   /** @internal */
@@ -1551,7 +1555,7 @@ namespace Confinement {
         if (parent?.kind !== "directory" || parent.entries.get(node.name) !== node.ino) return false
         node = parent
 
-        if (++steps % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
+        if (++steps % WALK_YIELD_INTERVAL === 0 && !(yield* SyncSection)) yield* Effect.yieldNow
       }
 
       return false
@@ -1623,7 +1627,7 @@ namespace Confinement {
 
         node = parent
 
-        if (++steps % WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
+        if (++steps % WALK_YIELD_INTERVAL === 0 && !(yield* SyncSection)) yield* Effect.yieldNow
       }
 
       return "2f" + names.reverse().join("2f")
@@ -2195,6 +2199,7 @@ export namespace Resolution {
 
 /** @internal */
 export interface EngineOptions {
+  readonly execution?: "cooperative" | "sync" | undefined
   readonly limits?: BasicLimits | undefined
   readonly initialTime?: bigint | undefined
   readonly initialState?: VolumeState | undefined
@@ -2668,6 +2673,16 @@ export const makeEngine = Effect.fnUntraced(
     const dieInvariant = (message: string): never => Effect.runSyncWith(services)(Effect.die(message))
     const limits = yield* Effect.fromResult(readLimits(options.limits))
     const commitProvider = options.commitProvider ?? memoryCommitProvider
+    const execution = options.execution ?? "cooperative"
+
+    if (
+      (execution !== "cooperative" && execution !== "sync") ||
+      (execution === "sync" && commitProvider !== memoryCommitProvider)
+    ) {
+      return yield* argumentFailure("make", "execution")
+    }
+
+    const synchronous = execution === "sync"
     const clock = yield* Clock.clockWith(Effect.succeed)
     const initialTime = options.initialTime ?? clock.currentTimeNanosUnsafe()
 
@@ -2689,29 +2704,111 @@ export const makeEngine = Effect.fnUntraced(
 
     const maxPendingOperations = limits.maxPendingOperations
     const permits = maxPendingOperations + 1
-    const gate = Semaphore.makeUnsafe(permits)
+
     // The gate hands permits to whichever waiter it can satisfy, so a change waiting for every permit would be
     // overtaken by each later observation. A change holds a turnstile while it gathers the permits, and an
     // observation passes the turnstile before it takes one, so observations that arrive after a change wait
     // behind it. The turnstile goes to its waiters in arrival order, even to one that arrives while a finished
     // change is still releasing. Both waits stay interruptible, and every permit is taken and released by
     // `withPermits`.
-    const turnstile = makeTurnstile()
+    const cooperative = synchronous ? undefined : {
+      gate: Semaphore.makeUnsafe(permits),
+      turnstile: makeTurnstile()
+    }
+
+    let active = false
+    const pending = new Map<TokenRegistry.HandleReference, Effect.Effect<void>>()
+
+    const preflight = (op: OpContext): Effect.Effect<void, FsFailure> =>
+      synchronous
+        ? Effect.suspend(() => {
+          if (active) return Effect.fail(op.fail("VolumeBusy"))
+
+          return Effect.flatMap(VolumeTestSeams, (seams) =>
+            Object.values(seams).some((effect) => effect !== Effect.void)
+              ? Effect.fail(op.fail("InvalidArgument", { field: "testSeams" }))
+              : Effect.void)
+        })
+        : Effect.void
+
+    const drain = Effect.gen(function*() {
+      let failure = Cause.empty
+
+      while (pending.size > 0) {
+        const releases = Array.from(pending.values())
+        pending.clear()
+
+        for (const release of releases) {
+          const exit = yield* Effect.exit(release)
+
+          if (Exit.isFailure(exit)) failure = Cause.combine(failure, exit.cause)
+        }
+      }
+
+      if (failure.reasons.length > 0) return yield* Effect.failCause(failure)
+    })
+
+    const inSyncSection = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FsFailure, R> =>
+      Effect.provideService(
+        Effect.provideService(
+          Effect.uninterruptible(Effect.suspend((): Effect.Effect<A, E | FsFailure, R> => {
+            if (active) return Effect.fail(fsFailure("VolumeBusy", "coordinate"))
+            active = true
+
+            return Effect.ensuring(
+              effect,
+              Effect.ensuring(
+                drain,
+                Effect.sync(() => {
+                  active = false
+                })
+              )
+            )
+          })),
+          Scheduler.PreventSchedulerYield,
+          true
+        ),
+        SyncSection,
+        true
+      )
 
     const observing = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      Effect.andThen(turnstile.withTurn(Effect.void), gate.withPermits(1)(effect))
+      cooperative === undefined
+        ? inSyncSection(effect)
+        : Effect.andThen(cooperative.turnstile.withTurn(Effect.void), cooperative.gate.withPermits(1)(effect))
 
-    const changing = <A, E, R>(effect: Effect.Effect<A, E, R>) => turnstile.withTurn(gate.withPermits(permits)(effect))
+    const changing = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      cooperative === undefined
+        ? inSyncSection(effect)
+        : cooperative.turnstile.withTurn(cooperative.gate.withPermits(permits)(effect))
 
     const admission = yield* Semaphore.make(permits)
 
     const admit = <A, E, R>(op: OpContext, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FsFailure, R> =>
-      admission.withPermitsIfAvailable(1)(effect).pipe(
-        Effect.flatMap(Option.match({
-          onNone: () => op.fail("VolumeBusy"),
-          onSome: Effect.succeed
-        }))
+      Effect.andThen(
+        preflight(op),
+        admission.withPermitsIfAvailable(1)(effect).pipe(
+          Effect.flatMap(Option.match({
+            onNone: () => op.fail("VolumeBusy"),
+            onSome: Effect.succeed
+          }))
+        )
       )
+
+    const finalizeOwned = (
+      reference: TokenRegistry.HandleReference,
+      release: () => Effect.Effect<void, FsFailure>,
+      ordinary: Effect.Effect<void>
+    ) =>
+      synchronous
+        ? Effect.uninterruptible(Effect.suspend(() => {
+          if (!active) return ordinary
+          reference.lifecycle = { kind: "releasedPendingCommit", ino: TokenRegistry.inode(reference) }
+          pending.set(reference, Effect.orDie(Effect.suspend(release)))
+
+          return Effect.void
+        }))
+        : ordinary
 
     let state = emptyState(initialTime)
     const maxFileBytes = Number(ByteSize.toBigInt(limits.maxFileBytes))
@@ -2858,7 +2955,7 @@ export const makeEngine = Effect.fnUntraced(
         }),
         commitProvider.shutdown
       )
-    ))
+    )).pipe(Effect.orDie)
 
     const pathOfCurrent = Effect.fnUntraced(function*(ino: Ino) {
       const names: Array<string> = []
@@ -2958,7 +3055,11 @@ export const makeEngine = Effect.fnUntraced(
     const finalizeDirectory = (reference: DirectoryReference) => {
       const close = coordinatedCleanup(releaseDirectory(reference))
 
-      return TokenRegistry.finalize(reference, close, Effect.ignore(close))
+      return finalizeOwned(
+        reference,
+        () => releaseDirectory(reference),
+        TokenRegistry.finalize(reference, close, Effect.ignore(close))
+      )
     }
 
     const closeReleasedScope = TokenRegistry.closeReleasedScope
@@ -3080,7 +3181,11 @@ export const makeEngine = Effect.fnUntraced(
       ).pipe(Effect.tapError((error) => error.code === "VolumeBusy" ? Effect.void : releaseOpenFile(ref)))
 
     const finalizeFile = (ref: FileReference) =>
-      TokenRegistry.finalize(ref, closeFile(ref, OpContext.make("close"), Effect.void), releaseOpenFile(ref))
+      finalizeOwned(
+        ref,
+        () => applyCleanup(() => releaseFile(ref)),
+        TokenRegistry.finalize(ref, closeFile(ref, OpContext.make("close"), Effect.void), releaseOpenFile(ref))
+      )
 
     const acquireHandle = TokenRegistry.acquire
 
@@ -3134,7 +3239,8 @@ export const makeEngine = Effect.fnUntraced(
         const node = ino === undefined ? undefined : yield* view(ino)
 
         if (
-          node?.kind !== "file" || (access === "read" && ref.access === "write") ||
+          (!cleanup && !TokenRegistry.isOpen(ref)) || node?.kind !== "file" ||
+          (access === "read" && ref.access === "write") ||
           (access === "write" && ref.access === "read")
         ) return yield* op.fail("InvalidHandle")
 
@@ -4115,14 +4221,17 @@ export const makeEngine = Effect.fnUntraced(
       ) => {
         let opened: Ino | undefined
 
-        return acquireHandle(
-          ref,
-          (effect) => coordinated(op, effect),
-          acquire((ino) => {
-            opened = ino
-          }),
-          releasePending(() => opened),
-          finalizeFile(ref)
+        return Effect.andThen(
+          preflight(op),
+          acquireHandle(
+            ref,
+            (effect) => coordinated(op, effect),
+            acquire((ino) => {
+              opened = ino
+            }),
+            releasePending(() => opened),
+            finalizeFile(ref)
+          )
         )
       }
 
@@ -4135,6 +4244,7 @@ export const makeEngine = Effect.fnUntraced(
       const asTarget = (input: TargetInput): Target => Target.of(input)
 
       const acquireDirectory = Effect.fnUntraced(function*(input: TargetInput, op: OpContext) {
+        yield* preflight(op)
         const target = asTarget(input)
         const acquired = makeDirectoryReference()
 
@@ -4781,7 +4891,7 @@ export const makeEngine = Effect.fnUntraced(
         root: coordinatedRead(
           rootOp,
           Effect.suspend(() =>
-            TokenRegistry.inode(reference) === undefined
+            !TokenRegistry.isOpen(reference)
               ? Effect.fail(rootOp.fail("ClosedCaller"))
               : Effect.gen(function*() {
                 const node = yield* view(boundary?.root ?? ROOT_INO)
@@ -5329,7 +5439,7 @@ export const makeEngine = Effect.fnUntraced(
               statOp,
               Effect.gen(function*() {
                 const ino = TokenRegistry.inode(acquired)
-                const node = ino === undefined ? undefined : yield* view(ino)
+                const node = !TokenRegistry.isOpen(acquired) || ino === undefined ? undefined : yield* view(ino)
 
                 if (node !== undefined && acquired.authority !== undefined) yield* acquired.authority(node, statOp)
 
@@ -5404,8 +5514,21 @@ export const makeEngine = Effect.fnUntraced(
       coordinate: changing,
       admit,
       checkAvailable,
-      capture: <A, E, R>(operation: string, read: (state: VolumeState) => Effect.Effect<A, E, R>) =>
-        coordinatedRead(OpContext.make(operation), Effect.suspend(() => read(state))),
+      execution,
+      syncBinding: synchronous ?
+        Object.freeze({
+          check: (operation: string): Result.Result<void, FsFailure> =>
+            active
+              ? Result.fail(fsFailure("VolumeBusy", operation))
+              : Result.succeed(undefined)
+        }) :
+        undefined,
+      preflight,
+      capture: (operation: string) => coordinatedRead(OpContext.make(operation), Effect.sync(() => state)),
+      cooperativeCapture: synchronous ?
+        undefined :
+        <A, E, R>(operation: string, read: (state: VolumeState) => Effect.Effect<A, E, R>) =>
+          coordinatedRead(OpContext.make(operation), Effect.suspend(() => read(state))),
       referenceInode: (reference: ObjectReference, op: OpContext) =>
         coordinatedRead(
           op,

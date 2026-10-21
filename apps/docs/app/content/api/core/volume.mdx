@@ -56,7 +56,7 @@ export type OverlayChange =
     }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L276)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L278)
 
 Since v0.6.0
 
@@ -70,7 +70,7 @@ Options of an overlay change summary.
 export type OverlayChangesOptions = { readonly includeTimestamps?: boolean }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L294)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L296)
 
 Since v0.6.0
 
@@ -85,7 +85,7 @@ export type OverlayDifference =
   "uid" | "gid" | "mode" | "atimeNs" | "mtimeNs" | "ctimeNs" | "birthtimeNs" | "content"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L240)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L242)
 
 Since v0.6.0
 
@@ -99,7 +99,7 @@ A kind of filesystem entry in an overlay summary.
 export type OverlayNodeKind = "file" | "directory" | "symlink"
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L215)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L217)
 
 Since v0.6.0
 
@@ -180,13 +180,14 @@ export type VolumeOptions = {
   readonly maxPathBytes?: ByteSize.ByteSize
   readonly maxFileBytes?: ByteSize.ByteSize
   readonly identity?: string & Brand.Brand<"@effect-vfs/core/VolumeIdentity">
+  readonly execution?: "cooperative" | "sync"
   readonly maxPendingOperations?: number
   readonly maxWatchEvents?: number
   readonly maxBytes?: ByteSize.ByteSize
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L199)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L201)
 
 Since v0.6.0
 
@@ -288,7 +289,7 @@ declare const OverlayChange: Schema.Union<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L252)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L254)
 
 Since v0.6.0
 
@@ -302,7 +303,7 @@ Schema for the options of an overlay change summary.
 declare const OverlayChangesOptions: Schema.Struct<{ readonly includeTimestamps: Schema.optionalKey<Schema.Boolean> }>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L284)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L286)
 
 Since v0.6.0
 
@@ -318,7 +319,7 @@ declare const OverlayDifference: Schema.Literals<
 >
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L223)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L225)
 
 Since v0.6.0
 
@@ -332,7 +333,7 @@ Schema for the kinds of filesystem entry an overlay summary reports.
 declare const OverlayNodeKind: Schema.Literals<readonly ["directory", "file", "symlink"]>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L207)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Volume.ts#L209)
 
 Since v0.6.0
 
@@ -425,6 +426,7 @@ Schema for volume construction options.
 
 ```ts
 declare const VolumeOptions: Schema.Struct<{
+  readonly execution: Schema.optionalKey<Schema.Literals<readonly ["cooperative", "sync"]>>
   readonly identity: Schema.optionalKey<Schema.brand<Schema.String, "@effect-vfs/core/VolumeIdentity">>
   readonly maxEntries: Schema.optionalKey<Schema.Natural>
   readonly maxPendingOperations: Schema.optionalKey<Schema.Int>

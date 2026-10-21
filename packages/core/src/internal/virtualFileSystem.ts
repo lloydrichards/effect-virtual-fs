@@ -121,6 +121,11 @@ export const makeVolume = Effect.fnUntraced(function*(
 ) {
   const live = Predicate.isTagged("Live")(source) ? source.restored : undefined
   const decoded = yield* Effect.fromResult(Limits.configuration(options))
+
+  if (decoded.options.execution === "sync" && commitProvider !== memoryCommitProvider) {
+    return yield* argumentFailure("make", "execution")
+  }
+
   const requested = decoded.limits
   const limits = live === undefined ? requested : yield* Effect.fromResult(Limits.fromStored(live.limits, requested))
 
@@ -167,6 +172,7 @@ export const makeVolume = Effect.fnUntraced(function*(
   const { maxWatchEvents, ...basicLimits } = limits
 
   const engine = yield* Engine.makeEngine({
+    execution: decoded.options.execution,
     limits: basicLimits,
     initialTime,
     initialState: state,
@@ -174,7 +180,11 @@ export const makeVolume = Effect.fnUntraced(function*(
     installed: (events, installation) => watchHub.publishUnsafe(events, installation)
   })
 
-  watchHub = yield* WatchHub.make<WatchEvent, Installation, FsFailure>(engine.coordinate, maxWatchEvents)
+  watchHub = yield* WatchHub.make<WatchEvent, Installation, FsFailure>(
+    engine.coordinate,
+    maxWatchEvents,
+    engine.execution === "sync"
+  )
 
   const pathsOf = (installed: VolumeState, ino: Ino): Array<BytePath> => {
     const node = getNode(installed, ino)
@@ -248,7 +258,13 @@ export const makeVolume = Effect.fnUntraced(function*(
     }
   }
 
-  const captureState = engine.capture(
+  // Cooperative capture retains its established ordering; sync summaries run after immutable capture.
+  const capture = <A, E, R>(operation: string, read: (state: VolumeState) => Effect.Effect<A, E, R>) =>
+    engine.cooperativeCapture === undefined
+      ? Effect.flatMap(engine.capture(operation), read)
+      : engine.cooperativeCapture(operation, read)
+
+  const captureState = capture(
     "capture",
     Effect.fnUntraced(function*(captured) {
       const snapshot = Image.make(captured)
@@ -321,7 +337,7 @@ export const makeVolume = Effect.fnUntraced(function*(
 
       return Stream.map(stream, (event) => event.change)
     }),
-    snapshot: engine.capture("snapshot", (state) => Effect.succeed(Image.make(state))),
+    snapshot: capture("snapshot", (state) => Effect.succeed(Image.make(state))),
     referenceKey: Effect.fnUntraced(function*(reference: ObjectReference) {
       const op = OpContext.make("referenceKey")
 
@@ -354,7 +370,7 @@ export const makeVolume = Effect.fnUntraced(function*(
   })
 
   const observe = Object.freeze({
-    changes: engine.capture("changes", observeChanges),
+    changes: capture("changes", observeChanges),
     capture: captureState
   })
 
@@ -392,6 +408,9 @@ export const openImageVolume = Effect.fnUntraced(function*(
   durability: VolumeDurability = "memory-only",
   options?: VolumeOptions
 ) {
+  const decoded = yield* Effect.fromResult(Limits.configuration(options, "openImage"))
+
+  if (decoded.options.execution === "sync") return yield* argumentFailure("openImage", "execution")
   const restored = yield* LiveImage.decode(image, maxImageBytes)
   const requested = yield* Effect.fromResult(Limits.fromOptions(options, "openImage"))
   const limits = yield* Effect.fromResult(Limits.fromStored(restored.limits, requested))

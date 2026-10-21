@@ -6,8 +6,8 @@ import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 
 /** @internal */
-export interface Coordinator {
-  <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>
+export interface Coordinator<Failure> {
+  <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | Failure, R>
 }
 
 /**
@@ -44,8 +44,9 @@ interface Subscriber<A, C, E> {
 
 /** @internal */
 export const make = Effect.fnUntraced(function*<A, C, E = never>(
-  coordinate: Coordinator,
-  capacity: number
+  coordinate: Coordinator<E>,
+  capacity: number,
+  synchronous = false
 ): Effect.fn.Return<WatchHub<A, C, E>> {
   const subscribers = new Set<Subscriber<A, C, E>>()
 
@@ -119,8 +120,11 @@ export const make = Effect.fnUntraced(function*<A, C, E = never>(
 
         if (subscriber === undefined) return Effect.void
 
-        return coordinate(Effect.sync(() => subscribers.delete(subscriber))).pipe(
-          Effect.andThen(Queue.shutdown(subscriber.queue))
+        const remove = Effect.sync(() => subscribers.delete(subscriber))
+
+        // Sync teardown is a known release action: it cannot wait on an active namespace operation.
+        return Effect.ensuring(synchronous ? remove : coordinate(remove), Queue.shutdown(subscriber.queue)).pipe(
+          Effect.orDie
         )
       })
     )

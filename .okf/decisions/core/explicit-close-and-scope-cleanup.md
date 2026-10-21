@@ -5,6 +5,8 @@ description: Makes repeated explicit close fail while automatic scope cleanup re
 status: stable
 tags: [resources, lifetimes, scope]
 sources:
+  - resource: ../../../packages/core/test/Execution.test.ts
+    title: Sync reentry and ownership-drain behavior
   - id: core
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: Handle close and scoped acquisition
@@ -20,7 +22,7 @@ sources:
   - id: registry-tests
     resource: ../../../packages/core/test/Engine.test.ts
     title: Direct lifecycle transition tests
-generated: { by: codex/okf, at: "2026-10-01T12:45:00Z" }
+generated: { by: codex/okf, at: "2026-10-21T21:48:36+00:00" }
 ---
 
 # Explicit close and scope cleanup
@@ -30,6 +32,8 @@ Explicitly closing a live file or directory handle releases it; a repeated expli
 The token registry owns the lifecycle and scope bookkeeping, while engine callbacks own inode retention, reclamation, and commit installation. Each handle owns a scope forked from the scope that opened it, and explicit close and scope cleanup run the same release. An open whose scope closes before it publishes is interrupted and releases what it acquired; one whose commit already published keeps its effect, so an interrupted exclusive create still leaves the file. An explicit close that was interrupted while waiting, or refused with `VolumeBusy`, leaves the handle open for a retry. A close whose commit fails still releases the handle and reports the failure. Scope cleanup is uninterruptible and does not need admission, so a busy volume or an interrupted scope close still releases the handle.[^engine][^tests]
 
 Changed file and detached-directory cleanup candidates pass through the required commit provider while the volume is available, including cleanup that bypasses full admission. Confirmed cleanup installs the release immediately. A rejected, uncertain, or preparation-failed cleanup releases local resources and stops volume access. Explicit close reports its storage failure; automatic cleanup suppresses it. Once unavailable, cleanup releases locally without offering another storage commit. Directory close keeps its uninterruptible, admission-free behavior.
+
+In sync mode, reentrant scope cleanup invalidates a handle immediately as releasedPendingCommit and retains its inode release obligation. The active engine operation drains direct release actions against current state before returning, including after draft failure or interruption. Scope.close inside the hook may return before physical reclamation; it leaves no usable handle, and the outer operation cannot return with abandoned ownership. The guard remains held throughout draining, all queued releases are attempted, and cleanup defects stay visible. Live storage is not eligible for this mode.
 
 The lifecycle tags are `acquiring`, `open`, `releasedPendingCommit`, and `closed`. Finalization before acquisition publication leaves `releasedPendingCommit` with no inode. Late publication records the inode in that state, and rerunning the finalizer releases it. A failed acquisition becomes `closed` once coordination and cleanup finish without a retained inode. Closing a published handle marks it `closed` through the engine's release-publication callback.[^registry]
 

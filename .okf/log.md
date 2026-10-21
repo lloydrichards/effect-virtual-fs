@@ -8,6 +8,8 @@
 
 ## 2026-10-21
 
+- Add an opt-in sync execution policy to constructor-owned memory volumes. Preserve cooperative scheduling, keep policy out of formats, reject live backends, and document reentry, held-through-drain ownership release, watch teardown and immutable capture. Distinguish engine guarantees from arbitrary Effects and native Node qualification.
+
 - Retain the final collection measurement data beside its evidence summary. Replace temporary port-plan sources with durable ownership and issue contracts, distinguish published 4.0.5 preparation from unreleased upstream substitutions, and preserve the historical host baseline.
 
 - Consolidate filesystem mechanics in one private engine shared by community and minimal construction. Keep path/error helpers, private test hooks and FIFO coordination in that file. Remove internal forwarding modules, import the engine directly, and consolidate resolver, ownership and state regressions into its tests without dropping their assertions. Keep watch hubs and feature assembly outside, preserve public defaults and coordinated installation, and record the six-module runtime allowlist and each dependency’s upstream disposition. Distinguish local runtime isolation from upstream API readiness and defer synchronous execution to #302.

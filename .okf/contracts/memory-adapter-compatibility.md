@@ -5,6 +5,8 @@ description: Preserves Effect FileSystem behavior while adapting shared core vol
 status: stable
 tags: [effect, adapter, compatibility]
 sources:
+  - resource: ../../packages/memory/test/SyncFileSystem.test.ts
+    title: Public sync memory binding behavior
   - resource: ../../packages/memory/src/internal/fileSystemAdapter.ts
     title: Shared operation-port binding
   - resource: ../../packages/memory/test/MinimalFileSystem.test.ts
@@ -55,7 +57,7 @@ sources:
   - id: overlay-binding
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Overlay volume binding tests
-generated: { by: codex/okf, at: "2026-10-21T21:14:27+00:00" }
+generated: { by: codex/okf, at: "2026-10-21T21:43:54+00:00" }
 ---
 
 # Memory adapter compatibility
@@ -75,6 +77,8 @@ Seeks before the start fail with `BadArgument` without changing the cursor, and
 Recursive `makeDirectory`, `readDirectory`, and `remove` use the core's [recursive tree operations](../decisions/core/recursive-tree-operations.md "uses"). Recursive listings hold no directory handle and refresh no access times because the core walk writes nothing. Portable glob instead performs ordinary directory reads, which can refresh access times under relatime.
 
 The internal `glob.ts` adapts Effect's MIT-licensed portable algorithm at `5c4b648deaf19676eb81c5f7e452b5bd5c3ae344`. It preserves Unicode matching, literal malformed brackets, normalized and absolute patterns, depth-first order, exclusion before reads, and skipping unreadable wildcard-reached directories. Named unreadable directories still fail. Its typed-entry reader observes each entry's own kind through its reference, including dangling symlinks. FileSystemTesting derives glob over the decorated readDirectory/stat/readLink methods and preserves the explicit glob handler.
+
+The existing fixture constructors forward execution: sync to the shared core engine; make/layer retain cooperative defaults. Public sync memory and private sync engine bindings run the shared FileSystem corpus. The adapter still returns Effects and does not certify arbitrary derived user workflows as synchronous. Native Node provider qualification remains separate.
 
 Published Effect 4.0.5 supplies bigint metadata, positioned reads, final-component noFollow and watch readiness. Positioned reads preserve the sequential cursor; readiness runs after registration can buffer events. Access enforces every requested read/write bit. Metadata inode/device/link counts remain exact bigint values through transfer identity checks.
 

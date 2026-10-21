@@ -417,7 +417,8 @@ export type ReferenceKey = typeof ReferenceKey.Type
 export const VolumeOptions: typeof VolumeModule.VolumeOptions = VolumeModule.VolumeOptions
 
 /**
- * Capacity, admission, watch retention, and path limits for a volume.
+ * Execution policy, capacity, admission, watch retention, and path limits for a volume.
+ * `execution` defaults to `"cooperative"`; `"sync"` opts memory operations into non-yielding coordination.
  * `maxPendingOperations` defaults to 64 and `maxWatchEvents` defaults to 256.
  *
  * @category models
