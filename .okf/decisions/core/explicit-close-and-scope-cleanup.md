@@ -9,16 +9,16 @@ sources:
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: Handle close and scoped acquisition
   - id: engine
-    resource: ../../../packages/core/src/internal/virtualFileSystem.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: Handle scopes, shared release, and cleanup finalizers
   - id: tests
     resource: ../../../packages/core/test/FileHandle.test.ts
     title: Handle lifecycle races, busy closes, and interrupted cleanup
   - id: registry
-    resource: ../../../packages/core/src/internal/tokenRegistry.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: Handle lifecycle, acquisition and one release operation
   - id: registry-tests
-    resource: ../../../packages/core/test/internal/tokenRegistry.test.ts
+    resource: ../../../packages/core/test/Engine.test.ts
     title: Direct lifecycle transition tests
 generated: { by: codex/okf, at: "2026-10-01T12:45:00Z" }
 ---
@@ -39,4 +39,4 @@ The lifetime rule remains current, while [reusable capability effects](reusable-
 
 [^tests]: The lifecycle suite races opens and closes against scope closes, fiber interruption, busy admission, and rejected commits.
 
-[^registry]: `tokenRegistry.ts` owns `acquire`, `release`, `finalize`, and the lifecycle union. Its direct tests exercise cleanup before publication and staged release; `FileHandle.test.ts` retains the engine race and failure coverage.
+[^registry]: The shared engine’s `TokenRegistry` namespace owns `acquire`, `release`, `finalize`, and the lifecycle union. Its direct tests exercise cleanup before publication and staged release; `FileHandle.test.ts` retains the engine race and failure coverage.

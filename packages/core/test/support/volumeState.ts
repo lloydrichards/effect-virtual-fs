@@ -1,18 +1,19 @@
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as HashMap from "effect/HashMap"
-import {
-  type Directory,
-  directoryMetadata,
-  emptyState,
-  getNode,
-  Ino,
-  type Node,
-  type RegularFile,
-  ROOT_INO,
-  setNode,
-  type SymbolicLink
-} from "../../src/internal/volumeState.js"
+import { State } from "../../src/internal/engine.js"
+
+type Directory = State.Directory
+
+const { directoryMetadata, emptyState, getNode, Ino, ROOT_INO, setNode } = State
+
+type Ino = State.Ino
+
+type Node = State.Node
+
+type RegularFile = State.RegularFile
+
+type SymbolicLink = State.SymbolicLink
 
 const encoder = new TextEncoder()
 

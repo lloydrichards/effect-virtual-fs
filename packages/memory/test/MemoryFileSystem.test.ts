@@ -664,6 +664,30 @@ const suppliedCrypto = Layer.succeed(
   })
 )
 
+it.effect("community construction retains random identity draws and epoch-dated root defaults", () =>
+  Effect.gen(function*() {
+    const requests: Array<number> = []
+
+    const crypto = Crypto.make({
+      randomBytes: (size) => {
+        requests.push(size)
+
+        return new Uint8Array(size).fill(requests.length)
+      },
+      digest: (_algorithm, data) => Effect.succeed(data)
+    })
+
+    const fs = yield* MemoryFileSystem.make.pipe(Effect.provideService(Crypto.Crypto, crypto))
+
+    assert.deepStrictEqual(requests, [16, 16, 16, 16])
+
+    for (const path of ["/", "/tmp"]) {
+      const metadata = yield* fs.stat(path)
+      assert.strictEqual(Option.getOrThrow(metadata.mtime).getTime(), 0)
+      assert.strictEqual(Option.getOrThrow(metadata.birthtime).getTime(), 0)
+    }
+  }))
+
 it.layer(NodeCrypto.layer)((it) => {
   it.effect("should mint a usable filesystem when crypto is absent or supplied", () =>
     Effect.gen(function*() {

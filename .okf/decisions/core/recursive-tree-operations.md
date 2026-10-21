@@ -12,10 +12,10 @@ sources:
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: WalkEntry, WalkFailure, and the walk, mkdir and remove contracts on Caller
   - id: engine
-    resource: ../../../packages/core/src/internal/virtualFileSystem.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: walkChildren, reachFrame, walkFrames, makeDirectories, and emptyDirectory
   - id: resolution
-    resource: ../../../packages/core/src/internal/resolution.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: Recursive traversal with the engine createMissing callback
   - id: walk-tests
     resource: ../../../packages/core/test/behaviour/walk.test.ts

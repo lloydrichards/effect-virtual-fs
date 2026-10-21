@@ -4,11 +4,23 @@ import { decodeOption } from "../BytePath.js"
 import type { Snapshot } from "../Snapshot.js"
 import type { FsFailure, ImageFailure } from "../VfsError.js"
 import type { PathInput } from "../VirtualFileSystem.js"
-import { fsFailure } from "./errors.js"
+
 import * as Image from "./image.js"
-import { nameBytes } from "./path.js"
+
+import { Errors, Paths, State } from "./engine.js"
 import { BudgetExceeded, type Kind, type Meter } from "./searchModel.js"
-import { byEntryName, type Directory, getNode, type Ino, type Node } from "./volumeState.js"
+
+const fsFailure = Errors.fsFailure
+
+const nameBytes = Paths.nameBytes
+
+const { byEntryName, getNode } = State
+
+type Directory = State.Directory
+
+type Ino = State.Ino
+
+type Node = State.Node
 
 /** @internal */
 export interface Entry {

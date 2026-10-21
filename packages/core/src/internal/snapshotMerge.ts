@@ -18,14 +18,25 @@ import type { DeltaBudget } from "./budget.js"
 import { getBytes, make as makeBytePath } from "./bytePath.js"
 import { bytesOrder, sameBytes } from "./bytes.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
-import { argumentFailure, imageFailure } from "./errors.js"
+import { Errors, State } from "./engine.js"
+import { imageFailure } from "./errors.js"
 import * as Image from "./image.js"
 import * as Merkle from "./merkle.js"
 import type { StoredMetadata } from "./metadata.js"
 import * as Delta from "./snapshotDelta.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
 import { UNCHECKED } from "./tree.js"
-import { getNode, type Ino, type Node, payloadOf, storedMetadata, type VolumeState } from "./volumeState.js"
+import { storedMetadata } from "./volumeState.js"
+
+const argumentFailure = Errors.argumentFailure
+
+const { getNode, payloadOf } = State
+
+type Ino = State.Ino
+
+type Node = State.Node
+
+type VolumeState = State.VolumeState
 
 const OPERATION = "mergeSnapshotDeltas"
 

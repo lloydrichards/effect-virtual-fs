@@ -2,7 +2,8 @@ import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { Cause, Deferred, Effect, Exit, Fiber, Option, Predicate, PubSub, Queue, Scope, Stream } from "effect"
 import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
-import { withVolumeTestSeams } from "../src/internal/testSeams.js"
+
+import { withVolumeTestSeams } from "../src/internal/engine.js"
 import { entryNames, pathText } from "./support/text.js"
 
 describe("volume watch", () => {

@@ -3,8 +3,10 @@ import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect } from "effect"
 import * as Hex from "effect/encoding/Hex"
 import { VirtualFileSystem as Vfs } from "../../src/index.js"
+import { State } from "../../src/internal/engine.js"
 import * as Image from "../../src/internal/image.js"
-import { getNode, ROOT_INO } from "../../src/internal/volumeState.js"
+
+const { getNode, ROOT_INO } = State
 
 describe("snapshot image base sharing", () => {
   it.layer(BunCrypto.layer)((it) => {

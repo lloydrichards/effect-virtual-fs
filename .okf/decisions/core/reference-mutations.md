@@ -15,7 +15,7 @@ sources:
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: Caller, reference operations, and open settings
   - id: engine
-    resource: ../../../packages/core/src/internal/virtualFileSystem.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: Coordination gate, open counts, and timestamps
   - id: export
     resource: ../../../packages/nfs/src/internal/export.ts

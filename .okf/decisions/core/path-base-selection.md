@@ -6,10 +6,10 @@ status: stable
 tags: [paths, callers, authority]
 sources:
   - id: paths
-    resource: ../../../packages/core/src/internal/path.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: Path preparation
   - id: core
-    resource: ../../../packages/core/src/internal/resolution.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: Absolute and relative base selection
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---

@@ -58,15 +58,18 @@ import { type DecodeLimits, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 export { DecodeLimits, type Snapshot, SnapshotTypeId } from "./Snapshot.js"
 
 import { BudgetFromDecodeLimits, DeltaBudgetFromLimits } from "./internal/budget.js"
-import { decodeConfiguration, retargetFailure } from "./internal/errors.js"
+import { retargetFailure } from "./internal/errors.js"
 import * as FixtureInternal from "./internal/fixture.js"
 import * as Image from "./internal/image.js"
-import * as Path from "./internal/path.js"
+
+import { Errors, Paths as Path } from "./internal/engine.js"
 import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
 import * as SnapshotMergeInternal from "./internal/snapshotMerge.js"
 import * as VfsModel from "./internal/virtualFileSystem.js"
 import { type LiveImageStore, open as openLiveVolume, type Options as LiveVolumeOptions } from "./LiveVolume.js"
 import * as SnapshotDeltaModel from "./SnapshotDelta.js"
+
+const decodeConfiguration = Errors.decodeConfiguration
 
 export {
   MergeConflict,

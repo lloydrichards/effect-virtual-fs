@@ -2,9 +2,13 @@ import * as ByteSize from "effect/ByteSize"
 import * as Result from "effect/Result"
 import type { VolumeLimits } from "../VirtualFileSystem.js"
 import { type VolumeIdentity, VolumeOptions } from "../Volume.js"
-import { decodeConfiguration } from "./errors.js"
+
+import { Errors, State } from "./engine.js"
 import type * as Tree from "./tree.js"
-import { MAX_FILE_BYTES } from "./volumeState.js"
+
+const decodeConfiguration = Errors.decodeConfiguration
+
+const MAX_FILE_BYTES = State.MAX_FILE_BYTES
 
 type StoredLimits = Tree.Runtime["limits"]
 

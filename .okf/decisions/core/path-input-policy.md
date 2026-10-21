@@ -6,7 +6,7 @@ status: stable
 tags: [paths, encoding, portability]
 sources:
   - id: paths
-    resource: ../../../packages/core/src/internal/virtualFileSystem/path.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: Path validation
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---

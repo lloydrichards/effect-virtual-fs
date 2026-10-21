@@ -2,6 +2,8 @@
 
 ## 2026-10-21
 
+- Consolidate filesystem mechanics in one private engine shared by community and minimal construction. Keep path/error helpers, private test hooks and FIFO coordination in that file. Remove internal forwarding modules, import the engine directly, and consolidate resolver, ownership and state regressions into its tests without dropping their assertions. Keep watch hubs and feature assembly outside, preserve public defaults and coordinated installation, and record the six-module runtime allowlist and each dependency’s upstream disposition. Distinguish local runtime isolation from upstream API readiness and defer synchronous execution to #302.
+
 - Separate basic filesystem copy from public TreeTransfer. Record the copy-only runtime import audit, retained byte/link/metadata behavior, partial overwrite progress and identity-guarded cleanup with both failure values preserved.
 
 - Consolidate #305 into the persistent-state decision and focused collection evidence. Record private inode identity, transient ownership, explicit directory order and accepted CPU/heap costs. Remove superseded research, intermediate measurements and scratchpad experiments; retain final raw VFS trials.

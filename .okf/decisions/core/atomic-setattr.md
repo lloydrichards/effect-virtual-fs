@@ -9,7 +9,7 @@ sources:
     resource: ../../../packages/core/src/Caller.ts
     title: SetattrOptions schema
   - id: engine
-    resource: ../../../packages/core/src/internal/virtualFileSystem.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: changeAttributes, the one body behind setattr, chmod, chown, utimes and truncate
   - id: families
     resource: ../../../packages/core/test/behaviour/operations.test.ts

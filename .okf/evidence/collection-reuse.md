@@ -9,7 +9,7 @@ sources:
     resource: ./collection-reuse-data.json
     title: Final paired trials, normalized traces and source hashes
   - id: ownership
-    resource: ../../packages/core/test/internal/volumeState.test.ts
+    resource: ../../packages/core/test/Engine.test.ts
     title: Persistent state and metadata updates without payload inspection
   - id: ordering
     resource: ../../packages/core/test/behaviour/directoryOrder.test.ts

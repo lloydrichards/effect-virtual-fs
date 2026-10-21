@@ -7,9 +7,12 @@ import type * as Schema from "effect/Schema"
 import * as Sink from "effect/Sink"
 import * as Stream from "effect/Stream"
 import type { ImageFailure } from "../VfsError.js"
+import { Paths, State } from "./engine.js"
 import { imageFailure } from "./errors.js"
-import { isAttachedBytes } from "./path.js"
-import { WALK_YIELD_INTERVAL } from "./volumeState.js"
+
+const isAttachedBytes = Paths.isAttachedBytes
+
+const WALK_YIELD_INTERVAL = State.WALK_YIELD_INTERVAL
 
 const NEWLINE = 0x0a
 const CARRIAGE_RETURN = 0x0d

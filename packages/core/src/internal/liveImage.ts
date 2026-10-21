@@ -6,11 +6,20 @@ import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import type { VolumeLimits } from "../VirtualFileSystem.js"
 import type { VolumeIdentity } from "../Volume.js"
+import { State } from "./engine.js"
 import type { KeySecret, VolumeEpoch } from "./hex128.js"
 import * as Lines from "./lines.js"
 import * as Tree from "./tree.js"
 import * as Limits from "./volumeLimits.js"
-import { assemble, getNode, Ino, type Node, type RegularFile, type VolumeState } from "./volumeState.js"
+import { assemble } from "./volumeState.js"
+
+const { getNode, Ino } = State
+
+type Node = State.Node
+
+type RegularFile = State.RegularFile
+
+type VolumeState = State.VolumeState
 
 const OPERATION = "openImage"
 const DOCUMENT_FIELD = "liveImage"

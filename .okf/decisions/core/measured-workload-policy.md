@@ -7,11 +7,11 @@ tags: [capacity, quotas, release, storage]
 sources:
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/276#issuecomment-5980395978
     title: Workload qualification and policy rationale
-  - resource: ../../../packages/core/src/internal/directoryEntries.ts
+  - resource: ../../../packages/core/src/internal/engine.ts
     title: Persistent name lookup and insertion-order slots
   - resource: ../../../packages/core/src/internal/volumeLimits.ts
     title: Current capacity and admission defaults
-  - resource: ../../../packages/core/src/internal/virtualFileSystem.ts
+  - resource: ../../../packages/core/src/internal/engine.ts
     title: Dense replacement buffers and snapshot ownership
   - resource: ../../../packages/core/test/Snapshot.test.ts
     title: Namespace mutation, capture, overlay, and encoded-restore regression

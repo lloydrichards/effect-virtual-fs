@@ -5,17 +5,13 @@ description: Keeps volume state immutable and installs one coordinated candidate
 status: stable
 tags: [core, engine, staging, overlay, snapshots]
 sources:
-  - resource: ../../../packages/core/src/internal/volumeState.ts
-    title: Immutable volume state and node relationships
-  - resource: ../../../packages/core/src/internal/directoryEntries.ts
-    title: Persistent directory entries
-  - resource: ../../../packages/core/src/internal/virtualFileSystem.ts
-    title: Coordinated transitions and commit providers
+  - resource: ../../../packages/core/src/internal/engine.ts
+    title: Persistent state, directory slots and coordinated installation
   - resource: ../../../packages/core/src/internal/tree.ts
     title: Snapshot and live-image codecs
   - resource: ../../../packages/core/src/internal/snapshotDelta.ts
     title: Delta computation and verification
-  - resource: ../../../packages/core/test/internal/volumeState.test.ts
+  - resource: ../../../packages/core/test/Engine.test.ts
     title: Persistent inode state and payload-free metadata replacement
   - resource: ../../../packages/core/test/behaviour/directoryOrder.test.ts
     title: Compaction order and captured-state isolation

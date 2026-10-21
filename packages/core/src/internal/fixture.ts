@@ -4,11 +4,23 @@ import * as Schema from "effect/Schema"
 import { Fixture as FixtureSchema, FixtureEntry, type FixtureMetadata } from "../Fixture.js"
 import type { Fixture, PathInput, VolumeOptions } from "../VirtualFileSystem.js"
 import { VolumeIdentity, VolumeOptions as VolumeOptionsSchema } from "../Volume.js"
-import { decodeConfiguration, imageFailure, OpContext, VfsError } from "./errors.js"
+import { imageFailure } from "./errors.js"
 import type { StoredMetadata } from "./metadata.js"
-import { inputBytes, isAttachedBytes, isDotComponent, preparePath } from "./path.js"
+
+import { VfsError } from "../VfsError.js"
+import { Errors, Paths, State } from "./engine.js"
 import { makeVolume, memoryCommitProvider, VolumeSource } from "./virtualFileSystem.js"
-import { assemble, Ino, type Link, type NodeSpec, ROOT_INO } from "./volumeState.js"
+import { assemble, type NodeSpec } from "./volumeState.js"
+
+const { decodeConfiguration, OpContext } = Errors
+
+const { inputBytes, isAttachedBytes, isDotComponent, preparePath } = Paths
+
+const { Ino, ROOT_INO } = State
+
+type Ino = State.Ino
+
+type Link = State.Link
 
 const DEFAULT_MODE: Record<NodeSpec["kind"], number> = { directory: 0o755, file: 0o644, symlink: 0o777 }
 const EPOCH_NS = 0n

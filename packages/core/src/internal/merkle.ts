@@ -6,9 +6,18 @@ import * as Effect from "effect/Effect"
 import type * as PlatformError from "effect/PlatformError"
 import type { ImageFailure } from "../VfsError.js"
 import { bytesOrder } from "./bytes.js"
+import { Paths, State } from "./engine.js"
 import { imageFailure } from "./errors.js"
-import { joinPath, nameBytes, ROOT_PATH } from "./path.js"
-import { byEntryName, getNode, type Ino, type Node, payloadOf, ROOT_INO, type VolumeState } from "./volumeState.js"
+
+const { joinPath, nameBytes, ROOT_PATH } = Paths
+
+const { byEntryName, getNode, payloadOf, ROOT_INO } = State
+
+type Ino = State.Ino
+
+type Node = State.Node
+
+type VolumeState = State.VolumeState
 
 const ALGORITHM = "effect-vfs-semantic-sha256-v1"
 /** @internal */

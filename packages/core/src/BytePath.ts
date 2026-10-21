@@ -17,10 +17,13 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Internal from "./internal/bytePath.js"
 import * as Bytes from "./internal/bytes.js"
-import { fsFailure, retargetFailure } from "./internal/errors.js"
-import * as Path from "./internal/path.js"
+import { retargetFailure } from "./internal/errors.js"
+
+import { Errors, Paths as Path } from "./internal/engine.js"
 import type { FsFailure } from "./VfsError.js"
 import type { PathInput } from "./VirtualFileSystem.js"
+
+const fsFailure = Errors.fsFailure
 
 /**
  * Type identifier for opaque byte-preserving filesystem paths.

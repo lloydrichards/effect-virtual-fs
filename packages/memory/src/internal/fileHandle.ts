@@ -4,17 +4,16 @@
  * @internal
  * @since 0.1.0
  */
-import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Semaphore from "effect/Semaphore"
-import { at, info, openOptions, sizeInput } from "./adapterSupport.js"
+import { at, type FileSystemOperations, info, openOptions, sizeInput } from "./adapterSupport.js"
 import { argumentError, resourceError, toPlatformError } from "./platformError.js"
 
 /** @internal */
-export const makeOpen = (caller: Vfs.Caller): FileSystem.FileSystem["open"] => {
+export const makeOpen = (caller: FileSystemOperations): FileSystem.FileSystem["open"] => {
   let nextDescriptor = 3
 
   return Effect.fnUntraced(function*(path, options) {

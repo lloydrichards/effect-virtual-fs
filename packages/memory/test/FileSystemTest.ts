@@ -152,7 +152,8 @@ const assertBadArgument = (
 export const suite = <E>(
   name: string,
   layer: Layer.Layer<FileSystem.FileSystem, E>,
-  adapter: "memory" | "node" = "memory"
+  adapter: "memory" | "node" = "memory",
+  options?: { readonly watch?: "supported" | "unsupported" }
 ) =>
   it.layer(layer, { timeout: { seconds: 30 } })(`FileSystem (${name})`, (it) => {
     describe("path operations", () => {
@@ -1560,87 +1561,97 @@ export const suite = <E>(
           assert.isTrue(matches.some((entry) => entry.endsWith("src/index.ts")))
         }))
 
-      it.effect("should deliver events when a watcher subscribes before mutation", () =>
-        Effect.gen(function*() {
-          const { fs, path } = yield* makeTestContext
-          const directory = path("watched")
-          yield* fs.makeDirectory(directory)
+      if (options?.watch === "unsupported") {
+        it.effect("should fail on consumption when watching is unsupported", () =>
+          Effect.gen(function*() {
+            const fs = yield* FileSystem.FileSystem
+            const error = yield* fs.watch("/tmp").pipe(Stream.runDrain, Effect.flip)
+            assertSystemError(error, { tag: "Unknown", method: "watch", pathOrDescriptor: "/tmp" })
+            assert.strictEqual(error.reason.description, "WatchUnsupported")
+          }))
+      } else {
+        it.effect("should deliver events when a watcher subscribes before mutation", () =>
+          Effect.gen(function*() {
+            const { fs, path } = yield* makeTestContext
+            const directory = path("watched")
+            yield* fs.makeDirectory(directory)
 
-          const watched = yield* fs.watch(directory).pipe(
-            Stream.filter((event) => event.path.replaceAll("\\", "/").endsWith("created.txt")),
-            Stream.take(1),
-            Stream.runCollect,
-            Effect.forkChild({ startImmediately: true })
-          )
+            const watched = yield* fs.watch(directory).pipe(
+              Stream.filter((event) => event.path.replaceAll("\\", "/").endsWith("created.txt")),
+              Stream.take(1),
+              Stream.runCollect,
+              Effect.forkChild({ startImmediately: true })
+            )
 
-          // Native watch registration follows asynchronous stat. Repeat the setup mutation
-          // until delivery proves registration, rather than assuming immediate fiber startup.
-          for (let attempt = 0; attempt < 100; attempt++) {
-            yield* fs.writeFileString(`${directory}/created.txt`, "content")
-            // Native callbacks run on the OS clock, independent of TestClock.
-            yield* Effect.sleep("10 millis").pipe(Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()))
+            // Native watch registration follows asynchronous stat. Repeat the setup mutation
+            // until delivery proves registration, rather than assuming immediate fiber startup.
+            for (let attempt = 0; attempt < 100; attempt++) {
+              yield* fs.writeFileString(`${directory}/created.txt`, "content")
+              // Native callbacks run on the OS clock, independent of TestClock.
+              yield* Effect.sleep("10 millis").pipe(Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()))
 
-            if (watched.pollUnsafe() !== undefined) break
-          }
+              if (watched.pollUnsafe() !== undefined) break
+            }
 
-          assert.isDefined(watched.pollUnsafe(), "Expected the setup mutation to reach the registered watcher")
-          const events = yield* Fiber.join(watched)
+            assert.isDefined(watched.pollUnsafe(), "Expected the setup mutation to reach the registered watcher")
+            const events = yield* Fiber.join(watched)
 
-          assert.strictEqual(events.length, 1)
-          assert.isTrue(events[0]!.path.replaceAll("\\", "/").endsWith("created.txt"))
-        }))
+            assert.strictEqual(events.length, 1)
+            assert.isTrue(events[0]!.path.replaceAll("\\", "/").endsWith("created.txt"))
+          }))
 
-      it.effect("should stop delivering events when a watcher is interrupted", () =>
-        Effect.gen(function*() {
-          const { fs, path } = yield* makeTestContext
-          const directory = path("released")
-          yield* fs.makeDirectory(directory)
+        it.effect("should stop delivering events when a watcher is interrupted", () =>
+          Effect.gen(function*() {
+            const { fs, path } = yield* makeTestContext
+            const directory = path("released")
+            yield* fs.makeDirectory(directory)
 
-          const received = yield* Ref.make<Array<string>>([])
-          const observed = yield* Deferred.make<void>()
+            const received = yield* Ref.make<Array<string>>([])
+            const observed = yield* Deferred.make<void>()
 
-          const watcher = yield* fs.watch(directory).pipe(
-            Stream.runForEach((event) =>
-              Ref.update(received, (paths) => [...paths, event.path]).pipe(
-                Effect.andThen(Deferred.succeed(observed, undefined))
-              )
-            ),
-            Effect.forkChild({ startImmediately: true })
-          )
+            const watcher = yield* fs.watch(directory).pipe(
+              Stream.runForEach((event) =>
+                Ref.update(received, (paths) => [...paths, event.path]).pipe(
+                  Effect.andThen(Deferred.succeed(observed, undefined))
+                )
+              ),
+              Effect.forkChild({ startImmediately: true })
+            )
 
-          // A first observed event proves the watcher is registered before it is interrupted.
-          for (let attempt = 0; attempt < 100 && !(yield* Deferred.isDone(observed)); attempt++) {
-            yield* fs.writeFileString(`${directory}/first.txt`, "content")
-            // Native callbacks run on the OS clock, independent of TestClock.
-            yield* Effect.sleep("10 millis").pipe(Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()))
-          }
+            // A first observed event proves the watcher is registered before it is interrupted.
+            for (let attempt = 0; attempt < 100 && !(yield* Deferred.isDone(observed)); attempt++) {
+              yield* fs.writeFileString(`${directory}/first.txt`, "content")
+              // Native callbacks run on the OS clock, independent of TestClock.
+              yield* Effect.sleep("10 millis").pipe(Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()))
+            }
 
-          assert.isTrue(yield* Deferred.isDone(observed), "Expected watcher readiness before interruption")
-          yield* Deferred.await(observed)
+            assert.isTrue(yield* Deferred.isDone(observed), "Expected watcher readiness before interruption")
+            yield* Deferred.await(observed)
 
-          yield* Fiber.interrupt(watcher)
-          const afterInterrupt = yield* Ref.get(received)
+            yield* Fiber.interrupt(watcher)
+            const afterInterrupt = yield* Ref.get(received)
 
-          // The sentinel mutation must not reach the released watcher.
-          yield* fs.writeFileString(`${directory}/sentinel.txt`, "content")
-          yield* Effect.yieldNow
+            // The sentinel mutation must not reach the released watcher.
+            yield* fs.writeFileString(`${directory}/sentinel.txt`, "content")
+            yield* Effect.yieldNow
 
-          assert.deepStrictEqual(yield* Ref.get(received), afterInterrupt)
-          assert.isFalse(afterInterrupt.some((path) => path.endsWith("sentinel.txt")))
-        }))
+            assert.deepStrictEqual(yield* Ref.get(received), afterInterrupt)
+            assert.isFalse(afterInterrupt.some((path) => path.endsWith("sentinel.txt")))
+          }))
 
-      it.effect("should preserve error context when watching a missing path", () =>
-        Effect.gen(function*() {
-          const { fs, path } = yield* makeTestContext
-          const missing = path("missing-watch")
+        it.effect("should preserve error context when watching a missing path", () =>
+          Effect.gen(function*() {
+            const { fs, path } = yield* makeTestContext
+            const missing = path("missing-watch")
 
-          const error = yield* fs.watch(missing).pipe(Stream.runDrain, Effect.flip)
+            const error = yield* fs.watch(missing).pipe(Stream.runDrain, Effect.flip)
 
-          assertSystemError(error, {
-            tag: "NotFound",
-            method: adapter === "memory" ? "watch" : "stat",
-            pathOrDescriptor: missing
-          })
-        }))
+            assertSystemError(error, {
+              tag: "NotFound",
+              method: adapter === "memory" ? "watch" : "stat",
+              pathOrDescriptor: missing
+            })
+          }))
+      }
     })
   })
