@@ -714,8 +714,12 @@ const isMissing = (error: PlatformError): boolean =>
 
 const isIgnorable = (error: PlatformError): boolean => isMissing(error) || error.reason._tag === "PermissionDenied"
 
-// Node and Deno report `readLink` on a path that is not a link as "Unknown"
-const isNotLink = (error: PlatformError): boolean => isIgnorable(error) || error.reason._tag === "Unknown"
+// Node and Deno report non-links as Unknown; memory reports readLink/InvalidArgument.
+// Match that specific memory error so unrelated BadArgument failures still propagate.
+const isNotLink = (error: PlatformError): boolean =>
+  isIgnorable(error) || error.reason._tag === "Unknown" ||
+  (error.reason._tag === "BadArgument" && error.reason.module === "FileSystem" &&
+    error.reason.method === "readLink" && error.reason.description === "InvalidArgument")
 
 const byName = Order.mapInput(Order.String, (entry: DirectoryEntry) => entry.name)
 
