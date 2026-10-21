@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { dual } from "effect/Function"
 import type * as PlatformError from "effect/PlatformError"
+import { makeGlob } from "./internal/glob.js"
 
 type Methods = Omit<Parameters<typeof FileSystem.make>[0], "watch">
 
@@ -17,7 +18,8 @@ type Methods = Omit<Parameters<typeof FileSystem.make>[0], "watch">
  *
  * Derived helpers route through these handlers: `exists` through `access`,
  * `readFileString` through `readFile`, `writeFileString` through `writeFile`,
- * and consumed streams and sinks through `open`.
+ * consumed streams and sinks through `open`, and glob traversal through
+ * `readDirectory`, `stat`, and `readLink`.
  *
  * Returned file handles and `watch` are unchanged. Internal calls made by the
  * backing service, including temporary-resource cleanup, bypass these handlers.
@@ -183,6 +185,8 @@ export const make: {
       watch: base.watch
     })
 
-    return { fileSystem, state }
+    // TODO: (#304) Use FileSystem.make's derived glob after its portable implementation is released.
+    // Derive over the decorated methods so nested traversal remains observable.
+    return { fileSystem: { ...fileSystem, glob: intercept(makeGlob(fileSystem), handlers.glob) }, state }
   })
 )

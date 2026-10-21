@@ -656,11 +656,10 @@ const make = (
       }
     }
 
+    // TODO: (#304) Replace random generation with SecureRandom when released; retain the generation bytes.
     const crypto = yield* Crypto.Crypto
 
-    const generation = yield* crypto.randomBytes(16).pipe(
-      Effect.mapError((cause) => new NfsServerError({ cause }))
-    )
+    const generation = yield* crypto.randomBytes(16).pipe(Effect.orDie)
 
     const storageGeneration = Result.getOrThrow(Hex.decode(options.volume.incarnation))
     const export_ = makeExport(options.volume, options.caller ?? volumeCaller, limits)

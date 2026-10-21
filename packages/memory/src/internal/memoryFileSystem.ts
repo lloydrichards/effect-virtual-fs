@@ -18,6 +18,7 @@ import * as Result from "effect/Result"
 import * as Stream from "effect/Stream"
 import { at, info, openOptions, sizeInput, textOf, textPath, validateMode } from "./adapterSupport.js"
 import { makeCopyOperations } from "./copyOperations.js"
+import { makeDirectoryEntries } from "./directoryEntries.js"
 import { makeOpen } from "./fileHandle.js"
 import { makeGlob } from "./glob.js"
 import { argumentError, toPlatformError } from "./platformError.js"
@@ -138,11 +139,23 @@ export const bindCaller = (caller: Vfs.Caller): Effect.Effect<FileSystem.FileSys
     })
 
     return FileSystem.make({
-      access: (path) =>
-        caller.stat(path).pipe(
-          Effect.asVoid,
+      access: Effect.fnUntraced(function*(path, options) {
+        const requested = (options?.readable === true ? 4 : 0) | (options?.writable === true ? 2 : 0)
+
+        const granted = yield* caller.access(path, requested).pipe(
           Effect.mapError((error) => toPlatformError(error, "access", path))
-        ),
+        )
+
+        if ((granted & requested) !== requested) {
+          return yield* systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method: "access",
+            pathOrDescriptor: path
+          })
+        }
+      }),
+      // TODO: (#304) Add lstat to FileSystem.make when released, using at(path, { followFinalSymlink: false }).
       stat: (path) =>
         caller.stat(path).pipe(
           Effect.mapError((error) => toPlatformError(error, "stat", path)),
@@ -237,6 +250,7 @@ export const bindCaller = (caller: Vfs.Caller): Effect.Effect<FileSystem.FileSys
         Stream.unwrap(
           caller.watch(path, { recursive: options?.recursive === true, alias: "resolved" }).pipe(
             Effect.mapError((error) => toPlatformError(error, "watch", path)),
+            Effect.tap(() => Effect.sync(() => options?.onReady?.())),
             Effect.map((events) =>
               events.pipe(
                 Stream.mapError((error) => toPlatformError(error, "watch", path)),
@@ -260,7 +274,20 @@ export const bindCaller = (caller: Vfs.Caller): Effect.Effect<FileSystem.FileSys
             )
           )
         ),
-      glob: makeGlob(caller)
+      glob: makeGlob({
+        readDirectory,
+        readDirectoryEntries: makeDirectoryEntries(caller),
+        stat: (path) =>
+          caller.stat(path).pipe(
+            Effect.mapError((error) => toPlatformError(error, "stat", path)),
+            Effect.flatMap((value) => info(value, path))
+          ),
+        readLink: (path) =>
+          caller.readLink(path).pipe(
+            Effect.flatMap((link) => textOf(link, "readLink")),
+            Effect.mapError((error) => toPlatformError(error, "readLink", path))
+          )
+      })
     })
   })
 

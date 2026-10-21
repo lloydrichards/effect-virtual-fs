@@ -2437,12 +2437,13 @@ export const makeNfs4Handler = (
       : Effect.succeed(null)
 
   return Effect.gen(function*() {
+    // TODO: (#304) Use Digest.sha256 when released; preserve the eight-byte write verifier.
     const crypto = yield* Crypto.Crypto
     const verifierInput = new Uint8Array(33)
     verifierInput[0] = 1
     verifierInput.set(options.generation, 1)
     verifierInput.set(storageGeneration, 17)
-    const writeVerifier = (yield* crypto.digest("SHA-256", verifierInput)).slice(0, 8)
+    const writeVerifier = (yield* crypto.digest("SHA-256", verifierInput).pipe(Effect.orDie)).slice(0, 8)
 
     const handlerScope = yield* Effect.scope
     const clients = new Map<bigint, ClientState>()

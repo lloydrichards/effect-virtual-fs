@@ -534,6 +534,7 @@ const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
 })
 
 const randomHex128 = Effect.gen(function*() {
+  // TODO: (#304) Use SecureRandom for construction once its service is released; retain 16-byte IDs.
   const crypto = yield* Crypto.Crypto
 
   return Hex.encode(yield* crypto.randomBytes(16))

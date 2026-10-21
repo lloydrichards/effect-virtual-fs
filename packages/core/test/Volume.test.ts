@@ -1,6 +1,6 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Crypto, Effect, Layer, Result, Schema } from "effect"
+import { ByteSize, Cause, Crypto, Effect, Exit, Layer, PlatformError, Result, Schema } from "effect"
 import * as Base64 from "effect/encoding/Base64"
 import * as Hex from "effect/encoding/Hex"
 import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
@@ -18,6 +18,42 @@ const cryptoLayer = (...values: ReadonlyArray<number>) => {
 }
 
 it.layer(BunCrypto.layer)((it) => {
+  it.effect("should retain crypto provider failures as defects during construction and snapshot hashing", () =>
+    Effect.gen(function*() {
+      const crypto = yield* Crypto.Crypto
+      const failure = PlatformError.badArgument({ module: "Crypto", method: "test", description: "provider failed" })
+
+      const random = yield* Effect.exit(
+        Vfs.make().pipe(Effect.provideService(Crypto.Crypto, {
+          ...crypto,
+          randomBytes: () => Effect.fail(failure)
+        }))
+      )
+
+      const volume = yield* Vfs.make()
+
+      const snapshot = yield* volume.snapshot
+
+      const digest = yield* Effect.exit(
+        Vfs.diffSnapshots(snapshot, snapshot).pipe(Effect.provideService(Crypto.Crypto, {
+          ...crypto,
+          digest: () => Effect.fail(failure)
+        }))
+      )
+
+      const results: ReadonlyArray<Exit.Exit<unknown, unknown>> = [random, digest]
+
+      for (const result of results) {
+        assert.isTrue(Exit.isFailure(result))
+
+        if (Exit.isFailure(result)) {
+          assert.isTrue(Cause.hasDies(result.cause))
+          assert.isFalse(Cause.hasFails(result.cause))
+          assert.strictEqual(Cause.squash(result.cause), failure)
+        }
+      }
+    }))
+
   it.effect(
     "should publish durability identity and incarnation when a memory volume is constructed",
     () =>

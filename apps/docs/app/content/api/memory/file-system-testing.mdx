@@ -64,7 +64,7 @@ declare const make: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L142)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L144)
 
 Since v0.9.0
 
@@ -92,7 +92,7 @@ export interface Built<State> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L89)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L91)
 
 Since v0.9.0
 
@@ -124,7 +124,7 @@ export interface Configuration<State> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L70)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L72)
 
 Since v0.9.0
 
@@ -136,7 +136,8 @@ Handlers run once per execution, before the backing method is called.
 
 Derived helpers route through these handlers: `exists` through `access`,
 `readFileString` through `readFile`, `writeFileString` through `writeFile`,
-and consumed streams and sinks through `open`.
+consumed streams and sinks through `open`, and glob traversal through
+`readDirectory`, `stat`, and `readLink`.
 
 Returned file handles and `watch` are unchanged. Internal calls made by the
 backing service, including temporary-resource cleanup, bypass these handlers.
@@ -245,7 +246,11 @@ export type Handlers = {
   readonly open?: (
     path: string,
     options?:
-      | { readonly flag?: FileSystem.OpenFlag | undefined; readonly mode?: number | undefined }
+      | {
+          readonly flag?: FileSystem.OpenFlag | undefined
+          readonly mode?: number | undefined
+          readonly noFollow?: boolean | undefined
+        }
       | undefined,
   ) => Effect.Effect<void, PlatformError.PlatformError, Scope.Scope>
   readonly readDirectory?: (
@@ -289,7 +294,7 @@ export type Handlers = {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L44)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/FileSystemTesting.ts#L46)
 
 Since v0.9.0
 

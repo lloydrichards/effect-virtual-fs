@@ -134,12 +134,13 @@ export const meter = (budget: WalkBudget): Meter => {
 
 /** @internal */
 export const nodeDigest = Effect.fnUntraced(function*(node: Node, childDigest: (ino: Ino) => Uint8Array, meter: Meter) {
+  // TODO: (#304) Use Digest.sha256 once released; preserve the exact digest framing.
   const crypto = yield* Crypto.Crypto
   const planned = layout(node)
   // Reject oversized nodes before allocating their preimage.
   yield* meter.charge(planned.length)
 
-  return yield* crypto.digest("SHA-256", preimage(node, planned, childDigest))
+  return yield* crypto.digest("SHA-256", preimage(node, planned, childDigest)).pipe(Effect.orDie)
 })
 
 /** @internal */
@@ -163,7 +164,7 @@ export const identityDigest = Effect.fnUntraced(
       for (const path of group) offset = frame(out, offset, path)
     }
 
-    return yield* crypto.digest("SHA-256", out)
+    return yield* crypto.digest("SHA-256", out).pipe(Effect.orDie)
   }
 )
 

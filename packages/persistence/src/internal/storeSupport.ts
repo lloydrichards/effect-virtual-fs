@@ -34,7 +34,8 @@ const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16)
  *
  * @internal
  */
+// TODO: (#304) Capture Digest when released; keep lowercase SHA-256 output and service-free store methods.
 export const makeDigest = Effect.map(
   Crypto.Crypto,
-  (crypto) => (image: Uint8Array) => Effect.map(crypto.digest("SHA-256", image), hex)
+  (crypto) => (image: Uint8Array) => crypto.digest("SHA-256", image).pipe(Effect.orDie, Effect.map(hex))
 )

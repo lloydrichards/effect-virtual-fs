@@ -5,6 +5,8 @@ description: Preserves Effect FileSystem behavior while adapting shared core vol
 status: stable
 tags: [effect, adapter, compatibility]
 sources:
+  - resource: ../../packages/memory/src/internal/directoryEntries.ts
+    title: Internal typed entry reader for portable traversal
   - resource: ../../packages/memory/src/MemoryFileSystem.ts
     title: Public memory adapter API
   - resource: ../../packages/memory/src/internal/memoryFileSystem.ts
@@ -14,7 +16,7 @@ sources:
   - resource: ../../packages/memory/src/internal/treeOperations.ts
     title: Recursive listing and removal over the core walk and remove
   - resource: ../../packages/memory/src/internal/glob.ts
-    title: Adapter glob compilation, traversal, exclusions, errors and sorted output
+    title: Portable glob compilation, depth-first traversal, exclusions and errors
   - resource: ../../packages/memory/src/internal/adapterSupport.ts
     title: Named path-target options preserving bases and final-symlink policy
   - resource: ../../packages/memory/src/internal/copyOperations.ts
@@ -43,7 +45,7 @@ sources:
   - id: overlay-binding
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Overlay volume binding tests
-generated: { by: codex/okf, at: "2026-10-04T21:24:00+02:00" }
+generated: { by: codex/okf, at: "2026-10-21T20:50:00+02:00" }
 ---
 
 # Memory adapter compatibility
@@ -60,11 +62,13 @@ The adapter follows Effect's byte and cursor types at its public boundary. File 
 Seeks before the start fail with `BadArgument` without changing the cursor, and
 `readAlloc` rejects missing, coerced, negative, and non-integer runtime sizes.
 
-Recursive `makeDirectory`, `readDirectory`, `glob`, and `remove` are the core's [recursive tree operations](../decisions/core/recursive-tree-operations.md "uses"). A recursive `makeDirectory` gives every directory it creates the mode, as Node does, and creates none when it fails partway, where Node leaves the ones it made. A recursive listing and `glob` hold no directory handle and, as Node's recursive `readdir` does, fail `PermissionDenied` below a directory the caller may read but not search. One difference is deliberate: they refresh no directory's access time, where Node's recursive `readdir` refreshes each under relatime, because the core walk writes nothing. `remove` with `force` succeeds only when the path itself is missing; an entry that goes missing below it fails the call.
+Recursive `makeDirectory`, `readDirectory`, and `remove` use the core's [recursive tree operations](../decisions/core/recursive-tree-operations.md "uses"). Recursive listings hold no directory handle and refresh no access times because the core walk writes nothing. Portable glob instead performs ordinary directory reads, which can refresh access times under relatime.
 
-The internal `glob.ts` operation owns glob compilation, collected core traversal, strict path conversion, exclusions, error translation and sorted strings. `memoryFileSystem.ts` delegates to it. `treeOperations.ts` keeps its collected walk private to recursive listings. Glob decodes the entire walk before exclusions, so excluded unreadable or invalid-name subtrees still fail. Its wildcard units remain UTF-16 and hidden names require explicit dot matching. Internal path targets use named `relativeTo` and `followFinalSymlink` options, preserving omitted defaults and explicit `false`.
+The internal `glob.ts` adapts Effect's MIT-licensed portable algorithm at `5c4b648deaf19676eb81c5f7e452b5bd5c3ae344`. It preserves Unicode matching, literal malformed brackets, normalized and absolute patterns, depth-first order, exclusion before reads, and skipping unreadable wildcard-reached directories. Named unreadable directories still fail. Its typed-entry reader observes each entry's own kind through its reference, including dangling symlinks. FileSystemTesting derives glob over the decorated readDirectory/stat/readLink methods and preserves the explicit glob handler.
 
-Directory copy rejects a destination child that is a symbolic link instead of following it as a directory. It also rejects copying `/` into one of its descendants before creating the destination. `copy` runs on the [tree transfer](tree-transfer.md "uses") engine with the volume's own limits and no depth bound; `overwrite` maps to `existing: "overwrite"`, `preserveTimestamps` to both timestamps, and source modes are copied with their special bits. A copy without `overwrite` claims its destination and removes it if the copy fails. An overwriting copy remains a sequence of core operations, so failures after earlier entries are copied can leave those entries in place.
+Published Effect 4.0.5 supplies bigint metadata, positioned reads, final-component noFollow and watch readiness. Positioned reads preserve the sequential cursor; readiness runs after registration can buffer events. Access enforces every requested read/write bit. Metadata inode/device/link counts remain exact bigint values through transfer identity checks.
+
+Portable Glob, public readDirectoryEntries/lstat, and the SecureRandom/Digest service split remain unreleased. The published FileSystem/Crypto interfaces remain the public contracts. Local TODOs name the upstream replacement condition; no parallel service is exposed. Provider failures in existing Crypto digest/random operations are defects, matching the future providers, while filesystem and storage I/O failures retain their typed errors.
 
 The layer-based adapter suite in `packages/memory/test/FileSystemTest.ts` runs shared assertions against memory and the Effect Node adapter. `vitest.host.config.ts` runs both providers in Node, independently of the normal Bun workspace run. The first host qualification target is Node 24.21.0 on Ubuntu 24.04 with `@effect/platform-node-shared` 4.0.0; the PR validation host job prints its runtime, operating system, architecture and adapter version. This target does not imply Windows, browser or Bun host support.
 

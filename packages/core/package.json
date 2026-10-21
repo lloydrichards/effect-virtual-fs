@@ -26,14 +26,14 @@
     "benchmark": "bun --bun run vitest bench --run --config ../../vitest.config.ts --project 'core (bench)'"
   },
   "peerDependencies": {
-    "effect": "^4.0.0"
+    "effect": "^4.0.5"
   },
   "devDependencies": {
-    "@effect/platform-bun": "4.0.0",
-    "@effect/platform-node-shared": "4.0.0",
-    "@effect/vitest": "4.0.0",
+    "@effect/platform-bun": "4.0.5",
+    "@effect/platform-node-shared": "4.0.5",
+    "@effect/vitest": "4.0.5",
     "@repo/config-typescript": "workspace:*",
-    "effect": "4.0.0",
+    "effect": "4.0.5",
     "@types/node": "26.6.3"
   },
   "exports": {

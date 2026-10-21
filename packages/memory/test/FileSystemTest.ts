@@ -1396,11 +1396,11 @@ export const suite = <E>(
           }
 
           if (Option.isSome(sourceInfo.nlink)) {
-            assert.strictEqual(sourceInfo.nlink.value, 2)
+            assert.strictEqual(sourceInfo.nlink.value, 2n)
           }
 
           if (Option.isSome(linkedInfo.nlink)) {
-            assert.strictEqual(linkedInfo.nlink.value, 2)
+            assert.strictEqual(linkedInfo.nlink.value, 2n)
           }
         }))
 
@@ -1420,7 +1420,7 @@ export const suite = <E>(
           const linkedInfo = yield* fs.stat(alias)
 
           if (Option.isSome(linkedInfo.nlink)) {
-            assert.strictEqual(linkedInfo.nlink.value, 1)
+            assert.strictEqual(linkedInfo.nlink.value, 1n)
           }
 
           yield* fs.remove(alias)

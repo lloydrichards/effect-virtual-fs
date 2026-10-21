@@ -8,7 +8,8 @@
  */
 import { GetObjectCommand, PutObjectCommand, type S3Client, S3ServiceException } from "@aws-sdk/client-s3"
 import { LiveVolume, type VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { ByteSize, type Crypto, Effect, Exit, Layer, Ref } from "effect"
+import { ByteSize, Effect, Exit, Layer, Ref } from "effect"
+import type * as Crypto from "effect/Crypto"
 import { dual } from "effect/Function"
 import { makeDigest, storeFailures } from "./internal/storeSupport.js"
 
@@ -220,7 +221,7 @@ export const layer = (
         const parsed = Number(record.generation)
 
         if (!Number.isSafeInteger(parsed)) return yield* loading.fail("CorruptStore")
-        const actual = yield* digest(record.bytes).pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
+        const actual = yield* digest(record.bytes)
 
         if (actual !== record.digest) return yield* loading.fail("CorruptStore")
         yield* Ref.update(ownership, (state) => ({ ...state, generation: parsed, etag: record.etag }))
@@ -245,7 +246,7 @@ export const layer = (
 
           if (BigInt(initial.length) > maxImage) return yield* loading.invalid("maxImageBytes")
 
-          const hash = yield* digest(initial).pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
+          const hash = yield* digest(initial)
 
           const created = yield* options.client.write(options.key, initial, "0", hash, { ifNoneMatch: "*" }).pipe(
             Effect.mapError((cause) => loading.fail("Storage", cause))
@@ -273,15 +274,13 @@ export const layer = (
 
           if (BigInt(image.length) > maxImage || generation === Number.MAX_SAFE_INTEGER) return "rejected" as const
 
-          const hashed = yield* Effect.exit(digest(image))
-
-          if (Exit.isFailure(hashed)) return "rejected" as const
+          const hashed = yield* digest(image)
 
           const written = yield* Effect.exit(options.client.write(
             options.key,
             image,
             String(generation + 1),
-            hashed.value,
+            hashed,
             { ifMatch: etag }
           ))
 

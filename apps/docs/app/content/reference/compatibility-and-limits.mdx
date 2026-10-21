@@ -148,14 +148,18 @@ smaller operations, so another caller can change the tree while they run.
 
 ## Glob limits
 
-Globbing belongs to the memory adapter. Patterns are root-relative POSIX-style paths.
+Globbing belongs to the memory adapter. Patterns may be relative to the selected root or absolute.
 
-The adapter supports `*`, `?`, `**`, character classes and ranges, class negation, escaped syntax, and nested comma-list
-brace expansion. Brace expansion is capped at 256 alternatives. That ceiling is fixed and callers cannot configure it.
+The local portable implementation supports `*`, Unicode-aware `?`, `**`, character classes and ranges,
+POSIX character classes, class negation, escaping, and nested comma-list brace expansion. Expansion
+uses the upstream limits of 10,000 alternatives, a maximum expanded length of 2²² and 64 brace levels.
+It does not support extglobs, numeric brace ranges or whole-pattern negation.
 
-The adapter does not support extglobs, numeric brace ranges, POSIX character classes, whole-pattern negation, or following
-symbolic links during traversal. A trailing slash matches directories only. Dotfiles require a pattern segment that
-explicitly starts with `.` or a positive character class that includes it.
+A trailing slash matches directories only. Hidden names require an explicit leading dot in the pattern
+segment through the published FileSystem interface. Symlink directories are followed through explicit
+segments, and never recursively through `**`. Results follow depth-first order with sorted entries per
+directory. Excluded directories are pruned before reading them. Unreadable wildcard-reached directories
+are skipped; named unreadable directories fail.
 
 ## Snapshot decode limits
 
@@ -200,3 +204,32 @@ See the [`Snapshot delta API reference`](/api/core/snapshot-delta) for the prese
 | Dense-file hard ceiling                           | No, but `maxFileBytes` can lower it             |
 | Watch queue                                       | Yes, through `maxWatchEvents`                    |
 | Glob brace expansion                              | No                                              |
+
+
+## Effect 4.0.5 migration
+
+This migration uses published Effect 4.0.5 packages. Its crypto requirements remain
+`Crypto.Crypto`, supplied by the matching Node or Bun crypto layer. Crypto provider
+failures are defects; filesystem, storage I/O and protocol failures retain their domain errors.
+The unreleased SecureRandom and Digest service split is tracked by TODOs at the capture points.
+
+Device, inode and link-count metadata now use bigint values. Keep these values as bigints,
+including when grouping hard links. Positioned reads and readAlloc leave the sequential cursor
+unchanged. Opening with noFollow rejects the final symlink while following symlinks in parents.
+Watch onReady runs after registration can buffer events. Access checks enforce every requested
+readable and writable permission; access without flags remains an existence check.
+
+The local glob implementation follows the pinned Effect portable algorithm. It matches Unicode
+characters, accepts absolute and normalized patterns, returns depth-first results, prunes excluded
+directories before reading them and skips unreadable directories reached through wildcards.
+Explicitly named unreadable directories still fail. Traversal performs ordinary directory reads,
+which may update access times under relatime. Snapshot Search retains its bounded contract.
+The FileSystemTesting glob handler runs once before traversal, and nested reads and stats pass
+through the decorated primitive handlers.
+
+Effect 4.0.5 does not expose portable Glob, readDirectoryEntries or lstat. The adapter's internal
+typed-entry helper returns bare names and entry kinds, including dangling symlinks, for local glob
+traversal. These are internal implementation details, not additional methods promised on Effect's
+FileSystem service. The local matcher supports the future dot option, but the published service
+interface does not yet advertise it. TODOs identify when upstream implementations can replace these
+helpers. No compatibility service or fake upstream module is introduced.
