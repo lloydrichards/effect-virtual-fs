@@ -1,7 +1,7 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { Deferred, Effect, Fiber, Option, Stream } from "effect"
+import { Deferred, Effect, Fiber, Option, PlatformError, Stream } from "effect"
 import { FileSystemTesting, MemoryFileSystem, TreeTransfer } from "../src/index.js"
 import { makeDirectoryEntries } from "../src/internal/directoryEntries.js"
 import { makeGlob } from "../src/internal/glob.js"
@@ -137,6 +137,44 @@ describe("filesystem adapter compatibility", () => {
         ], ["hardLink", "/c"]])
         const linked = entries.find((entry) => entry.kind === "hardLink")
         assert.strictEqual(linked?.target, "/a")
+      }))
+    it.effect("should preserve recursive glob results through an empty decorator without following globstar links", () =>
+      Effect.gen(function*() {
+        const fs = yield* MemoryFileSystem.make
+        yield* fs.makeDirectory("/dir/nested", { recursive: true })
+        yield* fs.writeFileString("/dir/file", "x")
+        yield* fs.writeFileString("/dir/nested/deep", "x")
+        yield* fs.symlink("dir", "/alias")
+        yield* fs.symlink("missing", "/dangling")
+
+        const { fileSystem } = yield* FileSystemTesting.make(
+          fs,
+          () => Effect.succeed({ state: undefined, handlers: {} })
+        )
+
+        const expected = ["alias", "dangling", "dir", "dir/file", "dir/nested", "dir/nested/deep", "tmp"]
+
+        assert.deepStrictEqual(yield* fs.glob("**"), expected)
+        assert.deepStrictEqual(yield* fileSystem.glob("**"), expected)
+        assert.deepStrictEqual(yield* fileSystem.glob("alias/*"), ["alias/file", "alias/nested"])
+      }))
+    it.effect("should propagate unrelated readLink failures during decorated recursive globbing", () =>
+      Effect.gen(function*() {
+        const fs = yield* MemoryFileSystem.make
+        yield* fs.makeDirectory("/dir")
+
+        const failure = PlatformError.badArgument({
+          module: "FileSystem",
+          method: "readLink",
+          description: "Injected provider failure"
+        })
+
+        const { fileSystem } = yield* FileSystemTesting.make(
+          fs,
+          () => Effect.succeed({ state: undefined, handlers: { readLink: () => Effect.fail(failure) } })
+        )
+
+        assert.strictEqual(yield* Effect.flip(fileSystem.glob("**")), failure)
       }))
     it.effect("should preserve explicit glob handlers and derive traversal from decorated primitives", () =>
       Effect.gen(function*() {
