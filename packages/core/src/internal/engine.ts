@@ -5454,7 +5454,12 @@ export const makeEngine = Effect.fnUntraced(
               }
 
               return releaseDirectory(acquired)
-            })).pipe(Effect.ensuring(closeReleasedScope(acquired)))
+            })).pipe(
+              Effect.mapError((error) =>
+                error.code === "VolumeBusy" ? OpContext.make("close").fail("VolumeBusy") : error
+              ),
+              Effect.ensuring(closeReleasedScope(acquired))
+            )
           })
 
           registry.registerDirectory(handle, acquired)

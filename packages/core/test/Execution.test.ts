@@ -194,7 +194,11 @@ describe("volume execution", () => {
 
     const caller = run(engine.context()).operations
     const scope = Scope.makeUnsafe()
+    const directory = run(caller.openDirectory("/").pipe(Effect.provideService(Scope.Scope, scope)))
     hook = () => {
+      const closeFailure = failure(directory.close)
+      assert.strictEqual(closeFailure.code, "VolumeBusy")
+      assert.strictEqual(closeFailure.operation, "close")
       assert.strictEqual(failure(caller.stat("/")).code, "VolumeBusy")
       assert.strictEqual(
         failure(caller.open("/nested", create).pipe(Effect.provideService(Scope.Scope, scope))).code,
@@ -209,6 +213,8 @@ describe("volume execution", () => {
 
     run(caller.mkdir("/outer"))
     hook = undefined
+    assert.strictEqual(run(directory.stat).kind, "directory")
+    run(directory.close)
     run(Scope.close(scope, Exit.void))
     await Effect.runPromise(Effect.sleep("1 millis"))
     assert.strictEqual(failure(caller.stat("/nested")).code, "NotFound")
