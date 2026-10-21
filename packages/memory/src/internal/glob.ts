@@ -714,10 +714,12 @@ const isMissing = (error: PlatformError): boolean =>
 
 const isIgnorable = (error: PlatformError): boolean => isMissing(error) || error.reason._tag === "PermissionDenied"
 
-// Node and Deno report non-links as Unknown; memory reports readLink/InvalidArgument.
-// Match that specific memory error so unrelated BadArgument failures still propagate.
+// Native EINVAL and memory readLink/InvalidArgument identify non-links.
+// An unrelated Unknown failure must still stop traversal.
 const isNotLink = (error: PlatformError): boolean =>
-  isIgnorable(error) || error.reason._tag === "Unknown" ||
+  isIgnorable(error) ||
+  (error.reason._tag === "Unknown" && error.reason.method === "readLink" &&
+    Predicate.hasProperty(error.reason.cause, "code") && error.reason.cause.code === "EINVAL") ||
   (error.reason._tag === "BadArgument" && error.reason.module === "FileSystem" &&
     error.reason.method === "readLink" && error.reason.description === "InvalidArgument")
 
