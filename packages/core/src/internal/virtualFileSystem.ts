@@ -48,13 +48,11 @@ import * as WatchHub from "./watchHub.js"
 
 const { argumentFailure, decodeConfiguration, OpContext } = Errors
 
-const { joinPath, nameBytes, ownedPath, ROOT_PATH, SLASH_BYTE, SLASH_HEX } = Paths
+const { joinPath, nameBytes, ownedPath, ROOT_PATH, SLASH_BYTE } = Paths
 
-const { emptyState, getNode, Ino, ROOT_INO, WALK_YIELD_INTERVAL } = State
+const { emptyState, entryPath, getNode, Ino, pathOf, ROOT_INO, WALK_YIELD_INTERVAL } = State
 
 type Ino = State.Ino
-
-type Node = State.Node
 
 type VolumeState = State.VolumeState
 
@@ -177,26 +175,6 @@ export const makeVolume = Effect.fnUntraced(function*(
   })
 
   watchHub = yield* WatchHub.make<WatchEvent, Installation, FsFailure>(engine.coordinate, maxWatchEvents)
-
-  const pathOf = (get: (ino: Ino) => Node | undefined, ino: Ino): string | undefined => {
-    const names: Array<string> = []
-    let node = get(ino)
-
-    if (node?.kind !== "directory" || node.metadata.nlink === 0) return undefined
-
-    while (node.ino !== ROOT_INO) {
-      names.push(node.name)
-      const parent = get(node.parent)
-
-      if (parent?.kind !== "directory" || parent.metadata.nlink === 0) return undefined
-      node = parent
-    }
-
-    return SLASH_HEX + names.reverse().join(SLASH_HEX)
-  }
-
-  const entryPath = (prefix: string, name: string) =>
-    ownedPath(nameBytes(prefix + (prefix === SLASH_HEX ? "" : SLASH_HEX) + name))
 
   const pathsOf = (installed: VolumeState, ino: Ino): Array<BytePath> => {
     const node = getNode(installed, ino)

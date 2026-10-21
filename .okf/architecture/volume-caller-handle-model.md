@@ -37,7 +37,7 @@ sources:
   - id: token-tests
     resource: ../../packages/core/test/Engine.test.ts
     title: Direct token liveness and lifecycle tests
-generated: { by: codex/okf, at: "2026-10-21T20:32:44+00:00" }
+generated: { by: codex/okf, at: "2026-10-21T21:14:27+00:00" }
 ---
 
 # Volume, caller, and handle model
@@ -56,7 +56,7 @@ The engine’s `TokenRegistry` namespace owns the shared WeakMaps, reference int
 
 Handle lifecycle is `acquiring`, `open`, `releasedPendingCommit`, or `closed`. Cleanup during acquisition records the release request before publication; if a commit publishes later, it records the retained inode for a finalizer rerun rather than opening the handle. The registry owns scope acquisition, finalization and one release operation. Engine callbacks retain and release inodes, reclaim content, and publish handle changes at the appropriate installation point. A staged explicit file close leaves its handle usable until installation; local directory cleanup disables the handle before reclamation, even if storage rejects that cleanup.[^tokens]
 
-Community assembly in `internal/virtualFileSystem.ts` retains random identities, authenticated references, snapshot/image restoration, overlay observation and watch hubs. The engine emits private installation facts to that assembly and uses one private commit hook for durable installation. Memory installation uses the same path without storage. Minimal construction allocates no watch hub and requires no Crypto service. Public constructors retain their existing requirements and defaults.
+Community assembly in `internal/virtualFileSystem.ts` retains random identities, authenticated references, snapshot/image restoration, overlay observation and watch hubs. The engine emits private installation facts to that assembly and uses one private commit hook for durable installation. Memory installation uses the same path without storage. Minimal construction allocates no watch hub and requires no Crypto service. Its private limits exclude the community watch budget. Community watch path reconstruction reuses the engine’s private state helpers. Public constructors retain their existing requirements and defaults.
 
 Keep engine mechanics in this one file. Filesystem path preparation, error construction, the FIFO coordination gate and private test hooks live beside resolution, state and handles. The forwarding modules are removed; callers import the engine directly. Image/codec-specific diagnostics remain community-owned in `errors.ts`, and tree assembly/restoration remains in `volumeState.ts`; those modules no longer re-export engine helpers. Moving the existing gate changes its location only. Its scheduling and synchronous execution qualification remain #302.
 

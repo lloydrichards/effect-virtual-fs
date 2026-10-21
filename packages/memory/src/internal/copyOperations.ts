@@ -15,7 +15,7 @@ import { copyTree } from "./copyTree.js"
 import { toPlatformError } from "./platformError.js"
 
 /** @internal */
-export const makeCopyOperations = (caller: FileSystemOperations, limits: Vfs.VolumeLimits) => {
+export const makeCopyOperations = (caller: FileSystemOperations, limits: FileSystemOperations["limits"]) => {
   const writeCopiedFile = (
     destination: Vfs.PathInput,
     bytes: Uint8Array,

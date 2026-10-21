@@ -87,7 +87,7 @@ export const copyTree = Effect.fnUntraced(function*(
   caller: FileSystemOperations,
   source: string,
   destination: string,
-  limits: Vfs.VolumeLimits,
+  limits: FileSystemOperations["limits"],
   options: Parameters<FileSystem.FileSystem["copy"]>[2]
 ) {
   return yield* Effect.scoped(Effect.gen(function*() {
