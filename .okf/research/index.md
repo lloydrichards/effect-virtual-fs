@@ -1,5 +1,7 @@
 # Research
 
+- [Minimal Effect filesystem port](minimal-effect-port.md) proposes reusable dependencies, the reduced engine and separate Node VFS qualification.
+
 - [Node VFS interoperability](node-vfs-interoperability.md) compares verified Node 26.12 provider composition with snapshot overlays.
 - [Effect VFS lessons from the Node comparison](node-vfs-snapshot-bridge.md) separates comparative evidence from Effect-native follow-up work.
 

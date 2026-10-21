@@ -4,6 +4,12 @@
 
 - Consolidate #305 into the persistent-state decision and focused collection evidence. Record private inode identity, transient ownership, explicit directory order and accepted CPU/heap costs. Remove superseded research, intermediate measurements and scratchpad experiments; retain final raw VFS trials.
 
+- Review #273 with three independent slices. Resolve abstraction ownership and hidden transfer/identity dependencies, add installed-to-target API obligations and a method profile, and link PR-sized tasks #303–#311 with existing sync/release issues. Keep initial upstream watch unsupported pending acceptance and distinguish the newer Node proposal from earlier withdrawn experiments.
+
+- Correct #273 against verified Effect `v4/next-minor`: reuse existing Glob and portable FileSystem globbing, add typed directory-entry migration, and replace removed Crypto service requirements with the existing crypto families. Preserve bounded search and synchronous MAC limitations.
+
+- Propose staged Effect dependency and minimal filesystem PRs for #273. Separate shared behaviour from native Node VFS integration, record namespace ownership and synchronous execution gates, and preserve existing community contracts.
+
 ## 2026-10-20
 
 - Qualify Code Mode storage in binary byte units, bound retained UTF-8 failure diagnostics separately from interpreter output, and verify cancellation over real MCP stdio. Keep runtime comparison and startup measurement open in #30.
