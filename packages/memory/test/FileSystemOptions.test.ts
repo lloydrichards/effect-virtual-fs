@@ -1,7 +1,8 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
+import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import { assert, describe, it } from "@effect/vitest"
-import { Deferred, Effect, Fiber, Option, PlatformError, Stream } from "effect"
+import { Deferred, Effect, Fiber, FileSystem, Option, PlatformError, Stream } from "effect"
 import { FileSystemTesting, MemoryFileSystem, TreeTransfer } from "../src/index.js"
 import { makeDirectoryEntries } from "../src/internal/directoryEntries.js"
 import { makeGlob } from "../src/internal/glob.js"
@@ -158,24 +159,36 @@ describe("filesystem adapter compatibility", () => {
         assert.deepStrictEqual(yield* fileSystem.glob("**"), expected)
         assert.deepStrictEqual(yield* fileSystem.glob("alias/*"), ["alias/file", "alias/nested"])
       }))
-    it.effect("should propagate unrelated readLink failures during decorated recursive globbing", () =>
-      Effect.gen(function*() {
-        const fs = yield* MemoryFileSystem.make
-        yield* fs.makeDirectory("/dir")
 
-        const failure = PlatformError.badArgument({
-          module: "FileSystem",
-          method: "readLink",
-          description: "Injected provider failure"
-        })
+    for (const kind of ["directory", "symlink"] as const) {
+      for (const unknown of [false, true]) {
+        it.effect(`should propagate ${unknown ? "Unknown" : "BadArgument"} readLink failures on a ${kind}`, () =>
+          Effect.gen(function*() {
+            const fs = yield* MemoryFileSystem.make
+            yield* fs.makeDirectory("/dir")
 
-        const { fileSystem } = yield* FileSystemTesting.make(
-          fs,
-          () => Effect.succeed({ state: undefined, handlers: { readLink: () => Effect.fail(failure) } })
-        )
+            if (kind === "symlink") yield* fs.symlink("/dir", "/alias")
 
-        assert.strictEqual(yield* Effect.flip(fileSystem.glob("**")), failure)
-      }))
+            const fields = {
+              module: "FileSystem" as const,
+              method: "readLink",
+              description: "Injected provider failure"
+            }
+
+            const failure = unknown
+              ? PlatformError.systemError({ ...fields, _tag: "Unknown" })
+              : PlatformError.badArgument(fields)
+
+            const { fileSystem } = yield* FileSystemTesting.make(
+              fs,
+              () => Effect.succeed({ state: undefined, handlers: { readLink: () => Effect.fail(failure) } })
+            )
+
+            assert.strictEqual(yield* Effect.flip(fileSystem.glob("**")), failure)
+          }))
+      }
+    }
+
     it.effect("should preserve explicit glob handlers and derive traversal from decorated primitives", () =>
       Effect.gen(function*() {
         const fs = yield* MemoryFileSystem.make
@@ -209,3 +222,13 @@ describe("filesystem adapter compatibility", () => {
       }))
   })
 })
+
+it.effect("should recognize native non-link errors during fallback glob traversal", () =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const root = yield* fs.makeTempDirectoryScoped()
+    yield* fs.makeDirectory(`${root}/dir`)
+    yield* fs.writeFileString(`${root}/dir/file`, "kept")
+    yield* fs.symlink(`${root}/dir`, `${root}/alias`)
+    assert.deepStrictEqual(yield* makeGlob(fs)("**", { root }), ["alias", "dir", "dir/file"])
+  }).pipe(Effect.provide(NodeFileSystem.layer)))
