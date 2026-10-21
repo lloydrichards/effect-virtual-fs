@@ -4,9 +4,8 @@
  *
  * @since 0.6.0
  */
-import * as Predicate from "effect/Predicate"
-import * as Schema from "effect/Schema"
-import { Mode, OwnerUpdate, Times, Timestamp } from "./Metadata.js"
+import type * as Schema from "effect/Schema"
+import * as Engine from "./internal/engine.js"
 import type { ObjectReference } from "./VirtualFileSystem.js"
 
 /**
@@ -48,12 +47,12 @@ export type ObjectReferenceId = typeof ObjectReferenceId
  * @category schemas
  * @since 0.6.0
  */
-export const Identity = Schema.Struct({
-  uid: Schema.Natural,
-  gid: Schema.Natural,
-  groups: Schema.Array(Schema.Natural),
-  privileged: Schema.Boolean
-})
+export const Identity: Schema.Struct<{
+  readonly uid: Schema.Natural
+  readonly gid: Schema.Natural
+  readonly groups: Schema.$Array<Schema.Natural>
+  readonly privileged: Schema.Boolean
+}> = Engine.Identity
 
 /**
  * A caller's credentials.
@@ -69,10 +68,17 @@ export type Identity = typeof Identity.Type
  * @category schemas
  * @since 0.6.0
  */
-export const RootCallerOptions = Schema.Struct({
-  identity: Schema.optionalKey(Identity),
-  umask: Schema.optionalKey(Schema.Natural.check(Schema.isLessThanOrEqualTo(0o777)))
-})
+export const RootCallerOptions: Schema.Struct<{
+  readonly identity: Schema.optionalKey<
+    Schema.Struct<{
+      readonly uid: Schema.Natural
+      readonly gid: Schema.Natural
+      readonly groups: Schema.$Array<Schema.Natural>
+      readonly privileged: Schema.Boolean
+    }>
+  >
+  readonly umask: Schema.optionalKey<Schema.Natural>
+}> = Engine.RootCallerOptions
 
 /**
  * Options of a root caller.
@@ -89,13 +95,13 @@ export type RootCallerOptions = typeof RootCallerOptions.Type
  * @category schemas
  * @since 0.6.0
  */
-export const OpenOptions = Schema.Struct({
-  access: Schema.Literals(["read", "write", "readWrite"]),
-  create: Schema.optionalKey(Schema.Literals(["never", "ifMissing", "exclusive"])),
-  mode: Schema.optionalKey(Mode),
-  append: Schema.optionalKey(Schema.Boolean),
-  truncate: Schema.optionalKey(Schema.Boolean)
-})
+export const OpenOptions: Schema.Struct<{
+  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
+  readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly append: Schema.optionalKey<Schema.Boolean>
+  readonly truncate: Schema.optionalKey<Schema.Boolean>
+}> = Engine.OpenOptions
 
 /**
  * Options of `open` on a target.
@@ -112,12 +118,16 @@ export type OpenOptions = typeof OpenOptions.Type
  * @category schemas
  * @since 0.6.0
  */
-export const WriteFileOptions = Schema.Struct({
-  ...OpenOptions.fields,
-  followFinalSymlink: Schema.optionalKey(Schema.Boolean),
-  replaceFinalSymlink: Schema.optionalKey(Schema.Boolean),
-  finalMode: Schema.optionalKey(Mode)
-})
+export const WriteFileOptions: Schema.Struct<{
+  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
+  readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly append: Schema.optionalKey<Schema.Boolean>
+  readonly truncate: Schema.optionalKey<Schema.Boolean>
+  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
+  readonly replaceFinalSymlink: Schema.optionalKey<Schema.Boolean>
+  readonly finalMode: Schema.optionalKey<Schema.Natural>
+}> = Engine.WriteFileOptions
 
 /**
  * Options of `writeFile`.
@@ -133,10 +143,10 @@ export type WriteFileOptions = typeof WriteFileOptions.Type
  * @category schemas
  * @since 0.6.0
  */
-export const DirectoryChange = Schema.Struct({
-  before: Schema.BigInt,
-  after: Schema.BigInt
-})
+export const DirectoryChange: Schema.Struct<{
+  readonly before: Schema.BigInt
+  readonly after: Schema.BigInt
+}> = Engine.DirectoryChange
 
 /**
  * A directory's revision before and after a change.
@@ -152,13 +162,24 @@ export type DirectoryChange = typeof DirectoryChange.Type
  * @category schemas
  * @since 0.6.0
  */
-export const RenameReferenceResult = Schema.TaggedUnion({
-  SameDirectory: { directory: DirectoryChange },
-  DifferentDirectories: {
-    sourceDirectory: DirectoryChange,
-    destinationDirectory: DirectoryChange
-  }
-})
+export const RenameReferenceResult: Schema.TaggedUnion<{
+  readonly DifferentDirectories: Schema.TaggedStruct<"DifferentDirectories", {
+    readonly sourceDirectory: Schema.Struct<{
+      readonly before: Schema.BigInt
+      readonly after: Schema.BigInt
+    }>
+    readonly destinationDirectory: Schema.Struct<{
+      readonly before: Schema.BigInt
+      readonly after: Schema.BigInt
+    }>
+  }>
+  readonly SameDirectory: Schema.TaggedStruct<"SameDirectory", {
+    readonly directory: Schema.Struct<{
+      readonly before: Schema.BigInt
+      readonly after: Schema.BigInt
+    }>
+  }>
+}> = Engine.RenameReferenceResult
 
 /**
  * The result of `rename`.
@@ -178,12 +199,43 @@ export type RenameReferenceResult = typeof RenameReferenceResult.Type
  * @category schemas
  * @since 0.6.0
  */
-export const MkdirOptions = Schema.Struct({
-  mode: Schema.optionalKey(Mode),
-  exactMode: Schema.optionalKey(Schema.Boolean),
-  times: Schema.optionalKey(Times),
-  recursive: Schema.optionalKey(Schema.Boolean)
-})
+export const MkdirOptions: Schema.Struct<{
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly exactMode: Schema.optionalKey<Schema.Boolean>
+  readonly times: Schema.optionalKey<
+    Schema.Struct<{
+      readonly access: Schema.Union<
+        readonly [
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"now">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"omit">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"value">
+            readonly nanoseconds: Schema.BigInt
+          }>
+        ]
+      >
+      readonly modification: Schema.Union<
+        readonly [
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"now">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"omit">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"value">
+            readonly nanoseconds: Schema.BigInt
+          }>
+        ]
+      >
+    }>
+  >
+  readonly recursive: Schema.optionalKey<Schema.Boolean>
+}> = Engine.MkdirOptions
 
 /**
  * Options of `mkdir`.
@@ -204,12 +256,12 @@ export type MkdirOptions = typeof MkdirOptions.Type
  * @category schemas
  * @since 0.6.0
  */
-export const WalkOptions = Schema.Struct({
-  order: Schema.optionalKey(Schema.Literals(["pre", "post"])),
-  maxDepth: Schema.optionalKey(Schema.Natural),
-  maxEntries: Schema.optionalKey(Schema.Natural),
-  maxBytes: Schema.optionalKey(Schema.ByteSize)
-})
+export const WalkOptions: Schema.Struct<{
+  readonly order: Schema.optionalKey<Schema.Literals<readonly ["pre", "post"]>>
+  readonly maxDepth: Schema.optionalKey<Schema.Natural>
+  readonly maxEntries: Schema.optionalKey<Schema.Natural>
+  readonly maxBytes: Schema.optionalKey<Schema.ByteSize>
+}> = Engine.WalkOptions
 
 /**
  * Options of `walk`.
@@ -227,11 +279,11 @@ export type WalkOptions = typeof WalkOptions.Type
  * @category schemas
  * @since 0.6.0
  */
-export const RemoveOptions = Schema.Struct({
-  recursive: Schema.optionalKey(Schema.Boolean),
-  force: Schema.optionalKey(Schema.Boolean),
-  expected: Schema.optionalKey(Schema.suspend(() => ObjectReferenceSchema))
-})
+export const RemoveOptions: Schema.Struct<{
+  readonly recursive: Schema.optionalKey<Schema.Boolean>
+  readonly force: Schema.optionalKey<Schema.Boolean>
+  readonly expected: Schema.optionalKey<Schema.suspend<Schema.declare<ObjectReference, ObjectReference>>>
+}> = Engine.RemoveOptions
 
 /**
  * Options of `remove`.
@@ -247,9 +299,40 @@ export type RemoveOptions = typeof RemoveOptions.Type
  * @category schemas
  * @since 0.6.0
  */
-export const SymlinkOptions = Schema.Struct({
-  times: Schema.optionalKey(Times)
-})
+export const SymlinkOptions: Schema.Struct<{
+  readonly times: Schema.optionalKey<
+    Schema.Struct<{
+      readonly access: Schema.Union<
+        readonly [
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"now">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"omit">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"value">
+            readonly nanoseconds: Schema.BigInt
+          }>
+        ]
+      >
+      readonly modification: Schema.Union<
+        readonly [
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"now">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"omit">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"value">
+            readonly nanoseconds: Schema.BigInt
+          }>
+        ]
+      >
+    }>
+  >
+}> = Engine.SymlinkOptions
 
 /**
  * Options of `symlink`.
@@ -270,13 +353,53 @@ export type SymlinkOptions = typeof SymlinkOptions.Type
  * @category schemas
  * @since 0.6.0
  */
-export const SetattrOptions = Schema.Struct({
-  size: Schema.optionalKey(Schema.BigInt.check(Schema.isGreaterThanOrEqualToBigInt(0n))),
-  mode: Schema.optionalKey(Mode),
-  owner: Schema.optionalKey(OwnerUpdate),
-  times: Schema.optionalKey(Times),
-  expected: Schema.optionalKey(Schema.Struct({ revision: Schema.BigInt }))
-})
+export const SetattrOptions: Schema.Struct<{
+  readonly size: Schema.optionalKey<Schema.BigInt>
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly owner: Schema.optionalKey<
+    Schema.Struct<{
+      readonly uid: Schema.optionalKey<Schema.Natural>
+      readonly gid: Schema.optionalKey<Schema.Natural>
+    }>
+  >
+  readonly times: Schema.optionalKey<
+    Schema.Struct<{
+      readonly access: Schema.Union<
+        readonly [
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"now">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"omit">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"value">
+            readonly nanoseconds: Schema.BigInt
+          }>
+        ]
+      >
+      readonly modification: Schema.Union<
+        readonly [
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"now">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"omit">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"value">
+            readonly nanoseconds: Schema.BigInt
+          }>
+        ]
+      >
+    }>
+  >
+  readonly expected: Schema.optionalKey<
+    Schema.Struct<{
+      readonly revision: Schema.BigInt
+    }>
+  >
+}> = Engine.SetattrOptions
 
 /**
  * Attributes of `setattr`.
@@ -292,9 +415,7 @@ export type SetattrOptions = typeof SetattrOptions.Type
  *
  * @internal
  */
-export const ObjectReferenceSchema = Schema.declare<ObjectReference>((input): input is ObjectReference =>
-  Predicate.hasProperty(ObjectReferenceId)(input) && input[ObjectReferenceId] === true
-)
+export const ObjectReferenceSchema: Schema.declare<ObjectReference, ObjectReference> = Engine.ObjectReferenceSchema
 
 /**
  * Schema for the options of `open` on an entry, a lookup-or-create-and-open in
@@ -306,21 +427,65 @@ export const ObjectReferenceSchema = Schema.declare<ObjectReference>((input): in
  * @category schemas
  * @since 0.6.0
  */
-export const OpenEntryOptions = Schema.Struct({
-  ...OpenOptions.fields,
-  followFinalSymlink: Schema.optionalKey(Schema.Boolean),
-  times: Schema.optionalKey(Times),
-  initialSize: Schema.optionalKey(Schema.BigInt),
-  exactMode: Schema.optionalKey(Schema.Boolean),
-  owner: Schema.optionalKey(OwnerUpdate),
-  expected: Schema.optionalKey(Schema.NullOr(ObjectReferenceSchema)),
-  expectedChild: Schema.optionalKey(Schema.NullOr(Schema.Struct({
-    reference: ObjectReferenceSchema,
-    revision: Schema.BigInt,
-    atimeNs: Timestamp,
-    mtimeNs: Timestamp
-  })))
-})
+export const OpenEntryOptions: Schema.Struct<{
+  readonly access: Schema.Literals<readonly ["read", "write", "readWrite"]>
+  readonly create: Schema.optionalKey<Schema.Literals<readonly ["never", "ifMissing", "exclusive"]>>
+  readonly mode: Schema.optionalKey<Schema.Natural>
+  readonly append: Schema.optionalKey<Schema.Boolean>
+  readonly truncate: Schema.optionalKey<Schema.Boolean>
+  readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
+  readonly times: Schema.optionalKey<
+    Schema.Struct<{
+      readonly access: Schema.Union<
+        readonly [
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"now">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"omit">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"value">
+            readonly nanoseconds: Schema.BigInt
+          }>
+        ]
+      >
+      readonly modification: Schema.Union<
+        readonly [
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"now">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"omit">
+          }>,
+          Schema.Struct<{
+            readonly kind: Schema.Literal<"value">
+            readonly nanoseconds: Schema.BigInt
+          }>
+        ]
+      >
+    }>
+  >
+  readonly initialSize: Schema.optionalKey<Schema.BigInt>
+  readonly exactMode: Schema.optionalKey<Schema.Boolean>
+  readonly owner: Schema.optionalKey<
+    Schema.Struct<{
+      readonly uid: Schema.optionalKey<Schema.Natural>
+      readonly gid: Schema.optionalKey<Schema.Natural>
+    }>
+  >
+  readonly expected: Schema.optionalKey<Schema.NullOr<Schema.declare<ObjectReference, ObjectReference>>>
+  readonly expectedChild: Schema.optionalKey<
+    Schema.NullOr<
+      Schema.Struct<{
+        readonly reference: Schema.declare<ObjectReference, ObjectReference>
+        readonly revision: Schema.BigInt
+        readonly atimeNs: Schema.BigInt
+        readonly mtimeNs: Schema.BigInt
+      }>
+    >
+  >
+}> = Engine.OpenEntryOptions
 
 /**
  * Options of `open` on an entry.

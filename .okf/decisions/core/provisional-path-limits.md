@@ -6,7 +6,7 @@ status: stable
 tags: [paths, limits, measurement]
 sources:
   - id: paths
-    resource: ../../../packages/core/src/internal/virtualFileSystem/path.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: Component and traversal limits
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---

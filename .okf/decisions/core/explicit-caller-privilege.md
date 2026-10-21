@@ -6,7 +6,7 @@ status: stable
 tags: [authority, callers, permissions]
 sources:
   - id: core
-    resource: ../../../packages/core/src/internal/virtualFileSystem.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: Identity schema and authorization
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---

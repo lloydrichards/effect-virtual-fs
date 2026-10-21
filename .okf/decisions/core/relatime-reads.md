@@ -6,7 +6,7 @@ status: stable
 tags: [metadata, timestamps, coordination, durability, performance]
 sources:
   - id: engine
-    resource: ../../../packages/core/src/internal/virtualFileSystem.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: RELATIME_INTERVAL_NS, accessDue, refreshDue, accessing, refreshAccess and the unchanged-draft skip in committed
   - id: tests
     resource: ../../../packages/core/test/behaviour/linuxSemantics.test.ts

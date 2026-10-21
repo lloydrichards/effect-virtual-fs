@@ -6,7 +6,7 @@ status: stable
 tags: [paths, encoding, bytes]
 sources:
   - id: paths
-    resource: ../../../packages/core/src/internal/virtualFileSystem/path.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: String to byte path conversion
 generated: { by: codex/okf, at: "2026-09-10T00:00:00Z" }
 ---

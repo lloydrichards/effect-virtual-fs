@@ -13,11 +13,14 @@ import * as ByteSize from "effect/ByteSize"
 import type * as Cause from "effect/Cause"
 import type * as Crypto from "effect/Crypto"
 import type * as Scope from "effect/Scope"
-import { argumentFailure, decodeConfiguration, retargetFailure } from "./internal/errors.js"
+import { Errors } from "./internal/engine.js"
+import { retargetFailure } from "./internal/errors.js"
 import * as Model from "./internal/virtualFileSystem.js"
 import * as Limits from "./internal/volumeLimits.js"
 import { type ArgumentFailure, type StoreFailure, VfsError } from "./VfsError.js"
 import type { Volume, VolumeDurability, VolumeOptions } from "./VirtualFileSystem.js"
+
+const { argumentFailure, decodeConfiguration } = Errors
 
 /**
  * A storage commit's observed outcome.

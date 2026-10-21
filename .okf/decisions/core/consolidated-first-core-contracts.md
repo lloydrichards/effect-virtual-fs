@@ -6,7 +6,7 @@ status: deprecated
 tags: [core, contracts, concurrency]
 sources:
   - id: core
-    resource: ../../../packages/core/src/internal/virtualFileSystem.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: Root defaults, quotas, and coordination
 generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
 ---

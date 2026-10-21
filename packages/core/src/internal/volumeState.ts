@@ -1,170 +1,26 @@
-import * as Brand from "effect/Brand"
 import * as Effect from "effect/Effect"
-import * as Equal from "effect/Equal"
 import * as HashMap from "effect/HashMap"
 import * as Match from "effect/Match"
-import * as Option from "effect/Option"
-import * as Order from "effect/Order"
-import type { Metadata } from "../Metadata.js"
+import { State } from "./engine.js"
 import type { StoredMetadata } from "./metadata.js"
 
-// An inode number: monotonic within a volume, never reused, and persisted by the snapshot and the live image. A
-// safe-integer bound keeps allocation exact; public metadata reports the number as a bigint.
-/** @internal */
-export type Ino = number & Brand.Brand<"@effect-vfs/core/Ino">
+const { Ino, ROOT_INO, WALK_YIELD_INTERVAL, getNode, setNode, byEntryName, inEntryOrder } = State
 
-/** @internal */
-export const Ino = Brand.nominal<Ino>()
+type Ino = State.Ino
 
-/** @internal */
-export const ROOT_INO = Ino(1)
+type Link = State.Link
 
-// The largest inode number a value holds. The allocator resumes one above it and must stay exactly representable,
-// since the inode table is keyed by a number.
-/** @internal */
-export const MAX_INO = Number.MAX_SAFE_INTEGER - 1
+type NodeMetadata = State.NodeMetadata
 
-// File sizes fit an unsigned 32-bit count in the volume and its public options.
-/** @internal */
-export const MAX_FILE_BYTES = 0xffffffff
+type Directory = State.Directory
 
-// Nodes walked between yields. Whole-tree reads are one synchronous tick otherwise, which
-// starves the event loop and leaves nothing for interruption to act on.
-/** @internal */
-export const WALK_YIELD_INTERVAL = 128
+type RegularFile = State.RegularFile
 
-/** @internal */
-export interface Link {
-  readonly parent: Ino
-  readonly name: string
-}
+type SymbolicLink = State.SymbolicLink
 
-/** @internal */
-export type NodeMetadata = Omit<Metadata, "revision">
+type Node = State.Node
 
-/** @internal */
-export interface Directory {
-  readonly kind: "directory"
-  readonly ino: Ino
-  // Directories have one name; a detached directory keeps its last one and reads as unnamed through nlink 0.
-  readonly parent: Ino
-  readonly name: string
-  readonly entries: ReadonlyMap<string, Ino>
-  readonly metadata: NodeMetadata
-  readonly revision: bigint
-}
-
-/** @internal */
-export interface RegularFile {
-  readonly kind: "file"
-  readonly ino: Ino
-  readonly data: Uint8Array
-  readonly links: ReadonlyArray<Link>
-  readonly metadata: NodeMetadata
-  readonly revision: bigint
-}
-
-/** @internal */
-export interface SymbolicLink {
-  readonly kind: "symlink"
-  readonly ino: Ino
-  readonly target: Uint8Array
-  readonly links: ReadonlyArray<Link>
-  readonly metadata: NodeMetadata
-  readonly revision: bigint
-}
-
-/** @internal */
-export type Node = Directory | RegularFile | SymbolicLink
-
-/** @internal */
-export interface VolumeState {
-  readonly inodes: HashMap.HashMap<Ino, Node>
-  // Handles holding a file open; an unlinked file stays in the table, and in the live image, while any does.
-  readonly open: ReadonlyMap<Ino, number>
-  readonly nextInode: Ino
-  readonly revision: bigint
-  readonly entries: number
-  readonly usedBytes: bigint
-}
-
-/** @internal */
-export const getNode = (state: VolumeState, ino: Ino): Node | undefined =>
-  Option.getOrUndefined(HashMap.get(state.inodes, ino))
-
-// Only filesystem-owned records enter this boundary. Identity equality keeps a metadata update from hashing
-// shared file bytes or directory contents; nested payloads and public metadata retain their value semantics.
-/** @internal */
-export const setNode = (inodes: HashMap.HashMap<Ino, Node>, node: Node): HashMap.HashMap<Ino, Node> =>
-  HashMap.set(inodes, node.ino, Equal.byReferenceUnsafe(node))
-
-/** @internal */
-export const byIno = Order.mapInput(Order.Number, (node: Node) => node.ino)
-
-/** @internal */
-export const byEntryName = Order.mapInput(Order.String, ([name]: readonly [string, Ino]) => name)
-
-const inNameOrder = (entries: ReadonlyMap<string, Ino>) => {
-  let previous: string | undefined
-
-  for (const name of entries.keys()) {
-    if (previous !== undefined && previous > name) return false
-    previous = name
-  }
-
-  return true
-}
-
-const inEntryOrder = (directory: Directory): Directory =>
-  inNameOrder(directory.entries)
-    ? directory
-    : { ...directory, entries: new Map([...directory.entries].sort(byEntryName)) }
-
-/** @internal */
-export const payloadOf = (node: Node): Uint8Array | undefined =>
-  node.kind === "file" ? node.data : node.kind === "symlink" ? node.target : undefined
-
-/** @internal */
-export const directoryMetadata = (
-  ino: bigint,
-  uid: number,
-  gid: number,
-  mode: number,
-  now: bigint
-): NodeMetadata => ({
-  kind: "directory",
-  ino,
-  uid,
-  gid,
-  mode,
-  nlink: 2,
-  size: 0n,
-  atimeNs: now,
-  mtimeNs: now,
-  ctimeNs: now,
-  birthtimeNs: now
-})
-
-/** @internal */
-export const emptyRoot = (now: bigint): Directory => ({
-  kind: "directory",
-  ino: ROOT_INO,
-  parent: ROOT_INO,
-  name: "",
-  entries: new Map(),
-  metadata: directoryMetadata(BigInt(ROOT_INO), 0, 0, 0o755, now),
-  revision: 1n
-})
-
-/** @internal */
-export const emptyState = (now: bigint): VolumeState => ({
-  inodes: setNode(HashMap.empty<Ino, Node>(), emptyRoot(now)),
-  open: new Map(),
-  nextInode: Ino(2),
-  revision: 1n,
-  entries: 0,
-  usedBytes: 0n
-})
+type VolumeState = State.VolumeState
 
 /** @internal */
 export const storedMetadata = (metadata: NodeMetadata): StoredMetadata => ({

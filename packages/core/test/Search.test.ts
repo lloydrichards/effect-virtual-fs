@@ -4,8 +4,11 @@ import { ByteSize, Deferred, Effect, Exit, Fiber, Layer, Predicate, Schema, Stre
 import type { FixtureEntry } from "../src/Fixture.js"
 import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as Image from "../src/internal/image.js"
-import { getNode, ROOT_INO, setNode } from "../src/internal/volumeState.js"
+
+import { State } from "../src/internal/engine.js"
 import * as Search from "../src/Search.js"
+
+const { getNode, ROOT_INO, setNode } = State
 
 const file = (path: string): FixtureEntry => ({ kind: "file", path, bytes: new Uint8Array([255, 0, 128]) })
 

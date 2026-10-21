@@ -2,10 +2,21 @@ import * as Predicate from "effect/Predicate"
 import type { FsFailure } from "../VfsError.js"
 import { Change } from "../Watch.js"
 import { getBytes } from "./bytePath.js"
-import { fsFailure } from "./errors.js"
-import { nameBytes, ownedPath, SLASH_HEX } from "./path.js"
-import { getNode, type Ino, type Link, ROOT_INO, type VolumeState } from "./volumeState.js"
+
+import { Errors, Paths, State } from "./engine.js"
 import type { Selection } from "./watchHub.js"
+
+const fsFailure = Errors.fsFailure
+
+const { nameBytes, ownedPath, SLASH_HEX } = Paths
+
+const { getNode, ROOT_INO } = State
+
+type Ino = State.Ino
+
+type Link = State.Link
+
+type VolumeState = State.VolumeState
 
 /** @internal */
 export interface WatchEvent {

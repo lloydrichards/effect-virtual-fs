@@ -4,15 +4,14 @@
  * @internal
  * @since 0.1.0
  */
-import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import * as Stream from "effect/Stream"
-import { listingNames, textPath } from "./adapterSupport.js"
+import { type FileSystemOperations, listingNames, textPath } from "./adapterSupport.js"
 import { resourceError, toPlatformError } from "./platformError.js"
 
 /** @internal */
-export const makeTreeOperations = (caller: Vfs.Caller) => {
+export const makeTreeOperations = (caller: FileSystemOperations) => {
   // The entries below a directory, depth first, with their paths relative to it as text. The core walk reads one
   // directory at a time and holds no handle.
   const walk = (path: string) =>

@@ -6,10 +6,10 @@ status: stable
 tags: [paths, limits, configuration]
 sources:
   - id: paths
-    resource: ../../../packages/core/src/internal/virtualFileSystem/path.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: Optional total path limit
   - id: core
-    resource: ../../../packages/core/src/internal/virtualFileSystem.ts
+    resource: ../../../packages/core/src/internal/engine.ts
     title: maxPathBytes option
 generated: { by: codex/okf, at: "2026-09-12T00:00:00+02:00" }
 ---

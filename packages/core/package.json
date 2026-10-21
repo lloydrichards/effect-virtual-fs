@@ -19,7 +19,8 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json",
+    "build": "bun run check:engine-imports && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json",
+    "check:engine-imports": "bun compatibility/engine-imports/check.mjs",
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "test": "bun --bun run vitest run --config ../../vitest.config.ts --project core",
     "type-check": "tsc --noEmit && tsc --project contracts/tsconfig.json && tsc --project tsconfig.benchmarks.json",

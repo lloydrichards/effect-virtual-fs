@@ -15,20 +15,19 @@ import { ENCODING_CHECK, imageFailure, isEncodingIssue, issueSite } from "./erro
 import { KeySecret, VolumeEpoch } from "./hex128.js"
 import { byteLimit, encodeLine, frame, type FrameMeter, type LineFold } from "./lines.js"
 import { StoredMetadata } from "./metadata.js"
-import { isNameBytes, MAX_NAME_BYTES, nameBytes, NUL_BYTE } from "./path.js"
-import {
-  byIno,
-  Ino,
-  type Link,
-  MAX_INO,
-  type Node,
-  type NodeSpec,
-  reachableNodes,
-  ROOT_INO,
-  storedMetadata,
-  type VolumeState,
-  WALK_YIELD_INTERVAL
-} from "./volumeState.js"
+
+import { Paths, State } from "./engine.js"
+import { type NodeSpec, reachableNodes, storedMetadata } from "./volumeState.js"
+
+const { isNameBytes, MAX_NAME_BYTES, nameBytes, NUL_BYTE } = Paths
+
+const { byIno, Ino, MAX_INO, ROOT_INO, WALK_YIELD_INTERVAL } = State
+
+type Link = State.Link
+
+type Node = State.Node
+
+type VolumeState = State.VolumeState
 
 const TreeIno = Schema.Int.check(Schema.isBetween({ minimum: ROOT_INO, maximum: MAX_INO }))
 

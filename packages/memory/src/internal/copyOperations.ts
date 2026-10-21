@@ -10,12 +10,12 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import * as Result from "effect/Result"
-import { at, textPath } from "./adapterSupport.js"
+import { at, type FileSystemOperations, textPath } from "./adapterSupport.js"
 import { copyTree } from "./copyTree.js"
 import { toPlatformError } from "./platformError.js"
 
 /** @internal */
-export const makeCopyOperations = (caller: Vfs.Caller, limits: Vfs.VolumeLimits) => {
+export const makeCopyOperations = (caller: FileSystemOperations, limits: Vfs.VolumeLimits) => {
   const writeCopiedFile = (
     destination: Vfs.PathInput,
     bytes: Uint8Array,

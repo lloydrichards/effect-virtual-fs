@@ -14,12 +14,14 @@ sources:
   - id: agent-tools-example
     resource: ../../apps/demo-agent-tools/README.md
     title: Independent caller-bound MCP example
-generated: { by: codex/okf, at: 2026-10-20T00:00:00+02:00 }
+generated: { by: codex/okf, at: "2026-10-21T23:00:00+02:00" }
 ---
 
 # System boundaries
 
 `@effect-vfs/core` owns filesystem semantics and public capabilities. It uses Effect for execution, typed failure, clocks, streams, and scopes, but does not depend on the memory adapter, persistence package, or host filesystem services.
+
+Within core, one private engine owns filesystem operations. Community assembly layers identities, snapshots, overlays, watch delivery and durable construction around its installation boundary. A private minimal candidate uses the same engine without those features; this does not change public constructors or promise synchronous execution. See the [volume, caller, and handle model](volume-caller-handle-model.md "refined by").
 
 `@effect-vfs/memory` adapts a core volume to Effect's `FileSystem` service. It preserves that service's string API, cursor behavior, helper operations, and `PlatformError` contract without moving those compatibility rules into core.
 

@@ -20,26 +20,28 @@ import type { DeltaBudget } from "./budget.js"
 import { make as makeBytePath } from "./bytePath.js"
 import { bytesOrder, decodeUtf8, sameBytes } from "./bytes.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
-import { imageFailure, isEncodingIssue, issueSite, VfsError } from "./errors.js"
+import { imageFailure, isEncodingIssue, issueSite } from "./errors.js"
 import * as Image from "./image.js"
 import * as Merkle from "./merkle.js"
 import { StoredMetadata } from "./metadata.js"
-import { isAttachedBytes, isNameBytes, joinPath, nameBytes, NUL_BYTE, ROOT_PATH, SLASH_BYTE } from "./path.js"
+
+import { VfsError } from "../VfsError.js"
+import { Paths, State } from "./engine.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
 import { UNCHECKED } from "./tree.js"
-import {
-  byEntryName,
-  getNode,
-  Ino,
-  type Link,
-  MAX_INO,
-  type Node,
-  payloadOf,
-  ROOT_INO,
-  setNode,
-  storedMetadata,
-  type VolumeState
-} from "./volumeState.js"
+import { storedMetadata } from "./volumeState.js"
+
+const { isAttachedBytes, isNameBytes, joinPath, nameBytes, NUL_BYTE, ROOT_PATH, SLASH_BYTE } = Paths
+
+const { byEntryName, getNode, Ino, MAX_INO, payloadOf, ROOT_INO, setNode } = State
+
+type Ino = State.Ino
+
+type Link = State.Link
+
+type Node = State.Node
+
+type VolumeState = State.VolumeState
 
 /** @internal */
 export const FORMAT = "effect-vfs-delta"

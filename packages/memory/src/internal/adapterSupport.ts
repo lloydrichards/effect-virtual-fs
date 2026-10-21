@@ -148,3 +148,9 @@ export const listingNames = (
   listing: Vfs.ObjectObservation<ReadonlyArray<Vfs.DirectoryEntry>>,
   method: string
 ): Effect.Effect<Array<string>, Vfs.VfsError> => Effect.forEach(listing.value, (entry) => textOf(entry.name, method))
+
+/**
+ * Private operation port; no caller construction or watch capability is required.
+ * @internal
+ */
+export type FileSystemOperations = Omit<Vfs.Caller, symbol | "watch" | "withRoot" | "withDirectory">

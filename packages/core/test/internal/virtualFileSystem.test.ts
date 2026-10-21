@@ -6,10 +6,15 @@ import { KeySecret, VolumeEpoch } from "../../src/internal/hex128.js"
 import * as LiveImage from "../../src/internal/liveImage.js"
 import { LiveTreeNode } from "../../src/internal/tree.js"
 import { makeVolume, memoryCommitProvider, VolumeSource } from "../../src/internal/virtualFileSystem.js"
-import { getNode, Ino, type VolumeState } from "../../src/internal/volumeState.js"
+
+import { State } from "../../src/internal/engine.js"
 import { make as makeError } from "../../src/VfsError.js"
 import { VolumeIdentity } from "../../src/Volume.js"
 import { readLines } from "../support/lines.js"
+
+const { getNode, Ino } = State
+
+type VolumeState = State.VolumeState
 
 // The nodes a live image stores, read without restoring it: every line after the header.
 const storedTree = (image: Uint8Array) =>

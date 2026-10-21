@@ -12,7 +12,7 @@ import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import * as Result from "effect/Result"
 import * as Scope from "effect/Scope"
-import { at } from "./adapterSupport.js"
+import { at, type FileSystemOperations } from "./adapterSupport.js"
 
 interface Written {
   readonly name: Vfs.PathInput
@@ -35,7 +35,7 @@ const exceeds = (value: number | bigint, limit: ByteSize.ByteSize | undefined) =
 // Permission changes address observed objects, never a name that might now hold a replacement.
 // The core recursive remover guards the root and each child identity at every removal stage.
 const removeClaimed = Effect.fnUntraced(function*(
-  caller: Vfs.Caller,
+  caller: FileSystemOperations,
   destination: Vfs.PathInput,
   reference: Vfs.ObjectReference,
   directories: ReadonlyArray<Directory>
@@ -84,7 +84,7 @@ const removeClaimed = Effect.fnUntraced(function*(
 
 /** @internal */
 export const copyTree = Effect.fnUntraced(function*(
-  caller: Vfs.Caller,
+  caller: FileSystemOperations,
   source: string,
   destination: string,
   limits: Vfs.VolumeLimits,

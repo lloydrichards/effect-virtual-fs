@@ -2,7 +2,6 @@ import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Predicate, Scope, Stream } from "effect"
 import { VirtualFileSystem as Vfs } from "../../src/index.js"
-import { withVolumeTestSeams } from "../../src/internal/testSeams.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
 
@@ -21,6 +20,7 @@ const changePaths = (changes: ReadonlyArray<Vfs.OverlayChange>) =>
     return pathText(change.path).pipe(Effect.map((path) => `${change._tag}:${path}`))
   })
 
+import { withVolumeTestSeams } from "../../src/internal/engine.js"
 import { assertHardLinkedSymlinks, hardLinkedSymlinks } from "../support/hardLinkedSymlinks.js"
 import { entryNames } from "../support/text.js"
 

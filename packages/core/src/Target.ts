@@ -6,12 +6,9 @@
  *
  * @since 0.6.0
  */
-import * as Data from "effect/Data"
-import { dual } from "effect/Function"
-import * as Predicate from "effect/Predicate"
-import * as Schema from "effect/Schema"
-import { DirectoryHandleId, FileHandleId } from "./FileHandle.js"
-import * as Internal from "./internal/bytePath.js"
+import type * as Data from "effect/Data"
+import type * as Schema from "effect/Schema"
+import { Address } from "./internal/engine.js"
 import type { DirectoryHandle, FileHandle, ObjectReference, PathInput } from "./VirtualFileSystem.js"
 
 /**
@@ -33,22 +30,13 @@ export type Target = Data.TaggedEnum<{
   readonly Handle: { readonly handle: FileHandle | DirectoryHandle }
 }>
 
-const isFileHandle = (value: unknown): value is FileHandle =>
-  Predicate.hasProperty(FileHandleId)(value) && value[FileHandleId] === true
-
-const isDirectoryHandle = (value: unknown): value is DirectoryHandle =>
-  Predicate.hasProperty(DirectoryHandleId)(value) && value[DirectoryHandleId] === true
-
-const enumeration = Data.taggedEnum<Target>()
-
 /**
  * Whether a value is a `Target`.
  *
  * @category predicates
  * @since 0.6.0
  */
-export const isTarget = (value: unknown): value is Target =>
-  Predicate.isTagged("Path")(value) || Predicate.isTagged("Reference")(value) || Predicate.isTagged("Handle")(value)
+export const isTarget: (value: unknown) => value is Target = Address.isTarget
 
 /**
  * Anything a verb accepts where it takes a target: a `Target`, or the bare
@@ -66,24 +54,8 @@ export type TargetInput = Target | PathInput | ObjectReference | FileHandle | Di
  * @category constructors
  * @since 0.6.0
  */
-export const Target: typeof enumeration & { readonly of: (input: TargetInput) => Target } = {
-  Path: enumeration.Path,
-  Reference: enumeration.Reference,
-  Handle: enumeration.Handle,
-  $is: enumeration.$is,
-  $match: enumeration.$match,
-  // A string or byte path is a path and a handle is a handle; anything else is taken for a reference, so a forged
-  // token reaches the registry and is reported as one.
-  of: (input) => {
-    if (isTarget(input)) return input
-
-    if (isFileHandle(input) || isDirectoryHandle(input)) return enumeration.Handle({ handle: input })
-
-    if (Predicate.isString(input) || Internal.isBytePath(input)) return enumeration.Path({ path: input })
-
-    return enumeration.Reference({ reference: input })
-  }
-}
+export const Target: Data.TaggedEnum.Constructor<Target> & { readonly of: (input: TargetInput) => Target } =
+  Address.Target
 
 /**
  * A directory entry name as bytes or as a string encoded as UTF-8: one to 255
@@ -100,19 +72,7 @@ export type NameInput = string | Uint8Array
  * @category schemas
  * @since 0.6.0
  */
-export const Name = Schema.Uint8Array.check(
-  Schema.makeFilter((bytes) =>
-    bytes.length === 0
-      ? "must not be empty"
-      : bytes.length > 255
-      ? "must be at most 255 bytes"
-      : bytes.includes(0)
-      ? "must not contain NUL"
-      : bytes.includes(0x2f)
-      ? "must not contain a slash"
-      : undefined
-  )
-)
+export const Name: Schema.Uint8Array = Address.Name
 
 /**
  * A well-formed entry name, as bytes.
@@ -157,8 +117,7 @@ export type PathTarget = Extract<Target, { readonly _tag: "Path" }>
  * @category predicates
  * @since 0.6.0
  */
-export const isEntry = (value: unknown): value is Entry =>
-  Predicate.hasProperty(value, "directory") && Predicate.hasProperty(value, "name") && isTarget(value.directory)
+export const isEntry: (value: unknown) => value is Entry = Address.isEntry
 
 /**
  * Names a child of a directory. The directory may be given bare.
@@ -177,7 +136,7 @@ export const isEntry = (value: unknown): value is Entry =>
 export const Entry: {
   (name: NameInput): (directory: TargetInput) => Entry
   (directory: TargetInput, name: NameInput): Entry
-} = dual(2, (directory: TargetInput, name: NameInput): Entry => ({ directory: Target.of(directory), name }))
+} = Address.Entry
 
 /**
  * Whether a path input is a byte path rather than a string.
@@ -185,4 +144,4 @@ export const Entry: {
  * @category predicates
  * @since 0.6.0
  */
-export const isBytePathInput = (input: PathInput): boolean => Internal.isBytePath(input)
+export const isBytePathInput: (input: PathInput) => boolean = Address.isBytePathInput

@@ -5,11 +5,11 @@ description: Defines identity-rooted namespace confinement, independent imported
 status: stable
 tags: [authority, callers, confinement, watches]
 sources:
-  - resource: ../../packages/core/src/internal/confinement.ts
+  - resource: ../../packages/core/src/internal/engine.ts
     title: Draft-aware live membership checks
-  - resource: ../../packages/core/src/internal/resolution.ts
+  - resource: ../../packages/core/src/internal/engine.ts
     title: Confined lookup and imported bases
-  - resource: ../../packages/core/src/internal/virtualFileSystem.ts
+  - resource: ../../packages/core/src/internal/engine.ts
     title: Caller, handle, and coordinated mutation integration
   - resource: ../../packages/core/src/internal/callerWatch.ts
     title: Publication-time watch selection

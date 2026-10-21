@@ -5,7 +5,7 @@ description: Explains identity-rooted authority, live revocation, and publicatio
 status: stable
 tags: [callers, authority, confinement, resources, watches]
 sources:
-  - resource: ../../../packages/core/src/internal/resolution.ts
+  - resource: ../../../packages/core/src/internal/engine.ts
     title: Confined resolver
   - resource: ../../../packages/core/benchmarks/confinement.bench.ts
     title: Reproducible confinement benchmark

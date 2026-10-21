@@ -12,29 +12,26 @@ import type { FsFailure, ImageFailure } from "../VfsError.js"
 import type { PathInput } from "../VirtualFileSystem.js"
 import type { Budget } from "./budget.js"
 import { make as makeBytePath } from "./bytePath.js"
-import { fsFailure, imageFailure } from "./errors.js"
+import { imageFailure } from "./errors.js"
 import * as Lines from "./lines.js"
-import {
-  DOT_DOT_HEX,
-  DOT_HEX,
-  joinPath,
-  MAX_SYMLINK_TRAVERSALS,
-  nameBytes,
-  ownedPath,
-  type PreparedPath,
-  preparePath
-} from "./path.js"
+
+import { Errors, Paths, State } from "./engine.js"
 import * as Tree from "./tree.js"
-import {
-  assemble,
-  byEntryName,
-  getNode,
-  type Ino,
-  type Node,
-  ROOT_INO,
-  storedMetadata,
-  type VolumeState
-} from "./volumeState.js"
+import { assemble, storedMetadata } from "./volumeState.js"
+
+const fsFailure = Errors.fsFailure
+
+const { DOT_DOT_HEX, DOT_HEX, joinPath, MAX_SYMLINK_TRAVERSALS, nameBytes, ownedPath, preparePath } = Paths
+
+type PreparedPath = Paths.PreparedPath
+
+const { byEntryName, getNode, ROOT_INO } = State
+
+type Ino = State.Ino
+
+type Node = State.Node
+
+type VolumeState = State.VolumeState
 
 // Volume values are immutable, so snapshots share them without exposing their state.
 class SnapshotImpl implements Snapshot {

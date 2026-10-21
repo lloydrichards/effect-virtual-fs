@@ -3,7 +3,8 @@ import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Clock, Deferred, Duration, Effect, Fiber, Predicate, Result } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { Metadata, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
-import { withVolumeTestSeams } from "../src/internal/testSeams.js"
+
+import { withVolumeTestSeams } from "../src/internal/engine.js"
 import { pathText } from "./support/text.js"
 
 // A clock whose wall time is `now`; monotonic time and sleeping stay with `original`.

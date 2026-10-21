@@ -4,8 +4,11 @@ import { ByteSize, Deferred, Effect, Exit, Fiber, Layer, Predicate, Stream } fro
 import type { FixtureEntry } from "../src/Fixture.js"
 import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as Image from "../src/internal/image.js"
-import { getNode, ROOT_INO, setNode } from "../src/internal/volumeState.js"
+
+import { State } from "../src/internal/engine.js"
 import * as Search from "../src/Search.js"
+
+const { getNode, ROOT_INO, setNode } = State
 
 const encoder = new TextEncoder()
 

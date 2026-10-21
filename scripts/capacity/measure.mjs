@@ -9,8 +9,12 @@ import { cpus, totalmem } from "node:os"
 import { setImmediate } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import { VirtualFileSystem as Vfs } from "../../packages/core/dist/index.js"
-import { withVolumeTestSeams } from "../../packages/core/dist/internal/testSeams.js"
+
 import * as Memory from "../../packages/memory/dist/MemoryFileSystem.js"
+import { withVolumeTestSeams } from "../../packages/core/dist/internal/engine.js"
+
+
+
 
 const scenarios = [
   ...[1, 16, 64].flatMap((size) => ["partial", "growth"].map((kind) => `${kind}:${size}`)),
