@@ -438,7 +438,7 @@ export type WalkNode<N, E> =
     readonly kind: "content"
     readonly identity?: string | bigint | undefined
     // Hosts retire identities when every reported alias has been visited; callers retain them for the live walk.
-    readonly aliases?: number | undefined
+    readonly aliases?: bigint | undefined
     readonly read: Effect.Effect<Entry, E>
   }
 
@@ -455,7 +455,7 @@ export const walk = <L, N, E>(
 ): Stream.Stream<Entry, E | TransferError> =>
   Stream.unwrap(Effect.sync(() => {
     const pending: Array<WalkLocation<L>> = [{ location: root, path: "/", pathBytes: 1, depth: 0 }]
-    const aliases = new Map<string | bigint, { readonly path: Vfs.PathInput; readonly remaining: number | undefined }>()
+    const aliases = new Map<string | bigint, { readonly path: Vfs.PathInput; readonly remaining: bigint | undefined }>()
     const budget = makeBudget(limits)
 
     const step = Effect.gen(function*() {
@@ -495,8 +495,8 @@ export const walk = <L, N, E>(
 
         if (alias !== undefined) {
           if (node.identity !== undefined && alias.remaining !== undefined) {
-            if (alias.remaining <= 1) aliases.delete(node.identity)
-            else aliases.set(node.identity, { path: alias.path, remaining: alias.remaining - 1 })
+            if (alias.remaining <= 1n) aliases.delete(node.identity)
+            else aliases.set(node.identity, { path: alias.path, remaining: alias.remaining - 1n })
           }
 
           entry = { kind: "hardLink", path, target: alias.path }
@@ -504,7 +504,7 @@ export const walk = <L, N, E>(
           entry = yield* node.read
 
           if (node.identity !== undefined) {
-            aliases.set(node.identity, { path, remaining: node.aliases === undefined ? undefined : node.aliases - 1 })
+            aliases.set(node.identity, { path, remaining: node.aliases === undefined ? undefined : node.aliases - 1n })
           }
         }
       }

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { defineConfig } from "vitest/config"
 
 process.stdout.write(
-  `FileSystem host: platform-node-shared 4.0.0, Node ${process.version}, ${process.platform}/${process.arch}\n`
+  `FileSystem host: platform-node-shared 4.0.5, Node ${process.version}, ${process.platform}/${process.arch}\n`
 )
 
 // Run both providers in a real Node process, separately from the Bun workspace suite.

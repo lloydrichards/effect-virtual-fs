@@ -8,8 +8,9 @@ import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Semaphore from "effect/Semaphore"
-import { info, openOptions, sizeInput } from "./adapterSupport.js"
+import { at, info, openOptions, sizeInput } from "./adapterSupport.js"
 import { argumentError, resourceError, toPlatformError } from "./platformError.js"
 
 /** @internal */
@@ -19,7 +20,7 @@ export const makeOpen = (caller: Vfs.Caller): FileSystem.FileSystem["open"] => {
   return Effect.fnUntraced(function*(path, options) {
     const chosen = yield* openOptions(options?.flag ?? "r", options?.mode, "open")
 
-    const handle = yield* caller.open(path, chosen).pipe(
+    const handle = yield* caller.open(at(path, { followFinalSymlink: options?.noFollow !== true }), chosen).pipe(
       Effect.mapError((error) => toPlatformError(error, "open", path))
     )
 
@@ -34,18 +35,24 @@ export const makeOpen = (caller: Vfs.Caller): FileSystem.FileSystem["open"] => {
       }))
     )
 
-    const read = Effect.fnUntraced(function*(length: number, method: string) {
+    const read = Effect.fnUntraced(function*(length: number, method: string, explicitPosition?: bigint) {
       if (closed) return yield* resourceError(method, fd)
 
-      if (length > 0 && (position < 0n || position > BigInt(Number.MAX_SAFE_INTEGER))) {
+      const offset = explicitPosition ?? position
+
+      if (explicitPosition !== undefined && (!Predicate.isBigInt(explicitPosition) || explicitPosition < 0n)) {
+        return yield* argumentError(method, "position must be a non-negative bigint")
+      }
+
+      if (length > 0 && (offset < 0n || offset > BigInt(Number.MAX_SAFE_INTEGER))) {
         return yield* resourceError(method, fd, "Invalid file position")
       }
 
-      const { bytes } = yield* handle.pread(length, length === 0 ? 0n : position).pipe(
+      const { bytes } = yield* handle.pread(length, length === 0 ? 0n : offset).pipe(
         Effect.mapError((error) => toPlatformError(error, method, fd))
       )
 
-      position += BigInt(bytes.length)
+      if (explicitPosition === undefined) position += BigInt(bytes.length)
 
       return bytes
     })
@@ -102,20 +109,20 @@ export const makeOpen = (caller: Vfs.Caller): FileSystem.FileSystem["open"] => {
           return next
         }))
       }),
-      read: Effect.fnUntraced(function*(buffer) {
+      read: Effect.fnUntraced(function*(buffer, options) {
         return yield* locked(Effect.gen(function*() {
-          const bytes = yield* read(buffer.length, "read")
+          const bytes = yield* read(buffer.length, "read", options?.position)
           buffer.set(bytes)
 
           return bytes.length
         }))
       }),
-      readAlloc: Effect.fnUntraced(function*(size) {
+      readAlloc: Effect.fnUntraced(function*(size, options) {
         const length = yield* sizeInput(size, "readAlloc")
 
         return yield* locked(
           Effect.map(
-            read(Number(length), "readAlloc"),
+            read(Number(length), "readAlloc", options?.position),
             (bytes) => bytes.length === 0 ? Option.none() : Option.some(bytes)
           )
         )

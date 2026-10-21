@@ -4,7 +4,8 @@
  * @since 0.4.0
  */
 import { LiveVolume, type VfsError } from "@effect-vfs/core"
-import { ByteSize, type Crypto, Effect, Exit, FileSystem, Layer, Path, Ref, Schema } from "effect"
+import { ByteSize, Effect, Exit, FileSystem, Layer, Path, Ref, Schema } from "effect"
+import type * as Crypto from "effect/Crypto"
 import { SqlClient } from "effect/sql/SqlClient"
 import { makeDigest, type StoreFailures, storeFailures } from "./internal/storeSupport.js"
 
@@ -275,7 +276,7 @@ export const layer = (options: Options): Layer.Layer<
               return yield* loading.fail("CorruptStore")
             }
 
-            const hash = yield* digest(initial).pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
+            const hash = yield* digest(initial)
             yield* run("BEGIN IMMEDIATE").pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
 
             const initialized = yield* Effect.exit(Effect.gen(function*() {
@@ -304,7 +305,7 @@ export const layer = (options: Options): Layer.Layer<
             row.image === null || !/^[0-9a-f]{64}$/.test(row.digest)
           ) return yield* loading.fail("CorruptStore")
 
-          const actual = yield* digest(row.image).pipe(Effect.mapError((cause) => loading.fail("Storage", cause)))
+          const actual = yield* digest(row.image)
 
           if (actual !== row.digest) return yield* loading.fail("CorruptStore")
 
@@ -321,9 +322,7 @@ export const layer = (options: Options): Layer.Layer<
 
           if (generation === Number.MAX_SAFE_INTEGER) return "rejected" as const
 
-          const hash = yield* digest(image).pipe(Effect.orElseSucceed(() => ""))
-
-          if (hash === "") return "rejected" as const
+          const hash = yield* digest(image)
 
           const began = yield* Effect.exit(run("BEGIN IMMEDIATE"))
 

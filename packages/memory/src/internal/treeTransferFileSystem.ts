@@ -200,11 +200,11 @@ export const fromFileSystem = (
 
       if (info.type !== "File") return yield* refuse(path, "UnsupportedEntryType")
       const ino = Option.getOrUndefined(info.ino)
-      const nlink = Option.getOrUndefined(info.nlink) ?? 1
+      const nlink = Option.getOrUndefined(info.nlink) ?? 1n
 
       return {
         kind: "content",
-        identity: ino === undefined || nlink < 2 ? undefined : `${info.dev}:${ino}`,
+        identity: ino === undefined || nlink < 2n ? undefined : `${info.dev}:${ino}`,
         aliases: nlink,
         read: Effect.gen(function*() {
           yield* budget.fileSize(path, info.size)
@@ -315,7 +315,7 @@ export const toFileSystem = (
 ): Sink.Sink<TransferReport, Entry, never, TransferError | Vfs.VfsError | PlatformError> =>
   sink<
     CreatedDirectory,
-    { readonly dev: number; readonly ino: number | undefined },
+    { readonly dev: bigint; readonly ino: bigint | undefined },
     TransferError | Vfs.VfsError | PlatformError
   >(
     "fileSystem",
@@ -333,7 +333,7 @@ export const toFileSystem = (
       // Only a root this sink claimed exclusively is removed, and only while it is still the same object. Owner
       // access is restored first, because finished directories may carry restrictive modes.
       const removeClaimed = Effect.fnUntraced(
-        function*(claimed: { readonly dev: number; readonly ino: number | undefined }) {
+        function*(claimed: { readonly dev: bigint; readonly ino: bigint | undefined }) {
           if (Result.isSuccess(yield* Effect.result(fs.readLink(destination)))) return
           const current = yield* Effect.result(fs.stat(destination))
 

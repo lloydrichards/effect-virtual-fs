@@ -353,3 +353,7 @@
 
 - **Phase 2 provenance**: Removed legacy `.docs` resources from concept metadata. Current claims now resolve to maintained code, tests, package manifests, CI configuration, standards, or the concepts themselves.
 - **Initialization**: Migrated durable project knowledge from `.docs` into an OKF v0.2 bundle while retaining `.docs` for comparison during Stage 1.
+
+## 2026-10-21
+
+- Adopt published Effect 4.0.5 with portable local glob behavior, exact bigint metadata and supported adapter options. Keep unreleased entry, lstat and crypto-service replacements behind explicit TODOs.

@@ -5,7 +5,7 @@ import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, Data, Effect, Exit, FileSystem, Layer, Option, Path, Scope, Stream } from "effect"
+import { ByteSize, Data, Effect, Exit, FileSystem, Layer, Option, Path, Schema, Scope, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { SqlClient } from "effect/sql/SqlClient"
 import { ConnectionError, SqlError } from "effect/sql/SqlError"
@@ -112,6 +112,11 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       }).pipe(Layer.provide(SqliteClient.layer({ filename, disableWAL: true })))
 
       const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(failed)))
+
+      if (Schema.is(SqlError)(error)) {
+        return assert.fail("Expected a VFS domain failure, received SQL client startup failure")
+      }
+
       assert.strictEqual(error.code, "Storage")
       assert.strictEqual(yield* filesystem.exists(filename), true)
     })))
@@ -129,6 +134,11 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       }).pipe(Layer.provide(SqliteClient.layer({ filename, disableWAL: true })))
 
       const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(failed)))
+
+      if (Schema.is(SqlError)(error)) {
+        return assert.fail("Expected a VFS domain failure, received SQL client startup failure")
+      }
+
       assert.strictEqual(error.code, "Storage")
       assert.strictEqual(yield* filesystem.exists(filename), true)
 
@@ -331,6 +341,11 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
         yield* Effect.scoped(Effect.gen(function*() {
           yield* LiveVolume.open(options)
           const competing = yield* Effect.flip(LiveVolume.open(options).pipe(Effect.provide(store(filename))))
+
+          if (Schema.is(SqlError)(competing)) {
+            return assert.fail("Expected a VFS domain failure, received SQL client startup failure")
+          }
+
           assert.deepStrictEqual([competing.code, competing.operation], ["Ownership", "SqliteLiveImageStore.layer"])
         })).pipe(Effect.provide(store(filename)))
       })),
@@ -355,6 +370,11 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       }).pipe(Effect.provide(SqliteClient.layer({ filename, disableWAL: true })))
 
       const damaged = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(store(filename))))
+
+      if (Schema.is(SqlError)(damaged)) {
+        return assert.fail("Expected a VFS domain failure, received SQL client startup failure")
+      }
+
       assert.strictEqual(damaged.code, "CorruptStore")
     })))
 
@@ -378,6 +398,11 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       }).pipe(Effect.provide(SqliteClient.layer({ filename, disableWAL: true })))
 
       const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(store(filename))))
+
+      if (Schema.is(SqlError)(error)) {
+        return assert.fail("Expected a VFS domain failure, received SQL client startup failure")
+      }
+
       assert.strictEqual(error.code, "CorruptStore")
     })))
 
@@ -395,6 +420,11 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       }).pipe(Layer.provide(SqliteClient.layer({ filename: actual, disableWAL: true })))
 
       const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(mismatched)))
+
+      if (Schema.is(SqlError)(error)) {
+        return assert.fail("Expected a VFS domain failure, received SQL client startup failure")
+      }
+
       assert.deepStrictEqual([error.code, error.field], ["InvalidArgument", "filename"])
     })))
 
@@ -408,6 +438,11 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
       }).pipe(Effect.provide(SqliteClient.layer({ filename, disableWAL: true })))
 
       const error = yield* Effect.flip(Effect.scoped(LiveVolume.open(options)).pipe(Effect.provide(store(filename))))
+
+      if (Schema.is(SqlError)(error)) {
+        return assert.fail("Expected a VFS domain failure, received SQL client startup failure")
+      }
+
       assert.strictEqual(error.code, "IncompatibleStore")
     })))
 
@@ -436,6 +471,11 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
         ] as const
       ) {
         const error = yield* opened(settings)
+
+        if (Schema.is(SqlError)(error)) {
+          return assert.fail("Expected a VFS domain failure, received SQL client startup failure")
+        }
+
         assert.deepStrictEqual([error.code, error.operation, error.field], [
           "InvalidArgument",
           "SqliteLiveImageStore.layer",
@@ -456,6 +496,10 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
           access: "write",
           create: "exclusive"
         }))
+
+        if (Schema.is(SqlError)(error)) {
+          return assert.fail("Expected a VFS domain failure, received SQL client startup failure")
+        }
 
         assert.strictEqual(error.code, "StorageRejected")
         assert.strictEqual((yield* Effect.flip(caller.stat("/too-large"))).code, "NotFound")
@@ -503,6 +547,10 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
           create: "exclusive"
         }))
 
+        if (Schema.is(SqlError)(failure)) {
+          return assert.fail("Expected a VFS domain failure, received SQL client startup failure")
+        }
+
         assert.strictEqual(failure.code, "OutcomeUnknown")
         assert.strictEqual((yield* Effect.flip(caller.stat("/durable"))).code, "VolumeUnavailable")
         assert.strictEqual((yield* Effect.flip(live.usage)).code, "VolumeUnavailable")
@@ -544,6 +592,10 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
           access: "write",
           create: "exclusive"
         }))
+
+        if (Schema.is(SqlError)(failure)) {
+          return assert.fail("Expected a VFS domain failure, received SQL client startup failure")
+        }
 
         assert.strictEqual(failure.code, "OutcomeUnknown")
         assert.strictEqual((yield* Effect.flip(caller.stat("/"))).code, "VolumeUnavailable")

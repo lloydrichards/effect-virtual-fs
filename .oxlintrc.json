@@ -18,6 +18,7 @@
     }
   ],
   "rules": {
+    "effecttsgo/unstable-api-usage": "off",
     "typescript/consistent-type-imports": [
       "error",
       {

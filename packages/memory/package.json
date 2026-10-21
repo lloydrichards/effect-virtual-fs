@@ -62,13 +62,13 @@
     "type-check": "tsc --noEmit"
   },
   "peerDependencies": {
-    "effect": "^4.0.0"
+    "effect": "^4.0.5"
   },
   "devDependencies": {
-    "@effect/platform-node-shared": "4.0.0",
-    "@effect/vitest": "4.0.0",
+    "@effect/platform-node-shared": "4.0.5",
+    "@effect/vitest": "4.0.5",
     "@repo/config-typescript": "workspace:*",
-    "effect": "4.0.0",
+    "effect": "4.0.5",
     "tsdown": "^0.23.0"
   },
   "dependencies": {

@@ -226,8 +226,8 @@ it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
       assert.strictEqual(file.mode, 0o100640)
 
       for (const info of [directory, file]) {
-        assert.strictEqual(info.dev, 0)
-        assert.deepStrictEqual(info.rdev, Option.some(0))
+        assert.strictEqual(info.dev, 0n)
+        assert.deepStrictEqual(info.rdev, Option.some(0n))
       }
     }))
 
@@ -769,8 +769,9 @@ describe("permission parity with Node", () => {
 })
 
 describe("adapter glob compatibility", () => {
+  const dotOptions = { root: "/glob", dot: true }
   it.layer(NodeCrypto.layer)((it) => {
-    it.effect("should match UTF-16 units and require explicit dots in hidden names", () =>
+    it.effect("should match Unicode characters and include hidden names only when requested", () =>
       Effect.gen(function*() {
         const fs = yield* MemoryFileSystem.make
         yield* fs.makeDirectory("/glob/.hidden", { recursive: true })
@@ -779,14 +780,19 @@ describe("adapter glob compatibility", () => {
           yield* fs.writeFileString(`/glob/${name}`, "x")
         }
 
-        assert.deepStrictEqual(yield* fs.glob("?.ts", { root: "/glob" }), ["a.ts"])
-        assert.deepStrictEqual(yield* fs.glob("??.ts", { root: "/glob" }), ["😀.ts"])
+        assert.deepStrictEqual(yield* fs.glob("?.ts", { root: "/glob" }), ["a.ts", "😀.ts"])
+        assert.deepStrictEqual(yield* fs.glob("??.ts", { root: "/glob" }), [])
         assert.deepStrictEqual(yield* fs.glob("**/*.ts", { root: "/glob" }), ["a.ts", "😀.ts"])
         assert.deepStrictEqual(yield* fs.glob(".*.ts", { root: "/glob" }), [".dot.ts"])
         assert.deepStrictEqual(yield* fs.glob(".hidden/*.ts", { root: "/glob" }), [".hidden/child.ts"])
+        assert.deepStrictEqual(yield* fs.glob("**/*.ts", dotOptions), [
+          ".dot.ts",
+          ".hidden/child.ts",
+          "a.ts",
+          "😀.ts"
+        ])
       }))
-
-    it.effect("should return sorted relative strings and the root dot while excluding directory descendants", () =>
+    it.effect("should traverse depth first without emitting the implicit root and prune excluded directories", () =>
       Effect.gen(function*() {
         const fs = yield* MemoryFileSystem.bind(
           yield* Vfs.fromFixture({
@@ -799,54 +805,33 @@ describe("adapter glob compatibility", () => {
           })
         )
 
-        assert.deepStrictEqual(yield* fs.glob("**"), [".", "a", "a/child", "link", "z"])
-        assert.deepStrictEqual(yield* fs.glob("**/"), [".", "a"])
-        assert.deepStrictEqual(yield* fs.glob("**", { exclude: ["a/"] }), [".", "link", "z"])
-        assert.deepStrictEqual(yield* fs.glob("**", { exclude: ["**/"] }), [])
-        assert.deepStrictEqual(yield* fs.glob("**", { root: "/link" }), [".", "child"])
+        assert.deepStrictEqual(yield* fs.glob("**"), ["a", "a/child", "link", "z"])
+        assert.deepStrictEqual(yield* fs.glob("**/"), ["a", "link"])
+        assert.deepStrictEqual(yield* fs.glob("**", { exclude: ["a/"] }), ["link", "z"])
+        assert.deepStrictEqual(yield* fs.glob("**", { exclude: ["**/"] }), ["z"])
+        assert.deepStrictEqual(yield* fs.glob("**", { root: "/link" }), ["child"])
+        assert.deepStrictEqual(yield* fs.glob("/a/**"), ["/a", "/a/child"])
         assert.deepStrictEqual(yield* fs.readDirectory("/", { recursive: true }), ["a", "a/child", "link", "z"])
       }))
-
-    it.effect("should reject malformed include and exclude patterns before resolving the root", () =>
+    it.effect("should accept literal malformed classes and normalized or absolute patterns", () =>
       Effect.gen(function*() {
         const fs = yield* MemoryFileSystem.make
-
-        for (const pattern of ["", "/absolute", "a//b", "../a", "[", "a\\"]) {
-          for (
-            const operation of [
-              fs.glob(pattern, { root: "/missing" }),
-              fs.glob("**", { root: "/missing", exclude: [pattern] })
-            ]
-          ) {
-            const error = yield* Effect.flip(operation)
-            assert.strictEqual(error.reason._tag, "BadArgument")
-            assert.strictEqual(error.reason.method, "glob")
-          }
-        }
+        yield* fs.makeDirectory("/patterns/a", { recursive: true })
+        yield* fs.writeFileString("/patterns/[", "x")
+        yield* fs.writeFileString("/patterns/a/b", "x")
+        assert.deepStrictEqual(yield* fs.glob("[", { root: "/patterns" }), ["["])
+        assert.deepStrictEqual(yield* fs.glob("./a//b", { root: "/patterns" }), ["a/b"])
+        assert.deepStrictEqual(yield* fs.glob("/patterns/["), ["/patterns/["])
+        assert.deepStrictEqual(yield* fs.glob("**", { root: "/patterns", exclude: ["["] }), ["a", "a/b"])
       }))
-
-    it.effect("should retain glob method and root context for missing and non-directory roots", () =>
+    it.effect("should return no matches for missing and non-directory roots", () =>
       Effect.gen(function*() {
         const fs = yield* MemoryFileSystem.make
         yield* fs.writeFileString("/file", "x")
 
-        for (
-          const [root, tag, description] of [
-            ["/missing", "NotFound", "NotFound"],
-            ["/file", "BadResource", "NotDirectory"]
-          ]
-        ) {
-          const reason = systemReason(yield* Effect.flip(fs.glob("**", { root })))
-          assert.deepStrictEqual([reason._tag, reason.method, reason.pathOrDescriptor, reason.description], [
-            tag,
-            "glob",
-            root,
-            description
-          ])
-        }
+        for (const root of ["/missing", "/file"]) assert.deepStrictEqual(yield* fs.glob("**", { root }), [])
       }))
-
-    it.effect("should fail strict filename decoding even when the subtree or root is excluded", () =>
+    it.effect("should prune excluded byte-name subtrees and retain strict decoding for observed names", () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.fromFixture({ entries: [{ kind: "directory", path: "/excluded" }] })
         const caller = yield* volume.caller()
@@ -857,22 +842,18 @@ describe("adapter glob compatibility", () => {
         )
         const fs = yield* MemoryFileSystem.bind(volume)
 
-        for (const exclude of [["excluded/"], ["**/"]]) {
-          const reason = systemReason(yield* Effect.flip(fs.glob("**", { exclude })))
-          assert.deepStrictEqual([reason._tag, reason.method, reason.pathOrDescriptor, reason.description], [
-            "InvalidData",
-            "glob",
-            "/",
-            "UnrepresentableName"
-          ])
-          assert.strictEqual(Schema.is(Vfs.VfsError)(reason.cause) && reason.cause.operation, "readDirectory")
-        }
-
+        for (const exclude of [["excluded/"], ["**/"]]) assert.deepStrictEqual(yield* fs.glob("**", { exclude }), [])
+        const observed = systemReason(yield* Effect.flip(fs.glob("**")))
+        assert.deepStrictEqual([observed._tag, observed.method, observed.pathOrDescriptor, observed.description], [
+          "InvalidData",
+          "readDirectoryEntries",
+          "excluded",
+          "UnrepresentableName"
+        ])
         const reason = systemReason(yield* Effect.flip(fs.readDirectory("/", { recursive: true })))
         assert.strictEqual(reason.description, "UnrepresentableName")
       }))
-
-    it.effect("should fail traversal of an excluded unreadable subtree", () =>
+    it.effect("should skip unreadable wildcard directories but propagate named directory failures", () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.fromFixture({
           entries: [
@@ -881,19 +862,16 @@ describe("adapter glob compatibility", () => {
           ]
         })
 
-        const fs = yield* MemoryFileSystem.bind(volume, {
-          identity: { uid: 1, gid: 1, groups: [], privileged: false }
-        })
+        const fs = yield* MemoryFileSystem.bind(volume, { identity: { uid: 1, gid: 1, groups: [], privileged: false } })
 
-        for (const exclude of [["excluded/"], ["**/"]]) {
-          const reason = systemReason(yield* Effect.flip(fs.glob("**", { exclude })))
-          assert.deepStrictEqual([reason._tag, reason.method, reason.pathOrDescriptor, reason.description], [
-            "PermissionDenied",
-            "glob",
-            "/",
-            "AccessDenied"
-          ])
-        }
+        for (const exclude of [["excluded/"], ["**/"]]) assert.deepStrictEqual(yield* fs.glob("**", { exclude }), [])
+        assert.deepStrictEqual(yield* fs.glob("**"), ["excluded"])
+        const named = systemReason(yield* Effect.flip(fs.glob("excluded/*")))
+        assert.deepStrictEqual([named._tag, named.method, named.pathOrDescriptor], [
+          "PermissionDenied",
+          "readDirectoryEntries",
+          "excluded"
+        ])
       }))
   })
 })

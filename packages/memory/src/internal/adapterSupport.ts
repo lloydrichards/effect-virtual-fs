@@ -15,7 +15,8 @@ import * as Predicate from "effect/Predicate"
 import { argumentError } from "./platformError.js"
 
 // Keyed by every kind, so a new kind fails to compile here as it does in typedMode.
-const FILE_INFO_TYPE = {
+/** @internal */
+export const FILE_INFO_TYPE = {
   directory: "Directory",
   file: "File",
   symlink: "SymbolicLink"
@@ -24,7 +25,8 @@ const FILE_INFO_TYPE = {
 /** @internal */
 export const info = Effect.fnUntraced(function*(
   value: Vfs.Metadata,
-  pathOrDescriptor: string | number
+  pathOrDescriptor: string | number,
+  method = "stat"
 ): Effect.fn.Return<FileSystem.File.Info, PlatformError> {
   const date = (field: "atimeNs" | "mtimeNs" | "birthtimeNs") => {
     const result = DateTime.make(Number(value[field] / 1_000_000n))
@@ -33,7 +35,7 @@ export const info = Effect.fnUntraced(function*(
       ? Effect.succeedSome(DateTime.toDateUtc(result.value))
       : Effect.fail(systemError({
         module: "FileSystem",
-        method: "stat",
+        method,
         pathOrDescriptor,
         _tag: "InvalidData",
         description: `${field} cannot be represented as a JavaScript Date`
@@ -42,14 +44,14 @@ export const info = Effect.fnUntraced(function*(
 
   return {
     type: FILE_INFO_TYPE[value.kind],
-    ino: Option.some(Number(value.ino)),
+    ino: Option.some(value.ino),
     // A volume has no device nodes, so dev and rdev are 0 by contract.
-    dev: 0,
+    dev: 0n,
     mode: Metadata.typedMode(value),
     uid: Option.some(value.uid),
     gid: Option.some(value.gid),
-    nlink: Option.some(value.nlink),
-    rdev: Option.some(0),
+    nlink: Option.some(BigInt(value.nlink)),
+    rdev: Option.some(0n),
     size: ByteSize.bytes(value.size),
     blksize: Option.none(),
     blocks: Option.none(),

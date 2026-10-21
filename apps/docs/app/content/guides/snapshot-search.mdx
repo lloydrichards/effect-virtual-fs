@@ -84,7 +84,7 @@ Effect `ByteSize`. Glob performs no content work, so `scannedBytes` and `lineEva
 raw UTF-8 paths, rather than JavaScript heap usage or serialized JSON size. A wide directory can stop the query before
 any of its children are visited, because Search checks preparation capacity before allocating a sorted list.
 
-The memory adapter's `FileSystem.glob` keeps its separate UTF-16 wildcard, hidden-name, sorting and error behavior.
+The memory adapter's `FileSystem.glob` follows portable glob traversal, including Unicode wildcards, depth-first results and exclusion before directory reads.
 Use `Search` when you want the snapshot dialect described here.
 
 ## Search file content
