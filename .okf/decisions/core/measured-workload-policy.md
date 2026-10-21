@@ -15,7 +15,7 @@ sources:
     title: Dense replacement buffers and snapshot ownership
   - resource: ../../../packages/core/test/Snapshot.test.ts
     title: Namespace mutation, capture, overlay, and encoded-restore regression
-generated: { by: codex/okf, at: 2026-10-04T13:11:54.526Z }
+generated: { by: codex/okf, at: "2026-10-21T17:50:27+00:00" }
 ---
 
 # Measured workload and quota policy
@@ -38,10 +38,11 @@ const workspace = Vfs.make({
 
 Retain unset defaults for `maxBytes`, `maxEntries`, and `maxPathBytes`. Applications choose their workload and resource
 policy. Use persistent directory entries for live namespace mutations. Name lookup uses Effect `HashMap`; insertion-order
-slots use the existing persistent inode-table structure. Inserting or replacing an entry copies only affected branches,
+slots also use Effect `HashMap`. Inserting or replacing an entry copies only affected branches,
 and deletion compacts the slots when deleted slots outnumber live entries. Native `ReadonlyMap` consumers, listing
 order, immutable snapshots, and encoded formats stay compatible. Restored native maps are converted on their first
-namespace edit. This reduces repeated wide-directory copying while adding some retained directory metadata.
+namespace edit. This reduces repeated wide-directory copying while adding some retained directory metadata. The
+[persistent-state decision](persistent-volume-state.md "refined by") owns the collection and ordering policy.
 
 Retain dense replacement-buffer file storage for this release. Detaching before write preserves captured and
 overlay content; one-machine measurements do not justify a replacement storage design. Frequent large-file updates

@@ -1,7 +1,9 @@
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
+import * as HashMap from "effect/HashMap"
 import * as Match from "effect/Match"
+import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -20,7 +22,6 @@ import { bytesOrder, decodeUtf8, sameBytes } from "./bytes.js"
 import { CanonicalBase64 } from "./canonicalBase64.js"
 import { imageFailure, isEncodingIssue, issueSite, VfsError } from "./errors.js"
 import * as Image from "./image.js"
-import * as InodeTable from "./inodeTable.js"
 import * as Merkle from "./merkle.js"
 import { StoredMetadata } from "./metadata.js"
 import { isAttachedBytes, isNameBytes, joinPath, nameBytes, NUL_BYTE, ROOT_PATH, SLASH_BYTE } from "./path.js"
@@ -35,6 +36,7 @@ import {
   type Node,
   payloadOf,
   ROOT_INO,
+  setNode,
   storedMetadata,
   type VolumeState
 } from "./volumeState.js"
@@ -588,9 +590,8 @@ export const fold = (
       })
     )
 
-  const owner = Symbol()
   const revision = base.revision + 1n
-  let inodes = base.inodes
+  const inodes = HashMap.beginMutation(base.inodes)
   let nextInode = base.nextInode
   let entries = base.entries
   let usedBytes = base.usedBytes
@@ -602,10 +603,11 @@ export const fold = (
   const removed = new Set<Ino>()
   const created = new Map<Ino, Array<Uint8Array>>()
 
-  const get = (ino: Ino) => InodeTable.get(inodes, ino)
+  const get = (ino: Ino) => Option.getOrUndefined(HashMap.get(inodes, ino))
 
   const put = (ino: Ino, node: Node | undefined) => {
-    inodes = InodeTable.set(inodes, ino, node, owner)
+    if (node === undefined) HashMap.remove(inodes, ino)
+    else setNode(inodes, node)
   }
 
   const entriesOf = (directory: DirectoryNode) => drafts.get(directory.ino) ?? directory.entries
@@ -830,7 +832,7 @@ export const fold = (
   for (const [ino, paths] of created) if (paths.length > 1) groups.set(ino, [...paths].sort(bytesOrder))
 
   const value: VolumeState = {
-    inodes,
+    inodes: HashMap.endMutation(inodes),
     open: new Map(),
     nextInode,
     revision: placed.length === 0 ? base.revision : revision,

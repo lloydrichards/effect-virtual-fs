@@ -1,13 +1,15 @@
 import * as Brand from "effect/Brand"
 import * as Effect from "effect/Effect"
+import * as Equal from "effect/Equal"
+import * as HashMap from "effect/HashMap"
 import * as Match from "effect/Match"
+import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import type { Metadata } from "../Metadata.js"
-import * as InodeTable from "./inodeTable.js"
 import type { StoredMetadata } from "./metadata.js"
 
 // An inode number: monotonic within a volume, never reused, and persisted by the snapshot and the live image. A
-// number keys the inode table more cheaply than a bigint; the public metadata still reports it as one.
+// safe-integer bound keeps allocation exact; public metadata reports the number as a bigint.
 /** @internal */
 export type Ino = number & Brand.Brand<"@effect-vfs/core/Ino">
 
@@ -77,7 +79,7 @@ export type Node = Directory | RegularFile | SymbolicLink
 
 /** @internal */
 export interface VolumeState {
-  readonly inodes: InodeTable.InodeTable<Node>
+  readonly inodes: HashMap.HashMap<Ino, Node>
   // Handles holding a file open; an unlinked file stays in the table, and in the live image, while any does.
   readonly open: ReadonlyMap<Ino, number>
   readonly nextInode: Ino
@@ -87,7 +89,14 @@ export interface VolumeState {
 }
 
 /** @internal */
-export const getNode = (state: VolumeState, ino: Ino): Node | undefined => InodeTable.get(state.inodes, ino)
+export const getNode = (state: VolumeState, ino: Ino): Node | undefined =>
+  Option.getOrUndefined(HashMap.get(state.inodes, ino))
+
+// Only filesystem-owned records enter this boundary. Identity equality keeps a metadata update from hashing
+// shared file bytes or directory contents; nested payloads and public metadata retain their value semantics.
+/** @internal */
+export const setNode = (inodes: HashMap.HashMap<Ino, Node>, node: Node): HashMap.HashMap<Ino, Node> =>
+  HashMap.set(inodes, node.ino, Equal.byReferenceUnsafe(node))
 
 /** @internal */
 export const byIno = Order.mapInput(Order.Number, (node: Node) => node.ino)
@@ -149,7 +158,7 @@ export const emptyRoot = (now: bigint): Directory => ({
 
 /** @internal */
 export const emptyState = (now: bigint): VolumeState => ({
-  inodes: InodeTable.set(InodeTable.empty<Node>(), ROOT_INO, emptyRoot(now)),
+  inodes: setNode(HashMap.empty<Ino, Node>(), emptyRoot(now)),
   open: new Map(),
   nextInode: Ino(2),
   revision: 1n,
@@ -205,19 +214,13 @@ const atFirstRevision = (node: Node): Node => node.revision === 1n ? node : { ..
 /** @internal */
 export const reachableValue = Effect.fnUntraced(function*(source: VolumeState) {
   const nodes = yield* reachableNodes(source)
-  const owner = Symbol()
-  let inodes = InodeTable.empty<Node>()
+  const inodes = HashMap.beginMutation(HashMap.empty<Ino, Node>())
   let entries = 0
   let usedBytes = 0n
   let largestFile = 0
 
   for (const node of nodes) {
-    inodes = InodeTable.set(
-      inodes,
-      node.ino,
-      atFirstRevision(node.kind === "directory" ? inEntryOrder(node) : node),
-      owner
-    )
+    setNode(inodes, atFirstRevision(node.kind === "directory" ? inEntryOrder(node) : node))
 
     if (node.kind === "directory") entries += node.entries.size
     else if (node.kind === "symlink") usedBytes += BigInt(node.target.length)
@@ -228,7 +231,7 @@ export const reachableValue = Effect.fnUntraced(function*(source: VolumeState) {
   }
 
   const state: VolumeState = {
-    inodes,
+    inodes: HashMap.endMutation(inodes),
     open: new Map(),
     nextInode: source.nextInode,
     revision: 1n,
@@ -303,8 +306,7 @@ export const assemble = (specs: ReadonlyArray<NodeSpec>): VolumeState => {
     }
   }
 
-  const owner = Symbol()
-  let inodes = InodeTable.empty<Node>()
+  const inodes = HashMap.beginMutation(HashMap.empty<Ino, Node>())
 
   for (const spec of specs) {
     const base = { ...spec.metadata, ino: BigInt(spec.ino) }
@@ -338,8 +340,8 @@ export const assemble = (specs: ReadonlyArray<NodeSpec>): VolumeState => {
       Match.exhaustive
     )
 
-    inodes = InodeTable.set(inodes, spec.ino, node, owner)
+    setNode(inodes, node)
   }
 
-  return { inodes, open: new Map(), nextInode, revision, entries, usedBytes }
+  return { inodes: HashMap.endMutation(inodes), open: new Map(), nextInode, revision, entries, usedBytes }
 }

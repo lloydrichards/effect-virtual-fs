@@ -7,8 +7,6 @@ tags: [core, engine, staging, overlay, snapshots]
 sources:
   - resource: ../../../packages/core/src/internal/volumeState.ts
     title: Immutable volume state and node relationships
-  - resource: ../../../packages/core/src/internal/inodeTable.ts
-    title: Persistent inode table
   - resource: ../../../packages/core/src/internal/directoryEntries.ts
     title: Persistent directory entries
   - resource: ../../../packages/core/src/internal/virtualFileSystem.ts
@@ -17,12 +15,38 @@ sources:
     title: Snapshot and live-image codecs
   - resource: ../../../packages/core/src/internal/snapshotDelta.ts
     title: Delta computation and verification
-generated: { by: codex/okf, at: 2026-10-05T00:00:00Z }
+  - resource: ../../../packages/core/test/internal/volumeState.test.ts
+    title: Persistent inode state and payload-free metadata replacement
+  - resource: ../../../packages/core/test/behaviour/directoryOrder.test.ts
+    title: Compaction order and captured-state isolation
+generated: { by: codex/okf, at: "2026-10-21T17:50:27+00:00" }
 ---
 
 # Persistent volume state
 
-The volume owns one immutable state value. Inodes live in a persistent table keyed by inode number. Directories carry their parent, name, and entries; files and symbolic links carry the names that reach them. Persistent directory entries avoid copying a wide directory on every live namespace edit.
+The volume owns one immutable state value. Inodes live in Effect `HashMap<Ino, Node>`, keyed by inode number. Directories carry their parent, name, and entries; files and symbolic links carry the names that reach them. Persistent directory entries avoid copying a wide directory on every live namespace edit.
+
+## Collection ownership
+
+Reuse Effect HashMap for inodes and directory slots instead of maintaining a generic integer trie. The project accepts the measured CPU and retained-heap costs to reduce collection maintenance. This decision does not establish performance parity or justify a new Effect collection. The [collection comparison](../../evidence/collection-reuse.md "evidenced by") records the accepted costs and qualification limits.
+
+`setNode` applies `Equal.byReferenceUnsafe` to each filesystem-owned Node before storage. HashMap replacement can otherwise structurally compare records and hash unchanged file bytes or directory contents. Marking keeps that comparison by identity without proxy allocation. A spread creates an unmarked record, so every new record passes through this write boundary, including imported, rebuilt and quiet-atime records.
+
+The marking changes equality and hashing for the private record's lifetime. It must not mark caller-owned metadata, shared byte arrays or link arrays. Buffer ownership and immutability remain separate requirements. Public object identity uses volume and inode identifiers, not the private record reference.
+
+Translate pending deletion into `HashMap.remove`; storing `undefined` would retain a present entry. A private transient batch applies pending writes at the existing synchronous finish boundary. Publish only finalized successful state. Failed or cancelled work must leave the base unchanged, and intermediate mutable wrappers must not escape. Delta application and state reconstruction obey the same ownership policy.
+
+Inode allocation remains monotonic and independent of map size. Valid inode numbers run from 1 through `Number.MAX_SAFE_INTEGER - 1`; `Number.MAX_SAFE_INTEGER` is the exhaustion sentinel. Hash collisions do not make distinct inode keys equivalent. An unlinked inode remains available while a handle holds it open.
+
+## Explicit directory order
+
+Directory name lookup and numeric slots use two HashMaps sharing one `{ name, ino, index }` entry. Overwriting preserves position. Removal deletes both entries and leaves a logical slot hole; reinsertion appends. Rebuild when `length > size * 2`, preserving surviving order. Restored native maps convert on their first namespace edit.
+
+Live listings retain insertion order. Snapshot restore, overlays and live-image reopen canonicalize byte-name order. HashMap iteration must not define either policy, and map equality alone cannot prove ordering.
+
+Full `readDirectory` observations populate a temporary array by explicit slot index and remove holes. Lazy snapshot and search consumers keep incremental traversal. Logical lengths beyond JavaScript array-index capacity use the incremental fallback. No cached sorted view is retained.
+
+Single-map sorting reduces secondary storage but pays for sorting each newly listed version. Cached sorting retains arrays for listed historical versions and still sorts after edits. Chunk token logs need generation checks and compaction to preserve reinsertion. These alternatives were explored but did not justify replacing explicit slots for the balanced build and long-lived workloads. Proxy-wrapped inode identity avoids structural comparison but adds a wrapper; direct marking is restricted to private owned records instead.
 
 ## Coordinated changes
 

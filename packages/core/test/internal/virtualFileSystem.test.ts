@@ -3,11 +3,10 @@ import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Cause, Deferred, Effect, Exit, Fiber, Scheduler, Schema, Scope } from "effect"
 import { VirtualFileSystem as Vfs } from "../../src/index.js"
 import { KeySecret, VolumeEpoch } from "../../src/internal/hex128.js"
-import * as InodeTable from "../../src/internal/inodeTable.js"
 import * as LiveImage from "../../src/internal/liveImage.js"
 import { LiveTreeNode } from "../../src/internal/tree.js"
 import { makeVolume, memoryCommitProvider, VolumeSource } from "../../src/internal/virtualFileSystem.js"
-import type { VolumeState } from "../../src/internal/volumeState.js"
+import { getNode, Ino, type VolumeState } from "../../src/internal/volumeState.js"
 import { make as makeError } from "../../src/VfsError.js"
 import { VolumeIdentity } from "../../src/Volume.js"
 import { readLines } from "../support/lines.js"
@@ -47,11 +46,11 @@ describe("staged volume state", () => {
         const directory = yield* caller.openDirectory("/directory").pipe(Scope.provide(scope))
         const inode = Number((yield* directory.stat).ino)
         yield* caller.rmdir("/directory")
-        assert.isDefined(InodeTable.get(candidate!.inodes, inode))
+        assert.isDefined(getNode(candidate!, Ino(inode)))
         const before = commits
         yield* Scope.close(scope, Exit.void)
         assert.strictEqual(commits - before, 1)
-        assert.isUndefined(InodeTable.get(candidate!.inodes, inode))
+        assert.isUndefined(getNode(candidate!, Ino(inode)))
         assert.strictEqual((yield* Effect.flip(directory.stat)).code, "InvalidHandle")
         assert.deepEqual(yield* volume.usage, { entries: 0, usedBytes: 0n })
         yield* caller.mkdir("/after")

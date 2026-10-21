@@ -4,8 +4,7 @@ import { ByteSize, Deferred, Effect, Exit, Fiber, Layer, Predicate, Stream } fro
 import type { FixtureEntry } from "../src/Fixture.js"
 import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as Image from "../src/internal/image.js"
-import * as InodeTable from "../src/internal/inodeTable.js"
-import { getNode, ROOT_INO } from "../src/internal/volumeState.js"
+import { getNode, ROOT_INO, setNode } from "../src/internal/volumeState.js"
 import * as Search from "../src/Search.js"
 
 const encoder = new TextEncoder()
@@ -434,7 +433,7 @@ describe("snapshot content search", () => {
           }
         })
 
-        const guarded = Image.make({ ...state, inodes: InodeTable.set(state.inodes, ino, { ...node, data }) })
+        const guarded = Image.make({ ...state, inodes: setNode(state.inodes, { ...node, data }) })
         const scanning = yield* Search.files(guarded, query).pipe(Effect.forkChild({ startImmediately: true }))
         yield* Fiber.interrupt(scanning)
         assert.isTrue(Exit.isFailure(yield* Fiber.await(scanning)))
@@ -485,7 +484,7 @@ describe("snapshot content search", () => {
           }
         })
 
-        const guarded = Image.make({ ...state, inodes: InodeTable.set(state.inodes, ino, { ...node, data }) })
+        const guarded = Image.make({ ...state, inodes: setNode(state.inodes, { ...node, data }) })
         assert.deepStrictEqual((yield* Search.files(guarded, query)).results, ["f"])
         assert.deepStrictEqual(views, [[0, 17]])
         views.length = 0

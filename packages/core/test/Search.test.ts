@@ -4,8 +4,7 @@ import { ByteSize, Deferred, Effect, Exit, Fiber, Layer, Predicate, Schema, Stre
 import type { FixtureEntry } from "../src/Fixture.js"
 import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as Image from "../src/internal/image.js"
-import * as InodeTable from "../src/internal/inodeTable.js"
-import { getNode, ROOT_INO } from "../src/internal/volumeState.js"
+import { getNode, ROOT_INO, setNode } from "../src/internal/volumeState.js"
 import * as Search from "../src/Search.js"
 
 const file = (path: string): FixtureEntry => ({ kind: "file", path, bytes: new Uint8Array([255, 0, 128]) })
@@ -270,7 +269,7 @@ describe("snapshot filename search", () => {
           }
         })
 
-        const guarded = Image.make({ ...state, inodes: InodeTable.set(state.inodes, ROOT_INO, { ...root, entries }) })
+        const guarded = Image.make({ ...state, inodes: setNode(state.inodes, { ...root, entries }) })
         const report = yield* Search.glob(guarded, { ...all, limits: { maxEntries: 1 } })
         assert.deepStrictEqual(report.results, [])
         assert.strictEqual(report.work.entries, 0)
@@ -289,9 +288,8 @@ describe("snapshot filename search", () => {
 
         for (const ino of root.entries.values()) {
           const node = getNode(state, ino)!
-          inodes = InodeTable.set(
+          inodes = setNode(
             inodes,
-            ino,
             new Proxy(node, {
               get(target, property) {
                 if (property === "kind") observed++
@@ -451,7 +449,7 @@ describe("snapshot filename search", () => {
           }
         })
 
-        const protectedSnapshot = Image.make({ ...state, inodes: InodeTable.set(state.inodes, ino, guarded) })
+        const protectedSnapshot = Image.make({ ...state, inodes: setNode(state.inodes, guarded) })
 
         const report = yield* Search.glob(protectedSnapshot, {
           ...all,
