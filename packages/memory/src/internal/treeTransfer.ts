@@ -9,7 +9,6 @@
  * @since 0.6.0
  */
 import { BytePath, VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
@@ -28,7 +27,6 @@ import {
   isRootPath,
   type Location,
   makeBudget,
-  makeLimits,
   MODE_BITS,
   OWNER_ACCESS,
   pathKey,
@@ -40,29 +38,11 @@ import {
   toPathInput,
   TransferError,
   type TransferReport,
-  type TreeTransferLimits,
   type VolumeTransferOptions,
   walk,
   type WalkNode,
   type WriteOptions
 } from "./treeTransferEngine.js"
-
-const UNBOUNDED_BYTES = ByteSize.bytes(2n ** 64n)
-
-/**
- * Derives a transfer policy that is only as strict as the volume itself, for
- * adapter operations whose public signature has no limits parameter.
- *
- * @internal
- */
-export const volumeLimits = (limits: Vfs.VolumeLimits): TreeTransferLimits =>
-  makeLimits({
-    maxEntries: limits.maxEntries ?? Number.MAX_SAFE_INTEGER,
-    maxBytes: limits.maxBytes ?? UNBOUNDED_BYTES,
-    maxFileBytes: limits.maxFileBytes,
-    maxDepth: Number.MAX_SAFE_INTEGER,
-    maxPathBytes: limits.maxPathBytes ?? UNBOUNDED_BYTES
-  })
 
 const SLASH = 0x2f
 

@@ -55,7 +55,8 @@
     "directory": "packages/memory"
   },
   "scripts": {
-    "build": "tsdown && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser && node compatibility/browser/check.mjs",
+    "build": "bun run check:copy-imports && tsdown && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json && bun build compatibility/browser/index.ts --target=browser --outdir=.cache/browser && node compatibility/browser/check.mjs",
+    "check:copy-imports": "bun compatibility/copy-imports/check.mjs",
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "test": "bun --bun run vitest run --config ../../vitest.config.ts --project memory",
     "test:host": "node ../../node_modules/vitest/vitest.mjs run --config ../../vitest.host.config.ts && node test/fixtures/host-watch-lifecycle.mjs",

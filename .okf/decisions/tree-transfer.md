@@ -17,20 +17,22 @@ sources:
   - id: transfer-engine
     resource: ../../packages/memory/src/internal/treeTransferEngine.ts
     title: Internal transfer ordering and sink coordination
+  - resource: ../../packages/memory/src/internal/copyTree.ts
+    title: Separate basic filesystem copy traversal
   - id: behavior-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Tree transfer behavior tests
   - id: host-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Node and memory FileSystem transfer tests
-generated: { by: claude/okf, at: "2026-10-02T13:25:00+02:00" }
+generated: { by: claude/okf, at: "2026-10-21T21:30:00+02:00" }
 ---
 
 # Tree transfer design
 
 A tree transfer is an Effect `Stream` of core fixture entries, rooted at the transfer root, run into a `Sink`. Users pass capabilities they already hold. There is no separate port interface for adapters to implement. The existing fixture entry type already carries byte paths, nanosecond timestamps, owners, symbolic-link target bytes, and hard links, so it is the only interchange type. Filtering, merging several roots, and progress use Effect's own `Stream` operators rather than transfer options. The [tree transfer contract](../contracts/tree-transfer.md "specifies") owns the exact rules.
 
-`@effect-vfs/memory` owns the module beside its existing traversal code and Effect `FileSystem` bridge. Core stays free of host filesystem services, as the [package boundaries](package-boundaries.md "preserves") require. The memory adapter's `FileSystem.copy` runs on the same engine, using the volume's own limits and no depth bound, so its public signature does not change.
+`@effect-vfs/memory` owns the module beside its existing traversal code and Effect `FileSystem` bridge. Core stays free of host filesystem services, as the [package boundaries](package-boundaries.md "preserves") require. The memory adapter initially reused this engine for `FileSystem.copy`. Issue #306 separates basic filesystem copying into a private Caller traversal so it does not import optional transfer or snapshot features. The [memory adapter contract](../contracts/memory-adapter-compatibility.md "constrained by") retains its volume-derived limits and copy behavior; public TreeTransfer remains on this engine.
 
 ## Internal ownership
 
