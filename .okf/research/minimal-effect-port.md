@@ -5,33 +5,37 @@ description: Proposes reusable Effect dependencies, a reduced memory engine and 
 status: draft
 tags: [architecture, effect, compatibility]
 sources:
-  - resource: ../../research/273-effect-port-plan.md
-    title: Staged PR plan and namespace migration map
-  - resource: ../../research/273-node-vfs-compatibility.md
-    title: Node VFS comparison and targeted probe findings
-  - resource: ../../research/273-swarm-review.md
-    title: Reviewed staged-plan gaps and resolutions
-  - resource: ../../research/273-compatibility-profile.md
-    title: Selected method compatibility profile
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/273
-    title: Parent scope issue
-generated: { by: codex/okf, at: "2026-10-21T17:43:01+00:00" }
+    title: Staged scope and dependency gates
+  - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/308
+    title: Upstream engine ownership and acceptance
+  - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/309
+    title: Upstream FileSystem method and resource profile
+generated: { by: codex/okf, at: "2026-10-21T21:12:09+00:00" }
 ---
 
 # Minimal Effect filesystem port
 
-The proposed direction is to adopt existing Effect Bytes, Glob and crypto modules and propose BytePath before a reduced memory filesystem engine and its Effect `FileSystem` provider. Existing Effect `Bytes` already covers concatenation, equality and ordering. At verified `v4/next-minor` revision `3c0eb2b1d2ebfc03f8a1a77a143b459bd66655c6`, Glob and portable `FileSystem.glob` already exist. BytePath needs an independent proposal. Hex128 remains local Schema composition and has no mandatory extraction issue.
+The local preparation uses published Effect 4.0.5. The upstream design was researched against unreleased `v4/next-minor` revision `3c0eb2b1d2ebfc03f8a1a77a143b459bd66655c6`; the later API comparison uses `5c4b648deaf19676eb81c5f7e452b5bd5c3ae344`. Neither source revision establishes release availability or maintainer acceptance.
 
-Effect service compatibility, shared filesystem behaviour and native `node:vfs` integration are separate acceptance claims. Native integration requires a checked synchronous memory execution contract and a Node-only provider adapter. A failed synchronous call must not mutate later. Durable asynchronous stores remain outside that initial binding.
+## Local preparation and upstream ownership
 
-The proposed upstream scope excludes snapshots, overlays, deltas, search, transfer, external reference keys, persistence and NFS. Existing community guarantees remain unchanged under the [package boundary decision](../decisions/package-boundaries.md "constrained by"). Basic memory allocation limits remain in the proposed engine; richer policy and confinement stay downstream initially.
+Local #304 adapts published metadata, positioned reads, final-component noFollow, access checks and watch readiness. It retains the published Crypto service and a local MIT-adapted portable glob. Release-dependent substitutions belong to upstream #308 and #309: Bytes and split crypto providers for the engine, and derived glob, public readDirectoryEntries and lstat for the provider. Optional Mac adoption requires preserving the existing truncated authentication format. Bounded snapshot search remains separate.
 
-The reviewed abstraction gates require existing HashMap reuse or independently justified collection work, and elimination or independent resolution of a general fair-lock algorithm. Filesystem state, resolver rules, private object identity, orphan lifetime and allocation policy stay internal. Excluding public references must preserve rename-safe cleanup. FileSystem copy must lose its transitive TreeTransfer dependency.
+The accepted [persistent-state decision](../decisions/core/persistent-volume-state.md "refined by") uses reference-marked private inode HashMap records and explicit directory slots. The [collection evidence](../evidence/collection-reuse.md "evidenced by") records accepted historical CPU and retained-heap costs against Effect 4.0.0. Those measurements do not qualify 4.0.5 or justify a new collection module.
 
-The accepted [persistent-state decision](../decisions/core/persistent-volume-state.md "refined by") replaces the generic integer trie with marked private inode HashMap records and explicit directory slots. The [collection evidence](../evidence/collection-reuse.md "evidenced by") records measured CPU and retained-heap costs. Target next-minor and native Node qualification remain separate. These results do not justify a new collection module.
+Local #306 removes copy's runtime TreeTransfer dependency. Local #307 extracts one private engine while community construction retains identities, snapshots, overlays, durable stores and watch hubs. Permission and confinement mechanics remain coordinated inside the engine; public Caller, credential and authority APIs remain community features. The [engine ownership map](../architecture/volume-caller-handle-model.md "described by") records each remaining dependency and its intended Effect home. Independent upstream contracts remain a #308 gate.
 
-The crypto migration replaces removed `effect/Crypto` with SecureRandom, Digest and optional Mac. Portable globbing requires `readDirectoryEntries` and explicit acceptance of changed matching and traversal behaviour. Bounded snapshot search retains its stricter work limits until adaptation is proven. Installed-to-target migration also covers bigint metadata, positioned reads, final-component noFollow, watch readiness and testing glob interception.
+## Compatibility gates
 
-The proposed initial upstream watch is explicitly unsupported while community watches remain supported. Native Node handles have their own cursor/lifecycle wrapper. The review at `research/273-swarm-review.md` and method profile at `research/273-compatibility-profile.md` define the gates. #303, #308 and #309 target Effect; local #304–#307 prepare the implementation, existing #302 owns sync proof, and #310–#311 cover separate Node implementation/qualification.
+Effect service compatibility, shared filesystem semantics and native Node integration are separate claims. The minimum engine covers byte names, files, directories, symlinks, hard links, metadata, handles, private identity and allocation limits. It excludes public snapshots, overlays, deltas, codecs, search, transfer, authenticated references, persistence and NFS under the [package boundary decision](../decisions/package-boundaries.md "constrained by").
 
-The staged plan at `research/273-effect-port-plan.md` contains exact source baselines, the complete namespace map, ordered PRs and verification gates. The Node comparison at `research/273-node-vfs-compatibility.md` records current experimental runtime constraints and deliberate differences. This proposal does not establish v1 stability or maintainer acceptance. Convert it to an accepted decision only after scope and ownership review.
+#303 proposes an independent BytePath value and codecs in Effect-TS/effect#9730. Public manipulation helpers are deferred. Filesystem-specific assembly stays private; generic byte operations should reuse upstream Bytes once ported. Hex128 remains local Schema composition unless independent demand justifies extraction.
+
+#302 owns scheduling, reentry and finalizer qualification. Local FIFO coordination is preserved during extraction, not accepted as an upstream generic algorithm. A failed synchronous call must not mutate later. The reduced candidate must pass those gates before #308; arbitrary Effect implementations cannot be presumed synchronous.
+
+#309 owns every target FileSystem method and option, structured error translation, fresh/shared construction, scoped files, streams, sinks, temporary cleanup and copy. Its proposed initial watch fails on consumption with PlatformError reason Unknown, module FileSystem, method watch and description WatchUnsupported. Community watches remain supported. Maintainers must accept the limited upstream profile.
+
+#310 and #311 own a separate Node provider and mounted filesystem/loader qualification. Node handles require their own cursor and lifetime wrapper. Initial routing is well-formed UTF-8 text; arbitrary-byte routing requires separate evidence. Memory sync and datasync imply no crash durability. Node/Bun checks and browser bundle smoke do not establish browser execution or native Node integration.
+
+The [parent issue](https://github.com/lloydrichards/effect-virtual-fs/issues/273) owns task dependencies. This proposal remains draft until upstream scope and ownership are accepted. It does not establish v1 stability.
