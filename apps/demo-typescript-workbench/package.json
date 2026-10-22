@@ -1,0 +1,35 @@
+{
+  "name": "@repo/typescript-workbench",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --experimental-vfs src/workbench/server.ts",
+    "build": "tsc --noEmit && vite build",
+    "type-check": "tsc --noEmit",
+    "lint:effects": "effect-tsgo diagnostics --project tsconfig.json --lspconfig '{\"diagnostics\":true,\"effectFn\":[\"untraced\"],\"diagnosticSeverity\":{\"unstableApiUsage\":\"off\",\"effectFnOpportunity\":\"error\",\"lazyEffect\":\"error\",\"allOfMapToForEach\":\"error\"}}'",
+    "test": "node --experimental-vfs --test test/*.test.ts",
+    "start": "node --experimental-vfs src/workbench/server.ts --production"
+  },
+  "dependencies": {
+    "@effect-vfs/core": "workspace:*",
+    "@effect-vfs/node": "workspace:*",
+    "@effect/platform-node-shared": "4.0.5",
+    "effect": "4.0.5",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "typescript-js": "npm:typescript@5.9.3",
+    "@fontsource-variable/manrope": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@effect/platform-node": "4.0.5",
+    "@effect/atom-react": "4.0.5",
+    "monaco-editor": "0.55.1"
+  },
+  "devDependencies": {
+    "@repo/config-typescript": "workspace:*",
+    "@types/node": "26.6.3",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "vite": "8.3.1"
+  }
+}
