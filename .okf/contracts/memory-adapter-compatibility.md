@@ -57,7 +57,7 @@ sources:
   - id: overlay-binding
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Overlay volume binding tests
-generated: { by: codex/okf, at: "2026-10-22T06:18:00Z" }
+generated: { by: codex/okf, at: "2026-10-22T06:34:00Z" }
 ---
 
 # Memory adapter compatibility
@@ -80,7 +80,7 @@ The internal `glob.ts` adapts Effect's MIT-licensed portable algorithm at `5c4b6
 
 The existing fixture constructors forward execution: sync to the shared core engine; make/layer retain cooperative defaults. Public sync memory and private sync engine bindings run the shared FileSystem corpus. The adapter still returns Effects and does not certify arbitrary derived user workflows as synchronous. Native Node provider qualification remains separate.
 
-Published Effect 4.0.5 supplies bigint metadata, positioned reads, final-component noFollow and watch readiness. Positioned reads preserve the sequential cursor; readiness runs after registration can buffer events. Access enforces every requested read/write bit. Metadata inode/device/link counts remain exact bigint values through transfer identity checks.
+Published Effect 4.0.5 supplies bigint metadata, positioned reads, final-component noFollow and watch readiness. Positioned reads preserve the sequential cursor and accept nonnegative signed-64-bit bigint offsets, returning EOF for positions past the file without a safe-integer conversion. Closed-caller and invalid-handle failures propagate through glob rather than appearing as empty listings. Missing paths and recognized non-directory failures still produce no matches. Watch readiness runs after registration can buffer events. Access enforces every requested read/write bit. Metadata inode/device/link counts remain exact bigint values through transfer identity checks.
 
 Portable Glob, public readDirectoryEntries/lstat, and the SecureRandom/Digest service split remain unreleased. The published FileSystem/Crypto interfaces remain the public contracts. Local TODOs name the upstream replacement condition; no parallel service is exposed. Provider failures in existing Crypto digest/random operations are defects, matching the future providers, while filesystem and storage I/O failures retain their typed errors.
 
