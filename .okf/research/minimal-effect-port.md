@@ -21,7 +21,7 @@ sources:
     title: Snapshot checkpoint consumer
   - resource: ../../packages/nfs/src/internal/export.ts
     title: Portable reference dependency blocking unchanged NFS migration
-generated: { by: codex/okf, at: "2026-10-22T11:28:22+02:00" }
+generated: { by: codex/okf, at: "2026-10-22T12:23:00+02:00" }
 ---
 
 # Staged Effect filesystem implementation plan
@@ -98,7 +98,7 @@ Stop after this ownership refactor. Atomic-transition restructuring, public port
 
 ## Stage 2: Review the complete Effect contracts
 
-Use the local ownership result to prepare a member-by-member proposal for `VirtualFileSystem` and `MemoryFileSystem`.
+The [complete contract draft](effect-filesystem-contracts.md "specified by") records the locally agreed member-by-member contracts and Q44–Q54 completion decisions. Local contract review is complete; source qualification and upstream acceptance remain gates before stage 3 is accepted.
 
 Specify construction, fixed callers, root/current-directory authority, path/reference/handle targets, identity-checked mutations, limits, errors and scoped lifetime. Specify snapshot capture/restore and the checked synchronous binding before consumers rely on them. Decide exact declarations during this review rather than copying the community facade wholesale.
 
@@ -137,7 +137,7 @@ Reuse the existing behavioral corpus against the accepted implementation. Avoid 
 
 Bind the selected `VirtualFileSystem` caller. Keep filesystem semantics in that owner and compatibility translation in `MemoryFileSystem`.
 
-Cover the complete selected FileSystem method/options profile: scoped files, positioned reads, independent cursor behavior, flags, noFollow, metadata conversion, errors, copy, temporary cleanup, streams, sinks and glob. Preserve fresh/shared construction distinctions. Specify default initialization explicitly; current community fixture construction initializes `/tmp` and epoch metadata, which ordinary construction must not silently change.
+Cover the complete selected FileSystem method/options profile: scoped files, positioned reads, independent cursor behavior, flags, noFollow, metadata conversion, errors, copy, temporary cleanup, streams, sinks and glob. Preserve fresh/shared construction distinctions. Specify default initialization explicitly; fresh MemoryFileSystem construction retains `/tmp` and convenience umask 0, with the explicitly approved change from epoch metadata to Clock timestamps. Binding an existing caller adds no `/tmp`; restoration preserves stored timestamps.
 
 Keep the initial watch operation explicitly unsupported. The existing proposal fails on consumption with PlatformError reason Unknown, module FileSystem, method watch and description WatchUnsupported; maintainer review can settle its final contract. Unsupported behavior must not resemble a functioning empty stream.
 

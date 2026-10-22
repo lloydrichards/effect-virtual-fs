@@ -1,5 +1,7 @@
 # Research
 
+- [Effect filesystem public contract draft](effect-filesystem-contracts.md) assembles the stage 2 declarations, capture/restore model and adapter compatibility matrix for final review.
+
 - [Staged Effect filesystem implementation plan](minimal-effect-port.md) sequences engine-owned contracts, the Effect port, downstream packages and community-core retirement.
 
 - [Node VFS interoperability](node-vfs-interoperability.md) compares verified Node 26.12 provider composition with snapshot overlays.
