@@ -2,7 +2,7 @@ import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import { assert, describe, it } from "@effect/vitest"
-import { Deferred, Effect, Fiber, FileSystem, Option, PlatformError, Stream } from "effect"
+import { Deferred, Effect, Exit, Fiber, FileSystem, Option, PlatformError, Scope, Stream } from "effect"
 import { FileSystemTesting, MemoryFileSystem, TreeTransfer } from "../src/index.js"
 import { makeDirectoryEntries } from "../src/internal/directoryEntries.js"
 import { makeGlob } from "../src/internal/glob.js"
@@ -32,6 +32,16 @@ describe("filesystem adapter compatibility", () => {
         assert.strictEqual(decode.decode(buffer), "de")
         const explicit = yield* file.readAlloc(1, { position: 0n })
         assert.strictEqual(decode.decode(Option.getOrThrow(explicit)), "a")
+        assert.strictEqual(yield* file.seek(0n, "current"), 2n)
+
+        for (const position of [9007199254740992n, 0x7fffffffffffffffn]) {
+          assert.strictEqual(yield* file.read(buffer, { position }), 0)
+          assert.isTrue(Option.isNone(yield* file.readAlloc(1, { position })))
+          assert.strictEqual(yield* file.seek(0n, "current"), 2n)
+        }
+
+        const tooLarge = yield* Effect.flip(file.read(buffer, { position: 0x8000000000000000n }))
+        assert.strictEqual(tooLarge.reason._tag, "BadArgument")
         assert.strictEqual(yield* file.seek(0n, "current"), 2n)
         yield* file.read(buffer)
         assert.strictEqual(decode.decode(buffer), "cd")
@@ -189,6 +199,25 @@ describe("filesystem adapter compatibility", () => {
       }
     }
 
+    for (const invalidation of ["closed", "deleted"] as const) {
+      it.effect(`should fail glob when a borrowed confined caller is ${invalidation}`, () =>
+        Effect.gen(function*() {
+          const volume = yield* Vfs.make()
+          const admin = yield* volume.caller()
+          yield* admin.mkdir("/root")
+          const scope = yield* Scope.make()
+          const caller = yield* admin.withRoot("/root").pipe(Effect.provideService(Scope.Scope, scope))
+          const fs = yield* MemoryFileSystem.bindCaller(caller)
+
+          if (invalidation === "closed") yield* Scope.close(scope, Exit.void)
+          else yield* admin.rmdir("/root")
+          const result = yield* Effect.flip(fs.glob("**"))
+          assert.strictEqual(result.reason._tag, "BadResource")
+          assert.strictEqual(result.reason.description, "ClosedCaller")
+          yield* Scope.close(scope, Exit.void)
+        }))
+    }
+
     it.effect("should preserve explicit glob handlers and derive traversal from decorated primitives", () =>
       Effect.gen(function*() {
         const fs = yield* MemoryFileSystem.make
@@ -231,4 +260,6 @@ it.effect("should recognize native non-link errors during fallback glob traversa
     yield* fs.writeFileString(`${root}/dir/file`, "kept")
     yield* fs.symlink(`${root}/dir`, `${root}/alias`)
     assert.deepStrictEqual(yield* makeGlob(fs)("**", { root }), ["alias", "dir", "dir/file"])
+    assert.deepStrictEqual(yield* makeGlob(fs)("dir/file/*", { root }), [])
+    assert.deepStrictEqual(yield* makeGlob(fs)("missing/**", { root }), [])
   }).pipe(Effect.provide(NodeFileSystem.layer)))
