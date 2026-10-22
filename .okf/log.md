@@ -2,6 +2,10 @@
 
 ## 2026-10-22
 
+- Settle the stage 2 contract completion decisions Q44–Q54, including public constructors/layers, nested options, restoration allocation and caller-bound failure semantics. Close local policy review while retaining pinned-source qualification and upstream acceptance gates; align the staged plan with approved Clock initialization.
+
+- Assemble the stage 2 Effect filesystem contract draft from the agreed decisions. Define owner-only opaque capture, atomic arbitrary-order restoration records, caller-bound adapters and typed failures; distinguish proposed declarations and compatibility changes from current implementation and upstream acceptance.
+
 - Invert local capability contract ownership into the existing engine file. Preserve explicit public declaration types and registered reference identity, close the byte-path type cycle, and audit both type and runtime dependencies. Add compile-only compatibility against the previous public shapes.
 
 - Record the agreed staged replacement of community core with Effect VirtualFileSystem and MemoryFileSystem. Include callers, supported capture/restore and checked sync binding; retain compatible snapshot formats downstream, defer live storage/watch/NFS, and limit the first refactor to contract ownership.
