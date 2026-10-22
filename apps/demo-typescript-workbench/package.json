@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "type-check": "tsc --noEmit",
     "lint:effects": "effect-tsgo diagnostics --project tsconfig.json --lspconfig '{\"diagnostics\":true,\"effectFn\":[\"untraced\"],\"diagnosticSeverity\":{\"unstableApiUsage\":\"off\",\"effectFnOpportunity\":\"error\",\"lazyEffect\":\"error\",\"allOfMapToForEach\":\"error\"}}'",
-    "test": "node --experimental-vfs --test test/*.test.ts",
+    "test": "node --experimental-vfs --test --test-concurrency=1 test/*.test.ts",
     "start": "node --experimental-vfs src/workbench/server.ts --production"
   },
   "dependencies": {

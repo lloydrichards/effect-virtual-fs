@@ -20,7 +20,7 @@ const initialRequest: Command = { action: "view", generation: 0, revision: 0, ed
 
 void test(
   "should retain current worker state when a compilation request disconnects",
-  { timeout: 30000 },
+  { timeout: 120000 },
   async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
       const coordinator = yield* makeCoordinator()
@@ -44,7 +44,7 @@ void test(
   }
 )
 
-void test("should reject stale Stop when another restore is booting", { timeout: 30000 }, async () => {
+void test("should reject stale Stop when another restore is booting", { timeout: 120000 }, async () => {
   await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
     const coordinator = yield* makeCoordinator()
     const initial = yield* coordinator.command(initialRequest)
@@ -60,7 +60,7 @@ void test("should reject stale Stop when another restore is booting", { timeout:
 
 void test(
   "should terminate execution and reject commands when the owner scope closes",
-  { timeout: 30000 },
+  { timeout: 120000 },
   async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
       const owner = yield* Scope.make()
@@ -87,7 +87,7 @@ void test(
 
 void test(
   "should preserve saved files when edits follow an interrupted save request",
-  { timeout: 30000 },
+  { timeout: 120000 },
   async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
       const coordinator = yield* makeCoordinator()

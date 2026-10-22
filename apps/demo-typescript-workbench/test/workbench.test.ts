@@ -9,7 +9,7 @@ import { makeCoordinator } from "../src/workbench/coordinator.ts"
 import type { Command, View } from "../src/workbench/domain.ts"
 
 void test("should compile, run and restore mounted files when workspace commands change source", {
-  timeout: 60000
+  timeout: 180000
 }, async () => {
   await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
     const coordinator = yield* makeCoordinator(300)

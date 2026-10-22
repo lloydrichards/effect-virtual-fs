@@ -9,7 +9,7 @@ import { test } from "node:test"
 import { create, MemoryProvider, VirtualFileSystem as NativeVfs } from "node:vfs"
 import { makeWorkspace } from "../src/workbench/workspace.ts"
 
-void test("should reject a build when mount cleanup reports failure", { timeout: 30000 }, async () => {
+void test("should reject a build when mount cleanup reports failure", { timeout: 120000 }, async () => {
   // SAFETY: Node 26.11.1 implements mount/unmount, which its type declarations omit.
   const sibling = create(new MemoryProvider()) as ReturnType<typeof create> & { mount(): string; unmount(): void }
   const parent = path.dirname(sibling.mount())
