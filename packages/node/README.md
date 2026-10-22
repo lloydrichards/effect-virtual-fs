@@ -60,9 +60,9 @@ The optional `caller` selects core identity and umask. `readonly: true` rejects 
 `supportsSymlinks` is true. `supportsWatch` is false, and watch hooks fail with `ENOSYS`. Handle stream helpers and statfs
 also fail explicitly. Unsupported copy flags and junction symlinks are rejected.
 
-Construction does not mount a filesystem or install global hooks. Mounted `node:fs`, descriptor routing, streams and
-CJS/ESM loader qualification belong to [#311](https://github.com/lloydrichards/effect-virtual-fs/issues/311). This package
-currently qualifies direct provider behavior under [#310](https://github.com/lloydrichards/effect-virtual-fs/issues/310).
+Construction does not mount a filesystem or install global hooks. Direct provider qualification is tracked by
+[#310](https://github.com/lloydrichards/effect-virtual-fs/issues/310). The separate mounted suite under
+[#311](https://github.com/lloydrichards/effect-virtual-fs/issues/311) exercises Node routing and loaders as described below.
 
 ## Development checks
 
@@ -76,5 +76,51 @@ bun run --cwd packages/node test
 bun run --cwd packages/node test:consumer
 ```
 
-The Node suite runs separately from the Bun workspace suite. It does not mount a provider. The consumer check imports the
+The direct Node suite runs separately from the Bun workspace suite. It does not mount a provider. The consumer check imports the
 built package through its public exports.
+
+## Mounted Node profile
+
+The separate `test:mounted` suite exercises real `node:fs` sync, callback and promise routing on Node 26.11.1 with
+`--experimental-vfs`. It covers synthetic descriptors, native promise `FileHandle` wrappers, path and handle streams,
+shared Effect/Node writes, unlink/rename lifetime, and isolated CJS/ESM loading. It does not change the Effect
+`FileSystem` service profile. CI selects Ubuntu 24.04; additional Node releases require separate qualification.
+
+Node owns numeric descriptors and the native stream wrappers. The provider owns the backing private handle scopes.
+Every caller that opens a descriptor, promise handle or stream must close it before ending the provider's Effect scope.
+Neither scope closure nor `unmount()` removes Node's descriptor registrations on the caller's behalf. Teardown order is:
+
+1. Stop producers, destroy or finish streams, and wait for their `close` events.
+2. Close promise handles and numeric descriptors through Node while the provider binding is still live.
+3. End the provider's Effect scope, then unmount routing in a `finally` block.
+
+The qualification fixture implements this order on success, failure and Effect interruption. A nested descriptor close
+that receives `EBUSY` must be retried after the active operation returns. Do not close the owning scope reentrantly while
+Node resources remain open. A test-only subprocess inspects the pinned runtime's descriptor registry to prove removal;
+the package imports no Node internal modules.
+
+The resource-owning fixture in `mounted/fixture.ts` is an executable example. It records resources opened by the caller;
+it does not discover descriptors opened elsewhere in the process. Keep third-party consumers inside that lifetime and
+wait for them to stop before teardown. The pinned `@types/node` version omits `mount` and `unmount`, so the fixture uses a
+local declaration for those runtime methods rather than changing the public Node types.
+
+The mounted prefix comes from Node. Do not construct it or use it as a security sandbox. CJS and ESM modules cache by
+resolved identity while mounted. The tests demonstrate explicit CJS cache deletion and ESM generation URLs for reload,
+plus cache invalidation on unmount/remount. Missing virtual dependencies do not fall back to host `node_modules`.
+
+Limits remain explicit: watches are unsupported; paths require UTF-8 text; memory sync/datasync provide no crash
+durability; inode numbers describe the backing volume and are not globally unique across mounts. Node cursors preserve
+position after truncate, unlike the Effect file wrapper. Native routing can rewrite provider errors: on the pinned
+runtime, `stat` beneath a regular file reports `ENOENT` rather than the direct provider's `ENOTDIR`. The direct provider's
+stream helper methods remain unsupported; mounted `FileHandle` streams use Node's native wrapper and synthetic fd.
+
+Build the packages, then run the mounted suite independently of the direct suite:
+
+```sh
+bun run --cwd packages/core build
+bun run --cwd packages/node build
+bun run --cwd packages/node test:mounted
+```
+
+The suite prints Node, OS, architecture, Effect version and source revision. Loader cases run against the built public
+package in fresh processes. A dirty working tree is reported and must not be mistaken for a committed CI candidate.

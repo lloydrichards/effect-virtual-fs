@@ -22,7 +22,8 @@
     "build": "tsc --project tsconfig.build.json && tsc --project compatibility/tsconfig.json",
     "type-check": "tsc --noEmit",
     "test": "node --experimental-vfs ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts",
-    "test:consumer": "node --experimental-vfs compatibility/consumer.mjs"
+    "test:consumer": "node --experimental-vfs compatibility/consumer.mjs",
+    "test:mounted": "node --experimental-vfs ../../node_modules/vitest/vitest.mjs run --config vitest.mounted.config.ts"
   },
   "peerDependencies": {
     "effect": "^4.0.5"
