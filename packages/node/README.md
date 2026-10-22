@@ -96,8 +96,11 @@ Neither scope closure nor `unmount()` removes Node's descriptor registrations on
 
 The qualification fixture implements this order on success, failure and Effect interruption. A nested descriptor close
 that receives `EBUSY` must be retried after the active operation returns. Do not close the owning scope reentrantly while
-Node resources remain open. A test-only subprocess inspects the pinned runtime's descriptor registry to prove removal;
-the package imports no Node internal modules.
+Node resources remain open. A separate test-only ownership worker checks the pinned descriptor registry after the actual
+fixture teardown for success, failure, interruption and reentry. It captures numeric, promise-handle and stream descriptors
+before closure and requires every registration to disappear. A live sibling mount makes public directory listings prove
+that the owner mount disappeared as well. Other mounted and loader tests run without `--expose-internals`; production
+code imports no Node internal modules.
 
 The resource-owning fixture in `mounted/fixture.ts` is an executable example. It records resources opened by the caller;
 it does not discover descriptors opened elsewhere in the process. Keep third-party consumers inside that lifetime and
