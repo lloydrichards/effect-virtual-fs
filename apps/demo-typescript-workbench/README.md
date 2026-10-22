@@ -31,7 +31,7 @@ For the production browser bundle, run `build`, then `start`, using the same Nod
 
 ## Architecture
 
-The implementation adapts Stack Effect's React/Vite, `AtomRpc.Service`, shared Schema RPC, Effect Node server and worker patterns to this repository's Bun workspace. See [the research](../../research/stack-effect-vite-worker-atom.md).
+The implementation adapts Stack Effect's React/Vite, `AtomRpc.Service`, shared Schema RPC, Effect Node server and worker patterns to this repository's Bun workspace. See [the architecture notes](docs/qualification.md).
 
 React + Atom → typed HTTP RPC → Effect Node coordinator → Effect worker RPC → one authoritative synchronous VFS overlay.
 
@@ -60,4 +60,4 @@ bun run --cwd apps/demo-typescript-workbench build
 
 `test/workbench-review.test.ts` adds request interruption, stale Stop during Restore, owner shutdown and save-point isolation regressions. Accepted commands belong to the workbench scope, so disconnecting a browser does not interrupt a filesystem transaction. Stop explicitly replaces the worker.
 
-See [the correctness review](../../research/vfs-typescript-workbench-review.md), [the workbench qualification](../../research/vfs-typescript-workbench-qualification.md) and [the original compatibility probe](../../research/build-two-futures-probe.md).
+See [the architecture and qualification](docs/qualification.md) and the [standalone compatibility probe](../../packages/node/mounted/typescript-probe.mjs).

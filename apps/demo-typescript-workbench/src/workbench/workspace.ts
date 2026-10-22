@@ -244,7 +244,7 @@ export const makeWorkspace = Effect.gen(function*() {
             try: () => {
               const ts: typeof TS = require(`${root}/compiler/typescript.cjs`)
 
-              const program = ts.createProgram([`${root}/src/index.ts`], {
+              const program = ts.createProgram(Object.keys(initialSources).map((source) => `${root}${source}`), {
                 target: ts.ScriptTarget.ES2022,
                 module: ts.ModuleKind.CommonJS,
                 moduleResolution: ts.ModuleResolutionKind.Node10,

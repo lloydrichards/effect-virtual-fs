@@ -2,6 +2,8 @@
 
 ## 2026-10-22
 
+- Compile both editable workbench sources as roots so switching to CommonJS require cannot execute stale helper output. Qualify helper diagnostics outside the static import graph and keep executable evidence links inside the app.
+
 - Rename the private app to TypeScript workbench and remove the retired comparison server, manual protocol and tests. Migrate routing-removal and injected unmount-failure proof to the current mounted workspace.
 
 - Review workbench command ownership. Preserve state after HTTP interruption, reject stale Stop during Restore, serialize inspection with replacement and close worker/command scopes on owner shutdown. Qualify repeated save-point isolation across interrupted requests.

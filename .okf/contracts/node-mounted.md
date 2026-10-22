@@ -25,13 +25,15 @@ sources:
     title: Effect worker ownership and server-held checkpoint recovery
   - resource: ../../apps/demo-typescript-workbench/test/workbench.test.ts
     title: Rebuild, permissions, save points, stale commands and worker termination qualification
+  - resource: ../../apps/demo-typescript-workbench/test/module-graph.test.ts
+    title: CommonJS require graph changes still emit and check both editable sources
   - resource: ../../apps/demo-typescript-workbench/test/workbench-review.test.ts
     title: Request interruption, stale Stop, shutdown and save-point isolation regressions
   - resource: ../../apps/demo-typescript-workbench/test/mounted-cleanup.test.ts
     title: Current workbench routing-removal and cleanup-failure regression
   - resource: ../../.github/workflows/pr-validation.yml
     title: Separate pinned CI configuration
-generated: { by: codex/okf, at: "2026-10-22T15:02:00Z" }
+generated: { by: codex/okf, at: "2026-10-22T15:38:05Z" }
 ---
 
 # Mounted Node qualification
@@ -80,7 +82,8 @@ Additional Node versions, arbitrary byte-name routing and broader loader configu
 The private `apps/demo-typescript-workbench` workbench qualifies TypeScript 5.9.3's JavaScript compiler with its default
 compiler host on Node 26.11.1, macOS arm64. Effect provisions the unmodified compiler, standard libraries and Node
 declarations in a snapshot. One synchronous working overlay uses editor, compiler and viewer identities. Each compile
-or run creates a fresh mount. Every compiler input must resolve inside it. TypeScript emits CommonJS into the overlay,
+or run creates a fresh mount. Both editable source files are compiler roots even when Node loads a helper through
+CommonJS require rather than a static import. Every compiler input must resolve inside the mount. TypeScript emits CommonJS into the overlay,
 Node loads the output, and Effect inspects the same files through the viewer caller.
 
 The Effect Node coordinator owns worker RPC and retains an encoded save point outside the worker. Capture starts a new
