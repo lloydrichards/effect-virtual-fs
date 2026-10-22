@@ -2,6 +2,10 @@
 
 ## 2026-10-22
 
+- Invert local capability contract ownership into the existing engine file. Preserve explicit public declaration types and registered reference identity, close the byte-path type cycle, and audit both type and runtime dependencies. Add compile-only compatibility against the previous public shapes.
+
+- Record the agreed staged replacement of community core with Effect VirtualFileSystem and MemoryFileSystem. Include callers, supported capture/restore and checked sync binding; retain compatible snapshot formats downstream, defer live storage/watch/NFS, and limit the first refactor to contract ownership.
+
 - Complete Node handle argument normalization, reject sparse vector slots before I/O and preserve copyfile error context.
 
 - Add the direct Node provider package and core-owned synchronous binding. Record independent Node cursor semantics, scoped ownership, readonly and text-path limits; retain mounted fs, descriptor and loader qualification under #311.

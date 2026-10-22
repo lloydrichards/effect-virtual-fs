@@ -24,24 +24,108 @@ import type * as SchemaIssue from "effect/SchemaIssue"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
-import type { BytePath } from "../BytePath.js"
-import type { ObjectReferenceId as ObjectReferenceBrand } from "../Caller.js"
 import { DirectoryHandleId, FileHandleId, SeekMode } from "../FileHandle.js"
+import type { BytePath } from "./bytePath.js"
 import * as BytePathStorage from "./bytePath.js"
 
 import { type Metadata, Mode, OwnerUpdate, Times, Timestamp, type TimeUpdate } from "../Metadata.js"
 import { type ArgumentFailure, type FsCode, type FsFailure, make as makeError, VfsError } from "../VfsError.js"
-import type {
-  Caller,
-  DirectoryHandle,
-  FileHandle,
-  ObjectReference,
-  OpenEntryResult,
-  PathInput,
-  VolumeUsage,
-  WalkEntry,
-  WalkFailure
-} from "../VirtualFileSystem.js"
+
+/** Filesystem capability contracts owned by the engine; public modules are compatibility views. @internal */
+export type PathInput = string | BytePath
+
+/** @internal */
+export interface EngineLimits {
+  readonly maxBytes: ByteSize.ByteSize | undefined
+  readonly maxFileBytes: ByteSize.ByteSize
+  readonly maxEntries: number | undefined
+  readonly maxPathBytes: ByteSize.ByteSize | undefined
+  /** Waiting budget; at most this many plus one callers are admitted at once. */
+  readonly maxPendingOperations: number
+}
+
+/** @internal */
+export interface VolumeUsage {
+  readonly usedBytes: bigint
+  readonly entries: number
+}
+
+/** @internal */
+export interface ObjectReference {
+  readonly [ObjectReferenceId]: true
+}
+
+/** @internal */
+export interface ObjectObservation<A> {
+  readonly value: A
+  readonly revision: bigint
+}
+
+/** @internal */
+export interface DirectoryEntry {
+  readonly name: Uint8Array
+  readonly reference: ObjectReference
+}
+
+/** @internal */
+export interface WalkEntry {
+  readonly path: BytePath
+  readonly name: Uint8Array
+  readonly reference: ObjectReference
+  readonly directory: ObjectReference
+  readonly kind: Metadata["kind"]
+  readonly depth: number
+}
+
+/** @internal */
+export interface ReferenceEntryResult {
+  readonly reference: ObjectReference
+  readonly directory: DirectoryChange
+}
+
+/** @internal */
+export interface DirectoryHandle {
+  readonly [DirectoryHandleId]: true
+  readonly stat: Effect.Effect<Metadata, FsFailure>
+  readonly close: Effect.Effect<void, FsFailure>
+}
+
+/** @internal */
+export interface OpenEntryResult {
+  readonly handle: FileHandle
+  readonly reference: ObjectReference
+  readonly created: boolean
+  readonly directory: DirectoryChange
+}
+
+/** @internal */
+export interface ReadResult {
+  readonly bytes: Uint8Array
+  readonly eof: boolean
+}
+
+/** @internal */
+export interface FileHandle {
+  readonly [FileHandleId]: true
+  readonly read: (maximumBytes: number) => Effect.Effect<Uint8Array, FsFailure>
+  readonly pread: (maximumBytes: number, offset: bigint) => Effect.Effect<ReadResult, FsFailure>
+  readonly write: (bytes: Uint8Array) => Effect.Effect<number, FsFailure>
+  readonly pwrite: {
+    (offset: bigint): (bytes: Uint8Array) => Effect.Effect<number, FsFailure>
+    (bytes: Uint8Array, offset: bigint): Effect.Effect<number, FsFailure>
+  }
+  readonly seek: {
+    (mode: SeekMode): (offset: bigint) => Effect.Effect<bigint, FsFailure>
+    (offset: bigint, mode: SeekMode): Effect.Effect<bigint, FsFailure>
+  }
+  readonly truncate: (length: bigint) => Effect.Effect<void, FsFailure>
+  readonly stat: Effect.Effect<Metadata, FsFailure>
+  readonly sync: Effect.Effect<void, FsFailure>
+  readonly close: Effect.Effect<void, FsFailure>
+}
+
+/** @internal */
+export type WalkFailure = FsFailure | (VfsError & { readonly code: "LimitExceeded" })
 
 /** Filesystem error helpers; image/codec helpers remain community-owned. @internal */
 export namespace Errors {
@@ -641,8 +725,7 @@ type EntryInput = Address.EntryInput
  * @category type IDs
  * @since 0.6.0
  */
-// SAFETY: Symbol.for returns the same registered symbol as public Caller.ObjectReferenceId.
-const ObjectReferenceId: ObjectReferenceBrand = Symbol.for("@effect-vfs/core/ObjectReference") as ObjectReferenceBrand
+export const ObjectReferenceId: unique symbol = Symbol.for("@effect-vfs/core/ObjectReference")
 
 /**
  * Brand key that marks an object reference.
@@ -2275,8 +2358,73 @@ export interface WatchTarget {
 }
 
 /** @internal */
-export type EngineOperations = Omit<Caller, symbol | "watch" | "withRoot" | "withDirectory" | "limits"> & {
-  readonly limits: Omit<Caller["limits"], "maxWatchEvents">
+export interface EngineOperations {
+  readonly limits: EngineLimits
+  readonly root: Effect.Effect<ObjectReference, FsFailure>
+  readonly lookup: (entry: EntryInput) => Effect.Effect<ObjectReference, FsFailure>
+  readonly parent: (directory: TargetInput) => Effect.Effect<ObjectReference, FsFailure>
+  readonly stat: (target: TargetInput) => Effect.Effect<Metadata, FsFailure>
+  readonly readDirectory: (
+    directory: TargetInput
+  ) => Effect.Effect<ObjectObservation<ReadonlyArray<DirectoryEntry>>, FsFailure>
+  readonly walk: (directory: TargetInput, options?: WalkOptions) => Stream.Stream<WalkEntry, WalkFailure>
+  readonly readLink: (target: TargetInput) => Effect.Effect<Uint8Array, FsFailure>
+  readonly realPath: (target: TargetInput) => Effect.Effect<BytePath, FsFailure>
+  readonly access: (target: TargetInput, bits?: number) => Effect.Effect<number, FsFailure>
+  readonly readFile: (target: TargetInput) => Effect.Effect<Uint8Array, FsFailure>
+  readonly writeFile: {
+    (bytes: Uint8Array, options: WriteFileOptions): (entry: EntryInput) => Effect.Effect<ObjectReference, FsFailure>
+    (entry: EntryInput, bytes: Uint8Array, options: WriteFileOptions): Effect.Effect<ObjectReference, FsFailure>
+  }
+  readonly open: {
+    (target: Target | PathInput | ObjectReference | FileHandle, options: OpenOptions): Effect.Effect<
+      FileHandle,
+      FsFailure,
+      Scope.Scope
+    >
+    (entry: Entry, options: OpenEntryOptions): Effect.Effect<OpenEntryResult, FsFailure, Scope.Scope>
+  }
+  readonly mkdir: (entry: EntryInput, options?: MkdirOptions) => Effect.Effect<ReferenceEntryResult, FsFailure>
+  readonly symlink: (
+    target: PathInput,
+    entry: EntryInput,
+    options?: SymlinkOptions
+  ) => Effect.Effect<ReferenceEntryResult, FsFailure>
+  readonly link: {
+    (entry: EntryInput): (source: TargetInput) => Effect.Effect<ReferenceEntryResult, FsFailure>
+    (source: TargetInput, entry: EntryInput): Effect.Effect<ReferenceEntryResult, FsFailure>
+  }
+  readonly unlink: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
+  readonly rmdir: (entry: EntryInput) => Effect.Effect<DirectoryChange, FsFailure>
+  readonly remove: {
+    (entry: EntryInput, options?: RemoveOptions & { readonly force?: false }): Effect.Effect<DirectoryChange, FsFailure>
+    (entry: EntryInput, options: RemoveOptions): Effect.Effect<DirectoryChange | undefined, FsFailure>
+  }
+  readonly rename: {
+    (to: EntryInput): (from: EntryInput) => Effect.Effect<RenameReferenceResult, FsFailure>
+    (from: EntryInput, to: EntryInput): Effect.Effect<RenameReferenceResult, FsFailure>
+  }
+  readonly chmod: {
+    (mode: number): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, mode: number): Effect.Effect<void, FsFailure>
+  }
+  readonly chown: {
+    (owner: OwnerUpdate): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, owner: OwnerUpdate): Effect.Effect<void, FsFailure>
+  }
+  readonly utimes: {
+    (times: Times): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, times: Times): Effect.Effect<void, FsFailure>
+  }
+  readonly truncate: {
+    (length: bigint): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, length: bigint): Effect.Effect<void, FsFailure>
+  }
+  readonly setattr: {
+    (attributes: SetattrOptions): (target: TargetInput) => Effect.Effect<void, FsFailure>
+    (target: TargetInput, attributes: SetattrOptions): Effect.Effect<void, FsFailure>
+  }
+  readonly openDirectory: (directory: TargetInput) => Effect.Effect<DirectoryHandle, FsFailure, Scope.Scope>
 }
 
 /** @internal */

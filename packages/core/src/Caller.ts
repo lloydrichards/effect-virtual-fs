@@ -30,7 +30,7 @@ export type CallerId = typeof CallerId
  * @category type IDs
  * @since 0.6.0
  */
-export const ObjectReferenceId: unique symbol = Symbol.for("@effect-vfs/core/ObjectReference")
+export const ObjectReferenceId: typeof Engine.ObjectReferenceId = Engine.ObjectReferenceId
 
 /**
  * Brand key that marks an object reference.

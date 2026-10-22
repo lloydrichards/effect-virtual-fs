@@ -22,6 +22,36 @@ const transpiler = new Bun.Transpiler({ loader: "ts" })
 
 const forbidden = /(?:core\/src\/internal\/(?:metadata|volumeState|resolution|tokenRegistry|confinement|directoryEntries|path|turnstile|testSeams)\.ts$|snapshot|image|fixture|treeTransfer|overlay|callerWatch|watchHub|hex128|hmac|liveVolume|\/(?:Caller|Volume|Watch|VirtualFileSystem|index)\.ts$)/i
 
+// Follow type imports too: an erased Caller/VirtualFileSystem edge still reverses contract ownership.
+const contractPending = [new URL(entries[0], root).href]
+
+const contractSeen = new Set()
+
+while (contractPending.length > 0) {
+  const file = contractPending.pop()
+
+  if (contractSeen.has(file)) continue
+  const name = file.slice(root.href.length)
+
+  if (!engineModules.has(name)) throw new Error(`Engine contract imports community module: ${name}`)
+  contractSeen.add(file)
+
+  const source = (await Bun.file(new URL(file)).text()).replace(/\/\*[\s\S]*?\*\//g, "")
+  const imports = /(?:\bimport\s+(?:type\s+)?(?:[^;"']+?\s+from\s+)?|\bexport\s+(?:type\s+)?(?:\*|\{[^}]*\})(?:\s+as\s+\w+)?\s+from\s+|\bimport\s*\(\s*)["']([^"']+)["']/g
+
+  for (const match of source.matchAll(imports)) {
+    const specifier = match[1]
+
+    if (specifier.startsWith("effect/")) continue
+
+    if (!specifier.startsWith(".")) throw new Error(`Unreviewed engine contract dependency: ${specifier} in ${name}`)
+    contractPending.push(new URL(specifier.replace(/\.js$/, ".ts"), file).href)
+  }
+}
+
+process.stdout.write(`Engine contract import audit passed: ${contractSeen.size} workspace modules, including type imports.\n`)
+
+
 for (const entry of entries) {
   const pending = [new URL(entry, root).href]
   const seen = new Set()

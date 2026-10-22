@@ -1,12 +1,16 @@
 import * as Equal from "effect/Equal"
 import * as Hash from "effect/Hash"
-import { pipeArguments } from "effect/Pipeable"
+import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
-import type { BytePath } from "../BytePath.js"
 import { sameBytes } from "./bytes.js"
 
 /** @internal */
 export const BytePathId = "@effect-vfs/core/BytePath" as const
+
+/** @internal */
+export interface BytePath extends Equal.Equal, Pipeable {
+  readonly [BytePathId]: typeof BytePathId
+}
 
 const bytePaths = new WeakMap<object, Uint8Array>()
 
