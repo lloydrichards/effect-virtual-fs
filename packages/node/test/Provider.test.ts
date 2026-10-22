@@ -441,4 +441,130 @@ describe("direct Node provider", () => {
     expect(provider.readFileSync("/file", "utf8")).toBe("to")
     expect((await Effect.runPromise(volume.usage)).usedBytes).toBe(2n)
   })
+  it.each(["sync", "promise"] as const)("should reject every sparse vector slot before %s I/O", async (mode) => {
+    const { provider } = await make()
+    provider.writeFileSync("/file", "abcdef")
+    const handle = provider.openSync("/file", "r+")
+    const output = Buffer.alloc(1, 63)
+    const reads = new Array<Uint8Array>(2)
+    reads[0] = output
+    const writes = new Array<Uint8Array>(2)
+    writes[0] = Buffer.from("X")
+
+    if (mode === "sync") {
+      expect(() => handle.readvSync(reads)).toThrow(error("EINVAL", "readv"))
+      expect(() => handle.writevSync(writes)).toThrow(error("EINVAL", "writev"))
+    } else {
+      await expect(handle.readv(reads)).rejects.toMatchObject({ code: "EINVAL", syscall: "readv" })
+      await expect(handle.writev(writes)).rejects.toMatchObject({ code: "EINVAL", syscall: "writev" })
+    }
+
+    expect(output).toEqual(Buffer.from("?"))
+    expect(handle.position).toBe(0)
+    expect(provider.readFileSync("/file", "utf8")).toBe("abcdef")
+    handle.closeSync()
+  })
+
+  it("should normalize read option forms while preserving buffer identity and positioned cursors", async () => {
+    const { provider } = await make()
+    provider.writeFileSync("/file", "abcdef")
+    const handle = await provider.open("/file", "r+")
+    const buffer = Buffer.alloc(4, 46)
+    const result = await handle.read({ buffer, offset: 1, length: 2, position: 2 })
+    expect(result.buffer).toBe(buffer)
+    expect(result.bytesRead).toBe(2)
+    expect(buffer.toString()).toBe(".cd.")
+    expect(handle.position).toBe(0)
+    buffer.fill(46)
+    expect(await handle.read(buffer, { offset: 1, length: 2 })).toEqual({ bytesRead: 2, buffer })
+    expect(buffer.toString()).toBe(".ab.")
+    expect(handle.position).toBe(2)
+    expect(handle.readSync(buffer, { offset: 0, length: 1, position: 5 })).toBe(1)
+    expect(buffer[0]).toBe(102)
+    expect(handle.position).toBe(2)
+    const allocated = await handle.read({ length: 1 })
+    expect(allocated.buffer.subarray(0, allocated.bytesRead).toString()).toBe("c")
+    expect((await handle.read()).bytesRead).toBe(3)
+    await handle.close()
+  })
+
+  it("should normalize string writes and buffer options without changing explicit-position cursors", async () => {
+    const { provider } = await make()
+    provider.writeFileSync("/file", "abcdef")
+    const handle = await provider.open("/file", "r+")
+    expect(await handle.write("XY", 0, "utf8")).toEqual({ bytesWritten: 2, buffer: "XY" })
+    expect(handle.position).toBe(0)
+    expect(handle.writeSync("5a", 2, "hex")).toBe(1)
+    expect(handle.position).toBe(0)
+    const buffer = Buffer.from("!Q?")
+    const result = await handle.write(buffer, { offset: 1, length: 1, position: 3 })
+    expect(result.buffer).toBe(buffer)
+    expect(result.bytesWritten).toBe(1)
+    expect(handle.position).toBe(0)
+    expect(handle.writeSync(buffer, { offset: 0, length: 1 })).toBe(1)
+    expect(handle.position).toBe(1)
+    expect(await handle.write("é")).toEqual({ bytesWritten: 2, buffer: "é" })
+    expect(handle.position).toBe(3)
+    expect(provider.readFileSync("/file", "utf8")).toBe("!éQef")
+    await handle.close()
+  })
+
+  for (const mode of ["sync", "promise"] as const) {
+    it.each(["missing-source", "missing-parent", "exclusive"] as const)(
+      `should preserve copyfile error context for %s with ${mode} calls`,
+      async (scenario) => {
+        const { provider } = await make()
+        provider.writeFileSync("/source", "source")
+        provider.writeFileSync("/dest", "keep")
+        const src = scenario === "missing-source" ? "/missing" : "/source"
+        const dest = scenario === "missing-parent" ? "/missing/dest" : "/dest"
+        const flags = scenario === "exclusive" ? constants.COPYFILE_EXCL : 0
+        const code = scenario === "exclusive" ? "EEXIST" : "ENOENT"
+        const expected = { code, errno: -osConstants.errno[code], syscall: "copyfile", path: src, dest }
+
+        if (mode === "sync") {
+          expect(() => provider.copyFileSync(src, dest, flags)).toThrow(expect.objectContaining(expected))
+        } else await expect(provider.copyFile(src, dest, flags)).rejects.toMatchObject(expected)
+        expect(provider.readFileSync("/dest", "utf8")).toBe("keep")
+      }
+    )
+  }
+
+  it("should use byte offsets for typed-array views and retain the original result buffer", async () => {
+    const { provider } = await make()
+    provider.writeFileSync("/file", "abcdef")
+    const handle = await provider.open("/file", "r+")
+    const bytes = new Uint8Array([0, 0, 0, 0, 0, 0])
+    const view = new DataView(bytes.buffer, 1, 4)
+    const result = await handle.read({ buffer: view, offset: 1, length: 2, position: 1 })
+    expect(result.buffer).toBe(view)
+    expect(bytes).toEqual(new Uint8Array([0, 0, 98, 99, 0, 0]))
+    const words = new Uint16Array(new Uint8Array([88, 89, 90, 33]).buffer)
+    expect(await handle.write(words, { offset: 1, length: 2, position: 2 })).toEqual({ bytesWritten: 2, buffer: words })
+    expect(handle.position).toBe(0)
+    handle.writeSync(Buffer.from("!"), undefined, 1, 5)
+    expect(provider.readFileSync("/file", "utf8")).toBe("abYZe!")
+    const first = new DataView(new ArrayBuffer(1))
+    const outputs = [first, new Uint16Array(1)]
+    expect(await handle.readv(outputs, 0)).toEqual({ bytesRead: 3, buffers: outputs })
+    expect(first.getUint8(0)).toBe(97)
+    await handle.close()
+  })
+
+  it("should reject invalid overload options before changing buffers, files or cursors", async () => {
+    const { provider } = await make()
+    provider.writeFileSync("/file", "abcdef")
+    const handle = await provider.open("/file", "r+")
+    const buffer = Buffer.from("??")
+    await expect(handle.read({ buffer, offset: -1 })).rejects.toMatchObject({ code: "EINVAL" })
+    await expect(handle.write(buffer, { length: 3 })).rejects.toMatchObject({ code: "EINVAL" })
+    // SAFETY: Deliberately unsupported encoding must fail before writing any bytes.
+    await expect(handle.write("erase", 0, "invalid" as never)).rejects.toMatchObject({ code: "EINVAL" })
+    expect(buffer.toString()).toBe("??")
+    expect(handle.position).toBe(0)
+    expect(provider.readFileSync("/file", "utf8")).toBe("abcdef")
+    await handle.close()
+    await expect(handle.read({ buffer })).rejects.toMatchObject({ code: "EBADF" })
+    await expect(handle.write("x")).rejects.toMatchObject({ code: "EBADF" })
+  })
 })

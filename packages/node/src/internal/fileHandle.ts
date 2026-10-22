@@ -2,6 +2,7 @@
 /* eslint-disable effecttsgo/async-function, effecttsgo/node-builtin-import */
 import type { Handle } from "@effect-vfs/core/SynchronousAdapter"
 import * as Predicate from "effect/Predicate"
+import * as Schema from "effect/Schema"
 import type { BigIntStats, Stats } from "node:fs"
 import {
   dataOf,
@@ -23,6 +24,34 @@ export type Time = number | string | Date
 export type StatOptions = { readonly bigint?: boolean | undefined }
 
 export type WriteOptions = Exclude<EncodingOptions, string> | BufferEncoding
+
+const BufferOptionsSchema = Schema.Struct({
+  offset: Schema.optional(Schema.Finite),
+  length: Schema.optional(Schema.Finite),
+  position: Schema.optional(Schema.NullOr(Schema.Union([Schema.Finite, Schema.BigInt])))
+})
+
+export type BufferOptions = typeof BufferOptionsSchema.Type
+
+const View = Schema.declare<NodeJS.ArrayBufferView>((value): value is NodeJS.ArrayBufferView =>
+  ArrayBuffer.isView(value)
+)
+
+const ReadOptionsSchema = Schema.Struct({ ...BufferOptionsSchema.fields, buffer: Schema.optional(View) })
+
+export type ReadOptions = typeof ReadOptionsSchema.Type
+
+const isBufferOptions = Schema.is(BufferOptionsSchema)
+
+const isReadOptions = Schema.is(ReadOptionsSchema)
+
+const bufferOptionsOf = (input: BufferOptions | null | undefined, syscall: string): BufferOptions => {
+  if (input === undefined || input === null) return {}
+
+  if (!isBufferOptions(input)) throw new NodeError("EINVAL", syscall)
+
+  return input
+}
 
 /** Node owns virtual descriptor numbers. This object owns only its engine handle and cursor. */
 export class NodeFileHandle {
@@ -62,41 +91,113 @@ export class NodeFileHandle {
 
     return BigInt(integer(position, syscall))
   }
-  private range(buffer: Uint8Array, offset: number, length: number, syscall: string): void {
-    if (!(buffer instanceof Uint8Array)) throw new NodeError("EINVAL", syscall, this.path)
-    integer(offset, syscall, buffer.length)
-    integer(length, syscall, buffer.length - offset)
+  private bytes(buffer: NodeJS.ArrayBufferView, syscall: string): Uint8Array {
+    if (!ArrayBuffer.isView(buffer)) throw new NodeError("EINVAL", syscall, this.path)
+
+    return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
   }
 
-  readSync(buffer: Uint8Array, offset = 0, length = buffer.length - offset, position: Position = null): number {
+  readSync(buffer: NodeJS.ArrayBufferView, options?: BufferOptions): number
+  readSync(buffer: NodeJS.ArrayBufferView, offset?: number, length?: number, position?: Position): number
+  readSync(
+    buffer: NodeJS.ArrayBufferView,
+    offsetOrOptions: number | BufferOptions = 0,
+    length?: number,
+    position: Position = null
+  ): number {
     this.check("read")
 
     if (!this.access.readable) throw new NodeError("EBADF", "read", this.path)
-    this.range(buffer, offset, length, "read")
-    const at = this.at(position, "read")
-    const bytes = invoke("read", this.path, () => this.handle.read(length, at))
-    buffer.set(bytes, offset)
+    const bytes = this.bytes(buffer, "read")
 
-    if (position === null || position === undefined || position === -1) this.#position = Number(at) + bytes.length
+    const chosen = Predicate.isNumber(offsetOrOptions)
+      ? { offset: offsetOrOptions, length, position }
+      : bufferOptionsOf(offsetOrOptions, "read")
 
-    return bytes.length
+    const offset = integer(chosen.offset ?? 0, "read", bytes.length)
+    const size = integer(chosen.length ?? bytes.length - offset, "read", bytes.length - offset)
+    const selected = chosen.position ?? null
+    const at = this.at(selected, "read")
+    const content = invoke("read", this.path, () => this.handle.read(size, at))
+    bytes.set(content, offset)
+
+    if (selected === null || selected === -1) this.#position = Number(at) + content.length
+
+    return content.length
   }
+
+  read<T extends NodeJS.ArrayBufferView>(buffer: T, options?: BufferOptions): Promise<{ bytesRead: number; buffer: T }>
+  read<T extends NodeJS.ArrayBufferView>(
+    buffer: T,
+    offset?: number,
+    length?: number,
+    position?: Position
+  ): Promise<{ bytesRead: number; buffer: T }>
+  read<T extends NodeJS.ArrayBufferView>(
+    options: BufferOptions & { readonly buffer: T }
+  ): Promise<{ bytesRead: number; buffer: T }>
+  read(options?: BufferOptions | null): Promise<{ bytesRead: number; buffer: Buffer }>
+  read(options?: ReadOptions | null): Promise<{ bytesRead: number; buffer: NodeJS.ArrayBufferView }>
   async read(
-    buffer: Uint8Array = Buffer.alloc(16384),
-    offset = 0,
-    length = buffer.length - offset,
+    input?: NodeJS.ArrayBufferView | ReadOptions | null,
+    offsetOrOptions: number | BufferOptions = 0,
+    length?: number,
     position: Position = null
   ) {
-    return { bytesRead: this.readSync(buffer, offset, length, position), buffer }
+    if (ArrayBuffer.isView(input)) {
+      const bytesRead = Predicate.isNumber(offsetOrOptions)
+        ? this.readSync(input, offsetOrOptions, length, position)
+        : this.readSync(input, offsetOrOptions)
+
+      return { bytesRead, buffer: input }
+    }
+
+    const chosen = input ?? {}
+
+    if (!isReadOptions(chosen)) throw new NodeError("EINVAL", "read", this.path)
+    const buffer = chosen.buffer ?? Buffer.alloc(16384)
+
+    return { bytesRead: this.readSync(buffer, chosen.offset ?? 0, chosen.length, chosen.position ?? null), buffer }
   }
 
-  writeSync(buffer: Uint8Array, offset = 0, length?: number, position: Position = null): number {
+  private writeInput(
+    data: NodeJS.ArrayBufferView | string,
+    offsetOrOptions: number | BufferOptions | null | undefined,
+    lengthOrEncoding: number | BufferEncoding | undefined,
+    position: Position
+  ): number {
     this.check("write", true)
 
     if (!this.access.writable) throw new NodeError("EBADF", "write", this.path)
-    const size = length ?? buffer.length - offset
-    this.range(buffer, offset, size, "write")
-    const at = this.at(position, "write")
+
+    if (Predicate.isString(data)) {
+      if (offsetOrOptions !== undefined && offsetOrOptions !== null && !Predicate.isNumber(offsetOrOptions)) {
+        throw new NodeError("EINVAL", "write", this.path)
+      }
+
+      if (lengthOrEncoding !== undefined && !Predicate.isString(lengthOrEncoding)) {
+        throw new NodeError("EINVAL", "write", this.path)
+      }
+
+      const bytes = dataOf(data, lengthOrEncoding)
+
+      return this.writeInput(bytes, 0, bytes.length, offsetOrOptions ?? null)
+    }
+
+    const buffer = this.bytes(data, "write")
+
+    if (lengthOrEncoding !== undefined && !Predicate.isNumber(lengthOrEncoding)) {
+      throw new NodeError("EINVAL", "write", this.path)
+    }
+
+    const chosen = offsetOrOptions === undefined || offsetOrOptions === null || Predicate.isNumber(offsetOrOptions)
+      ? { offset: offsetOrOptions ?? 0, length: lengthOrEncoding, position }
+      : bufferOptionsOf(offsetOrOptions, "write")
+
+    const offset = integer(chosen.offset ?? 0, "write", buffer.length)
+    const size = integer(chosen.length ?? buffer.length - offset, "write", buffer.length - offset)
+    const selected = chosen.position ?? null
+    const at = this.at(selected, "write")
 
     const count = invoke(
       "write",
@@ -104,7 +205,7 @@ export class NodeFileHandle {
       () => this.handle.write(buffer.subarray(offset, offset + size), at, this.access.append)
     )
 
-    if (position === null || position === undefined || position === -1) {
+    if (selected === null || selected === -1) {
       this.#position = this.access.append
         ? Number(invoke("fstat", this.path, () => this.handle.stat()).size)
         : Number(at) + count
@@ -112,8 +213,41 @@ export class NodeFileHandle {
 
     return count
   }
-  async write(buffer: Uint8Array, offset = 0, length?: number, position: Position = null) {
-    return { bytesWritten: this.writeSync(buffer, offset, length, position), buffer }
+
+  writeSync(data: string, position?: number | null, encoding?: BufferEncoding): number
+  writeSync(buffer: NodeJS.ArrayBufferView, options?: BufferOptions): number
+  writeSync(buffer: NodeJS.ArrayBufferView, offset?: number, length?: number, position?: Position): number
+  writeSync(
+    data: NodeJS.ArrayBufferView | string,
+    offsetOrOptions?: number | BufferOptions | null,
+    lengthOrEncoding?: number | BufferEncoding,
+    position: Position = null
+  ): number {
+    return this.writeInput(data, offsetOrOptions, lengthOrEncoding, position)
+  }
+
+  write(
+    data: string,
+    position?: number | null,
+    encoding?: BufferEncoding
+  ): Promise<{ bytesWritten: number; buffer: string }>
+  write<T extends NodeJS.ArrayBufferView>(
+    buffer: T,
+    options?: BufferOptions
+  ): Promise<{ bytesWritten: number; buffer: T }>
+  write<T extends NodeJS.ArrayBufferView>(
+    buffer: T,
+    offset?: number,
+    length?: number,
+    position?: Position
+  ): Promise<{ bytesWritten: number; buffer: T }>
+  async write(
+    data: NodeJS.ArrayBufferView | string,
+    offsetOrOptions?: number | BufferOptions | null,
+    lengthOrEncoding?: number | BufferEncoding,
+    position: Position = null
+  ) {
+    return { bytesWritten: this.writeInput(data, offsetOrOptions, lengthOrEncoding, position), buffer: data }
   }
 
   readFileSync(options?: EncodingOptions) {
@@ -215,12 +349,16 @@ export class NodeFileHandle {
     this.datasyncSync()
   }
 
-  private vectors(buffers: ReadonlyArray<Uint8Array>, syscall: string): void {
-    if (!Array.isArray(buffers) || buffers.some((buffer) => !(buffer instanceof Uint8Array))) {
-      throw new NodeError("EINVAL", syscall, this.path)
+  private vectors(buffers: ReadonlyArray<NodeJS.ArrayBufferView>, syscall: string): void {
+    if (!Array.isArray(buffers)) throw new NodeError("EINVAL", syscall, this.path)
+
+    for (let index = 0; index < buffers.length; index++) {
+      if (!ArrayBuffer.isView(buffers[index])) {
+        throw new NodeError("EINVAL", syscall, this.path)
+      }
     }
   }
-  readvSync(buffers: ReadonlyArray<Uint8Array>, position: Position = null): number {
+  readvSync(buffers: ReadonlyArray<NodeJS.ArrayBufferView>, position: Position = null): number {
     this.check("readv")
     this.vectors(buffers, "readv")
     let total = 0
@@ -230,21 +368,21 @@ export class NodeFileHandle {
       const count = this.readSync(
         buffer,
         0,
-        buffer.length,
+        buffer.byteLength,
         position === null || position === undefined || position === -1 ? null : at + BigInt(total)
       )
 
       total += count
 
-      if (count < buffer.length) break
+      if (count < buffer.byteLength) break
     }
 
     return total
   }
-  async readv(buffers: ReadonlyArray<Uint8Array>, position: Position = null) {
+  async readv(buffers: ReadonlyArray<NodeJS.ArrayBufferView>, position: Position = null) {
     return { bytesRead: this.readvSync(buffers, position), buffers }
   }
-  writevSync(buffers: ReadonlyArray<Uint8Array>, position: Position = null): number {
+  writevSync(buffers: ReadonlyArray<NodeJS.ArrayBufferView>, position: Position = null): number {
     this.check("writev", true)
     this.vectors(buffers, "writev")
     let total = 0
@@ -254,18 +392,18 @@ export class NodeFileHandle {
       const count = this.writeSync(
         buffer,
         0,
-        buffer.length,
+        buffer.byteLength,
         position === null || position === undefined || position === -1 ? null : at + BigInt(total)
       )
 
       total += count
 
-      if (count < buffer.length) break
+      if (count < buffer.byteLength) break
     }
 
     return total
   }
-  async writev(buffers: ReadonlyArray<Uint8Array>, position: Position = null) {
+  async writev(buffers: ReadonlyArray<NodeJS.ArrayBufferView>, position: Position = null) {
     return { bytesWritten: this.writevSync(buffers, position), buffers }
   }
 
