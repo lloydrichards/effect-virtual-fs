@@ -710,7 +710,10 @@ const join = (parent: string, name: string): string => {
 }
 
 const isMissing = (error: PlatformError): boolean =>
-  error.reason._tag === "NotFound" || error.reason._tag === "BadResource"
+  error.reason._tag === "NotFound" ||
+  (error.reason._tag === "BadResource" && error.reason.module === "FileSystem" &&
+    (error.reason.description === "NotDirectory" ||
+      (Predicate.hasProperty(error.reason.cause, "code") && error.reason.cause.code === "ENOTDIR")))
 
 const isIgnorable = (error: PlatformError): boolean => isMissing(error) || error.reason._tag === "PermissionDenied"
 

@@ -44,11 +44,11 @@ export const makeOpen = (caller: Vfs.Caller): FileSystem.FileSystem["open"] => {
         return yield* argumentError(method, "position must be a non-negative bigint")
       }
 
-      if (length > 0 && (offset < 0n || offset > BigInt(Number.MAX_SAFE_INTEGER))) {
+      if (explicitPosition === undefined && length > 0 && (offset < 0n || offset > BigInt(Number.MAX_SAFE_INTEGER))) {
         return yield* resourceError(method, fd, "Invalid file position")
       }
 
-      const { bytes } = yield* handle.pread(length, length === 0 ? 0n : offset).pipe(
+      const { bytes } = yield* handle.pread(length, length === 0 && explicitPosition === undefined ? 0n : offset).pipe(
         Effect.mapError((error) => toPlatformError(error, method, fd))
       )
 
