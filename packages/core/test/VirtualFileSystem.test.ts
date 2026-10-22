@@ -2996,3 +2996,38 @@ describe("reference mutations", () => {
     })
   })
 })
+
+for (const execution of ["cooperative", "sync"] as const) {
+  it.layer(BunCrypto.layer)((it) => {
+    it.effect(`should return the atomically written object reference in ${execution} mode`, () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make({ execution })
+        const caller = yield* volume.caller()
+
+        const reference = yield* caller.writeFile("/file", new Uint8Array([1]), {
+          access: "write",
+          create: "exclusive"
+        })
+
+        assert.strictEqual(reference, yield* caller.lookup("/file"))
+        yield* caller.link("/file", "/alias")
+        assert.strictEqual(
+          yield* caller.writeFile("/file", new Uint8Array([2]), { access: "write", truncate: true }),
+          reference
+        )
+        assert.strictEqual(yield* caller.writeFile(new Uint8Array(0), { access: "write" })("/alias"), reference)
+        assert.deepStrictEqual(yield* caller.readFile(reference), new Uint8Array([2]))
+        const link = yield* caller.symlink("/file", "/link")
+
+        const replaced = yield* caller.writeFile("/link", new Uint8Array([3]), {
+          access: "write",
+          create: "ifMissing",
+          replaceFinalSymlink: true
+        })
+
+        assert.notStrictEqual(replaced, link.reference)
+        assert.strictEqual(replaced, yield* caller.lookup("/link"))
+        assert.deepStrictEqual(yield* caller.readFile(replaced), new Uint8Array([3]))
+      }))
+  })
+}
