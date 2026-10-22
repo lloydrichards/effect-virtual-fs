@@ -2,6 +2,18 @@
 
 ## 2026-10-22
 
+- Compile both editable workbench sources as roots so switching to CommonJS require cannot execute stale helper output. Qualify helper diagnostics outside the static import graph and keep executable evidence links inside the app.
+
+- Rename the private app to TypeScript workbench and remove the retired comparison server, manual protocol and tests. Migrate routing-removal and injected unmount-failure proof to the current mounted workspace.
+
+- Review workbench command ownership. Preserve state after HTTP interruption, reject stale Stop during Restore, serialize inspection with replacement and close worker/command scopes on owner shutdown. Qualify repeated save-point isolation across interrupted requests.
+
+- Replace the local comparison UI with the TypeScript workbench using Atom and Effect HTTP/Node-worker RPC. Qualify mounted Node declarations, separate Compile/Run, save-point restoration, stale commands, output bounds and worker termination recovery.
+
+- Review Build two futures correctness. Reject stale combined builds, identify stale diagnostics, propagate denied inspection reads, retain successful captures, and release session event streams. Prove routing removal with a sibling mount and reject output when unmount reports failure.
+
+- Add the private Build two futures consumer. Qualify default-host TypeScript rebuilds, caller-controlled emission and worker execution on Node 26.11.1 macOS arm64; retain descriptor-registry proof in the owning mounted lifetime suite.
+
 - Settle the stage 2 contract completion decisions Q44–Q54, including public constructors/layers, nested options, restoration allocation and caller-bound failure semantics. Close local policy review while retaining pinned-source qualification and upstream acceptance gates; align the staged plan with approved Clock initialization.
 
 - Assemble the stage 2 Effect filesystem contract draft from the agreed decisions. Define owner-only opaque capture, atomic arbitrary-order restoration records, caller-bound adapters and typed failures; distinguish proposed declarations and compatibility changes from current implementation and upstream acceptance.

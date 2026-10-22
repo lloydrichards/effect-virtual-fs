@@ -19,8 +19,21 @@ sources:
     title: Separate public routing and internal ownership workers
   - resource: ../../packages/node/README.md
     title: Supported configuration and ownership limits
+  - resource: ../../apps/demo-typescript-workbench/src/workbench/workspace.ts
+    title: Mounted default-host TypeScript workbench and caller policy
+  - resource: ../../apps/demo-typescript-workbench/src/workbench/coordinator.ts
+    title: Effect worker ownership and server-held checkpoint recovery
+  - resource: ../../apps/demo-typescript-workbench/test/workbench.test.ts
+    title: Rebuild, permissions, save points, stale commands and worker termination qualification
+  - resource: ../../apps/demo-typescript-workbench/test/module-graph.test.ts
+    title: CommonJS require graph changes still emit and check both editable sources
+  - resource: ../../apps/demo-typescript-workbench/test/workbench-review.test.ts
+    title: Request interruption, stale Stop, shutdown and save-point isolation regressions
+  - resource: ../../apps/demo-typescript-workbench/test/mounted-cleanup.test.ts
+    title: Current workbench routing-removal and cleanup-failure regression
   - resource: ../../.github/workflows/pr-validation.yml
     title: Separate pinned CI configuration
+generated: { by: codex/okf, at: "2026-10-22T15:38:05Z" }
 ---
 
 # Mounted Node qualification
@@ -63,3 +76,34 @@ Watches remain unsupported. Inodes are volume-local, not globally unique between
 crash durability. Node's cursor survives truncate, while the Effect wrapper clamps it. Node routing can replace provider
 errors: the pinned wrapper reports ENOENT for stat beneath a regular file, while the direct provider reports ENOTDIR.
 Additional Node versions, arbitrary byte-name routing and broader loader configurations require separate qualification.
+
+## Qualified TypeScript consumer
+
+The private `apps/demo-typescript-workbench` workbench qualifies TypeScript 5.9.3's JavaScript compiler with its default
+compiler host on Node 26.11.1, macOS arm64. Effect provisions the unmodified compiler, standard libraries and Node
+declarations in a snapshot. One synchronous working overlay uses editor, compiler and viewer identities. Each compile
+or run creates a fresh mount. Both editable source files are compiler roots even when Node loads a helper through
+CommonJS require rather than a static import. Every compiler input must resolve inside the mount. TypeScript emits CommonJS into the overlay,
+Node loads the output, and Effect inspects the same files through the viewer caller.
+
+The Effect Node coordinator owns worker RPC and retains an encoded save point outside the worker. Capture starts a new
+overlay generation; restore replaces the worker and invalidates the build. Timeout or Stop terminates the worker and
+restores that checkpoint. Generation and revision checks reject stale commands. Failed builds cannot run prior output.
+Headless checks cover repeated dependency edits, separate Compile/Run, viewer emission denial and recovery, snapshot
+restoration, stale generation rejection, Stop during an in-flight command and bounded stdout/stderr console capture.
+Accepted commands belong to the workbench scope rather than the HTTP request, so disconnection cannot split worker and
+coordinator state. Stop validates its submitted generation inside the replacement lock. View waits for replacement to
+finish. Owner shutdown terminates native execution before protocol teardown, closes command fibers, and rejects later
+commands. Review regressions cover interrupted compilation/save, stale Stop during Restore, repeated checkpoint isolation
+and shutdown during a synchronous loop.
+
+Cleanup checks mounted routing and CommonJS cache removal after each attempt. The workbench cleanup test keeps a live
+sibling mount to prove routing removal and injects an unmount failure to reject the build. The obsolete comparison
+implementation and its tests have been removed. These consumer assertions do not enumerate
+Node's descriptor registry; that stronger check belongs to the mounted lifetime suite above.
+
+The browser uses React/Vite and Atom RPC with shared Schema contracts; an Effect Node HTTP server forwards commands to the
+worker. Monaco supplies editing, while the mounted compiler supplies diagnostics and emitted files. All tabs share one
+local workspace. Execution observes a trusted synchronous CommonJS entrypoint and captures console output, not arbitrary
+asynchronous process lifecycle. This is not qualification of TypeScript's native compiler, arbitrary npm tools, concurrent
+compilation, hosted execution, another platform or a JavaScript sandbox.
