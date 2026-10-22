@@ -2,6 +2,8 @@
 
 ## 2026-10-22
 
+- Preserve signed-64-bit positioned-read offsets without moving the cursor, and propagate invalid borrowed-caller failures from glob while retaining missing/non-directory behavior.
+
 - Return the written reference from whole-file writes and use it for copy ownership. Preserve replacement files, empty symlink targets and directory modes after acquisition failure. Capture synchronous digest-provider throws before classifying pre-write rejection.
 
 - Distinguish proven pre-write rejection from uncertain storage commits. Preserve digest failure Causes without publishing the candidate or disabling the volume; retain conservative shutdown for ambiguous writes and failed cleanup.
