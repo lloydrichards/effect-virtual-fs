@@ -297,38 +297,41 @@ describe("direct Node provider", () => {
       provider.writeFileSync("/file", "x")
       provider.symlinkSync("file", "/sym")
       const handle = provider.openSync("/file", "r+")
-      const stat = () => target === "symlink" ? provider.lstatSync("/sym") : handle.statSync()
-      const before = Date.now()
+
+      const stat = () =>
+        target === "symlink" ? provider.lstatSync("/sym", { bigint: true }) : handle.statSync({ bigint: true })
+
+      const before = BigInt(Date.now())
 
       if (target === "provider") provider.utimesSync("/file", -1, -1)
       else if (target === "symlink") provider.lutimesSync("/sym", -1, -1)
       else handle.utimesSync(-1, -1)
 
       expect(stat().atimeMs).toBeGreaterThanOrEqual(before)
-      expect(stat().atimeMs).toBeLessThanOrEqual(Date.now())
+      expect(stat().atimeMs).toBeLessThanOrEqual(BigInt(Date.now()))
       expect(stat().mtimeMs).toBeGreaterThanOrEqual(before)
-      expect(stat().mtimeMs).toBeLessThanOrEqual(Date.now())
+      expect(stat().mtimeMs).toBeLessThanOrEqual(BigInt(Date.now()))
 
       if (target === "provider") await provider.utimes("/file", -1, -1)
       else if (target === "symlink") await provider.lutimes("/sym", -1, -1)
       else await handle.utimes(-1, -1)
 
       expect(stat().atimeMs).toBeGreaterThanOrEqual(before)
-      expect(stat().atimeMs).toBeLessThanOrEqual(Date.now())
+      expect(stat().atimeMs).toBeLessThanOrEqual(BigInt(Date.now()))
       expect(stat().mtimeMs).toBeGreaterThanOrEqual(before)
-      expect(stat().mtimeMs).toBeLessThanOrEqual(Date.now())
+      expect(stat().mtimeMs).toBeLessThanOrEqual(BigInt(Date.now()))
 
       if (target === "provider") provider.utimesSync("/file", new Date(-1000), "-2")
       else if (target === "symlink") provider.lutimesSync("/sym", new Date(-1000), "-2")
       else handle.utimesSync(new Date(-1000), "-2")
 
-      expect(stat()).toMatchObject({ atimeMs: -1000, mtimeMs: -2000 })
+      expect(stat()).toMatchObject({ atimeMs: -1000n, mtimeMs: -2000n })
 
       if (target === "provider") await provider.utimes("/file", "-3", new Date(-4000))
       else if (target === "symlink") await provider.lutimes("/sym", "-3", new Date(-4000))
       else await handle.utimes("-3", new Date(-4000))
 
-      expect(stat()).toMatchObject({ atimeMs: -3000, mtimeMs: -4000 })
+      expect(stat()).toMatchObject({ atimeMs: -3000n, mtimeMs: -4000n })
       handle.closeSync()
     }
   )
