@@ -208,6 +208,9 @@ export const timesOf = (atime: number | string | Date, mtime: number | string | 
 
     if (!Number.isFinite(seconds)) throw new NodeError("EINVAL", "utimes")
 
+    // Node treats negative numbers as now, but preserves explicit Date and string values.
+    if (Predicate.isNumber(value) && value < 0) return BigInt(Date.now()) * 1_000_000n
+
     return BigInt(Math.trunc(seconds * 1e9))
   }
 

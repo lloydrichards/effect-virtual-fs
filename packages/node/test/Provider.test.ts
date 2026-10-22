@@ -1,5 +1,5 @@
-// Exercise the synchronous JavaScript boundary and its promise wrappers.
-/* eslint-disable effecttsgo/async-function, effecttsgo/node-builtin-import */
+// Exercise native Node arguments and wall-clock timestamps at the JavaScript boundary.
+/* eslint-disable effecttsgo/async-function, effecttsgo/global-date, effecttsgo/node-builtin-import */
 import { BytePath } from "@effect-vfs/core"
 import * as Vfs from "@effect-vfs/core/VirtualFileSystem"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
@@ -290,6 +290,48 @@ describe("direct Node provider", () => {
     expect(await handle.stat()).toMatchObject({ mode: 0o100640, uid: 21, gid: 22, atimeMs: 30000, mtimeMs: 40000 })
     handle.closeSync()
   })
+  it.each(["provider", "symlink", "handle"] as const)(
+    "should use current time for negative numbers through %s timestamp hooks",
+    async (target) => {
+      const { provider } = await make()
+      provider.writeFileSync("/file", "x")
+      provider.symlinkSync("file", "/sym")
+      const handle = provider.openSync("/file", "r+")
+      const stat = () => target === "symlink" ? provider.lstatSync("/sym") : handle.statSync()
+      const before = Date.now()
+
+      if (target === "provider") provider.utimesSync("/file", -1, -1)
+      else if (target === "symlink") provider.lutimesSync("/sym", -1, -1)
+      else handle.utimesSync(-1, -1)
+
+      expect(stat().atimeMs).toBeGreaterThanOrEqual(before)
+      expect(stat().atimeMs).toBeLessThanOrEqual(Date.now())
+      expect(stat().mtimeMs).toBeGreaterThanOrEqual(before)
+      expect(stat().mtimeMs).toBeLessThanOrEqual(Date.now())
+
+      if (target === "provider") await provider.utimes("/file", -1, -1)
+      else if (target === "symlink") await provider.lutimes("/sym", -1, -1)
+      else await handle.utimes(-1, -1)
+
+      expect(stat().atimeMs).toBeGreaterThanOrEqual(before)
+      expect(stat().atimeMs).toBeLessThanOrEqual(Date.now())
+      expect(stat().mtimeMs).toBeGreaterThanOrEqual(before)
+      expect(stat().mtimeMs).toBeLessThanOrEqual(Date.now())
+
+      if (target === "provider") provider.utimesSync("/file", new Date(-1000), "-2")
+      else if (target === "symlink") provider.lutimesSync("/sym", new Date(-1000), "-2")
+      else handle.utimesSync(new Date(-1000), "-2")
+
+      expect(stat()).toMatchObject({ atimeMs: -1000, mtimeMs: -2000 })
+
+      if (target === "provider") await provider.utimes("/file", "-3", new Date(-4000))
+      else if (target === "symlink") await provider.lutimes("/sym", "-3", new Date(-4000))
+      else await handle.utimes("-3", new Date(-4000))
+
+      expect(stat()).toMatchObject({ atimeMs: -3000, mtimeMs: -4000 })
+      handle.closeSync()
+    }
+  )
   it("should honor caller identity", async () => {
     const { provider } = await make({
       caller: { identity: { uid: 1000, gid: 1000, groups: [], privileged: false }, umask: 0o077 }
