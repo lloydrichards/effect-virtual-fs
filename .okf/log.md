@@ -12,6 +12,8 @@
 
 - Distinguish proven pre-write rejection from uncertain storage commits. Preserve digest failure Causes without publishing the candidate or disabling the volume; retain conservative shutdown for ambiguous writes and failed cleanup.
 
+- Qualify mounted Node fs, descriptors, streams and CJS/ESM loading on the pinned runtime. Record caller-owned teardown ordering, registry-removal evidence, interruption/reentry checks and runtime limits; keep direct and mounted suites separate.
+
 ## 2026-10-21
 
 - Add an opt-in sync execution policy to constructor-owned memory volumes. Preserve cooperative scheduling, keep policy out of formats, reject live backends, and document reentry, held-through-drain ownership release, watch teardown and immutable capture. Distinguish engine guarantees from arbitrary Effects and native Node qualification.

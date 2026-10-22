@@ -54,5 +54,5 @@ are explicitly unsupported.[^provider]
 
 The protocol baseline is Node 26.11.1 with `--experimental-vfs`. Direct provider tests and the built-package consumer run
 in a separate native Node job. The Bun core and memory suites remain distinct. Construction never mounts a filesystem or
-installs global hooks. Mounted fs calls, descriptor registration, streams and loaders remain with #311; direct tests do
-not establish those capabilities.
+installs global hooks. The separate [mounted qualification](node-mounted.md "qualified by") covers fs routing,
+descriptors, streams and loaders under #311; direct tests alone do not establish those capabilities.

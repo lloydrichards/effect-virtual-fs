@@ -19,7 +19,7 @@ The current profile does not include:
 - advisory locks or descriptor duplication;
 - sparse allocation or copy-on-write storage optimization;
 - qualified local-device operating-system crash or power-loss durability for SQLite live writes, or host `fsync` semantics (the [durability and usage facts decision](../decisions/core/volume-durability-and-usage-facts.md "refined by") publishes the durability vocabulary; the R2 profile relies on Cloudflare's remote durable-write contract, while SQLite still reports `memory-only`);
-- mounted Node `node:fs`, descriptor, stream and loader qualification beyond the [direct provider](../contracts/node-provider.md "contrasts with");
+- Node releases and loader configurations beyond the [pinned mounted qualification](../contracts/node-mounted.md "narrowed by"), plus arbitrary-byte Node routing;
 - complete Node package resolution, dependency installation, or HMR inside the virtual build integration.
 
 These are exclusions, not rejected designs. Active investigation may be represented separately as draft research, but it must not imply implementation or acceptance. Snapshot checkpoints provide explicit reconstruction, not live-write durability; dense zero-filled gaps provide filesystem behavior without sparse allocation.

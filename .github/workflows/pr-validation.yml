@@ -97,3 +97,26 @@ jobs:
       - run: bun run --cwd packages/node build
       - run: bun run --cwd packages/node type-check
       - run: bun run test:node
+
+  node-vfs-mounted:
+    name: Mounted fs, streams and loaders, Node 26.11.1
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.11.1
+      - run: bun install --frozen-lockfile
+      - name: Identify qualification candidate
+        run: |
+          node --version
+          uname -a
+          git rev-parse HEAD
+          node -p "require('effect/package.json').version"
+      - run: bun run --cwd packages/core build
+      - run: bun run --cwd packages/node build
+      - run: bun run --cwd packages/node type-check
+      - run: bun run --cwd packages/node test:mounted
