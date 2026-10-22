@@ -57,7 +57,7 @@ sources:
   - id: overlay-binding
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Overlay volume binding tests
-generated: { by: codex/okf, at: "2026-10-21T21:43:54+00:00" }
+generated: { by: codex/okf, at: "2026-10-22T06:18:00Z" }
 ---
 
 # Memory adapter compatibility
@@ -107,3 +107,5 @@ Failure or interruption in reject mode removes the newly claimed unfinished root
 Overwrite retains partial progress and restores created directory modes on failure. Directory metadata finishes bottom-up without interruption; a late interruption can leave a completed copy. Cleanup errors remain defects alongside the original typed failure or interruption, including after PlatformError translation. This does not promise an atomic tree publication or consistency under arbitrary concurrent source and ancestor changes.
 
 `bun run --cwd packages/memory check:copy-imports`, also run by the memory build, traces runtime workspace imports from the copy module after TypeScript type erasure. Core leaf imports keep that graph free of project transfer, snapshot, image, fixture and codec modules. Whole-provider construction still uses the core engine; its separation belongs to #307.
+
+Copy retains the reference returned by each atomic whole-file write for timestamp updates and root cleanup. It never claims a replacement through a later lookup. Created directories are recorded before opening their traversal handles, so acquisition failure still restores their modes. Empty stored symlink targets remain empty when copied, including overwrite destinations.
