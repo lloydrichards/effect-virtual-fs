@@ -97,7 +97,15 @@ const expandTypeAliases = async (packagePath: string, moduleName: string, conten
 
     if (!signature.includes("typeof")) continue
 
-    const resolved = alias.getTypeNodeOrThrow().getType().getText(alias, typeFlags)
+    const typeNode = alias.getTypeNodeOrThrow()
+
+    // Keep unique-symbol aliases local even when their value is owned by a private implementation.
+    const resolvedType = typeNode.getText() === `typeof ${alias.getName()}` &&
+        (typeNode.getType().getFlags() & ts.TypeFlags.UniqueESSymbol) !== 0
+      ? typeNode.getText()
+      : typeNode.getType().getText(alias, typeFlags)
+
+    const resolved = resolvedType
       .replace(/import\("[^"]*\/node_modules\/effect\/dist\/([^"/]+)"\)\.([A-Za-z_$][\w$]*)/g, "$1.$2")
       .replace(/import\("effect\/([^"/]+)"\)\.([A-Za-z_$][\w$]*)/g, "$1.$2")
 
@@ -159,6 +167,11 @@ const expandTaggedErrorClasses = async (packagePath: string, moduleName: string,
 }
 
 const keepPublishedExports = (moduleName: string, content: string): string => {
+  if (moduleName === "VirtualFileSystem") {
+    // Public interfaces repeat their members for portable declarations; private ownership adds no public members.
+    return content.replace(/(export interface \w+(?:<[^>]+>)?) extends Engine\.\w+(?:<[^>]+>)?/g, "$1")
+  }
+
   if (moduleName === "BytePath") {
     return content.replace(/^# utils[\s\S]*$/m, "")
   }

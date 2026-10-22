@@ -1,6 +1,6 @@
 # Research
 
-- [Minimal Effect filesystem port](minimal-effect-port.md) proposes reusable dependencies, the reduced engine and separate Node VFS qualification.
+- [Staged Effect filesystem implementation plan](minimal-effect-port.md) sequences engine-owned contracts, the Effect port, downstream packages and community-core retirement.
 
 - [Node VFS interoperability](node-vfs-interoperability.md) compares verified Node 26.12 provider composition with snapshot overlays.
 - [Effect VFS lessons from the Node comparison](node-vfs-snapshot-bridge.md) separates comparative evidence from Effect-native follow-up work.

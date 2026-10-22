@@ -17,6 +17,8 @@ sources:
     title: Runtime import boundary qualification
   - resource: ../../packages/core/test/Engine.test.ts
     title: Private engine ownership and failure regressions
+  - resource: ../../packages/core/contracts/EngineOwnership.ts
+    title: Previous public capability shapes and engine operation compatibility
   - resource: ../../packages/core/src/internal/bytePath.ts
     title: Retained community BytePath value implementation
   - resource: ../../packages/core/src/internal/bytes.ts
@@ -39,7 +41,7 @@ sources:
   - id: token-tests
     resource: ../../packages/core/test/Engine.test.ts
     title: Direct token liveness and lifecycle tests
-generated: { by: codex/okf, at: "2026-10-21T21:43:54+00:00" }
+generated: { by: codex/okf, at: "2026-10-22T11:28:22+02:00" }
 ---
 
 # Volume, caller, and handle model
@@ -87,17 +89,19 @@ Filesystem-specific lexical and lookup helpers are now in `Paths` inside the eng
 
 The unchanged FIFO gate now lives inside the engine. It is a private coordination implementation pending #302's qualification. Replacing it with an existing Effect primitive requires equivalent ordering and interruption behavior. Promoting it to a general concurrency module requires its own review and evidence; neither is assumed by #307. Private deterministic test hooks also live inside the engine and should be adapted to upstream test conventions, without a public testing service.
 
-Type-only dependencies need a separate migration even though they do not load community features at runtime:
+The engine owns its filesystem capability contracts, including operations, basic limits, usage, handles, instance-bound references and observation/results. Community interfaces extend those contracts while retaining explicit public member types. Keeping those public annotations avoids inferred downstream declarations naming private engine types. No runtime schema is duplicated.
 
-- `BytePath.ts` provides the local value type; use the separately reviewed upstream BytePath type.
-- `Caller.ts` supplies the nominal object-reference brand. Upstream reference identity belongs to the filesystem engine/API reviewed in #308, with community compatibility retained outside it.
-- `VirtualFileSystem.ts` supplies caller, handle, reference, observation and failure types. In particular, `EngineOperations` currently derives from community `Caller` with `Omit`. Define the independent upstream contracts in #308 rather than carrying that community type dependency into Effect.
+The object-reference brand is declared by the engine and exposed through Caller with the same registered symbol. FileHandle brands and metadata/error schemas remain shared leaf modules. The byte-path value interface belongs to its existing private bytePath module; the public BytePath interface retains its equivalent explicit definition. Neither the engine nor its transitive type dependencies import Caller, VirtualFileSystem or other community construction modules.
+
+The import audit checks two graphs: source dependencies including type imports, and the existing runtime graph after erasure. Both engine graphs are restricted to the same six-module allowlist. Compile-only EngineOwnership contracts preserve the previous public capability shapes and compare the engine operation contract against that previous selected Caller subset. Public branding, schemas, constructors, watches, durable installation, snapshots and execution behavior remain unchanged.
+
+These local ownership checks do not establish accepted upstream contracts. The [staged implementation plan](../research/minimal-effect-port.md "refined by") records caller adoption, supported capture/restore, checked synchronous binding, downstream feature migration and eventual core retirement.
 
 The reusable memory binding is an adapter, not an engine helper. It maps the private operation port to Effect FileSystem and remains separate from community construction and watch delivery. This audit qualifies the local runtime boundary; it does not settle the upstream public API or prove that the current source can be copied unchanged.
 
 Any additional runtime engine dependency needs a recorded local necessity and upstream ownership decision before extending the audit allowlist. Independently useful abstractions require separate review; filesystem-only helpers stay in the engine by default.
 
-The minimal constructor and adapter bridge are private qualification surfaces, not published APIs. The source import audit follows runtime imports after type erasure from the real engine, reusable FileSystem binding and test-only minimal constructor. It rejects Crypto and community feature construction through transitive imports. `Engine.test.ts` groups the resolver, token-lifecycle and persistent-state invariants with the direct engine behavior checks. The error-order, late-publication and payload-ownership regressions remain; no test is removed merely because it observes a private invariant. Public filesystem and adapter suites retain their existing behavioral ownership.
+The minimal constructor and adapter bridge are private qualification surfaces, not published APIs. The source import audit follows the engine graph including type imports, and runtime imports after type erasure from the real engine, reusable FileSystem binding and test-only minimal constructor. It rejects Crypto and community feature construction through transitive imports. `Engine.test.ts` groups the resolver, token-lifecycle and persistent-state invariants with the direct engine behavior checks. The error-order, late-publication and payload-ownership regressions remain; no test is removed merely because it observes a private invariant. Public filesystem and adapter suites retain their existing behavioral ownership.
 
 The model is [constrained by schema and capability modeling](../decisions/core/schema-data-and-capability-interfaces.md "constrained by"), [independent resource lifetimes](../decisions/core/independent-resource-lifetimes.md "constrained by"), [explicit close semantics](../decisions/core/explicit-close-and-scope-cleanup.md "constrained by"), [scope-free root callers](../decisions/core/scope-free-root-callers.md "constrained by"), and [reusable capability effects](../decisions/core/reusable-capability-effects.md "constrained by"). Detailed rules belong to the [resource and authority contract](../contracts/resources-and-authority.md "refined by"), [regular-file I/O contract](../contracts/regular-file-io.md "refined by"), [permissions and metadata contract](../contracts/permissions-and-metadata.md "refined by"), and [mutation and observation contract](../contracts/mutation-and-observation.md "refined by").
 

@@ -58,11 +58,13 @@ for (const page of apiPages) {
     throw new Error(`${page.contentPath} contains an unresolved schema model signature`)
   }
 
-  const internalImports = source.matchAll(/import\s+\*\s+as\s+(\w+)\s+from\s+["'][^"']*\/internal\/[^"']+["']/g)
+  const internalImports = source.matchAll(
+    /import\s+(?:type\s+)?\*\s+as\s+(\w+)\s+from\s+["'][^"']*\/internal\/[^"']+["']/g
+  )
 
   for (const [, namespace] of internalImports) {
-    if (generated.includes(`typeof ${namespace}.`)) {
-      throw new Error(`${page.contentPath} exposes typeof ${namespace} from an internal module`)
+    if (generated.includes(`typeof ${namespace}.`) || generated.includes(`extends ${namespace}.`)) {
+      throw new Error(`${page.contentPath} exposes ${namespace} from an internal module`)
     }
   }
 }

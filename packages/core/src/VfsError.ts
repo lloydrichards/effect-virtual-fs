@@ -11,7 +11,7 @@
  */
 import * as Schema from "effect/Schema"
 import * as SchemaTransformation from "effect/SchemaTransformation"
-import type { BytePath } from "./BytePath.js"
+import type { BytePath } from "./internal/bytePath.js"
 import * as Internal from "./internal/bytePath.js"
 
 // Declared from the byte-path internals rather than the BytePath module, which imports this one for its failures.

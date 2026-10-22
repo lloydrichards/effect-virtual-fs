@@ -62,6 +62,8 @@ import { retargetFailure } from "./internal/errors.js"
 import * as FixtureInternal from "./internal/fixture.js"
 import * as Image from "./internal/image.js"
 
+// Explicit public member types preserve portable consumer declarations while extending engine contracts.
+import type * as Engine from "./internal/engine.js"
 import { Errors, Paths as Path } from "./internal/engine.js"
 import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
 import * as SnapshotMergeInternal from "./internal/snapshotMerge.js"
@@ -433,7 +435,7 @@ export type VolumeOptions = typeof VolumeOptions.Type
  * @category models
  * @since 0.1.0
  */
-export interface VolumeLimits {
+export interface VolumeLimits extends Engine.EngineLimits {
   readonly maxBytes: ByteSize.ByteSize | undefined
   readonly maxFileBytes: ByteSize.ByteSize
   readonly maxEntries: number | undefined
@@ -451,7 +453,7 @@ export interface VolumeLimits {
  * @category models
  * @since 0.1.0
  */
-export interface VolumeUsage {
+export interface VolumeUsage extends Engine.VolumeUsage {
   readonly usedBytes: bigint
   readonly entries: number
 }
@@ -502,7 +504,7 @@ export type Metadata = typeof Metadata.Type
  * @category models
  * @since 0.1.0
  */
-export interface ObjectReference {
+export interface ObjectReference extends Engine.ObjectReference {
   readonly [ObjectReferenceId]: true
 }
 
@@ -541,7 +543,7 @@ export interface ObjectReference {
  * @category models
  * @since 0.1.0
  */
-export interface ObjectObservation<A> {
+export interface ObjectObservation<A> extends Engine.ObjectObservation<A> {
   readonly value: A
   readonly revision: bigint
 }
@@ -552,7 +554,7 @@ export interface ObjectObservation<A> {
  * @category models
  * @since 0.1.0
  */
-export interface DirectoryEntry {
+export interface DirectoryEntry extends Engine.DirectoryEntry {
   readonly name: Uint8Array
   readonly reference: ObjectReference
 }
@@ -571,7 +573,7 @@ export interface DirectoryEntry {
  * @category models
  * @since 0.6.0
  */
-export interface WalkEntry {
+export interface WalkEntry extends Engine.WalkEntry {
   readonly path: BytePath
   readonly name: Uint8Array
   readonly reference: ObjectReference
@@ -628,7 +630,7 @@ export type DirectoryChange = typeof DirectoryChange.Type
  * @category models
  * @since 0.4.0
  */
-export interface ReferenceEntryResult {
+export interface ReferenceEntryResult extends Engine.ReferenceEntryResult {
   readonly reference: ObjectReference
   readonly directory: DirectoryChange
 }
@@ -752,7 +754,7 @@ export type Times = typeof Times.Type
  * @category models
  * @since 0.1.0
  */
-export interface DirectoryHandle {
+export interface DirectoryHandle extends Engine.DirectoryHandle {
   readonly [DirectoryHandleId]: true
   readonly stat: Effect.Effect<Metadata, FsFailure>
   readonly close: Effect.Effect<void, FsFailure>
@@ -917,7 +919,7 @@ export type OpenEntryOptions = typeof OpenEntryOptions.Type
  * @category models
  * @since 0.4.0
  */
-export interface OpenEntryResult {
+export interface OpenEntryResult extends Engine.OpenEntryResult {
   readonly handle: FileHandle
   readonly reference: ObjectReference
   readonly created: boolean
@@ -981,7 +983,7 @@ export type WriteFileOptions = typeof WriteFileOptions.Type
  * @category models
  * @since 0.6.0
  */
-export interface ReadResult {
+export interface ReadResult extends Engine.ReadResult {
   readonly bytes: Uint8Array
   readonly eof: boolean
 }
@@ -1018,7 +1020,7 @@ export interface ReadResult {
  * @category models
  * @since 0.1.0
  */
-export interface FileHandle {
+export interface FileHandle extends Engine.FileHandle {
   readonly [FileHandleId]: true
   /** Reads up to `maximumBytes` from the cursor and advances it by the returned length. */
   readonly read: (maximumBytes: number) => Effect.Effect<Uint8Array, FsFailure>
@@ -1139,7 +1141,7 @@ export interface FileHandle {
  * @category models
  * @since 0.1.0
  */
-export interface Caller {
+export interface Caller extends Engine.EngineOperations {
   readonly [CallerId]: true
   /** Backing volume configuration; these are not subtree quotas. */
   readonly limits: VolumeLimits
