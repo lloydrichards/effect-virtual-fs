@@ -45,6 +45,10 @@ The optional `caller` selects core identity and umask. `readonly: true` rejects 
   position. Truncate preserves the cursor. Both scalar and vector I/O are available.
 - Whole-file helpers perform open, write and close separately. A failed write can leave a newly created or truncated
   file or partially written contents. No pending write continues after a synchronous call returns.
+- Read and write calls accept positional arguments or buffer options. Reads also accept an options bag with an optional
+  buffer, and writes accept strings with a position and encoding. ArrayBuffer views use byte offsets; promise results
+  retain the original buffer or string. Vector calls validate every slot before I/O, including sparse arrays.
+- Copy failures report `copyfile` with the source `path` and destination `dest`.
 - Handles retain an unlinked or replaced object until close. Node allocates numeric virtual descriptors above this
   protocol; provider handles do not invent descriptor numbers.
 - Stats, bigint stats and directory entries are structural implementations of the public Node interfaces. Bigint

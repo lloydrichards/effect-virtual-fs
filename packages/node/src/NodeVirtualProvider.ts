@@ -368,9 +368,17 @@ export class Provider extends VirtualProvider {
   }
   copyFileSync(src: string, dest: string, mode = 0): void {
     integer(mode, "copyfile", constants.COPYFILE_EXCL)
-    this.mutate("copyfile", pathOf(dest, "copyfile"))
-    const bytes = this.readFileSync(src)
-    this.writeFileSync(dest, bytes, { flag: (mode & constants.COPYFILE_EXCL) !== 0 ? "wx" : "w" })
+    const source = pathOf(src, "copyfile")
+    const destination = pathOf(dest, "copyfile")
+
+    try {
+      this.mutate("copyfile", destination)
+      const bytes = this.readFileSync(source)
+      this.writeFileSync(destination, bytes, { flag: (mode & constants.COPYFILE_EXCL) !== 0 ? "wx" : "w" })
+    } catch (cause) {
+      if (cause instanceof NodeError) throw new NodeError(cause.code, "copyfile", source, destination, cause)
+      throw cause
+    }
   }
   async copyFile(src: string, dest: string, mode = 0) {
     this.copyFileSync(src, dest, mode)

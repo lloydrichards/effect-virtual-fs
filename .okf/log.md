@@ -2,6 +2,8 @@
 
 ## 2026-10-22
 
+- Complete Node handle argument normalization, reject sparse vector slots before I/O and preserve copyfile error context.
+
 - Add the direct Node provider package and core-owned synchronous binding. Record independent Node cursor semantics, scoped ownership, readonly and text-path limits; retain mounted fs, descriptor and loader qualification under #311.
 
 - Preserve signed-64-bit positioned-read offsets without moving the cursor, and propagate invalid borrowed-caller failures from glob while retaining missing/non-directory behavior. Propagate denied link probes without enabling globstar descent.
