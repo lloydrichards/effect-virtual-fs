@@ -453,7 +453,11 @@ describe("staged volume state", () => {
             )
 
           // Path, content, and handle mutations each swap engine state, so each is swept separately.
-          const mutations = [
+          const mutations: ReadonlyArray<{
+            readonly name: string
+            readonly run: (path: string, delay: number) => Effect.Effect<unknown, Vfs.FsFailure>
+            readonly visible: (path: string, delay: number) => Effect.Effect<boolean, Vfs.FsFailure>
+          }> = [
             { name: "mkdir", run: (path: string) => caller.mkdir(path), visible: exists },
             {
               name: "writeFile",

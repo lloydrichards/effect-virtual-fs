@@ -155,6 +155,7 @@ export const copyTree = Effect.fnUntraced(function*(
       const metadata = yield* caller.stat(sourceTarget)
       const written = next.destination
       const target = targetOf(written)
+      let metadataTarget: Vfs.TargetInput = target
       const root = written.base === undefined
 
       if (metadata.kind === "directory") {
@@ -173,11 +174,15 @@ export const copyTree = Effect.fnUntraced(function*(
             return yield* made.failure
           }
 
-          if (root && created && !options?.overwrite) claimed = made.success.reference
-          const base = yield* Scope.provide(caller.openDirectory(created ? made.success.reference : target), handles)
-          const reference = created ? made.success.reference : base
+          if (created) {
+            directories.push({ reference: made.success.reference, metadata, created: true })
 
-          directories.push({ reference, metadata, created })
+            if (root && !options?.overwrite) claimed = made.success.reference
+          }
+
+          const base = yield* Scope.provide(caller.openDirectory(created ? made.success.reference : target), handles)
+
+          if (!created) directories.push({ reference: base, metadata, created: false })
 
           return base
         }))
@@ -228,21 +233,24 @@ export const copyTree = Effect.fnUntraced(function*(
 
         if (root) {
           yield* Effect.uninterruptible(Effect.gen(function*() {
-            yield* writing
+            const reference = yield* writing
+            metadataTarget = reference
 
-            if (!options?.overwrite) claimed = yield* caller.lookup(target)
+            if (!options?.overwrite) claimed = reference
           }))
-        } else yield* writing
+        } else metadataTarget = yield* writing
       } else {
         const link = yield* caller.readLink(sourceTarget)
         bytes += BigInt(link.length)
 
         if (exceeds(bytes, limits.maxBytes)) return yield* noSpace()
 
+        const linkTarget = link.length === 0 ? "" : yield* BytePath.fromBytes(link)
+
         if (options?.overwrite) yield* clearExisting(target)
 
         const creating = Effect.gen(function*() {
-          const made = yield* caller.symlink(yield* BytePath.fromBytes(link), target)
+          const made = yield* caller.symlink(linkTarget, target)
 
           if (root && !options?.overwrite) claimed = made.reference
         })
@@ -252,7 +260,7 @@ export const copyTree = Effect.fnUntraced(function*(
       }
 
       if (metadata.nlink > 1) aliases.set(metadata.ino, written)
-      yield* applyTimes(target, metadata)
+      yield* applyTimes(metadataTarget, metadata)
     }
 
     yield* Effect.uninterruptible(Effect.gen(function*() {

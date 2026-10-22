@@ -440,7 +440,8 @@ export const dualCallerMethods = (
   times: Vfs.Times,
   attributes: Vfs.SetattrOptions
 ) => ({
-  write: caller.writeFile(bytes, options)(entry) satisfies Effect.Effect<void, Vfs.FsFailure>,
+  write: caller.writeFile(bytes, options)(entry) satisfies Effect.Effect<Vfs.ObjectReference, Vfs.FsFailure>,
+  directWrite: caller.writeFile(entry, bytes, options) satisfies Effect.Effect<Vfs.ObjectReference, Vfs.FsFailure>,
   link: caller.link(entry)(target) satisfies Effect.Effect<Vfs.ReferenceEntryResult, Vfs.FsFailure>,
   rename: caller.rename(entry)(entry) satisfies Effect.Effect<Vfs.RenameReferenceResult, Vfs.FsFailure>,
   chmod: caller.chmod(0o600)(target) satisfies Effect.Effect<void, Vfs.FsFailure>,

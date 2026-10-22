@@ -5097,7 +5097,7 @@ export const makeEngine = Effect.fnUntraced(
                 yield* reserveBytes(entryOp, BigInt(size - previous) - BigInt(reclaimed))
 
                 if (file !== undefined && !chosen.truncate && captured.length === 0 && chosen.finalMode === undefined) {
-                  return
+                  return referenceFor(file.ino)
                 }
 
                 let data = captured
@@ -5140,6 +5140,8 @@ export const makeEngine = Effect.fnUntraced(
                   yield* d.put(written)
                   yield* publishNode(written.ino)
                 }
+
+                return referenceFor(written.ino)
               })
             )
           })

@@ -2,6 +2,8 @@
 
 ## 2026-10-22
 
+- Return the written reference from whole-file writes and use it for copy ownership. Preserve replacement files, empty symlink targets and directory modes after acquisition failure. Capture synchronous digest-provider throws before classifying pre-write rejection.
+
 - Distinguish proven pre-write rejection from uncertain storage commits. Preserve digest failure Causes without publishing the candidate or disabling the volume; retain conservative shutdown for ambiguous writes and failed cleanup.
 
 ## 2026-10-21
