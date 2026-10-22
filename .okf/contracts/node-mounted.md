@@ -14,7 +14,9 @@ sources:
   - resource: ../../packages/node/mounted/Streams.test.ts
     title: Native path, descriptor and handle streams
   - resource: ../../packages/node/mounted/loader-case.mjs
-    title: Isolated loader and descriptor registry qualification
+    title: Isolated loader and routing qualification
+  - resource: ../../packages/node/vitest.mounted.config.ts
+    title: Separate public routing and internal ownership workers
   - resource: ../../packages/node/README.md
     title: Supported configuration and ownership limits
   - resource: ../../.github/workflows/pr-validation.yml
@@ -40,8 +42,11 @@ entries. No public API enumerates another caller's descriptors, so the test fixt
 A reentrant descriptor close rejected with EBUSY retains ownership and must be retried after the active engine operation.
 Reentrant closure of the whole binding scope while Node descriptors are live violates the mounted ownership contract.
 The tests cover normal success, failure and interruption, open-unlinked release, rejected nested closes and no later
-mutation. A subprocess uses `--expose-internals` solely to inspect the pinned Node registry after explicit closes.
-Production code does not import internal Node modules.
+mutation. A dedicated ownership worker uses `--expose-internals` to inspect the pinned registry after the actual fixture
+teardown for every outcome. Captured numeric, promise-handle and stream descriptors must disappear. A live sibling mount
+keeps public layer enumeration available so the test can prove routing removal rather than infer it from a failed stat.
+Removing either numeric closes or unmount makes all four lifetime tests fail. Public routing and loader workers do not
+expose internals; production code does not import internal Node modules.
 
 ## Routing, streams and loaders
 

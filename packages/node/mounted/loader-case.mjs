@@ -41,24 +41,6 @@ try {
     } finally {
       stock.unmount()
     }
-  } else if (kind === "registry") {
-    // Test-only access to the pinned runtime's registry proves removal, rather than inferring it from EBADF.
-    const { getVirtualFd } = require("internal/vfs/fd")
-
-    for (let i = 0; i < 5; i++) {
-      fs.writeFileSync(`${root}/held`, "owned")
-      const fd = fs.openSync(`${root}/held`, "r+")
-      const handle = await fs.promises.open(`${root}/held`, "r+")
-      const promiseFd = handle.fd
-      fs.unlinkSync(`${root}/held`)
-      assert.ok(getVirtualFd(fd))
-      assert.ok(getVirtualFd(promiseFd))
-      fs.closeSync(fd)
-      await handle.close()
-      assert.equal(getVirtualFd(fd), undefined)
-      assert.equal(getVirtualFd(promiseFd), undefined)
-      assert.equal((await Effect.runPromise(volume.usage)).usedBytes, 0n)
-    }
   } else {
     provider.mkdirSync("/app")
     provider.mkdirSync("/app/node_modules")
