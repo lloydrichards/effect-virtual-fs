@@ -1,5 +1,24 @@
 # @effect-vfs/nfs
 
+## 0.10.0
+
+### Minor Changes
+
+- [`97d7ae2`](https://github.com/lloydrichards/effect-virtual-fs/commit/97d7ae293d70c800f1fca47db036458b88c82aaa) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Require Effect 4.0.5 and support positioned reads, final-component `noFollow`, watch readiness, and permission-aware access checks.
+
+  Explicit read positions accept nonnegative signed-64-bit bigint offsets, including EOF beyond Number.MAX_SAFE_INTEGER, without moving the cursor. Globbing propagates closed-caller and handle failures rather than returning an empty result. Denied link probes propagate without enabling globstar descent.
+
+  Metadata device, inode, and link-count fields now use bigint. Keep these values as bigint when comparing identities, for example `info.dev === 0n`.
+
+  Globbing now matches Unicode characters and absolute patterns, returns depth-first results, prunes exclusions before reading directories, and skips unreadable directories reached through wildcards. Named unreadable directories still fail. Directory reads may update access times. Sort returned paths explicitly when global ordering is required.
+
+  Crypto provider failures are defects. Filesystem and storage I/O failures retain their domain errors. Continue providing the matching runtime `Crypto` layer; the unreleased service split remains deferred.
+
+### Patch Changes
+
+- Updated dependencies [[`3e205c4`](https://github.com/lloydrichards/effect-virtual-fs/commit/3e205c43672c2964b1bff930ca68051cbfb4a0d2), [`97d7ae2`](https://github.com/lloydrichards/effect-virtual-fs/commit/97d7ae293d70c800f1fca47db036458b88c82aaa), [`893381c`](https://github.com/lloydrichards/effect-virtual-fs/commit/893381c8df0a9decd25ac019357e76b50cebac35), [`730c02b`](https://github.com/lloydrichards/effect-virtual-fs/commit/730c02b1777c91c66b8a9441bbf1b47529fd8171), [`724d317`](https://github.com/lloydrichards/effect-virtual-fs/commit/724d317a1108f7df38d12b490c2dbbdf76559dbe)]:
+  - @effect-vfs/core@0.10.0
+
 ## 0.9.0
 
 ### Patch Changes
