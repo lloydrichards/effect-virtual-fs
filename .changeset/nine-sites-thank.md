@@ -7,7 +7,7 @@
 
 Require Effect 4.0.5 and support positioned reads, final-component `noFollow`, watch readiness, and permission-aware access checks.
 
-Explicit read positions accept nonnegative signed-64-bit bigint offsets, including EOF beyond Number.MAX_SAFE_INTEGER, without moving the cursor. Globbing propagates closed-caller and handle failures rather than returning an empty result.
+Explicit read positions accept nonnegative signed-64-bit bigint offsets, including EOF beyond Number.MAX_SAFE_INTEGER, without moving the cursor. Globbing propagates closed-caller and handle failures rather than returning an empty result. Denied link probes propagate without enabling globstar descent.
 
 Metadata device, inode, and link-count fields now use bigint. Keep these values as bigint when comparing identities, for example `info.dev === 0n`.
 

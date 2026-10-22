@@ -171,11 +171,12 @@ describe("filesystem adapter compatibility", () => {
       }))
 
     for (const kind of ["directory", "symlink"] as const) {
-      for (const unknown of [false, true]) {
-        it.effect(`should propagate ${unknown ? "Unknown" : "BadArgument"} readLink failures on a ${kind}`, () =>
+      for (const reason of ["BadArgument", "Unknown", "PermissionDenied"] as const) {
+        it.effect(`should propagate ${reason} readLink failures on a ${kind}`, () =>
           Effect.gen(function*() {
             const fs = yield* MemoryFileSystem.make
             yield* fs.makeDirectory("/dir")
+            yield* fs.writeFileString("/dir/file", "kept")
 
             if (kind === "symlink") yield* fs.symlink("/dir", "/alias")
 
@@ -185,9 +186,9 @@ describe("filesystem adapter compatibility", () => {
               description: "Injected provider failure"
             }
 
-            const failure = unknown
-              ? PlatformError.systemError({ ...fields, _tag: "Unknown" })
-              : PlatformError.badArgument(fields)
+            const failure = reason === "BadArgument"
+              ? PlatformError.badArgument(fields)
+              : PlatformError.systemError({ ...fields, _tag: reason })
 
             const { fileSystem } = yield* FileSystemTesting.make(
               fs,
@@ -198,6 +199,24 @@ describe("filesystem adapter compatibility", () => {
           }))
       }
     }
+
+    it.effect("should propagate a stale entry while preparing a directory listing", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+        yield* caller.writeFile("/kept", encode.encode("kept"), { access: "write", create: "exclusive" })
+        yield* caller.writeFile("/removed", encode.encode("removed"), { access: "write", create: "exclusive" })
+
+        const fs = yield* MemoryFileSystem.bindCaller({
+          ...caller,
+          readDirectory: (target) => caller.readDirectory(target).pipe(Effect.tap(() => caller.unlink("/removed")))
+        })
+
+        const error = yield* Effect.flip(fs.glob("*"))
+        assert.strictEqual(error.reason._tag, "BadResource")
+        assert.strictEqual(error.reason.description, "StaleReference")
+        assert.deepStrictEqual(yield* caller.readFile("/kept"), encode.encode("kept"))
+      }))
 
     for (const invalidation of ["closed", "deleted"] as const) {
       it.effect(`should fail glob when a borrowed confined caller is ${invalidation}`, () =>
