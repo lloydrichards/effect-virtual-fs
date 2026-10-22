@@ -36,6 +36,8 @@ The program uses Effect's `FileSystem` service. `layer` provides a fresh virtual
   `FileSystem.FileSystem` implementation. This is the usual starting point.
 - Use [`@effect-vfs/core`](packages/core/README.md) when you need byte-preserving names, explicit callers and
   permissions, shared volumes, fixtures, quotas, watches, or portable snapshots.
+- Use [`@effect-vfs/node`](packages/node/README.md) for a direct Node 26.11.1 `VirtualProvider` over a synchronous
+  shared volume. Mounted integration remains separate.
 - Use [`@effect-vfs/persistence`](packages/persistence/README.md) for named SQLite checkpoints or experimental live
   image commits.
 - Use [`@effect-vfs/nfs`](packages/nfs/README.md) to expose one live volume through the preview read-only NFSv4.1

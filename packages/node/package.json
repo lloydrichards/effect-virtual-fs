@@ -1,0 +1,68 @@
+{
+  "name": "@effect-vfs/node",
+  "version": "0.1.0",
+  "description": "A direct Node VirtualProvider over shared Effect virtual filesystem state.",
+  "homepage": "https://github.com/lloydrichards/effect-virtual-fs#readme",
+  "bugs": {
+    "url": "https://github.com/lloydrichards/effect-virtual-fs/issues"
+  },
+  "keywords": [
+    "effect",
+    "filesystem",
+    "node",
+    "vfs"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json && tsc --project compatibility/tsconfig.json",
+    "type-check": "tsc --noEmit",
+    "test": "node --experimental-vfs ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts",
+    "test:consumer": "node --experimental-vfs compatibility/consumer.mjs"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.5"
+  },
+  "devDependencies": {
+    "@effect/platform-node-shared": "4.0.5",
+    "@effect/vitest": "4.0.5",
+    "@repo/config-typescript": "workspace:*",
+    "@types/node": "26.6.3",
+    "effect": "4.0.5"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./NodeVirtualProvider": {
+      "types": "./dist/NodeVirtualProvider.d.ts",
+      "import": "./dist/NodeVirtualProvider.js"
+    },
+    "./internal/*": null,
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lloydrichards/effect-virtual-fs.git",
+    "directory": "packages/node"
+  },
+  "dependencies": {
+    "@effect-vfs/core": "^0.9.0"
+  },
+  "engines": {
+    "node": ">=26.11.1"
+  }
+}

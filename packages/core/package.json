@@ -105,7 +105,11 @@
     "./internal/*": null,
     "./index": null,
     "./*/index": null,
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./SynchronousAdapter": {
+      "types": "./dist/SynchronousAdapter.d.ts",
+      "import": "./dist/SynchronousAdapter.js"
+    }
   },
   "files": [
     "dist/**",
