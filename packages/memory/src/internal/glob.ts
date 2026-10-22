@@ -720,7 +720,7 @@ const isIgnorable = (error: PlatformError): boolean => isMissing(error) || error
 // Native EINVAL and memory readLink/InvalidArgument identify non-links.
 // An unrelated Unknown failure must still stop traversal.
 const isNotLink = (error: PlatformError): boolean =>
-  isIgnorable(error) ||
+  isMissing(error) ||
   (error.reason._tag === "Unknown" && error.reason.method === "readLink" &&
     Predicate.hasProperty(error.reason.cause, "code") && error.reason.cause.code === "EINVAL") ||
   (error.reason._tag === "BadArgument" && error.reason.module === "FileSystem" &&
