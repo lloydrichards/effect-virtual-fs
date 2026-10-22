@@ -29,6 +29,7 @@ import {
   VolumeIncarnation
 } from "../Volume.js"
 import { CallerWatchOptions, WatchOptions } from "../Watch.js"
+import * as AdapterBinding from "./adapterBinding.js"
 import { sameBytes } from "./bytes.js"
 import * as CallerWatch from "./callerWatch.js"
 import type { Installation, WatchEvent } from "./callerWatch.js"
@@ -374,6 +375,8 @@ export const makeVolume = Effect.fnUntraced(function*(
     capture: captureState
   })
 
+  AdapterBinding.register(volume, engine)
+
   return Object.freeze({ volume, shutdown: engine.shutdown, observe })
 })
 
@@ -491,6 +494,8 @@ export const makeOverlay = Effect.fnUntraced(
         })
       })
     })
+
+    AdapterBinding.alias(overlay, made.volume)
 
     return overlay
   }

@@ -21,7 +21,7 @@ generated: { by: codex/okf, at: "2026-10-04T18:03:35+00:00" }
 
 `@effect-vfs/core` owns the standalone virtual filesystem: volumes, callers, handles, errors, limits, fixtures, and snapshots. It may depend on Effect for execution and resource management, but not on `@effect-vfs/memory`.
 
-`@effect-vfs/memory` is the compatibility adapter for Effect's existing `FileSystem` interface and adapts core without changing that public contract. Future bindings depend on core and receive concrete package names only when they exist. Core is published only after its compatibility claims have executable evidence.
+`@effect-vfs/memory` is the compatibility adapter for Effect's existing `FileSystem` interface and adapts core without changing that public contract. `@effect-vfs/node` implements the [direct Node provider](../contracts/node-provider.md "implemented by") over an existing synchronous core volume, with native types and independent handle semantics. Mounted qualification remains separate. Other future bindings depend on core and receive concrete package names only when they exist. Core is published only after its compatibility claims have executable evidence.
 
 The memory package also owns `FileSystemTesting`, a decorator over any Effect filesystem. Its [fault and spy contract](../contracts/filesystem-testing.md "constrains") defines public-call interception and state allocated per build. This utility stays outside the core state engine. Local package placement does not settle ownership in a future upstream Effect port.
 

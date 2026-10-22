@@ -27,7 +27,8 @@
     "type-check": "turbo run type-check --filter=!@repo/alchemy-vfs-demo",
     "validate": "bun run format:check && bun run build && bun scripts/check-generated-api.mjs && bun run lint && bun run lint:effects && bun run type-check && bun run test",
     "lint:effects": "bash scripts/lint-effects.sh",
-    "version-packages": "changeset version"
+    "version-packages": "changeset version",
+    "test:node": "bun run --cwd packages/node test && bun run --cwd packages/node test:consumer"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^1.0.0",
