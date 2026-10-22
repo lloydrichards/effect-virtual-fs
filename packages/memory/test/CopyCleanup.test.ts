@@ -333,3 +333,68 @@ it.effect("copy overwrites root and dot-ending directory destinations", () =>
       assert.strictEqual(yield* fs.readFileString(`${prefix}/b`), "b")
     }
   }).pipe(Effect.provide(NodeCrypto.layer)))
+
+it.effect("copy cleanup preserves a regular-file replacement installed after the atomic write", () =>
+  Effect.gen(function*() {
+    const { caller } = yield* setup()
+    yield* caller.writeFile("/source-file", text.encode("original"), { access: "write", create: "exclusive" })
+
+    const fs = yield* MemoryFileSystem.bindCaller({
+      ...caller,
+      writeFile: Function.dual(
+        3,
+        (target: Vfs.EntryInput, bytes: Uint8Array, options: Vfs.WriteFileOptions) =>
+          caller.writeFile(target, bytes, options).pipe(Effect.tap(() =>
+            Effect.gen(function*() {
+              yield* caller.rename("/copy", "/moved")
+              yield* caller.writeFile("/copy", text.encode("replacement"), { access: "write", create: "exclusive" })
+            })
+          ))
+      ),
+      utimes: Function.dual(2, (_target: Vfs.TargetInput, _times: Vfs.Times) => Effect.fail(denied))
+    })
+
+    assert.isTrue(
+      Result.isFailure(yield* Effect.result(fs.copy("/source-file", "/copy", { preserveTimestamps: true })))
+    )
+    assert.strictEqual(yield* fs.readFileString("/copy"), "replacement")
+    assert.strictEqual(yield* fs.readFileString("/moved"), "original")
+  }).pipe(Effect.provide(NodeCrypto.layer)))
+
+it.effect("copy restores a created directory mode when opening it is denied by the caller umask", () =>
+  Effect.gen(function*() {
+    const volume = yield* Vfs.make()
+    const admin = yield* volume.caller()
+    yield* admin.chmod("/", 0o777)
+    yield* admin.mkdir("/source", { mode: 0o555 })
+
+    const caller = yield* volume.caller({
+      identity: { uid: 1000, gid: 1000, groups: [], privileged: false },
+      umask: 0o100
+    })
+
+    const fs = yield* MemoryFileSystem.bindCaller(caller)
+    assert.isTrue(Result.isFailure(yield* Effect.result(fs.copy("/source", "/copy", { overwrite: true }))))
+    assert.strictEqual((yield* admin.stat("/copy")).mode, 0o555)
+  }).pipe(Effect.provide(NodeCrypto.layer)))
+
+for (const nested of [false, true]) {
+  for (const overwrite of [false, true]) {
+    it.effect(`copy preserves an empty ${nested ? "descendant" : "root"} link target with overwrite ${overwrite}`, () =>
+      Effect.gen(function*() {
+        const { caller } = yield* setup()
+        const source = nested ? "/source/empty" : "/source-link"
+        yield* caller.symlink("", source)
+        const target = nested ? "/copy/empty" : "/copy"
+
+        if (overwrite) {
+          if (nested) yield* caller.mkdir("/copy")
+          yield* caller.writeFile(target, text.encode("old"), { access: "write", create: "exclusive" })
+        }
+
+        const fs = yield* MemoryFileSystem.bindCaller(caller)
+        yield* fs.copy(nested ? "/source" : source, "/copy", { overwrite })
+        assert.strictEqual(yield* fs.readLink(target), "")
+      }).pipe(Effect.provide(NodeCrypto.layer)))
+  }
+}

@@ -56,35 +56,41 @@ const store = (filename: string, maxDatabaseBytes = ByteSize.megabytes(2)) =>
 
 // The restart tests poll and kill child processes on real time, so the suite runs without the test clock.
 it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it) => {
-  it.effect("should preserve pre-write digest defects without changing SQLite or disabling the volume", () =>
-    Effect.gen(function*() {
-      const crypto = yield* Crypto.Crypto
-      const fs = yield* FileSystem.FileSystem
-      const { filename } = yield* temporaryDatabase
-      let failed = false
-      const defect = new Error("digest failed before transaction")
-      yield* Effect.gen(function*() {
-        const live = yield* LiveVolume.open(options)
-        const caller = yield* live.caller()
-        const before = yield* fs.readFile(filename)
-        failed = true
-        const result = yield* Effect.exit(caller.mkdir("/failed"))
-        assert.isTrue(Exit.isFailure(result))
+  for (const synchronousThrow of [false, true]) {
+    it.effect(`should preserve pre-write digest ${synchronousThrow ? "throws" : "defects"} without changing SQLite or disabling the volume`, () =>
+      Effect.gen(function*() {
+        const crypto = yield* Crypto.Crypto
+        const fs = yield* FileSystem.FileSystem
+        const { filename } = yield* temporaryDatabase
+        let failed = false
+        const defect = new Error("digest failed before transaction")
+        yield* Effect.gen(function*() {
+          const live = yield* LiveVolume.open(options)
+          const caller = yield* live.caller()
+          const before = yield* fs.readFile(filename)
+          failed = true
+          const result = yield* Effect.exit(caller.mkdir("/failed"))
+          assert.isTrue(Exit.isFailure(result))
 
-        if (Exit.isFailure(result)) assert.strictEqual(Cause.squash(result.cause), defect)
-        assert.deepStrictEqual(yield* fs.readFile(filename), before)
-        assert.strictEqual((yield* Effect.flip(caller.stat("/failed"))).code, "NotFound")
-        failed = false
-        yield* caller.mkdir("/retry")
-        assert.strictEqual((yield* caller.stat("/retry")).kind, "directory")
-      }).pipe(
-        Effect.provide(store(filename)),
-        Effect.provideService(Crypto.Crypto, {
-          ...crypto,
-          digest: (algorithm, bytes) => failed ? Effect.die(defect) : crypto.digest(algorithm, bytes)
-        })
-      )
-    }))
+          if (Exit.isFailure(result)) assert.strictEqual(Cause.squash(result.cause), defect)
+          assert.deepStrictEqual(yield* fs.readFile(filename), before)
+          assert.strictEqual((yield* Effect.flip(caller.stat("/failed"))).code, "NotFound")
+          failed = false
+          yield* caller.mkdir("/retry")
+          assert.strictEqual((yield* caller.stat("/retry")).kind, "directory")
+        }).pipe(
+          Effect.provide(store(filename)),
+          Effect.provideService(Crypto.Crypto, {
+            ...crypto,
+            digest: (algorithm, bytes) => {
+              if (failed && synchronousThrow) throw defect
+
+              return failed ? Effect.die(defect) : crypto.digest(algorithm, bytes)
+            }
+          })
+        )
+      }))
+  }
 
   it.effect("should share a registry volume and release its SQLite ownership before reopening", () =>
     Effect.gen(function*() {

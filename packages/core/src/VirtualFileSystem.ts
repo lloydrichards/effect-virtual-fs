@@ -1186,12 +1186,12 @@ export interface Caller {
   /** The whole content of a regular file. */
   readonly readFile: (target: TargetInput) => Effect.Effect<Uint8Array, FsFailure>
   /**
-   * Writes a whole file in one operation, creating or replacing it as the options say.
+   * Writes a whole file in one operation and returns its object reference, creating or replacing it as the options say.
    * The curried form is `writeFile(bytes, options)(entry)`; the caller remains bound.
    */
   readonly writeFile: {
-    (bytes: Uint8Array, options: WriteFileOptions): (entry: EntryInput) => Effect.Effect<void, FsFailure>
-    (entry: EntryInput, bytes: Uint8Array, options: WriteFileOptions): Effect.Effect<void, FsFailure>
+    (bytes: Uint8Array, options: WriteFileOptions): (entry: EntryInput) => Effect.Effect<ObjectReference, FsFailure>
+    (entry: EntryInput, bytes: Uint8Array, options: WriteFileOptions): Effect.Effect<ObjectReference, FsFailure>
   }
   /**
    * Opens a file. On a target, the file must exist and `create` is rejected. On an entry, the name is looked up

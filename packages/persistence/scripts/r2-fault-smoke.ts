@@ -203,7 +203,7 @@ try {
     ])
 
     if (outcomes.filter((outcome) => outcome === "committed").length !== 1) {
-      throw new Error(`expected exactly one acknowledged concurrent write; got ${outcomes.join(", ")}`)
+      throw new Error(`expected exactly one acknowledged concurrent write; got ${JSON.stringify(outcomes)}`)
     }
 
     const reopened = await makeStore(key)
@@ -211,7 +211,7 @@ try {
     const winner = outcomes[0] === "committed" ? "first" : "second"
 
     if (recovered !== winner) throw new Error("concurrent loser replaced the acknowledged winner")
-    console.log(`concurrent-writers: outcomes=${outcomes.join(",")}, recovered=${recovered}`)
+    console.log(`concurrent-writers: outcomes=${JSON.stringify(outcomes)}, recovered=${recovered}`)
   })
 
   await withObject("rapid-write", async (key) => {
@@ -226,7 +226,7 @@ try {
       const started = performance.now()
       const outcome = await Effect.runPromise(store.commit(bytes(attempted)))
       const elapsedMs = Math.round(performance.now() - started)
-      console.log(`rapid-write: commit=${index}, outcome=${outcome}, elapsedMs=${elapsedMs}`)
+      console.log(`rapid-write: commit=${index}, outcome=${JSON.stringify(outcome)}, elapsedMs=${elapsedMs}`)
 
       if (outcome === "unknown") {
         unknown = true
