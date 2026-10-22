@@ -1,5 +1,57 @@
 # @effect-vfs/core
 
+## 0.10.0
+
+### Minor Changes
+
+- [`3e205c4`](https://github.com/lloydrichards/effect-virtual-fs/commit/3e205c43672c2964b1bff930ca68051cbfb4a0d2) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Add opt-in synchronous memory-volume execution. Cooperative scheduling remains the default; callers and handles share their volume's mode.
+
+  ```ts
+  const volume = yield * Vfs.make({ execution: "sync" })
+  ```
+
+  The same option works with fixture, snapshot and overlay constructors and the memory adapter's `layerFromFixture`. Sync mode rejects reentry with `VolumeBusy` and releases scoped ownership before the active operation returns. Live storage does not support this mode. Large operations can block the thread; construction, snapshot processing and stream consumption may still suspend. This does not add a native Node filesystem provider.
+
+- [`97d7ae2`](https://github.com/lloydrichards/effect-virtual-fs/commit/97d7ae293d70c800f1fca47db036458b88c82aaa) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Require Effect 4.0.5 and support positioned reads, final-component `noFollow`, watch readiness, and permission-aware access checks.
+
+  Explicit read positions accept nonnegative signed-64-bit bigint offsets, including EOF beyond Number.MAX_SAFE_INTEGER, without moving the cursor. Globbing propagates closed-caller and handle failures rather than returning an empty result. Denied link probes propagate without enabling globstar descent.
+
+  Metadata device, inode, and link-count fields now use bigint. Keep these values as bigint when comparing identities, for example `info.dev === 0n`.
+
+  Globbing now matches Unicode characters and absolute patterns, returns depth-first results, prunes exclusions before reading directories, and skips unreadable directories reached through wildcards. Named unreadable directories still fail. Directory reads may update access times. Sort returned paths explicitly when global ordering is required.
+
+  Crypto provider failures are defects. Filesystem and storage I/O failures retain their domain errors. Continue providing the matching runtime `Crypto` layer; the unreleased service split remains deferred.
+
+- [`893381c`](https://github.com/lloydrichards/effect-virtual-fs/commit/893381c8df0a9decd25ac019357e76b50cebac35) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Add `@effect-vfs/node`, a direct Node `VirtualProvider` over shared synchronous memory volumes, and the checked core adapter binding.
+
+  ```ts
+  const volume = yield * Vfs.make({ execution: "sync" })
+  const provider = yield * NodeVirtualProvider.bind(volume)
+  provider.writeFileSync("/message.txt", "shared with Effect callers")
+  ```
+
+  Binding is scoped. Handles preserve Node cursors, positioned I/O and open-unlinked lifetime. The initial profile targets Node 26.11.1 with `--experimental-vfs`; watches and mounted filesystem/loader integration remain outside this release's qualification.
+
+- [`730c02b`](https://github.com/lloydrichards/effect-virtual-fs/commit/730c02b1777c91c66b8a9441bbf1b47529fd8171) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reject null caller options and preserve admission and availability errors before validating reference keys.
+
+  Live-image providers may return `{ _tag: "Rejected", cause }` when no storage write was attempted. R2 and SQLite preserve pre-write hashing defects and allow retry without disabling the volume. Uncertain storage outcomes still disable access.
+
+  Whole-file `Caller.writeFile` now returns the committed file's `ObjectReference`, including overwrites and no-op writes. Callers that ignore the result continue to work. Copy cleanup uses this identity without looking the path up again, preserving concurrent replacements. Copy also preserves empty symlink targets and restores directory modes when handle acquisition fails.
+
+  ```ts
+  const reference = yield * caller.writeFile("/file", bytes, { access: "write", create: "exclusive" })
+  ```
+
+- [`724d317`](https://github.com/lloydrichards/effect-virtual-fs/commit/724d317a1108f7df38d12b490c2dbbdf76559dbe) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Selected core, memory, and persistence APIs now support data-first and data-last calls, including snapshot construction and deltas, transfer sources and sinks, filesystem bindings, and S3 adapter construction. Fixed-argument caller mutations and file-handle `pwrite` and `seek` also support both call styles.
+
+  For example:
+
+  ```ts
+  const report = snapshotEffect.pipe(Effect.flatMap(Search.glob(query)))
+  const volume = entries.pipe(TreeTransfer.toVolume({ owner: true }))
+  const write = pathEffect.pipe(Effect.flatMap(caller.writeFile(bytes, options)))
+  ```
+
 ## 0.9.0
 
 ### Minor Changes
