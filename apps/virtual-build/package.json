@@ -14,12 +14,12 @@
   "dependencies": {
     "@effect-vfs/core": "workspace:*",
     "@effect-vfs/memory": "workspace:*",
-    "@effect/platform-bun": "4.0.5",
-    "effect": "4.0.5",
-    "vite": "8.3.1"
+    "@effect/platform-bun": "4.0.7",
+    "effect": "4.0.7",
+    "vite": "8.3.7"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.5",
+    "@effect/vitest": "4.0.7",
     "@repo/config-typescript": "workspace:*"
   }
 }

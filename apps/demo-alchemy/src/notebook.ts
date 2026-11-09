@@ -160,7 +160,7 @@ const make = Effect.gen(function*() {
   })
 
   const create = Effect.gen(function*() {
-    const id = yield* crypto.randomUUIDv4
+    const id = yield* crypto.randomUUIDv4()
 
     // A failed create can leave an image containing only the earlier writes.
     const created = yield* Effect.exit(createNotebook(id))

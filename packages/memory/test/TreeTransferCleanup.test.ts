@@ -463,11 +463,16 @@ for (const kind of ["Caller", "Memory", "Node"] as const) {
             assert.isTrue(Cause.hasDies(exit.cause))
 
             if (stop === "interrupt") assert.isTrue(Cause.hasInterrupts(exit.cause))
-            else assert.deepStrictEqual(Cause.findError(exit.cause), Result.succeed("source failed"))
+            else {
+              assert.isFalse(Cause.hasFails(exit.cause))
+              assert.strictEqual(exit.cause.reasons.find(Cause.isDieReason)?.defect, "source failed")
+            }
+
             const defects = exit.cause.reasons.filter(Cause.isDieReason)
-            assert.strictEqual(defects.length, 1)
+            const cleanupDefects = stop === "failure" ? defects.slice(1) : defects
+            assert.strictEqual(defects.length, stop === "failure" ? 2 : 1)
             assert.deepStrictEqual(
-              defects.map((reason) =>
+              cleanupDefects.map((reason) =>
                 kind === "Caller"
                   ? Schema.is(Vfs.VfsError)(reason.defect)
                   : PlatformError.isPlatformError(reason.defect)

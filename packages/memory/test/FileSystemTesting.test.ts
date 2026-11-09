@@ -50,6 +50,29 @@ const writeCounter = Effect.fnUntraced(function*() {
 })
 
 it.layer(memoryLayer)("FileSystemTesting", (it) => {
+  it.effect("should intercept lstat independently of stat and preserve symlink metadata", () =>
+    Effect.gen(function*() {
+      const base = yield* FileSystem.FileSystem
+      yield* base.symlink("missing", "/link")
+
+      const calls = yield* Ref.make<Array<string>>([])
+
+      const { fileSystem } = yield* FileSystemTesting.make(base, () =>
+        Effect.succeed({
+          state: calls,
+          handlers: { lstat: (path) => Ref.update(calls, (previous) => [...previous, path]) }
+        }))
+
+      assert.strictEqual((yield* fileSystem.lstat("/link")).type, "SymbolicLink")
+      assert.deepStrictEqual(yield* Ref.get(calls), ["/link"])
+
+      const { fileSystem: rejecting } = yield* FileSystemTesting.make(base, () =>
+        Effect.succeed({ handlers: { lstat: () => Effect.fail(injected) }, state: undefined }))
+
+      assert.strictEqual(yield* Effect.flip(rejecting.lstat("/link")), injected)
+      assert.strictEqual((yield* base.lstat("/link")).type, "SymbolicLink")
+    }))
+
   it.effect("should delegate unhandled calls and change the backing state", () =>
     Effect.gen(function*() {
       const base = yield* FileSystem.FileSystem

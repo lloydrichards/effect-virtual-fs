@@ -161,7 +161,7 @@ for (const depth of controls.depths) {
             assert.strictEqual(checksum, controls.iterations * 100)
           })
 
-          yield* Effect.tryPromise(async () => {
+          yield* Effect.promise(async () => {
             for (let round = 0; round < controls.rounds; round++) {
               const ordered = round % 2 === 0 ? candidates : [...candidates].reverse()
 

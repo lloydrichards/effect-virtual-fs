@@ -1,5 +1,5 @@
+import type { ReadWriteBucketClient } from "@alchemy.run/cloudflare/R2"
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import type { ReadWriteBucketClient } from "alchemy/Cloudflare/R2"
 import type { RuntimeContext } from "alchemy/RuntimeContext"
 import * as Effect from "effect/Effect"
 import type { NotebookR2Client } from "./notebook.js"

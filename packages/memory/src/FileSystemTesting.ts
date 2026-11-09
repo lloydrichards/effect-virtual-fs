@@ -165,6 +165,7 @@ export const make: {
       chown: intercept(base.chown, handlers.chown),
       glob: intercept(base.glob, handlers.glob),
       link: intercept(base.link, handlers.link),
+      lstat: intercept(base.lstat, handlers.lstat),
       makeDirectory: intercept(base.makeDirectory, handlers.makeDirectory),
       makeTempDirectory: intercept(base.makeTempDirectory, handlers.makeTempDirectory),
       makeTempDirectoryScoped: intercept(base.makeTempDirectoryScoped, handlers.makeTempDirectoryScoped),

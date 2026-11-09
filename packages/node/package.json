@@ -26,14 +26,14 @@
     "test:mounted": "node --experimental-vfs ../../node_modules/vitest/vitest.mjs run --config vitest.mounted.config.ts"
   },
   "peerDependencies": {
-    "effect": "^4.0.5"
+    "effect": "~4.0.7"
   },
   "devDependencies": {
-    "@effect/platform-node-shared": "4.0.5",
-    "@effect/vitest": "4.0.5",
+    "@effect/platform-node-shared": "4.0.7",
+    "@effect/vitest": "4.0.7",
     "@repo/config-typescript": "workspace:*",
-    "@types/node": "26.6.3",
-    "effect": "4.0.5"
+    "@types/node": "26.6.6",
+    "effect": "4.0.7"
   },
   "exports": {
     ".": {

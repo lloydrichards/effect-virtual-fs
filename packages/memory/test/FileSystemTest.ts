@@ -1434,6 +1434,28 @@ export const suite = <E>(
           assert.strictEqual(decoder.decode(yield* readAllocUpTo(handle, 8)), "retained")
         }))
 
+      it.effect("should inspect symbolic links without following the final link", () =>
+        Effect.gen(function*() {
+          const { fs, path } = yield* makeTestContext
+          const target = path("target.txt")
+          const link = path("link")
+          yield* fs.writeFileString(target, "target bytes")
+          yield* fs.symlink("target.txt", link)
+
+          assert.strictEqual((yield* fs.lstat(link)).type, "SymbolicLink")
+          assert.strictEqual((yield* fs.stat(link)).type, "File")
+          assert.strictEqual((yield* fs.lstat(target)).type, "File")
+
+          yield* fs.remove(target)
+          assert.strictEqual((yield* fs.lstat(link)).type, "SymbolicLink")
+          assertSystemError(yield* Effect.flip(fs.stat(link)), { tag: "NotFound", method: "stat" })
+          assertSystemError(yield* Effect.flip(fs.lstat(target)), {
+            tag: "NotFound",
+            method: "lstat",
+            pathOrDescriptor: target
+          })
+        }))
+
       it.effect("should resolve symbolic links when targets are relative or absolute", () =>
         Effect.gen(function*() {
           const { fs, path } = yield* makeTestContext

@@ -44,16 +44,16 @@
     "benchmark": "bun --bun run vitest bench --run --config ../../vitest.config.ts --project 'nfs (bench)'"
   },
   "peerDependencies": {
-    "effect": "^4.0.5"
+    "effect": "~4.0.7"
   },
   "dependencies": {
     "@effect-vfs/core": "workspace:*"
   },
   "devDependencies": {
-    "@effect/platform-node-shared": "4.0.5",
-    "@effect/vitest": "4.0.5",
+    "@effect/platform-node-shared": "4.0.7",
+    "@effect/vitest": "4.0.7",
     "@repo/config-typescript": "workspace:*",
-    "effect": "4.0.5",
-    "vitest": "^5.0.3"
+    "effect": "4.0.7",
+    "vitest": "^5.1.0"
   }
 }

@@ -18,6 +18,13 @@
     }
   ],
   "rules": {
+    "effecttsgo/prefer-effect-array": "off",
+    "effecttsgo/prefer-effect-record": "off",
+    "effecttsgo/prefer-effect-string": "off",
+    "effecttsgo/global-json": "off",
+    "effecttsgo/schema-class-missing-brand": "off",
+    "effecttsgo/error-payload-shadows-name": "off",
+    "effecttsgo/result-match-to-from-result": "off",
     "effecttsgo/unstable-api-usage": "off",
     "typescript/consistent-type-imports": [
       "error",
@@ -231,7 +238,6 @@
     }
   ],
   "ignorePatterns": [
-    "apps/demo-alchemy/**",
     "packages/core/contracts/ApiTypes.ts",
     "scripts/anti-slop-policy-fixtures/**",
     ".agent/**",

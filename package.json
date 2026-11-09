@@ -2,13 +2,13 @@
   "name": "effect-vfs-monorepo",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.2.21",
+  "packageManager": "bun@1.4.4",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "build": "turbo run build --filter=!@repo/alchemy-vfs-demo",
+    "build": "turbo run build",
     "changeset": "changeset",
     "changeset:status": "changeset status",
     "clean": "turbo run clean && git clean -xdf .turbo",
@@ -24,32 +24,35 @@
     "prepare": "effect-tsgo patch --oxlint",
     "release": "bun run build && changeset publish",
     "test": "turbo run build --filter=@effect-vfs/core --filter=@effect-vfs/memory --filter=@effect-vfs/nfs --filter=@effect-vfs/persistence && bun --bun run vitest run --config vitest.config.ts",
-    "type-check": "turbo run type-check --filter=!@repo/alchemy-vfs-demo",
+    "type-check": "turbo run type-check",
     "validate": "bun run format:check && bun run build && bun scripts/check-generated-api.mjs && bun run lint && bun run lint:effects && bun run type-check && bun run test",
     "lint:effects": "bash scripts/lint-effects.sh",
     "version-packages": "changeset version",
     "test:node": "bun run --cwd packages/node test && bun run --cwd packages/node test:consumer"
   },
   "devDependencies": {
-    "@changesets/changelog-github": "^1.0.0",
+    "@changesets/changelog-github": "^1.0.1",
     "@changesets/cli": "^3.0.3",
-    "@effect/docgen": "^4.0.5",
-    "@effect/tsgo": "0.47.2",
-    "@oxlint/plugins": "1.86.0",
+    "@effect/docgen": "~4.0.7",
+    "@effect/tsgo": "0.67.5",
+    "@oxlint/plugins": "1.92.0",
     "dprint": "^0.58.0",
     "husky": "9.1.7",
     "lint-staged": "17.6.0",
-    "oxlint": "1.86.0",
-    "oxlint-tsgolint": "7.0.2003",
-    "turbo": "^2.11.6",
+    "oxlint": "1.92.0",
+    "oxlint-tsgolint": "7.0.2006",
+    "turbo": "^2.11.10",
     "typescript": "7.0.2",
-    "vitest": "^5.0.3"
+    "vitest": "^5.1.0"
   },
   "engines": {
     "node": ">=24"
   },
   "overrides": {
-    "@effect/platform-node-shared": "4.0.5",
-    "effect": "4.0.5"
+    "@effect/platform-node": "4.0.7",
+    "@effect/platform-node-shared": "4.0.7",
+    "@effect/sql-d1": "4.0.7",
+    "dompurify": "3.4.17",
+    "effect": "4.0.7"
   }
 }
