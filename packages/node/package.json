@@ -1,6 +1,6 @@
 {
   "name": "@effect-vfs/node",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A direct Node VirtualProvider over shared Effect virtual filesystem state.",
   "homepage": "https://github.com/lloydrichards/effect-virtual-fs#readme",
   "bugs": {
@@ -61,7 +61,7 @@
     "directory": "packages/node"
   },
   "dependencies": {
-    "@effect-vfs/core": "^0.9.0"
+    "@effect-vfs/core": "^0.10.0"
   },
   "engines": {
     "node": ">=26.11.1"
