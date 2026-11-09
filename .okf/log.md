@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-11-09
+
+- Qualify Effect's compatible 4.0 patch line, add memory and decorated `lstat`, and record finalizer failure promotion: cleanup defects retain original failures as defects rather than typed errors.
+
 ## 2026-10-22
 
 - Compile both editable workbench sources as roots so switching to CommonJS require cannot execute stale helper output. Qualify helper diagnostics outside the static import graph and keep executable evidence links inside the app.

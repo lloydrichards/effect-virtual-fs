@@ -1,10 +1,10 @@
 # Alchemy R2 virtual notebook
 
-## Temporarily paused
+## Compatibility
 
-`alchemy@2.0.0-beta.79` imports modules removed in stable Effect v4. This demo is excluded from the root build, type check, lint, and test commands until Alchemy supports the installed Effect version. Its source and dependencies remain available. Do not deploy this version.
+The demo uses `alchemy` and the extracted `@alchemy.run/cloudflare` provider at `2.0.0-beta.84`, alongside Effect 4.0.7. It is included in the root build, type check, lint, and test commands. Keep this group on compatible versions: Alchemy beta.85 requires Effect 4.1 and its separate crypto migration.
 
-To restore the demo, update Alchemy, remove the root Turbo filters and Oxlint ignore entry, and add `demo-alchemy` back to `vitest.config.ts`. Run full validation and the demo tests before deploying. A separate Effect release candidate cannot be used because the demo shares Effect values with the stable VFS packages.
+Local tests use an in-memory R2 client. They do not qualify deployment or real Cloudflare conditional writes; run the live smoke test before deploying.
 
 This demo runs an Effect VFS volume inside a Cloudflare Worker. A `POST` request creates a notebook, writes
 `/notes/hello.txt`, and publishes it by renaming the file to `/published/hello.txt`. A later `GET` request opens a new

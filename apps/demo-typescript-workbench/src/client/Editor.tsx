@@ -1,9 +1,11 @@
 // Vite transforms the worker constructor import; the language contribution registers its tokenizer.
 /* eslint-disable import/default, import/no-unassigned-import */
-import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js"
+import * as monaco from "monaco-editor/editor"
 import { useEffect, useRef } from "react"
-import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution.js"
-import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker"
+import "monaco-editor/features/register.all"
+import "monaco-editor/languages/definitions/typescript/register"
+import "monaco-editor/languages/definitions/javascript/register"
+import EditorWorker from "monaco-editor/editor/editor.worker.js?worker"
 
 declare global {
   var MonacoEnvironment: monaco.Environment | undefined

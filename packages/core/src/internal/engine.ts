@@ -1273,7 +1273,7 @@ namespace DirectoryEntries {
       return HashMap.has(this.names, name)
     }
 
-    *entries(): IterableIterator<[string, Ino]> {
+    *entries(): MapIterator<[string, Ino]> {
       for (let index = 0; index < this.length; index++) {
         const entry = Option.getOrUndefined(HashMap.get(this.slots, index))
 
@@ -1281,15 +1281,15 @@ namespace DirectoryEntries {
       }
     }
 
-    *keys(): IterableIterator<string> {
+    *keys(): MapIterator<string> {
       for (const [name] of this) yield name
     }
 
-    *values(): IterableIterator<Ino> {
+    *values(): MapIterator<Ino> {
       for (const [, ino] of this) yield ino
     }
 
-    [Symbol.iterator](): IterableIterator<[string, Ino]> {
+    [Symbol.iterator](): MapIterator<[string, Ino]> {
       return this.entries()
     }
 

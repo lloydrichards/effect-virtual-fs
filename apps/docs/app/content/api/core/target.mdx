@@ -63,6 +63,7 @@ declare const Target: {
     { readonly _tag: "Handle"; readonly handle: FileHandle | DirectoryHandle },
     "_tag"
   >
+} & {
   readonly $is: <Tag extends "Path" | "Reference" | "Handle">(
     tag: Tag
   ) => (

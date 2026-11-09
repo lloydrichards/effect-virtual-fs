@@ -22,6 +22,7 @@ export default defineConfig({
       project("persistence", "./packages/persistence/"),
       project("demo-overlay", "./apps/demo-overlay/"),
       project("demo-agent-tools", "./apps/demo-agent-tools/"),
+      project("demo-alchemy", "./apps/demo-alchemy/"),
       project("scratchpad", "./apps/scratchpad/"),
       project("virtual-build", "./apps/virtual-build/")
     ]

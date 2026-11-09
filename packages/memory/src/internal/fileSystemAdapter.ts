@@ -154,7 +154,11 @@ export const bindOperations = (
           })
         }
       }),
-      // TODO: (#304) Add lstat to FileSystem.make when released, using at(path, { followFinalSymlink: false }).
+      lstat: (path) =>
+        caller.stat(at(path, { followFinalSymlink: false })).pipe(
+          Effect.mapError((error) => toPlatformError(error, "lstat", path)),
+          Effect.flatMap((value) => info(value, path, "lstat"))
+        ),
       stat: (path) =>
         caller.stat(path).pipe(
           Effect.mapError((error) => toPlatformError(error, "stat", path)),

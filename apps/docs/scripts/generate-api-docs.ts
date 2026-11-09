@@ -4,7 +4,7 @@ import { spawn } from "bun"
 import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { format } from "prettier"
-import { Project, ts } from "ts-morph"
+import { Project, ts, TypeFormatFlags } from "ts-morph"
 import { apiPages } from "../app/api-pages"
 
 const stripFrontmatter = (content: string): string => content.replace(/^---[\s\S]*?---\n*/, "")
@@ -53,7 +53,7 @@ const transformContent = (content: string): string => {
   return escapeMdxUnsafe(headingsAdjusted.replace(/^#{2,6} /m, "# "))
 }
 
-const typeFlags = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.InTypeAlias
+const typeFlags: TypeFormatFlags = TypeFormatFlags.NoTruncation | TypeFormatFlags.InTypeAlias
 
 const projects = new Map<string, Project>()
 

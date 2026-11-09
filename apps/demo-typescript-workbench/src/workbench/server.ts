@@ -3,6 +3,7 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as Config from "effect/Config"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as HttpRouter from "effect/http/HttpRouter"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
@@ -14,6 +15,10 @@ import { createServer } from "node:http"
 import { fileURLToPath } from "node:url"
 import { Workbench } from "./coordinator.ts"
 import { WorkbenchRpc } from "./domain.ts"
+
+class ServerStartupError extends Data.TaggedError("ServerStartupError")<{
+  readonly cause: unknown
+}> {}
 
 const appRoot = fileURLToPath(new URL("../../", import.meta.url))
 
@@ -31,26 +36,30 @@ const program = Effect.gen(function*() {
 
   if (production) {
     yield* Effect.acquireRelease(
-      Effect.tryPromise(() =>
-        vite.preview({
-          root: appRoot,
-          preview: { host: "127.0.0.1", port, strictPort: true, proxy: { "/rpc": `http://127.0.0.1:${apiPort}` } }
-        })
-      ),
+      Effect.tryPromise({
+        try: () =>
+          vite.preview({
+            root: appRoot,
+            preview: { host: "127.0.0.1", port, strictPort: true, proxy: { "/rpc": `http://127.0.0.1:${apiPort}` } }
+          }),
+        catch: (cause) => new ServerStartupError({ cause })
+      }),
       (server) => Effect.promise(() => new Promise<void>((resolve) => server.httpServer.close(() => resolve())))
     )
   } else {
     const server = yield* Effect.acquireRelease(
-      Effect.tryPromise(() =>
-        vite.createServer({
-          root: appRoot,
-          server: { host: "127.0.0.1", port, strictPort: true, proxy: { "/rpc": `http://127.0.0.1:${apiPort}` } }
-        })
-      ),
+      Effect.tryPromise({
+        try: () =>
+          vite.createServer({
+            root: appRoot,
+            server: { host: "127.0.0.1", port, strictPort: true, proxy: { "/rpc": `http://127.0.0.1:${apiPort}` } }
+          }),
+        catch: (cause) => new ServerStartupError({ cause })
+      }),
       (server) => Effect.promise(() => server.close())
     )
 
-    yield* Effect.tryPromise(() => server.listen())
+    yield* Effect.tryPromise({ try: () => server.listen(), catch: (cause) => new ServerStartupError({ cause }) })
   }
 
   const guard = HttpRouter.middleware((next) =>

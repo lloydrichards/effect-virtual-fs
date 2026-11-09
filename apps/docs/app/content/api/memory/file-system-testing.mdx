@@ -212,6 +212,7 @@ export type Handlers = {
     fromPath: string,
     toPath: string,
   ) => Effect.Effect<void, PlatformError.PlatformError, never>
+  readonly lstat?: (path: string) => Effect.Effect<void, PlatformError.PlatformError, never>
   readonly makeDirectory?: (
     path: string,
     options?:

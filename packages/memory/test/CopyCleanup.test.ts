@@ -1,7 +1,7 @@
 import { BytePath, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it } from "@effect/vitest"
-import { Cause, Context, Deferred, Effect, Exit, Fiber, Function, PlatformError, Result } from "effect"
+import { Cause, Context, Deferred, Effect, Exit, Fiber, Function, Result } from "effect"
 import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
 
 // The core test seam runs between observing an entry and its coordinated removal.
@@ -170,7 +170,7 @@ for (const cleanupFails of [false, true]) {
   )
 }
 
-it.effect("copy retains the original failure and a cleanup defect", () =>
+it.effect("copy retains the original failure as a defect alongside a cleanup defect", () =>
   Effect.gen(function*() {
     const { caller, failing } = yield* setup()
 
@@ -183,15 +183,11 @@ it.effect("copy retains the original failure and a cleanup defect", () =>
     assert.isTrue(Exit.isFailure(exit))
 
     if (Exit.isFailure(exit)) {
-      assert.deepStrictEqual(exit.cause.reasons.filter(Cause.isDieReason).map((reason) => reason.defect), [cleanup])
-      const original = Cause.findError(exit.cause)
-      assert.isTrue(Result.isSuccess(original))
-
-      if (Result.isSuccess(original)) {
-        assert.isTrue(PlatformError.isPlatformError(original.success))
-        assert.strictEqual(original.success.cause, denied)
-      }
-
+      assert.deepStrictEqual(exit.cause.reasons.filter(Cause.isDieReason).map((reason) => reason.defect), [
+        denied,
+        cleanup
+      ])
+      assert.isFalse(Cause.hasFails(exit.cause))
       assert.isFalse(Cause.hasInterrupts(exit.cause))
     }
 
