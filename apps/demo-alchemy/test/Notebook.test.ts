@@ -3,6 +3,7 @@ import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
 import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
@@ -89,6 +90,29 @@ const openPersistedVolume = (r2: ReturnType<typeof remote>, id: string) => {
 }
 
 describe("R2 notebook", () => {
+  it.effect("should draw the notebook ID from the provided SecureRandom service", () => {
+    const r2 = remote()
+    const fixed = SecureRandom.make((size) => new Uint8Array(size).fill(0x5a))
+
+    return Effect.gen(function*() {
+      const notebooks = yield* NotebookService
+      const created = yield* notebooks.create
+
+      const createdNotebook = Result.match(created, {
+        onSuccess: (notebook) => notebook,
+        onFailure: () => assert.fail("creation failed")
+      })
+
+      assert.strictEqual(createdNotebook.id, yield* fixed.uuidV4())
+    }).pipe(Effect.provide(
+      NotebookService.Live.pipe(Layer.provide(Layer.mergeAll(
+        BrowserCrypto.layer,
+        Layer.succeed(SecureRandom.SecureRandom, fixed),
+        Layer.succeed(NotebookR2, r2.client)
+      )))
+    ))
+  })
+
   it.effect("should reopen a published file when a fresh volume reads its image", () => {
     const r2 = remote()
 

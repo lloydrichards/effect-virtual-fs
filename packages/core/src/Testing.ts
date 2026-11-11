@@ -48,7 +48,7 @@ export interface LayerOptions {
  *
  * Every build constructs a new volume, from `fixture` when one is given. The
  * layer fails with the `VfsError` the constructor or the caller reports for
- * invalid options. Provide `Digest.Digest | SecureRandom.SecureRandom` to build the volume.
+ * invalid options. Provide the `Digest` and `SecureRandom` services to build the volume.
  *
  * @example
  * ```ts

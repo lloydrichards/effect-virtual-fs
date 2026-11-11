@@ -1978,8 +1978,8 @@ const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDelt
 
 /**
  * Computes an exact portable delta between two immutable snapshots.
- * Requires the platform-neutral `Digest.Digest | SecureRandom.SecureRandom` service for base identity. Provide
- * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
+ * Requires Effect's platform-neutral `Digest` and `SecureRandom` services; base identity is a `Digest` hash. Provide
+ * `NodeCrypto.layer`, `BunCrypto.layer`, or `Digest.layerWebCrypto` with `SecureRandom.layerWebCrypto`.
  *
  * @example
  * ```ts
@@ -2050,8 +2050,8 @@ export const diffSnapshots: {
 
 /**
  * Verifies an exact snapshot delta against its base and derives an owned path-oriented summary.
- * Requires the platform-neutral `Digest.Digest | SecureRandom.SecureRandom` service for base identity. Provide
- * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
+ * Requires Effect's platform-neutral `Digest` and `SecureRandom` services; base identity is a `Digest` hash. Provide
+ * `NodeCrypto.layer`, `BunCrypto.layer`, or `Digest.layerWebCrypto` with `SecureRandom.layerWebCrypto`.
  *
  * @example
  * ```ts
@@ -2128,8 +2128,8 @@ export const inspectSnapshotDelta: {
 
 /**
  * Applies an exact delta to its semantically matching base and returns a new snapshot.
- * Requires the platform-neutral `Digest.Digest | SecureRandom.SecureRandom` service for base identity. Provide
- * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
+ * Requires Effect's platform-neutral `Digest` and `SecureRandom` services; base identity is a `Digest` hash. Provide
+ * `NodeCrypto.layer`, `BunCrypto.layer`, or `Digest.layerWebCrypto` with `SecureRandom.layerWebCrypto`.
  *
  * @example
  * ```ts
@@ -2200,8 +2200,8 @@ export const applySnapshotDelta: {
  * when both agree, combines metadata fields that only one side changed, and otherwise reports a conflict and leaves
  * the base node in place. Timestamps never conflict. The merged delta is bound to the same base as its inputs and
  * applies with {@link applySnapshotDelta}. Pass `resolutions` to take one side at paths an earlier merge reported.
- * Requires the platform-neutral `Digest.Digest | SecureRandom.SecureRandom` service for base identity. Provide
- * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
+ * Requires Effect's platform-neutral `Digest` and `SecureRandom` services; base identity is a `Digest` hash. Provide
+ * `NodeCrypto.layer`, `BunCrypto.layer`, or `Digest.layerWebCrypto` with `SecureRandom.layerWebCrypto`.
  *
  * @example
  * ```ts
@@ -2447,7 +2447,7 @@ export type Fixture = typeof Fixture.Type
  *
  * Each execution creates independent storage. Snapshot image failures cannot
  * arise because this constructor does not accept persisted input.
- * Provide `Digest.Digest | SecureRandom.SecureRandom` to generate the volume identity and reference-key secret.
+ * Provide the `Digest` and `SecureRandom` services to generate the volume identity and reference-key secret.
  *
  * @example
  * ```ts
@@ -2566,7 +2566,7 @@ export const snapshotEntries: {
  * ```
  *
  * @see {@link makeOverlay} for a copy-on-write workspace over the same base.
- * @see `Digest.Digest | SecureRandom.SecureRandom` for the required secure random-byte service.
+ * @see `Digest.Digest` and `SecureRandom.SecureRandom` for the required crypto services.
  * @category constructors
  * @since 0.1.0
  */
@@ -2627,7 +2627,7 @@ export const fromSnapshot: {
  * ```
  *
  * @see The overlay guide at `/guides/overlay-filesystems`.
- * @see `Digest.Digest | SecureRandom.SecureRandom` for the required secure random-byte service.
+ * @see `Digest.Digest` and `SecureRandom.SecureRandom` for the required crypto services.
  * @category constructors
  * @since 0.1.0
  */
@@ -2677,7 +2677,7 @@ export const makeOverlay: {
  * ```
  *
  * @see The fixtures guide at `/guides/fixtures-and-snapshots`.
- * @see `Digest.Digest | SecureRandom.SecureRandom` for the required secure random-byte service.
+ * @see `Digest.Digest` and `SecureRandom.SecureRandom` for the required crypto services.
  * @category constructors
  * @since 0.1.0
  */
