@@ -14,15 +14,15 @@
   "dependencies": {
     "@effect-vfs/core": "workspace:*",
     "@effect-vfs/node": "workspace:*",
-    "@effect/platform-node-shared": "4.0.7",
-    "effect": "4.0.7",
+    "@effect/platform-node-shared": "4.1.4",
+    "effect": "4.1.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript-js": "npm:typescript@5.9.3",
     "@fontsource-variable/manrope": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
-    "@effect/platform-node": "4.0.7",
-    "@effect/atom-react": "4.0.7",
+    "@effect/platform-node": "4.1.4",
+    "@effect/atom-react": "4.1.4",
     "monaco-editor": "0.57.0"
   },
   "devDependencies": {

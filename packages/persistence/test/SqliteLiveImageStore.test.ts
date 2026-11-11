@@ -5,21 +5,8 @@ import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
-import {
-  ByteSize,
-  Cause,
-  Crypto,
-  Data,
-  Effect,
-  Exit,
-  FileSystem,
-  Layer,
-  Option,
-  Path,
-  Schema,
-  Scope,
-  Stream
-} from "effect"
+import { ByteSize, Cause, Data, Effect, Exit, FileSystem, Layer, Option, Path, Schema, Scope, Stream } from "effect"
+import * as Digest from "effect/crypto/Digest"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { SqlClient } from "effect/sql/SqlClient"
 import { ConnectionError, SqlError } from "effect/sql/SqlError"
@@ -59,7 +46,7 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
   for (const synchronousThrow of [false, true]) {
     it.effect(`should preserve pre-write digest ${synchronousThrow ? "throws" : "defects"} without changing SQLite or disabling the volume`, () =>
       Effect.gen(function*() {
-        const crypto = yield* Crypto.Crypto
+        const digest = yield* Digest.Digest
         const fs = yield* FileSystem.FileSystem
         const { filename } = yield* temporaryDatabase
         let failed = false
@@ -80,12 +67,12 @@ it.layer(platform, { excludeTestServices: true })("SQLite live image store", (it
           assert.strictEqual((yield* caller.stat("/retry")).kind, "directory")
         }).pipe(
           Effect.provide(store(filename)),
-          Effect.provideService(Crypto.Crypto, {
-            ...crypto,
+          Effect.provideService(Digest.Digest, {
+            ...digest,
             digest: (algorithm, bytes) => {
               if (failed && synchronousThrow) throw defect
 
-              return failed ? Effect.die(defect) : crypto.digest(algorithm, bytes)
+              return failed ? Effect.die(defect) : digest.digest(algorithm, bytes)
             }
           })
         )

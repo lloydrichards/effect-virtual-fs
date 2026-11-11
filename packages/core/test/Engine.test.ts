@@ -1,5 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Cause, Crypto, Deferred, Effect, Exit, Fiber, HashMap, Option, Scope } from "effect"
+import { ByteSize, Cause, Deferred, Effect, Exit, Fiber, HashMap, Option, Scope } from "effect"
+import * as Digest from "effect/crypto/Digest"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import type { Identity } from "../src/Caller.js"
 import { DirectoryHandleId, FileHandleId } from "../src/FileHandle.js"
 import {
@@ -20,7 +22,8 @@ const text = new TextEncoder()
 
 it.effect("should retain unlinked bytes and capacity when an open handle outlives every name", () =>
   Effect.gen(function*() {
-    assert.isTrue(Option.isNone(yield* Effect.serviceOption(Crypto.Crypto)))
+    assert.isTrue(Option.isNone(yield* Effect.serviceOption(Digest.Digest)))
+    assert.isTrue(Option.isNone(yield* Effect.serviceOption(SecureRandom.SecureRandom)))
     const engine = yield* makeEngine({ limits: { maxBytes: ByteSize.bytes(4) } })
     const ops = (yield* engine.context({ umask: 0 })).operations
     const bytes = text.encode("data")

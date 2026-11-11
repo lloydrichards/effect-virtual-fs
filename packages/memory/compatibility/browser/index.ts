@@ -1,12 +1,20 @@
-import { Crypto, Effect, Layer, Ref } from "effect"
+import { Effect, Layer, Ref } from "effect"
+import * as Digest from "effect/crypto/Digest"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import { FileSystemTesting, MemoryFileSystem } from "../../dist/index.js"
 
-const cryptoLayer = Layer.succeed(
-  Crypto.Crypto,
-  Crypto.make({
-    randomBytes: (size) => globalThis.crypto.getRandomValues(new Uint8Array(size)),
-    digest: () => Effect.die("digest is not used by the compatibility smoke test")
-  })
+const cryptoLayer = Layer.mergeAll(
+  Layer.succeed(
+    SecureRandom.SecureRandom,
+    SecureRandom.make((size) => globalThis.crypto.getRandomValues(new Uint8Array(size)))
+  ),
+  Layer.succeed(
+    Digest.Digest,
+    Digest.Digest.of({
+      digest: () => Effect.die("digest is not used by the compatibility smoke test"),
+      digestHex: () => Effect.die("digest is not used by the compatibility smoke test")
+    })
+  )
 )
 
 // Keep a real operation reachable so the browser build cannot pass with a discarded implementation.

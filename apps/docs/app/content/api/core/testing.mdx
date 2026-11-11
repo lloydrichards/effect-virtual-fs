@@ -66,7 +66,7 @@ declare const collectChanges: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L148)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L151)
 
 Since v0.6.0
 
@@ -105,7 +105,7 @@ declare const callerAs: (
 ) => Effect.Effect<Caller, VfsError, Volume>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L108)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L111)
 
 Since v0.6.0
 
@@ -119,7 +119,7 @@ A fresh volume and a root caller on it, as one layer.
 
 Every build constructs a new volume, from `fixture` when one is given. The
 layer fails with the `VfsError` the constructor or the caller reports for
-invalid options. Provide `Crypto.Crypto` to build the volume.
+invalid options. Provide `Digest.Digest | SecureRandom.SecureRandom` to build the volume.
 
 **Example**
 
@@ -144,10 +144,12 @@ Effect.runPromise(program.pipe(Effect.provide(Testing.layer()), Effect.provide(B
 **Signature**
 
 ```ts
-declare const layer: (options?: LayerOptions) => Layer.Layer<Volume | Caller, VfsError, Crypto.Crypto>
+declare const layer: (
+  options?: LayerOptions
+) => Layer.Layer<Volume | Caller, VfsError, Digest.Digest | SecureRandom.SecureRandom>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L74)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L75)
 
 Since v0.6.0
 
@@ -170,6 +172,6 @@ export interface LayerOptions {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L34)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/Testing.ts#L35)
 
 Since v0.6.0

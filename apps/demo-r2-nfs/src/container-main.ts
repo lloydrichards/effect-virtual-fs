@@ -1,3 +1,4 @@
+import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer"
 import * as BunRuntime from "@effect/platform-bun/BunRuntime"
 import * as BunServices from "@effect/platform-bun/BunServices"
@@ -64,8 +65,9 @@ const program = Effect.scoped(Effect.gen(function*() {
     )
   })
 
-  return yield* live.pipe(Effect.provide(Layer.merge(
+  return yield* live.pipe(Effect.provide(Layer.mergeAll(
     BunServices.layer,
+    BunCrypto.layer,
     BunSocketServer.layer({ host: "127.0.0.1", port: config.port })
   )))
 }))

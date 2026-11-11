@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-11-11
+
+- Move to Effect 4.1: `Crypto` is split into `Digest` and `SecureRandom`, so identity, epoch and secret draws name `SecureRandom` and hashing names `Digest`. Restrict peers to the 4.1 patch line, supply `readDirectoryEntries` to `FileSystem.make` while keeping the portable glob, and requalify the host adapter on 4.1.4.
+
 ## 2026-11-09
 
 - Qualify Effect's compatible 4.0 patch line, add memory and decorated `lstat`, and record finalizer failure promotion: cleanup defects retain original failures as defects rather than typed errors.

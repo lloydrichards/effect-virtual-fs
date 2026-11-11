@@ -1,6 +1,6 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { TreeTransfer } from "@effect-vfs/memory"
-import { BunRuntime, BunServices } from "@effect/platform-bun"
+import { BunCrypto, BunRuntime, BunServices } from "@effect/platform-bun"
 import { ByteSize, Clock, Console, Effect, FileSystem, Path, Predicate, Schema, Stream } from "effect"
 
 const PackageManifest = Schema.fromJsonString(Schema.Struct({ version: Schema.String }))
@@ -138,4 +138,4 @@ const program = Effect.gen(function*() {
   yield* Console.log(yield* Schema.encodeEffect(Json)(report))
 })
 
-program.pipe(Effect.provide(BunServices.layer), BunRuntime.runMain)
+program.pipe(Effect.provide([BunServices.layer, BunCrypto.layer]), BunRuntime.runMain)

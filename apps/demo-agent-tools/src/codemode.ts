@@ -1,7 +1,9 @@
 import { BytePath, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { CodeMode, Tool as CodeTool } from "@opencode/codemode"
-import { ByteSize, Cause, Crypto, Effect, Predicate, Schema, Semaphore } from "effect"
+import { ByteSize, Cause, Context, Effect, Predicate, Schema, Semaphore } from "effect"
 import { Tool, Toolkit } from "effect/ai"
+import * as Digest from "effect/crypto/Digest"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import { handlersFor, ToolFailure, VolumeTools } from "./tools.js"
 import { makeBaseSnapshot, projectRoot } from "./workspace.js"
 
@@ -183,7 +185,12 @@ const inspect = Effect.fnUntraced(function*(snapshot: Vfs.Snapshot, request: typ
 
 export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
   const base = yield* makeBaseSnapshot()
-  const crypto = yield* Crypto.Crypto
+
+  // Only these two services: the full fiber context would also pin services such as Clock.
+  const cryptography = Context.make(Digest.Digest, yield* Digest.Digest).pipe(
+    Context.add(SecureRandom.SecureRandom, yield* SecureRandom.SecureRandom)
+  )
+
   const gate = yield* Semaphore.make(1)
   const runs = new Map<string, { readonly snapshot: Vfs.Snapshot; readonly result: typeof RunResult.Type }>()
   let sequence = 0
@@ -228,7 +235,7 @@ export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
 
         return result
       }))).pipe(Effect.catchTag("VfsError", infrastructureFailure))
-    }, Effect.provideService(Crypto.Crypto, crypto)),
+    }, Effect.provideContext(cryptography)),
     inspect_run: Effect.fn("CodeMode.inspectRun")(function*(request) {
       const run = runs.get(request.runId)
 
@@ -237,9 +244,9 @@ export const makeCodeModeHandlers = Effect.fn("CodeMode.make")(function*() {
       }
 
       return { ...run.result, entry: yield* inspect(run.snapshot, request) }
-    }, Effect.provideService(Crypto.Crypto, crypto)),
+    }, Effect.provideContext(cryptography)),
     inspect_base: Effect.fn("CodeMode.inspectBase")((request) =>
-      inspect(base, request).pipe(Effect.provideService(Crypto.Crypto, crypto))
+      inspect(base, request).pipe(Effect.provideContext(cryptography))
     )
   })
 })

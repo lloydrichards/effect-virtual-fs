@@ -7,7 +7,6 @@ import * as Effect from "effect/Effect"
 import { FILE_INFO_TYPE, type FileSystemOperations, textOf } from "./adapterSupport.js"
 import { toPlatformError } from "./platformError.js"
 
-// TODO: (#304) Expose this primitive through FileSystem.make when readDirectoryEntries is released.
 /** @internal */
 export const makeDirectoryEntries = (caller: FileSystemOperations) => (path: string) =>
   caller.readDirectory(path).pipe(

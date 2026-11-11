@@ -71,10 +71,7 @@ export interface Compiled {
 // compilation
 // -----------------------------------------------------------------------------
 
-interface DirectoryEntry {
-  readonly name: string
-  readonly type: FileSystem.File.Type
-}
+type DirectoryEntry = FileSystem.DirectoryEntry
 
 interface GlobOptions {
   readonly root?: string | undefined
@@ -83,7 +80,7 @@ interface GlobOptions {
 }
 
 type GlobFileSystem = Pick<FileSystem.FileSystem, "stat" | "readLink"> & {
-  readonly readDirectoryEntries: (path: string) => Effect.Effect<Array<DirectoryEntry>, PlatformError>
+  readonly readDirectoryEntries: (path: string) => Effect.Effect<ReadonlyArray<DirectoryEntry>, PlatformError>
 }
 
 const maxExpansions = 10_000

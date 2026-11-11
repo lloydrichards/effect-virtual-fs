@@ -5,7 +5,8 @@
  * @since 0.6.0
  */
 import { VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import { Crypto, Effect } from "effect"
+import { Effect } from "effect"
+import * as Digest from "effect/crypto/Digest"
 
 /**
  * The two failure constructors of one store entry point, both naming that entry point, such as
@@ -29,14 +30,13 @@ export type StoreFailures = ReturnType<typeof storeFailures>
 const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
 
 /**
- * Captures the application's `Crypto` once, so the store's methods compute lowercase hex SHA-256 digests
+ * Captures the application's `Digest` once, so the store's methods compute lowercase hex SHA-256 digests
  * without requiring it.
  *
  * @internal
  */
-// TODO: (#304) Capture Digest when released; keep lowercase SHA-256 output and service-free store methods.
 export const makeDigest = Effect.map(
-  Crypto.Crypto,
-  (crypto) => (image: Uint8Array) =>
-    Effect.suspend(() => crypto.digest("SHA-256", image)).pipe(Effect.orDie, Effect.map(hex))
+  Digest.Digest,
+  (digest) => (image: Uint8Array) =>
+    Effect.suspend(() => digest.digest(Digest.sha256, image)).pipe(Effect.orDie, Effect.map(hex))
 )

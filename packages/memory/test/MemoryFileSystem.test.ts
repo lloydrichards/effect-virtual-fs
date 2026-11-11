@@ -5,7 +5,6 @@ import {
   ByteSize,
   Cause,
   Context,
-  Crypto,
   Deferred,
   Effect,
   Exit,
@@ -20,6 +19,9 @@ import {
   Scope,
   Stream
 } from "effect"
+import * as Digest from "effect/crypto/Digest"
+import * as SecureRandom from "effect/crypto/SecureRandom"
+import * as Hex from "effect/encoding/Hex"
 import { TestClock } from "effect/testing"
 import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
 import * as FileSystemTest from "./FileSystemTest.js"
@@ -656,28 +658,30 @@ describe("memory adapter compatibility", () => {
 
 // A caller-supplied service stands in for a platform implementation such as
 // `NodeCrypto` or `BunCrypto`.
-const suppliedCrypto = Layer.succeed(
-  Crypto.Crypto,
-  Crypto.make({
-    randomBytes: (size) => new Uint8Array(size).fill(7),
-    digest: (_algorithm, data) => Effect.succeed(data)
-  })
+const identityDigest = Digest.Digest.of({
+  digest: (_algorithm, data) => Effect.succeed(data),
+  digestHex: (_algorithm, data) => Effect.succeed(Hex.encode(data))
+})
+
+const suppliedCrypto = Layer.mergeAll(
+  Layer.succeed(SecureRandom.SecureRandom, SecureRandom.make((size) => new Uint8Array(size).fill(7))),
+  Layer.succeed(Digest.Digest, identityDigest)
 )
 
 it.effect("community construction retains random identity draws and epoch-dated root defaults", () =>
   Effect.gen(function*() {
     const requests: Array<number> = []
 
-    const crypto = Crypto.make({
-      randomBytes: (size) => {
-        requests.push(size)
+    const secureRandom = SecureRandom.make((size) => {
+      requests.push(size)
 
-        return new Uint8Array(size).fill(requests.length)
-      },
-      digest: (_algorithm, data) => Effect.succeed(data)
+      return new Uint8Array(size).fill(requests.length)
     })
 
-    const fs = yield* MemoryFileSystem.make.pipe(Effect.provideService(Crypto.Crypto, crypto))
+    const fs = yield* MemoryFileSystem.make.pipe(
+      Effect.provideService(SecureRandom.SecureRandom, secureRandom),
+      Effect.provideService(Digest.Digest, identityDigest)
+    )
 
     assert.deepStrictEqual(requests, [16, 16, 16, 16])
 

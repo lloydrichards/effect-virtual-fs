@@ -1,6 +1,8 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
-import { ByteSize, type Crypto, Effect, Exit, Predicate, Schema } from "effect"
+import { ByteSize, Effect, Exit, Predicate, Schema } from "effect"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Base64 from "effect/encoding/Base64"
 import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 import { type Document, documentText, toLines } from "./support/lines.js"
@@ -637,7 +639,7 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
 
       // The smallest maxIdentityBytes under which `run` succeeds: double to a bound that succeeds, then bisect.
       const threshold = Effect.fnUntraced(function*<E>(
-        run: (limits: Vfs.SnapshotDeltaLimits) => Effect.Effect<unknown, E, Crypto.Crypto>
+        run: (limits: Vfs.SnapshotDeltaLimits) => Effect.Effect<unknown, E, Digest.Digest | SecureRandom.SecureRandom>
       ) {
         let low = 1
         let high = 1024
@@ -682,11 +684,13 @@ it.layer(BunCrypto.layer)("snapshot deltas", (it) => {
       const empty = yield* (yield* Vfs.fromFixture({ entries: [] })).snapshot
       const delta = yield* Vfs.diffSnapshots(empty, empty)
 
-      const refused = Effect.fnUntraced(function*<A, E>(attempt: Effect.Effect<A, E, Crypto.Crypto>, field: string) {
-        const error = yield* Effect.flip(attempt)
-        assert.instanceOf(error, Vfs.VfsError)
-        assert.deepStrictEqual([error.code, error.field], ["LimitExceeded", field])
-      })
+      const refused = Effect.fnUntraced(
+        function*<A, E>(attempt: Effect.Effect<A, E, Digest.Digest | SecureRandom.SecureRandom>, field: string) {
+          const error = yield* Effect.flip(attempt)
+          assert.instanceOf(error, Vfs.VfsError)
+          assert.deepStrictEqual([error.code, error.field], ["LimitExceeded", field])
+        }
+      )
 
       for (
         const [limits, field] of [

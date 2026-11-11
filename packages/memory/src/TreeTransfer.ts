@@ -13,7 +13,8 @@ import { CallerId } from "@effect-vfs/core/Caller"
 import { SnapshotTypeId } from "@effect-vfs/core/Snapshot"
 import type * as Vfs from "@effect-vfs/core/VirtualFileSystem"
 import type * as Cause from "effect/Cause"
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import { dual } from "effect/Function"
@@ -768,11 +769,11 @@ export const toVolume: {
     options?: VolumeTransferOptions
   ): <E, R>(
     entries: Stream.Stream<Entry, E, R>
-  ) => Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R | Crypto.Crypto>
+  ) => Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R | Digest.Digest | SecureRandom.SecureRandom>
   <E, R>(
     entries: Stream.Stream<Entry, E, R>,
     options?: VolumeTransferOptions
-  ): Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R | Crypto.Crypto>
+  ): Effect.Effect<Vfs.Volume, E | TransferError | Vfs.VfsError, R | Digest.Digest | SecureRandom.SecureRandom>
 } = dual(
   (args) => args.length >= 2 || Stream.isStream(args[0]),
   <E, R>(entries: Stream.Stream<Entry, E, R>, options?: VolumeTransferOptions) => internal.toVolume(entries, options)

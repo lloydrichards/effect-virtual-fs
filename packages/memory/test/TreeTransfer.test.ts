@@ -3,7 +3,8 @@ import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Exit, FileSystem, Layer, Predicate, Result, Schema, Stream } from "effect"
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import * as TestClock from "effect/testing/TestClock"
 import * as MemoryFileSystem from "../src/MemoryFileSystem.js"
 import * as TreeTransfer from "../src/TreeTransfer.js"
@@ -809,7 +810,7 @@ const observeContentReads = (fs: FileSystem.FileSystem, observedPath: string, re
 
 const fileSystemSuite = (
   name: string,
-  layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
+  layer: Layer.Layer<FileSystem.FileSystem, never, Digest.Digest | SecureRandom.SecureRandom>
 ) =>
   it.layer(layer.pipe(Layer.provideMerge(NodeCrypto.layer)))(`TreeTransfer FileSystem (${name})`, (it) => {
     it.effect("should report rewritten symlink aliases when exporting cross-parent hard links", () =>

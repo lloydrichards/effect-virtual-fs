@@ -2,7 +2,7 @@
 
 ## Compatibility
 
-The demo uses `alchemy` and the extracted `@alchemy.run/cloudflare` provider at `2.0.0-beta.84`, alongside Effect 4.0.7. It is included in the root build, type check, lint, and test commands. Keep this group on compatible versions: Alchemy beta.85 requires Effect 4.1 and its separate crypto migration.
+The demo uses `alchemy` and the extracted `@alchemy.run/cloudflare` provider at `2.0.0-beta.85`, alongside Effect 4.1.4. It is included in the root build, type check, lint, and test commands. Keep this group on compatible versions.
 
 Local tests use an in-memory R2 client. They do not qualify deployment or real Cloudflare conditional writes; run the live smoke test before deploying.
 

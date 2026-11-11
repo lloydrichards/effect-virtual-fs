@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest"
-import * as Crypto from "effect/Crypto"
+import * as Digest from "effect/crypto/Digest"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
@@ -18,7 +19,8 @@ FileSystemTest.suite(
 
 it.effect("minimal construction and copy need no Crypto provider and retain the seeded defaults", () =>
   Effect.gen(function*() {
-    assert.isTrue(Option.isNone(yield* Effect.serviceOption(Crypto.Crypto)))
+    assert.isTrue(Option.isNone(yield* Effect.serviceOption(Digest.Digest)))
+    assert.isTrue(Option.isNone(yield* Effect.serviceOption(SecureRandom.SecureRandom)))
     const fs = yield* Minimal.make()
     assert.strictEqual(Option.getOrThrow((yield* fs.stat("/")).mtime).getTime(), 0)
     assert.strictEqual(Option.getOrThrow((yield* fs.stat("/tmp")).mtime).getTime(), 0)

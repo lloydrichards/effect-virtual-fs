@@ -2,7 +2,8 @@ import { GetObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from
 import { LiveVolume, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it, vi } from "@effect/vitest"
-import { ByteSize, Cause, Crypto, Deferred, Effect, Exit } from "effect"
+import { ByteSize, Cause, Deferred, Effect, Exit } from "effect"
+import * as Digest from "effect/crypto/Digest"
 import * as R2LiveImageStore from "../src/R2LiveImageStore.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)
@@ -56,7 +57,7 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
   for (const synchronousThrow of [false, true]) {
     it.effect(`should preserve pre-write digest ${synchronousThrow ? "throws" : "defects"} without disabling the live volume`, () =>
       Effect.gen(function*() {
-        const crypto = yield* Crypto.Crypto
+        const digest = yield* Digest.Digest
         const remote = makeClient()
         let failed = false
         let writes = 0
@@ -73,12 +74,12 @@ it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
 
         const volume = yield* LiveVolume.open({ maxImageBytes: ByteSize.kilobytes(64), volume: {} }).pipe(
           Effect.provide(layer(client)),
-          Effect.provideService(Crypto.Crypto, {
-            ...crypto,
+          Effect.provideService(Digest.Digest, {
+            ...digest,
             digest: (algorithm, bytes) => {
               if (failed && synchronousThrow) throw defect
 
-              return failed ? Effect.die(defect) : crypto.digest(algorithm, bytes)
+              return failed ? Effect.die(defect) : digest.digest(algorithm, bytes)
             }
           })
         )

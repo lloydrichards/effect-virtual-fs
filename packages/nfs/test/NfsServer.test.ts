@@ -4,7 +4,8 @@ import * as NodeSocket from "@effect/platform-node-shared/NodeSocket"
 import * as NodeSocketServer from "@effect/platform-node-shared/NodeSocketServer"
 import { assert, it, live as liveTest } from "@effect/vitest"
 import * as ByteSize from "effect/ByteSize"
-import * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
@@ -18,7 +19,7 @@ import * as Scope from "effect/Scope"
 
 const live = <E>(
   name: string,
-  body: () => Effect.Effect<void, E, Crypto.Crypto | Scope.Scope>,
+  body: () => Effect.Effect<void, E, Digest.Digest | SecureRandom.SecureRandom | Scope.Scope>,
   timeout?: number
 ) => liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
 
@@ -614,7 +615,7 @@ it.layer(NodeCrypto.layer)("NfsServer", (it) => {
     () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.Volume
-        const nonce = yield* (yield* Crypto.Crypto).randomBytes(8)
+        const nonce = yield* (yield* SecureRandom.SecureRandom).randomBytes(8)
         const path = `/tmp/effect-vfs-nfs-${process.pid}-${Hex.encode(nonce)}.sock`
         const socketServer = yield* NodeSocketServer.make({ path })
         let observed: unknown

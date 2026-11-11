@@ -1,6 +1,8 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
-import { ByteSize, Cause, Crypto, Effect, Exit, Layer, PlatformError, Result, Schema } from "effect"
+import { ByteSize, Cause, Effect, Exit, Layer, PlatformError, Result, Schema } from "effect"
+import * as Digest from "effect/crypto/Digest"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Base64 from "effect/encoding/Base64"
 import * as Hex from "effect/encoding/Hex"
 import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
@@ -8,25 +10,32 @@ import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 const cryptoLayer = (...values: ReadonlyArray<number>) => {
   let index = 0
 
-  return Layer.succeed(
-    Crypto.Crypto,
-    Crypto.make({
-      randomBytes: (size) => new Uint8Array(size).fill(values[index++] ?? 0),
-      digest: (_algorithm, data) => Effect.succeed(data)
-    })
+  return Layer.mergeAll(
+    Layer.succeed(
+      SecureRandom.SecureRandom,
+      SecureRandom.make((size) => new Uint8Array(size).fill(values[index++] ?? 0))
+    ),
+    Layer.succeed(
+      Digest.Digest,
+      Digest.Digest.of({
+        digest: (_algorithm, data) => Effect.succeed(data),
+        digestHex: (_algorithm, data) => Effect.succeed(Hex.encode(data))
+      })
+    )
   )
 }
 
 it.layer(BunCrypto.layer)((it) => {
   it.effect("should retain crypto provider failures as defects during construction and snapshot hashing", () =>
     Effect.gen(function*() {
-      const crypto = yield* Crypto.Crypto
+      const secureRandom = yield* SecureRandom.SecureRandom
+      const digester = yield* Digest.Digest
       const failure = PlatformError.badArgument({ module: "Crypto", method: "test", description: "provider failed" })
 
       const random = yield* Effect.exit(
-        Vfs.make().pipe(Effect.provideService(Crypto.Crypto, {
-          ...crypto,
-          randomBytes: () => Effect.fail(failure)
+        Vfs.make().pipe(Effect.provideService(SecureRandom.SecureRandom, {
+          ...secureRandom,
+          randomBytes: () => Effect.die(failure)
         }))
       )
 
@@ -35,9 +44,9 @@ it.layer(BunCrypto.layer)((it) => {
       const snapshot = yield* volume.snapshot
 
       const digest = yield* Effect.exit(
-        Vfs.diffSnapshots(snapshot, snapshot).pipe(Effect.provideService(Crypto.Crypto, {
-          ...crypto,
-          digest: () => Effect.fail(failure)
+        Vfs.diffSnapshots(snapshot, snapshot).pipe(Effect.provideService(Digest.Digest, {
+          ...digester,
+          digest: () => Effect.die(failure)
         }))
       )
 

@@ -2,7 +2,8 @@
 // `rejectedFile`: their invalid calls exist to make API regressions fail type-checking.
 import * as ByteSize from "effect/ByteSize"
 import type * as Cause from "effect/Cause"
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import type * as PlatformError from "effect/PlatformError"
@@ -20,7 +21,7 @@ export const liveVolumeRegistry = <K, E, R>(options: LiveVolume.RegistryOptions<
   LiveVolume.makeRegistry(options) satisfies Effect.Effect<
     LiveVolume.Registry<K, E>,
     Vfs.ArgumentFailure,
-    R | Crypto.Crypto | Scope.Scope
+    R | Digest.Digest | SecureRandom.SecureRandom | Scope.Scope
   >
 
 export const borrowLiveVolume = <K, E>(registry: LiveVolume.Registry<K, E>, key: K) =>
@@ -121,7 +122,7 @@ export const rootCaller = Effect.gen(function*() {
   void limits
   void usage
   return yield* volume.caller()
-}) satisfies Effect.Effect<Vfs.Caller, Vfs.VfsError, Crypto.Crypto>
+}) satisfies Effect.Effect<Vfs.Caller, Vfs.VfsError, Digest.Digest | SecureRandom.SecureRandom>
 
 export const scopedDirectory = (caller: Vfs.Caller) =>
   Effect.scoped(Effect.gen(function*() {
@@ -132,7 +133,9 @@ export const scopedDirectory = (caller: Vfs.Caller) =>
   })) satisfies Effect.Effect<Vfs.Metadata, Vfs.FsFailure>
 
 export const service = Layer.effect(Vfs.Caller, rootCaller)
-export const wired: Layer.Layer<Vfs.Caller, Vfs.VfsError, Crypto.Crypto> = Vfs.Caller.layer({ umask: 0o022 }).pipe(
+export const wired: Layer.Layer<Vfs.Caller, Vfs.VfsError, Digest.Digest | SecureRandom.SecureRandom> = Vfs.Caller.layer(
+  { umask: 0o022 }
+).pipe(
   Layer.provide(Vfs.Volume.layer({ maxEntries: 10 }))
 )
 export const moveDirectory = (caller: Vfs.Caller, source: Vfs.DirectoryHandle, destination: Vfs.DirectoryHandle) =>
@@ -205,7 +208,7 @@ export const overlay = Effect.gen(function*() {
     readonly capture: Vfs.OverlayCapture
   },
   Vfs.VfsError,
-  Crypto.Crypto
+  Digest.Digest | SecureRandom.SecureRandom
 >
 
 const customDeltaLimits: Vfs.SnapshotDeltaLimits = {
@@ -235,7 +238,7 @@ export const snapshotDelta = Effect.gen(function*() {
 }) satisfies Effect.Effect<
   { readonly changes: ReadonlyArray<Vfs.SnapshotChange>; readonly restored: Vfs.Snapshot },
   Vfs.VfsError | Schema.SchemaError | PlatformError.PlatformError,
-  Crypto.Crypto
+  Digest.Digest | SecureRandom.SecureRandom
 >
 
 export const defaultDeltaCodec = Vfs.SnapshotDeltaFromBytes(Vfs.SnapshotDeltaLimits.default)
@@ -380,23 +383,35 @@ export const dualWatchCollection = <A, E, R>(stream: Stream.Stream<A, E, R>) =>
   Testing.collectChanges(2)(stream) satisfies Effect.Effect<Effect.Effect<Array<A>, E>, never, R | Scope.Scope>
 
 export const dualConstruction = (snapshot: Vfs.Snapshot, fixture: Vfs.Fixture, options: Vfs.VolumeOptions) => ({
-  restore: Vfs.fromSnapshot(options)(snapshot) satisfies Effect.Effect<Vfs.Volume, Vfs.VfsError, Crypto.Crypto>,
-  overlay: Vfs.makeOverlay(options)(snapshot) satisfies Effect.Effect<Vfs.OverlayVolume, Vfs.VfsError, Crypto.Crypto>,
-  fixture: Vfs.fromFixture(options)(fixture) satisfies Effect.Effect<Vfs.Volume, Vfs.VfsError, Crypto.Crypto>,
+  restore: Vfs.fromSnapshot(options)(snapshot) satisfies Effect.Effect<
+    Vfs.Volume,
+    Vfs.VfsError,
+    Digest.Digest | SecureRandom.SecureRandom
+  >,
+  overlay: Vfs.makeOverlay(options)(snapshot) satisfies Effect.Effect<
+    Vfs.OverlayVolume,
+    Vfs.VfsError,
+    Digest.Digest | SecureRandom.SecureRandom
+  >,
+  fixture: Vfs.fromFixture(options)(fixture) satisfies Effect.Effect<
+    Vfs.Volume,
+    Vfs.VfsError,
+    Digest.Digest | SecureRandom.SecureRandom
+  >,
   restoreLayer: Vfs.Volume.layerFromSnapshot(options)(snapshot) satisfies Layer.Layer<
     Vfs.Volume,
     Vfs.VfsError,
-    Crypto.Crypto
+    Digest.Digest | SecureRandom.SecureRandom
   >,
   overlayLayer: Vfs.Volume.layerOverlay(options)(snapshot) satisfies Layer.Layer<
     Vfs.Volume,
     Vfs.VfsError,
-    Crypto.Crypto
+    Digest.Digest | SecureRandom.SecureRandom
   >,
   fixtureLayer: Vfs.Volume.layerFromFixture(options)(fixture) satisfies Layer.Layer<
     Vfs.Volume,
     Vfs.VfsError,
-    Crypto.Crypto
+    Digest.Digest | SecureRandom.SecureRandom
   >,
   entry: Vfs.Entry("file")("/") satisfies Vfs.Entry,
   durability: Vfs.isVolumeDurabilityAtLeast("survives-process-crash")("memory-only") satisfies boolean
@@ -411,22 +426,22 @@ export const dualDeltas = (
   diff: Vfs.diffSnapshots(target)(base) satisfies Effect.Effect<
     Vfs.SnapshotDelta,
     Vfs.VfsError | PlatformError.PlatformError,
-    Crypto.Crypto
+    Digest.Digest | SecureRandom.SecureRandom
   >,
   apply: Vfs.applySnapshotDelta(ours)(base) satisfies Effect.Effect<
     Vfs.Snapshot,
     Vfs.VfsError | PlatformError.PlatformError,
-    Crypto.Crypto
+    Digest.Digest | SecureRandom.SecureRandom
   >,
   inspect: Vfs.inspectSnapshotDelta(ours)(base) satisfies Effect.Effect<
     ReadonlyArray<Vfs.SnapshotChange>,
     Vfs.VfsError | PlatformError.PlatformError,
-    Crypto.Crypto
+    Digest.Digest | SecureRandom.SecureRandom
   >,
   merge: Vfs.mergeSnapshotDeltas(ours, theirs)(base) satisfies Effect.Effect<
     Vfs.MergeResult,
     Vfs.VfsError | PlatformError.PlatformError,
-    Crypto.Crypto
+    Digest.Digest | SecureRandom.SecureRandom
   >
 })
 

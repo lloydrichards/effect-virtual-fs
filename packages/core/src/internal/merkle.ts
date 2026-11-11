@@ -1,7 +1,7 @@
 // This versioned digest covers namespace content and hard-link groups, independent of inode numbers. Framing,
 // byte order, and domain prefix are part of the persisted delta contract.
 import * as ByteSize from "effect/ByteSize"
-import * as Crypto from "effect/Crypto"
+import * as Digest from "effect/crypto/Digest"
 import * as Effect from "effect/Effect"
 import type * as PlatformError from "effect/PlatformError"
 import type { ImageFailure } from "../VfsError.js"
@@ -143,19 +143,18 @@ export const meter = (budget: WalkBudget): Meter => {
 
 /** @internal */
 export const nodeDigest = Effect.fnUntraced(function*(node: Node, childDigest: (ino: Ino) => Uint8Array, meter: Meter) {
-  // TODO: (#304) Use Digest.sha256 once released; preserve the exact digest framing.
-  const crypto = yield* Crypto.Crypto
+  const crypto = yield* Digest.Digest
   const planned = layout(node)
   // Reject oversized nodes before allocating their preimage.
   yield* meter.charge(planned.length)
 
-  return yield* crypto.digest("SHA-256", preimage(node, planned, childDigest)).pipe(Effect.orDie)
+  return yield* crypto.digest(Digest.sha256, preimage(node, planned, childDigest)).pipe(Effect.orDie)
 })
 
 /** @internal */
 export const identityDigest = Effect.fnUntraced(
   function*(root: Uint8Array, groups: Iterable<ReadonlyArray<Uint8Array>>, meter: Meter) {
-    const crypto = yield* Crypto.Crypto
+    const crypto = yield* Digest.Digest
     const sorted = [...groups].sort((a, b) => bytesOrder(a[0]!, b[0]!))
 
     const length = IDENTITY_PREFIX.length + DIGEST_BYTES + U64_BYTES +
@@ -173,7 +172,7 @@ export const identityDigest = Effect.fnUntraced(
       for (const path of group) offset = frame(out, offset, path)
     }
 
-    return yield* crypto.digest("SHA-256", out).pipe(Effect.orDie)
+    return yield* crypto.digest(Digest.sha256, out).pipe(Effect.orDie)
   }
 )
 
@@ -183,7 +182,7 @@ export const identify = Effect.fnUntraced(
   function*(
     state: VolumeState,
     budget: WalkBudget
-  ): Effect.fn.Return<Identity, ImageFailure | PlatformError.PlatformError, Crypto.Crypto> {
+  ): Effect.fn.Return<Identity, ImageFailure | PlatformError.PlatformError, Digest.Digest> {
     const root = getNode(state, ROOT_INO)
 
     if (root?.kind !== "directory") {

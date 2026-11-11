@@ -1,6 +1,6 @@
 import type { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
-import * as Crypto from "effect/Crypto"
+import * as Digest from "effect/crypto/Digest"
 import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -2423,7 +2423,7 @@ const replayReplyBound = (
 export const makeNfs4Handler = (
   export_: NfsExport,
   options: Nfs4Options
-): Effect.Effect<Nfs4Handler, PlatformError.PlatformError, Scope.Scope | Crypto.Crypto> => {
+): Effect.Effect<Nfs4Handler, PlatformError.PlatformError, Scope.Scope | Digest.Digest> => {
   assertOptions(options)
   const storageGeneration = options.storageGeneration ?? options.generation
   const supportedAttributes = supportedAttributesFor(export_)
@@ -2437,13 +2437,12 @@ export const makeNfs4Handler = (
       : Effect.succeed(null)
 
   return Effect.gen(function*() {
-    // TODO: (#304) Use Digest.sha256 when released; preserve the eight-byte write verifier.
-    const crypto = yield* Crypto.Crypto
+    const digest = yield* Digest.Digest
     const verifierInput = new Uint8Array(33)
     verifierInput[0] = 1
     verifierInput.set(options.generation, 1)
     verifierInput.set(storageGeneration, 17)
-    const writeVerifier = (yield* crypto.digest("SHA-256", verifierInput).pipe(Effect.orDie)).slice(0, 8)
+    const writeVerifier = (yield* digest.digest(Digest.sha256, verifierInput)).slice(0, 8)
 
     const handlerScope = yield* Effect.scope
     const clients = new Map<bigint, ClientState>()
