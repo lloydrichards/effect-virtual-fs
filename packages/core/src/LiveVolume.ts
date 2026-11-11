@@ -65,7 +65,7 @@ export interface Options {
 /**
  * Open a live volume using the supplied store Layer. The caller owns a Scope;
  * the volume shuts down before that Layer releases its storage resource.
- * Requires `Digest.Digest | SecureRandom.SecureRandom` to mint a new volume or incarnation.
+ * Requires the `Digest` and `SecureRandom` services to mint a new volume or incarnation.
  *
  * @category constructors
  * @since 0.4.0
@@ -276,7 +276,7 @@ export interface ImageSession {
 /**
  * Construct a versioned image for a new, empty volume.
  * Store this image before opening it for mutation.
- * Requires `Digest.Digest | SecureRandom.SecureRandom` for secure volume identifiers and reference keys.
+ * Requires the `Digest` and `SecureRandom` services for secure volume identifiers and reference keys.
  *
  * @category constructors
  * @since 0.4.0

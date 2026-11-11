@@ -155,7 +155,7 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 **See**
 
 - `layer` for a Layer, `bind` for an existing volume.
-- `Digest.Digest | SecureRandom.SecureRandom` for the required secure random-byte service.
+- `Digest.Digest` and `SecureRandom.SecureRandom` for the required crypto services.
 
 **Signature**
 
@@ -216,7 +216,7 @@ Use when you need to replace the host filesystem in an Effect program.
 Reusing this layer value within a single layer graph shares one volume through
 layer memoization. Wrap it with `Layer.fresh` when each use needs separate
 state. Separate graphs, such as one per test, already get separate volumes.
-Provide `Digest.Digest | SecureRandom.SecureRandom` to build the underlying volume.
+Provide the `Digest` and `SecureRandom` services to build the underlying volume.
 
 **Example**
 
@@ -296,7 +296,7 @@ Since v0.1.0
 Provides a `FileSystem.FileSystem` backed by a fresh fixture volume.
 
 Volume limits and caller options use the existing core types. Invalid fixtures
-and options remain typed `VfsError` construction failures. Provide `Digest.Digest | SecureRandom.SecureRandom`
+and options remain typed `VfsError` construction failures. Provide the `Digest` and `SecureRandom` services
 to build the volume. This layer adds no entries; include `/tmp` in the fixture
 when temporary-file operations need it.
 

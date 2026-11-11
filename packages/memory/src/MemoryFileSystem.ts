@@ -72,7 +72,7 @@ export const isWatchOverflow: (error: PlatformError.PlatformError) => boolean = 
  * ```
  *
  * @see {@link layer} for a Layer, {@link bind} for an existing volume.
- * @see `Digest.Digest | SecureRandom.SecureRandom` for the required secure random-byte service.
+ * @see `Digest.Digest` and `SecureRandom.SecureRandom` for the required crypto services.
  * @category constructors
  * @since 0.1.0
  */
@@ -91,7 +91,7 @@ export const make: Effect.Effect<FileSystem.FileSystem, never, Digest.Digest | S
  * Reusing this layer value within a single layer graph shares one volume through
  * layer memoization. Wrap it with `Layer.fresh` when each use needs separate
  * state. Separate graphs, such as one per test, already get separate volumes.
- * Provide `Digest.Digest | SecureRandom.SecureRandom` to build the underlying volume.
+ * Provide the `Digest` and `SecureRandom` services to build the underlying volume.
  *
  * @example
  * ```ts
@@ -162,7 +162,7 @@ export const layer: Layer.Layer<FileSystem.FileSystem, never, Digest.Digest | Se
  * Provides a `FileSystem.FileSystem` backed by a fresh fixture volume.
  *
  * Volume limits and caller options use the existing core types. Invalid fixtures
- * and options remain typed `VfsError` construction failures. Provide `Digest.Digest | SecureRandom.SecureRandom`
+ * and options remain typed `VfsError` construction failures. Provide the `Digest` and `SecureRandom` services
  * to build the volume. This layer adds no entries; include `/tmp` in the fixture
  * when temporary-file operations need it.
  *

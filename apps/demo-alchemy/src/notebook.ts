@@ -63,9 +63,11 @@ export interface NotebookOperations {
 const make = Effect.gen(function*() {
   const client = yield* NotebookR2
 
+  const secureRandom = yield* SecureRandom.SecureRandom
+
   // Only these two services: the full fiber context would also pin services such as Clock.
   const cryptography = Context.make(Digest.Digest, yield* Digest.Digest).pipe(
-    Context.add(SecureRandom.SecureRandom, yield* SecureRandom.SecureRandom)
+    Context.add(SecureRandom.SecureRandom, secureRandom)
   )
 
   const withNotebook = <A, E, R>(
@@ -165,7 +167,7 @@ const make = Effect.gen(function*() {
   })
 
   const create = Effect.gen(function*() {
-    const id = yield* Effect.sync(() => SecureRandom.uuidV4Unsafe())
+    const id = yield* secureRandom.uuidV4()
 
     // A failed create can leave an image containing only the earlier writes.
     const created = yield* Effect.exit(createNotebook(id))
