@@ -69,8 +69,8 @@ been run on every JavaScript runtime.
 | Browser target | The bundle runs as a smoke test under Node.js; this is not a browser runtime test                              |
 | Persistence    | Real SQLite tests under Bun and NodeNext declaration compatibility; Node SQLite runtime behavior is not tested |
 
-Portable snapshot-delta operations use Effect's `Crypto.Crypto` service. Supply the appropriate Effect crypto layer for
-the runtime at the application boundary.
+Portable snapshot-delta operations use Effect's `Digest` and `SecureRandom` services. Supply the appropriate Effect crypto
+layer for the runtime at the application boundary.
 
 ## Implemented filesystem behavior
 
@@ -238,6 +238,20 @@ See the [`Snapshot delta API reference`](/api/core/snapshot-delta) for the prese
 | Watch queue                                       | Yes, through `maxWatchEvents`                    |
 | Glob brace expansion                              | No                                              |
 
+
+## Effect 4.1 migration
+
+Effect 4.1 replaces the `Crypto` service with `Digest` and `SecureRandom` from `effect/crypto`. Volume constructors and
+layers, snapshot deltas and the NFS server now require `Digest.Digest | SecureRandom.SecureRandom` where they required
+`Crypto.Crypto`; the live image stores require only `Digest.Digest`. `NodeCrypto.layer` and `BunCrypto.layer` provide
+both, so a program that already provides one needs no change. `Digest.layerWebCrypto` and `SecureRandom.layerWebCrypto`
+provide them without a platform package. `BunServices.layer` does not include them. Provider defects remain defects.
+Effect peers are restricted to the 4.1 patch line.
+
+Effect 4.1's `FileSystem.make` requires `readDirectoryEntries` and derives `glob`. The memory adapter now exposes its
+typed entry listing as `readDirectoryEntries` and keeps the local glob implementation described below, so glob results
+are unchanged. FileSystemTesting gains a `readDirectoryEntries` handler; its glob traversal still passes through the
+decorated `readDirectory`, `stat` and `readLink` handlers.
 
 ## Effect 4.0.5 migration
 

@@ -16,8 +16,8 @@
   "dependencies": {
     "@effect-vfs/core": "workspace:*",
     "@effect-vfs/nfs": "workspace:*",
-    "@effect/platform-bun": "4.0.7",
-    "effect": "4.0.7"
+    "@effect/platform-bun": "4.1.4",
+    "effect": "4.1.4"
   },
   "devDependencies": {
     "@repo/config-typescript": "workspace:*",

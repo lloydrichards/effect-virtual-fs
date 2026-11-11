@@ -26,7 +26,7 @@ sources:
   - id: amendment
     resource: https://github.com/lloydrichards/effect-virtual-fs/issues/185
     title: One tree schema, change-event deltas and streaming codecs
-generated: { by: claude/okf, at: 2026-09-26T03:00:00+02:00 }
+generated: { by: claude/okf, at: 2026-11-11T20:35:41+00:00 }
 ---
 
 # Portable snapshot delta interface
@@ -53,7 +53,7 @@ The policy bounds encoded input, the changes, the decoded delta bytes, the names
 
 ## Base identity and failures
 
-Each delta records versioned SHA-256 identities of its base and its target over a canonical semantic representation. Canonicalization covers root metadata, raw byte paths in deterministic order, node kinds, contents or symbolic-link targets, all retained metadata and hard-link equivalence classes. It excludes image-local record IDs and runtime inode values. In the current codec design, the identity is a Merkle tree, a digest per node over its own bytes and its children's digests in name-byte order, with the hard-link groups listed at the root, under the unchanged algorithm name.[^amendment] Two snapshots with the same complete filesystem state therefore satisfy the same base requirement even when record order, image-local IDs or encoded JSON bytes differ. Hashing delegates to Effect's `Crypto.Crypto` service; the core owns no cryptographic implementation and imports no host platform.[^snapshots]
+Each delta records versioned SHA-256 identities of its base and its target over a canonical semantic representation. Canonicalization covers root metadata, raw byte paths in deterministic order, node kinds, contents or symbolic-link targets, all retained metadata and hard-link equivalence classes. It excludes image-local record IDs and runtime inode values. In the current codec design, the identity is a Merkle tree, a digest per node over its own bytes and its children's digests in name-byte order, with the hard-link groups listed at the root, under the unchanged algorithm name.[^amendment] Two snapshots with the same complete filesystem state therefore satisfy the same base requirement even when record order, image-local IDs or encoded JSON bytes differ. Hashing delegates to Effect's `Digest.Digest` service (`Crypto.Crypto` before Effect 4.1); the core owns no cryptographic implementation and imports no host platform.[^snapshots]
 
 Invalid encoding, structure, version or resource limits remain codec failures with their own codes. A valid delta inspected or applied against the wrong valid base fails `BaseMismatch`. Both are codes of the one `VfsError` family since the public API decision replaced `ImageError` and `SnapshotDeltaError`.
 

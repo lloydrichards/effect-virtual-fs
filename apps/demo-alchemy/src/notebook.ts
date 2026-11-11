@@ -2,7 +2,8 @@ import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as R2LiveImageStore from "@effect-vfs/persistence/R2LiveImageStore"
 import * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
-import * as Crypto from "effect/Crypto"
+import * as Digest from "effect/crypto/Digest"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
@@ -61,7 +62,11 @@ export interface NotebookOperations {
 
 const make = Effect.gen(function*() {
   const client = yield* NotebookR2
-  const crypto = yield* Crypto.Crypto
+
+  // Only these two services: the full fiber context would also pin services such as Clock.
+  const cryptography = Context.make(Digest.Digest, yield* Digest.Digest).pipe(
+    Context.add(SecureRandom.SecureRandom, yield* SecureRandom.SecureRandom)
+  )
 
   const withNotebook = <A, E, R>(
     imageClient: R2LiveImageStore.R2Client,
@@ -83,7 +88,7 @@ const make = Effect.gen(function*() {
         return yield* use(volume)
       }).pipe(Effect.provide(Vfs.Volume.layerLive(options).pipe(Layer.provide(store))))
     )
-      .pipe(Effect.provideService(Crypto.Crypto, crypto))
+      .pipe(Effect.provideContext(cryptography))
   }
 
   const createNotebook = Effect.fn("Notebook.create")(function*(id: string) {
@@ -160,7 +165,7 @@ const make = Effect.gen(function*() {
   })
 
   const create = Effect.gen(function*() {
-    const id = yield* crypto.randomUUIDv4()
+    const id = yield* Effect.sync(() => SecureRandom.uuidV4Unsafe())
 
     // A failed create can leave an image containing only the earlier writes.
     const created = yield* Effect.exit(createNotebook(id))

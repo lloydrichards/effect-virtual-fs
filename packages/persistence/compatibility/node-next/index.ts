@@ -1,6 +1,8 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { type CheckpointError, CheckpointStore } from "@effect-vfs/persistence"
-import { ByteSize, type Crypto, Effect, type Layer, type PlatformError } from "effect"
+import { ByteSize, Effect, type Layer, type PlatformError } from "effect"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import type { SqlClient } from "effect/sql/SqlClient"
 
 const limits = {
@@ -15,7 +17,7 @@ export const live: Layer.Layer<CheckpointStore, Vfs.VfsError, SqlClient> = Check
 export const program: Effect.Effect<
   Vfs.Volume,
   CheckpointError | Vfs.VfsError | PlatformError.PlatformError,
-  CheckpointStore | Crypto.Crypto
+  CheckpointStore | Digest.Digest | SecureRandom.SecureRandom
 > = Effect.gen(function*() {
   const store = yield* CheckpointStore
 

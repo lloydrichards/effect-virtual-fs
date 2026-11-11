@@ -1,7 +1,8 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Result } from "effect"
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import { Testing, type VfsError as VfsErrorModule, VirtualFileSystem as Vfs } from "../../src/index.js"
 import { GUEST } from "../support/caller.js"
 import { pathText } from "../support/text.js"
@@ -55,10 +56,13 @@ const arrange = (execution: Execution) =>
 interface Row {
   readonly scenario: string
   // A row may build its own volume when the fixture's cannot express the situation.
-  readonly path: (fixture: Fixture) => Effect.Effect<unknown, FsError, Crypto.Crypto>
-  readonly reference: (fixture: Fixture) => Effect.Effect<unknown, FsError, Crypto.Crypto>
+  readonly path: (fixture: Fixture) => Effect.Effect<unknown, FsError, Digest.Digest | SecureRandom.SecureRandom>
+  readonly reference: (fixture: Fixture) => Effect.Effect<unknown, FsError, Digest.Digest | SecureRandom.SecureRandom>
   // Confirms a successful operation took effect, on the fixture it ran against, for the family that ran.
-  readonly check?: (fixture: Fixture, family: "path" | "reference") => Effect.Effect<unknown, FsError, Crypto.Crypto>
+  readonly check?: (
+    fixture: Fixture,
+    family: "path" | "reference"
+  ) => Effect.Effect<unknown, FsError, Digest.Digest | SecureRandom.SecureRandom>
   readonly expected: { readonly path: string; readonly reference: string }
 }
 

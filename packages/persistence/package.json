@@ -55,14 +55,14 @@
     "@effect-vfs/core": "^0.10.0"
   },
   "peerDependencies": {
-    "effect": "~4.0.7"
+    "effect": "~4.1.4"
   },
   "devDependencies": {
-    "@effect/platform-node-shared": "4.0.7",
-    "@effect/sql-sqlite-bun": "4.0.7",
-    "@effect/vitest": "4.0.7",
+    "@effect/platform-node-shared": "4.1.4",
+    "@effect/sql-sqlite-bun": "4.1.4",
+    "@effect/vitest": "4.1.4",
     "@repo/config-typescript": "workspace:*",
     "@types/node": "26.6.6",
-    "effect": "4.0.7"
+    "effect": "4.1.4"
   }
 }

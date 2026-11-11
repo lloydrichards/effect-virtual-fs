@@ -12,13 +12,13 @@
   },
   "dependencies": {
     "@effect-vfs/core": "workspace:*",
-    "@effect/ai-openai": "4.0.7",
-    "@effect/platform-bun": "4.0.7",
-    "effect": "4.0.7",
+    "@effect/ai-openai": "4.1.4",
+    "@effect/platform-bun": "4.1.4",
+    "effect": "4.1.4",
     "effect-boxes": "^0.18.1"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.7",
+    "@effect/vitest": "4.1.4",
     "@repo/config-typescript": "workspace:*",
     "@types/bun": "^1.4.4"
   }

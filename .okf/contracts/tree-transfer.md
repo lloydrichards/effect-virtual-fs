@@ -35,7 +35,7 @@ sources:
   - id: host-tests
     resource: ../../packages/memory/test/TreeTransfer.test.ts
     title: Host filesystem round-trip tests
-generated: { by: codex/okf, at: "2026-11-09T20:30:00Z" }
+generated: { by: codex/okf, at: "2026-11-11T20:35:41+00:00" }
 ---
 
 # Tree transfer
@@ -68,7 +68,7 @@ The sink returns a `TransferReport` with the number of entries, files, and file 
 
 The cleanup tests exercise `toCaller` with unprivileged credentials and `toFileSystem` with memory and host filesystems. Deferred barriers stop transfers after a partial write while the source waits, and at a final directory mode change; tests await fiber completion before observing state. They cover interruption and timeout, restrictive-mode restoration, ownership capture and initial metadata failures, partial root-file writes, moved roots replaced by directories or symbolic links, a confined caller whose claimed root is moved outside its root, and typed removal failures that become defects alongside the original source failure or interruption. Root replacement checks cover replacement before cleanup begins, not every possible concurrent path-resolution race. Restoration in overwrite mode remains best-effort if a permission change itself fails.
 
-When cleanup fails, Effect 4.0.7 retains the original source failure as a defect alongside the cleanup defect; it is no longer catchable as a typed failure. Interruption remains in the cause. Successful cleanup leaves ordinary source failures typed.
+When cleanup fails, Effect 4.1 retains the original source failure as a defect alongside the cleanup defect; it is no longer catchable as a typed failure. Interruption remains in the cause. Successful cleanup leaves ordinary source failures typed.
 
 ## Required fidelity
 

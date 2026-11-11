@@ -16,7 +16,7 @@ npm install --save-dev "@effect/vitest@$(npm view @effect-vfs/memory peerDepende
 ```
 
 Install Bun before running these examples, and use an ES module project. The examples run under Bun and provide `BunCrypto.layer` because volume construction
-requires Effect's `Crypto.Crypto` service. For another runtime, provide its matching Effect Crypto implementation.
+requires Effect's `Digest` and `SecureRandom` services. For another runtime, provide its matching Effect crypto layer.
 See [Package compatibility](/reference/compatibility-and-limits#package-compatibility) for version requirements.
 
 ## Keep production code independent of storage

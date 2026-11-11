@@ -11,7 +11,8 @@
 import { Context, Deferred, Duration, Effect, Layer, MutableHashMap, Option, RcMap, Schema } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import type * as Cause from "effect/Cause"
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import type * as Scope from "effect/Scope"
 import { Errors } from "./internal/engine.js"
 import { retargetFailure } from "./internal/errors.js"
@@ -64,7 +65,7 @@ export interface Options {
 /**
  * Open a live volume using the supplied store Layer. The caller owns a Scope;
  * the volume shuts down before that Layer releases its storage resource.
- * Requires `Crypto.Crypto` to mint a new volume or incarnation.
+ * Requires `Digest.Digest | SecureRandom.SecureRandom` to mint a new volume or incarnation.
  *
  * @category constructors
  * @since 0.4.0
@@ -72,7 +73,7 @@ export interface Options {
 export const open: (options: Options) => Effect.Effect<
   Volume,
   VfsError,
-  LiveImageStore | Scope.Scope | Crypto.Crypto
+  LiveImageStore | Scope.Scope | Digest.Digest | SecureRandom.SecureRandom
 > = Effect.fnUntraced(function*(options: Options) {
   const store = yield* LiveImageStore
 
@@ -193,7 +194,7 @@ const RegistryCapacity = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 export const makeRegistry: <K, E, R>(options: RegistryOptions<K, E, R>) => Effect.Effect<
   Registry<K, E>,
   ArgumentFailure,
-  R | Crypto.Crypto | Scope.Scope
+  R | Digest.Digest | SecureRandom.SecureRandom | Scope.Scope
 > = Effect.fnUntraced(function*<K, E, R>(options: RegistryOptions<K, E, R>) {
   const capacity = options.capacity === undefined
     ? Infinity
@@ -275,7 +276,7 @@ export interface ImageSession {
 /**
  * Construct a versioned image for a new, empty volume.
  * Store this image before opening it for mutation.
- * Requires `Crypto.Crypto` for secure volume identifiers and reference keys.
+ * Requires `Digest.Digest | SecureRandom.SecureRandom` for secure volume identifiers and reference keys.
  *
  * @category constructors
  * @since 0.4.0
@@ -283,7 +284,7 @@ export interface ImageSession {
 export const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<
   Uint8Array,
   VfsError,
-  Crypto.Crypto
+  Digest.Digest | SecureRandom.SecureRandom
 > = (options) =>
   Effect.mapError(
     Model.prepareEmptyLiveImage(options),
@@ -307,5 +308,5 @@ export const openImage: (
 ) => Effect.Effect<
   ImageSession,
   VfsError,
-  Crypto.Crypto
+  Digest.Digest | SecureRandom.SecureRandom
 > = Model.openImageVolume

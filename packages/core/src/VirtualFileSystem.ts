@@ -10,7 +10,8 @@
  */
 import type * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Effect from "effect/Effect"
 import { dual } from "effect/Function"
 import * as Layer from "effect/Layer"
@@ -1681,24 +1682,38 @@ export interface OverlayVolume extends Volume {
  */
 export const Volume: Context.Service<Volume, Volume> & {
   /** A fresh empty volume. */
-  readonly layer: (options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
+  readonly layer: (options?: VolumeOptions) => Layer.Layer<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
   /** A fresh volume restored from a snapshot. */
   readonly layerFromSnapshot: {
-    (options?: VolumeOptions): (snapshot: Snapshot) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
-    (snapshot: Snapshot, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (
+      options?: VolumeOptions
+    ): (snapshot: Snapshot) => Layer.Layer<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
+    (
+      snapshot: Snapshot,
+      options?: VolumeOptions
+    ): Layer.Layer<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
   }
   /** A fresh volume built from a fixture. */
   readonly layerFromFixture: {
-    (options?: VolumeOptions): (fixture: Fixture) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
-    (fixture: Fixture, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (
+      options?: VolumeOptions
+    ): (fixture: Fixture) => Layer.Layer<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
+    (
+      fixture: Fixture,
+      options?: VolumeOptions
+    ): Layer.Layer<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
   }
   /** A writable overlay over a snapshot base. */
   readonly layerOverlay: {
-    (options?: VolumeOptions): (base: Snapshot) => Layer.Layer<Volume, VfsError, Crypto.Crypto>
-    (base: Snapshot, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Crypto.Crypto>
+    (
+      options?: VolumeOptions
+    ): (base: Snapshot) => Layer.Layer<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
+    (base: Snapshot, options?: VolumeOptions): Layer.Layer<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
   }
   /** A durable volume opened through the `LiveImageStore` in context; it shuts down with the layer's scope. */
-  readonly layerLive: (options: LiveVolumeOptions) => Layer.Layer<Volume, VfsError, LiveImageStore | Crypto.Crypto>
+  readonly layerLive: (
+    options: LiveVolumeOptions
+  ) => Layer.Layer<Volume, VfsError, LiveImageStore | Digest.Digest | SecureRandom.SecureRandom>
 } = Object.assign(Context.Service<Volume, Volume>("@effect-vfs/core/Volume"), {
   layer: (options?: VolumeOptions) => Layer.effect(Volume, VfsModel.make(options)),
   layerFromSnapshot: dual(
@@ -1963,7 +1978,7 @@ const deltaLimits = (operation: string, limits?: SnapshotDeltaModel.SnapshotDelt
 
 /**
  * Computes an exact portable delta between two immutable snapshots.
- * Requires the platform-neutral `Crypto.Crypto` service for base identity. Provide
+ * Requires the platform-neutral `Digest.Digest | SecureRandom.SecureRandom` service for base identity. Provide
  * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
  *
  * @example
@@ -2005,12 +2020,20 @@ export const diffSnapshots: {
     limits?: SnapshotDeltaModel.SnapshotDeltaLimits
   ): (
     base: Snapshot
-  ) => Effect.Effect<SnapshotDeltaModel.SnapshotDelta, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  ) => Effect.Effect<
+    SnapshotDeltaModel.SnapshotDelta,
+    VfsError | PlatformError.PlatformError,
+    Digest.Digest | SecureRandom.SecureRandom
+  >
   (
     base: Snapshot,
     target: Snapshot,
     limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-  ): Effect.Effect<SnapshotDeltaModel.SnapshotDelta, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  ): Effect.Effect<
+    SnapshotDeltaModel.SnapshotDelta,
+    VfsError | PlatformError.PlatformError,
+    Digest.Digest | SecureRandom.SecureRandom
+  >
 } = dual(
   (args) => args.length >= 3 || Predicate.hasProperty(args[1], SnapshotTypeId),
   Effect.fnUntraced(function*(
@@ -2027,7 +2050,7 @@ export const diffSnapshots: {
 
 /**
  * Verifies an exact snapshot delta against its base and derives an owned path-oriented summary.
- * Requires the platform-neutral `Crypto.Crypto` service for base identity. Provide
+ * Requires the platform-neutral `Digest.Digest | SecureRandom.SecureRandom` service for base identity. Provide
  * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
  *
  * @example
@@ -2070,7 +2093,7 @@ export const inspectSnapshotDelta: {
   ) => Effect.Effect<
     ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
     VfsError | PlatformError.PlatformError,
-    Crypto.Crypto
+    Digest.Digest | SecureRandom.SecureRandom
   >
   (
     base: Snapshot,
@@ -2080,7 +2103,7 @@ export const inspectSnapshotDelta: {
   ): Effect.Effect<
     ReadonlyArray<SnapshotDeltaModel.SnapshotChange>,
     VfsError | PlatformError.PlatformError,
-    Crypto.Crypto
+    Digest.Digest | SecureRandom.SecureRandom
   >
 } = dual(
   (args) => args.length >= 4 || Predicate.hasProperty(args[0], SnapshotTypeId),
@@ -2105,7 +2128,7 @@ export const inspectSnapshotDelta: {
 
 /**
  * Applies an exact delta to its semantically matching base and returns a new snapshot.
- * Requires the platform-neutral `Crypto.Crypto` service for base identity. Provide
+ * Requires the platform-neutral `Digest.Digest | SecureRandom.SecureRandom` service for base identity. Provide
  * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
  *
  * @example
@@ -2147,12 +2170,14 @@ export const applySnapshotDelta: {
   (
     delta: SnapshotDeltaModel.SnapshotDelta,
     limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-  ): (base: Snapshot) => Effect.Effect<Snapshot, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  ): (
+    base: Snapshot
+  ) => Effect.Effect<Snapshot, VfsError | PlatformError.PlatformError, Digest.Digest | SecureRandom.SecureRandom>
   (
     base: Snapshot,
     delta: SnapshotDeltaModel.SnapshotDelta,
     limits?: SnapshotDeltaModel.SnapshotDeltaLimits
-  ): Effect.Effect<Snapshot, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  ): Effect.Effect<Snapshot, VfsError | PlatformError.PlatformError, Digest.Digest | SecureRandom.SecureRandom>
 } = dual(
   (args) => args.length >= 3 || Predicate.hasProperty(args[0], SnapshotTypeId),
   Effect.fnUntraced(function*(
@@ -2175,7 +2200,7 @@ export const applySnapshotDelta: {
  * when both agree, combines metadata fields that only one side changed, and otherwise reports a conflict and leaves
  * the base node in place. Timestamps never conflict. The merged delta is bound to the same base as its inputs and
  * applies with {@link applySnapshotDelta}. Pass `resolutions` to take one side at paths an earlier merge reported.
- * Requires the platform-neutral `Crypto.Crypto` service for base identity. Provide
+ * Requires the platform-neutral `Digest.Digest | SecureRandom.SecureRandom` service for base identity. Provide
  * `NodeCrypto.layer`, `BunCrypto.layer`, or your own via `Crypto.make`.
  *
  * @example
@@ -2226,13 +2251,21 @@ export const mergeSnapshotDeltas: {
     options?: SnapshotDeltaModel.MergeOptions
   ): (
     base: Snapshot
-  ) => Effect.Effect<SnapshotDeltaModel.MergeResult, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  ) => Effect.Effect<
+    SnapshotDeltaModel.MergeResult,
+    VfsError | PlatformError.PlatformError,
+    Digest.Digest | SecureRandom.SecureRandom
+  >
   (
     base: Snapshot,
     ours: SnapshotDeltaModel.SnapshotDelta,
     theirs: SnapshotDeltaModel.SnapshotDelta,
     options?: SnapshotDeltaModel.MergeOptions
-  ): Effect.Effect<SnapshotDeltaModel.MergeResult, VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  ): Effect.Effect<
+    SnapshotDeltaModel.MergeResult,
+    VfsError | PlatformError.PlatformError,
+    Digest.Digest | SecureRandom.SecureRandom
+  >
 } = dual(
   (args) => args.length >= 4 || Predicate.hasProperty(args[0], SnapshotTypeId),
   Effect.fnUntraced(function*(
@@ -2414,7 +2447,7 @@ export type Fixture = typeof Fixture.Type
  *
  * Each execution creates independent storage. Snapshot image failures cannot
  * arise because this constructor does not accept persisted input.
- * Provide `Crypto.Crypto` to generate the volume identity and reference-key secret.
+ * Provide `Digest.Digest | SecureRandom.SecureRandom` to generate the volume identity and reference-key secret.
  *
  * @example
  * ```ts
@@ -2442,7 +2475,7 @@ export type Fixture = typeof Fixture.Type
  */
 export const make: (
   options?: VolumeOptions
-) => Effect.Effect<Volume, VfsError, Crypto.Crypto> = VfsModel.make
+) => Effect.Effect<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom> = VfsModel.make
 
 /**
  * Streams the tree at `root` in a snapshot as fixture entries, read from the
@@ -2533,13 +2566,18 @@ export const snapshotEntries: {
  * ```
  *
  * @see {@link makeOverlay} for a copy-on-write workspace over the same base.
- * @see `Crypto.Crypto` for the required secure random-byte service.
+ * @see `Digest.Digest | SecureRandom.SecureRandom` for the required secure random-byte service.
  * @category constructors
  * @since 0.1.0
  */
 export const fromSnapshot: {
-  (options?: VolumeOptions): (snapshot: Snapshot) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
-  (snapshot: Snapshot, options?: VolumeOptions): Effect.Effect<Volume, VfsError, Crypto.Crypto>
+  (
+    options?: VolumeOptions
+  ): (snapshot: Snapshot) => Effect.Effect<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
+  (
+    snapshot: Snapshot,
+    options?: VolumeOptions
+  ): Effect.Effect<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
 } = dual((args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId), VfsModel.fromSnapshot)
 
 /**
@@ -2589,13 +2627,18 @@ export const fromSnapshot: {
  * ```
  *
  * @see The overlay guide at `/guides/overlay-filesystems`.
- * @see `Crypto.Crypto` for the required secure random-byte service.
+ * @see `Digest.Digest | SecureRandom.SecureRandom` for the required secure random-byte service.
  * @category constructors
  * @since 0.1.0
  */
 export const makeOverlay: {
-  (options?: VolumeOptions): (base: Snapshot) => Effect.Effect<OverlayVolume, VfsError, Crypto.Crypto>
-  (base: Snapshot, options?: VolumeOptions): Effect.Effect<OverlayVolume, VfsError, Crypto.Crypto>
+  (
+    options?: VolumeOptions
+  ): (base: Snapshot) => Effect.Effect<OverlayVolume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
+  (
+    base: Snapshot,
+    options?: VolumeOptions
+  ): Effect.Effect<OverlayVolume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
 } = dual((args) => args.length >= 2 || Predicate.hasProperty(args[0], SnapshotTypeId), VfsModel.makeOverlay)
 
 /**
@@ -2634,11 +2677,16 @@ export const makeOverlay: {
  * ```
  *
  * @see The fixtures guide at `/guides/fixtures-and-snapshots`.
- * @see `Crypto.Crypto` for the required secure random-byte service.
+ * @see `Digest.Digest | SecureRandom.SecureRandom` for the required secure random-byte service.
  * @category constructors
  * @since 0.1.0
  */
 export const fromFixture: {
-  (options?: VolumeOptions): (fixture: Fixture) => Effect.Effect<Volume, VfsError, Crypto.Crypto>
-  (fixture: Fixture, options?: VolumeOptions): Effect.Effect<Volume, VfsError, Crypto.Crypto>
+  (
+    options?: VolumeOptions
+  ): (fixture: Fixture) => Effect.Effect<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
+  (
+    fixture: Fixture,
+    options?: VolumeOptions
+  ): Effect.Effect<Volume, VfsError, Digest.Digest | SecureRandom.SecureRandom>
 } = dual((args) => args.length >= 2 || Predicate.hasProperty(args[0], "entries"), FixtureInternal.fromFixture)

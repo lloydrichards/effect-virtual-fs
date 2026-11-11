@@ -5,7 +5,7 @@
  */
 import { LiveVolume, type VfsError } from "@effect-vfs/core"
 import { ByteSize, Effect, Exit, FileSystem, Layer, Path, Ref, Schema } from "effect"
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
 import { SqlClient } from "effect/sql/SqlClient"
 import { makeDigest, type StoreFailures, storeFailures } from "./internal/storeSupport.js"
 
@@ -79,7 +79,7 @@ interface Ownership {
 export const layer = (options: Options): Layer.Layer<
   LiveVolume.LiveImageStore,
   VfsError.ArgumentFailure | VfsError.StoreFailure,
-  SqlClient | Crypto.Crypto | FileSystem.FileSystem | Path.Path
+  SqlClient | Digest.Digest | FileSystem.FileSystem | Path.Path
 > =>
   Layer.effect(
     LiveVolume.LiveImageStore,

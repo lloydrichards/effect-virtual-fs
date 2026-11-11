@@ -9,7 +9,7 @@ import { dual } from "effect/Function"
 import type * as PlatformError from "effect/PlatformError"
 import { makeGlob } from "./internal/glob.js"
 
-type Methods = Omit<Parameters<typeof FileSystem.make>[0], "watch">
+type Methods = Pick<FileSystem.FileSystem, Exclude<keyof Parameters<typeof FileSystem.make>[0], "watch"> | "glob">
 
 /**
  * Optional handlers with the original method arguments and scope requirements.
@@ -44,7 +44,7 @@ type Methods = Omit<Parameters<typeof FileSystem.make>[0], "watch">
  * @since 0.9.0
  */
 export type Handlers = {
-  readonly [K in keyof Omit<Parameters<typeof FileSystem.make>[0], "watch">]?: (
+  readonly [K in Exclude<keyof Parameters<typeof FileSystem.make>[0], "watch"> | "glob"]?: (
     ...args: Parameters<Methods[K]>
   ) => Effect.Effect<void, PlatformError.PlatformError, Effect.Services<ReturnType<Methods[K]>>>
 }
@@ -163,7 +163,6 @@ export const make: {
       copyFile: intercept(base.copyFile, handlers.copyFile),
       chmod: intercept(base.chmod, handlers.chmod),
       chown: intercept(base.chown, handlers.chown),
-      glob: intercept(base.glob, handlers.glob),
       link: intercept(base.link, handlers.link),
       lstat: intercept(base.lstat, handlers.lstat),
       makeDirectory: intercept(base.makeDirectory, handlers.makeDirectory),
@@ -173,6 +172,7 @@ export const make: {
       makeTempFileScoped: intercept(base.makeTempFileScoped, handlers.makeTempFileScoped),
       open: intercept(base.open, handlers.open),
       readDirectory: intercept(base.readDirectory, handlers.readDirectory),
+      readDirectoryEntries: intercept(base.readDirectoryEntries, handlers.readDirectoryEntries),
       readFile: intercept(base.readFile, handlers.readFile),
       readLink: intercept(base.readLink, handlers.readLink),
       realPath: intercept(base.realPath, handlers.realPath),
@@ -187,7 +187,14 @@ export const make: {
     })
 
     // TODO: (#304) Use FileSystem.make's derived glob after its portable implementation is released.
-    // Derive over the decorated methods so nested traversal remains observable.
-    return { fileSystem: { ...fileSystem, glob: intercept(makeGlob(fileSystem), handlers.glob) }, state }
+    // Derive over the decorated methods so nested traversal remains observable. Omitting
+    // readDirectoryEntries keeps that traversal on readDirectory, stat and readLink, as documented.
+    const glob = makeGlob({
+      readDirectory: fileSystem.readDirectory,
+      stat: fileSystem.stat,
+      readLink: fileSystem.readLink
+    })
+
+    return { fileSystem: { ...fileSystem, glob: intercept(glob, handlers.glob) }, state }
   })
 )

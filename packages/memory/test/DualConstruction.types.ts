@@ -1,5 +1,7 @@
 import type * as Vfs from "@effect-vfs/core/VirtualFileSystem"
-import type { Crypto, Effect, FileSystem, Layer, PlatformError, Sink, Stream } from "effect"
+import type { Effect, FileSystem, Layer, PlatformError, Sink, Stream } from "effect"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import { MemoryFileSystem, TreeTransfer } from "../src/index.js"
 
 export const dualAdapter = (volume: Vfs.Volume, fixture: Vfs.Fixture) => ({
@@ -7,7 +9,7 @@ export const dualAdapter = (volume: Vfs.Volume, fixture: Vfs.Fixture) => ({
   layer: MemoryFileSystem.layerFromFixture()(fixture) satisfies Layer.Layer<
     FileSystem.FileSystem,
     Vfs.VfsError,
-    Crypto.Crypto
+    Digest.Digest | SecureRandom.SecureRandom
   >
 })
 

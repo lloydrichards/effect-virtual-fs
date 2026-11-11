@@ -12,11 +12,11 @@
     "test:live": "bun --env-file=.env scripts/smoke.ts"
   },
   "dependencies": {
-    "@alchemy.run/cloudflare": "2.0.0-beta.84",
-    "@effect/platform-browser": "4.0.7",
-    "@effect/platform-node": "4.0.7",
-    "alchemy": "2.0.0-beta.84",
-    "effect": "4.0.7",
+    "@alchemy.run/cloudflare": "2.0.0-beta.85",
+    "@effect/platform-browser": "4.1.4",
+    "@effect/platform-node": "4.1.4",
+    "alchemy": "2.0.0-beta.85",
+    "effect": "4.1.4",
     "mime": "^4.1.2",
     "@effect-vfs/core": "workspace:*",
     "@effect-vfs/persistence": "workspace:*"
@@ -24,6 +24,6 @@
   "devDependencies": {
     "@repo/config-typescript": "workspace:*",
     "@types/bun": "^1.4.4",
-    "@effect/vitest": "4.0.7"
+    "@effect/vitest": "4.1.4"
   }
 }

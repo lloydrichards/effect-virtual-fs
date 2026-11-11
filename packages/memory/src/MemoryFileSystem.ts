@@ -10,7 +10,8 @@
  */
 import type * as Vfs from "@effect-vfs/core/VirtualFileSystem"
 import { VolumeId } from "@effect-vfs/core/Volume"
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import type * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import { dual } from "effect/Function"
@@ -71,11 +72,12 @@ export const isWatchOverflow: (error: PlatformError.PlatformError) => boolean = 
  * ```
  *
  * @see {@link layer} for a Layer, {@link bind} for an existing volume.
- * @see `Crypto.Crypto` for the required secure random-byte service.
+ * @see `Digest.Digest | SecureRandom.SecureRandom` for the required secure random-byte service.
  * @category constructors
  * @since 0.1.0
  */
-export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = internal.make
+export const make: Effect.Effect<FileSystem.FileSystem, never, Digest.Digest | SecureRandom.SecureRandom> =
+  internal.make
 
 /**
  * Provides a `FileSystem.FileSystem` backed by a fresh in-memory volume.
@@ -89,7 +91,7 @@ export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = 
  * Reusing this layer value within a single layer graph shares one volume through
  * layer memoization. Wrap it with `Layer.fresh` when each use needs separate
  * state. Separate graphs, such as one per test, already get separate volumes.
- * Provide `Crypto.Crypto` to build the underlying volume.
+ * Provide `Digest.Digest | SecureRandom.SecureRandom` to build the underlying volume.
  *
  * @example
  * ```ts
@@ -153,13 +155,14 @@ export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = 
  * @category layers
  * @since 0.1.0
  */
-export const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto> = internal.layer
+export const layer: Layer.Layer<FileSystem.FileSystem, never, Digest.Digest | SecureRandom.SecureRandom> =
+  internal.layer
 
 /**
  * Provides a `FileSystem.FileSystem` backed by a fresh fixture volume.
  *
  * Volume limits and caller options use the existing core types. Invalid fixtures
- * and options remain typed `VfsError` construction failures. Provide `Crypto.Crypto`
+ * and options remain typed `VfsError` construction failures. Provide `Digest.Digest | SecureRandom.SecureRandom`
  * to build the volume. This layer adds no entries; include `/tmp` in the fixture
  * when temporary-file operations need it.
  *
@@ -195,12 +198,14 @@ export const layerFromFixture: {
   (
     volumeOptions?: Vfs.VolumeOptions,
     callerOptions?: Vfs.RootCallerOptions
-  ): (fixture: Vfs.Fixture) => Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto>
+  ): (
+    fixture: Vfs.Fixture
+  ) => Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Digest.Digest | SecureRandom.SecureRandom>
   (
     fixture: Vfs.Fixture,
     volumeOptions?: Vfs.VolumeOptions,
     callerOptions?: Vfs.RootCallerOptions
-  ): Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto>
+  ): Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Digest.Digest | SecureRandom.SecureRandom>
 } = dual((args) => args.length >= 3 || Predicate.hasProperty(args[0], "entries"), internal.layerFromFixture)
 
 /**

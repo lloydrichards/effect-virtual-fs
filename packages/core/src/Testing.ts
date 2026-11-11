@@ -12,7 +12,8 @@
  *
  * @since 0.6.0
  */
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import { dual } from "effect/Function"
@@ -47,7 +48,7 @@ export interface LayerOptions {
  *
  * Every build constructs a new volume, from `fixture` when one is given. The
  * layer fails with the `VfsError` the constructor or the caller reports for
- * invalid options. Provide `Crypto.Crypto` to build the volume.
+ * invalid options. Provide `Digest.Digest | SecureRandom.SecureRandom` to build the volume.
  *
  * @example
  * ```ts
@@ -71,7 +72,9 @@ export interface LayerOptions {
  * @category layers
  * @since 0.6.0
  */
-export const layer = (options?: LayerOptions): Layer.Layer<Volume | Caller, VfsError, Crypto.Crypto> =>
+export const layer = (
+  options?: LayerOptions
+): Layer.Layer<Volume | Caller, VfsError, Digest.Digest | SecureRandom.SecureRandom> =>
   Caller.layer(options?.caller).pipe(
     Layer.provideMerge(
       options?.fixture === undefined

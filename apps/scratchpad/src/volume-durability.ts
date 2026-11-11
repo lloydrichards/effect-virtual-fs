@@ -5,7 +5,9 @@
  */
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { Schema } from "effect"
-import type { Crypto, Effect, Order, PlatformError } from "effect"
+import type { Effect, Order, PlatformError } from "effect"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 
 /**
  * Option A: one ordered scalar vocabulary.
@@ -220,7 +222,7 @@ export namespace UuidVolumeTokens {
 export declare const makeWithCrypto: (options?: VolumeIdentityOptions) => Effect.Effect<
   SeparateVolumeIdentityFacts,
   PlatformError.PlatformError,
-  Crypto.Crypto
+  Digest.Digest | SecureRandom.SecureRandom
 >
 
 /** Option B: construction keeps its current type but assumes Web Crypto exists. */
@@ -244,7 +246,7 @@ export declare const makeWithTokenSource: (options?: VolumeIdentityOptions) => E
 export declare const makeVolumeWithSelectedEntropy: (options?: VolumeIdentityOptions) => Effect.Effect<
   SeparateVolumeIdentityFacts,
   PlatformError.PlatformError,
-  Crypto.Crypto
+  Digest.Digest | SecureRandom.SecureRandom
 >
 
 /** Option A: construction-time facts are immutable plain fields. */
@@ -342,7 +344,7 @@ export namespace ProposedPublicApi {
 
   export declare const make: (
     options?: VolumeOptions
-  ) => Effect.Effect<Volume, Vfs.VfsError | PlatformError.PlatformError, Crypto.Crypto>
+  ) => Effect.Effect<Volume, Vfs.VfsError | PlatformError.PlatformError, Digest.Digest | SecureRandom.SecureRandom>
 
   export declare const fromSnapshot: (
     snapshot: Vfs.Snapshot,
@@ -350,6 +352,6 @@ export namespace ProposedPublicApi {
   ) => Effect.Effect<
     Volume,
     Vfs.VfsError | PlatformError.PlatformError,
-    Crypto.Crypto
+    Digest.Digest | SecureRandom.SecureRandom
   >
 }

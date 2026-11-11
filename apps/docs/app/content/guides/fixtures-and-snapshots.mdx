@@ -182,8 +182,8 @@ one file in a large tree is one small change. The base and target are named by s
 numbers and storage order but include hard-link groups. Deltas encoded by releases before 0.6.0 no longer decode;
 compute them again from their snapshots.
 
-Delta creation, inspection, and application require Effect's `Crypto.Crypto` service. The example provides the Bun
-implementation at the program boundary. Use the corresponding official crypto layer for another runtime.
+Delta creation, inspection, and application require Effect's `Digest` and `SecureRandom` services. The example provides
+the Bun implementation at the program boundary. Use the corresponding official crypto layer for another runtime.
 
 Use [`SnapshotDeltaFromBytes`](/api/core/virtual-file-system#snapshotdeltafrombytes) when the delta itself must cross a
 storage or transport boundary. Its default and constrained policies apply finite limits to the complete delta

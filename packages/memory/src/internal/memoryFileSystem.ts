@@ -8,7 +8,8 @@
  * @since 0.1.0
  */
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
@@ -70,7 +71,7 @@ export const layerFromFixture = (
   fixture: Vfs.Fixture,
   volumeOptions?: Vfs.VolumeOptions,
   callerOptions?: Vfs.RootCallerOptions
-): Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto> =>
+): Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Digest.Digest | SecureRandom.SecureRandom> =>
   Layer.effect(
     FileSystem.FileSystem,
     Effect.gen(function*() {
@@ -81,11 +82,16 @@ export const layerFromFixture = (
   )
 
 /** @internal */
-export const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto> = Effect.gen(function*() {
-  const volume = yield* Vfs.fromFixture({ entries: [{ kind: "directory", path: "/tmp" }] })
+export const make: Effect.Effect<FileSystem.FileSystem, never, Digest.Digest | SecureRandom.SecureRandom> = Effect.gen(
+  function*() {
+    const volume = yield* Vfs.fromFixture({ entries: [{ kind: "directory", path: "/tmp" }] })
 
-  return yield* bind(volume)
-}).pipe(Effect.orDie)
+    return yield* bind(volume)
+  }
+).pipe(Effect.orDie)
 
 /** @internal */
-export const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto> = Layer.effect(FileSystem.FileSystem, make)
+export const layer: Layer.Layer<FileSystem.FileSystem, never, Digest.Digest | SecureRandom.SecureRandom> = Layer.effect(
+  FileSystem.FileSystem,
+  make
+)

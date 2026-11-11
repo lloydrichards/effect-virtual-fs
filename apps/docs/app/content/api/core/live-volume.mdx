@@ -57,10 +57,10 @@ const program = Effect.gen(function* () {
 ```ts
 declare const makeRegistry: <K, E, R>(
   options: RegistryOptions<K, E, R>
-) => Effect.Effect<Registry<K, E>, ArgumentFailure, R | Crypto.Crypto | Scope.Scope>
+) => Effect.Effect<Registry<K, E>, ArgumentFailure, R | Digest.Digest | SecureRandom.SecureRandom | Scope.Scope>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L193)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L194)
 
 Since v0.9.0
 
@@ -68,15 +68,17 @@ Since v0.9.0
 
 Open a live volume using the supplied store Layer. The caller owns a Scope;
 the volume shuts down before that Layer releases its storage resource.
-Requires `Crypto.Crypto` to mint a new volume or incarnation.
+Requires `Digest.Digest | SecureRandom.SecureRandom` to mint a new volume or incarnation.
 
 **Signature**
 
 ```ts
-declare const open: (options: Options) => Effect.Effect<Volume, VfsError, LiveImageStore | Scope.Scope | Crypto.Crypto>
+declare const open: (
+  options: Options
+) => Effect.Effect<Volume, VfsError, LiveImageStore | Scope.Scope | Digest.Digest | SecureRandom.SecureRandom>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L72)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L73)
 
 Since v0.4.0
 
@@ -95,10 +97,10 @@ declare const openImage: (
   maxImageBytes: ByteSize.ByteSize,
   commit: (image: Uint8Array) => Effect.Effect<CommitOutcome>,
   durability?: VolumeDurability
-) => Effect.Effect<ImageSession, VfsError, Crypto.Crypto>
+) => Effect.Effect<ImageSession, VfsError, Digest.Digest | SecureRandom.SecureRandom>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L302)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L303)
 
 Since v0.4.0
 
@@ -106,15 +108,17 @@ Since v0.4.0
 
 Construct a versioned image for a new, empty volume.
 Store this image before opening it for mutation.
-Requires `Crypto.Crypto` for secure volume identifiers and reference keys.
+Requires `Digest.Digest | SecureRandom.SecureRandom` for secure volume identifiers and reference keys.
 
 **Signature**
 
 ```ts
-declare const prepareEmptyImage: (options?: VolumeOptions) => Effect.Effect<Uint8Array, VfsError, Crypto.Crypto>
+declare const prepareEmptyImage: (
+  options?: VolumeOptions
+) => Effect.Effect<Uint8Array, VfsError, Digest.Digest | SecureRandom.SecureRandom>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L283)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L284)
 
 Since v0.4.0
 
@@ -139,7 +143,7 @@ type CommitOutcome =
     }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L33)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L34)
 
 Since v0.4.0
 
@@ -165,7 +169,7 @@ export interface ImageSession {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L270)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L271)
 
 Since v0.4.0
 
@@ -182,7 +186,7 @@ export interface Options {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L59)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L60)
 
 Since v0.4.0
 
@@ -200,7 +204,7 @@ export interface Registry<K, E = never> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L131)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L132)
 
 Since v0.9.0
 
@@ -224,7 +228,7 @@ export interface RegistryOptions<K, E = never, R = never> {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L144)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L145)
 
 Since v0.9.0
 
@@ -242,6 +246,6 @@ classify ambiguous commits as `unknown`.
 declare class LiveImageStore
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L46)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/core/src/LiveVolume.ts#L47)
 
 Since v0.4.0

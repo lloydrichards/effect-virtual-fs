@@ -56,7 +56,7 @@ sources:
   - id: winfsp
     resource: https://github.com/winfsp/winfsp/blob/master/inc/winfsp/winfsp.h
     title: WinFsp volume parameters and volume info
-generated: { by: codex/okf, at: "2026-09-26T21:45:00Z" }
+generated: { by: codex/okf, at: "2026-11-11T20:35:41+00:00" }
 ---
 
 # Volume durability and usage facts
@@ -73,7 +73,7 @@ A writable network adapter must state how durable an acknowledged write is and h
 
 ## Consequences
 
-- volume durability and identity implements the durability, identity, and incarnation portion of this decision. Volume constructors mint identity and incarnation from the required `Crypto.Crypto` service; the [public API decision](public-api-targets-services-and-errors.md "refined by") records how the later reference-key requirement superseded its optional-Crypto choice. Ordinary built-in volumes report `memory-only`. A live image provider can explicitly supply a qualified tier; omission remains `memory-only`. The R2 test app asserts `survives-power-loss` only for a verified Cloudflare R2 endpoint and one gateway, based on Cloudflare's successful-write contract.[^implementation-issue][^evidence]
+- volume durability and identity implements the durability, identity, and incarnation portion of this decision. Volume constructors mint identity and incarnation from the required `SecureRandom.SecureRandom` service (`Crypto.Crypto` before Effect 4.1); the [public API decision](public-api-targets-services-and-errors.md "refined by") records how the later reference-key requirement superseded its optional-Crypto choice. Ordinary built-in volumes report `memory-only`. A live image provider can explicitly supply a qualified tier; omission remains `memory-only`. The R2 test app asserts `survives-power-loss` only for a verified Cloudflare R2 endpoint and one gateway, based on Cloudflare's successful-write contract.[^implementation-issue][^evidence]
 - volume limits and usage implements the limits and live usage portion of this decision.[^capacity-issue]
 - The facts extend the [capacity and limits contract](../../contracts/capacity-and-limits.md "extends") and [volume capacity accounting](volume-capacity-accounting.md "extends"). They preserve [snapshot-local file identity](snapshot-local-file-identity.md "constrained by"): identity and incarnation are runtime state excluded from snapshot bytes, and a restored volume always mints a new incarnation.
 - NFS exposes `maxfilesize` on every export and the space and file-count attributes when the corresponding volume limit is bounded. The current read-only profile can report these facts. `GETATTR` omits unsupported requested attributes under RFC 8881 Section 18.7.3; `VERIFY` and `NVERIFY` answer `NFS4ERR_ATTRNOTSUPP` for them.

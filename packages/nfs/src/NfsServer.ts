@@ -11,7 +11,8 @@
 import { VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as ByteSize from "effect/ByteSize"
 import * as Context from "effect/Context"
-import * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Data from "effect/Data"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -556,7 +557,7 @@ const make = (
 ): Effect.Effect<
   NfsServer["Service"],
   ConfigurationError | NfsServerError,
-  Scope.Scope | SocketServer.SocketServer | Crypto.Crypto
+  Scope.Scope | SocketServer.SocketServer | Digest.Digest | SecureRandom.SecureRandom
 > =>
   Effect.gen(function*() {
     const config = yield* decodeConfig(options)
@@ -656,10 +657,9 @@ const make = (
       }
     }
 
-    // TODO: (#304) Replace random generation with SecureRandom when released; retain the generation bytes.
-    const crypto = yield* Crypto.Crypto
+    const secureRandom = yield* SecureRandom.SecureRandom
 
-    const generation = yield* crypto.randomBytes(16).pipe(Effect.orDie)
+    const generation = yield* secureRandom.randomBytes(16)
 
     const storageGeneration = Result.getOrThrow(Hex.decode(options.volume.incarnation))
     const export_ = makeExport(options.volume, options.caller ?? volumeCaller, limits)
@@ -768,6 +768,6 @@ export class NfsServer extends Context.Service<NfsServer, {
   ): Layer.Layer<
     NfsServer,
     ConfigurationError | NfsServerError,
-    SocketServer.SocketServer | Crypto.Crypto
+    SocketServer.SocketServer | Digest.Digest | SecureRandom.SecureRandom
   > => Layer.effect(this, make(options))
 }

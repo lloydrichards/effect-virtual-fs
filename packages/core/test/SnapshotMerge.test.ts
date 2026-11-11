@@ -1,6 +1,8 @@
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, it } from "@effect/vitest"
-import { type Crypto, Effect, Match, Option, Schema } from "effect"
+import { Effect, Match, Option, Schema } from "effect"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import { BytePath, VirtualFileSystem as Vfs } from "../src/index.js"
 
 const encoder = new TextEncoder()
@@ -83,7 +85,7 @@ const merge = Effect.fnUntraced(function*(
   ours: Edit,
   theirs: Edit,
   options?: Vfs.MergeOptions,
-  source: Effect.Effect<Vfs.Volume, Vfs.VfsError, Crypto.Crypto> = fixture
+  source: Effect.Effect<Vfs.Volume, Vfs.VfsError, Digest.Digest | SecureRandom.SecureRandom> = fixture
 ) {
   const base = yield* (yield* source).snapshot
 

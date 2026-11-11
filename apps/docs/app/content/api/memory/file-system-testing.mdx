@@ -169,6 +169,16 @@ const handlers: FileSystemTesting.Handlers = {
 
 ```ts
 export type Handlers = {
+  readonly glob?: (
+    pattern: string,
+    options?:
+      | {
+          readonly root?: string | undefined
+          readonly exclude?: ReadonlyArray<string> | undefined
+          readonly dot?: boolean | undefined
+        }
+      | undefined,
+  ) => Effect.Effect<void, PlatformError.PlatformError, never>
   readonly access?: (
     path: string,
     options?:
@@ -201,12 +211,6 @@ export type Handlers = {
     path: string,
     uid: number,
     gid: number,
-  ) => Effect.Effect<void, PlatformError.PlatformError, never>
-  readonly glob?: (
-    pattern: string,
-    options?:
-      | { readonly root?: string | undefined; readonly exclude?: ReadonlyArray<string> | undefined }
-      | undefined,
   ) => Effect.Effect<void, PlatformError.PlatformError, never>
   readonly link?: (
     fromPath: string,
@@ -257,6 +261,9 @@ export type Handlers = {
   readonly readDirectory?: (
     path: string,
     options?: { readonly recursive?: boolean | undefined } | undefined,
+  ) => Effect.Effect<void, PlatformError.PlatformError, never>
+  readonly readDirectoryEntries?: (
+    path: string,
   ) => Effect.Effect<void, PlatformError.PlatformError, never>
   readonly readFile?: (path: string) => Effect.Effect<void, PlatformError.PlatformError, never>
   readonly readLink?: (path: string) => Effect.Effect<void, PlatformError.PlatformError, never>

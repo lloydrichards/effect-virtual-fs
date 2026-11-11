@@ -137,7 +137,9 @@ export const bindOperations = (
       }
     })
 
-    return FileSystem.make({
+    const readDirectoryEntries = makeDirectoryEntries(caller)
+
+    const fileSystem = FileSystem.make({
       access: Effect.fnUntraced(function*(path, options) {
         const requested = (options?.readable === true ? 4 : 0) | (options?.writable === true ? 2 : 0)
 
@@ -250,9 +252,15 @@ export const bindOperations = (
           Effect.map((value) => value.path)
         ),
       watch,
+      readDirectoryEntries
+    })
+
+    // TODO: (#304) Use FileSystem.make's derived glob once it matches this adapter's portable glob; see glob.ts.
+    return {
+      ...fileSystem,
       glob: makeGlob({
         readDirectory,
-        readDirectoryEntries: makeDirectoryEntries(caller),
+        readDirectoryEntries,
         stat: (path) =>
           caller.stat(path).pipe(
             Effect.mapError((error) => toPlatformError(error, "stat", path)),
@@ -264,5 +272,5 @@ export const bindOperations = (
             Effect.mapError((error) => toPlatformError(error, "readLink", path))
           )
       })
-    })
+    }
   })

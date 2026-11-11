@@ -80,7 +80,7 @@ declare const bind: {
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L262)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L267)
 
 Since v0.1.0
 
@@ -120,7 +120,7 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 declare const bindCaller: (caller: Vfs.Caller) => Effect.Effect<FileSystem.FileSystem>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L298)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L303)
 
 Since v0.9.0
 
@@ -155,15 +155,15 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 **See**
 
 - `layer` for a Layer, `bind` for an existing volume.
-- `Crypto.Crypto` for the required secure random-byte service.
+- `Digest.Digest | SecureRandom.SecureRandom` for the required secure random-byte service.
 
 **Signature**
 
 ```ts
-declare const make: Effect.Effect<FileSystem.FileSystem, never, Crypto.Crypto>
+declare const make: Effect.Effect<FileSystem.FileSystem, never, Digest.Digest | SecureRandom.SecureRandom>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L78)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L79)
 
 Since v0.1.0
 
@@ -197,7 +197,7 @@ console.log(MemoryFileSystem.isWatchOverflow(error))
 declare const isWatchOverflow: (error: PlatformError.PlatformError) => boolean
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L45)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L46)
 
 Since v0.4.0
 
@@ -216,7 +216,7 @@ Use when you need to replace the host filesystem in an Effect program.
 Reusing this layer value within a single layer graph shares one volume through
 layer memoization. Wrap it with `Layer.fresh` when each use needs separate
 state. Separate graphs, such as one per test, already get separate volumes.
-Provide `Crypto.Crypto` to build the underlying volume.
+Provide `Digest.Digest | SecureRandom.SecureRandom` to build the underlying volume.
 
 **Example**
 
@@ -284,10 +284,10 @@ Effect.runPromise(program.pipe(Effect.provide(NodeCrypto.layer))).then(console.l
 **Signature**
 
 ```ts
-declare const layer: Layer.Layer<FileSystem.FileSystem, never, Crypto.Crypto>
+declare const layer: Layer.Layer<FileSystem.FileSystem, never, Digest.Digest | SecureRandom.SecureRandom>
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L156)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L158)
 
 Since v0.1.0
 
@@ -296,7 +296,7 @@ Since v0.1.0
 Provides a `FileSystem.FileSystem` backed by a fresh fixture volume.
 
 Volume limits and caller options use the existing core types. Invalid fixtures
-and options remain typed `VfsError` construction failures. Provide `Crypto.Crypto`
+and options remain typed `VfsError` construction failures. Provide `Digest.Digest | SecureRandom.SecureRandom`
 to build the volume. This layer adds no entries; include `/tmp` in the fixture
 when temporary-file operations need it.
 
@@ -336,15 +336,17 @@ declare const layerFromFixture: {
   (
     volumeOptions?: Vfs.VolumeOptions,
     callerOptions?: Vfs.RootCallerOptions
-  ): (fixture: Vfs.Fixture) => Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto>
+  ): (
+    fixture: Vfs.Fixture
+  ) => Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Digest.Digest | SecureRandom.SecureRandom>
   (
     fixture: Vfs.Fixture,
     volumeOptions?: Vfs.VolumeOptions,
     callerOptions?: Vfs.RootCallerOptions
-  ): Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Crypto.Crypto>
+  ): Layer.Layer<FileSystem.FileSystem, Vfs.VfsError, Digest.Digest | SecureRandom.SecureRandom>
 }
 ```
 
-[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L194)
+[Source](https://github.com/lloydrichards/effect-virtual-fs/blob/main/packages/memory/src/MemoryFileSystem.ts#L197)
 
 Since v0.8.0

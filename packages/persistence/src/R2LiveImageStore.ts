@@ -9,7 +9,7 @@
 import { GetObjectCommand, PutObjectCommand, type S3Client, S3ServiceException } from "@aws-sdk/client-s3"
 import { LiveVolume, type VfsError, type VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import { ByteSize, Effect, Exit, Layer, Ref } from "effect"
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
 import { dual } from "effect/Function"
 import { makeDigest, storeFailures } from "./internal/storeSupport.js"
 
@@ -199,7 +199,7 @@ interface Ownership {
  */
 export const layer = (
   options: Options
-): Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Crypto.Crypto> =>
+): Layer.Layer<LiveVolume.LiveImageStore, VfsError.ArgumentFailure, Digest.Digest> =>
   Layer.effect(
     LiveVolume.LiveImageStore,
     Effect.gen(function*() {

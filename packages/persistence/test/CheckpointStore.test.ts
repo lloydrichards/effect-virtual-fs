@@ -6,7 +6,8 @@ import * as NodePath from "@effect/platform-node-shared/NodePath"
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { assert, it } from "@effect/vitest"
 import { ByteSize, Effect, FileSystem, Layer, Path, Result, Stream } from "effect"
-import type * as Crypto from "effect/Crypto"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { SafeIntegers, SqlClient } from "effect/sql/SqlClient"
 import { CheckpointError, CheckpointStore } from "../src/index.js"
@@ -32,10 +33,10 @@ const migrated = Layer.effectDiscard(CheckpointStore.migrate).pipe(
 
 // A test that alters the table or its migration state takes a database of its own. `Layer.fresh` keeps it from
 // reusing the suite's database through the shared memo map.
-const freshDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient | Crypto.Crypto>) =>
+const freshDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient | Digest.Digest | SecureRandom.SecureRandom>) =>
   effect.pipe(Effect.provide(Layer.fresh(migrated)))
 
-const unmigratedDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient | Crypto.Crypto>) =>
+const unmigratedDatabase = <A, E>(effect: Effect.Effect<A, E, SqlClient | Digest.Digest | SecureRandom.SecureRandom>) =>
   effect.pipe(Effect.provide(Layer.fresh(SqliteClient.layer({ filename: ":memory:" }))))
 
 const files = Layer.merge(NodeFileSystem.layer, NodePath.layer)

@@ -5,7 +5,7 @@
  */
 import * as ByteSize from "effect/ByteSize"
 import * as Clock from "effect/Clock"
-import * as Crypto from "effect/Crypto"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
@@ -107,8 +107,7 @@ const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
 })
 
 const randomHex128 = Effect.gen(function*() {
-  // TODO: (#304) Use SecureRandom for construction once its service is released; retain 16-byte IDs.
-  const crypto = yield* Crypto.Crypto
+  const crypto = yield* SecureRandom.SecureRandom
 
   return Hex.encode(yield* crypto.randomBytes(16))
 }).pipe(Effect.orDie)

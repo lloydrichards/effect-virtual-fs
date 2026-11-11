@@ -32,7 +32,7 @@ sources:
   - id: mesa
     resource: https://docs.mesa.dev/content/reference/ts/bookmarks-merge.md
     title: Mesa merge with conflicts as data and path resolutions
-generated: { by: claude/okf, at: 2026-10-02T20:00:00+02:00 }
+generated: { by: claude/okf, at: 2026-11-11T20:35:41+00:00 }
 ---
 
 # Snapshot delta merge
@@ -63,7 +63,7 @@ Hard links follow the node. Each side's final tree says which names share a node
 
 ## Placement and evidence
 
-The operation lives in `VirtualFileSystem.ts` beside `diffSnapshots` and `applySnapshotDelta`; the schemas live in `SnapshotDelta.ts`; the engine in `internal/snapshotMerge.ts` reuses the delta fold, limit checks and identity hashing. It requires `Crypto.Crypto`, takes `limits` defaulting to `SnapshotDeltaLimits.default`, and ships in 0.8.0 as a minor change. Evidence is a row-per-pair conflict table over two fixtures and the repository's first property tests, six seeded laws: identity with the empty delta, idempotence, mirrored results when the sides swap, resolving every conflict with either side or base yields an applicable delta, one-sided paths are taken as left, and conflicted paths never appear in the result.[^tests]
+The operation lives in `VirtualFileSystem.ts` beside `diffSnapshots` and `applySnapshotDelta`; the schemas live in `SnapshotDelta.ts`; the engine in `internal/snapshotMerge.ts` reuses the delta fold, limit checks and identity hashing. It requires `Digest.Digest | SecureRandom.SecureRandom`, takes `limits` defaulting to `SnapshotDeltaLimits.default`, and ships in 0.8.0 as a minor change. Evidence is a row-per-pair conflict table over two fixtures and the repository's first property tests, six seeded laws: identity with the empty delta, idempotence, mirrored results when the sides swap, resolving every conflict with either side or base yields an applicable delta, one-sided paths are taken as left, and conflicted paths never appear in the result.[^tests]
 
 ## Follow-up
 

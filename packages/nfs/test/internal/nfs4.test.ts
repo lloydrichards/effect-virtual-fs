@@ -1,8 +1,10 @@
 import { LiveVolume, Testing, VirtualFileSystem as Vfs } from "@effect-vfs/core"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { assert, it, live as liveTest } from "@effect/vitest"
-import { type Crypto, Deferred, Effect, Exit, Fiber, Layer, Option, Result, Scope } from "effect"
+import { Deferred, Effect, Exit, Fiber, Layer, Option, Result, Scope } from "effect"
 import * as ByteSize from "effect/ByteSize"
+import type * as Digest from "effect/crypto/Digest"
+import type * as SecureRandom from "effect/crypto/SecureRandom"
 import type * as Duration from "effect/Duration"
 import * as Predicate from "effect/Predicate"
 import * as TestClock from "effect/testing/TestClock"
@@ -44,8 +46,11 @@ import {
 import { ACCESS_ALL, callAs, decode, type DecodedReply, fattr, run, sys } from "../support/readOnlyProfile.js"
 
 describe("Backchannel", () => {
-  const live = <E>(name: string, body: () => Effect.Effect<void, E, Crypto.Crypto | Scope.Scope>, timeout?: number) =>
-    liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
+  const live = <E>(
+    name: string,
+    body: () => Effect.Effect<void, E, Digest.Digest | SecureRandom.SecureRandom | Scope.Scope>,
+    timeout?: number
+  ) => liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
 
   it.layer(NodeCrypto.layer)("NFSv4.1 Backchannel", (it) => {
     const connectionHandler = Effect.flatMap(Vfs.Caller, (caller) => makeHandler(caller))
@@ -4015,8 +4020,11 @@ describe("Filehandles", () => {
 })
 
 describe("Lifecycle", () => {
-  const live = <E>(name: string, body: () => Effect.Effect<void, E, Crypto.Crypto | Scope.Scope>, timeout?: number) =>
-    liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
+  const live = <E>(
+    name: string,
+    body: () => Effect.Effect<void, E, Digest.Digest | SecureRandom.SecureRandom | Scope.Scope>,
+    timeout?: number
+  ) => liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
 
   it.layer(NodeCrypto.layer)("NFSv4.1 Lifecycle", (it) => {
     it.effect("should sweep expired clients before applying capacity limits and close their opens when expired clients count toward capacity", () =>
@@ -6480,8 +6488,11 @@ describe("Namespace", () => {
 })
 
 describe("OpenRead", () => {
-  const live = <E>(name: string, body: () => Effect.Effect<void, E, Crypto.Crypto | Scope.Scope>, timeout?: number) =>
-    liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
+  const live = <E>(
+    name: string,
+    body: () => Effect.Effect<void, E, Digest.Digest | SecureRandom.SecureRandom | Scope.Scope>,
+    timeout?: number
+  ) => liveTest(name, () => body().pipe(Effect.provide(NodeCrypto.layer)), timeout)
 
   it.layer(NodeCrypto.layer)("NFSv4.1 OpenRead", (it) => {
     it.effect("should report read-only access and non-atomic name resolution for OPEN when OPEN names a path on a read-only export", () =>
