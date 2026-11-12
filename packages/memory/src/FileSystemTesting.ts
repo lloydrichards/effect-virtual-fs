@@ -186,7 +186,7 @@ export const make: {
       watch: base.watch
     })
 
-    // TODO: (#304) Use FileSystem.make's derived glob after its portable implementation is released.
+    // TODO: (#304) Use FileSystem.make's derived glob once it preserves the errors documented in glob.ts.
     // Derive over the decorated methods so nested traversal remains observable. Omitting
     // readDirectoryEntries keeps that traversal on readDirectory, stat and readLink, as documented.
     const glob = makeGlob({

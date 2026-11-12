@@ -110,7 +110,7 @@ const randomHex128 = Effect.gen(function*() {
   const crypto = yield* SecureRandom.SecureRandom
 
   return Hex.encode(yield* crypto.randomBytes(16))
-}).pipe(Effect.orDie)
+})
 
 /** @internal */
 export const makeVolume = Effect.fnUntraced(function*(
