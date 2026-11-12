@@ -52,7 +52,6 @@ const makeClient = () => {
 const layer = (client: R2LiveImageStore.R2Client) =>
   R2LiveImageStore.layer({ client, key: "volume/live", maxImageBytes: ByteSize.kilobytes(64) })
 
-// The stores digest images with Crypto; LiveVolume.open itself needs none.
 it.layer(NodeCrypto.layer)("R2 live image store", (it) => {
   for (const synchronousThrow of [false, true]) {
     it.effect(`should preserve pre-write digest ${synchronousThrow ? "throws" : "defects"} without disabling the live volume`, () =>

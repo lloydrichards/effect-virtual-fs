@@ -47,12 +47,27 @@ const watchEvents = Effect.fnUntraced(function*(
   return Array.from(yield* Fiber.join(events))
 })
 
-// The test layer supplies platform Crypto to each volume it constructs.
 const memoryLayer = MemoryFileSystem.layer.pipe(Layer.provideMerge(NodeCrypto.layer))
 
 FileSystemTest.suite("memory", memoryLayer)
 
 it.layer(memoryLayer)("FileSystem (memory-specific)", (it) => {
+  it.effect("should list bare names and their own kinds without following symbolic links", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.makeDirectory("/entries/directory", { recursive: true })
+      yield* fs.writeFileString("/entries/file", "content")
+      yield* fs.symlink("directory", "/entries/link")
+      yield* fs.symlink("missing", "/entries/dangling")
+
+      assert.sameDeepMembers(Array.from(yield* fs.readDirectoryEntries("/entries")), [
+        { name: "dangling", type: "SymbolicLink" },
+        { name: "directory", type: "Directory" },
+        { name: "file", type: "File" },
+        { name: "link", type: "SymbolicLink" }
+      ])
+    }))
+
   describe("POSIX filesystem profile", () => {
     it.effect("should accept the existing root when creating directories recursively", () =>
       Effect.gen(function*() {

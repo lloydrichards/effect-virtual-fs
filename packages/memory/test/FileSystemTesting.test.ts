@@ -50,6 +50,34 @@ const writeCounter = Effect.fnUntraced(function*() {
 })
 
 it.layer(memoryLayer)("FileSystemTesting", (it) => {
+  it.effect("should observe or reject typed listings independently of name-only listings", () =>
+    Effect.gen(function*() {
+      const base = yield* FileSystem.FileSystem
+      yield* base.makeDirectory("/entries")
+      yield* base.symlink("missing", "/entries/link")
+      const calls = yield* Ref.make<Array<string>>([])
+
+      const { fileSystem } = yield* FileSystemTesting.make(base, () =>
+        Effect.succeed({
+          state: calls,
+          handlers: { readDirectoryEntries: (path) => Ref.update(calls, (previous) => [...previous, path]) }
+        }))
+
+      assert.deepStrictEqual(yield* fileSystem.readDirectoryEntries("/entries"), [
+        { name: "link", type: "SymbolicLink" }
+      ])
+      assert.deepStrictEqual(yield* fileSystem.readDirectory("/entries"), ["link"])
+      assert.deepStrictEqual(yield* Ref.get(calls), ["/entries"])
+
+      const { fileSystem: rejecting } = yield* FileSystemTesting.make(
+        base,
+        () => Effect.succeed({ handlers: { readDirectoryEntries: () => Effect.fail(injected) }, state: undefined })
+      )
+
+      assert.strictEqual(yield* Effect.flip(rejecting.readDirectoryEntries("/entries")), injected)
+      assert.deepStrictEqual(yield* rejecting.readDirectory("/entries"), ["link"])
+    }))
+
   it.effect("should intercept lstat independently of stat and preserve symlink metadata", () =>
     Effect.gen(function*() {
       const base = yield* FileSystem.FileSystem

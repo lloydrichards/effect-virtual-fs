@@ -148,7 +148,7 @@ export const nodeDigest = Effect.fnUntraced(function*(node: Node, childDigest: (
   // Reject oversized nodes before allocating their preimage.
   yield* meter.charge(planned.length)
 
-  return yield* crypto.digest(Digest.sha256, preimage(node, planned, childDigest)).pipe(Effect.orDie)
+  return yield* crypto.digest(Digest.sha256, preimage(node, planned, childDigest))
 })
 
 /** @internal */
@@ -172,7 +172,7 @@ export const identityDigest = Effect.fnUntraced(
       for (const path of group) offset = frame(out, offset, path)
     }
 
-    return yield* crypto.digest(Digest.sha256, out).pipe(Effect.orDie)
+    return yield* crypto.digest(Digest.sha256, out)
   }
 )
 

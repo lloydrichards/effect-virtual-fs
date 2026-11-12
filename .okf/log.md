@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-11-12
+
+- Record why Effect 4.1.4's derived glob cannot replace the local implementation: it suppresses `BadResource` and unexpected `Unknown` readLink failures. Retain the adapter's error propagation and decorated traversal as replacement conditions.
+
 ## 2026-11-11
 
 - Move to Effect 4.1: `Crypto` is split into `Digest` and `SecureRandom`, so identity, epoch and secret draws name `SecureRandom` and hashing names `Digest`. Restrict peers to the 4.1 patch line, supply `readDirectoryEntries` to `FileSystem.make` while keeping the portable glob, and requalify the host adapter on 4.1.4.

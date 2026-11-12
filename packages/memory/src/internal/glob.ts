@@ -28,8 +28,9 @@ SOFTWARE.
  * @internal
  * @since 0.9.0
  */
-// TODO: (#304) Replace this module with Effect's derived FileSystem.glob when released;
-// retain the adapter behavior tests and explicit FileSystemTesting glob handler.
+// TODO: (#304) Replace this module when Effect's derived glob propagates closed-caller BadResource
+// and unexpected readLink failures. Effect 4.1.4 suppresses these as missing paths or non-links.
+// Retain the adapter behavior tests and explicit FileSystemTesting glob handler.
 import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"

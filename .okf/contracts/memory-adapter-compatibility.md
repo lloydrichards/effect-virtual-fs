@@ -57,7 +57,7 @@ sources:
   - id: overlay-binding
     resource: ../../packages/memory/test/MemoryFileSystem.test.ts
     title: Overlay volume binding tests
-generated: { by: codex/okf, at: "2026-11-11T20:35:41+00:00" }
+generated: { by: codex/okf, at: "2026-11-12T07:32:00+00:00" }
 ---
 
 # Memory adapter compatibility
@@ -77,6 +77,8 @@ Seeks before the start fail with `BadArgument` without changing the cursor, and
 Recursive `makeDirectory`, `readDirectory`, and `remove` use the core's [recursive tree operations](../decisions/core/recursive-tree-operations.md "uses"). Recursive listings hold no directory handle and refresh no access times because the core walk writes nothing. Portable glob instead performs ordinary directory reads, which can refresh access times under relatime.
 
 The internal `glob.ts` adapts Effect's MIT-licensed portable algorithm at `5c4b648deaf19676eb81c5f7e452b5bd5c3ae344`. It preserves Unicode matching, literal malformed brackets, normalized and absolute patterns, depth-first order, exclusion before reads, and skipping unreadable wildcard-reached directories. Named unreadable directories still fail. A denied readLink probe propagates its error; it never establishes that an entry is not a symlink or permits globstar descent. Its typed-entry reader observes each entry's own kind through its reference, including dangling symlinks. FileSystemTesting derives glob over the decorated readDirectory/stat/readLink methods and preserves the explicit glob handler.
+
+Effect 4.1.4's derived glob cannot yet replace this module without changing errors. Its `isMissing` treats every `BadResource` as a missing path, and `isNotLink` treats every `Unknown` readLink failure as a non-link. Replacement requires preserving closed-caller and invalid-handle failures and distinguishing unexpected readLink failures from native non-link errors, while retaining decorated traversal and the explicit glob handler. Compare the installed `effect/src/internal/glob.ts` with the adapter behavior tests before removing the local implementation.
 
 The existing fixture constructors forward execution: sync to the shared core engine; make/layer retain cooperative defaults. Public sync memory and private sync engine bindings run the shared FileSystem corpus. The adapter still returns Effects and does not certify arbitrary derived user workflows as synchronous. Native Node provider qualification remains separate.
 
