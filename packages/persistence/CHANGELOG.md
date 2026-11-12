@@ -1,5 +1,18 @@
 # @effect-vfs/persistence
 
+## 0.11.0
+
+### Minor Changes
+
+- [#326](https://github.com/lloydrichards/effect-virtual-fs/pull/326) [`d29c273`](https://github.com/lloydrichards/effect-virtual-fs/commit/d29c273929be4c8be69633156319ad5be45b1b0f) Thanks [@wikirik-agent](https://github.com/wikirik-agent)! - Require Effect `~4.1.4`. Core, memory and NFS replace `Crypto` requirements with `Digest` and `SecureRandom`; persistence stores require `Digest`. Existing `NodeCrypto.layer` and `BunCrypto.layer` wiring continues to work.
+
+  The memory filesystem and testing decorator now expose `readDirectoryEntries`.
+
+### Patch Changes
+
+- Updated dependencies [[`d29c273`](https://github.com/lloydrichards/effect-virtual-fs/commit/d29c273929be4c8be69633156319ad5be45b1b0f)]:
+  - @effect-vfs/core@0.11.0
+
 ## 0.10.0
 
 ### Minor Changes
