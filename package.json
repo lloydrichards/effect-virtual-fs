@@ -29,7 +29,8 @@
     "lint:effects": "bash scripts/lint-effects.sh",
     "version-packages": "changeset version",
     "test:node": "bun run --cwd packages/node test && bun run --cwd packages/node test:consumer",
-    "test:node-preview": "turbo run build && bun run --cwd packages/node-preview test && bun run --cwd packages/node-preview test:mounted"
+    "test:node-preview": "turbo run build && bun run --cwd packages/node-preview test && bun run --cwd packages/node-preview test:mounted",
+    "check:preview-compatibility": "node --experimental-vfs packages/core/compatibility/preview/check.mjs all"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^1.0.1",

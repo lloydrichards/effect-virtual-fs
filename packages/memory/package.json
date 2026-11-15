@@ -61,7 +61,8 @@
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
     "test": "bun --bun run vitest run --config ../../vitest.config.ts --project memory",
     "test:host": "node ../../node_modules/vitest/vitest.mjs run --config ../../vitest.host.config.ts && node test/fixtures/host-watch-lifecycle.mjs",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "check:preview-compatibility": "bun ../core/compatibility/preview/check.mjs memory"
   },
   "peerDependencies": {
     "effect": "~4.1.4"

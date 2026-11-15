@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-11-15
+
+- Restructure the evaluation around one pinned preview package and existing core/memory/Node contracts. Remove the parallel downstream stack and consumer rewrites; record direct replacement failures separately from unchanged baseline test results.
+
 ## 2026-11-12
 
 - Record why Effect 4.1.4's derived glob cannot replace the local implementation: it suppresses `BadResource` and unexpected `Unknown` readLink failures. Retain the adapter's error propagation and decorated traversal as replacement conditions.
