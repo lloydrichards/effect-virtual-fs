@@ -2,5 +2,9 @@
   {
     "file": "0001-preserve-caller-interruptibility.patch",
     "sha256": "20217bb5c1cc57c04448b952bc813105235e11bceeb7b41801d61963a8a85fd2"
+  },
+  {
+    "file": "0002-recursive-mkdir-dot-components.patch",
+    "sha256": "1d2a9b6f7b1eed45e32f4bf0f1ed1addea86c44cd46aa57479f6498e4927600f"
   }
 ]

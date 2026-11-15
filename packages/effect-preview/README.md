@@ -68,10 +68,17 @@ publication with the caller's original interruption setting. Masked finalizers c
 ordinary writes retain cancellation before publication. The patch includes regression tests for interrupted-child
 cleanup and masked writes interrupted through the clock, alongside the existing ordinary-write rollback test.
 
-Apply this contribution from an Effect checkout at the pinned PR commit with:
+`0002-recursive-mkdir-dot-components.patch` allows unguarded recursive mkdir paths ending in `.` or `..` to resolve
+through the existing transactional path walker. It preserves intermediate symlink traversal, rooted confinement,
+and atomic rollback. Entry conditions still require a named final slot; dot targets with conditions retain their
+existing `InvalidInput` rejection. Regression tests cover both resolution paths, byte paths, permissions, quotas,
+and conditions. No public API changes or adapter changes are needed.
+
+Apply these contributions in series order from an Effect checkout at the pinned PR commit:
 
 ```sh
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0001-preserve-caller-interruptibility.patch
+patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0002-recursive-mkdir-dot-components.patch
 ```
 
 To revise a contribution, edit its upstream patch, update the checksum in `series.json`, and regenerate. Once the

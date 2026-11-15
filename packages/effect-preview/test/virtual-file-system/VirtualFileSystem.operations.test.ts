@@ -1072,3 +1072,128 @@ describe("VirtualFileSystem public scheduling boundaries", () => {
       yield* operation.close
     }).pipe(withClock))
 })
+
+describe("VirtualFileSystem recursive mkdir dot components", () => {
+  for (const suffix of [".", ".."] as const) {
+    it.effect(`should create directories before resolving a terminal ${suffix}`, () =>
+      Effect.gen(function*() {
+        const owner = yield* VFS.make()
+        const caller = yield* owner.authorize({ credentials })
+        const created = yield* caller.makeDirectory(`/a/./b/../c/${suffix}`, { recursive: true })
+        for (const path of ["/a/b", "/a/c"]) {
+          assert.strictEqual((yield* caller.stat(path)).kind, "directory")
+        }
+        const selected = yield* caller.stat(suffix === "." ? "/a/c" : "/a")
+        assert.isTrue(VFS.equalsObjectReference(created.reference, selected.reference))
+      }).pipe(withClock))
+  }
+
+  it.effect("should resolve a terminal parent with a tight transient budget", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make({ limits: { transientBytes: 11 } })
+      const caller = yield* owner.authorize({ credentials })
+      const root = yield* caller.stat("/")
+      const created = yield* caller.makeDirectory("/n/..", { recursive: true })
+      assert.isTrue(VFS.equalsObjectReference(created.reference, root.reference))
+      assert.strictEqual((yield* caller.stat("/n")).kind, "directory")
+      assert.strictEqual((yield* owner.usage).reservedTransientBytes, 0n)
+    }).pipe(withClock))
+
+  it.effect("should resolve dot components in byte paths", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      const path = Result.getOrThrow(BytePath.fromBytes(new Uint8Array([47, 255, 47, 46, 46])))
+      const child = Result.getOrThrow(BytePath.fromBytes(new Uint8Array([47, 255])))
+      const root = yield* caller.stat("/")
+      const created = yield* caller.makeDirectory(path, { recursive: true })
+      assert.isTrue(VFS.equalsObjectReference(created.reference, root.reference))
+      assert.strictEqual((yield* caller.stat(child)).kind, "directory")
+    }).pipe(withClock))
+
+  it.effect("should follow intermediate symlinks before resolving parent components inside its root", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const admin = yield* owner.authorize({ credentials })
+      yield* admin.makeDirectory("/jail/target", { recursive: true })
+      const caller = yield* admin.withRoot("/jail")
+      yield* caller.makeSymlink("/link", "/target")
+      const created = yield* caller.makeDirectory("/../../link/new/..", { recursive: true })
+      assert.isTrue(VFS.equalsObjectReference(created.reference, yield* admin.lookup("/jail/target")))
+      assert.strictEqual((yield* admin.stat("/jail/target/new")).kind, "directory")
+      assert.strictEqual((yield* Effect.flip(admin.stat("/new")))._tag, "NotFound")
+      assert.strictEqual((yield* Effect.flip(admin.stat("/target")))._tag, "NotFound")
+    }).pipe(withClock))
+
+  it.effect("should roll back staged dot-component creation when later traversal is denied", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const admin = yield* owner.authorize({ credentials })
+      yield* admin.setAttributes("/", { mode: 0o777 })
+      yield* admin.makeDirectory("/blocked", { mode: 0 })
+      const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
+      const before = yield* admin.stat("/")
+      const usage = yield* owner.usage
+      const error = yield* Effect.flip(caller.makeDirectory("/new/../blocked/x/.", { recursive: true }))
+      assert.strictEqual(error._tag, "AccessDenied")
+      assert.strictEqual((yield* Effect.flip(admin.stat("/new")))._tag, "NotFound")
+      assert.isTrue(VFS.equalsObjectRevision(before.revision, (yield* admin.stat("/")).revision))
+      assert.deepStrictEqual(yield* owner.usage, usage)
+    }).pipe(withClock))
+
+  it.effect("should roll back staged dot-component creation when the entry limit is reached", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make({ limits: { entries: 1 } })
+      const caller = yield* owner.authorize({ credentials })
+      const before = yield* caller.stat("/")
+      const usage = yield* owner.usage
+      const error = yield* Effect.flip(caller.makeDirectory("/first/../second/.", { recursive: true }))
+      assert.strictEqual(error._tag, "LimitExceeded")
+      if (error._tag === "LimitExceeded") assert.strictEqual(error.domain, "entries")
+      for (const path of ["/first", "/second"]) {
+        assert.strictEqual((yield* Effect.flip(caller.stat(path)))._tag, "NotFound")
+      }
+      assert.isTrue(VFS.equalsObjectRevision(before.revision, (yield* caller.stat("/")).revision))
+      assert.deepStrictEqual(yield* owner.usage, usage)
+    }).pipe(withClock))
+
+  it.effect("should retain final-entry conditions after traversing dot components", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.makeDirectory("/existing")
+      const before = yield* caller.stat("/")
+      const usage = yield* owner.usage
+      const error = yield* Effect.flip(caller.makeDirectory("/new/../existing", {
+        recursive: true,
+        conditions: { entry: { expected: "absent" } }
+      }))
+      assert.strictEqual(error._tag, "ConditionFailed")
+      assert.strictEqual((yield* Effect.flip(caller.stat("/new")))._tag, "NotFound")
+      assert.isTrue(VFS.equalsObjectRevision(before.revision, (yield* caller.stat("/")).revision))
+      assert.deepStrictEqual(yield* owner.usage, usage)
+      yield* caller.makeDirectory("/new/../created", {
+        recursive: true,
+        conditions: { entry: { expected: "absent" } }
+      })
+      assert.strictEqual((yield* caller.stat("/new")).kind, "directory")
+      assert.strictEqual((yield* caller.stat("/created")).kind, "directory")
+    }).pipe(withClock))
+
+  for (const suffix of [".", ".."] as const) {
+    it.effect(`should retain rejection of entry conditions on a terminal ${suffix}`, () =>
+      Effect.gen(function*() {
+        const owner = yield* VFS.make()
+        const caller = yield* owner.authorize({ credentials })
+        const usage = yield* owner.usage
+        const error = yield* Effect.flip(caller.makeDirectory(`/new/${suffix}`, {
+          recursive: true,
+          conditions: { entry: { expected: "absent" } }
+        }))
+        assert.strictEqual(error._tag, "InvalidInput")
+        if (error._tag === "InvalidInput") assert.strictEqual(error.field, "name")
+        assert.strictEqual((yield* Effect.flip(caller.stat("/new")))._tag, "NotFound")
+        assert.deepStrictEqual(yield* owner.usage, usage)
+      }).pipe(withClock))
+  }
+})

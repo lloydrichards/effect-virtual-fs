@@ -41,12 +41,15 @@ try {
   await rm(extra)
 
   const series = JSON.parse(await readFile(join(temporary, "patches/series.json"), "utf8"))
-  const contribution = join(temporary, "patches", series[0].file)
-  const originalPatch = await readFile(contribution, "utf8")
-  await writeFile(contribution, originalPatch + "\n")
-  assert.notEqual(run().status, 0, "A corrupted contribution patch must fail regeneration")
-  await writeFile(contribution, originalPatch)
-  assert.equal(run("--check").status, 0, "Restoring the patch must restore reproducibility")
+
+  for (const entry of series) {
+    const contribution = join(temporary, "patches", entry.file)
+    const originalPatch = await readFile(contribution, "utf8")
+    await writeFile(contribution, originalPatch + "\n")
+    assert.notEqual(run().status, 0, `A corrupted contribution patch must fail regeneration: ${entry.file}`)
+    await writeFile(contribution, originalPatch)
+    assert.equal(run("--check").status, 0, "Restoring the patch must restore reproducibility")
+  }
 
   const snapshotPath = join(temporary, "upstream/files.json")
   const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"))

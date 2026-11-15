@@ -747,9 +747,12 @@ export const makeDirectory = (
       while (end > 0 && bytes[end - 1] === CHAR_FORWARD_SLASH) end--
       if (end === 0) node = (yield* tx.targetResult(target, false)).object
       else {
-        let first = end - 1
-        while (first >= 0 && bytes[first] !== CHAR_FORWARD_SLASH) first--
-        yield* E.nameValueResult(Result.getOrThrow(BytePath.fromBytes(bytes.subarray(first + 1, end))), tx.operation)
+        // Entry conditions require a named slot; unguarded dot components are resolved as traversal.
+        if (options.conditions !== undefined) {
+          let first = end - 1
+          while (first >= 0 && bytes[first] !== CHAR_FORWARD_SLASH) first--
+          yield* E.nameValueResult(Result.getOrThrow(BytePath.fromBytes(bytes.subarray(first + 1, end))), tx.operation)
+        }
         const length = BigInt(end)
         const runtime = tx.engine.runtime
         const limits = runtime.limits

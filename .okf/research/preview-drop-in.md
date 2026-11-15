@@ -9,6 +9,8 @@ sources:
     title: Single pinned preview package and regeneration
   - resource: ../../packages/effect-preview/patches/0001-preserve-caller-interruptibility.patch
     title: Upstream cancellation fix and regression tests
+  - resource: ../../packages/effect-preview/patches/0002-recursive-mkdir-dot-components.patch
+    title: Upstream recursive mkdir traversal fix and regression tests
   - resource: ../../packages/core/compatibility/preview/check.mjs
     title: Executable baseline and proposed contract comparisons
   - resource: ../../packages/core/src/VirtualFileSystem.ts
@@ -31,14 +33,14 @@ sources:
     title: Public owner operations, metadata, and atomic publication options
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/328
     title: Remaining API gaps and atomic copy option proposal
-generated: { by: codex/okf, at: "2026-11-15T20:00:00+00:00" }
+generated: { by: codex/okf, at: "2026-11-15T20:10:00+00:00" }
 ---
 
 # Effect preview drop-in evaluation
 
 The goal is one reproducible private preview package consumed by the existing core, memory, and Node packages. Existing applications, public behavior, codecs, and test assertions must remain intact. A parallel downstream stack does not establish replacement compatibility.
 
-The PR now adds only `packages/effect-preview`, pinned to `161258278d6618bb5a10804827bb7a5f34b04c4d`. The former parallel adapters, codecs, helpers, transfer/search/delta packages, and application rewrites are removed. The upstream snapshot remains unchanged; a checksummed contribution patch now fixes cancellation in the generated runtime and adds upstream regression tests.
+The PR now adds only `packages/effect-preview`, pinned to `161258278d6618bb5a10804827bb7a5f34b04c4d`. The former parallel adapters, codecs, helpers, transfer/search/delta packages, and application rewrites are removed. The upstream snapshot remains unchanged; checksummed contribution patches fix cancellation and recursive mkdir dot-component traversal in the generated runtime and add upstream regression tests.
 
 ## Current result: runtime switched, acceptance blocked
 
@@ -50,7 +52,7 @@ The facade now preserves insertion order, numeric revisions, authenticated in-me
 
 Exact creation modes use the same credentials, root, and cwd with a zero umask. Existing modes need no change when they already equal `finalMode`; newly created files can receive that mode atomically. Symlink creation timestamps use existing copy publication. These cases must not be blocked merely because the preview uses different option names.
 
-`PreviewRuntime.test.ts` proves that core and native writes share the actual public preview owner, and restored volumes use it. Existing test assertions remain unchanged. The cancellation contribution passes all 202 preview tests, including two new regressions that fail without the fix. Existing core results remain 694 passed / 324 failed; memory improves to 652 passed / 70 failed, with 28 failures fixed and no previously passing tests regressing. Node 26.11.1 remains 42 passed / 2 failed, with all 18 mounted tests passing. The remaining gaps are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
+`PreviewRuntime.test.ts` proves that core and native writes share the actual public preview owner, and restored volumes use it. Existing test assertions remain unchanged. With both contributions, all 212 preview tests pass. Existing core results improve to 695 passed / 323 failed: the mkdir dot-component regression now passes. Memory remains 652 passed / 70 failed, retaining the 28 failures fixed by cancellation. No previously passing tests regress. Node 26.11.1 remains 42 passed / 2 failed, with all 18 mounted tests passing. The remaining gaps are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
 
 `check:preview-compatibility` explicitly constructs the retained community baseline with `makeCommunityVolume`. Its adapter comparisons use the actual existing core, memory, and Node bindings. A raw API difference is classified separately when the facade can preserve the behavior.
 
@@ -69,9 +71,10 @@ Exact creation modes use the same credentials, root, and cwd with a zero umask. 
 | Caller-authorized orphan metadata                                       | A file retained by a creator handle remains observable, but a different authorized owner cannot update it by public reference after unlink. Using the creator's privileged handle would change the invoking caller's authority. | Orphan handle metadata authority.                                                                                   |
 | Relatime                                                                | A second recent read updates atime again.                                                                                                                                                                                       | File, handle, directory, and transfer atime tests.                                                                  |
 | Readable, nonsearchable directory listing                               | Public no-atime walk requires search permission before listing. Binding listings require search; name-only listings lack object references and touch atime.                                                                     | Walk, recursive listing, and transfer failure-prefix tests.                                                         |
-| Atomic recursive mkdir with terminal dot components                     | Public recursive creation rejects the terminal name in `/new/..`. Incremental downstream mkdir would change rollback and publication behavior.                                                                                  | Recursive dot-component tests.                                                                                      |
 
 The direct probes preserve typed error fields and require successful baseline operations. Masked finalizer cleanup was a demonstrated upstream defect and is now fixed by `patches/0001-preserve-caller-interruptibility.patch` in the preview package. Admission and the pre-publication interruption checkpoint restore the caller's interruption setting instead of forcing interruption. Regression tests prove that interrupted-child cleanup and masked writes finish, while the existing ordinary-write interruption test still proves rollback before publication. This needs no adapter changes or detached cleanup fibers. Regeneration verifies the contribution checksum, applies it to upstream paths with zero fuzz, and checks generated output against the patched source.
+
+Recursive mkdir dot-component traversal is fixed by `patches/0002-recursive-mkdir-dot-components.patch`. Unguarded recursive paths resolve terminal `.` and `..` through the existing transactional walker, including its constrained-budget path. Guarded dot targets retain their existing malformed-name rejection because entry conditions require a named slot. Ten upstream cases cover ordinary and byte paths, rooted symlink traversal, transient budgets, permission and entry-limit rollback, and entry conditions. Seven fail without this patch; the three condition-preservation cases already pass. The unchanged core dot-component regression now passes, and both the mkdir and masked-cleanup direct comparisons agree with the baseline. Memory event tests still require the missing watch API.
 
 Error precedence, fields, listing order, snapshot identity, authority, and cancellation remain part of the acceptance contract. A failing assertion alone does not establish an upstream gap. Failures in concurrent watch and live-store tests that wait for unavailable hooks remain visible, including their timeouts.
 
