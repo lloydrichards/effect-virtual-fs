@@ -62,5 +62,9 @@
   {
     "file": "0016-document-preview-metadata-and-writes.patch",
     "sha256": "c8cc8696c1bb4e8bfc1e6d7a9a15a02c4add25faeb4e168999a7ab978888c3ce"
+  },
+  {
+    "file": "0017-parent-group-inheritance.patch",
+    "sha256": "beff546b2e24f20f386675662693297f126d1bf3354bb6d0d33718ed833e69cf"
   }
 ]

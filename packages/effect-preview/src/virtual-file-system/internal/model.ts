@@ -721,6 +721,12 @@ export interface CallerOptions {
 }
 
 export interface Configuration {
+  /**
+   * By default, children inherit the parent group only in setgid directories, where new directories
+   * also inherit the setgid bit. With "parent", children always inherit the parent group and their
+   * mode comes from the creation request. An explicitly authorized file owner takes precedence.
+   */
+  readonly groupInheritance?: "setgid" | "parent" | undefined
   /** Read access-time policy. Defaults to "strict"; "relatime" refreshes after metadata changes or 24 hours. */
   readonly accessTime?: "strict" | "relatime" | undefined
   readonly limits?: LimitOptions | undefined
@@ -732,6 +738,8 @@ export interface Configuration {
 }
 
 export interface RestoreOptions {
+  /** Group policy for entries created after restore. Existing ownership and modes are preserved. */
+  readonly groupInheritance?: Configuration["groupInheritance"]
   /** Instance policy, independent of the captured metadata. Defaults to "strict". */
   readonly accessTime?: "strict" | "relatime" | undefined
   readonly limits?: LimitOptions | undefined

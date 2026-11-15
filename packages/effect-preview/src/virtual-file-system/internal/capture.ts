@@ -276,7 +276,11 @@ class Candidate extends R.ChargedBytes {
   consumedPayload = zero
   content = zero
 
-  constructor(runtime: R.Runtime, readonly accessTime: "strict" | "relatime") {
+  constructor(
+    runtime: R.Runtime,
+    readonly accessTime: E.Engine["accessTime"],
+    readonly groupInheritance: E.Engine["groupInheritance"]
+  ) {
     super(runtime, "restore")
   }
 
@@ -457,7 +461,7 @@ class Candidate extends R.ChargedBytes {
         }
         for (const id of route) checked.add(id)
       }
-      const engine = new E.Engine(this.runtime, root.metadata, root.metadata.objectNumber, this.accessTime)
+      const engine = new E.Engine(this.runtime, root.metadata, root.metadata.objectNumber, this.accessTime, this.groupInheritance)
       engine.nodes.clear()
       let maxObject = zero
       for (const record of this.nodes.values()) {
@@ -537,9 +541,10 @@ export const restoreEngine: <Error = never, Requirements = never>(
       Result.match(
         Result.try(() =>
           Result.gen(function*() {
-            yield* E.checkOptionsResult(options, ["limits", "accessTime"], "restore")
+            yield* E.checkOptionsResult(options, ["limits", "accessTime", "groupInheritance"], "restore")
             return {
               accessTime: yield* E.accessTimeResult(options?.accessTime, "restore"),
+              groupInheritance: yield* E.groupInheritanceResult(options?.groupInheritance, "restore"),
               limits: yield* R.configureResult(options?.limits),
               snapshotRecords: typeof source === "object" && source !== null ? captures.get(source) : undefined
             }
@@ -555,7 +560,7 @@ export const restoreEngine: <Error = never, Requirements = never>(
         onSuccess: Effect.succeed
       })
     )
-    const candidate = new Candidate(runtime, state.accessTime)
+    const candidate = new Candidate(runtime, state.accessTime, state.groupInheritance)
     const stream = yield* Effect.suspend(() =>
       Result.match(
         Result.try(() =>

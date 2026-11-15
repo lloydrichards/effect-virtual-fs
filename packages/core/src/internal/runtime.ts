@@ -2875,9 +2875,10 @@ export const makeVolume = Effect.fnUntraced(
       currentTimeNanos: Effect.sync(readClock)
     }
 
+    const policies = { limits: configuration, accessTime: "relatime", groupInheritance: "parent" } as const
     const owner = yield* mapped((Predicate.isTagged(source, "Empty")
-      ? P.make({ limits: configuration, accessTime: "relatime" })
-      : P.restore(Stream.fromIterable(records(source.value)), { limits: configuration, accessTime: "relatime" })).pipe(
+      ? P.make(policies)
+      : P.restore(Stream.fromIterable(records(source.value)), policies)).pipe(
         Effect.provideService(Clock.Clock, previewClock)
       ))
 

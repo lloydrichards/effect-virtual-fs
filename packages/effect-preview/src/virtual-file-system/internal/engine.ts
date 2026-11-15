@@ -273,6 +273,12 @@ export const identityResult = (
     : Result.fail(new M.InvalidInput({ operation, field, reason: "range" }))
 
 /** @internal */
+export const groupInheritanceResult = (input: unknown, operation: string) =>
+  input === undefined || input === "setgid" || input === "parent"
+    ? Result.succeed<"setgid" | "parent">(input ?? "setgid")
+    : Result.fail(new M.InvalidInput({ operation, field: "groupInheritance", reason: "malformed" }))
+
+/** @internal */
 export const accessTimeResult = (input: unknown, operation: string) =>
   input === undefined || input === "strict" || input === "relatime"
     ? Result.succeed<"strict" | "relatime">(input ?? "strict")
@@ -365,7 +371,8 @@ export class Engine {
     runtime: R.Runtime,
     root: { readonly uid: number; readonly gid: number; readonly mode: number },
     rootId = BigInt("1"),
-    readonly accessTime: "strict" | "relatime" = "strict"
+    readonly accessTime: "strict" | "relatime" = "strict",
+    readonly groupInheritance: "setgid" | "parent" = "setgid"
   ) {
     this.runtime = runtime
     this.inputLimits = Object.freeze({ ioBytes: runtime.limits.ioBytes, pathBytes: runtime.limits.pathBytes })
@@ -709,6 +716,12 @@ export class Transaction {
       : Result.fail(new M.AccessDenied({ operation: this.operation, reason: "permission" }))
   }
 
+  creationGroup(parent: DirectoryNode) {
+    return this.engine.groupInheritance === "parent" || (parent.mode & SET_GID_BIT) !== 0
+      ? parent.gid
+      : this.caller.policy.gid
+  }
+
   authorizeCreateResult(parent: DirectoryNode, requested: number | undefined, kind: Node["kind"]) {
     return Result.gen(this, function*() {
       yield* this.requireResult(parent, WRITE_PERMISSION | EXECUTE_PERMISSION)
@@ -718,7 +731,7 @@ export class Transaction {
         !this.caller.policy.privileged
       ) {
         const policy = this.caller.policy
-        const gid = (parent.mode & SET_GID_BIT) !== 0 ? parent.gid : policy.gid
+        const gid = this.creationGroup(parent)
         if (gid !== policy.gid && !policy.groups.includes(gid)) {
           return yield* Result.fail(new M.AccessDenied({ operation: this.operation, reason: "ownership" }))
         }
@@ -1391,7 +1404,7 @@ export class Transaction {
       const policy = this.caller.policy
       const requested = yield* modeResult(modeInput ?? (kind === "directory" ? 0o777 : 0o666), this.operation)
       const now = DateTime.unixNanoFromNanoseconds(BigInt("0"))
-      const gid = owner?.gid ?? ((parent.mode & SET_GID_BIT) !== 0 ? parent.gid : policy.gid)
+      const gid = owner?.gid ?? this.creationGroup(parent)
       const mode = requested & ~policy.umask
       const common: Base = {
         id: this.engine.nextObject++,
@@ -1407,7 +1420,7 @@ export class Transaction {
       }
       let node: Node
       if (kind === "directory") {
-        if ((parent.mode & SET_GID_BIT) !== 0) common.mode |= SET_GID_BIT
+        if (this.engine.groupInheritance === "setgid" && (parent.mode & SET_GID_BIT) !== 0) common.mode |= SET_GID_BIT
         node = { ...common, kind, entries: new Map(), namespace: BigInt("1"), parent: parent.id }
         const edited = yield* this.editDirectoryResult(parent.id)
         edited.nlink++

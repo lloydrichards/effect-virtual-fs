@@ -1148,7 +1148,8 @@ export const make: (
       Result.match(
         Result.try(() =>
           Result.gen(function*() {
-            yield* E.checkOptionsResult(configuration, ["limits", "root", "accessTime"], "make")
+            yield* E.checkOptionsResult(configuration, ["limits", "root", "accessTime", "groupInheritance"], "make")
+            const groupInheritance = yield* E.groupInheritanceResult(configuration?.groupInheritance, "make")
             const accessTime = yield* E.accessTimeResult(configuration?.accessTime, "make")
             const limits = yield* R.configureResult(configuration?.limits)
             yield* E.checkOptionsResult(configuration?.root, ["uid", "gid", "mode"], "make")
@@ -1157,7 +1158,7 @@ export const make: (
               gid: yield* E.identityResult(configuration?.root?.gid ?? 0, "make", "gid"),
               mode: yield* E.modeResult(configuration?.root?.mode ?? DEFAULT_ROOT_MODE, "make")
             }
-            return yield* ownerFor(new E.Engine(new R.Runtime(limits, clock), root, undefined, accessTime))
+            return yield* ownerFor(new E.Engine(new R.Runtime(limits, clock), root, undefined, accessTime, groupInheritance))
           })
         ),
         { onFailure: R.failure, onSuccess: Effect.fromResult }
@@ -1253,7 +1254,8 @@ export const layer = (
       const owner = yield* make({
         ...(configuration.limits === undefined ? {} : { limits: configuration.limits }),
         ...(configuration.root === undefined ? {} : { root: configuration.root }),
-        ...(configuration.accessTime === undefined ? {} : { accessTime: configuration.accessTime })
+        ...(configuration.accessTime === undefined ? {} : { accessTime: configuration.accessTime }),
+        ...(configuration.groupInheritance === undefined ? {} : { groupInheritance: configuration.groupInheritance })
       })
       return yield* owner.authorize(configuration.caller)
     })
