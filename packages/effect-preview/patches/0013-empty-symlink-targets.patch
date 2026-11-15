@@ -1,0 +1,184 @@
+--- a/packages/effect/src/virtual-file-system/internal/model.ts
++++ b/packages/effect/src/virtual-file-system/internal/model.ts
+@@ -135,8 +135,6 @@
+   tokenInfo(value)?.kind === "namespace"
+ )
+ 
+-const NonEmptyPath = Schema.BytePath.check(Schema.makeFilter((path) => BytePath.byteLength(path) > 0))
+-
+ export const Name = Schema.BytePath.check(Schema.makeFilter((path) => {
+   const bytes = BytePath.toBytes(path)
+   return bytes.length > 0 && !bytes.includes(CHAR_FORWARD_SLASH) &&
+@@ -152,9 +150,8 @@
+   readonly size: ByteSize.ByteSize
+   readonly nlink: bigint
+ }) =>
+-  metadata.kind === "directory"
+-    ? metadata.size === bigint0 && (metadata.nlink === bigint0 || metadata.nlink >= bigint2)
+-    : metadata.kind === "file" || metadata.size > bigint0
++  metadata.kind !== "directory" ||
++  (metadata.size === bigint0 && (metadata.nlink === bigint0 || metadata.nlink >= bigint2))
+ 
+ const coherentObservation = (observation: {
+   readonly reference: ObjectReference
+@@ -771,7 +768,7 @@
+   id: PositiveBigInt,
+   parentId: PositiveBigInt,
+   name: Name,
+-  target: NonEmptyPath,
++  target: Schema.BytePath,
+   metadata: SemanticMetadata
+ })
+ 
+@@ -1095,7 +1092,7 @@
+     target: EntryTarget,
+     options?: Omit<MkdirOptions, "recursive">
+   ) => Fx<PresentEntry & { readonly object: DirectoryObservation }>
+-  /** Creates an exclusive symlink with exact nonempty NUL-free target bytes, initial mode 0777 and inherited gid. */
++  /** Creates an exclusive symlink with exact NUL-free target bytes, initial mode 0777 and inherited gid. Following an empty target fails with NotFound. */
+   readonly makeSymlink: (target: EntryTarget, linkTarget: Path, options?: AbsentConditions) => Fx<ObjectObservation>
+   /** Links a regular file or symlink, never a directory. Relative symlinks resolve through each followed entry. */
+   readonly makeHardLink: (
+--- a/packages/effect/src/virtual-file-system/internal/engine.ts
++++ b/packages/effect/src/virtual-file-system/internal/engine.ts
+@@ -843,10 +843,14 @@
+     return Result.map(this.selectDirectoryRouteResult(selector, state), (route) => route.object)
+   }
+ 
+-  consumeLinkResult(state: ResolutionState) {
+-    return ++state.follows > this.engine.runtime.limits.symlinkFollows
+-      ? Result.fail(new M.InvalidResource({ operation: this.operation, reason: "symlinkLimit" }))
+-      : Result.succeed(undefined)
++  consumeLinkResult(state: ResolutionState, target: BytePath.BytePath) {
++    if (++state.follows > this.engine.runtime.limits.symlinkFollows) {
++      return Result.fail(new M.InvalidResource({ operation: this.operation, reason: "symlinkLimit" }))
++    }
++    if (BytePath.byteLength(target) === 0) {
++      return Result.fail(new M.NotFound({ operation: this.operation, reason: "missingEntry" }))
++    }
++    return Result.succeed(undefined)
+   }
+ 
+   resolveResult(
+@@ -942,7 +946,7 @@
+               return { ...route, mkdirPrefixEnd: component.byteOffset - bytes.byteOffset + component.length }
+             }
+             if (node.kind === "symlink" && (!terminal || followFinal)) {
+-              yield* this.consumeLinkResult(state)
++              yield* this.consumeLinkResult(state, node.target)
+               let length = BytePath.byteLength(node.target)
+               for (let rest = index + 1; rest < components.length; rest++) length += 1 + components[rest].length
+               if (bytes[bytes.length - 1] === CHAR_FORWARD_SLASH) length++
+@@ -1088,7 +1092,7 @@
+         return yield* Result.fail(new M.InvalidResource({ operation: this.operation, reason: "wrongKind" }))
+       }
+       const state: ResolutionState = { follows: 0 }
+-      yield* this.consumeLinkResult(state)
++      yield* this.consumeLinkResult(state, route.object.target)
+       return yield* this.resolveResult(route.object.target, true, route.parent.id, state.follows, saved.support, state)
+     })
+   }
+@@ -1120,7 +1124,7 @@
+       }
+       const node = yield* this.getResult(binding.object)
+       if (node.kind === "symlink" && followFinal) {
+-        yield* this.consumeLinkResult(state)
++        yield* this.consumeLinkResult(state, node.target)
+         return yield* this.resolveResult(node.target, true, directory.id, state.follows, [{
+           parent: directory.id,
+           name: binding.name,
+@@ -1226,7 +1230,7 @@
+           return yield* Result.fail(new M.InvalidResource({ operation: this.operation, reason: "symlinkCycle" }))
+         }
+         seen.add(routeKey)
+-        yield* this.consumeLinkResult(state)
++        yield* this.consumeLinkResult(state, node.target)
+         const bytes = BytePath.toBytes(node.target)
+         let start = bytes.length
+         while (start > 0 && bytes[start - 1] !== CHAR_FORWARD_SLASH) start--
+@@ -1408,7 +1412,7 @@
+         yield* this.changedResult(parent.id, ["ctime"])
+       } else if (kind === "file") node = { ...common, kind, data: new Uint8Array(0) }
+       else {
+-        if (payload === undefined || BytePath.byteLength(payload) === 0) {
++        if (payload === undefined) {
+           return yield* Result.fail(
+             new M.InvalidInput({ operation: this.operation, field: "target", reason: "malformed" })
+           )
+@@ -1583,6 +1587,13 @@
+ // Admission and request snapshots
+ // -----------------------------------------------------------------------------
+ 
++// An empty link payload has no admission cost and is never a namespace address.
++/** @internal */
++export const symlinkInputs = (destination: M.EntryTarget, payload: M.Path) =>
++  payload === "" || (BytePath.isBytePath(payload) && BytePath.byteLength(payload) === 0)
++    ? [destination]
++    : [destination, payload]
++
+ /** @internal */
+ export const addressBytesResult = (
+   target: M.Target | M.DirectorySelector,
+--- a/packages/effect/src/virtual-file-system/internal/atomic.ts
++++ b/packages/effect/src/virtual-file-system/internal/atomic.ts
+@@ -840,7 +840,7 @@
+               return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+             }
+             const state: E.ResolutionState = { follows: 0 }
+-            yield* tx.consumeLinkResult(state)
++            yield* tx.consumeLinkResult(state, node.target)
+             const followed = tx.resolveResult(node.target, true, route.parent.id, state.follows, [], state)
+             if (Result.isFailure(followed) && followed.failure instanceof M.NotFound) {
+               return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+@@ -915,11 +915,6 @@
+   Result.gen(function*() {
+     yield* validate("makeSymlink", options)
+     const spelling = yield* E.pathValueResult(linkTarget, tx.operation)
+-    if (BytePath.byteLength(spelling) === 0) {
+-      return yield* Result.fail(
+-        new M.InvalidInput({ operation: tx.operation, field: "linkTarget", reason: "malformed" })
+-      )
+-    }
+     if (BigInt(BytePath.byteLength(spelling)) > tx.engine.runtime.limits.pathBytes) {
+       return yield* Result.fail(new M.LimitExceeded({ operation: tx.operation, domain: "path", stage: "resolution" }))
+     }
+@@ -1145,7 +1140,7 @@
+ ) =>
+   Result.gen(function*() {
+     yield* validate("publishCopiedSymlink", options)
+-    if (!BytePath.isBytePath(target) || BytePath.byteLength(target) === 0) {
++    if (!BytePath.isBytePath(target)) {
+       return yield* Result.fail(new M.InvalidInput({ operation: tx.operation, field: "target", reason: "malformed" }))
+     }
+     if (BigInt(BytePath.byteLength(target)) > tx.engine.runtime.limits.pathBytes) {
+--- a/packages/effect/src/virtual-file-system/internal/sync.ts
++++ b/packages/effect/src/virtual-file-system/internal/sync.ts
+@@ -119,7 +119,7 @@
+     createFile: (target, options) => withOptions(caller, "createFile", target, options, A.createFile),
+     makeDirectory: (target, options) => withOptions(caller, "makeDirectory", target, options, A.makeDirectory),
+     makeSymlink: (target, link, options) =>
+-      invokeResult(caller, "makeSymlink", [target, link], () =>
++      invokeResult(caller, "makeSymlink", E.symlinkInputs(target, link), () =>
+         Result.gen(function*() {
+           yield* A.validate("makeSymlink", options)
+           const selected = yield* E.snapshotTargetResult(target)
+--- a/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
++++ b/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
+@@ -1429,7 +1429,7 @@
+       E.runAtomicResult(
+         caller,
+         "makeSymlink",
+-        [target, linkTarget],
++        () => Result.succeed(E.symlinkInputs(target, linkTarget)),
+         () => A.validate("makeSymlink", options),
+         () =>
+           Result.gen(function*() {
+@@ -1494,7 +1494,7 @@
+       E.runAtomicResult(
+         caller,
+         "publishCopiedSymlink",
+-        [destination, target],
++        () => Result.succeed(E.symlinkInputs(destination, target)),
+         () => A.validate("publishCopiedSymlink", options),
+         () =>
+           Result.gen(function*() {

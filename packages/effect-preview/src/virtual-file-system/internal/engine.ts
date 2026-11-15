@@ -844,10 +844,14 @@ export class Transaction {
     return Result.map(this.selectDirectoryRouteResult(selector, state), (route) => route.object)
   }
 
-  consumeLinkResult(state: ResolutionState) {
-    return ++state.follows > this.engine.runtime.limits.symlinkFollows
-      ? Result.fail(new M.InvalidResource({ operation: this.operation, reason: "symlinkLimit" }))
-      : Result.succeed(undefined)
+  consumeLinkResult(state: ResolutionState, target: BytePath.BytePath) {
+    if (++state.follows > this.engine.runtime.limits.symlinkFollows) {
+      return Result.fail(new M.InvalidResource({ operation: this.operation, reason: "symlinkLimit" }))
+    }
+    if (BytePath.byteLength(target) === 0) {
+      return Result.fail(new M.NotFound({ operation: this.operation, reason: "missingEntry" }))
+    }
+    return Result.succeed(undefined)
   }
 
   resolveResult(
@@ -943,7 +947,7 @@ export class Transaction {
               return { ...route, mkdirPrefixEnd: component.byteOffset - bytes.byteOffset + component.length }
             }
             if (node.kind === "symlink" && (!terminal || followFinal)) {
-              yield* this.consumeLinkResult(state)
+              yield* this.consumeLinkResult(state, node.target)
               let length = BytePath.byteLength(node.target)
               for (let rest = index + 1; rest < components.length; rest++) length += 1 + components[rest].length
               if (bytes[bytes.length - 1] === CHAR_FORWARD_SLASH) length++
@@ -1089,7 +1093,7 @@ export class Transaction {
         return yield* Result.fail(new M.InvalidResource({ operation: this.operation, reason: "wrongKind" }))
       }
       const state: ResolutionState = { follows: 0 }
-      yield* this.consumeLinkResult(state)
+      yield* this.consumeLinkResult(state, route.object.target)
       return yield* this.resolveResult(route.object.target, true, route.parent.id, state.follows, saved.support, state)
     })
   }
@@ -1121,7 +1125,7 @@ export class Transaction {
       }
       const node = yield* this.getResult(binding.object)
       if (node.kind === "symlink" && followFinal) {
-        yield* this.consumeLinkResult(state)
+        yield* this.consumeLinkResult(state, node.target)
         return yield* this.resolveResult(node.target, true, directory.id, state.follows, [{
           parent: directory.id,
           name: binding.name,
@@ -1227,7 +1231,7 @@ export class Transaction {
           return yield* Result.fail(new M.InvalidResource({ operation: this.operation, reason: "symlinkCycle" }))
         }
         seen.add(routeKey)
-        yield* this.consumeLinkResult(state)
+        yield* this.consumeLinkResult(state, node.target)
         const bytes = BytePath.toBytes(node.target)
         let start = bytes.length
         while (start > 0 && bytes[start - 1] !== CHAR_FORWARD_SLASH) start--
@@ -1409,7 +1413,7 @@ export class Transaction {
         yield* this.changedResult(parent.id, ["ctime"])
       } else if (kind === "file") node = { ...common, kind, data: new Uint8Array(0) }
       else {
-        if (payload === undefined || BytePath.byteLength(payload) === 0) {
+        if (payload === undefined) {
           return yield* Result.fail(
             new M.InvalidInput({ operation: this.operation, field: "target", reason: "malformed" })
           )
@@ -1583,6 +1587,13 @@ export class Transaction {
 // -----------------------------------------------------------------------------
 // Admission and request snapshots
 // -----------------------------------------------------------------------------
+
+// An empty link payload has no admission cost and is never a namespace address.
+/** @internal */
+export const symlinkInputs = (destination: M.EntryTarget, payload: M.Path) =>
+  payload === "" || (BytePath.isBytePath(payload) && BytePath.byteLength(payload) === 0)
+    ? [destination]
+    : [destination, payload]
 
 /** @internal */
 export const addressBytesResult = (

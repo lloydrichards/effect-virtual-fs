@@ -841,7 +841,7 @@ export const makeDirectory = (
               return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
             }
             const state: E.ResolutionState = { follows: 0 }
-            yield* tx.consumeLinkResult(state)
+            yield* tx.consumeLinkResult(state, node.target)
             const followed = tx.resolveResult(node.target, true, route.parent.id, state.follows, [], state)
             if (Result.isFailure(followed) && followed.failure instanceof M.NotFound) {
               return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
@@ -916,11 +916,6 @@ export const makeSymlink = (
   Result.gen(function*() {
     yield* validate("makeSymlink", options)
     const spelling = yield* E.pathValueResult(linkTarget, tx.operation)
-    if (BytePath.byteLength(spelling) === 0) {
-      return yield* Result.fail(
-        new M.InvalidInput({ operation: tx.operation, field: "linkTarget", reason: "malformed" })
-      )
-    }
     if (BigInt(BytePath.byteLength(spelling)) > tx.engine.runtime.limits.pathBytes) {
       return yield* Result.fail(new M.LimitExceeded({ operation: tx.operation, domain: "path", stage: "resolution" }))
     }
@@ -1146,7 +1141,7 @@ export const publishCopiedSymlink = (
 ) =>
   Result.gen(function*() {
     yield* validate("publishCopiedSymlink", options)
-    if (!BytePath.isBytePath(target) || BytePath.byteLength(target) === 0) {
+    if (!BytePath.isBytePath(target)) {
       return yield* Result.fail(new M.InvalidInput({ operation: tx.operation, field: "target", reason: "malformed" }))
     }
     if (BigInt(BytePath.byteLength(target)) > tx.engine.runtime.limits.pathBytes) {

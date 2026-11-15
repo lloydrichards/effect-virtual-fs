@@ -46,5 +46,9 @@
   {
     "file": "0012-special-modes-and-owner-ids.patch",
     "sha256": "2a0005a602ba51d936320fdef4846f5c317dfb7ab5045896d7285804b54616c6"
+  },
+  {
+    "file": "0013-empty-symlink-targets.patch",
+    "sha256": "4a8aa632b6f4f22499ccdc768e495f11462c105693d6336b9735a04a1c032606"
   }
 ]

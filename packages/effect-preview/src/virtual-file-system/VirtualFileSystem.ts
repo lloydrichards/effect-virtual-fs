@@ -1430,7 +1430,7 @@ const makeCaller = (caller: E.Caller) => {
       E.runAtomicResult(
         caller,
         "makeSymlink",
-        [target, linkTarget],
+        () => Result.succeed(E.symlinkInputs(target, linkTarget)),
         () => A.validate("makeSymlink", options),
         () =>
           Result.gen(function*() {
@@ -1495,7 +1495,7 @@ const makeCaller = (caller: E.Caller) => {
       E.runAtomicResult(
         caller,
         "publishCopiedSymlink",
-        [destination, target],
+        () => Result.succeed(E.symlinkInputs(destination, target)),
         () => A.validate("publishCopiedSymlink", options),
         () =>
           Result.gen(function*() {

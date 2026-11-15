@@ -120,7 +120,7 @@ const make = (caller: E.Caller) =>
     createFile: (target, options) => withOptions(caller, "createFile", target, options, A.createFile),
     makeDirectory: (target, options) => withOptions(caller, "makeDirectory", target, options, A.makeDirectory),
     makeSymlink: (target, link, options) =>
-      invokeResult(caller, "makeSymlink", [target, link], () =>
+      invokeResult(caller, "makeSymlink", E.symlinkInputs(target, link), () =>
         Result.gen(function*() {
           yield* A.validate("makeSymlink", options)
           const selected = yield* E.snapshotTargetResult(target)

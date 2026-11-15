@@ -136,8 +136,6 @@ const Namespace = Schema.declare<NamespaceRevision>((value): value is NamespaceR
   tokenInfo(value)?.kind === "namespace"
 )
 
-const NonEmptyPath = Schema.BytePath.check(Schema.makeFilter((path) => BytePath.byteLength(path) > 0))
-
 export const Name = Schema.BytePath.check(Schema.makeFilter((path) => {
   const bytes = BytePath.toBytes(path)
   return bytes.length > 0 && !bytes.includes(CHAR_FORWARD_SLASH) &&
@@ -153,9 +151,8 @@ const validMetadata = (metadata: {
   readonly size: ByteSize.ByteSize
   readonly nlink: bigint
 }) =>
-  metadata.kind === "directory"
-    ? metadata.size === bigint0 && (metadata.nlink === bigint0 || metadata.nlink >= bigint2)
-    : metadata.kind === "file" || metadata.size > bigint0
+  metadata.kind !== "directory" ||
+  (metadata.size === bigint0 && (metadata.nlink === bigint0 || metadata.nlink >= bigint2))
 
 const coherentObservation = (observation: {
   readonly reference: ObjectReference
@@ -772,7 +769,7 @@ export const SymlinkRecord = Schema.TaggedStruct("symlink", {
   id: PositiveBigInt,
   parentId: PositiveBigInt,
   name: Name,
-  target: NonEmptyPath,
+  target: Schema.BytePath,
   metadata: SemanticMetadata
 })
 
@@ -1096,7 +1093,7 @@ export interface VirtualFileSystem {
     target: EntryTarget,
     options?: Omit<MkdirOptions, "recursive">
   ) => Fx<PresentEntry & { readonly object: DirectoryObservation }>
-  /** Creates an exclusive symlink with exact nonempty NUL-free target bytes, initial mode 0777 and inherited gid. */
+  /** Creates an exclusive symlink with exact NUL-free target bytes, initial mode 0777 and inherited gid. Following an empty target fails with NotFound. */
   readonly makeSymlink: (target: EntryTarget, linkTarget: Path, options?: AbsentConditions) => Fx<ObjectObservation>
   /** Links a regular file or symlink, never a directory. Relative symlinks resolve through each followed entry. */
   readonly makeHardLink: (
