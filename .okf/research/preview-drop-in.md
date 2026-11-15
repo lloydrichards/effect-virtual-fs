@@ -45,7 +45,7 @@ sources:
     title: Public owner operations, metadata, and atomic publication options
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/328
     title: Remaining API gaps and atomic copy option proposal
-generated: { by: codex/okf, at: "2026-11-15T23:05:00+00:00" }
+generated: { by: codex/okf, at: "2026-11-15T23:18:00+00:00" }
 ---
 
 # Effect preview drop-in evaluation
@@ -90,6 +90,8 @@ Core production source is 17,088 lines versus 22,710 in the previous PR state an
 | Special modes, custom symlink modes, wide owners, empty symlink targets | Direct probes reject unsupported bits, symlink mode changes, owners above unsigned 32-bit range, and empty targets.                                                                                                             | Existing rich fixtures, snapshot round trips, transfer fidelity, and Node symlink tests. No metadata is normalized. |
 | Caller-authorized orphan metadata                                       | A file retained by a creator handle remains observable, but a different authorized owner cannot update it by public reference after unlink. Using the creator's privileged handle would change the invoking caller's authority. | Orphan handle metadata authority.                                                                                   |
 | Readable, nonsearchable directory listing                               | Public no-atime walk requires search permission before listing. Binding listings require search; name-only listings lack object references and touch atime.                                                                     | Walk, recursive listing, and transfer failure-prefix tests.                                                         |
+
+Contribution 0022 adds `inspectDirents` for metadata walks. Read permission on a directory allows listing its names, kinds and identities without updating atime. Descending into a child still requires search permission on the parent. When a walk requests a byte limit, core uses the volume owner's caller to charge file and symlink sizes for the listed identities in emission order. Child sizes stay out of the caller's listing.
 
 With contribution 0019, an acting caller can update attributes through a live file handle from the same filesystem. The preview checks permissions against that caller and enforces both the caller’s root and the handle’s opening root. After the last name is removed, only unrestricted roots can use the handle for this operation. The retained handle supplies object identity; its open-time write grant and its opener’s credentials are not transferred. The current acceptance results and remaining blockers are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
 

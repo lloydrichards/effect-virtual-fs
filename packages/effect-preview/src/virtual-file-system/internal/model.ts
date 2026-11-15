@@ -1102,6 +1102,8 @@ export interface VirtualFileSystem {
   readonly readDirectory: (target: Target) => ReadEffect<NameListing>
   /** Lists names, types and identities with read permission. Resolving child references checks search authority. */
   readonly readDirents: (target: Target) => ReadEffect<DirentListing>
+  /** Lists the same identities as readDirents without updating directory access time. */
+  readonly inspectDirents: (target: Target) => ReadEffect<DirentListing>
   /** Lists bindings and no-follow observations with directory read and search permission. */
   readonly readDirectoryEntries: (target: Target) => ReadEffect<EntryListing>
   /** Atomically writes one complete input using replace, start or append placement. Mutable input is snapshotted per execution after known reservations. */
@@ -1243,6 +1245,7 @@ type AtomicMethods = Pick<
   | "readLinkObserved"
   | "readDirectory"
   | "readDirents"
+  | "inspectDirents"
   | "readDirectoryEntries"
   | "truncate"
   | "setAttributes"

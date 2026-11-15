@@ -167,6 +167,7 @@ interface Token {
 
 export interface Runtime {
   readonly owner: P.Owner
+  readonly walkEntrySize: (reference: P.ObjectReference) => Effect.Effect<bigint, V.FsFailure>
   readonly clock: Clock.Clock
   readonly rootScope: Scope.Closeable
   readonly tokens: Array<Token>
@@ -2563,32 +2564,39 @@ const walkPreview = (
             ) return []
           }
 
-          const rows = yield* Stream.runCollect(active.walk(at, { maxDepth: 1 })).pipe(Effect.mapError(failure))
-          const root = rows.find((record) => record.root)
+          const listing = yield* mapped(active.inspectDirents(
+            raw.length === 0 && active !== caller ? initial.reference : at
+          ))
 
-          if (root === undefined) return []
-          const directory = coreReference(runtime, root.object)
+          const directory = coreReference(runtime, listing.directory)
+          const frames: Array<Frame> = []
 
-          return rows.flatMap((record): Array<Frame> => {
-            if (record.root) return []
-            const name = Path.toBytes(record.entry.name)
+          for (const entry of listing.entries) {
+            const name = Path.toBytes(entry.name)
             const relative = Paths.joinPath(raw, name)
 
-            return [{
-              reference: record.object.reference,
+            // Only the volume's budget accounting needs the size. Listing a name grants no child metadata access.
+            const bytes = checked.maxBytes !== undefined && entry.kind !== "directory"
+              ? yield* runtime.walkEntrySize(entry.reference)
+              : 0n
+
+            frames.push({
+              reference: entry.reference,
               raw: relative,
-              bytes: record.object.kind === "directory" ? 0n : record.object.metadata.size,
+              bytes,
               listed: false,
               entry: {
                 path: Paths.ownedPath(relative),
                 name,
-                reference: coreReference(runtime, record.object),
+                reference: direntReference(runtime, entry),
                 directory,
-                kind: record.object.kind,
+                kind: entry.kind,
                 depth: relative.filter((byte) => byte === 47).length + 1
               }
-            }]
-          })
+            })
+          }
+
+          return frames
         }).pipe(Effect.mapError((error) => {
           const selected = raw.length === 0 ? prefix : locate(raw)
 
@@ -2928,8 +2936,13 @@ export const makeVolume = Effect.fnUntraced(
 
     const rootScope = yield* Scope.make()
 
+    const ownerCaller = yield* mapped(
+      Scope.provide(owner.authorize({ credentials: { uid: 0, gid: 0, privileged: true } }), rootScope)
+    )
+
     const runtime: Runtime = {
       owner,
+      walkEntrySize: (ref) => mapped(ownerCaller.stat(ref)).pipe(Effect.map((entry) => entry.metadata.size)),
       clock: yield* Clock.Clock,
       rootScope,
       tokens: [],
@@ -2980,12 +2993,8 @@ export const makeVolume = Effect.fnUntraced(
       return hmacSha256(secret, message).subarray(0, 16)
     }
 
-    const keyCaller = yield* mapped(
-      Scope.provide(owner.authorize({ credentials: { uid: 0, gid: 0, privileged: true } }), rootScope)
-    )
-
     const keyObservation = Effect.fnUntraced(function*(selected: P.ObjectReference) {
-      const observed = yield* Effect.result(mapped(keyCaller.stat(selected)))
+      const observed = yield* Effect.result(mapped(ownerCaller.stat(selected)))
 
       if (Result.isSuccess(observed)) return observed.success
 

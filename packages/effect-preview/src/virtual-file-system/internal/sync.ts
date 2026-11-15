@@ -88,6 +88,7 @@ const make = (caller: E.Caller) =>
     readLinkObserved: (target) => R.readOnlyResult(simple(caller, "readLinkObserved", target, A.readLinkObserved)),
     readDirectory: (target) => R.readOnlyResult(simple(caller, "readDirectory", target, A.readDirectory)),
     readDirents: (target) => R.readOnlyResult(simple(caller, "readDirents", target, A.readDirents)),
+    inspectDirents: (target) => R.readOnlyResult(simple(caller, "inspectDirents", target, (tx, t) => A.readDirents(tx, t, false))),
     readDirectoryEntries: (target) =>
       R.readOnlyResult(simple(caller, "readDirectoryEntries", target, A.readDirectoryEntries)),
     writeFile: (target: M.Target, input: Uint8Array, options?: M.WriteFileOptions) =>

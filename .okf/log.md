@@ -2,6 +2,8 @@
 
 ## 2026-11-15
 
+- Record how core walks list readable directories without updating atime and account for bytes while preserving child metadata permissions.
+
 - Record cooperative overlay capture admission and the committed mutation information core needs for watch delivery.
 
 - Record the private capture boundary that lets sibling overlays share captured and decoded snapshot bytes until a write.

@@ -1400,6 +1400,7 @@ const makeCaller = (caller: E.Caller) => {
     readLinkObserved: (target) => R.readOnly(simple(caller, "readLinkObserved", target, A.readLinkObserved)),
     readDirectory: (target) => R.readOnly(simple(caller, "readDirectory", target, A.readDirectory)),
     readDirents: (target) => R.readOnly(simple(caller, "readDirents", target, A.readDirents)),
+    inspectDirents: (target) => R.readOnly(simple(caller, "inspectDirents", target, (tx, t) => A.readDirents(tx, t, false))),
     readDirectoryEntries: (target) =>
       R.readOnly(simple(caller, "readDirectoryEntries", target, A.readDirectoryEntries)),
     writeFile: (target: M.Target, data: Uint8Array, options?: M.WriteFileOptions) =>

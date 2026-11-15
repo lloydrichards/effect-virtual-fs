@@ -82,5 +82,9 @@
   {
     "file": "0021-capture-from-owned-snapshot-records.patch",
     "sha256": "d0b6a56f52e553eb98ef28e47ff99d2db5d507a18c0ad74b5faf5d322e787964"
+  },
+  {
+    "file": "0022-inspect-directory-identities.patch",
+    "sha256": "a7389ffab4fc1361756fa327cc0943d631e959a6a4b86739d6d95ab079645df0"
   }
 ]
