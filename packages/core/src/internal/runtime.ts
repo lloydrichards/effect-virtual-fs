@@ -1560,10 +1560,9 @@ const wrapCaller = (
 
         if (options.exactMode && options.mode === undefined) return yield* Errors.fsFailure("InvalidArgument", "open")
 
-        if (
-          (options.initialSize !== undefined && options.initialSize !== 0n) ||
-          (options.owner !== undefined && (options.owner.uid !== undefined || options.owner.gid !== undefined))
-        ) return yield* blocked("atomicOpenInitialMetadata")
+        if (options.owner !== undefined && (options.owner.uid !== undefined || options.owner.gid !== undefined)) {
+          return yield* blocked("atomicOpenInitialMetadata")
+        }
 
         if (options.mode !== undefined && (options.create === undefined || options.create === "never")) {
           return yield* Errors.fsFailure("InvalidArgument", "open")
@@ -1634,6 +1633,7 @@ const wrapCaller = (
         const handle = yield* mapped(
           opening.open(address, {
             ...openOptions(options),
+            initialSize: options.initialSize,
             preserveTimes: options.times === undefined ? undefined : {
               atime: nano(
                 options.times.access.kind === "value" ? options.times.access.nanoseconds : runtime.readClock()

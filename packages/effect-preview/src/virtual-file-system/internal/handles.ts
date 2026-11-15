@@ -454,6 +454,7 @@ const validateOpen = (
       "truncateCursor",
       "noFollow",
       "mode",
+      "initialSize",
       "preserveTimes",
       "conditions",
       "expectedRevision"
@@ -486,6 +487,10 @@ const validateOpen = (
       return yield* Result.fail(new M.InvalidInput({ operation, field: "expectedRevision", reason: "malformed" }))
     }
     if (options?.mode !== undefined) yield* E.modeResult(options.mode, "file", operation)
+    const initialSize = options?.initialSize
+    if (initialSize !== undefined && create === "existing") {
+      return yield* Result.fail(new M.InvalidInput({ operation, field: "initialSize", reason: "malformed" }))
+    }
     const preserveTimes = yield* P.snapshotTimes(options?.preserveTimes, operation)
     if (preserveTimes !== undefined) {
       if (!isUnixNano(preserveTimes.atime) || !isUnixNano(preserveTimes.mtime) || create === "existing") {
@@ -504,6 +509,7 @@ const validateOpen = (
     yield* A.condition(conditions, operation)
     return {
       mode: options?.mode,
+      initialSize,
       preserveTimes,
       conditions,
       expectedRevision: options?.expectedRevision,
@@ -529,6 +535,7 @@ const openNode = (
       ? E.WRITE_PERMISSION
       : (E.READ_PERMISSION | E.WRITE_PERMISSION)
     const resolution: E.ResolutionState = { follows: 0 }
+    let created = false
     let selected: E.Node
     if (M.isToken(target)) {
       selected = (yield* tx.targetResult(target, true, resolution)).object
@@ -582,6 +589,11 @@ const openNode = (
           return yield* Result.fail(new M.ConditionFailed({ operation: tx.operation, reason: "objectRevision" }))
         }
         selected = yield* tx.createResult("file", slot.parent, options.mode)
+        created = true
+        if (options.initialSize !== undefined && selected.kind === "file") {
+          const size = yield* R.sizeResult(options.initialSize, tx.operation, "initialSize")
+          selected.data = new Uint8Array(yield* candidate(tx, size))
+        }
         if (options.preserveTimes !== undefined) {
           yield* tx.explicitTimeResult(selected.id, "atime", options.preserveTimes.atime)
           yield* tx.explicitTimeResult(selected.id, "mtime", options.preserveTimes.mtime)
@@ -598,7 +610,7 @@ const openNode = (
         return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
       }
     }
-    if (options.truncate) {
+    if (options.truncate && !created) {
       yield* candidate(tx, zero)
       if (selected.data.length > 0) {
         const edited = yield* tx.editResult(selected.id)

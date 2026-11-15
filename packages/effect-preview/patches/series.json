@@ -30,5 +30,9 @@
   {
     "file": "0008-atime-revision-neutrality.patch",
     "sha256": "d608e3424d535668bd8bc85724ee051244b29b0418a08455423d4702587e5711"
+  },
+  {
+    "file": "0009-atomic-open-initial-size.patch",
+    "sha256": "121e3f38d6c61ab2600b1d94e5888e4b03d59491ef70b478a3a63c0f604903e1"
   }
 ]
