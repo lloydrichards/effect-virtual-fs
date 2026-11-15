@@ -54,5 +54,9 @@
   {
     "file": "0014-read-directory-identities.patch",
     "sha256": "d9caddeec13cfd43f71ece65e898c839ed8462c49dc8f4842cea659e9b954102"
+  },
+  {
+    "file": "0015-atomic-open-owner.patch",
+    "sha256": "1e715eb30a2a27925afeaa3636bbad81b3b5d02ebfe15aa44a12fecf7f4ee01a"
   }
 ]

@@ -1384,17 +1384,18 @@ export class Transaction {
     kind: Node["kind"],
     parent: DirectoryNode,
     modeInput: number | undefined,
-    payload?: BytePath.BytePath
+    payload?: BytePath.BytePath,
+    owner?: Pick<M.Attributes, "uid" | "gid">
   ) {
     return Result.gen(this, function*() {
       const policy = this.caller.policy
       const requested = yield* modeResult(modeInput ?? (kind === "directory" ? 0o777 : 0o666), this.operation)
       const now = DateTime.unixNanoFromNanoseconds(BigInt("0"))
-      const gid = (parent.mode & SET_GID_BIT) !== 0 ? parent.gid : policy.gid
+      const gid = owner?.gid ?? ((parent.mode & SET_GID_BIT) !== 0 ? parent.gid : policy.gid)
       const mode = requested & ~policy.umask
       const common: Base = {
         id: this.engine.nextObject++,
-        uid: policy.uid,
+        uid: owner?.uid ?? policy.uid,
         gid,
         mode: kind === "symlink" ? 0o777 : kind === "file" ? this.fileMode(mode, gid) : mode,
         nlink: kind === "directory" ? BigInt("2") : BigInt("1"),

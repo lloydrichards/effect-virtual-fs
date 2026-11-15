@@ -440,6 +440,8 @@ export interface AttributeOptions extends RevisionCondition {
 }
 
 export interface OpenOptions extends RevisionCondition {
+  /** Initial ownership on creation. Unprivileged callers may select their own uid and a member group. */
+  readonly owner?: Pick<Attributes, "uid" | "gid"> | undefined
   /** Zero-filled length on creation. Existing files ignore the initial size. */
   readonly initialSize?: ByteSize.Input | undefined
   /** Exact initial times when creating a file; an existing file retains its timestamps. Requires creation intent. */
@@ -840,7 +842,7 @@ type Scoped<A> = Effect.Effect<A, OperationError, Scope.Scope>
 
 type SyncResult<A> = Result.Result<A, OperationError>
 
-export type ReferenceOpenOptions = Omit<OpenOptions, "create" | "mode" | "conditions" | "preserveTimes" | "initialSize"> & {
+export type ReferenceOpenOptions = Omit<OpenOptions, "create" | "mode" | "conditions" | "preserveTimes" | "initialSize" | "owner"> & {
   readonly create?: Extract<typeof Creation["Type"], "existing"> | undefined
 }
 

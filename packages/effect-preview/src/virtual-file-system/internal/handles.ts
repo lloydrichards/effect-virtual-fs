@@ -457,6 +457,7 @@ const validateOpen = (
       "noFollow",
       "mode",
       "initialSize",
+      "owner",
       "preserveTimes",
       "conditions",
       "expectedRevision"
@@ -489,6 +490,12 @@ const validateOpen = (
       return yield* Result.fail(new M.InvalidInput({ operation, field: "expectedRevision", reason: "malformed" }))
     }
     if (options?.mode !== undefined) yield* E.modeResult(options.mode, operation)
+    const owner = yield* E.checkOptionsResult(options?.owner, ["uid", "gid"], operation)
+    if (owner !== undefined && create === "existing") {
+      return yield* Result.fail(new M.InvalidInput({ operation, field: "owner", reason: "malformed" }))
+    }
+    const uid = owner?.uid === undefined ? undefined : yield* E.identityResult(owner.uid, operation, "uid")
+    const gid = owner?.gid === undefined ? undefined : yield* E.identityResult(owner.gid, operation, "gid")
     const initialSize = options?.initialSize
     if (initialSize !== undefined && create === "existing") {
       return yield* Result.fail(new M.InvalidInput({ operation, field: "initialSize", reason: "malformed" }))
@@ -511,6 +518,8 @@ const validateOpen = (
     yield* A.condition(conditions, operation)
     return {
       mode: options?.mode,
+      uid,
+      gid,
       initialSize,
       preserveTimes,
       conditions,
@@ -590,7 +599,12 @@ const openNode = (
         if (options.expectedRevision !== undefined) {
           return yield* Result.fail(new M.ConditionFailed({ operation: tx.operation, reason: "objectRevision" }))
         }
-        selected = yield* tx.createResult("file", slot.parent, options.mode)
+        const policy = tx.caller.policy
+        if (!policy.privileged && (
+          (options.uid !== undefined && options.uid !== policy.uid) ||
+          (options.gid !== undefined && options.gid !== policy.gid && !policy.groups.includes(options.gid))
+        )) return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "ownership" }))
+        selected = yield* tx.createResult("file", slot.parent, options.mode, undefined, options)
         created = true
         if (options.initialSize !== undefined && selected.kind === "file") {
           const size = yield* R.sizeResult(options.initialSize, tx.operation, "initialSize")
