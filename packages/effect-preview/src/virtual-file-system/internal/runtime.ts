@@ -420,6 +420,7 @@ export class ChargedBytes {
 }
 
 export class Work extends ChargedBytes {
+  afterCommit?: () => void
   private finished = false
   private request: TurnRequest | undefined
   private readonly borrowed = new Set<Resource>()
@@ -900,6 +901,14 @@ export class Runtime {
       request.state = "released"
     }
     work.finish()
+    if (work.afterCommit !== undefined) {
+      this.inTurn = true
+      try {
+        work.afterCommit()
+      } finally {
+        this.inTurn = false
+      }
+    }
     this.next()
   }
 }

@@ -350,6 +350,14 @@ export {
 
 export type {
   /**
+   * An owner-only namespace or object mutation in a committed operation.
+   *
+   * @stability experimental
+   * @category models
+   * @since 4.1.0
+   */
+  CommittedMutation,
+  /**
    * Absence and parent conditions for exclusive entry creation.
    *
    * @stability experimental
@@ -1610,6 +1618,15 @@ const ownerFor = (engine: E.Engine) =>
       limits: engine.runtime.limits,
       usage: Effect.sync(() => engine.usage()),
       capture: () => C.capture(engine),
+      onCommit: (listener) =>
+        Effect.asVoid(Effect.acquireRelease(
+          Effect.sync(() => {
+            const sink = (batch: ReadonlyArray<M.CommittedMutation>) => listener(batch)
+            engine.listeners.add(sink)
+            return sink
+          }),
+          (sink) => Effect.sync(() => { engine.listeners.delete(sink) })
+        )),
       authorize: Effect.fnUntraced(function*(options: M.CallerOptions) {
         const scope = yield* Scope.Scope
 

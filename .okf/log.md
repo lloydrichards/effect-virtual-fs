@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-11-16
+
+- Record the owner commit feed and volume watch implementation on preview, and the remaining caller-confinement gap.
+
 ## 2026-11-15
 
 - Record how cooperative overlay capture admits recent reads and queues operations that change atime or advance a cursor.

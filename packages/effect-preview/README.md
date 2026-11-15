@@ -22,7 +22,7 @@ bun run --cwd packages/node test:mounted
 ```
 
 The import audit checks that core construction and the native binding use the preview. Existing consumer tests
-define the drop-in contract. Open gaps include committed-change subscriptions for watches and durable-store commits. Current results and adapter findings are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
+define the drop-in contract. Open gaps include caller-confined watch delivery and durable-store commits. Current results and adapter findings are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
 
 Import the proposed public API and authorize a scoped caller:
 
@@ -81,6 +81,7 @@ manifest remain unchanged. Generated-file checks cover the patched result.
 | 0021      | Let core overlay restores reuse file bytes from a private snapshot through an internal capture constructor.                     |
 | 0022      | Inspect directory entry names, kinds and identities with read permission, preserving directory atime.                           |
 | 0023      | Let an async read report a pending automatic atime update before publication so core can wait for a cooperative capture.        |
+| 0024      | Subscribe as the owner to ordered batches of committed mutations from async and synchronous operations.                         |
 
 To try the same changes in an Effect checkout at the pinned commit, point `preview` at this package and apply
 the files in manifest order. Run this command from the root of the Effect checkout.

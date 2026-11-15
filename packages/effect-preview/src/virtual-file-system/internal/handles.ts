@@ -232,6 +232,7 @@ const prepareWrite = (
         }
         edited.mode &= ~E.SET_ID_BITS
         edited.data = output
+        tx.recordUpdate(file.id)
         yield* tx.changedResult(file.id, ["mtime", "ctime"])
         const next = state.append
           ? state.appendCursor === "advance" ? end : state.position
@@ -259,6 +260,7 @@ const prepareTruncate = (
         const file = yield* node(tx, state)
         yield* tx.revisionResult(file, fixedOptions)
         const size = yield* candidate(tx, length)
+        tx.recordUpdate(file.id)
         if (file.data.length !== size || (file.mode & E.SET_ID_BITS) !== 0) {
           const output = new Uint8Array(size)
           output.set(file.data.subarray(0, size))
@@ -668,6 +670,7 @@ const openNode = (
       }
     }
     if (options.truncate && !created) {
+      tx.recordUpdate(selected.id)
       yield* candidate(tx, zero)
       if (selected.data.length > 0 || (selected.mode & E.SET_ID_BITS) !== 0) {
         const edited = yield* tx.editResult(selected.id)

@@ -26,6 +26,7 @@ import { isEntry, Target } from "../Target.js"
 import { make as vfsError } from "../VfsError.js"
 import type * as V from "../VirtualFileSystem.js"
 import { ReferenceKey, VolumeId, VolumeIdentity, VolumeIncarnation } from "../Volume.js"
+import { WatchOptions } from "../Watch.js"
 import * as CorePath from "./bytePath.js"
 import { sameBytes } from "./bytes.js"
 import { imageFailure } from "./errors.js"
@@ -43,6 +44,7 @@ import {
 } from "./model.js"
 import * as Limits from "./volumeLimits.js"
 import { assemble, type NodeSpec, reachableValue } from "./volumeState.js"
+import * as VolumeWatch from "./volumeWatch.js"
 
 export class PreviewBlocker extends Data.TaggedError("PreviewBlocker")<{
   readonly feature: string
@@ -179,6 +181,7 @@ export interface Runtime {
   snapshotEpoch: number
   busy: boolean
   readonly gate: Semaphore.Semaphore
+  readonly admission: Semaphore.Semaphore
   readonly captureReaders: Semaphore.Semaphore | undefined
   readonly orders: Map<bigint, Array<string>>
   readonly retained: Array<WeakRef<P.FileHandle | P.DirectoryHandle>>
@@ -314,9 +317,16 @@ const execute = <A, R>(
       )
     }))
 
-    return runtime.owner.limits.synchronous
-      ? Effect.provideService(work, Scheduler.PreventSchedulerYield, true)
-      : work
+    if (runtime.owner.limits.synchronous) return Effect.provideService(work, Scheduler.PreventSchedulerYield, true)
+
+    // Waiting for the adapter gate counts toward the limit before a preview operation has a ticket.
+    return runtime.admission.withPermitsIfAvailable(1)(work).pipe(
+      Effect.flatMap(Option.match({
+        onNone: () =>
+          Effect.fail(contextual(Errors.fsFailure("VolumeBusy", operation), operation, source, destination)),
+        onSome: Effect.succeed
+      }))
+    )
   })
 
 const intern = (
@@ -2970,6 +2980,7 @@ export const makeVolume = Effect.fnUntraced(
       snapshotEpoch: 0,
       busy: false,
       gate: Semaphore.makeUnsafe(1),
+      admission: Semaphore.makeUnsafe(limits.maxPendingOperations + 1),
       captureReaders: Predicate.isTagged(source, "Overlay") && !owner.limits.synchronous
         ? Semaphore.makeUnsafe(Number.MAX_SAFE_INTEGER)
         : undefined,
@@ -3045,6 +3056,9 @@ export const makeVolume = Effect.fnUntraced(
     const observeSnapshot = <A, E, R>(use: (value: V.Snapshot) => Effect.Effect<A, E, R>) =>
       observe(Effect.flatMap(snapshot(owner), use))
 
+    const watches = VolumeWatch.make("value" in source ? source.value : undefined, limits.maxWatchEvents)
+    yield* Scope.provide(owner.onCommit(watches.publish), rootScope)
+
     const volume: V.Volume = {
       [VolumeId]: true,
       durability: "memory-only",
@@ -3075,7 +3089,28 @@ export const makeVolume = Effect.fnUntraced(
 
         return wrapCaller(runtime, caller, limits, [], 1n, chosen.identity)
       }),
-      watch: () => blocked("watch"),
+      watch: (options) =>
+        execute(
+          runtime,
+          "watch",
+          undefined,
+          Effect.gen(function*() {
+            const selected = yield* Effect.fromResult(
+              Errors.decodeConfiguration(WatchOptions, options === undefined ? {} : options, "watch")
+            )
+            let root = 1n
+
+            if (selected.scope !== undefined) {
+              yield* reference(runtime, selected.scope)
+              const known = runtime.tokens.find((entry) => entry.core === selected.scope)
+
+              if (known === undefined) return yield* Errors.fsFailure("StaleReference", "watch")
+              root = known.ino
+            }
+
+            return yield* watches.subscribe(root, selected.recursive ?? true)
+          })
+        ),
       referenceKey: Effect.fnUntraced(function*(value) {
         const selected = yield* reference(runtime, value)
         const observed = yield* keyObservation(selected)

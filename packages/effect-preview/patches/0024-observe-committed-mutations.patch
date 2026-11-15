@@ -1,0 +1,254 @@
+--- a/packages/effect/src/virtual-file-system/internal/model.ts
++++ b/packages/effect/src/virtual-file-system/internal/model.ts
+@@ -1304,9 +1304,28 @@
+ 
+ export const OwnerTypeId: unique symbol = Symbol("effect/virtual-file-system/OwnerTypeId")
+ 
++type CommittedEntry = {
++  readonly parent: bigint
++  readonly name: BytePath.BytePath
++  readonly object: bigint
++}
++
++export type CommittedMutation =
++  | (CommittedEntry & { readonly _tag: "Create"; readonly previous?: bigint })
++  | (CommittedEntry & { readonly _tag: "Replace"; readonly previous: bigint })
++  | (CommittedEntry & { readonly _tag: "Remove" })
++  | { readonly _tag: "Update"; readonly object: bigint }
++
+ export interface Owner {
+   readonly [OwnerTypeId]: typeof OwnerTypeId
+   readonly authorize: (options: CallerOptions) => Scoped<VirtualFileSystem>
++  /** Receives immutable batches of future committed mutations after the turn is released.
++   * Delivery is synchronous and ordered; reentrant filesystem calls are rejected. A throwing listener is detached.
++   * Rename emits Remove and Create; the latter names an overwritten destination. Replace denotes an atomic entry replacement.
++   * Automatic access times, handle positions and rejected transactions produce no events. */
++  readonly onCommit: (
++    listener: (mutations: ReadonlyArray<CommittedMutation>) => void
++  ) => Effect.Effect<void, never, Scope.Scope>
+   readonly capture: () => Fx<Capture>
+   readonly usage: Effect.Effect<Usage>
+   readonly limits: Limits
+--- a/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
++++ b/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
+@@ -348,6 +348,14 @@
+ } from "./internal/model.ts"
+ 
+ export type {
++  /**
++   * An owner-only namespace or object mutation in a committed operation.
++   *
++   * @stability experimental
++   * @category models
++   * @since 4.1.0
++   */
++  CommittedMutation,
+   /**
+    * Absence and parent conditions for exclusive entry creation.
+    *
+@@ -1609,6 +1617,15 @@
+       limits: engine.runtime.limits,
+       usage: Effect.sync(() => engine.usage()),
+       capture: () => C.capture(engine),
++      onCommit: (listener) =>
++        Effect.asVoid(Effect.acquireRelease(
++          Effect.sync(() => {
++            const sink = (batch: ReadonlyArray<M.CommittedMutation>) => listener(batch)
++            engine.listeners.add(sink)
++            return sink
++          }),
++          (sink) => Effect.sync(() => { engine.listeners.delete(sink) })
++        )),
+       authorize: Effect.fnUntraced(function*(options: M.CallerOptions) {
+         const scope = yield* Scope.Scope
+ 
+--- a/packages/effect/src/virtual-file-system/internal/engine.ts
++++ b/packages/effect/src/virtual-file-system/internal/engine.ts
+@@ -358,6 +358,7 @@
+   readonly runtime: R.Runtime
+   readonly inputLimits: Readonly<Pick<M.Limits, "ioBytes" | "pathBytes">>
+   readonly root: bigint
++  readonly listeners = new Set<(batch: ReadonlyArray<M.CommittedMutation>) => void>()
+   readonly nodes = new Map<bigint, Node>()
+   readonly pins = new Map<bigint, number>()
+   private readonly releaseCandidates = new Set<bigint>()
+@@ -545,6 +546,20 @@
+ 
+ export class Transaction {
+   readonly changes = new Map<bigint, Node>()
++  private mutations?: Array<M.CommittedMutation>
++
++  private record(mutation: M.CommittedMutation) {
++    const mutations = this.mutations ??= []
++    mutations.push(mutation)
++  }
++
++  recordUpdate(object: bigint) {
++    // Initial contents and metadata belong to the Create or Replace event.
++    if (!this.engine.nodes.has(object)) return
++    const last = this.mutations?.[this.mutations.length - 1]
++    if (last?._tag !== "Update" || last.object !== object) this.record({ _tag: "Update", object })
++  }
++
+   private readonly timeRequests = new Map<bigint, Set<"atime" | "mtime" | "ctime" | "birthtime">>()
+   private readonly products: Array<{ readonly node: Node; readonly value: M.ObjectObservation }> = []
+   private pendingPosition: { readonly state: FileState; readonly next: bigint } | undefined
+@@ -1348,12 +1363,18 @@
+     })
+   }
+ 
+-  insertResult(parentId: bigint, name: BytePath.BytePath, object: bigint) {
++  insertResult(parentId: bigint, name: BytePath.BytePath, object: bigint, previous?: bigint) {
+     return Result.gen(this, function*() {
+       yield* this.reserveResult(BigInt(BytePath.byteLength(name)))
+       const binding = { name, object, version: this.engine.nextBinding++ }
+       const parent = yield* this.editDirectoryResult(parentId)
+       parent.entries.set(key(name), binding)
++      const last = this.mutations?.[this.mutations.length - 1]
++      if (last?._tag === "Remove" && last.parent === parentId && BytePath.Order(last.name, name) === 0) {
++        this.mutations?.pop()
++        this.record({ _tag: "Replace", parent: parentId, name, object, previous: last.object })
++      } else if (previous === undefined) this.record({ _tag: "Create", parent: parentId, name, object })
++      else this.record({ _tag: "Create", parent: parentId, name, object, previous })
+       yield* this.childChangedResult(parentId)
+       return binding
+     })
+@@ -1370,7 +1391,8 @@
+ 
+   moveResult(from: EntrySlot, to: EntrySlot, node: Node) {
+     return Result.gen(this, function*() {
+-      if (to.binding !== undefined) yield* this.removeResult(to.parent, to.binding)
++      if (to.binding !== undefined) yield* this.removeResult(to.parent, to.binding, false)
++      this.record({ _tag: "Remove", parent: from.parent.id, name: from.name, object: node.id })
+       const source = yield* this.editDirectoryResult(from.parent.id)
+       source.entries.delete(key(from.name))
+       yield* this.childChangedResult(from.parent.id)
+@@ -1387,7 +1409,7 @@
+         }
+         moved.parent = to.parent.id
+       }
+-      yield* this.insertResult(to.parent.id, to.name, node.id)
++      yield* this.insertResult(to.parent.id, to.name, node.id, to.binding?.object)
+       yield* this.changedResult(node.id, ["ctime"])
+     })
+   }
+@@ -1440,11 +1462,12 @@
+     })
+   }
+ 
+-  removeResult(parent: DirectoryNode, binding: Binding) {
++  removeResult(parent: DirectoryNode, binding: Binding, report = true) {
+     return Result.gen(this, function*() {
+       const node = yield* this.editResult(binding.object)
+       const directory = yield* this.editDirectoryResult(parent.id)
+       directory.entries.delete(key(binding.name))
++      if (report) this.record({ _tag: "Remove", parent: parent.id, name: binding.name, object: node.id })
+       yield* this.childChangedResult(parent.id)
+       if (node.kind === "directory") {
+         node.nlink = BigInt("0")
+@@ -1596,6 +1619,20 @@
+             engine.contentBytes += contentDelta
+             if (read !== undefined) Uint8Array.prototype.set.call(read.destination.view, read.bytes)
+             if (position !== undefined) position.state.position = position.next
++            if (this.mutations !== undefined && engine.listeners.size > 0) {
++              const batch = Object.freeze(this.mutations.map((mutation) => Object.freeze(mutation)))
++              const sinks = Array.from(engine.listeners)
++              this.work.afterCommit = () => {
++                for (const sink of sinks) {
++                  if (!engine.listeners.has(sink)) continue
++                  try {
++                    sink(batch)
++                  } catch {
++                    engine.listeners.delete(sink)
++                  }
++                }
++              }
++            }
+           })
+       }
+     })
+--- a/packages/effect/src/virtual-file-system/internal/runtime.ts
++++ b/packages/effect/src/virtual-file-system/internal/runtime.ts
+@@ -419,6 +419,7 @@
+ }
+ 
+ export class Work extends ChargedBytes {
++  afterCommit?: () => void
+   private finished = false
+   private request: TurnRequest | undefined
+   private readonly borrowed = new Set<Resource>()
+@@ -899,6 +900,14 @@
+       request.state = "released"
+     }
+     work.finish()
++    if (work.afterCommit !== undefined) {
++      this.inTurn = true
++      try {
++        work.afterCommit()
++      } finally {
++        this.inTurn = false
++      }
++    }
+     this.next()
+   }
+ }
+--- a/packages/effect/src/virtual-file-system/internal/atomic.ts
++++ b/packages/effect/src/virtual-file-system/internal/atomic.ts
+@@ -587,6 +587,7 @@
+       ? Math.max(node.data.length, data.length)
+       : node.data.length + data.length
+     yield* reserveFile(tx, BigInt(length))
++    if (placement === "replace" || data.length > 0) tx.recordUpdate(node.id)
+     if (data.length === 0 && (placement !== "replace" || node.data.length === 0)) return
+     const next = new Uint8Array(length)
+     if (placement !== "replace") next.set(node.data)
+@@ -617,6 +618,7 @@
+     yield* tx.requireResult(node, E.WRITE_PERMISSION)
+     yield* tx.revisionResult(node, options)
+     yield* reserveFile(tx, requested)
++    tx.recordUpdate(node.id)
+     if (requested === BigInt(node.data.length) && (node.mode & E.SET_ID_BITS) === 0) return
+     const data = new Uint8Array(Number(requested))
+     data.set(node.data.subarray(0, data.length))
+@@ -739,6 +741,7 @@
+         else if (requested !== undefined) yield* tx.explicitTimeResult(node.id, field, requested)
+       } else Object.assign(edited, { [field]: value })
+     }
++    if (attributeFields.some((field) => attributes[field] !== undefined)) tx.recordUpdate(node.id)
+     if (changed) yield* tx.changedResult(node.id, ["ctime"])
+   })
+ 
+@@ -1128,6 +1131,7 @@
+     }
+     next.data = data.slice()
+     if (existing === undefined) yield* tx.insertResult(slot.parent.id, slot.name, node.id)
++    else tx.recordUpdate(node.id)
+     if (data.length > 0 || (existing !== undefined && existing.data.length !== 0)) {
+       next.mode &= ~E.SET_ID_BITS
+       yield* tx.changedResult(node.id, ["mtime", "ctime"])
+--- a/packages/effect/src/virtual-file-system/internal/handles.ts
++++ b/packages/effect/src/virtual-file-system/internal/handles.ts
+@@ -231,6 +231,7 @@
+         }
+         edited.mode &= ~E.SET_ID_BITS
+         edited.data = output
++        tx.recordUpdate(file.id)
+         yield* tx.changedResult(file.id, ["mtime", "ctime"])
+         const next = state.append
+           ? state.appendCursor === "advance" ? end : state.position
+@@ -258,6 +259,7 @@
+         const file = yield* node(tx, state)
+         yield* tx.revisionResult(file, fixedOptions)
+         const size = yield* candidate(tx, length)
++        tx.recordUpdate(file.id)
+         if (file.data.length !== size || (file.mode & E.SET_ID_BITS) !== 0) {
+           const output = new Uint8Array(size)
+           output.set(file.data.subarray(0, size))
+@@ -667,6 +669,7 @@
+       }
+     }
+     if (options.truncate && !created) {
++      tx.recordUpdate(selected.id)
+       yield* candidate(tx, zero)
+       if (selected.data.length > 0 || (selected.mode & E.SET_ID_BITS) !== 0) {
+         const edited = yield* tx.editResult(selected.id)

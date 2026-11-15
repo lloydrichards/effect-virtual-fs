@@ -1305,9 +1305,28 @@ export interface SyncDirectoryHandle {
 
 export const OwnerTypeId: unique symbol = Symbol("effect/virtual-file-system/OwnerTypeId")
 
+type CommittedEntry = {
+  readonly parent: bigint
+  readonly name: BytePath.BytePath
+  readonly object: bigint
+}
+
+export type CommittedMutation =
+  | (CommittedEntry & { readonly _tag: "Create"; readonly previous?: bigint })
+  | (CommittedEntry & { readonly _tag: "Replace"; readonly previous: bigint })
+  | (CommittedEntry & { readonly _tag: "Remove" })
+  | { readonly _tag: "Update"; readonly object: bigint }
+
 export interface Owner {
   readonly [OwnerTypeId]: typeof OwnerTypeId
   readonly authorize: (options: CallerOptions) => Scoped<VirtualFileSystem>
+  /** Receives immutable batches of future committed mutations after the turn is released.
+   * Delivery is synchronous and ordered; reentrant filesystem calls are rejected. A throwing listener is detached.
+   * Rename emits Remove and Create; the latter names an overwritten destination. Replace denotes an atomic entry replacement.
+   * Automatic access times, handle positions and rejected transactions produce no events. */
+  readonly onCommit: (
+    listener: (mutations: ReadonlyArray<CommittedMutation>) => void
+  ) => Effect.Effect<void, never, Scope.Scope>
   readonly capture: () => Fx<Capture>
   readonly usage: Effect.Effect<Usage>
   readonly limits: Limits

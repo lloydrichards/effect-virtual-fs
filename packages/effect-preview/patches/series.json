@@ -90,5 +90,9 @@
   {
     "file": "0023-guard-automatic-read-atime.patch",
     "sha256": "fcb000bf856a62572f915a7d47c82cf041dff0878cb4b739700dad0f0ba9928a"
+  },
+  {
+    "file": "0024-observe-committed-mutations.patch",
+    "sha256": "15713e8273c3e37ce054edb12f55e0b065f67904a8eaf5c58c64fbd8f66c53bd"
   }
 ]

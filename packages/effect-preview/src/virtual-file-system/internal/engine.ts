@@ -359,6 +359,7 @@ export class Engine {
   readonly runtime: R.Runtime
   readonly inputLimits: Readonly<Pick<M.Limits, "ioBytes" | "pathBytes">>
   readonly root: bigint
+  readonly listeners = new Set<(batch: ReadonlyArray<M.CommittedMutation>) => void>()
   readonly nodes = new Map<bigint, Node>()
   readonly pins = new Map<bigint, number>()
   private readonly releaseCandidates = new Set<bigint>()
@@ -546,6 +547,20 @@ interface BorrowedDestination {
 
 export class Transaction {
   readonly changes = new Map<bigint, Node>()
+  private mutations?: Array<M.CommittedMutation>
+
+  private record(mutation: M.CommittedMutation) {
+    const mutations = this.mutations ??= []
+    mutations.push(mutation)
+  }
+
+  recordUpdate(object: bigint) {
+    // Initial contents and metadata belong to the Create or Replace event.
+    if (!this.engine.nodes.has(object)) return
+    const last = this.mutations?.[this.mutations.length - 1]
+    if (last?._tag !== "Update" || last.object !== object) this.record({ _tag: "Update", object })
+  }
+
   private readonly timeRequests = new Map<bigint, Set<"atime" | "mtime" | "ctime" | "birthtime">>()
   private readonly products: Array<{ readonly node: Node; readonly value: M.ObjectObservation }> = []
   private pendingPosition: { readonly state: FileState; readonly next: bigint } | undefined
@@ -1349,12 +1364,18 @@ export class Transaction {
     })
   }
 
-  insertResult(parentId: bigint, name: BytePath.BytePath, object: bigint) {
+  insertResult(parentId: bigint, name: BytePath.BytePath, object: bigint, previous?: bigint) {
     return Result.gen(this, function*() {
       yield* this.reserveResult(BigInt(BytePath.byteLength(name)))
       const binding = { name, object, version: this.engine.nextBinding++ }
       const parent = yield* this.editDirectoryResult(parentId)
       parent.entries.set(key(name), binding)
+      const last = this.mutations?.[this.mutations.length - 1]
+      if (last?._tag === "Remove" && last.parent === parentId && BytePath.Order(last.name, name) === 0) {
+        this.mutations?.pop()
+        this.record({ _tag: "Replace", parent: parentId, name, object, previous: last.object })
+      } else if (previous === undefined) this.record({ _tag: "Create", parent: parentId, name, object })
+      else this.record({ _tag: "Create", parent: parentId, name, object, previous })
       yield* this.childChangedResult(parentId)
       return binding
     })
@@ -1371,7 +1392,8 @@ export class Transaction {
 
   moveResult(from: EntrySlot, to: EntrySlot, node: Node) {
     return Result.gen(this, function*() {
-      if (to.binding !== undefined) yield* this.removeResult(to.parent, to.binding)
+      if (to.binding !== undefined) yield* this.removeResult(to.parent, to.binding, false)
+      this.record({ _tag: "Remove", parent: from.parent.id, name: from.name, object: node.id })
       const source = yield* this.editDirectoryResult(from.parent.id)
       source.entries.delete(key(from.name))
       yield* this.childChangedResult(from.parent.id)
@@ -1388,7 +1410,7 @@ export class Transaction {
         }
         moved.parent = to.parent.id
       }
-      yield* this.insertResult(to.parent.id, to.name, node.id)
+      yield* this.insertResult(to.parent.id, to.name, node.id, to.binding?.object)
       yield* this.changedResult(node.id, ["ctime"])
     })
   }
@@ -1441,11 +1463,12 @@ export class Transaction {
     })
   }
 
-  removeResult(parent: DirectoryNode, binding: Binding) {
+  removeResult(parent: DirectoryNode, binding: Binding, report = true) {
     return Result.gen(this, function*() {
       const node = yield* this.editResult(binding.object)
       const directory = yield* this.editDirectoryResult(parent.id)
       directory.entries.delete(key(binding.name))
+      if (report) this.record({ _tag: "Remove", parent: parent.id, name: binding.name, object: node.id })
       yield* this.childChangedResult(parent.id)
       if (node.kind === "directory") {
         node.nlink = BigInt("0")
@@ -1597,6 +1620,20 @@ export class Transaction {
             engine.contentBytes += contentDelta
             if (read !== undefined) Uint8Array.prototype.set.call(read.destination.view, read.bytes)
             if (position !== undefined) position.state.position = position.next
+            if (this.mutations !== undefined && engine.listeners.size > 0) {
+              const batch = Object.freeze(this.mutations.map((mutation) => Object.freeze(mutation)))
+              const sinks = Array.from(engine.listeners)
+              this.work.afterCommit = () => {
+                for (const sink of sinks) {
+                  if (!engine.listeners.has(sink)) continue
+                  try {
+                    sink(batch)
+                  } catch {
+                    engine.listeners.delete(sink)
+                  }
+                }
+              }
+            }
           })
       }
     })

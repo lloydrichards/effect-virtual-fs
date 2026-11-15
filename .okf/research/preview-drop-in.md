@@ -45,7 +45,7 @@ sources:
     title: Public owner operations, metadata, and atomic publication options
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/328
     title: Remaining API gaps and atomic copy option proposal
-generated: { by: codex/okf, at: "2026-11-15T23:29:00+00:00" }
+generated: { by: codex/okf, at: "2026-11-16T00:05:00+00:00" }
 ---
 
 # Effect preview drop-in evaluation
@@ -121,7 +121,7 @@ Cooperative overlay capture holds a shared permit in core while it takes a previ
 
 Public capture records cannot distinguish two writes of the same bytes at the same clock time. A subscriber still needs an update for the second write. A wrapper around a successful core call also misses earlier committed steps of a recursive removal that later fails. Native handle writes enter through the synchronous binding.
 
-A candidate upstream change would report an ordered batch of committed namespace actions and explicit object updates at preview transaction publication. Core could use that batch to resolve paths and aliases visible to each subscriber before charging queue capacity. Registration must take effect before `watch()` returns, and subscribers must wake after ownership is released. A prototype should cover same-byte writes, rollback, partial recursive removal, rename over an existing entry, confined aliases, overflow and native writes. This is a proposed design. [Issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328)
+Contribution 0024 adds an owner-only `onCommit` subscription. Preview reports committed namespace actions and explicit object updates after releasing the operation. It preserves rename and replacement identity and omits automatic atime updates. Core keeps parent and name bindings for path projection, including restored volumes and hard links. Each volume subscription filters by scope before charging its bounded queue. Caller watches still require rebasing, selected-alias tracking and confinement checks for changes that cross caller roots. [Issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328)
 
 ## Review status
 
