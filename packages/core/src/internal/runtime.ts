@@ -2334,12 +2334,20 @@ const wrapCaller = (
           return yield* Errors.fsFailure("StaleReference", "setattr", { field: "expected" })
         }
 
+        // An empty owner update still requires ownership. Sending a synthetic uid would clear set-ID bits.
+        const checkOwner = a.owner !== undefined && a.owner.uid === undefined && a.owner.gid === undefined &&
+          identity !== undefined && !identity.privileged
+
+        if (checkOwner && identity.uid !== observed.metadata.uid) {
+          return yield* Errors.fsFailure("NotPermitted", "setattr")
+        }
+
         const selected: P.Attributes = { ...a.owner, mode: a.mode, size: a.size }
 
         return yield* attributes(
           value,
           a.times === undefined ? selected : { ...selected, ...attributeTimes(a.times) },
-          a.expected === undefined && a.size === undefined ? undefined : observed.revision
+          a.expected !== undefined || a.size !== undefined || checkOwner ? observed.revision : undefined
         ).pipe(Effect.mapError((error) =>
           a.size !== undefined && (error.code === "NoSpace" || error.code === "FileTooLarge") ? noPath(error) : error
         ))
