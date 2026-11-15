@@ -358,9 +358,9 @@ export type {
    */
   AccessOptions,
   /**
-   * Concrete atomic destination content-and-times publication. Existing regular files retain identity,
-   * grants, birthtime, mode and ownership. New objects use ordinary supplied source mode bits through
-   * caller umask and inheritance. All requested times and content authorize against prestate.
+   * Publishes content and optional exact times together. An existing regular file retains its identity,
+   * grants, birthtime and ownership. Publishing nonempty content or clearing a nonempty file clears its
+   * set-user-ID and set-group-ID bits. Creation applies the caller's umask and group inheritance.
    *
    * @stability experimental
    * @category models
@@ -384,8 +384,8 @@ export type {
    */
   AttributeOptions,
   /**
-   * Atomic attribute request. Every field is authorized against prestate; no-follow symlink chmod is
-   * invalid.
+   * Applies mode, ownership, size and timestamps in one transaction. Each requested field requires
+   * authority on the original object. With followFinalSymlink disabled, mode updates affect the link itself.
    *
    * @stability experimental
    * @category models
@@ -645,8 +645,8 @@ export type {
    * With truncate true, expectedRevision guards the resolved file before truncation, including through a
    * symlink. Entry conditions independently guard its named binding. Authorization precedes guard
    * evaluation; all guards, truncation and handle acquisition share one atomic publication boundary. A
-   * mismatch returns ConditionFailed without truncation or a delivered handle. Check even an empty file;
-   * successful size-preserving truncation changes no timestamps or revisions.
+   * mismatch returns ConditionFailed without truncation or a delivered handle. The guard also applies to
+   * empty files. Truncating an empty file updates metadata only when it clears set-ID bits.
    *
    * **Gotchas**
    *
@@ -775,8 +775,8 @@ export type {
    */
   PathOpenOptions,
   /**
-   * Followed-path whole-file options. Object revisions guard the resolved object; named slot and parent
-   * conditions require an explicit EntryAddress.
+   * Whole-file path options. Writes follow the final symlink by default. Set replaceFinalSymlink to
+   * replace its binding with a regular file. Named slot and parent conditions require an explicit EntryAddress.
    *
    * @stability experimental
    * @category models

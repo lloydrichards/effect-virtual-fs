@@ -422,7 +422,8 @@ export type HardLinkSource = { readonly reference: ObjectReference } | {
 }
 
 /**
- * Omitted fields stay unchanged; "now" timestamps share the transaction clock.
+ * Resizing a regular file or setting its ownership clears set-ID bits unless a mode is supplied.
+ * Timestamps set to "now" share the transaction clock.
  * A write-authorized non-owner may request both times as "now". Literal or mixed timestamp updates require ownership.
  */
 export interface Attributes {
@@ -460,7 +461,7 @@ export interface OpenOptions extends RevisionCondition {
 }
 
 export interface WriteFileOptions extends RevisionCondition {
-  /** Exact permission mode to publish with the bytes. Existing files require owner authority. */
+  /** Final mode to publish with the bytes, subject to the same ownership and group checks as chmod. */
   readonly finalMode?: number | undefined
   /** Replace the final symbolic link itself with a regular file, retaining any other links to it. */
   readonly replaceFinalSymlink?: boolean | undefined

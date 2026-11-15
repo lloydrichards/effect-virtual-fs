@@ -58,5 +58,9 @@
   {
     "file": "0015-atomic-open-owner.patch",
     "sha256": "1e715eb30a2a27925afeaa3636bbad81b3b5d02ebfe15aa44a12fecf7f4ee01a"
+  },
+  {
+    "file": "0016-document-preview-metadata-and-writes.patch",
+    "sha256": "c8cc8696c1bb4e8bfc1e6d7a9a15a02c4add25faeb4e168999a7ab978888c3ce"
   }
 ]

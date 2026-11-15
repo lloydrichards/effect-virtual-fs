@@ -1,30 +1,30 @@
 # Evaluate the proposed Effect filesystem
 
-This private workspace package ports [Effect PR #9960](https://github.com/Effect-TS/effect/pull/9960)
-at commit `161258278d6618bb5a10804827bb7a5f34b04c4d`. It shares the installed Effect 4.1.4 runtime.
-The package is experimental and is not published. The existing core constructors use this engine; memory and Node consume it through their existing core bindings.
+This private package ports [Effect PR #9960](https://github.com/Effect-TS/effect/pull/9960) at
+`161258278d6618bb5a10804827bb7a5f34b04c4d` and shares the installed Effect 4.1.4 runtime. Core uses the
+preview engine for its public constructors and native binding. Memory and Node use that same core state.
 
 ## Build and run the preview
 
-From the repository root, install the locked dependencies and build the package:
+Run the preview and consumer suites from the repository root. The Node suites require a Node runtime with
+`--experimental-vfs`.
 
 ```sh
 bun install --frozen-lockfile
-bun run --cwd packages/effect-preview build
+bun run build
 bun run --cwd packages/effect-preview test
 bun run --cwd packages/effect-preview type-check
-bun run build
 bun run --cwd packages/core check:preview-imports
+bun run --cwd packages/core test
+bun run --cwd packages/memory test
+bun run --cwd packages/node test
+bun run --cwd packages/node test:mounted
 ```
 
-Core, memory, and Node tests execute against this package through the existing core constructors. The old core
-engine and comparison baseline have been removed. The import audit verifies that core construction and native
-binding reach the preview and that no removed implementation is present. Existing public behavior remains the
-acceptance contract; missing preview features stay visible as failures.
-
-This is the only new workspace package. Core consumes it as a runtime dependency. Core's compatibility facade translates its existing caller, target, metadata, snapshot, and handle interfaces onto the preview's public API. The existing memory adapter and Node provider retain their public interfaces and consume that same state. The community engine and its native fallback are deleted.
-
-The evaluation is not ready to merge or publish. Missing atomic publication, watch, durable-store, overlay, and metadata contracts still fail the unchanged tests. Additional adapter differences remain under qualification. See [the drop-in findings](../../.okf/research/preview-drop-in.md).
+The import audit checks that core construction and the native binding use the preview. Existing consumer tests
+define the drop-in contract. Open gaps include committed-change subscriptions for watches, durable-store commits,
+copy-on-write overlays, and metadata walks that preserve atime while listing a readable directory without search
+permission. Current results and adapter findings are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
 
 Import the proposed public API and authorize a scoped caller:
 
@@ -66,64 +66,26 @@ engine edits, extra generated files, and corrupted snapshots or contribution pat
 applies them with zero fuzz to a temporary upstream tree before adapting imports. The pinned snapshot and its
 manifest remain unchanged. Generated-file checks cover the patched result.
 
-`0001-preserve-caller-interruptibility.patch` replaces forced interruption at operation admission and before
-publication with the caller's original interruption setting. Masked finalizers can finish filesystem cleanup;
-ordinary writes retain cancellation before publication. The patch includes regression tests for interrupted-child
-cleanup and masked writes interrupted through the clock, alongside the existing ordinary-write rollback test.
+| Patches | Behavior under evaluation |
+| --- | --- |
+| 0001–0002 | Preserve caller interruptibility during cleanup and resolve terminal dot components in recursive mkdir. |
+| 0003–0004 | Apply current-time attributes and file resize in the same transaction as other metadata. |
+| 0005–0008 | Support opt-in relatime, create directories and files with exact timestamps, and preserve revisions on automatic atime updates. |
+| 0009–0010 | Create zero-filled files at their initial size during open and update symlink mode without following the link. |
+| 0011 | Publish file contents with a final mode and optionally replace the final symlink itself. |
+| 0012–0013 | Support special mode bits and safe-integer owner IDs. Preserve empty symlink payloads through copy and restore. |
+| 0014–0015 | List entry identities with directory read permission and set initial file ownership during open. |
+| 0016 | Describe the revised attribute, copy, open and write contracts in the public API documentation. |
 
-`0002-recursive-mkdir-dot-components.patch` allows unguarded recursive mkdir paths ending in `.` or `..` to resolve
-through the existing transactional path walker. It preserves intermediate symlink traversal, rooted confinement,
-and atomic rollback. Entry conditions still require a named final slot; dot targets with conditions retain their
-existing `InvalidInput` rejection. Regression tests cover both resolution paths, byte paths, permissions, quotas,
-and conditions. No public API changes or adapter changes are needed.
-
-`0003-current-time-attributes.patch` adds `"now"` to the existing `Attributes.atime` and `mtime` inputs. Both markers
-and ctime use one transaction clock sample. A write-authorized non-owner may request both times as `"now"`;
-literal or mixed timestamp requests still require ownership, and other requested attributes keep their own checks.
-Omitted fields remain unchanged. The patch includes runtime and type tests for the shared caller, operation-session,
-handle, and synchronous APIs. Core preserves the markers instead of converting them into literal timestamps.
-
-`0004-atomic-resize-attributes.patch` adds an optional byte-size input to `Attributes.size`. Resizing, metadata,
-and timestamps publish in one transaction after prestate authorization and quota checks. Growth is zero-filled;
-identity, hard-link aliases, and handle cursors are preserved. Handle resize uses its open-time write grant, while
-path and reference resize check current write permission. Explicit times override resize's automatic mtime.
-Runtime and type tests cover the shared attribute entry points, rollback, and guards. Core forwards combined
-requests directly, including its existing error and revision conventions.
-
-`0005-opt-in-relatime.patch` adds `accessTime: "strict" | "relatime"` to construction, layers, and restore.
-The default remains strict. Relatime refreshes access time when it is no newer than modification or status-change
-time, or is at least 24 hours old. Suppressed reads preserve metadata and revision tokens; explicit timestamps
-and creation times keep their existing behavior. The instance policy is selected at restore rather than encoded
-in capture records. Core selects relatime for both fresh and restored volumes.
-
-`0006-atomic-mkdir-timestamps.patch` adds literal `preserveTimes` to directory creation, entry creation, and
-operation-session mkdir. Times publish with the newly created final directory in the existing transaction.
-Recursive prefixes and existing final directories retain their timestamps; creation ctime/birthtime and parent
-updates keep their normal clock values. Preparation snapshots the nested record before execution. Core forwards
-its existing mkdir times instead of rejecting them or applying metadata after publication.
-
-`0007-atomic-open-timestamps.patch` adds literal `preserveTimes` to creation-capable async and sync opens.
-The existing open transaction stages exact initial atime/mtime before publishing the file or delivering its
-handle. Existing files ignore creation times, reference opens reject them, and ordinary opens keep their defaults.
-Core forwards its existing times option. Initial size and ownership remain separate gaps. The stale-observation
-core test exposed the atime-only revision mismatch resolved by contribution eight below.
-
-`0008-atime-revision-neutrality.patch` preserves object revisions when an automatic read refreshes only atime.
-The refreshed atime still publishes under strict and relatime policies. Explicit timestamp updates and other
-mutations retain their revision advancement and stale-guard behavior. The patch updates the upstream observed-read
-assertion to the new contract and adds read-path, synchronous, guard and cancellation regressions. Core is unchanged.
-
-Apply these contributions in series order from an Effect checkout at the pinned PR commit:
+To try the same changes in an Effect checkout at the pinned commit, point `preview` at this package and apply
+the files in manifest order. Run this command from the root of the Effect checkout.
 
 ```sh
-patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0001-preserve-caller-interruptibility.patch
-patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0002-recursive-mkdir-dot-components.patch
-patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0003-current-time-attributes.patch
-patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0004-atomic-resize-attributes.patch
-patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0005-opt-in-relatime.patch
-patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0006-atomic-mkdir-timestamps.patch
-patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0007-atomic-open-timestamps.patch
-patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0008-atime-revision-neutrality.patch
+preview=/absolute/path/to/effect-virtual-fs/packages/effect-preview
+bun -e 'for (const entry of await Bun.file(process.argv[1]).json()) console.log(entry.file)' "$preview/patches/series.json" |
+  while IFS= read -r name; do
+    patch --batch --forward --fuzz=0 -p1 < "$preview/patches/$name" || exit 1
+  done
 ```
 
 To revise a contribution, edit its upstream patch, update the checksum in `series.json`, and regenerate. Once the
@@ -172,9 +134,3 @@ file explicitly after reviewing the snapshot change; sync rejects unexpected fil
 Refresh does not promise that an arbitrary later PR revision works without adaptation. Keep engine fixes upstream
 and local adaptations in the generator. After an Effect release includes the accepted APIs, switch the consumer's
 imports, rerun the same qualification, and remove this temporary package.
-
-Existing core adapters provide authenticated in-memory reference keys, snapshot codecs, reference paths, insertion order,
-and scoped authority over the preview. The preview still lacks the public contracts needed for watches, durable volumes,
-copy-on-write overlays, several atomic metadata operations, and masked-finalizer cleanup. Direct reproductions and the
-unchanged acceptance results are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
-No replacement packages or reduced application flows are introduced.

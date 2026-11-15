@@ -1,0 +1,69 @@
+--- a/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
++++ b/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
+@@ -358,9 +358,9 @@
+    */
+   AccessOptions,
+   /**
+-   * Concrete atomic destination content-and-times publication. Existing regular files retain identity,
+-   * grants, birthtime, mode and ownership. New objects use ordinary supplied source mode bits through
+-   * caller umask and inheritance. All requested times and content authorize against prestate.
++   * Publishes content and optional exact times together. An existing regular file retains its identity,
++   * grants, birthtime and ownership. Publishing nonempty content or clearing a nonempty file clears its
++   * set-user-ID and set-group-ID bits. Creation applies the caller's umask and group inheritance.
+    *
+    * @stability experimental
+    * @category models
+@@ -384,8 +384,8 @@
+    */
+   AttributeOptions,
+   /**
+-   * Atomic attribute request. Every field is authorized against prestate; no-follow symlink chmod is
+-   * invalid.
++   * Applies mode, ownership, size and timestamps in one transaction. Each requested field requires
++   * authority on the original object. With followFinalSymlink disabled, mode updates affect the link itself.
+    *
+    * @stability experimental
+    * @category models
+@@ -645,8 +645,8 @@
+    * With truncate true, expectedRevision guards the resolved file before truncation, including through a
+    * symlink. Entry conditions independently guard its named binding. Authorization precedes guard
+    * evaluation; all guards, truncation and handle acquisition share one atomic publication boundary. A
+-   * mismatch returns ConditionFailed without truncation or a delivered handle. Check even an empty file;
+-   * successful size-preserving truncation changes no timestamps or revisions.
++   * mismatch returns ConditionFailed without truncation or a delivered handle. The guard also applies to
++   * empty files. Truncating an empty file updates metadata only when it clears set-ID bits.
+    *
+    * **Gotchas**
+    *
+@@ -775,8 +775,8 @@
+    */
+   PathOpenOptions,
+   /**
+-   * Followed-path whole-file options. Object revisions guard the resolved object; named slot and parent
+-   * conditions require an explicit EntryAddress.
++   * Whole-file path options. Writes follow the final symlink by default. Set replaceFinalSymlink to
++   * replace its binding with a regular file. Named slot and parent conditions require an explicit EntryAddress.
+    *
+    * @stability experimental
+    * @category models
+--- a/packages/effect/src/virtual-file-system/internal/model.ts
++++ b/packages/effect/src/virtual-file-system/internal/model.ts
+@@ -422,7 +422,8 @@
+ }
+ 
+ /**
+- * Omitted fields stay unchanged; "now" timestamps share the transaction clock.
++ * Resizing a regular file or setting its ownership clears set-ID bits unless a mode is supplied.
++ * Timestamps set to "now" share the transaction clock.
+  * A write-authorized non-owner may request both times as "now". Literal or mixed timestamp updates require ownership.
+  */
+ export interface Attributes {
+@@ -460,7 +461,7 @@
+ }
+ 
+ export interface WriteFileOptions extends RevisionCondition {
+-  /** Exact permission mode to publish with the bytes. Existing files require owner authority. */
++  /** Final mode to publish with the bytes, subject to the same ownership and group checks as chmod. */
+   readonly finalMode?: number | undefined
+   /** Replace the final symbolic link itself with a regular file, retaining any other links to it. */
+   readonly replaceFinalSymlink?: boolean | undefined
