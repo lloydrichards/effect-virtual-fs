@@ -18,5 +18,9 @@
   {
     "file": "0005-opt-in-relatime.patch",
     "sha256": "af6cce6f1e7ef5399cb708917d70b98a1a504436fbf8d8dc08d4b89df48bb36d"
+  },
+  {
+    "file": "0006-atomic-mkdir-timestamps.patch",
+    "sha256": "726c3b2c4a9ab32a2c855541cc1b4305a895accbfaf9ce585c8eab80462d0a5f"
   }
 ]

@@ -29,7 +29,7 @@ export interface OptionsByOperation {
   readonly writeFile: M.WriteFileOptions | undefined
   readonly createFile: M.CreateOptions | undefined
   readonly makeDirectory: M.MkdirOptions | undefined
-  readonly makeDirectoryEntry: M.CreateOptions | undefined
+  readonly makeDirectoryEntry: Omit<M.MkdirOptions, "recursive"> | undefined
   readonly makeSymlink: M.AbsentConditions | undefined
   readonly makeHardLink: M.AbsentConditions | undefined
   readonly unlink: M.EntryConditions | undefined
@@ -49,8 +49,8 @@ export const optionFields = {
   access: ["read", "write", "execute"],
   writeFile: ["placement", "access", "create", "mode", "conditions", "expectedRevision"],
   createFile: ["mode", "conditions"],
-  makeDirectory: ["mode", "conditions", "recursive"],
-  makeDirectoryEntry: ["mode", "conditions"],
+  makeDirectory: ["mode", "conditions", "recursive", "preserveTimes"],
+  makeDirectoryEntry: ["mode", "conditions", "preserveTimes"],
   makeSymlink: ["entry", "parentNamespace"],
   makeHardLink: ["entry", "parentNamespace"],
   unlink: ["entry", "parentNamespace"],
@@ -177,6 +177,12 @@ export const validate = (operation: Operation, options: unknown): Result.Result<
           const recursive = object?.recursive
           if (recursive !== undefined && !isBoolean(recursive)) {
             return yield* Result.fail(new M.InvalidInput({ operation, field: "recursive", reason: "malformed" }))
+          }
+        }
+        if (operation !== "createFile") {
+          const times = yield* E.checkOptionsResult(object?.preserveTimes, timeFields, operation)
+          if (object?.preserveTimes !== undefined && (!isUnixNano(times?.atime) || !isUnixNano(times?.mtime))) {
+            return yield* Result.fail(new M.InvalidInput({ operation, field: "preserveTimes", reason: "malformed" }))
           }
         }
         yield* condition(object?.conditions, operation, true)
@@ -799,27 +805,23 @@ export const makeDirectory = (
           const supplied = Result.getOrThrow(BytePath.fromBytes(bytes.subarray(0, end)))
           const route = yield* tx.resolveResult(supplied, false, undefined, 0, [], undefined, options)
           node = route.object
-          if (node.kind === "directory") {
-            const result = tx.observation(node)
-            if (result.kind !== "directory") {
+          if (node.kind === "directory") prefixEnd = end
+          else {
+            if (node.kind !== "symlink" || route.parent === undefined || route.mkdirPrefixEnd === undefined) {
               return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
             }
-            return result
+            const state: E.ResolutionState = { follows: 0 }
+            yield* tx.consumeLinkResult(state)
+            const followed = tx.resolveResult(node.target, true, route.parent.id, state.follows, [], state)
+            if (Result.isFailure(followed) && followed.failure instanceof M.NotFound) {
+              return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+            }
+            node = (yield* followed).object
+            if (node.kind !== "directory") {
+              return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+            }
+            prefixEnd = route.mkdirPrefixEnd
           }
-          if (node.kind !== "symlink" || route.parent === undefined || route.mkdirPrefixEnd === undefined) {
-            return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
-          }
-          const state: E.ResolutionState = { follows: 0 }
-          yield* tx.consumeLinkResult(state)
-          const followed = tx.resolveResult(node.target, true, route.parent.id, state.follows, [], state)
-          if (Result.isFailure(followed) && followed.failure instanceof M.NotFound) {
-            return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
-          }
-          node = (yield* followed).object
-          if (node.kind !== "directory") {
-            return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
-          }
-          prefixEnd = route.mkdirPrefixEnd
         }
         // Prefix resolution preserves error order under constrained budgets and through symlinks.
         for (let index = prefixEnd + 1; index <= end; index++) {
@@ -844,6 +846,10 @@ export const makeDirectory = (
         }
       }
     }
+    if (options?.preserveTimes !== undefined && !tx.engine.nodes.has(node.id)) {
+      yield* tx.explicitTimeResult(node.id, "atime", options.preserveTimes.atime)
+      yield* tx.explicitTimeResult(node.id, "mtime", options.preserveTimes.mtime)
+    }
     const observation = tx.observation(node)
     if (observation.kind !== "directory") {
       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
@@ -855,7 +861,7 @@ export const makeDirectory = (
 export const makeDirectoryEntry = (
   tx: E.Transaction,
   target: M.EntryTarget,
-  options?: M.CreateOptions
+  options?: Omit<M.MkdirOptions, "recursive">
 ) =>
   Result.gen(function*() {
     const directory = yield* makeDirectory(tx, target, options)

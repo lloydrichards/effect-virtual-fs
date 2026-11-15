@@ -2,6 +2,8 @@
 
 ## 2026-11-15
 
+- Add the sixth reproducible upstream contribution for atomic mkdir timestamps. Snapshot and validate literal times, apply them to newly created final directories within the creation transaction, and forward existing core options. Preserve recursive prefixes, existing directories, creation/parent clock values, conditions and rollback; initial open metadata remains separate.
+
 - Add the fifth reproducible preview contribution for opt-in relatime, keeping strict updates as the upstream default. Core selects the policy for fresh and restored volumes. Preserve explicit timestamps, capture records and unchanged-read revision tokens; distinguish the remaining directory permission mapping and overlay/persistence blockers.
 
 - Remove the retained core engine, legacy volume/overlay/watch implementations, native fallback and baseline comparison runner. Core constructors and native binding have one preview path. Move contracts and immutable codec records out of the removed engine, port runtime-facing tests, retire obsolete private-unit probes, and enforce a sole-preview source/artifact audit.

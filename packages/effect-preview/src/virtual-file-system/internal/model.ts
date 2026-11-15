@@ -455,6 +455,8 @@ export interface CreateOptions {
 }
 
 export interface MkdirOptions extends CreateOptions {
+  /** Exact times for a newly created final directory; existing directories and recursive prefixes are unchanged. */
+  readonly preserveTimes?: { readonly atime: DateTime.UnixNano; readonly mtime: DateTime.UnixNano } | undefined
   readonly recursive?: boolean | undefined
 }
 
@@ -1087,7 +1089,7 @@ export interface VirtualFileSystem {
   /** Creates one exclusive directory and returns its original binding atomically. */
   readonly makeDirectoryEntry: (
     target: EntryTarget,
-    options?: CreateOptions
+    options?: Omit<MkdirOptions, "recursive">
   ) => Fx<PresentEntry & { readonly object: DirectoryObservation }>
   /** Creates an exclusive symlink with exact nonempty NUL-free target bytes, fixed 0777 and inherited gid. */
   readonly makeSymlink: (target: EntryTarget, linkTarget: Path, options?: AbsentConditions) => Fx<ObjectObservation>

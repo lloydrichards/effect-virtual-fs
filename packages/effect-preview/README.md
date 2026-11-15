@@ -96,6 +96,12 @@ time, or is at least 24 hours old. Suppressed reads preserve metadata and revisi
 and creation times keep their existing behavior. The instance policy is selected at restore rather than encoded
 in capture records. Core selects relatime for both fresh and restored volumes.
 
+`0006-atomic-mkdir-timestamps.patch` adds literal `preserveTimes` to directory creation, entry creation, and
+operation-session mkdir. Times publish with the newly created final directory in the existing transaction.
+Recursive prefixes and existing final directories retain their timestamps; creation ctime/birthtime and parent
+updates keep their normal clock values. Preparation snapshots the nested record before execution. Core forwards
+its existing mkdir times instead of rejecting them or applying metadata after publication.
+
 Apply these contributions in series order from an Effect checkout at the pinned PR commit:
 
 ```sh
@@ -104,6 +110,7 @@ patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0002-recu
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0003-current-time-attributes.patch
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0004-atomic-resize-attributes.patch
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0005-opt-in-relatime.patch
+patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0006-atomic-mkdir-timestamps.patch
 ```
 
 To revise a contribution, edit its upstream patch, update the checksum in `series.json`, and regenerate. Once the

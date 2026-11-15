@@ -1563,3 +1563,170 @@ describe("VirtualFileSystem atomic resize attributes", () => {
       assert.deepStrictEqual(yield* owner.usage, usage)
     }).pipe(withClock))
 })
+
+
+describe("atomic mkdir timestamps", () => {
+  const times = {
+    atime: DateTime.unixNanoFromNanoseconds(11n),
+    mtime: DateTime.unixNanoFromNanoseconds(12n)
+  }
+
+  it.effect("should publish exact initial times with the original directory identity and parent change", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      const before = yield* caller.stat("/")
+      yield* TestClock.adjust("1 second")
+      const made = yield* caller.makeDirectory({ directory: "/", name: "child" }, { mode: 0o750, preserveTimes: times })
+      const observed = yield* caller.stat("/child")
+      assert.deepStrictEqual(observed, made)
+      assert.strictEqual(observed.metadata.atime, 11n)
+      assert.strictEqual(observed.metadata.mtime, 12n)
+      assert.strictEqual(observed.metadata.ctime, 1000000000n)
+      assert.strictEqual(observed.metadata.birthtime, 1000000000n)
+      assert.strictEqual(observed.metadata.mode, 0o750)
+      const parent = yield* caller.stat("/")
+      assert.strictEqual(parent.metadata.atime, before.metadata.atime)
+      assert.strictEqual(parent.metadata.mtime, 1000000000n)
+      if (before.kind !== "directory" || parent.kind !== "directory") throw new Error("Expected directory")
+      assert.isFalse(VFS.equalsNamespaceRevision(parent.namespaceRevision, before.namespaceRevision))
+    }))
+
+  for (const constrained of [false, true]) {
+    it.effect(`should preserve only final recursive directory times with ${constrained ? "constrained" : "ordinary"} budgets`, () =>
+      Effect.gen(function*() {
+        const owner = yield* VFS.make(constrained ? { limits: { transientBytes: 11 } } : undefined)
+        const caller = yield* owner.authorize({ credentials })
+        yield* TestClock.adjust("1 second")
+        const made = yield* caller.makeDirectory("/a/b", { recursive: true, preserveTimes: times })
+        assert.strictEqual(made.metadata.atime, 11n)
+        assert.strictEqual(made.metadata.mtime, 12n)
+        const parent = yield* caller.stat("/a")
+        assert.strictEqual(parent.metadata.atime, 1000000000n)
+        assert.strictEqual(parent.metadata.mtime, 1000000000n)
+        assert.strictEqual(parent.metadata.birthtime, 1000000000n)
+      }))
+  }
+
+  it.effect("should apply final times through byte paths and terminal dot traversal", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      const made = yield* caller.makeDirectory(Result.getOrThrow(BytePath.fromString("/a/b/.")), {
+        recursive: true, preserveTimes: times
+      })
+      assert.deepStrictEqual(made, yield* caller.stat("/a/b"))
+      assert.strictEqual(made.metadata.atime, 11n)
+      assert.strictEqual((yield* caller.stat("/a")).metadata.atime, 0n)
+    }))
+
+  it.effect("should leave existing final directories unchanged and retain ordinary creation defaults", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.makeDirectory("/existing")
+      const before = yield* caller.stat("/existing")
+      const parent = yield* caller.stat("/")
+      yield* TestClock.adjust("1 second")
+      assert.deepStrictEqual(yield* caller.makeDirectory("/existing", { recursive: true, preserveTimes: times }), before)
+      assert.deepStrictEqual(yield* caller.stat("/"), parent)
+      const ordinary = yield* caller.makeDirectory("/ordinary")
+      assert.strictEqual(ordinary.metadata.atime, 1000000000n)
+      assert.strictEqual(ordinary.metadata.mtime, 1000000000n)
+    }))
+
+  it.effect("should return preserved times through directory-entry creation and operation sessions", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      const entry = yield* caller.makeDirectoryEntry({ directory: "/", name: "entry" }, { preserveTimes: times })
+      assert.strictEqual(entry.object.metadata.atime, 11n)
+      assert.strictEqual(entry.object.metadata.mtime, 12n)
+      const operation = yield* caller.acquireOperation()
+      const made = yield* operation.files.makeDirectory("/session", { preserveTimes: times })
+      assert.strictEqual(made.metadata.atime, 11n)
+      assert.strictEqual(made.metadata.mtime, 12n)
+    }))
+
+  it.effect("should reject invalid timestamp records without publishing recursive prefixes", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      const before = yield* caller.stat("/")
+      const usage = yield* owner.usage
+      for (const invalid of [null, {}, { atime: 11n }, { atime: 11n, mtime: "now" }, { ...times, extra: true }]) {
+        const options: VFS.MkdirOptions = { recursive: true }
+        Object.defineProperty(options, "preserveTimes", { value: invalid })
+        assert.strictEqual((yield* Effect.flip(caller.makeDirectory("/a/b", options)))._tag, "InvalidInput")
+        assert.deepStrictEqual(yield* caller.stat("/"), before)
+        assert.deepStrictEqual(yield* owner.usage, usage)
+      }
+    }))
+
+  it.effect("should preserve stale parent conditions without changing existing directories", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      const root = yield* caller.stat("/")
+      if (root.kind !== "directory") throw new Error("Expected directory")
+      yield* caller.makeDirectory("/other")
+      const before = yield* caller.stat("/")
+      const error = yield* Effect.flip(caller.makeDirectory("/child", {
+        preserveTimes: times, conditions: { parentNamespace: root.namespaceRevision }
+      }))
+      assert.strictEqual(error._tag, "ConditionFailed")
+      assert.deepStrictEqual(yield* caller.stat("/"), before)
+      assert.strictEqual((yield* Effect.flip(caller.stat("/child")))._tag, "NotFound")
+    }))
+
+  it.effect("should roll back recursive creation and timestamps when entry capacity is exceeded", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make({ limits: { entries: 1 } })
+      const caller = yield* owner.authorize({ credentials })
+      const before = yield* caller.stat("/")
+      const usage = yield* owner.usage
+      assert.strictEqual((yield* Effect.flip(caller.makeDirectory("/a/b", { recursive: true, preserveTimes: times })))._tag, "LimitExceeded")
+      assert.deepStrictEqual(yield* caller.stat("/"), before)
+      assert.deepStrictEqual(yield* owner.usage, usage)
+      assert.strictEqual((yield* Effect.flip(caller.stat("/a")))._tag, "NotFound")
+    }))
+
+  it.effect("should enforce parent permissions before publishing timestamps or entries", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const admin = yield* owner.authorize({ credentials })
+      const guest = yield* owner.authorize({ credentials: { uid: 1, gid: 1 } })
+      yield* admin.makeDirectory("/locked", { mode: 0o555 })
+      const before = yield* admin.stat("/locked")
+      assert.strictEqual((yield* Effect.flip(guest.makeDirectory("/locked/child", { preserveTimes: times })))._tag, "AccessDenied")
+      assert.deepStrictEqual(yield* admin.stat("/locked"), before)
+      assert.strictEqual((yield* Effect.flip(admin.stat("/locked/child")))._tag, "NotFound")
+    }))
+
+  it.effect("should roll back initial timestamps and prefixes when interrupted before publication", () =>
+    Effect.gen(function*() {
+      const clock = yield* Clock.Clock
+      let interrupt: (() => void) | undefined
+      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
+        ...clock,
+        currentTimeNanosUnsafe: () => {
+          interrupt?.()
+          return clock.currentTimeNanosUnsafe()
+        }
+      }))
+      const caller = yield* owner.authorize({ credentials })
+      const before = yield* caller.stat("/")
+      const usage = yield* owner.usage
+      const creating = yield* Effect.withFiber((fiber) => {
+        interrupt = () => {
+          interrupt = undefined
+          fiber.interruptUnsafe()
+        }
+        return caller.makeDirectory("/a/b", { recursive: true, preserveTimes: times })
+      }).pipe(Effect.forkChild({ startImmediately: true }))
+      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(creating)))
+      assert.deepStrictEqual(yield* caller.stat("/"), before)
+      assert.deepStrictEqual(yield* owner.usage, usage)
+      assert.strictEqual((yield* Effect.flip(caller.stat("/a")))._tag, "NotFound")
+    }))
+})

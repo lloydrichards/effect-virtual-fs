@@ -238,3 +238,16 @@ describe("VirtualFileSystem access-time configuration", () => {
     expect(VFS.make).type.not.toBeCallableWith({ accessTime: "never" })
   })
 })
+
+
+describe("atomic mkdir timestamps", () => {
+  it("should accept literal creation times through callers, entry creation and sessions", () => {
+    const options = { preserveTimes: { atime: instant, mtime: instant } }
+    expect(caller.makeDirectory("/directory", options)).type.toBe<Effect.Effect<VFS.DirectoryObservation, VFS.OperationError>>()
+    expect(caller.makeDirectoryEntry(address, options)).type.toBe<Effect.Effect<VFS.PresentEntry & { readonly object: VFS.DirectoryObservation }, VFS.OperationError>>()
+    expect(operation.files.makeDirectory("/directory", options)).type.toBe<Effect.Effect<VFS.DirectoryObservation, VFS.OperationError>>()
+    expect(caller.makeDirectory).type.not.toBeCallableWith("/directory", { preserveTimes: { atime: "now", mtime: instant } })
+    expect(caller.makeDirectory).type.not.toBeCallableWith("/directory", { preserveTimes: { atime: instant } })
+    expect(caller.makeDirectoryEntry).type.not.toBeCallableWith(address, { recursive: true })
+  })
+})

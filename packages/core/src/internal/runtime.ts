@@ -1981,10 +1981,6 @@ const wrapCaller = (
 
       if (o?.exactMode && o.mode === undefined) return yield* Errors.fsFailure("InvalidArgument", "mkdir")
 
-      if (o?.times !== undefined && (o.times.access.kind === "value" || o.times.modification.kind === "value")) {
-        return yield* blocked("atomicDirectoryMetadata")
-      }
-
       const destination = yield* entry(runtime, value, caller)
       const present = yield* Effect.result(mapped(caller.stat(destination)))
 
@@ -2013,7 +2009,16 @@ const wrapCaller = (
           Effect.gen(function*() {
             const selected = o?.exactMode ? yield* withMask(actor, t, 0) : actor
 
-            return yield* selected.makeDirectory(t, { mode: o?.mode, recursive: o?.recursive })
+            return yield* selected.makeDirectory(t, {
+              mode: o?.mode,
+              recursive: o?.recursive,
+              preserveTimes: o?.times === undefined ? undefined : {
+                atime: nano(o.times.access.kind === "value" ? o.times.access.nanoseconds : runtime.readClock()),
+                mtime: nano(
+                  o.times.modification.kind === "value" ? o.times.modification.nanoseconds : runtime.readClock()
+                )
+              }
+            })
           }),
         o?.recursive
       )

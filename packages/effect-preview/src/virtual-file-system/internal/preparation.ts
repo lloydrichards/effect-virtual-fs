@@ -157,7 +157,16 @@ export const snapshotOptions: {
       }
     }),
   createFile: (input) => createOptions(input, "createFile"),
-  makeDirectoryEntry: (input) => createOptions(input, "makeDirectoryEntry"),
+  makeDirectoryEntry: (input): Result.Result<Complete<Omit<M.MkdirOptions, "recursive">> | undefined, M.InvalidInput> =>
+    Result.gen(function*() {
+      if (input === undefined) return undefined
+      yield* checkShape(input, A.optionFields.makeDirectoryEntry, "makeDirectoryEntry")
+      return {
+        mode: input.mode,
+        conditions: yield* snapshotConditions(input.conditions, "makeDirectoryEntry"),
+        preserveTimes: yield* snapshotTimes(input.preserveTimes, "makeDirectoryEntry")
+      }
+    }),
   makeDirectory: (input): Result.Result<Complete<M.MkdirOptions> | undefined, M.InvalidInput> =>
     Result.gen(function*() {
       if (input === undefined) return undefined
@@ -165,7 +174,8 @@ export const snapshotOptions: {
       return {
         mode: input.mode,
         conditions: yield* snapshotConditions(input.conditions, "makeDirectory"),
-        recursive: input.recursive
+        recursive: input.recursive,
+        preserveTimes: yield* snapshotTimes(input.preserveTimes, "makeDirectory")
       }
     }),
   makeSymlink: (input) => snapshotConditions(input, "makeSymlink"),
