@@ -10,8 +10,8 @@ import { dual } from "effect/Function"
 import * as Order from "effect/Order"
 import * as Schema from "effect/Schema"
 import { BytePath } from "./BytePath.js"
-import { State } from "./internal/engine.js"
 import { Hex128 } from "./internal/hex128.js"
+import { State } from "./internal/model.js"
 
 const { MAX_FILE_BYTES, MAX_INO, ROOT_INO } = State
 

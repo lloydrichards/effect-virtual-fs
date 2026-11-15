@@ -16,7 +16,7 @@ import { KeySecret, VolumeEpoch } from "./hex128.js"
 import { byteLimit, encodeLine, frame, type FrameMeter, type LineFold } from "./lines.js"
 import { StoredMetadata } from "./metadata.js"
 
-import { Paths, State } from "./engine.js"
+import { Paths, State } from "./model.js"
 import { type NodeSpec, reachableNodes, storedMetadata } from "./volumeState.js"
 
 const { isNameBytes, MAX_NAME_BYTES, nameBytes, NUL_BYTE } = Paths

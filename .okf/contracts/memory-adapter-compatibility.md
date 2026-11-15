@@ -11,7 +11,7 @@ sources:
     title: Shared operation-port binding
   - resource: ../../packages/memory/test/MinimalFileSystem.test.ts
     title: Private minimal provider qualification
-  - resource: ../../packages/core/compatibility/engine-imports/check.mjs
+  - resource: ../../packages/core/compatibility/preview-imports/check.mjs
     title: Transitive engine and adapter import audit
   - resource: ../../packages/memory/src/internal/directoryEntries.ts
     title: Internal typed entry reader for portable traversal

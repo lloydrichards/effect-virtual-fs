@@ -15,7 +15,7 @@ sources:
     resource: ../../../packages/core/src/VfsError.ts
     title: VfsError and its code union
   - id: engine
-    resource: ../../../packages/core/src/internal/engine.ts
+    resource: ../../../packages/core/src/internal/model.ts
     title: One resolution step per addressing mode
   - id: table
     resource: ../../../packages/core/test/behaviour/operations.test.ts

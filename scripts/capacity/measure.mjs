@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url"
 import { VirtualFileSystem as Vfs } from "../../packages/core/dist/index.js"
 
 import * as Memory from "../../packages/memory/dist/MemoryFileSystem.js"
-import { withVolumeTestSeams } from "../../packages/core/dist/internal/engine.js"
+import { withVolumeTestSeams } from "../../packages/core/dist/internal/model.js"
 
 
 

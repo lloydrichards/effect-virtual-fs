@@ -3,7 +3,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect, Exit, Result, Scope, Stream } from "effect"
 import { Caller as CallerModule, LiveVolume, Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
-import { withVolumeTestSeams } from "../src/internal/engine.js"
+import { withVolumeTestSeams } from "../src/internal/model.js"
 import { entryNames, pathText, text } from "./support/text.js"
 
 const bytes = (value: string) => new TextEncoder().encode(value)

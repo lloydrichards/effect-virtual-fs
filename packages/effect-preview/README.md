@@ -14,12 +14,15 @@ bun run --cwd packages/effect-preview build
 bun run --cwd packages/effect-preview test
 bun run --cwd packages/effect-preview type-check
 bun run build
-bun run check:preview-compatibility
+bun run --cwd packages/core check:preview-imports
 ```
 
-The compatibility command compares the preview with the existing core, memory, and Node boundaries and exits nonzero while any comparison differs. It requires Node 26.11.1 or later for the native provider import. It explicitly uses the retained community constructor as its baseline. The existing core, memory, and Node suites now run against the preview-backed core and remain the acceptance criteria.
+Core, memory, and Node tests execute against this package through the existing core constructors. The old core
+engine and comparison baseline have been removed. The import audit verifies that core construction and native
+binding reach the preview and that no removed implementation is present. Existing public behavior remains the
+acceptance contract; missing preview features stay visible as failures.
 
-This is the only new workspace package. Core consumes it as a runtime dependency. Core's compatibility facade translates its existing caller, target, metadata, snapshot, and handle interfaces onto the preview's public API. The existing memory adapter and Node provider retain their public interfaces and consume that same state. There is no fallback to the community engine.
+This is the only new workspace package. Core consumes it as a runtime dependency. Core's compatibility facade translates its existing caller, target, metadata, snapshot, and handle interfaces onto the preview's public API. The existing memory adapter and Node provider retain their public interfaces and consume that same state. The community engine and its native fallback are deleted.
 
 The evaluation is not ready to merge or publish. Missing atomic publication, watch, durable-store, overlay, and metadata contracts still fail the unchanged tests. Additional adapter differences remain under qualification. See [the drop-in findings](../../.okf/research/preview-drop-in.md).
 
@@ -131,7 +134,7 @@ bun run --cwd packages/effect-preview sync
 bun run --cwd packages/effect-preview test
 bun run --cwd packages/effect-preview type-check
 bun run --cwd apps/virtual-build test
-bun run check:preview-compatibility
+bun run --cwd packages/core check:preview-imports
 ```
 
 Replace `HEAD_SHA` and `BASE_SHA` with full 40-character commit hashes. Review the snapshot and generated diff together.

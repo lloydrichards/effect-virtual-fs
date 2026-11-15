@@ -7,8 +7,8 @@ import type * as Schema from "effect/Schema"
 import * as Sink from "effect/Sink"
 import * as Stream from "effect/Stream"
 import type { ImageFailure } from "../VfsError.js"
-import { Paths, State } from "./engine.js"
 import { imageFailure } from "./errors.js"
+import { Paths, State } from "./model.js"
 
 const isAttachedBytes = Paths.isAttachedBytes
 

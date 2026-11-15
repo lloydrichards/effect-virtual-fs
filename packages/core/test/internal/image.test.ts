@@ -3,7 +3,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Effect } from "effect"
 import * as Hex from "effect/encoding/Hex"
 import { VirtualFileSystem as Vfs } from "../../src/index.js"
-import { State } from "../../src/internal/engine.js"
+import { State } from "../../src/internal/model.js"
 import * as Image from "../../src/internal/image.js"
 
 const { getNode, ROOT_INO } = State

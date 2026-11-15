@@ -20,7 +20,7 @@ const changePaths = (changes: ReadonlyArray<Vfs.OverlayChange>) =>
     return pathText(change.path).pipe(Effect.map((path) => `${change._tag}:${path}`))
   })
 
-import { withVolumeTestSeams } from "../../src/internal/engine.js"
+import { withVolumeTestSeams } from "../../src/internal/model.js"
 import { assertHardLinkedSymlinks, hardLinkedSymlinks } from "../support/hardLinkedSymlinks.js"
 import { entryNames } from "../support/text.js"
 

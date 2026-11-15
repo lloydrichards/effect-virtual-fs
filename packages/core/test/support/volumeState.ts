@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as HashMap from "effect/HashMap"
-import { State } from "../../src/internal/engine.js"
+import { State } from "../../src/internal/model.js"
 
 type Directory = State.Directory
 

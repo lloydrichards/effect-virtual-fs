@@ -8,7 +8,7 @@ import { imageFailure } from "./errors.js"
 import type { StoredMetadata } from "./metadata.js"
 
 import { VfsError } from "../VfsError.js"
-import { Errors, Paths, State } from "./engine.js"
+import { Errors, Paths, State } from "./model.js"
 import { makeVolume, memoryCommitProvider, VolumeSource } from "./virtualFileSystem.js"
 import { assemble, type NodeSpec } from "./volumeState.js"
 

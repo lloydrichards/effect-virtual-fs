@@ -19,7 +19,7 @@ import * as Internal from "./internal/bytePath.js"
 import * as Bytes from "./internal/bytes.js"
 import { retargetFailure } from "./internal/errors.js"
 
-import { Errors, Paths as Path } from "./internal/engine.js"
+import { Errors, Paths as Path } from "./internal/model.js"
 import type { FsFailure } from "./VfsError.js"
 import type { PathInput } from "./VirtualFileSystem.js"
 

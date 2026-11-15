@@ -1,8 +1,8 @@
 import * as Effect from "effect/Effect"
 import * as HashMap from "effect/HashMap"
 import * as Match from "effect/Match"
-import { State } from "./engine.js"
 import type { StoredMetadata } from "./metadata.js"
+import { State } from "./model.js"
 
 const { Ino, ROOT_INO, WALK_YIELD_INTERVAL, getNode, setNode, byEntryName, inEntryOrder } = State
 

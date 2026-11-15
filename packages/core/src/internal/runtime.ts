@@ -7,6 +7,7 @@ import * as Clock from "effect/Clock"
 import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Hex from "effect/encoding/Hex"
 import { dual } from "effect/Function"
+import * as Scheduler from "effect/Scheduler"
 import * as Semaphore from "effect/Semaphore"
 import {
   CallerId,
@@ -26,6 +27,9 @@ import type * as V from "../VirtualFileSystem.js"
 import { ReferenceKey, VolumeId, VolumeIdentity, VolumeIncarnation } from "../Volume.js"
 import * as CorePath from "./bytePath.js"
 import { sameBytes } from "./bytes.js"
+import { imageFailure } from "./errors.js"
+import { hmacSha256, sameTag } from "./hmac.js"
+import * as Image from "./image.js"
 import {
   type CommitProvider,
   Errors,
@@ -35,10 +39,7 @@ import {
   State,
   VolumeTestSeams,
   WriteFileOptions as WriteSchema
-} from "./engine.js"
-import { imageFailure } from "./errors.js"
-import { hmacSha256, sameTag } from "./hmac.js"
-import * as Image from "./image.js"
+} from "./model.js"
 import type { ObservationEntry } from "./overlayDiff.js"
 import * as Limits from "./volumeLimits.js"
 import { assemble, type NodeSpec, reachableValue } from "./volumeState.js"
@@ -256,31 +257,39 @@ const execute = <A, R>(
   effect: Effect.Effect<A, V.FsFailure, R>,
   destination?: V.TargetInput | V.EntryInput
 ): Effect.Effect<A, V.FsFailure, R> =>
-  runtime.gate.withPermit(Effect.acquireUseRelease(
-    Effect.suspend(() =>
-      runtime.busy ? Effect.fail(Errors.fsFailure("VolumeBusy", operation)) : Effect.sync(() => {
-        runtime.busy = true
-        runtime.time.active = true
-        runtime.time.value = undefined
-        runtime.snapshotEpoch++
-      })
-    ),
-    () =>
-      effect.pipe(
-        Effect.catchDefect((cause) =>
-          Predicate.isTagged(cause, "InvalidClockSample")
-            ? Errors.argumentFailure(operation, "clock.currentTimeNanos")
-            : Effect.die(cause)
-        ),
-        Effect.mapError((error) => contextual(error, operation, source, destination))
+  Effect.suspend(() => {
+    if (runtime.owner.limits.synchronous && runtime.busy) return Effect.fail(Errors.fsFailure("VolumeBusy", operation))
+
+    const work = runtime.gate.withPermit(Effect.acquireUseRelease(
+      Effect.suspend(() =>
+        runtime.busy ? Effect.fail(Errors.fsFailure("VolumeBusy", operation)) : Effect.sync(() => {
+          runtime.busy = true
+          runtime.time.active = true
+          runtime.time.value = undefined
+          runtime.snapshotEpoch++
+        })
       ),
-    () =>
-      Effect.sync(() => {
-        runtime.busy = false
-        runtime.time.active = false
-        runtime.time.value = undefined
-      }).pipe(Effect.andThen(drainPending(runtime)))
-  ))
+      () =>
+        effect.pipe(
+          Effect.catchDefect((cause) =>
+            Predicate.isTagged(cause, "InvalidClockSample")
+              ? Errors.argumentFailure(operation, "clock.currentTimeNanos")
+              : Effect.die(cause)
+          ),
+          Effect.mapError((error) => contextual(error, operation, source, destination))
+        ),
+      () =>
+        Effect.sync(() => {
+          runtime.busy = false
+          runtime.time.active = false
+          runtime.time.value = undefined
+        }).pipe(Effect.andThen(drainPending(runtime)))
+    ))
+
+    return runtime.owner.limits.synchronous
+      ? Effect.provideService(work, Scheduler.PreventSchedulerYield, true)
+      : work
+  })
 
 const token = (runtime: Runtime, observation: P.ObjectObservation): Token => {
   if (observation.metadata.objectNumber > runtime.highestObjectNumber) {

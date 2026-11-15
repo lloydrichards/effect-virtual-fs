@@ -7,7 +7,7 @@ import * as LiveImage from "../../src/internal/liveImage.js"
 import { LiveTreeNode } from "../../src/internal/tree.js"
 import { makeVolume, memoryCommitProvider, VolumeSource } from "../../src/internal/virtualFileSystem.js"
 
-import { State } from "../../src/internal/engine.js"
+import { State } from "../../src/internal/model.js"
 import { make as makeError } from "../../src/VfsError.js"
 import { VolumeIdentity } from "../../src/Volume.js"
 import { readLines } from "../support/lines.js"

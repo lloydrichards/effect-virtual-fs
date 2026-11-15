@@ -2,6 +2,7 @@
 
 ## 2026-11-15
 
+- Remove the retained core engine, legacy volume/overlay/watch implementations, native fallback and baseline comparison runner. Core constructors and native binding have one preview path. Move contracts and immutable codec records out of the removed engine, port runtime-facing tests, retire obsolete private-unit probes, and enforce a sole-preview source/artifact audit.
 - Record the fourth reproducible upstream contribution for atomic resize in attributes and core forwarding. Sixteen runtime and two type tests detect the missing feature; ten existing core failures are fixed. Preserve prestate authorization, handle grants/cursors, explicit times, quotas and rollback; watch events, special modes and creation metadata remain separate gaps.
 - Record the third reproducible upstream contribution for current-time attribute markers and core forwarding. Eleven runtime and two type regressions detect the missing feature; four existing core failures are fixed. Literal-time authority, atomicity, interruption and revision guards remain enforced; combined size/time updates remain blocked by atomic resize.
 - Record the second reproducible upstream patch for recursive mkdir dot-component traversal. Preserve conditional named-slot validation and transactional rollback; ten added tests pass, seven detect the original bug. The existing core regression and direct baseline comparison now pass, with memory and Node results unchanged.

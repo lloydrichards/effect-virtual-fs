@@ -9,8 +9,8 @@ import type { OwnerUpdate, Times } from "../Metadata.js"
 import type { Binding, Handle } from "../SynchronousAdapter.js"
 import { Target as CoreTarget } from "../Target.js"
 import type { FsFailure, ObjectReference, TargetInput } from "../VirtualFileSystem.js"
-import { Errors, Paths } from "./engine.js"
-import { coreReference, drainPending, failure, metadata, PreviewBlocker, type runtimeOf } from "./previewRuntime.js"
+import { Errors, Paths } from "./model.js"
+import { coreReference, drainPending, failure, metadata, PreviewBlocker, type runtimeOf } from "./runtime.js"
 
 type Runtime = NonNullable<ReturnType<typeof runtimeOf>>
 

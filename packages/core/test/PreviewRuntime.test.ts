@@ -3,7 +3,7 @@ import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
-import { runtimeOf } from "../src/internal/previewRuntime.js"
+import { runtimeOf } from "../src/internal/runtime.js"
 import * as SynchronousAdapter from "../src/SynchronousAdapter.js"
 
 const bytes = Uint8Array.of(1, 2, 3)
