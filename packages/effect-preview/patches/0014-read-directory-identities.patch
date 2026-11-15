@@ -1,0 +1,146 @@
+--- a/packages/effect/src/virtual-file-system/internal/model.ts
++++ b/packages/effect/src/virtual-file-system/internal/model.ts
+@@ -318,6 +318,24 @@
+ }).check(Schema.makeFilter((listing) => sortedNames(listing.names)))
+ 
+ export type NameListing = typeof NameListing["Type"]
++
++export const DirentListing = Schema.Struct({
++  directory: DirectoryObservationSchema,
++  entries: Schema.Array(Schema.Struct({
++    name: Name,
++    kind: Schema.Literals(["file", "directory", "symlink"]),
++    reference: Reference,
++    objectNumber: PositiveBigInt
++  }))
++}).check(Schema.makeFilter((listing) =>
++  sortedNames(listing.entries.map((entry) => entry.name)) &&
++  listing.entries.every((entry) => {
++    const token = tokenInfo(entry.reference)
++    return token?.instance === tokenInfo(listing.directory.reference)?.instance && token?.object === entry.objectNumber
++  })
++))
++
++export type DirentListing = typeof DirentListing["Type"]
+ 
+ export const ListedEntry = Schema.Struct({
+   name: Name,
+@@ -1070,6 +1088,8 @@
+   readonly readLinkObserved: (target: EntryTarget | ObjectReference) => ReadEffect<ObservedRead<BytePath.BytePath>>
+   /** Lists names with directory read permission; returns post-list directory atime. */
+   readonly readDirectory: (target: Target) => ReadEffect<NameListing>
++  /** Lists names, types and identities with read permission. Resolving child references checks search authority. */
++  readonly readDirents: (target: Target) => ReadEffect<DirentListing>
+   /** Lists bindings and no-follow observations with directory read and search permission. */
+   readonly readDirectoryEntries: (target: Target) => ReadEffect<EntryListing>
+   /** Atomically writes one complete input using replace, start or append placement. Mutable input is snapshotted per execution after known reservations. */
+@@ -1200,6 +1220,7 @@
+   | "readLink"
+   | "readLinkObserved"
+   | "readDirectory"
++  | "readDirents"
+   | "readDirectoryEntries"
+   | "truncate"
+   | "setAttributes"
+--- a/packages/effect/src/virtual-file-system/internal/atomic.ts
++++ b/packages/effect/src/virtual-file-system/internal/atomic.ts
+@@ -414,14 +414,13 @@
+   target: M.EntryTarget | M.ObjectReference
+ ): Result.Result<BytePath.BytePath, M.OperationError> => Result.map(readLinkObserved(tx, target), (read) => read.value)
+ 
+-/** @internal */
+-export const readDirectory = (tx: E.Transaction, target: M.Target): Result.Result<M.NameListing, M.OperationError> =>
++const listDirectory = (tx: E.Transaction, target: M.Target, permissions: number) =>
+   Result.gen(function*() {
+     const { object: node } = yield* tx.targetResult(target)
+     if (node.kind !== "directory") {
+       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+     }
+-    yield* tx.requireResult(node, E.READ_PERMISSION)
++    yield* tx.requireResult(node, permissions)
+     const entries = yield* tx.listBindingsResult(node)
+     yield* tx.reserveResult(entries.reduce((total, entry) => total + BigInt(BytePath.byteLength(entry.name)), zero))
+     yield* tx.touchResult(node.id, ["atime"])
+@@ -429,7 +428,26 @@
+     if (directory.kind !== "directory") {
+       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+     }
+-    return { directory, names: entries.map((entry) => entry.name) }
++    return { node, directory, entries }
++  })
++
++/** @internal */
++export const readDirectory = (tx: E.Transaction, target: M.Target): Result.Result<M.NameListing, M.OperationError> =>
++  Result.map(listDirectory(tx, target, E.READ_PERMISSION), ({ directory, entries }) => ({
++    directory,
++    names: entries.map((entry) => entry.name)
++  }))
++
++/** @internal */
++export const readDirents = (tx: E.Transaction, target: M.Target): Result.Result<M.DirentListing, M.OperationError> =>
++  Result.gen(function*() {
++    const { directory, entries } = yield* listDirectory(tx, target, E.READ_PERMISSION)
++    const children: Array<M.DirentListing["entries"][number]> = []
++    for (const entry of entries) {
++      const child = yield* tx.getResult(entry.object)
++      children.push({ name: entry.name, kind: child.kind, objectNumber: child.id, reference: tx.engine.reference(child.id) })
++    }
++    return { directory, entries: children }
+   })
+ 
+ /** @internal */
+@@ -438,18 +456,7 @@
+   target: M.Target
+ ): Result.Result<M.EntryListing, M.OperationError> =>
+   Result.gen(function*() {
+-    const { object: node } = yield* tx.targetResult(target)
+-    if (node.kind !== "directory") {
+-      return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+-    }
+-    yield* tx.requireResult(node, E.READ_PERMISSION | E.EXECUTE_PERMISSION)
+-    const entries = yield* tx.listBindingsResult(node)
+-    yield* tx.reserveResult(entries.reduce((total, entry) => total + BigInt(BytePath.byteLength(entry.name)), zero))
+-    yield* tx.touchResult(node.id, ["atime"])
+-    const directory = tx.observation(yield* tx.getResult(node.id))
+-    if (directory.kind !== "directory") {
+-      return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+-    }
++    const { node, directory, entries } = yield* listDirectory(tx, target, E.READ_PERMISSION | E.EXECUTE_PERMISSION)
+     const observed: Array<M.ListedEntry> = []
+     for (const entry of entries) {
+       observed.push({
+--- a/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
++++ b/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
+@@ -96,6 +96,14 @@
+    * @since 4.1.0
+    */
+   DirectoryRecord,
++  /**
++   * Names, types and identities from a directory read. Child metadata is excluded.
++   *
++   * @stability experimental
++   * @category schemas
++   * @since 4.1.0
++   */
++  DirentListing,
+   /**
+    * Schema for a complete rich entry listing requiring directory read and search permission. Child
+    * observations do not follow symlinks or touch child timestamps. Opaque fields recognize only authentic
+@@ -1388,6 +1396,7 @@
+     readLink: (target) => R.readOnly(simple(caller, "readLink", target, A.readLink)),
+     readLinkObserved: (target) => R.readOnly(simple(caller, "readLinkObserved", target, A.readLinkObserved)),
+     readDirectory: (target) => R.readOnly(simple(caller, "readDirectory", target, A.readDirectory)),
++    readDirents: (target) => R.readOnly(simple(caller, "readDirents", target, A.readDirents)),
+     readDirectoryEntries: (target) =>
+       R.readOnly(simple(caller, "readDirectoryEntries", target, A.readDirectoryEntries)),
+     writeFile: (target: M.Target, data: Uint8Array, options?: M.WriteFileOptions) =>
+--- a/packages/effect/src/virtual-file-system/internal/sync.ts
++++ b/packages/effect/src/virtual-file-system/internal/sync.ts
+@@ -86,6 +86,7 @@
+     readLink: (target) => R.readOnlyResult(simple(caller, "readLink", target, A.readLink)),
+     readLinkObserved: (target) => R.readOnlyResult(simple(caller, "readLinkObserved", target, A.readLinkObserved)),
+     readDirectory: (target) => R.readOnlyResult(simple(caller, "readDirectory", target, A.readDirectory)),
++    readDirents: (target) => R.readOnlyResult(simple(caller, "readDirents", target, A.readDirents)),
+     readDirectoryEntries: (target) =>
+       R.readOnlyResult(simple(caller, "readDirectoryEntries", target, A.readDirectoryEntries)),
+     writeFile: (target: M.Target, input: Uint8Array, options?: M.WriteFileOptions) =>

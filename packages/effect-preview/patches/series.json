@@ -50,5 +50,9 @@
   {
     "file": "0013-empty-symlink-targets.patch",
     "sha256": "4a8aa632b6f4f22499ccdc768e495f11462c105693d6336b9735a04a1c032606"
+  },
+  {
+    "file": "0014-read-directory-identities.patch",
+    "sha256": "d9caddeec13cfd43f71ece65e898c839ed8462c49dc8f4842cea659e9b954102"
   }
 ]

@@ -98,6 +98,14 @@ export {
    */
   DirectoryRecord,
   /**
+   * Names, types and identities from a directory read. Child metadata is excluded.
+   *
+   * @stability experimental
+   * @category schemas
+   * @since 4.1.0
+   */
+  DirentListing,
+  /**
    * Schema for a complete rich entry listing requiring directory read and search permission. Child
    * observations do not follow symlinks or touch child timestamps. Opaque fields recognize only authentic
    * issued values; decoding scalar identifiers never grants authority. No wire format is promised.
@@ -1389,6 +1397,7 @@ const makeCaller = (caller: E.Caller) => {
     readLink: (target) => R.readOnly(simple(caller, "readLink", target, A.readLink)),
     readLinkObserved: (target) => R.readOnly(simple(caller, "readLinkObserved", target, A.readLinkObserved)),
     readDirectory: (target) => R.readOnly(simple(caller, "readDirectory", target, A.readDirectory)),
+    readDirents: (target) => R.readOnly(simple(caller, "readDirents", target, A.readDirents)),
     readDirectoryEntries: (target) =>
       R.readOnly(simple(caller, "readDirectoryEntries", target, A.readDirectoryEntries)),
     writeFile: (target: M.Target, data: Uint8Array, options?: M.WriteFileOptions) =>

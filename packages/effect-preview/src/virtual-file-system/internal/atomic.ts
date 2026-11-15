@@ -419,14 +419,13 @@ export const readLink = (
   target: M.EntryTarget | M.ObjectReference
 ): Result.Result<BytePath.BytePath, M.OperationError> => Result.map(readLinkObserved(tx, target), (read) => read.value)
 
-/** @internal */
-export const readDirectory = (tx: E.Transaction, target: M.Target): Result.Result<M.NameListing, M.OperationError> =>
+const listDirectory = (tx: E.Transaction, target: M.Target, permissions: number) =>
   Result.gen(function*() {
     const { object: node } = yield* tx.targetResult(target)
     if (node.kind !== "directory") {
       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
     }
-    yield* tx.requireResult(node, E.READ_PERMISSION)
+    yield* tx.requireResult(node, permissions)
     const entries = yield* tx.listBindingsResult(node)
     yield* tx.reserveResult(entries.reduce((total, entry) => total + BigInt(BytePath.byteLength(entry.name)), zero))
     yield* tx.touchResult(node.id, ["atime"])
@@ -434,7 +433,26 @@ export const readDirectory = (tx: E.Transaction, target: M.Target): Result.Resul
     if (directory.kind !== "directory") {
       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
     }
-    return { directory, names: entries.map((entry) => entry.name) }
+    return { node, directory, entries }
+  })
+
+/** @internal */
+export const readDirectory = (tx: E.Transaction, target: M.Target): Result.Result<M.NameListing, M.OperationError> =>
+  Result.map(listDirectory(tx, target, E.READ_PERMISSION), ({ directory, entries }) => ({
+    directory,
+    names: entries.map((entry) => entry.name)
+  }))
+
+/** @internal */
+export const readDirents = (tx: E.Transaction, target: M.Target): Result.Result<M.DirentListing, M.OperationError> =>
+  Result.gen(function*() {
+    const { directory, entries } = yield* listDirectory(tx, target, E.READ_PERMISSION)
+    const children: Array<M.DirentListing["entries"][number]> = []
+    for (const entry of entries) {
+      const child = yield* tx.getResult(entry.object)
+      children.push({ name: entry.name, kind: child.kind, objectNumber: child.id, reference: tx.engine.reference(child.id) })
+    }
+    return { directory, entries: children }
   })
 
 /** @internal */
@@ -443,18 +461,7 @@ export const readDirectoryEntries = (
   target: M.Target
 ): Result.Result<M.EntryListing, M.OperationError> =>
   Result.gen(function*() {
-    const { object: node } = yield* tx.targetResult(target)
-    if (node.kind !== "directory") {
-      return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
-    }
-    yield* tx.requireResult(node, E.READ_PERMISSION | E.EXECUTE_PERMISSION)
-    const entries = yield* tx.listBindingsResult(node)
-    yield* tx.reserveResult(entries.reduce((total, entry) => total + BigInt(BytePath.byteLength(entry.name)), zero))
-    yield* tx.touchResult(node.id, ["atime"])
-    const directory = tx.observation(yield* tx.getResult(node.id))
-    if (directory.kind !== "directory") {
-      return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
-    }
+    const { node, directory, entries } = yield* listDirectory(tx, target, E.READ_PERMISSION | E.EXECUTE_PERMISSION)
     const observed: Array<M.ListedEntry> = []
     for (const entry of entries) {
       observed.push({

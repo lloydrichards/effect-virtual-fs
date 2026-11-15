@@ -10,7 +10,7 @@ import type { Binding, Handle } from "../SynchronousAdapter.js"
 import { Target as CoreTarget } from "../Target.js"
 import type { FsFailure, ObjectReference, TargetInput } from "../VirtualFileSystem.js"
 import { Errors, Paths } from "./model.js"
-import { coreReference, drainPending, failure, metadata, PreviewBlocker, type runtimeOf } from "./runtime.js"
+import { creationMode, direntReference, drainPending, failure, metadata, PreviewBlocker, type runtimeOf } from "./runtime.js"
 
 type Runtime = NonNullable<ReturnType<typeof runtimeOf>>
 
@@ -203,13 +203,17 @@ export const bind = Effect.fnUntraced(
 
     const binding: Binding = {
       stat,
-      readDirectory: (path: string) => ({
-        revision: metadata(runtime, unwrap(sync.stat(path))).revision,
-        value: unwrap(sync.readDirectoryEntries(checked(path))).entries.map((e) => ({
-          name: BytePath.toBytes(e.name),
-          reference: coreReference(runtime, e.object)
-        }))
-      }),
+      readDirectory: (path: string) => {
+        const listing = unwrap(sync.readDirents(checked(path)))
+
+        return {
+          revision: metadata(runtime, listing.directory).revision,
+          value: listing.entries.map((entry) => ({
+            name: BytePath.toBytes(entry.name),
+            reference: direntReference(runtime, entry)
+          }))
+        }
+      },
       readLink: (path: string) => BytePath.toBytes(unwrap(sync.readLink(checked(path)))),
       realPath: (path: string) => BytePath.toBytes(unwrap(sync.realPath(checked(path)))),
       access: (path: string, bits: number) => {

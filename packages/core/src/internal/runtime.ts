@@ -159,7 +159,7 @@ const oldPath = (value: Path.BytePath) => Paths.pathFromBytes(Path.toBytes(value
 
 interface Token {
   readonly reference: P.ObjectReference
-  revision: P.ObjectRevision
+  revision: P.ObjectRevision | undefined
   number: bigint
   readonly core: V.ObjectReference
   readonly ino: bigint
@@ -291,38 +291,41 @@ const execute = <A, R>(
       : work
   })
 
-const token = (runtime: Runtime, observation: P.ObjectObservation): Token => {
-  if (observation.metadata.objectNumber > runtime.highestObjectNumber) {
-    runtime.highestObjectNumber = observation.metadata.objectNumber
-  }
-
-  const known = runtime.tokens.find((t) => P.equalsObjectReference(t.reference, observation.reference))
+const intern = (
+  runtime: Runtime,
+  reference: P.ObjectReference,
+  ino: bigint,
+  revision?: P.ObjectRevision
+): Token => {
+  if (ino > runtime.highestObjectNumber) runtime.highestObjectNumber = ino
+  const known = runtime.tokens.find((t) => P.equalsObjectReference(t.reference, reference))
 
   if (known !== undefined) {
-    if (!P.equalsObjectRevision(known.revision, observation.revision)) {
-      known.revision = observation.revision
-      known.number = runtime.revision > known.number ? runtime.revision : known.number + 1n
+    if (revision !== undefined) {
+      if (known.revision !== undefined && !P.equalsObjectRevision(known.revision, revision)) {
+        known.number = runtime.revision > known.number ? runtime.revision : known.number + 1n
+      }
+      known.revision = revision
     }
 
     return known
   }
 
   const core: V.ObjectReference = Object.freeze({ [ObjectReferenceId]: true as const })
-
-  const created: Token = {
-    core,
-    ino: observation.metadata.objectNumber,
-    reference: observation.reference,
-    revision: observation.revision,
-    number: runtime.revision
-  }
+  const created: Token = { core, ino, reference, revision, number: runtime.revision }
 
   runtime.tokens.push(created)
-  runtime.references.set(core, observation.reference)
+  runtime.references.set(core, reference)
   referenceOwners.set(core, runtime)
 
   return created
 }
+
+const token = (runtime: Runtime, observation: P.ObjectObservation) =>
+  intern(runtime, observation.reference, observation.metadata.objectNumber, observation.revision)
+
+export const direntReference = (runtime: Runtime, entry: P.DirentListing["entries"][number]) =>
+  intern(runtime, entry.reference, entry.objectNumber).core
 
 export const metadata = (runtime: Runtime, observation: P.ObjectObservation): Metadata => {
   const m = observation.metadata
@@ -1000,7 +1003,7 @@ const wrapDirectory = (
   return protectedDirectory
 }
 
-const ordered = (runtime: Runtime, list: P.EntryListing) => {
+const ordered = (runtime: Runtime, list: P.DirentListing) => {
   const id = list.directory.metadata.objectNumber
   const present = new Map(list.entries.map((entry) => [Hex.encode(Path.toBytes(entry.name)), entry]))
   const prior = runtime.orders.get(id) ?? []
@@ -1786,12 +1789,12 @@ const wrapCaller = (
       })),
     stat: (value) => stat(runtime, caller, value).pipe(Effect.map((o) => metadata(runtime, o))),
     readDirectory: (value) =>
-      onTarget(value, (t, actor) => actor.readDirectoryEntries(t)).pipe(
+      onTarget(value, (t, actor) => actor.readDirents(t)).pipe(
         Effect.map((list) => ({
           revision: token(runtime, list.directory).number,
           value: ordered(runtime, list).map((e) => ({
             name: Path.toBytes(e.name),
-            reference: token(runtime, e.object).core
+            reference: direntReference(runtime, e)
           }))
         }))
       ),
