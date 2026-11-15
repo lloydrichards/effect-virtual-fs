@@ -2,7 +2,8 @@
 /* eslint-disable effecttsgo/experimental-api-usage */
 import { BytePath as Path, VirtualFileSystem as P } from "@effect-vfs/effect-preview"
 import { unixNanoFromNanoseconds as nano } from "@effect-vfs/effect-preview/DateTime"
-import { ByteSize, Data, Effect, Option, Predicate, Result, Schema, Scope, Stream } from "effect"
+import { unsafeFromOwnedRecords } from "@effect-vfs/effect-preview/internal/ownedCapture"
+import { ByteSize, Data, Effect, Option, Order, Predicate, Result, Schema, Scope, Stream } from "effect"
 import * as Clock from "effect/Clock"
 import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Hex from "effect/encoding/Hex"
@@ -40,7 +41,6 @@ import {
   VolumeTestSeams,
   WriteFileOptions as WriteSchema
 } from "./model.js"
-import type { ObservationEntry } from "./overlayDiff.js"
 import * as Limits from "./volumeLimits.js"
 import { assemble, type NodeSpec, reachableValue } from "./volumeState.js"
 
@@ -2803,9 +2803,24 @@ const snapshot = Effect.fnUntraced(function*(owner: P.Owner) {
   return snapshot
 })
 
-type Source = { readonly _tag: "Empty" } | { readonly _tag: "Restored"; readonly value: State.VolumeState } | {
-  readonly _tag: "Live"
+const overlayBases = new WeakMap<State.VolumeState, P.Capture>()
+
+const overlayBase = (value: State.VolumeState) => {
+  const prior = overlayBases.get(value)
+
+  if (prior !== undefined) return prior
+  const base = unsafeFromOwnedRecords(records(value))
+  overlayBases.set(value, base)
+
+  return base
 }
+
+type Source =
+  | { readonly _tag: "Empty" }
+  | { readonly _tag: "Restored" | "Overlay"; readonly value: State.VolumeState }
+  | {
+    readonly _tag: "Live"
+  }
 
 export const makeVolume = Effect.fnUntraced(
   function*(
@@ -2818,7 +2833,7 @@ export const makeVolume = Effect.fnUntraced(
     const checked = yield* Effect.fromResult(Limits.configuration(options))
     const limits = checked.limits
 
-    if (Predicate.isTagged(source, "Restored")) {
+    if ("value" in source) {
       const restored = yield* reachableValue(source.value)
 
       if (restored.largestFile > Number(ByteSize.toBigInt(limits.maxFileBytes))) {
@@ -2851,10 +2866,6 @@ export const makeVolume = Effect.fnUntraced(
       restoreRecords: Number.MAX_SAFE_INTEGER
     }
 
-    if (!Predicate.isTagged(source, "Empty") && !Predicate.isTagged(source, "Restored")) {
-      return yield* blocked("durableCommit")
-    }
-
     const clock = yield* Clock.Clock
     const initialTime = clock.currentTimeNanosUnsafe()
 
@@ -2884,9 +2895,12 @@ export const makeVolume = Effect.fnUntraced(
 
     const policies = { limits: configuration, accessTime: "relatime", groupInheritance: "parent" } as const
 
-    const owner = yield* mapped((Predicate.isTagged(source, "Empty")
+    const owner = yield* mapped((!("value" in source)
       ? P.make(policies)
-      : P.restore(Stream.fromIterable(records(source.value)), policies)).pipe(
+      : P.restore(
+        Predicate.isTagged(source, "Overlay") ? overlayBase(source.value) : Stream.fromIterable(records(source.value)),
+        policies
+      )).pipe(
         Effect.provideService(Clock.Clock, previewClock)
       ))
 
@@ -2904,7 +2918,7 @@ export const makeVolume = Effect.fnUntraced(
       files: new WeakMap(),
       directories: new WeakMap(),
       revision: 1n,
-      highestObjectNumber: Predicate.isTagged(source, "Restored") ? BigInt(source.value.nextInode) - 1n : 1n,
+      highestObjectNumber: "value" in source ? BigInt(source.value.nextInode) - 1n : 1n,
       snapshotEpoch: 0,
       busy: false,
       gate: Semaphore.makeUnsafe(1),
@@ -2920,11 +2934,11 @@ export const makeVolume = Effect.fnUntraced(
 
     ownerRuntimes.set(owner, runtime)
 
-    if (Predicate.isTagged(source, "Restored")) {
+    if ("value" in source) {
       for (const [, node] of source.value.inodes) {
         if (node.kind === "symlink") runtime.links.set(BigInt(node.ino), node.target.slice())
 
-        if (node.kind === "directory") runtime.orders.set(BigInt(node.ino), [...node.entries.keys()].sort())
+        if (node.kind === "directory") runtime.orders.set(BigInt(node.ino), [...node.entries.keys()].sort(Order.String))
       }
     }
 
@@ -3032,9 +3046,7 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     runtimes.set(volume, runtime)
-    const changes: Effect.Effect<Array<ObservationEntry>> = blocked("overlay")
-    const capture: Effect.Effect<{ snapshot: V.Snapshot; observation: Array<ObservationEntry> }> = blocked("overlay")
 
-    return { volume, shutdown: Effect.void, observe: { changes, capture } }
+    return { volume, shutdown: Effect.void }
   }
 )

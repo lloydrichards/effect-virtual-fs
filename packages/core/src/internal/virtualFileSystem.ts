@@ -5,20 +5,30 @@ import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
+import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import type { CommitOutcome } from "../LiveVolume.js"
 import type { Snapshot } from "../Snapshot.js"
-import { type ImageFailure, make as makeError, VfsError } from "../VfsError.js"
+import { make as makeError, VfsError } from "../VfsError.js"
 import type { OverlayVolume, VolumeOptions } from "../VirtualFileSystem.js"
-import { type VolumeDurability, VolumeIdentity } from "../Volume.js"
+import { OverlayChange, OverlayChangesOptions, type VolumeDurability, VolumeIdentity } from "../Volume.js"
 import { retargetFailure } from "./errors.js"
 import { KeySecret, VolumeEpoch } from "./hex128.js"
 import * as Image from "./image.js"
 import * as LiveImage from "./liveImage.js"
 import * as MetadataDomain from "./metadata.js"
-import { type CommitProvider as Provider, Errors, memoryCommitProvider, State } from "./model.js"
+import {
+  type CommitProvider as Provider,
+  Errors,
+  memoryCommitProvider,
+  Paths,
+  State,
+  VolumeTestSeams
+} from "./model.js"
+import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./overlayDiff.js"
 import * as Runtime from "./runtime.js"
 import * as Limits from "./volumeLimits.js"
+import { storedMetadata } from "./volumeState.js"
 
 export type CommitProvider<A> = Provider<A>
 
@@ -30,6 +40,7 @@ type VolumeSource =
   | { readonly _tag: "Empty" }
   | { readonly _tag: "Live"; readonly restored: LiveImage.Restored }
   | { readonly _tag: "Restored"; readonly value: VolumeState }
+  | { readonly _tag: "Overlay"; readonly value: VolumeState }
 
 export const VolumeSource = Data.taggedEnum<VolumeSource>()
 
@@ -115,7 +126,78 @@ export const fromSnapshot = Effect.fnUntraced(
   Effect.mapError((error) => retargetFailure("fromSnapshot", error))
 )
 
-export const makeOverlay = (
-  _base: Snapshot,
-  _options?: VolumeOptions
-): Effect.Effect<OverlayVolume, ImageFailure, SecureRandom.SecureRandom> => Runtime.blocked("overlayCopyOnWrite")
+const observeChanges = Effect.fnUntraced(function*(captured: VolumeState) {
+  const observation: Array<ObservationEntry> = []
+  const paths: Array<readonly [State.Ino, Uint8Array]> = [[State.ROOT_INO, Paths.ROOT_PATH]]
+
+  for (let index = 0; index < paths.length; index++) {
+    if (index % State.WALK_YIELD_INTERVAL === 0) yield* Effect.yieldNow
+    const entry = paths[index]
+
+    if (entry === undefined) continue
+    const [ino, path] = entry
+    const node = State.getNode(captured, ino)
+
+    if (node === undefined) continue
+    observation.push({
+      path,
+      lineage: String(node.ino),
+      kind: node.kind,
+      content: node.kind === "file" ? node.data : node.kind === "symlink" ? node.target : undefined,
+      metadata: storedMetadata(node.metadata)
+    })
+
+    if (node.kind !== "directory") continue
+
+    for (const [name, child] of node.entries) paths.push([child, Paths.joinPath(path, Paths.nameBytes(name))])
+  }
+
+  return observation
+})
+
+const publicChange = (change: RawOverlayChange): OverlayChange =>
+  Predicate.isTagged("Renamed")(change)
+    ? OverlayChange.make({ ...change, from: Paths.ownedPath(change.from), to: Paths.ownedPath(change.to) })
+    : OverlayChange.make({ ...change, path: Paths.ownedPath(change.path) })
+
+const publicChanges = (changes: ReadonlyArray<RawOverlayChange>): ReadonlyArray<OverlayChange> =>
+  Object.freeze(changes.map(publicChange))
+
+const changeOptions = (options?: OverlayChangesOptions) => {
+  return Effect.fromResult(
+    Errors.decodeConfiguration(OverlayChangesOptions, options === undefined ? {} : options, "changes")
+  )
+}
+
+export const makeOverlay = Effect.fnUntraced(function*(base: Snapshot, options?: VolumeOptions) {
+  const value = yield* Image.valueOf(base)
+
+  const { volume } = yield* makeVolume(VolumeSource.Overlay({ value }), memoryCommitProvider, options).pipe(
+    Effect.mapError((error) => retargetFailure("makeOverlay", error))
+  )
+
+  const before = yield* observeChanges(value)
+
+  const summary = Effect.fnUntraced(function*(snapshot: Snapshot, includeTimestamps = false) {
+    const after = yield* observeChanges(yield* Image.valueOf(snapshot))
+
+    return publicChanges(compareOverlay(before, after, includeTimestamps))
+  })
+
+  const overlay: OverlayVolume = Object.freeze(Object.assign(volume, {
+    changes: Effect.fnUntraced(function*(options?: OverlayChangesOptions) {
+      const selected = yield* changeOptions(options)
+
+      return yield* summary(yield* volume.snapshot, selected.includeTimestamps)
+    }),
+    capture: Effect.fnUntraced(function*(options?: OverlayChangesOptions) {
+      const selected = yield* changeOptions(options)
+      const snapshot = yield* volume.snapshot
+      yield* (yield* VolumeTestSeams).betweenSnapshotAndSummary
+
+      return Object.freeze({ snapshot, changes: yield* summary(snapshot, selected.includeTimestamps) })
+    })
+  }))
+
+  return overlay
+})

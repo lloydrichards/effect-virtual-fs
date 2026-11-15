@@ -2,6 +2,8 @@
 
 ## 2026-11-15
 
+- Record the private capture boundary that lets sibling overlays share captured and decoded snapshot bytes until a write.
+
 - Record how caller-authorized attribute updates use a retained file handle after unlink and enforce both confinement boundaries.
 
 - Add the eighth reproducible upstream contribution for read atime revision neutrality. Keep automatic atime publication while preserving object revisions; explicit timestamp/content mutations retain guard invalidation. Update the upstream observed-read assertion, add strict/relatime, handle, sync, guard and cancellation regressions, and recover the existing reference-open stale-observation test without core changes.

@@ -78,5 +78,9 @@
   {
     "file": "0020-share-trusted-capture-file-bytes.patch",
     "sha256": "3b8881a72dcf8dd902b7d467c99008848838e6159ec47e1d2359a20d082677cc"
+  },
+  {
+    "file": "0021-capture-from-owned-snapshot-records.patch",
+    "sha256": "d0b6a56f52e553eb98ef28e47ff99d2db5d507a18c0ad74b5faf5d322e787964"
   }
 ]
