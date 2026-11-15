@@ -227,7 +227,7 @@ export const registerDirectoryHandle = (
   directoryHandles.set(value, state)
 }
 
-const directoryHandleState = (candidate: unknown) =>
+export const directoryHandleState = (candidate: unknown) =>
   typeof candidate === "object" && candidate !== null ? directoryHandles.get(candidate) : undefined
 
 // NOTE: Registration records issued views. Membership proves identity, while the

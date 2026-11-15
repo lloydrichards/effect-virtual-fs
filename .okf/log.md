@@ -2,6 +2,8 @@
 
 ## 2026-11-16
 
+- Record acting-caller attribute updates on retained directory handles after unlink or rename displacement.
+
 - Record the owner commit feed and volume watch implementation on preview, and the remaining caller-confinement gap.
 
 ## 2026-11-15

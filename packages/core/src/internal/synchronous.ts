@@ -11,7 +11,7 @@ import { Target as CoreTarget } from "../Target.js"
 import type { FsFailure, ObjectReference, TargetInput } from "../VirtualFileSystem.js"
 import { Errors, Paths } from "./model.js"
 import {
-  attributeFile,
+  attributeHandle,
   attributeTimes,
   creationMode,
   direntReference,
@@ -202,12 +202,12 @@ export const bind = Effect.fnUntraced(
     const attributes = (t: Target, a: Vfs.Attributes) => {
       const selected = CoreTarget.of(t)
 
-      if (Predicate.isTagged(selected, "Handle") && FileHandleId in selected.handle) {
-        const file = attributeFile(runtime, t)
+      if (Predicate.isTagged(selected, "Handle")) {
+        const handle = attributeHandle(runtime, t)
         const grant = runtime.grants.get(selected.handle)
 
-        if (file !== undefined && grant?.allowed && grant.boundaries.length === 1) {
-          return unwrap(sync.setFileHandleAttributes(file, a))
+        if (handle !== undefined && grant?.allowed && grant.boundaries.length === 1) {
+          return unwrap(sync.setHandleAttributes(handle, a))
         }
 
         const resolved = Effect.runSync(
@@ -219,9 +219,9 @@ export const bind = Effect.fnUntraced(
         if (Result.isFailure(resolved)) throw resolved.failure
 
         return unwrap(
-          file === undefined
+          handle === undefined
             ? sync.setAttributes(resolved.success, a)
-            : sync.setFileHandleAttributes(file, a)
+            : sync.setHandleAttributes(handle, a)
         )
       }
 
@@ -325,7 +325,7 @@ export const bind = Effect.fnUntraced(
 
         const set = (a: Vfs.Attributes) => {
           if ("setAttributes" in handle) unwrap(handle.setAttributes(a))
-          else unwrap(sync.setAttributes(unwrap(handle.stat()).reference, a))
+          else unwrap(sync.setHandleAttributes(handle.effect, a))
         }
 
         return guardHandle(runtime, {

@@ -1,0 +1,119 @@
+--- a/packages/effect/src/virtual-file-system/internal/model.ts
++++ b/packages/effect/src/virtual-file-system/internal/model.ts
+@@ -1120,12 +1120,12 @@
+   /** Publishes all changed attributes atomically after checking every requested field against prestate. */
+   readonly setAttributes: (target: Target, attributes: Attributes, options?: AttributeOptions) => Fx<void>
+   /**
+-   * Updates a live file using this caller's permissions, including current write permission for resize.
+-   * Linked files must be reachable by both the acting caller and the opening policy. Unlinked files
++   * Updates a retained file or directory using this caller's permissions, including current write permission for file resize.
++   * Linked objects must be reachable by both the acting caller and the opening policy. Unlinked objects
+    * require both policies to cover the whole filesystem.
+    */
+-  readonly setFileHandleAttributes: (
+-    handle: FileHandle,
++  readonly setHandleAttributes: (
++    handle: FileHandle | DirectoryHandle,
+     attributes: Attributes,
+     options?: RevisionCondition
+   ) => Fx<void>
+@@ -1252,7 +1252,7 @@
+   | "readDirectoryEntries"
+   | "truncate"
+   | "setAttributes"
+-  | "setFileHandleAttributes"
++  | "setHandleAttributes"
+   | "createFile"
+   | "makeDirectory"
+   | "makeSymlink"
+--- a/packages/effect/src/virtual-file-system/internal/engine.ts
++++ b/packages/effect/src/virtual-file-system/internal/engine.ts
+@@ -226,7 +226,7 @@
+   directoryHandles.set(value, state)
+ }
+ 
+-const directoryHandleState = (candidate: unknown) =>
++export const directoryHandleState = (candidate: unknown) =>
+   typeof candidate === "object" && candidate !== null ? directoryHandles.get(candidate) : undefined
+ 
+ // NOTE: Registration records issued views. Membership proves identity, while the
+--- a/packages/effect/src/virtual-file-system/internal/handles.ts
++++ b/packages/effect/src/virtual-file-system/internal/handles.ts
+@@ -25,7 +25,7 @@
+ type HandleBody<A> = (tx: E.Transaction) => Result.Result<A, M.OperationError>
+ 
+ const effects = new WeakMap<E.FileState, M.FileHandle>()
+-const states = new WeakMap<M.FileHandle, E.FileState>()
++const states = new WeakMap<object, E.FileState>()
+ const synchronous = new WeakMap<E.FileState, M.SyncFileHandle>()
+ 
+ interface DirectoryState {
+@@ -322,14 +322,14 @@
+ 
+ /** @internal */
+ export const prepareCallerAttributes = (
+-  handle: M.FileHandle,
++  handle: M.FileHandle | M.DirectoryHandle,
+   attributes: M.Attributes,
+   options: M.RevisionCondition | undefined,
+   work: R.Work
+ ) =>
+   Result.gen(function*() {
+     const operation = work.operation
+-    const state = states.get(handle)
++    const state = states.get(handle) ?? E.directoryHandleState(handle)
+     if (state === undefined) {
+       return yield* Result.fail(new M.InvalidInput({ operation, field: "handle", reason: "malformed" }))
+     }
+@@ -341,11 +341,11 @@
+     return (tx: E.Transaction) =>
+       Result.gen(function*() {
+         yield* work.borrowResult(state.resource)
+-        const file = yield* node(tx, state)
++        const object = yield* tx.getResult(state.id)
+         const checkVisibility = (view: E.Transaction) =>
+           Result.gen(function*() {
+-            if (file.nlink !== zero) {
+-              yield* view.referenceRouteResult(view.engine.reference(file.id))
++            if (object.nlink !== zero) {
++              yield* view.referenceRouteResult(view.engine.reference(object.id))
+               return
+             }
+             yield* view.authorityResult()
+@@ -355,7 +355,7 @@
+           })
+         yield* checkVisibility(tx)
+         if (tx.caller.policy !== state.caller.policy) yield* checkVisibility(new E.Transaction(state.caller, work))
+-        yield* A.attributesFor(tx, file, fixed, revision)
++        yield* A.attributesFor(tx, object, fixed, revision)
+       })
+   })
+ 
+--- a/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
++++ b/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
+@@ -1439,9 +1439,9 @@
+             return (tx: E.Transaction) => A.truncate(tx, copy, length, fixed)
+           })
+       ),
+-    setFileHandleAttributes: (handle, attributes, options) =>
+-      E.runAtomicResult(caller, "setFileHandleAttributes", [], () =>
+-        A.validateAttributes(attributes, "setFileHandleAttributes"), (work) =>
++    setHandleAttributes: (handle, attributes, options) =>
++      E.runAtomicResult(caller, "setHandleAttributes", [], () =>
++        A.validateAttributes(attributes, "setHandleAttributes"), (work) =>
+         H.prepareCallerAttributes(handle, attributes, options, work)),
+     setAttributes: (target, attributes, options) =>
+       E.runAtomicResult(caller, "setAttributes", [target], () =>
+--- a/packages/effect/src/virtual-file-system/internal/sync.ts
++++ b/packages/effect/src/virtual-file-system/internal/sync.ts
+@@ -108,8 +108,8 @@
+           const fixed = yield* P.snapshotTruncateOptions(options)
+           return (tx: E.Transaction) => A.truncate(tx, selected, amount, fixed)
+         })),
+-    setFileHandleAttributes: (handle, attributes, options) =>
+-      invokeResult(caller, "setFileHandleAttributes", [], (work) =>
++    setHandleAttributes: (handle, attributes, options) =>
++      invokeResult(caller, "setHandleAttributes", [], (work) =>
+         H.prepareCallerAttributes(handle, attributes, options, work)),
+     setAttributes: (target, attributes, options) =>
+       invokeResult(caller, "setAttributes", [target], () =>

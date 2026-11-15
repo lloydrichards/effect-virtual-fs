@@ -26,7 +26,7 @@ const maxSafe = BigInt(Number.MAX_SAFE_INTEGER)
 type HandleBody<A> = (tx: E.Transaction) => Result.Result<A, M.OperationError>
 
 const effects = new WeakMap<E.FileState, M.FileHandle>()
-const states = new WeakMap<M.FileHandle, E.FileState>()
+const states = new WeakMap<object, E.FileState>()
 const synchronous = new WeakMap<E.FileState, M.SyncFileHandle>()
 
 interface DirectoryState {
@@ -323,14 +323,14 @@ const prepareAttributes = (
 
 /** @internal */
 export const prepareCallerAttributes = (
-  handle: M.FileHandle,
+  handle: M.FileHandle | M.DirectoryHandle,
   attributes: M.Attributes,
   options: M.RevisionCondition | undefined,
   work: R.Work
 ) =>
   Result.gen(function*() {
     const operation = work.operation
-    const state = states.get(handle)
+    const state = states.get(handle) ?? E.directoryHandleState(handle)
     if (state === undefined) {
       return yield* Result.fail(new M.InvalidInput({ operation, field: "handle", reason: "malformed" }))
     }
@@ -342,11 +342,11 @@ export const prepareCallerAttributes = (
     return (tx: E.Transaction) =>
       Result.gen(function*() {
         yield* work.borrowResult(state.resource)
-        const file = yield* node(tx, state)
+        const object = yield* tx.getResult(state.id)
         const checkVisibility = (view: E.Transaction) =>
           Result.gen(function*() {
-            if (file.nlink !== zero) {
-              yield* view.referenceRouteResult(view.engine.reference(file.id))
+            if (object.nlink !== zero) {
+              yield* view.referenceRouteResult(view.engine.reference(object.id))
               return
             }
             yield* view.authorityResult()
@@ -356,7 +356,7 @@ export const prepareCallerAttributes = (
           })
         yield* checkVisibility(tx)
         if (tx.caller.policy !== state.caller.policy) yield* checkVisibility(new E.Transaction(state.caller, work))
-        yield* A.attributesFor(tx, file, fixed, revision)
+        yield* A.attributesFor(tx, object, fixed, revision)
       })
   })
 

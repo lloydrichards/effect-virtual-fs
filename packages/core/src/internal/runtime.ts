@@ -589,16 +589,16 @@ const boundariesOf = (runtime: Runtime, value: V.TargetInput | V.EntryInput): Re
   return handle === undefined ? [] : runtime.grants.get(handle)?.boundaries ?? []
 }
 
-export const attributeFile = (runtime: Runtime, value: V.TargetInput) => {
+export const attributeHandle = (runtime: Runtime, value: V.TargetInput) => {
   const selected = Target.of(value)
 
-  if (!Predicate.isTagged(selected, "Handle") || !(FileHandleId in selected.handle)) return undefined
+  if (!Predicate.isTagged(selected, "Handle")) return undefined
 
   // Reopened handles can carry additional roots from imported handles. Keep the reference
   // reachability check for those roots when forwarding a core metadata operation.
   if (boundariesOf(runtime, value).some((boundary) => boundary.ino !== 1n)) return undefined
 
-  return runtime.files.get(selected.handle)
+  return FileHandleId in selected.handle ? runtime.files.get(selected.handle) : runtime.directories.get(selected.handle)
 }
 
 const forkBoundaries = Effect.fnUntraced(function*(caller: P.VirtualFileSystem, inherited: ReadonlyArray<Boundary>) {
@@ -1232,11 +1232,11 @@ const wrapCaller = (
 
   const attributes = (value: V.TargetInput, a: P.Attributes, expectedRevision?: P.ObjectRevision) =>
     mutateTarget(value, (t, actor) => {
-      const file = attributeFile(runtime, value)
+      const handle = attributeHandle(runtime, value)
 
-      return file === undefined
+      return handle === undefined
         ? actor.setAttributes(t, a, { followFinalSymlink: follow(value), expectedRevision })
-        : actor.setFileHandleAttributes(file, a, { expectedRevision })
+        : actor.setHandleAttributes(handle, a, { expectedRevision })
     })
 
   const parentEntry = Effect.fnUntraced(
@@ -3098,6 +3098,7 @@ export const makeVolume = Effect.fnUntraced(
             const selected = yield* Effect.fromResult(
               Errors.decodeConfiguration(WatchOptions, options === undefined ? {} : options, "watch")
             )
+
             let root = 1n
 
             if (selected.scope !== undefined) {

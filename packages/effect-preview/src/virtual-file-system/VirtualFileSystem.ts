@@ -1440,9 +1440,9 @@ const makeCaller = (caller: E.Caller) => {
             return (tx: E.Transaction) => A.truncate(tx, copy, length, fixed)
           })
       ),
-    setFileHandleAttributes: (handle, attributes, options) =>
-      E.runAtomicResult(caller, "setFileHandleAttributes", [], () =>
-        A.validateAttributes(attributes, "setFileHandleAttributes"), (work) =>
+    setHandleAttributes: (handle, attributes, options) =>
+      E.runAtomicResult(caller, "setHandleAttributes", [], () =>
+        A.validateAttributes(attributes, "setHandleAttributes"), (work) =>
         H.prepareCallerAttributes(handle, attributes, options, work)),
     setAttributes: (target, attributes, options) =>
       E.runAtomicResult(caller, "setAttributes", [target], () =>

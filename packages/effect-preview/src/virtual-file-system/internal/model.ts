@@ -1121,12 +1121,12 @@ export interface VirtualFileSystem {
   /** Publishes all changed attributes atomically after checking every requested field against prestate. */
   readonly setAttributes: (target: Target, attributes: Attributes, options?: AttributeOptions) => Fx<void>
   /**
-   * Updates a live file using this caller's permissions, including current write permission for resize.
-   * Linked files must be reachable by both the acting caller and the opening policy. Unlinked files
+   * Updates a retained file or directory using this caller's permissions, including current write permission for file resize.
+   * Linked objects must be reachable by both the acting caller and the opening policy. Unlinked objects
    * require both policies to cover the whole filesystem.
    */
-  readonly setFileHandleAttributes: (
-    handle: FileHandle,
+  readonly setHandleAttributes: (
+    handle: FileHandle | DirectoryHandle,
     attributes: Attributes,
     options?: RevisionCondition
   ) => Fx<void>
@@ -1253,7 +1253,7 @@ type AtomicMethods = Pick<
   | "readDirectoryEntries"
   | "truncate"
   | "setAttributes"
-  | "setFileHandleAttributes"
+  | "setHandleAttributes"
   | "createFile"
   | "makeDirectory"
   | "makeSymlink"

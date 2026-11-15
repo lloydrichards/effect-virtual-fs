@@ -94,5 +94,9 @@
   {
     "file": "0024-observe-committed-mutations.patch",
     "sha256": "15713e8273c3e37ce054edb12f55e0b065f67904a8eaf5c58c64fbd8f66c53bd"
+  },
+  {
+    "file": "0025-caller-retained-directory-attributes.patch",
+    "sha256": "e09aa4dcc31c82dfe8b8feaa12d788be1cfe0cc2485ceb4595e860c11877d4ed"
   }
 ]
