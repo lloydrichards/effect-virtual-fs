@@ -787,15 +787,12 @@ const allocation = (runtime: Runtime) =>
     ? Effect.fail(Errors.fsFailure("NoSpace", "create"))
     : Effect.void
 
-const times = (runtime: Runtime, value: Times): Effect.Effect<P.Attributes> =>
-  Effect.sync(() => {
-    const selected = (time: Times["access"]) =>
-      time.kind === "omit" ?
-        undefined
-        : nano(time.kind === "now" ? runtime.readClock() : time.nanoseconds)
+const times = (value: Times): P.Attributes => {
+  const selected = (time: Times["access"]): P.Attributes["atime"] =>
+    time.kind === "omit" ? undefined : time.kind === "now" ? "now" : nano(time.nanoseconds)
 
-    return { atime: selected(value.access), mtime: selected(value.modification) }
-  })
+  return { atime: selected(value.access), mtime: selected(value.modification) }
+}
 
 const openOptions = (o: V.OpenOptions): P.OpenOptions => ({
   access: o.access === "readWrite" ? "readwrite" : o.access,
@@ -2268,7 +2265,7 @@ const wrapCaller = (
         t = yield* decode(TimesSchema, t, "utimes")
         yield* validateCurrentTimes(value, t)
 
-        return yield* attributes(value, yield* times(runtime, t))
+        return yield* attributes(value, times(t))
       })
     ),
     truncate: dual(2, (value: V.TargetInput, size: bigint) =>
@@ -2324,7 +2321,7 @@ const wrapCaller = (
 
         return yield* attributes(
           value,
-          a.times === undefined ? selected : { ...selected, ...yield* times(runtime, a.times) },
+          a.times === undefined ? selected : { ...selected, ...times(a.times) },
           a.expected === undefined ? undefined : observed.revision
         )
       })),

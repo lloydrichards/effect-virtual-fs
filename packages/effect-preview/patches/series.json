@@ -6,5 +6,9 @@
   {
     "file": "0002-recursive-mkdir-dot-components.patch",
     "sha256": "1d2a9b6f7b1eed45e32f4bf0f1ed1addea86c44cd46aa57479f6498e4927600f"
+  },
+  {
+    "file": "0003-current-time-attributes.patch",
+    "sha256": "277262b9999ebe825162c745f50fc4d9fe9afe1df601a5ba073015d4479c6599"
   }
 ]

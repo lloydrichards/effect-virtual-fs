@@ -1,0 +1,285 @@
+--- a/packages/effect/src/virtual-file-system/internal/model.ts
++++ b/packages/effect/src/virtual-file-system/internal/model.ts
+@@ -408,12 +408,16 @@
+   readonly conditions?: EntryConditions | undefined
+ }
+ 
++/**
++ * Omitted fields stay unchanged; "now" timestamps share the transaction clock.
++ * A write-authorized non-owner may request both times as "now". Literal or mixed timestamp updates require ownership.
++ */
+ export interface Attributes {
+   readonly mode?: number | undefined
+   readonly uid?: number | undefined
+   readonly gid?: number | undefined
+-  readonly atime?: DateTime.UnixNano | undefined
+-  readonly mtime?: DateTime.UnixNano | undefined
++  readonly atime?: DateTime.UnixNano | "now" | undefined
++  readonly mtime?: DateTime.UnixNano | "now" | undefined
+ }
+ 
+ export interface AttributeOptions extends RevisionCondition {
+--- a/packages/effect/src/virtual-file-system/internal/atomic.ts
++++ b/packages/effect/src/virtual-file-system/internal/atomic.ts
+@@ -607,10 +607,10 @@
+     if (attributes.mode !== undefined) yield* E.modeResult(attributes.mode, "directory", operation)
+     if (attributes.uid !== undefined) yield* E.identityResult(attributes.uid, operation, "uid")
+     if (attributes.gid !== undefined) yield* E.identityResult(attributes.gid, operation, "gid")
+-    if (attributes.atime !== undefined && !isUnixNano(attributes.atime)) {
++    if (attributes.atime !== undefined && attributes.atime !== "now" && !isUnixNano(attributes.atime)) {
+       return yield* Result.fail(new M.InvalidInput({ operation, field: "atime", reason: "malformed" }))
+     }
+-    if (attributes.mtime !== undefined && !isUnixNano(attributes.mtime)) {
++    if (attributes.mtime !== undefined && attributes.mtime !== "now" && !isUnixNano(attributes.mtime)) {
+       return yield* Result.fail(new M.InvalidInput({ operation, field: "mtime", reason: "malformed" }))
+     }
+   })
+@@ -649,17 +649,24 @@
+         !tx.caller.policy.groups.includes(attributes.gid)
+       ) return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "ownership" }))
+     }
+-    if (attributes.atime !== undefined || attributes.mtime !== undefined) yield* tx.ownsResult(node)
++    if (attributes.atime !== undefined || attributes.mtime !== undefined) {
++      if (
++        attributes.atime === "now" && attributes.mtime === "now" &&
++        !tx.caller.policy.privileged && tx.caller.policy.uid !== node.uid
++      ) yield* tx.requireResult(node, E.WRITE_PERMISSION)
++      else yield* tx.ownsResult(node)
++    }
+     yield* tx.revisionResult(node, options)
+     let changed = false
+     const edited = yield* tx.editResult(node.id)
+     for (const field of attributeFields) {
+       const value = attributes[field]
+       if (value === undefined) continue
+-      if (value !== node[field]) changed = true
++      if (value !== "now" && value !== node[field]) changed = true
+       if (field === "atime" || field === "mtime") {
+         const requested = attributes[field]
+-        if (requested !== undefined) yield* tx.explicitTimeResult(node.id, field, requested)
++        if (requested === "now") yield* tx.touchResult(node.id, [field, "ctime"])
++        else if (requested !== undefined) yield* tx.explicitTimeResult(node.id, field, requested)
+       } else Object.assign(edited, { [field]: value })
+     }
+     if (changed) yield* tx.changedResult(node.id, ["ctime"])
+--- a/packages/effect/test/virtual-file-system/VirtualFileSystem.operations.test.ts
++++ b/packages/effect/test/virtual-file-system/VirtualFileSystem.operations.test.ts
+@@ -1,5 +1,5 @@
+ import { assert, describe, it } from "@effect/vitest"
+-import { BytePath, Clock, Deferred, Effect, Exit, Fiber, Option, Result, Scope, Stream } from "effect"
++import { BytePath, Clock, DateTime, Deferred, Effect, Exit, Fiber, Option, Result, Scope, Stream } from "effect"
+ import { TestClock } from "effect/testing"
+ import * as VFS from "effect/virtual-file-system/VirtualFileSystem"
+ 
+@@ -1195,3 +1195,170 @@
+       }).pipe(withClock))
+   }
+ })
++
++describe("VirtualFileSystem current-time attributes", () => {
++  for (const boundary of ["caller", "operation", "handle", "sync", "syncHandle"] as const) {
++    it.effect(`should let a write-authorized non-owner touch both times through ${boundary}`, () =>
++      Effect.gen(function*() {
++        const owner = yield* VFS.make({ limits: { synchronous: true } })
++        const admin = yield* owner.authorize({ credentials })
++        yield* admin.createFile("/file")
++        yield* admin.setAttributes("/file", { mode: 0o666 })
++        const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
++        yield* TestClock.adjust("2 seconds")
++        const attributes = { atime: "now", mtime: "now" } as const
++        if (boundary === "caller") yield* caller.setAttributes("/file", attributes)
++        else if (boundary === "operation") {
++          const operation = yield* caller.acquireOperation()
++          yield* operation.files.setAttributes("/file", attributes)
++        } else if (boundary === "handle") {
++          const handle = yield* caller.open("/file")
++          yield* handle.setAttributes(attributes)
++        } else if (boundary === "sync") {
++          const sync = yield* caller.acquireSync
++          yield* Effect.fromResult(sync.setAttributes("/file", attributes))
++        } else {
++          const handle = yield* caller.open("/file")
++          const sync = yield* handle.sync()
++          yield* Effect.fromResult(sync.setAttributes(attributes))
++        }
++        const metadata = (yield* admin.stat("/file")).metadata
++        assert.strictEqual(metadata.atime, 2_000_000_000n)
++        assert.strictEqual(metadata.mtime, metadata.atime)
++        assert.strictEqual(metadata.ctime, metadata.atime)
++        assert.strictEqual(metadata.uid, 0)
++        assert.strictEqual(metadata.mode, 0o666)
++      }).pipe(withClock))
++  }
++
++  it.effect("should preserve omitted and literal times when an owner requests a current time", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const before = yield* caller.stat("/file")
++      yield* TestClock.adjust("1 second")
++      yield* caller.setAttributes("/file", { atime: "now" })
++      const first = (yield* caller.stat("/file")).metadata
++      assert.strictEqual(first.atime, 1_000_000_000n)
++      assert.strictEqual(first.mtime, before.metadata.mtime)
++      yield* TestClock.adjust("1 second")
++      const literal = DateTime.unixNanoFromNanoseconds(-1n)
++      yield* caller.setAttributes("/file", { atime: literal, mtime: "now" })
++      const next = (yield* caller.stat("/file")).metadata
++      assert.strictEqual(next.atime, literal)
++      assert.strictEqual(next.mtime, 2_000_000_000n)
++      assert.strictEqual(next.ctime, next.mtime)
++      assert.strictEqual(next.birthtime, before.metadata.birthtime)
++    }).pipe(withClock))
++
++  it.effect("should retain prestate authority and publish nothing when a timestamp request is denied", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const admin = yield* owner.authorize({ credentials })
++      yield* admin.createFile("/file")
++      yield* admin.setAttributes("/file", { mode: 0o666 })
++      const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
++      yield* TestClock.adjust("1 second")
++      const literal = DateTime.unixNanoFromNanoseconds(1_000_000_000n)
++      const before = yield* admin.stat("/file")
++      const usage = yield* owner.usage
++      const requests: ReadonlyArray<VFS.Attributes> = [
++        { atime: "now" },
++        { atime: "now", mtime: literal },
++        { atime: literal, mtime: literal },
++        { atime: "now", mtime: "now", mode: 0o600 },
++        { atime: "now", mtime: "now", uid: 7 }
++      ]
++      for (const attributes of requests) {
++        const error = yield* Effect.flip(caller.setAttributes("/file", attributes))
++        assert.strictEqual(error._tag, "AccessDenied")
++        if (error._tag === "AccessDenied") assert.strictEqual(error.reason, "ownership")
++        assert.deepStrictEqual(yield* admin.stat("/file"), before)
++        assert.deepStrictEqual(yield* owner.usage, usage)
++      }
++      yield* admin.setAttributes("/file", { mode: 0o444 })
++      const readonly = yield* admin.stat("/file")
++      const denied = yield* Effect.flip(caller.setAttributes("/file", { atime: "now", mtime: "now" }))
++      assert.strictEqual(denied._tag, "AccessDenied")
++      if (denied._tag === "AccessDenied") assert.strictEqual(denied.reason, "permission")
++      assert.deepStrictEqual(yield* admin.stat("/file"), readonly)
++    }).pipe(withClock))
++
++  it.effect("should use one transaction clock sample for all requested current times", () =>
++    Effect.gen(function*() {
++      const clock = yield* Clock.Clock
++      let samples = 0
++      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
++        ...clock,
++        currentTimeNanosUnsafe: () => BigInt(++samples)
++      }))
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const before = samples
++      yield* caller.setAttributes("/file", { mode: 0o600, atime: "now", mtime: "now" })
++      const metadata = (yield* caller.stat("/file")).metadata
++      assert.strictEqual(samples, before + 1)
++      assert.strictEqual(metadata.atime, BigInt(samples))
++      assert.strictEqual(metadata.mtime, metadata.atime)
++      assert.strictEqual(metadata.ctime, metadata.atime)
++    }).pipe(withClock))
++
++  it.effect("should retain revision guards when requesting current times", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const stale = yield* caller.stat("/file")
++      yield* caller.writeFile("/file", new Uint8Array([1]))
++      const before = yield* caller.stat("/file")
++      const usage = yield* owner.usage
++      yield* TestClock.adjust("1 second")
++      const error = yield* Effect.flip(caller.setAttributes("/file", { atime: "now", mtime: "now" }, {
++        expectedRevision: stale.revision
++      }))
++      assert.strictEqual(error._tag, "ConditionFailed")
++      assert.deepStrictEqual(yield* caller.stat("/file"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++    }).pipe(withClock))
++
++  it.effect("should roll back current-time updates when interrupted before publication", () =>
++    Effect.gen(function*() {
++      const clock = yield* Clock.Clock
++      let interrupt: (() => void) | undefined
++      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
++        ...clock,
++        currentTimeNanosUnsafe: () => {
++          interrupt?.()
++          return clock.currentTimeNanosUnsafe()
++        }
++      }))
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const before = yield* caller.stat("/file")
++      const usage = yield* owner.usage
++      yield* TestClock.adjust("1 second")
++      const updating = yield* Effect.withFiber((fiber) => {
++        interrupt = () => {
++          interrupt = undefined
++          fiber.interruptUnsafe()
++        }
++        return caller.setAttributes("/file", { atime: "now", mtime: "now" })
++      }).pipe(Effect.forkChild({ startImmediately: true }))
++      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(updating)))
++      assert.deepStrictEqual(yield* caller.stat("/file"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++    }).pipe(withClock))
++
++  it.effect("should preserve the revision when current times already equal the transaction clock", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const before = yield* caller.stat("/file")
++      yield* caller.setAttributes("/file", { atime: "now", mtime: "now" })
++      const after = yield* caller.stat("/file")
++      assert.isTrue(VFS.equalsObjectRevision(before.revision, after.revision))
++      assert.deepStrictEqual(after.metadata, before.metadata)
++    }).pipe(withClock))
++})
+--- a/packages/effect/typetest/virtual-file-system/VirtualFileSystem.tst.ts
++++ b/packages/effect/typetest/virtual-file-system/VirtualFileSystem.tst.ts
+@@ -1,7 +1,10 @@
+-import type { BytePath, Effect, Layer, Option, Result, Scope, Stream } from "effect"
++import type { BytePath, DateTime, Effect, Layer, Option, Result, Scope, Stream } from "effect"
+ import * as VFS from "effect/virtual-file-system/VirtualFileSystem"
+ import { describe, expect, it } from "tstyche"
+ 
++declare const instant: DateTime.UnixNano
++declare const operation: VFS.OperationSession
++declare const syncFile: VFS.SyncFileHandle
+ declare const caller: VFS.VirtualFileSystem
+ declare const reference: VFS.ObjectReference
+ declare const address: VFS.EntryAddress
+@@ -175,3 +178,26 @@
+     expect(caller.writeFile).type.not.toBeCallableWith(reference, bytes, { conditions: undefined })
+   })
+ })
++
++describe("VirtualFileSystem current-time attributes", () => {
++  it("should accept current-time markers across asynchronous and synchronous boundaries", () => {
++    expect(caller.setAttributes).type.toBeCallableWith("/file", { atime: "now", mtime: "now" })
++    expect(caller.setAttributes).type.toBeCallableWith(reference, { atime: instant })
++    expect(operation.files.setAttributes).type.toBeCallableWith("/file", { atime: "now" })
++    expect(file.setAttributes).type.toBeCallableWith({ atime: instant, mtime: "now" })
++    expect(sync.setAttributes).type.toBeCallableWith(reference, { atime: "now", mtime: "now" })
++    expect(syncFile.setAttributes).type.toBeCallableWith({ atime: "now" })
++    expect(caller.setAttributes("/file", { atime: "now" })).type.toBe<Effect.Effect<void, VFS.OperationError>>()
++    expect(sync.setAttributes("/file", { mtime: "now" })).type.toBe<Result.Result<void, VFS.OperationError>>()
++  })
++
++  it("should restrict markers to attribute inputs and keep stored times literal", () => {
++    expect<VFS.Attributes["atime"]>().type.toBe<DateTime.UnixNano | "now" | undefined>()
++    expect<VFS.Attributes["mtime"]>().type.toBe<DateTime.UnixNano | "now" | undefined>()
++    expect<VFS.Metadata["atime"]>().type.toBe<DateTime.UnixNano>()
++    expect<VFS.SemanticMetadata["mtime"]>().type.toBe<DateTime.UnixNano>()
++    expect(caller.setAttributes).type.not.toBeCallableWith("/file", { atime: "later" })
++    expect(file.setAttributes).type.not.toBeCallableWith({ mtime: "omit" })
++    expect(sync.setAttributes).type.not.toBeCallableWith("/file", { atime: 0n })
++  })
++})

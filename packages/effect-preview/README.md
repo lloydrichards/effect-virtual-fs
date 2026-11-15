@@ -74,11 +74,18 @@ and atomic rollback. Entry conditions still require a named final slot; dot targ
 existing `InvalidInput` rejection. Regression tests cover both resolution paths, byte paths, permissions, quotas,
 and conditions. No public API changes or adapter changes are needed.
 
+`0003-current-time-attributes.patch` adds `"now"` to the existing `Attributes.atime` and `mtime` inputs. Both markers
+and ctime use one transaction clock sample. A write-authorized non-owner may request both times as `"now"`;
+literal or mixed timestamp requests still require ownership, and other requested attributes keep their own checks.
+Omitted fields remain unchanged. The patch includes runtime and type tests for the shared caller, operation-session,
+handle, and synchronous APIs. Core preserves the markers instead of converting them into literal timestamps.
+
 Apply these contributions in series order from an Effect checkout at the pinned PR commit:
 
 ```sh
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0001-preserve-caller-interruptibility.patch
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0002-recursive-mkdir-dot-components.patch
+patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0003-current-time-attributes.patch
 ```
 
 To revise a contribution, edit its upstream patch, update the checksum in `series.json`, and regenerate. Once the

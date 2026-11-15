@@ -608,10 +608,10 @@ export const validateAttributes = (
     if (attributes.mode !== undefined) yield* E.modeResult(attributes.mode, "directory", operation)
     if (attributes.uid !== undefined) yield* E.identityResult(attributes.uid, operation, "uid")
     if (attributes.gid !== undefined) yield* E.identityResult(attributes.gid, operation, "gid")
-    if (attributes.atime !== undefined && !isUnixNano(attributes.atime)) {
+    if (attributes.atime !== undefined && attributes.atime !== "now" && !isUnixNano(attributes.atime)) {
       return yield* Result.fail(new M.InvalidInput({ operation, field: "atime", reason: "malformed" }))
     }
-    if (attributes.mtime !== undefined && !isUnixNano(attributes.mtime)) {
+    if (attributes.mtime !== undefined && attributes.mtime !== "now" && !isUnixNano(attributes.mtime)) {
       return yield* Result.fail(new M.InvalidInput({ operation, field: "mtime", reason: "malformed" }))
     }
   })
@@ -650,17 +650,24 @@ export const attributesFor = (
         !tx.caller.policy.groups.includes(attributes.gid)
       ) return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "ownership" }))
     }
-    if (attributes.atime !== undefined || attributes.mtime !== undefined) yield* tx.ownsResult(node)
+    if (attributes.atime !== undefined || attributes.mtime !== undefined) {
+      if (
+        attributes.atime === "now" && attributes.mtime === "now" &&
+        !tx.caller.policy.privileged && tx.caller.policy.uid !== node.uid
+      ) yield* tx.requireResult(node, E.WRITE_PERMISSION)
+      else yield* tx.ownsResult(node)
+    }
     yield* tx.revisionResult(node, options)
     let changed = false
     const edited = yield* tx.editResult(node.id)
     for (const field of attributeFields) {
       const value = attributes[field]
       if (value === undefined) continue
-      if (value !== node[field]) changed = true
+      if (value !== "now" && value !== node[field]) changed = true
       if (field === "atime" || field === "mtime") {
         const requested = attributes[field]
-        if (requested !== undefined) yield* tx.explicitTimeResult(node.id, field, requested)
+        if (requested === "now") yield* tx.touchResult(node.id, [field, "ctime"])
+        else if (requested !== undefined) yield* tx.explicitTimeResult(node.id, field, requested)
       } else Object.assign(edited, { [field]: value })
     }
     if (changed) yield* tx.changedResult(node.id, ["ctime"])

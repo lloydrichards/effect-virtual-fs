@@ -1,6 +1,7 @@
 // Generated from Effect PR #9960 by scripts/sync.mjs. Edit the snapshot or generator, then run sync.
 import { assert, describe, it } from "@effect/vitest"
 import * as BytePath from "../../src/compat/BytePath.js"
+import * as DateTime from "../../src/compat/DateTime.js"
 import { Clock, Deferred, Effect, Exit, Fiber, Option, Result, Scope, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import * as VFS from "../../src/virtual-file-system/VirtualFileSystem.js"
@@ -1196,4 +1197,171 @@ describe("VirtualFileSystem recursive mkdir dot components", () => {
         assert.deepStrictEqual(yield* owner.usage, usage)
       }).pipe(withClock))
   }
+})
+
+describe("VirtualFileSystem current-time attributes", () => {
+  for (const boundary of ["caller", "operation", "handle", "sync", "syncHandle"] as const) {
+    it.effect(`should let a write-authorized non-owner touch both times through ${boundary}`, () =>
+      Effect.gen(function*() {
+        const owner = yield* VFS.make({ limits: { synchronous: true } })
+        const admin = yield* owner.authorize({ credentials })
+        yield* admin.createFile("/file")
+        yield* admin.setAttributes("/file", { mode: 0o666 })
+        const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
+        yield* TestClock.adjust("2 seconds")
+        const attributes = { atime: "now", mtime: "now" } as const
+        if (boundary === "caller") yield* caller.setAttributes("/file", attributes)
+        else if (boundary === "operation") {
+          const operation = yield* caller.acquireOperation()
+          yield* operation.files.setAttributes("/file", attributes)
+        } else if (boundary === "handle") {
+          const handle = yield* caller.open("/file")
+          yield* handle.setAttributes(attributes)
+        } else if (boundary === "sync") {
+          const sync = yield* caller.acquireSync
+          yield* Effect.fromResult(sync.setAttributes("/file", attributes))
+        } else {
+          const handle = yield* caller.open("/file")
+          const sync = yield* handle.sync()
+          yield* Effect.fromResult(sync.setAttributes(attributes))
+        }
+        const metadata = (yield* admin.stat("/file")).metadata
+        assert.strictEqual(metadata.atime, 2_000_000_000n)
+        assert.strictEqual(metadata.mtime, metadata.atime)
+        assert.strictEqual(metadata.ctime, metadata.atime)
+        assert.strictEqual(metadata.uid, 0)
+        assert.strictEqual(metadata.mode, 0o666)
+      }).pipe(withClock))
+  }
+
+  it.effect("should preserve omitted and literal times when an owner requests a current time", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.createFile("/file")
+      const before = yield* caller.stat("/file")
+      yield* TestClock.adjust("1 second")
+      yield* caller.setAttributes("/file", { atime: "now" })
+      const first = (yield* caller.stat("/file")).metadata
+      assert.strictEqual(first.atime, 1_000_000_000n)
+      assert.strictEqual(first.mtime, before.metadata.mtime)
+      yield* TestClock.adjust("1 second")
+      const literal = DateTime.unixNanoFromNanoseconds(-1n)
+      yield* caller.setAttributes("/file", { atime: literal, mtime: "now" })
+      const next = (yield* caller.stat("/file")).metadata
+      assert.strictEqual(next.atime, literal)
+      assert.strictEqual(next.mtime, 2_000_000_000n)
+      assert.strictEqual(next.ctime, next.mtime)
+      assert.strictEqual(next.birthtime, before.metadata.birthtime)
+    }).pipe(withClock))
+
+  it.effect("should retain prestate authority and publish nothing when a timestamp request is denied", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const admin = yield* owner.authorize({ credentials })
+      yield* admin.createFile("/file")
+      yield* admin.setAttributes("/file", { mode: 0o666 })
+      const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
+      yield* TestClock.adjust("1 second")
+      const literal = DateTime.unixNanoFromNanoseconds(1_000_000_000n)
+      const before = yield* admin.stat("/file")
+      const usage = yield* owner.usage
+      const requests: ReadonlyArray<VFS.Attributes> = [
+        { atime: "now" },
+        { atime: "now", mtime: literal },
+        { atime: literal, mtime: literal },
+        { atime: "now", mtime: "now", mode: 0o600 },
+        { atime: "now", mtime: "now", uid: 7 }
+      ]
+      for (const attributes of requests) {
+        const error = yield* Effect.flip(caller.setAttributes("/file", attributes))
+        assert.strictEqual(error._tag, "AccessDenied")
+        if (error._tag === "AccessDenied") assert.strictEqual(error.reason, "ownership")
+        assert.deepStrictEqual(yield* admin.stat("/file"), before)
+        assert.deepStrictEqual(yield* owner.usage, usage)
+      }
+      yield* admin.setAttributes("/file", { mode: 0o444 })
+      const readonly = yield* admin.stat("/file")
+      const denied = yield* Effect.flip(caller.setAttributes("/file", { atime: "now", mtime: "now" }))
+      assert.strictEqual(denied._tag, "AccessDenied")
+      if (denied._tag === "AccessDenied") assert.strictEqual(denied.reason, "permission")
+      assert.deepStrictEqual(yield* admin.stat("/file"), readonly)
+    }).pipe(withClock))
+
+  it.effect("should use one transaction clock sample for all requested current times", () =>
+    Effect.gen(function*() {
+      const clock = yield* Clock.Clock
+      let samples = 0
+      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
+        ...clock,
+        currentTimeNanosUnsafe: () => BigInt(++samples)
+      }))
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.createFile("/file")
+      const before = samples
+      yield* caller.setAttributes("/file", { mode: 0o600, atime: "now", mtime: "now" })
+      const metadata = (yield* caller.stat("/file")).metadata
+      assert.strictEqual(samples, before + 1)
+      assert.strictEqual(metadata.atime, BigInt(samples))
+      assert.strictEqual(metadata.mtime, metadata.atime)
+      assert.strictEqual(metadata.ctime, metadata.atime)
+    }).pipe(withClock))
+
+  it.effect("should retain revision guards when requesting current times", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.createFile("/file")
+      const stale = yield* caller.stat("/file")
+      yield* caller.writeFile("/file", new Uint8Array([1]))
+      const before = yield* caller.stat("/file")
+      const usage = yield* owner.usage
+      yield* TestClock.adjust("1 second")
+      const error = yield* Effect.flip(caller.setAttributes("/file", { atime: "now", mtime: "now" }, {
+        expectedRevision: stale.revision
+      }))
+      assert.strictEqual(error._tag, "ConditionFailed")
+      assert.deepStrictEqual(yield* caller.stat("/file"), before)
+      assert.deepStrictEqual(yield* owner.usage, usage)
+    }).pipe(withClock))
+
+  it.effect("should roll back current-time updates when interrupted before publication", () =>
+    Effect.gen(function*() {
+      const clock = yield* Clock.Clock
+      let interrupt: (() => void) | undefined
+      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
+        ...clock,
+        currentTimeNanosUnsafe: () => {
+          interrupt?.()
+          return clock.currentTimeNanosUnsafe()
+        }
+      }))
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.createFile("/file")
+      const before = yield* caller.stat("/file")
+      const usage = yield* owner.usage
+      yield* TestClock.adjust("1 second")
+      const updating = yield* Effect.withFiber((fiber) => {
+        interrupt = () => {
+          interrupt = undefined
+          fiber.interruptUnsafe()
+        }
+        return caller.setAttributes("/file", { atime: "now", mtime: "now" })
+      }).pipe(Effect.forkChild({ startImmediately: true }))
+      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(updating)))
+      assert.deepStrictEqual(yield* caller.stat("/file"), before)
+      assert.deepStrictEqual(yield* owner.usage, usage)
+    }).pipe(withClock))
+
+  it.effect("should preserve the revision when current times already equal the transaction clock", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.createFile("/file")
+      const before = yield* caller.stat("/file")
+      yield* caller.setAttributes("/file", { atime: "now", mtime: "now" })
+      const after = yield* caller.stat("/file")
+      assert.isTrue(VFS.equalsObjectRevision(before.revision, after.revision))
+      assert.deepStrictEqual(after.metadata, before.metadata)
+    }).pipe(withClock))
 })

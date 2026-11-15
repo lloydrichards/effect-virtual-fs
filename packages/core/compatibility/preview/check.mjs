@@ -173,7 +173,7 @@ if (section === "core" || section === "all") {
       yield* fs.writeFile("/f", bytes, { ...newWrite, mode: 0o666 })
       yield* fs.setAttributes("/f", {mode: 0o666})
       const guest = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
-      yield* guest.setAttributes("/f", { atime: 0n, mtime: 0n })
+      yield* guest.setAttributes("/f", { atime: "now", mtime: "now" })
 
       return "supported"
     })))

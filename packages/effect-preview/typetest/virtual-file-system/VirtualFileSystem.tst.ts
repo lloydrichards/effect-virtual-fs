@@ -1,9 +1,13 @@
 // Generated from Effect PR #9960 by scripts/sync.mjs. Edit the snapshot or generator, then run sync.
 import type * as BytePath from "../../src/compat/BytePath.js"
+import type * as DateTime from "../../src/compat/DateTime.js"
 import type { Effect, Layer, Option, Result, Scope, Stream } from "effect"
 import * as VFS from "../../src/virtual-file-system/VirtualFileSystem.js"
 import { describe, expect, it } from "tstyche"
 
+declare const instant: DateTime.UnixNano
+declare const operation: VFS.OperationSession
+declare const syncFile: VFS.SyncFileHandle
 declare const caller: VFS.VirtualFileSystem
 declare const reference: VFS.ObjectReference
 declare const address: VFS.EntryAddress
@@ -175,5 +179,28 @@ describe("VirtualFileSystem model", () => {
     expect(caller.open).type.toBeCallableWith(reference, { create: undefined, truncate: undefined })
     expect(caller.open).type.not.toBeCallableWith(reference, { mode: undefined })
     expect(caller.writeFile).type.not.toBeCallableWith(reference, bytes, { conditions: undefined })
+  })
+})
+
+describe("VirtualFileSystem current-time attributes", () => {
+  it("should accept current-time markers across asynchronous and synchronous boundaries", () => {
+    expect(caller.setAttributes).type.toBeCallableWith("/file", { atime: "now", mtime: "now" })
+    expect(caller.setAttributes).type.toBeCallableWith(reference, { atime: instant })
+    expect(operation.files.setAttributes).type.toBeCallableWith("/file", { atime: "now" })
+    expect(file.setAttributes).type.toBeCallableWith({ atime: instant, mtime: "now" })
+    expect(sync.setAttributes).type.toBeCallableWith(reference, { atime: "now", mtime: "now" })
+    expect(syncFile.setAttributes).type.toBeCallableWith({ atime: "now" })
+    expect(caller.setAttributes("/file", { atime: "now" })).type.toBe<Effect.Effect<void, VFS.OperationError>>()
+    expect(sync.setAttributes("/file", { mtime: "now" })).type.toBe<Result.Result<void, VFS.OperationError>>()
+  })
+
+  it("should restrict markers to attribute inputs and keep stored times literal", () => {
+    expect<VFS.Attributes["atime"]>().type.toBe<DateTime.UnixNano | "now" | undefined>()
+    expect<VFS.Attributes["mtime"]>().type.toBe<DateTime.UnixNano | "now" | undefined>()
+    expect<VFS.Metadata["atime"]>().type.toBe<DateTime.UnixNano>()
+    expect<VFS.SemanticMetadata["mtime"]>().type.toBe<DateTime.UnixNano>()
+    expect(caller.setAttributes).type.not.toBeCallableWith("/file", { atime: "later" })
+    expect(file.setAttributes).type.not.toBeCallableWith({ mtime: "omit" })
+    expect(sync.setAttributes).type.not.toBeCallableWith("/file", { atime: 0n })
   })
 })

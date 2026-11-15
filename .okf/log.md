@@ -2,6 +2,7 @@
 
 ## 2026-11-15
 
+- Record the third reproducible upstream contribution for current-time attribute markers and core forwarding. Eleven runtime and two type regressions detect the missing feature; four existing core failures are fixed. Literal-time authority, atomicity, interruption and revision guards remain enforced; combined size/time updates remain blocked by atomic resize.
 - Record the second reproducible upstream patch for recursive mkdir dot-component traversal. Preserve conditional named-slot validation and transactional rollback; ten added tests pass, seven detect the original bug. The existing core regression and direct baseline comparison now pass, with memory and Node results unchanged.
 - Record the reproducible upstream cancellation contribution: preserve caller masks at admission and before publication. Two new regressions fail on the original runtime; the fix passes 202 preview tests and resolves 28 existing memory failures, with core and Node results unchanged.
 - Record completed preview adaptations for scoped authority, reference keys, paths, revisions, insertion order, snapshot reuse, creation modes, staged removal, and native reentrant cleanup. Replace earlier speculative blockers with direct public-API evidence for the remaining atomicity, representation, atime, and masked-finalizer gaps.

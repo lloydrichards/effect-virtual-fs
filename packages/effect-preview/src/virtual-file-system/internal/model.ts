@@ -409,12 +409,16 @@ export type HardLinkSource = { readonly reference: ObjectReference } | {
   readonly conditions?: EntryConditions | undefined
 }
 
+/**
+ * Omitted fields stay unchanged; "now" timestamps share the transaction clock.
+ * A write-authorized non-owner may request both times as "now". Literal or mixed timestamp updates require ownership.
+ */
 export interface Attributes {
   readonly mode?: number | undefined
   readonly uid?: number | undefined
   readonly gid?: number | undefined
-  readonly atime?: DateTime.UnixNano | undefined
-  readonly mtime?: DateTime.UnixNano | undefined
+  readonly atime?: DateTime.UnixNano | "now" | undefined
+  readonly mtime?: DateTime.UnixNano | "now" | undefined
 }
 
 export interface AttributeOptions extends RevisionCondition {
