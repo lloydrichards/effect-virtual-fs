@@ -11,6 +11,10 @@ sources:
     title: Executable baseline and proposed contract comparisons
   - resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Existing caller, volume, snapshot, and overlay contracts
+  - resource: ../../packages/core/src/internal/previewRuntime.ts
+    title: Public preview compatibility facade used by existing core constructors
+  - resource: ../../packages/core/test/PreviewRuntime.test.ts
+    title: Shared preview state and restored-volume ownership regressions
   - resource: ../../packages/core/src/SynchronousAdapter.ts
     title: Existing checked synchronous native boundary
   - resource: ../../packages/memory/src/internal/memoryFileSystem.ts
@@ -21,7 +25,7 @@ sources:
     title: Proposed public owner and caller API
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/328
     title: Remaining API gaps and atomic copy option proposal
-generated: { by: codex/okf, at: "2026-11-15T16:07:23+00:00" }
+generated: { by: codex/okf, at: "2026-11-15T16:58:00+00:00" }
 ---
 
 # Effect preview drop-in evaluation
@@ -30,11 +34,28 @@ The goal is one reproducible private preview package consumed by the existing co
 
 The PR now adds only `packages/effect-preview`, pinned to `161258278d6618bb5a10804827bb7a5f34b04c4d`. The former parallel adapters, codecs, helpers, transfer/search/delta packages, and application rewrites are removed. No generated upstream engine source has been changed.
 
-## Current result: replacement remains blocked
+## Current result: runtime switched, acceptance blocked
 
-The existing runtime has not been switched to the preview. Core has a preview development dependency and executable comparisons; memory and Node have commands for their existing binding boundaries. These are diagnostics, not completed adapters. The old constructors remain in place because substituting the new API while retaining current semantics is unresolved. There is no automatic fallback that could make a preview run look successful.
+The existing `make`, fixture, and `fromSnapshot` construction paths now create preview-owned state through `packages/core/src/internal/previewRuntime.ts`. Core consumes the single preview package as a runtime dependency. Memory keeps its existing FileSystem adapter over core Caller. Node keeps its existing provider over core SynchronousAdapter, whose preview binding uses the public synchronous API. There are no downstream preview packages and no automatic fallback on errors.
 
-`bun run test` still executes the existing suites against their original implementation, plus the pinned upstream tests. Its passing result must not be described as the existing packages passing on the preview. `bun run check:preview-compatibility` instead compares the real baseline and preview boundaries and exits 1 on differences. It deliberately does not convert those differences into expected passing assertions or skip incompatible contracts.
+The compatibility facade maps authenticated targets, credentials, ordinary reads and mutations, conditional entry opens, metadata, scoped handles, and public capture/restore records to the existing interfaces. Core owns the scope for its unscoped root callers; derived callers and handles use the caller's scope. Core serializes its compatibility observations, and native calls share a reentry guard. This is adaptation code, not a claim of complete revision or concurrency parity.
+
+`PreviewRuntime.test.ts` proves that ordinary core and native writes are visible through the actual public preview owner, and that restored volumes also use it. The existing tests have not been changed or skipped. Core and memory still have failures; the Node provider passes 41/44 and mounted filesystems pass 18/18 on the required Node 26.11.1. These are preview results, unlike the earlier unchanged-engine baseline.
+
+`check:preview-compatibility` explicitly constructs the retained community baseline with `makeCommunityVolume`; it must not accidentally compare preview-backed default constructors to the preview and call them the old engine.
+
+## Blocking upstream contracts
+
+- Watches require an atomic committed-change boundary. Polling cannot preserve subscription readiness, ordering, aliases, capacity, or confinement behavior.
+- Exact final file mode and final-symlink replacement need atomic publication options. Separate chmod/unlink operations would expose partial results and change failure behavior.
+- Entry creation with initial size/owner/times and exact modes, and combined size/metadata updates, require atomic operations. Literal symlink timestamps can use existing copy publication; an exact directory mode unaffected by umask needs no workaround.
+- Live stores require commit-before-publication, definite rejection, uncertain-outcome, and recovery hooks absent from the public owner.
+- General overlays require the existing copy-on-write isolation and sharing contract; independently restoring a capture would narrow it.
+- Special mode bits, non-0777 symlink modes, wide owners, and empty symlink targets are not all representable by the pinned engine. Existing snapshot codecs remain unchanged and unsupported restores fail rather than normalize state.
+- Reentrant synchronous owner-scope closure currently requires an asynchronous drain. The existing native test fails with AsyncFiberError.
+- Authenticated persistent reference keys and canonical paths by arbitrary reference still need a public capability contract.
+
+These are concrete blockers to completing a faithful replacement. They do not excuse adapter failures. Error precedence/fields, listing order, numeric revision and snapshot identity fidelity, walks under mutation, and cancellation require further compatibility work or a demonstrated public-API limitation. A red assertion is not automatically an upstream blocker.
 
 ## Reproduced differences
 
@@ -50,19 +71,13 @@ The existing runtime has not been switched to the preview. Core has a preview de
 | Existing memory bind             | Accepts a core volume and provides working FileSystem I/O | An Owner has no core `caller` contract                     | Adapter work, not proof that the upstream cannot provide FileSystem.                                                                           |
 | Existing Node bind               | Accepts a constructor-qualified synchronous core volume   | Rejects the Owner at core SynchronousAdapter qualification | Adapter work. The preview does have a synchronous API; that alone does not qualify native lifetime/reentry behavior.                           |
 
-The command currently reports one equivalent comparison and eight differences. It preserves typed error fields for failed proposed operations. The existing core and adapter suites remain the eventual acceptance criteria; these comparisons are a focused diagnostic, not a replacement suite.
+The diagnostic reports the original direct-API comparisons separately from the adapted runtime suites. It preserves typed error fields for failed proposed operations. The existing core and adapter suites remain the eventual acceptance criteria; these comparisons are a focused diagnostic, not a replacement suite.
 
-## Work before a behavior-preserving substitution
+## Review status
 
-Adapt existing package boundaries rather than publish or maintain downstream preview counterparts. Translate path/reference authentication, credentials, error codes, options, metadata, and handles in core; keep Effect FileSystem translation in memory and native cursor/lifetime policy in Node. Existing generic snapshot, search, delta/merge, transfer, and persistence logic should keep its current owner and tests.
+The runtime substitution is implemented for ordinary operations, but the PR remains a failing proof of concept. Build/type checks and passing ownership tests do not establish drop-in compatibility. Keep existing failure expectations as the acceptance contract, and record exact suite results in PR #329 and issue #328. Do not publish the core runtime dependency on this private preview package.
 
-Constructor lifetime requires explicit design: a core volume creates unscoped callers, while preview authorization requires a Scope. Owning hidden scopes indefinitely or requiring consumers to change their public resource contract is not a demonstrated drop-in solution. Numeric revisions and namespace-change results similarly require coherent observations, not before/after calls that can race.
-
-The [atomic copy proposal](https://github.com/lloydrichards/effect-virtual-fs/issues/328) is the smallest identified file-publication change: file-specific `finalMode` and `replaceFinalSymlink` options on `publishCopiedFile`. That operation already preserves existing regular-file identity. This proposal is not implemented in the pinned port.
-
-Additional retained contracts require qualification: live stores commit before publication and fault on uncertain outcomes; NFS requires authenticated reference keys and restart identity; overlays retain their isolation/change and sharing contracts; codecs retain wide IDs, symlink metadata and empty targets that preview live state cannot always restore. Existing Node tests also require precise reentry, interruption, and closure behavior. These are blockers or adaptation obligations, not permission to omit features.
-
-The safe next implementation step depends on resolving the core lifetime/revision and committed-change boundaries. Until then the PR is a blocked proof of concept, not a completed engine replacement. Passing the unchanged baseline suites does not remove that blocker.
+The [atomic copy proposal](https://github.com/lloydrichards/effect-virtual-fs/issues/328) describes the smallest identified file-publication addition. It is not implemented in the pinned source. Resolving it alone does not resolve watch, persistence, overlay, metadata, or remaining adapter behavior.
 
 ## Reproduce
 

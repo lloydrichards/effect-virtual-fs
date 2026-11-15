@@ -2,8 +2,7 @@
 
 This private workspace package ports [Effect PR #9960](https://github.com/Effect-TS/effect/pull/9960)
 at commit `161258278d6618bb5a10804827bb7a5f34b04c4d`. It shares the installed Effect 4.1.4 runtime.
-The package is experimental and is not published. Existing community core, memory, persistence, and NFS packages
-continue to use their current engine.
+The package is experimental and is not published. The existing core constructors use this engine; memory and Node consume it through their existing core bindings.
 
 ## Build and run the preview
 
@@ -18,9 +17,11 @@ bun run build
 bun run check:preview-compatibility
 ```
 
-The compatibility command compares the preview with the existing core, memory, and Node boundaries and exits nonzero while any comparison differs. It requires Node 26.11.1 or later for the native provider import. It is separate from the unchanged repository suites; their passing baseline does not mean they run on the preview.
+The compatibility command compares the preview with the existing core, memory, and Node boundaries and exits nonzero while any comparison differs. It requires Node 26.11.1 or later for the native provider import. It explicitly uses the retained community constructor as its baseline. The existing core, memory, and Node suites now run against the preview-backed core and remain the acceptance criteria.
 
-This is the only new workspace package. Core uses it as a development dependency for replacement checks. Existing constructors and adapters retain their implementations until a behavior-preserving substitution is possible. The replacement is currently blocked, not implemented. See [the drop-in findings](../../.okf/research/preview-drop-in.md).
+This is the only new workspace package. Core consumes it as a runtime dependency. Core's compatibility facade translates its existing caller, target, metadata, snapshot, and handle interfaces onto the preview's public API. The existing memory adapter and Node provider retain their public interfaces and consume that same state. There is no fallback to the community engine.
+
+The evaluation is not ready to merge or publish. Missing atomic publication, watch, durable-store, overlay, and metadata contracts still fail the unchanged tests. Additional adapter differences remain under qualification. See [the drop-in findings](../../.okf/research/preview-drop-in.md).
 
 Import the proposed public API and authorize a scoped caller:
 
