@@ -98,5 +98,13 @@
   {
     "file": "0025-caller-retained-directory-attributes.patch",
     "sha256": "e09aa4dcc31c82dfe8b8feaa12d788be1cfe0cc2485ceb4595e860c11877d4ed"
+  },
+  {
+    "file": "0026-avoid-copying-resolved-path-components.patch",
+    "sha256": "3f83fd5470ca0d9771d5a59507c9be79f2f93709e8173b3b769dd0003f178c65"
+  },
+  {
+    "file": "0027-resolve-linked-directory-objects.patch",
+    "sha256": "330caf37254e15b85f6187e963a73ee08f229d59b7e148947a3232663f2af52e"
   }
 ]

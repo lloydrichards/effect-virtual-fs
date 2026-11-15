@@ -45,7 +45,7 @@ sources:
     title: Public owner operations, metadata, and atomic publication options
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/328
     title: Remaining API gaps and atomic copy option proposal
-generated: { by: codex/okf, at: "2026-11-16T00:14:00+00:00" }
+generated: { by: codex/okf, at: "2026-11-16T00:30:07+01:00" }
 ---
 
 # Effect preview drop-in evaluation
@@ -76,7 +76,7 @@ The migration exposed a real adapter reentry problem: synchronous callbacks coul
 
 At engine removal, results were core 669 passed / 309 failed, memory 652 / 70, upstream preview 239 / 0, Node provider 42 / 2, and mounted filesystem 18 / 0. Forty previously passing private-internal checks were retired; no failing test was removed and no retained test changed outcome. Counts from the former baseline-containing run are historical and cannot be compared as an unchanged test population.
 
-Core production source is 17,088 lines versus 22,710 in the previous PR state and 19,300 on main. This removes 5,622 lines from the prior PR and 2,212 net lines from main. Other production packages are unchanged. The retained immutable codec model and capability adapter account for the remaining core implementation; the preview is its only live filesystem engine.
+At removal of the old engine, core production source was 17,088 lines versus 22,710 in the previous PR state and 19,300 on main. That commit removed 5,622 lines from the prior PR and 2,212 net lines from main. Other production packages are unchanged. The retained immutable codec model and capability adapter account for the remaining core implementation; the preview is its only live filesystem engine.
 
 ## Gaps observed before contributions 0009–0019
 
@@ -92,6 +92,8 @@ Core production source is 17,088 lines versus 22,710 in the previous PR state an
 | Readable, nonsearchable directory listing                               | Public no-atime walk requires search permission before listing. Binding listings require search; name-only listings lack object references and touch atime.                                                                     | Walk, recursive listing, and transfer failure-prefix tests.                                                         |
 
 Contribution 0022 adds `inspectDirents` for metadata walks. Read permission on a directory allows listing its names, kinds and identities without updating atime. Descending into a child still requires search permission on the parent. When a walk requests a byte limit, core uses the volume owner's caller to charge file and symlink sizes for the listed identities in emission order. Child sizes stay out of the caller's listing.
+
+The existing memory test exercises listing, copying and renaming a 6,000-level directory tree. Contributions 0026 and 0027 address two costs in that workload. Resolving an existing path component can reuse its stored binding. An object-only lookup of a linked directory by a privileged caller at the volume root can use its object number directly, since directories have one parent and only empty directories can be unlinked. Confined callers still prove reachability, and operations that retain a route still collect its bindings. Core refreshes retained-handle permissions before a binding can be lost and indexes issued references by the volume’s object numbers.
 
 With contribution 0019, an acting caller can update attributes through a live file handle from the same filesystem. The preview checks permissions against that caller and enforces both the caller’s root and the handle’s opening root. After the last name is removed, only unrestricted roots can use the handle for this operation. The retained handle supplies object identity; its open-time write grant and its opener’s credentials are not transferred. The current acceptance results and remaining blockers are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328). Contribution 0025 generalizes the preview operation to `setHandleAttributes` for both files and directories. Core can update a removed or displaced directory through its retained handle using the acting caller’s authority. An object with no live name generates no volume watch event.
 

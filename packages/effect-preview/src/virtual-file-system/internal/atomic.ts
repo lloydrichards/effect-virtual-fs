@@ -264,7 +264,7 @@ export const lookup = (tx: E.Transaction, target: M.Target): Result.Result<M.Obj
 
 /** @internal */
 export const stat = (tx: E.Transaction, target: M.Target): Result.Result<M.ObjectObservation, M.OperationError> =>
-  Result.map(tx.targetResult(target), (route) => tx.observation(route.object))
+  Result.map(tx.objectResult(target), (node) => tx.observation(node))
 
 /** @internal */
 export const linkStat = (

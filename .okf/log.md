@@ -2,6 +2,8 @@
 
 ## 2026-11-16
 
+- Record the path and directory lookup costs exposed by the deep-tree memory test and the confinement checks retained by the preview.
+
 - Record how caller watches rebase event paths and retain imported root boundaries across namespace changes.
 
 - Record acting-caller attribute updates on retained directory handles after unlink or rename displacement.

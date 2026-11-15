@@ -83,6 +83,8 @@ manifest remain unchanged. Generated-file checks cover the patched result.
 | 0023      | Let an async read report a pending automatic atime update before publication so core can wait for a cooperative capture.        |
 | 0024      | Subscribe as the owner to ordered batches of committed mutations from async and synchronous operations.                         |
 | 0025      | Generalize patch 0019 to retained directory handles. Orphan updates require unrestricted roots for both callers.                |
+| 0026      | Reuse the resolved directory for each path component. Allocate an owned name only when inserting a new binding.                 |
+| 0027      | Resolve linked directories directly for privileged volume-wide callers when only the directory object or containment is needed. |
 
 To try the same changes in an Effect checkout at the pinned commit, point `preview` at this package and apply
 the files in manifest order. Run this command from the root of the Effect checkout.
