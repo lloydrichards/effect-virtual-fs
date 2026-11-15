@@ -2840,7 +2840,7 @@ export const makeVolume = Effect.fnUntraced(
       handles: Number.MAX_SAFE_INTEGER,
       operations: limits.maxPendingOperations,
       transientBytes: ByteSize.bytes(Number.MAX_SAFE_INTEGER),
-      restorePayloadBytes: limits.maxBytes ?? ByteSize.bytes(Number.MAX_SAFE_INTEGER),
+      restorePayloadBytes: ByteSize.bytes(Number.MAX_SAFE_INTEGER),
       restoreRecords: Number.MAX_SAFE_INTEGER
     }
 
