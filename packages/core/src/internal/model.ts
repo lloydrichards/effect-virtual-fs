@@ -237,11 +237,11 @@ export namespace Paths {
       : Result.fromNullishOr(BytePathStorage.getBytes(input), () => "InvalidArgument" as const)
 
   /** @internal */
-  export const preparePath = (
+  export const validatePath = (
     input: PathInput,
     operation: string,
     maxPathBytes: ByteSize.ByteSize | undefined
-  ): Result.Result<PreparedPath, FsFailure> => {
+  ): Result.Result<Uint8Array, FsFailure> => {
     const encoded = inputBytes(input)
 
     if (Result.isFailure(encoded)) {
@@ -262,6 +262,29 @@ export namespace Paths {
       return Result.fail(fsFailure("PathTooLong", operation, { path: input }))
     }
 
+    let start = 0
+
+    for (let index = 0; index <= bytes.length; index++) {
+      if (index !== bytes.length && bytes[index] !== SLASH_BYTE) continue
+
+      if (index - start > MAX_NAME_BYTES) return Result.fail(fsFailure("PathTooLong", operation, { path: input }))
+
+      start = index + 1
+    }
+
+    return Result.succeed(bytes)
+  }
+
+  /** @internal */
+  export const preparePath = (
+    input: PathInput,
+    operation: string,
+    maxPathBytes: ByteSize.ByteSize | undefined
+  ): Result.Result<PreparedPath, FsFailure> => {
+    const checked = validatePath(input, operation, maxPathBytes)
+
+    if (Result.isFailure(checked)) return Result.fail(checked.failure)
+    const bytes = checked.success
     const components: Array<string> = []
     const suffixes: Array<Uint8Array> = []
     let start = 0
@@ -270,10 +293,6 @@ export namespace Paths {
       if (index !== bytes.length && bytes[index] !== SLASH_BYTE) continue
 
       if (index > start) {
-        if (index - start > MAX_NAME_BYTES) {
-          return Result.fail(fsFailure("PathTooLong", operation, { path: input }))
-        }
-
         components.push(Hex.encode(bytes.subarray(start, index)))
         suffixes.push(bytes.subarray(index))
       }

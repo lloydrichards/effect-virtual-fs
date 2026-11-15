@@ -3,7 +3,7 @@
 import { BytePath as Path, VirtualFileSystem as P } from "@effect-vfs/effect-preview"
 import { unixNanoFromNanoseconds as nano } from "@effect-vfs/effect-preview/DateTime"
 import { unsafeFromOwnedRecords } from "@effect-vfs/effect-preview/internal/ownedCapture"
-import { ByteSize, Data, Effect, Option, Order, Predicate, Result, Schema, Scope, Stream } from "effect"
+import { ByteSize, Data, Effect, Iterable, Option, Order, Predicate, Result, Schema, Scope, Stream } from "effect"
 import * as Clock from "effect/Clock"
 import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Hex from "effect/encoding/Hex"
@@ -173,7 +173,7 @@ export interface Runtime {
   readonly walkEntrySize: (reference: P.ObjectReference) => Effect.Effect<bigint, V.FsFailure>
   readonly clock: Clock.Clock
   readonly rootScope: Scope.Closeable
-  readonly tokens: Array<Token>
+  readonly tokens: Map<bigint, Token>
   readonly references: WeakMap<V.ObjectReference, P.ObjectReference>
   readonly files: WeakMap<V.FileHandle, P.FileHandle>
   readonly directories: WeakMap<V.DirectoryHandle, P.DirectoryHandle>
@@ -337,7 +337,7 @@ const intern = (
   revision?: P.ObjectRevision
 ): Token => {
   if (ino > runtime.highestObjectNumber) runtime.highestObjectNumber = ino
-  const known = runtime.tokens.find((t) => P.equalsObjectReference(t.reference, reference))
+  const known = runtime.tokens.get(ino)
 
   if (known !== undefined) {
     if (revision !== undefined) {
@@ -354,7 +354,7 @@ const intern = (
   const core: V.ObjectReference = Object.freeze({ [ObjectReferenceId]: true as const })
   const created: Token = { core, ino, reference, revision, number: runtime.revision }
 
-  runtime.tokens.push(created)
+  runtime.tokens.set(ino, created)
   runtime.references.set(core, reference)
   referenceOwners.set(core, runtime)
 
@@ -434,7 +434,7 @@ export const target = Effect.fnUntraced(
       return yield* Errors.fsFailure(handleOwners.has(selected.handle) ? "ForeignHandle" : "InvalidHandle", "target")
     }
 
-    yield* Effect.fromResult(Paths.preparePath(selected.path, "path", runtime.owner.limits.expandedPathBytes))
+    yield* Effect.fromResult(Paths.validatePath(selected.path, "path", runtime.owner.limits.expandedPathBytes))
     const name = yield* path(selected.path)
 
     if (
@@ -524,8 +524,10 @@ const validateResolution = Effect.fnUntraced(
 
     for (let links = 0; links <= Paths.MAX_SYMLINK_TRAVERSALS; links++) {
       yield* Effect.fromResult(
-        Paths.preparePath(Paths.ownedPath(bytes), "path", runtime.owner.limits.expandedPathBytes)
+        Paths.validatePath(Paths.ownedPath(bytes), "path", runtime.owner.limits.expandedPathBytes)
       ).pipe(Effect.mapError((error) => Errors.fsFailure(error.code, "path", { path: selected.path })))
+
+      if (runtime.links.size === 0) return
       let expanded = false
 
       for (let end = 0; end <= bytes.length; end++) {
@@ -834,12 +836,15 @@ const stat = Effect.fnUntraced(
             return retained.value
           }
 
-          const issued = runtime.tokens.find((token) => P.equalsObjectReference(token.reference, selected))
+          const issued = Iterable.findFirst(
+            runtime.tokens.values(),
+            (token) => P.equalsObjectReference(token.reference, selected)
+          )
 
-          if (issued !== undefined) {
+          if (Option.isSome(issued)) {
             const captured = yield* Image.valueOf(yield* snapshot(runtime.owner)).pipe(Effect.orDie)
 
-            if (State.getNode(captured, State.Ino(Number(issued.ino))) === undefined) {
+            if (State.getNode(captured, State.Ino(Number(issued.value.ino))) === undefined) {
               return yield* Errors.fsFailure("StaleReference", "stat")
             }
           }
@@ -1343,7 +1348,8 @@ const wrapCaller = (
           }
         }
 
-        yield* refreshGrants(runtime)
+        // Save the last reachable authority before an open object loses a binding.
+        if (removed) yield* refreshGrants(runtime)
 
         const result = yield* mapped(use(t, actor)).pipe(
           Effect.mapError((error) =>
@@ -2011,6 +2017,8 @@ const wrapCaller = (
               if (!o.replaceFinalSymlink && o.followFinalSymlink !== false) {
                 yield* followedEntry(t, actor, boundariesOf(runtime, value))
               }
+
+              if (replacing) yield* refreshGrants(runtime)
 
               if (Predicate.isString(t) || Path.isBytePath(t)) yield* actor.writeFile(t, data, options)
               else yield* actor.writeFile(t, data, options)
@@ -3021,7 +3029,7 @@ export const makeVolume = Effect.fnUntraced(
       walkEntrySize: (ref) => mapped(ownerCaller.stat(ref)).pipe(Effect.map((entry) => entry.metadata.size)),
       clock: yield* Clock.Clock,
       rootScope,
-      tokens: [],
+      tokens: new Map(),
       references: new WeakMap(),
       files: new WeakMap(),
       directories: new WeakMap(),
@@ -3152,10 +3160,10 @@ export const makeVolume = Effect.fnUntraced(
 
             if (selected.scope !== undefined) {
               yield* reference(runtime, selected.scope)
-              const known = runtime.tokens.find((entry) => entry.core === selected.scope)
+              const known = Iterable.findFirst(runtime.tokens.values(), (entry) => entry.core === selected.scope)
 
-              if (known === undefined) return yield* Errors.fsFailure("StaleReference", "watch")
-              root = known.ino
+              if (Option.isNone(known)) return yield* Errors.fsFailure("StaleReference", "watch")
+              root = known.value.ino
             }
 
             return yield* watches.subscribe(root, selected.recursive ?? true)
@@ -3179,7 +3187,7 @@ export const makeVolume = Effect.fnUntraced(
           return yield* Errors.fsFailure("InvalidReference", "resolveReferenceKey")
         }
 
-        const selected = runtime.tokens.find((token) => token.ino === key.ino)
+        const selected = runtime.tokens.get(key.ino)
 
         if (selected === undefined) return yield* Errors.fsFailure("StaleReference", "resolveReferenceKey")
         yield* keyObservation(selected.reference)
