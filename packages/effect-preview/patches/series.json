@@ -34,5 +34,9 @@
   {
     "file": "0009-atomic-open-initial-size.patch",
     "sha256": "121e3f38d6c61ab2600b1d94e5888e4b03d59491ef70b478a3a63c0f604903e1"
+  },
+  {
+    "file": "0010-symlink-modes.patch",
+    "sha256": "339c7186aecac00e8daf2352f256f5899d23ae6b88be9083ff011c1388d935ef"
   }
 ]

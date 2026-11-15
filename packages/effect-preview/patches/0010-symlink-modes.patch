@@ -1,0 +1,61 @@
+--- a/packages/effect/src/virtual-file-system/internal/model.ts
++++ b/packages/effect/src/virtual-file-system/internal/model.ts
+@@ -156,7 +156,7 @@
+   metadata.kind === "file" ?
+     metadata.mode <= 0o777 :
+     metadata.kind === "symlink" ?
+-    metadata.mode === 0o777 && metadata.size > bigint0 :
++    metadata.mode <= 0o777 && metadata.size > bigint0 :
+     metadata.size === bigint0 && (metadata.nlink === bigint0 || metadata.nlink >= bigint2)
+ 
+ const coherentObservation = (observation: {
+@@ -769,7 +769,7 @@
+   parentId: PositiveBigInt,
+   name: Name,
+   target: NonEmptyPath,
+-  metadata: SemanticMetadata.check(Schema.makeFilter((metadata) => metadata.mode === 0o777))
++  metadata: SemanticMetadata.check(Schema.makeFilter((metadata) => metadata.mode <= 0o777))
+ })
+ 
+ export type SymlinkRecord = typeof SymlinkRecord["Type"]
+@@ -959,7 +959,7 @@
+     data: Uint8Array,
+     options?: AtomicCopyOptions
+   ) => Fx<ObjectObservation>
+-  /** Atomically publishes a literal copied link and optional exact times, preserving the fixed symlink mode. */
++  /** Atomically publishes a literal copied link and optional exact times, with initial mode 0777. */
+   readonly publishCopiedSymlink: (
+     destination: OperationEntryTarget,
+     target: BytePath.BytePath,
+@@ -1092,7 +1092,7 @@
+     target: EntryTarget,
+     options?: Omit<MkdirOptions, "recursive">
+   ) => Fx<PresentEntry & { readonly object: DirectoryObservation }>
+-  /** Creates an exclusive symlink with exact nonempty NUL-free target bytes, fixed 0777 and inherited gid. */
++  /** Creates an exclusive symlink with exact nonempty NUL-free target bytes, initial mode 0777 and inherited gid. */
+   readonly makeSymlink: (target: EntryTarget, linkTarget: Path, options?: AbsentConditions) => Fx<ObjectObservation>
+   /** Links a regular file or symlink, never a directory. Relative symlinks resolve through each followed entry. */
+   readonly makeHardLink: (
+--- a/packages/effect/src/virtual-file-system/internal/atomic.ts
++++ b/packages/effect/src/virtual-file-system/internal/atomic.ts
+@@ -641,9 +641,6 @@
+       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+     }
+     if (attributes.mode !== undefined) {
+-      if (node.kind === "symlink") {
+-        return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+-      }
+       yield* E.modeResult(attributes.mode, node.kind, tx.operation)
+       yield* tx.ownsResult(node)
+       if (
+--- a/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
++++ b/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
+@@ -359,7 +359,7 @@
+    */
+   AtomicCopyOptions,
+   /**
+-   * Atomic symlink-copy options. Symlink mode is always 0777 and ignores umask.
++   * Atomic symlink-copy options. New symlinks have mode 0777 regardless of umask.
+    *
+    * @stability experimental
+    * @category models

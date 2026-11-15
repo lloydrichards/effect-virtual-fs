@@ -642,9 +642,6 @@ export const attributesFor = (
       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
     }
     if (attributes.mode !== undefined) {
-      if (node.kind === "symlink") {
-        return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
-      }
       yield* E.modeResult(attributes.mode, node.kind, tx.operation)
       yield* tx.ownsResult(node)
       if (

@@ -198,15 +198,8 @@ export const bind = Effect.fnUntraced(
         unwrap(isPath(t) && t.followFinalSymlink === false ? sync.linkStat(resolveEntry(t)) : sync.stat(resolve(t)))
       )
 
-    const attributes = (t: Target, a: Vfs.Attributes) => {
-      if (isPath(t) && t.followFinalSymlink === false && a.mode !== undefined && stat(t).kind === "symlink") {
-        throw new PreviewBlocker({ feature: "symlinkMode" })
-      }
-
-      return unwrap(
-        sync.setAttributes(resolve(t), a, { followFinalSymlink: !(isPath(t) && t.followFinalSymlink === false) })
-      )
-    }
+    const attributes = (t: Target, a: Vfs.Attributes) =>
+      unwrap(sync.setAttributes(resolve(t), a, { followFinalSymlink: !(isPath(t) && t.followFinalSymlink === false) }))
 
     const binding: Binding = {
       stat,

@@ -360,7 +360,7 @@ export type {
    */
   AtomicCopyOptions,
   /**
-   * Atomic symlink-copy options. Symlink mode is always 0777 and ignores umask.
+   * Atomic symlink-copy options. New symlinks have mode 0777 regardless of umask.
    *
    * @stability experimental
    * @category models

@@ -157,7 +157,7 @@ const validMetadata = (metadata: {
   metadata.kind === "file" ?
     metadata.mode <= 0o777 :
     metadata.kind === "symlink" ?
-    metadata.mode === 0o777 && metadata.size > bigint0 :
+    metadata.mode <= 0o777 && metadata.size > bigint0 :
     metadata.size === bigint0 && (metadata.nlink === bigint0 || metadata.nlink >= bigint2)
 
 const coherentObservation = (observation: {
@@ -772,7 +772,7 @@ export const SymlinkRecord = Schema.TaggedStruct("symlink", {
   parentId: PositiveBigInt,
   name: Name,
   target: NonEmptyPath,
-  metadata: SemanticMetadata.check(Schema.makeFilter((metadata) => metadata.mode === 0o777))
+  metadata: SemanticMetadata.check(Schema.makeFilter((metadata) => metadata.mode <= 0o777))
 })
 
 export type SymlinkRecord = typeof SymlinkRecord["Type"]
@@ -962,7 +962,7 @@ export interface OperationFiles {
     data: Uint8Array,
     options?: AtomicCopyOptions
   ) => Fx<ObjectObservation>
-  /** Atomically publishes a literal copied link and optional exact times, preserving the fixed symlink mode. */
+  /** Atomically publishes a literal copied link and optional exact times, with initial mode 0777. */
   readonly publishCopiedSymlink: (
     destination: OperationEntryTarget,
     target: BytePath.BytePath,
@@ -1095,7 +1095,7 @@ export interface VirtualFileSystem {
     target: EntryTarget,
     options?: Omit<MkdirOptions, "recursive">
   ) => Fx<PresentEntry & { readonly object: DirectoryObservation }>
-  /** Creates an exclusive symlink with exact nonempty NUL-free target bytes, fixed 0777 and inherited gid. */
+  /** Creates an exclusive symlink with exact nonempty NUL-free target bytes, initial mode 0777 and inherited gid. */
   readonly makeSymlink: (target: EntryTarget, linkTarget: Path, options?: AbsentConditions) => Fx<ObjectObservation>
   /** Links a regular file or symlink, never a directory. Relative symlinks resolve through each followed entry. */
   readonly makeHardLink: (
