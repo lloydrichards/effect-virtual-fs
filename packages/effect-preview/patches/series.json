@@ -70,5 +70,9 @@
   {
     "file": "0018-specify-owner-uid-assignment.patch",
     "sha256": "73b9f0d02df4dd1a1a49eb90cee21771ef986341f81958c4ac3ff204651905a3"
+  },
+  {
+    "file": "0019-caller-file-handle-attributes.patch",
+    "sha256": "d4439ab550bb8569fb58203e59fe9684a01ce440530bcfb01e24cf7139921eb8"
   }
 ]

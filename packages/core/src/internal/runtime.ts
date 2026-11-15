@@ -551,6 +551,18 @@ const boundariesOf = (runtime: Runtime, value: V.TargetInput | V.EntryInput): Re
   return handle === undefined ? [] : runtime.grants.get(handle)?.boundaries ?? []
 }
 
+export const attributeFile = (runtime: Runtime, value: V.TargetInput) => {
+  const selected = Target.of(value)
+
+  if (!Predicate.isTagged(selected, "Handle") || !(FileHandleId in selected.handle)) return undefined
+
+  // Reopened handles can carry additional roots from imported handles. Keep the reference
+  // reachability check for those roots when forwarding a core metadata operation.
+  if (boundariesOf(runtime, value).some((boundary) => boundary.ino !== 1n)) return undefined
+
+  return runtime.files.get(selected.handle)
+}
+
 const forkBoundaries = Effect.fnUntraced(function*(caller: P.VirtualFileSystem, inherited: ReadonlyArray<Boundary>) {
   const boundaries: Array<Boundary> = []
 
@@ -800,7 +812,7 @@ const allocation = (runtime: Runtime) =>
     ? Effect.fail(Errors.fsFailure("NoSpace", "create"))
     : Effect.void
 
-const times = (value: Times): P.Attributes => {
+export const attributeTimes = (value: Times): P.Attributes => {
   const selected = (time: Times["access"]): P.Attributes["atime"] =>
     time.kind === "omit" ? undefined : time.kind === "now" ? "now" : nano(time.nanoseconds)
 
@@ -1180,21 +1192,14 @@ const wrapCaller = (
     }
   )
 
-  const validateCurrentTimes = Effect.fnUntraced(function*(value: V.TargetInput, t: Times) {
-    if (identity === undefined || identity.privileged || t.access.kind !== "now" || t.modification.kind !== "now") {
-      return
-    }
-
-    const object = yield* stat(runtime, caller, value)
-
-    if (object.metadata.uid !== identity.uid) yield* onTarget(value, (t, actor) => actor.access(t, { write: true }))
-  })
-
   const attributes = (value: V.TargetInput, a: P.Attributes, expectedRevision?: P.ObjectRevision) =>
-    mutateTarget(
-      value,
-      (t, actor) => actor.setAttributes(t, a, { followFinalSymlink: follow(value), expectedRevision })
-    )
+    mutateTarget(value, (t, actor) => {
+      const file = attributeFile(runtime, value)
+
+      return file === undefined
+        ? actor.setAttributes(t, a, { followFinalSymlink: follow(value), expectedRevision })
+        : actor.setFileHandleAttributes(file, a, { expectedRevision })
+    })
 
   const parentEntry = Effect.fnUntraced(
     function*(
@@ -2286,9 +2291,8 @@ const wrapCaller = (
       2,
       Effect.fnUntraced(function*(value: V.TargetInput, t: Times) {
         t = yield* decode(TimesSchema, t, "utimes")
-        yield* validateCurrentTimes(value, t)
 
-        return yield* attributes(value, times(t))
+        return yield* attributes(value, attributeTimes(t))
       })
     ),
     truncate: dual(2, (value: V.TargetInput, size: bigint) =>
@@ -2319,15 +2323,11 @@ const wrapCaller = (
           return yield* Errors.fsFailure("StaleReference", "setattr", { field: "expected" })
         }
 
-        if (a.times !== undefined && a.mode === undefined && a.owner === undefined) {
-          yield* validateCurrentTimes(value, a.times)
-        }
-
         const selected: P.Attributes = { ...a.owner, mode: a.mode, size: a.size }
 
         return yield* attributes(
           value,
-          a.times === undefined ? selected : { ...selected, ...times(a.times) },
+          a.times === undefined ? selected : { ...selected, ...attributeTimes(a.times) },
           a.expected === undefined && a.size === undefined ? undefined : observed.revision
         ).pipe(Effect.mapError((error) =>
           a.size !== undefined && (error.code === "NoSpace" || error.code === "FileTooLarge") ? noPath(error) : error

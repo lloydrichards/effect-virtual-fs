@@ -108,6 +108,9 @@ const make = (caller: E.Caller) =>
           const fixed = yield* P.snapshotTruncateOptions(options)
           return (tx: E.Transaction) => A.truncate(tx, selected, amount, fixed)
         })),
+    setFileHandleAttributes: (handle, attributes, options) =>
+      invokeResult(caller, "setFileHandleAttributes", [], (work) =>
+        H.prepareCallerAttributes(handle, attributes, options, work)),
     setAttributes: (target, attributes, options) =>
       invokeResult(caller, "setAttributes", [target], () =>
         Result.gen(function*() {

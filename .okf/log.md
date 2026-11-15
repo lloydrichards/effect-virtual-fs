@@ -2,6 +2,8 @@
 
 ## 2026-11-15
 
+- Record how caller-authorized attribute updates use a retained file handle after unlink and enforce both confinement boundaries.
+
 - Add the eighth reproducible upstream contribution for read atime revision neutrality. Keep automatic atime publication while preserving object revisions; explicit timestamp/content mutations retain guard invalidation. Update the upstream observed-read assertion, add strict/relatime, handle, sync, guard and cancellation regressions, and recover the existing reference-open stale-observation test without core changes.
 
 - Add the seventh reproducible upstream contribution for atomic open creation timestamps across async and sync APIs, with existing-file preservation and rollback regressions. Core forwards times and corrects a non-truncating-open guard mapping. The stale-observation test now reaches a demonstrated upstream atime-only revision mismatch; preserve its expectation and leave core revision mapping unchanged.

@@ -26,6 +26,7 @@ const maxSafe = BigInt(Number.MAX_SAFE_INTEGER)
 type HandleBody<A> = (tx: E.Transaction) => Result.Result<A, M.OperationError>
 
 const effects = new WeakMap<E.FileState, M.FileHandle>()
+const states = new WeakMap<M.FileHandle, E.FileState>()
 const synchronous = new WeakMap<E.FileState, M.SyncFileHandle>()
 
 interface DirectoryState {
@@ -318,6 +319,45 @@ const prepareAttributes = (
     return (tx: E.Transaction) => Result.flatMap(node(tx, state), (file) => A.attributesFor(tx, file, fixed, revision, state.write))
   })
 
+/** @internal */
+export const prepareCallerAttributes = (
+  handle: M.FileHandle,
+  attributes: M.Attributes,
+  options: M.RevisionCondition | undefined,
+  work: R.Work
+) =>
+  Result.gen(function*() {
+    const operation = work.operation
+    const state = states.get(handle)
+    if (state === undefined) {
+      return yield* Result.fail(new M.InvalidInput({ operation, field: "handle", reason: "malformed" }))
+    }
+    if (state.caller.runtime !== work.ticket.runtime) {
+      return yield* Result.fail(new M.InvalidResource({ operation, reason: "foreign" }))
+    }
+    const fixed = yield* P.snapshotAttributes(attributes, operation)
+    const revision = yield* revisionOptions(options, operation)
+    return (tx: E.Transaction) =>
+      Result.gen(function*() {
+        yield* work.borrowResult(state.resource)
+        const file = yield* node(tx, state)
+        const checkVisibility = (view: E.Transaction) =>
+          Result.gen(function*() {
+            if (file.nlink !== zero) {
+              yield* view.referenceRouteResult(view.engine.reference(file.id))
+              return
+            }
+            yield* view.authorityResult()
+            if (view.caller.policy.root !== view.engine.root) {
+              return yield* Result.fail(new M.AccessDenied({ operation, reason: "confinement" }))
+            }
+          })
+        yield* checkVisibility(tx)
+        if (tx.caller.policy !== state.caller.policy) yield* checkVisibility(new E.Transaction(state.caller, work))
+        yield* A.attributesFor(tx, file, fixed, revision)
+      })
+  })
+
 // -----------------------------------------------------------------------------
 // File handle views
 // -----------------------------------------------------------------------------
@@ -399,6 +439,7 @@ const effectFileHandle = (state: E.FileState) => {
         ))
   })
   effects.set(state, handle)
+  states.set(handle, state)
   return handle
 }
 

@@ -45,7 +45,7 @@ sources:
     title: Public owner operations, metadata, and atomic publication options
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/328
     title: Remaining API gaps and atomic copy option proposal
-generated: { by: codex/okf, at: "2026-11-15T22:04:00+00:00" }
+generated: { by: codex/okf, at: "2026-11-15T22:26:00+00:00" }
 ---
 
 # Effect preview drop-in evaluation
@@ -74,11 +74,11 @@ Existing public behavior remains the acceptance contract. The first three engine
 
 The migration exposed a real adapter reentry problem: synchronous callbacks could wait on the compatibility gate they were reentering. The boundary now rejects synchronous reentry before waiting and prevents scheduler-yield callbacks while a synchronous operation owns the gate. Existing lifecycle and scope assertions remain unchanged.
 
-Current results are core 669 passed / 309 failed, memory 652 / 70, upstream preview 239 / 0, Node provider 42 / 2, and mounted filesystem 18 / 0. Forty previously passing private-internal checks were retired; no failing test was removed and no retained test changed outcome. Counts from the former baseline-containing run are historical and cannot be compared as an unchanged test population.
+At engine removal, results were core 669 passed / 309 failed, memory 652 / 70, upstream preview 239 / 0, Node provider 42 / 2, and mounted filesystem 18 / 0. Forty previously passing private-internal checks were retired; no failing test was removed and no retained test changed outcome. Counts from the former baseline-containing run are historical and cannot be compared as an unchanged test population.
 
 Core production source is 17,088 lines versus 22,710 in the previous PR state and 19,300 on main. This removes 5,622 lines from the prior PR and 2,212 net lines from main. Other production packages are unchanged. The retained immutable codec model and capability adapter account for the remaining core implementation; the preview is its only live filesystem engine.
 
-## Blocking upstream contracts
+## Gaps observed before contributions 0009–0019
 
 | Contract                                                                | Evidence from the pinned public implementation                                                                                                                                                                                  | Existing coverage affected                                                                                          |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -90,6 +90,8 @@ Core production source is 17,088 lines versus 22,710 in the previous PR state an
 | Special modes, custom symlink modes, wide owners, empty symlink targets | Direct probes reject unsupported bits, symlink mode changes, owners above unsigned 32-bit range, and empty targets.                                                                                                             | Existing rich fixtures, snapshot round trips, transfer fidelity, and Node symlink tests. No metadata is normalized. |
 | Caller-authorized orphan metadata                                       | A file retained by a creator handle remains observable, but a different authorized owner cannot update it by public reference after unlink. Using the creator's privileged handle would change the invoking caller's authority. | Orphan handle metadata authority.                                                                                   |
 | Readable, nonsearchable directory listing                               | Public no-atime walk requires search permission before listing. Binding listings require search; name-only listings lack object references and touch atime.                                                                     | Walk, recursive listing, and transfer failure-prefix tests.                                                         |
+
+With contribution 0019, an acting caller can update attributes through a live file handle from the same filesystem. The preview checks permissions against that caller and enforces both the caller’s root and the handle’s opening root. After the last name is removed, only unrestricted roots can use the handle for this operation. The retained handle supplies object identity; its open-time write grant and its opener’s credentials are not transferred. The current acceptance results and remaining blockers are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
 
 Masked finalizer cleanup was a demonstrated upstream defect and is now fixed by `patches/0001-preserve-caller-interruptibility.patch` in the preview package. Admission and the pre-publication interruption checkpoint restore the caller's interruption setting instead of forcing interruption. Regression tests prove that interrupted-child cleanup and masked writes finish, while the existing ordinary-write interruption test still proves rollback before publication. This needs no adapter changes or detached cleanup fibers. Regeneration verifies the contribution checksum, applies it to upstream paths with zero fuzz, and checks generated output against the patched source.
 

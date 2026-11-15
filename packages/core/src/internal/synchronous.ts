@@ -10,7 +10,17 @@ import type { Binding, Handle } from "../SynchronousAdapter.js"
 import { Target as CoreTarget } from "../Target.js"
 import type { FsFailure, ObjectReference, TargetInput } from "../VirtualFileSystem.js"
 import { Errors, Paths } from "./model.js"
-import { creationMode, direntReference, drainPending, failure, metadata, type runtimeOf } from "./runtime.js"
+import {
+  attributeFile,
+  attributeTimes,
+  creationMode,
+  direntReference,
+  drainPending,
+  failure,
+  metadata,
+  type runtimeOf,
+  target
+} from "./runtime.js"
 
 type Runtime = NonNullable<ReturnType<typeof runtimeOf>>
 
@@ -23,15 +33,6 @@ const unwrap = <A>(result: Result.Result<A, Vfs.VirtualFileSystemError>): A => {
   if (Result.isFailure(result)) throw failure(result.failure)
 
   return result.success
-}
-
-const times = (runtime: Runtime, t: Times): Vfs.Attributes => {
-  const selected = (value: Times["access"]) =>
-    value.kind === "omit"
-      ? undefined
-      : nano(value.kind === "value" ? value.nanoseconds : runtime.readClock())
-
-  return { atime: selected(t.access), mtime: selected(t.modification) }
 }
 
 const run = <A>(runtime: Runtime, operation: string, action: () => A): A => {
@@ -198,8 +199,36 @@ export const bind = Effect.fnUntraced(
         unwrap(isPath(t) && t.followFinalSymlink === false ? sync.linkStat(resolveEntry(t)) : sync.stat(resolve(t)))
       )
 
-    const attributes = (t: Target, a: Vfs.Attributes) =>
-      unwrap(sync.setAttributes(resolve(t), a, { followFinalSymlink: !(isPath(t) && t.followFinalSymlink === false) }))
+    const attributes = (t: Target, a: Vfs.Attributes) => {
+      const selected = CoreTarget.of(t)
+
+      if (Predicate.isTagged(selected, "Handle") && FileHandleId in selected.handle) {
+        const file = attributeFile(runtime, t)
+        const grant = runtime.grants.get(selected.handle)
+
+        if (file !== undefined && grant?.allowed && grant.boundaries.length === 1) {
+          return unwrap(sync.setFileHandleAttributes(file, a))
+        }
+
+        const resolved = Effect.runSync(
+          Effect.result(target(runtime, t)).pipe(
+            Effect.provideService(Scheduler.PreventSchedulerYield, true)
+          )
+        )
+
+        if (Result.isFailure(resolved)) throw resolved.failure
+
+        return unwrap(
+          file === undefined
+            ? sync.setAttributes(resolved.success, a)
+            : sync.setFileHandleAttributes(file, a)
+        )
+      }
+
+      return unwrap(
+        sync.setAttributes(resolve(t), a, { followFinalSymlink: !(isPath(t) && t.followFinalSymlink === false) })
+      )
+    }
 
     const binding: Binding = {
       stat,
@@ -261,7 +290,7 @@ export const bind = Effect.fnUntraced(
       },
       chmod: (t: Target, mode: number) => attributes(t, { mode }),
       chown: (t: Target, owner: OwnerUpdate) => attributes(t, owner),
-      utimes: (t: Target, tms: Times) => attributes(t, times(runtime, tms)),
+      utimes: (t: Target, tms: Times) => attributes(t, attributeTimes(tms)),
       open: (path: string, o: OpenOptions, noFollow: boolean, directory: boolean): Handle => {
         const info = noFollow ? sync.linkStat(path) : sync.stat(path)
 
@@ -335,7 +364,7 @@ export const bind = Effect.fnUntraced(
           },
           chmod: (mode) => set({ mode }),
           chown: set,
-          utimes: (t) => set(times(runtime, t)),
+          utimes: (t) => set(attributeTimes(t)),
           sync: () => {
             unwrap(handle.stat())
           },

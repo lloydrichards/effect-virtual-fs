@@ -1114,6 +1114,16 @@ export interface VirtualFileSystem {
   readonly truncate: (target: Target, length: ByteSize.Input, options?: RevisionCondition) => Fx<void>
   /** Publishes all changed attributes atomically after checking every requested field against prestate. */
   readonly setAttributes: (target: Target, attributes: Attributes, options?: AttributeOptions) => Fx<void>
+  /**
+   * Updates a live file using this caller's permissions, including current write permission for resize.
+   * Linked files must be reachable by both the acting caller and the opening policy. Unlinked files
+   * require both policies to cover the whole filesystem.
+   */
+  readonly setFileHandleAttributes: (
+    handle: FileHandle,
+    attributes: Attributes,
+    options?: RevisionCondition
+  ) => Fx<void>
   /** Creates an exclusive empty regular file. Default mode is 0666 before caller umask. */
   readonly createFile: (target: EntryTarget, options?: CreateOptions) => Fx<ObjectObservation>
   /** Creates real directories with default mode 0777 before umask. Recursive creation is one atomic transition. */
@@ -1236,6 +1246,7 @@ type AtomicMethods = Pick<
   | "readDirectoryEntries"
   | "truncate"
   | "setAttributes"
+  | "setFileHandleAttributes"
   | "createFile"
   | "makeDirectory"
   | "makeSymlink"
