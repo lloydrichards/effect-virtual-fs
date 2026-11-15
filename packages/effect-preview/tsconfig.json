@@ -1,0 +1,10 @@
+{
+  "extends": "@repo/config-typescript/base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": ["node"],
+    "noUncheckedIndexedAccess": false,
+    "noPropertyAccessFromIndexSignature": false
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

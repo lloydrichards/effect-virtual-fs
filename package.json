@@ -23,12 +23,13 @@
     "postprepare": "husky",
     "prepare": "effect-tsgo patch --oxlint",
     "release": "bun run build && changeset publish",
-    "test": "turbo run build --filter=@effect-vfs/core --filter=@effect-vfs/memory --filter=@effect-vfs/nfs --filter=@effect-vfs/persistence && bun --bun run vitest run --config vitest.config.ts",
+    "test": "turbo run build --filter=@effect-vfs/core --filter=@effect-vfs/memory --filter=@effect-vfs/nfs --filter=@effect-vfs/persistence --filter=@effect-vfs/effect-preview && bun --bun run vitest run --config vitest.config.ts",
     "type-check": "turbo run type-check",
     "validate": "bun run format:check && bun run build && bun scripts/check-generated-api.mjs && bun run lint && bun run lint:effects && bun run type-check && bun run test",
     "lint:effects": "bash scripts/lint-effects.sh",
     "version-packages": "changeset version",
-    "test:node": "bun run --cwd packages/node test && bun run --cwd packages/node test:consumer"
+    "test:node": "bun run --cwd packages/node test && bun run --cwd packages/node test:consumer",
+    "test:node-preview": "turbo run build && bun run --cwd packages/node-preview test && bun run --cwd packages/node-preview test:mounted"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^1.0.1",

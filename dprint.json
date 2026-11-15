@@ -20,7 +20,10 @@
     "**/coverage",
     "**/.turbo",
     "**/.cache",
-    ".reference"
+    ".reference",
+    "packages/effect-preview/src",
+    "packages/effect-preview/test",
+    "packages/effect-preview/typetest"
   ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.93.4.wasm",
