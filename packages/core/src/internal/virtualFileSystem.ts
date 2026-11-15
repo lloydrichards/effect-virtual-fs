@@ -172,9 +172,10 @@ const changeOptions = (options?: OverlayChangesOptions) => {
 export const makeOverlay = Effect.fnUntraced(function*(base: Snapshot, options?: VolumeOptions) {
   const value = yield* Image.valueOf(base)
 
-  const { volume } = yield* makeVolume(VolumeSource.Overlay({ value }), memoryCommitProvider, options).pipe(
-    Effect.mapError((error) => retargetFailure("makeOverlay", error))
-  )
+  const { observeSnapshot, volume } = yield* makeVolume(VolumeSource.Overlay({ value }), memoryCommitProvider, options)
+    .pipe(
+      Effect.mapError((error) => retargetFailure("makeOverlay", error))
+    )
 
   const before = yield* observeChanges(value)
 
@@ -188,14 +189,17 @@ export const makeOverlay = Effect.fnUntraced(function*(base: Snapshot, options?:
     changes: Effect.fnUntraced(function*(options?: OverlayChangesOptions) {
       const selected = yield* changeOptions(options)
 
-      return yield* summary(yield* volume.snapshot, selected.includeTimestamps)
+      return yield* observeSnapshot((snapshot) => summary(snapshot, selected.includeTimestamps))
     }),
     capture: Effect.fnUntraced(function*(options?: OverlayChangesOptions) {
       const selected = yield* changeOptions(options)
-      const snapshot = yield* volume.snapshot
-      yield* (yield* VolumeTestSeams).betweenSnapshotAndSummary
+      const seams = yield* VolumeTestSeams
 
-      return Object.freeze({ snapshot, changes: yield* summary(snapshot, selected.includeTimestamps) })
+      return yield* observeSnapshot((snapshot) =>
+        Effect.andThen(seams.betweenSnapshotAndSummary, summary(snapshot, selected.includeTimestamps)).pipe(
+          Effect.map((changes) => Object.freeze({ snapshot, changes }))
+        )
+      )
     })
   }))
 

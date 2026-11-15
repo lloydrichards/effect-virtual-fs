@@ -45,7 +45,7 @@ sources:
     title: Public owner operations, metadata, and atomic publication options
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/328
     title: Remaining API gaps and atomic copy option proposal
-generated: { by: codex/okf, at: "2026-11-15T22:56:00+00:00" }
+generated: { by: codex/okf, at: "2026-11-15T23:05:00+00:00" }
 ---
 
 # Effect preview drop-in evaluation
@@ -84,7 +84,7 @@ Core production source is 17,088 lines versus 22,710 in the previous PR state an
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | Watches                                                                 | Owner and caller have no watch or committed-change subscription.                                                                                                                                                                | Watch readiness, ordering, capacity, confinement, and adapter events.                                               |
 | Durable volumes                                                         | Owner exposes authorize, capture, usage, and limits, with no commit-before-publication/rejection/recovery hook.                                                                                                                 | LiveVolume, registry, persistence, and admission tests that wait on a commit hook.                                  |
-| Copy-on-write overlays                                                  | Captured and decoded core snapshots supply one private Capture per base. Siblings share file bytes until a write, and exported records copy the bytes.                                                                          | Cooperative writer admission while an overlay capture is paused remains open.                                       |
+| Copy-on-write overlays                                                  | Captured and decoded core snapshots supply one private Capture per base. Siblings share file bytes until a write, and exported records copy the bytes.                                                                          | Writers wait during cooperative capture. A recent read that needs no atime update still waits.                      |
 | Existing-file final mode and final-symlink replacement                  | Copy publication rejects `finalMode` and `replaceFinalSymlink` as excess fields.                                                                                                                                                | File identity, aliases, exact quotas, transfer publication, and failure atomicity.                                  |
 | Atomic initial metadata                                                 | Open rejects `initialSize` and initial ownership. Literal directory/open timestamps are supported by contributions six and seven.                                                                                               | Initial size/ownership and their rollback checks.                                                                   |
 | Special modes, custom symlink modes, wide owners, empty symlink targets | Direct probes reject unsupported bits, symlink mode changes, owners above unsigned 32-bit range, and empty targets.                                                                                                             | Existing rich fixtures, snapshot round trips, transfer fidelity, and Node symlink tests. No metadata is normalized. |
@@ -112,6 +112,14 @@ The open-timestamp contribution exposed an atime-only revision mismatch after fi
 Read atime revision neutrality is supported by `patches/0008-atime-revision-neutrality.patch`. Transaction finalization still publishes automatic atime updates but does not advance the object revision for an atime-only touch. Strict and relatime reads, including symlinks, directory listings, handles and synchronous reads, retain their access-time policy. Explicit timestamp/content mutations still advance revisions and invalidate old guards. One existing upstream observed-read assertion changes to the proposed contract; seventeen added regressions cover the behavior and preservation rules. The existing core reference-open stale-observation regression passes without any core edits or changed assertions.
 
 Error precedence, fields, listing order, snapshot identity, authority, and cancellation remain part of the acceptance contract. A failing assertion alone does not establish an upstream gap. Failures in concurrent watch and live-store tests that wait for unavailable hooks remain visible, including their timeouts.
+
+Cooperative overlay capture holds a shared permit in core while it takes a preview snapshot and computes the summary. A waiting writer holds the arrival gate, so later observations queue behind it. Core treats reads that may update atime as writers. Allowing a recent read through while holding a stale one requires knowing whether preview will publish a timestamp change. Synchronous overlays compute the summary from the already captured snapshot and allow a competing synchronous write to complete.
+
+## Watch delivery on the preview
+
+Public capture records cannot distinguish two writes of the same bytes at the same clock time. A subscriber still needs an update for the second write. A wrapper around a successful core call also misses earlier committed steps of a recursive removal that later fails. Native handle writes enter through the synchronous binding.
+
+A candidate upstream change would report an ordered batch of committed namespace actions and explicit object updates at preview transaction publication. Core could use that batch to resolve paths and aliases visible to each subscriber before charging queue capacity. Registration must take effect before `watch()` returns, and subscribers must wake after ownership is released. A prototype should cover same-byte writes, rollback, partial recursive removal, rename over an existing entry, confined aliases, overflow and native writes. This is a proposed design. [Issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328)
 
 ## Review status
 

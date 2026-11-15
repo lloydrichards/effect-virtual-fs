@@ -178,6 +178,7 @@ export interface Runtime {
   snapshotEpoch: number
   busy: boolean
   readonly gate: Semaphore.Semaphore
+  readonly captureReaders: Semaphore.Semaphore | undefined
   readonly orders: Map<bigint, Array<string>>
   readonly retained: Array<WeakRef<P.FileHandle | P.DirectoryHandle>>
   readonly time: { active: boolean; value: bigint | undefined }
@@ -249,6 +250,9 @@ export const drainPending = Effect.fnUntraced(function*(runtime: Runtime) {
   }
 })
 
+// Only operations that leave content, timestamps and cursors untouched can pass an active capture.
+const captureObservations = new Set(["access", "lookup", "parent", "realPath", "root", "stat", "sync", "walk"])
+
 // The core boundary serializes its compatibility observations. Native calls share its busy guard.
 const execute = <A, R>(
   runtime: Runtime,
@@ -260,7 +264,7 @@ const execute = <A, R>(
   Effect.suspend(() => {
     if (runtime.owner.limits.synchronous && runtime.busy) return Effect.fail(Errors.fsFailure("VolumeBusy", operation))
 
-    const work = runtime.gate.withPermit(Effect.acquireUseRelease(
+    const run = Effect.acquireUseRelease(
       Effect.suspend(() =>
         runtime.busy ? Effect.fail(Errors.fsFailure("VolumeBusy", operation)) : Effect.sync(() => {
           runtime.busy = true
@@ -284,7 +288,14 @@ const execute = <A, R>(
           runtime.time.active = false
           runtime.time.value = undefined
         }).pipe(Effect.andThen(drainPending(runtime)))
-    ))
+    )
+
+    // A writer holds the arrival gate while waiting for captures, so a later observer cannot pass it.
+    const work = runtime.gate.withPermit(
+      runtime.captureReaders === undefined || captureObservations.has(operation)
+        ? run
+        : runtime.captureReaders.withPermits(Number.MAX_SAFE_INTEGER)(run)
+    )
 
     return runtime.owner.limits.synchronous
       ? Effect.provideService(work, Scheduler.PreventSchedulerYield, true)
@@ -2922,6 +2933,9 @@ export const makeVolume = Effect.fnUntraced(
       snapshotEpoch: 0,
       busy: false,
       gate: Semaphore.makeUnsafe(1),
+      captureReaders: Predicate.isTagged(source, "Overlay") && !owner.limits.synchronous
+        ? Semaphore.makeUnsafe(Number.MAX_SAFE_INTEGER)
+        : undefined,
       orders: new Map(),
       retained: [],
       time,
@@ -2987,14 +3001,25 @@ export const makeVolume = Effect.fnUntraced(
       return yield* Errors.fsFailure("StaleReference", "referenceKey")
     })
 
+    const observe = <A, E, R>(observation: Effect.Effect<A, E, R>) => {
+      const readers = runtime.captureReaders
+
+      if (readers === undefined) return observation
+
+      return Effect.scoped(Effect.andThen(runtime.gate.withPermit(readers.takeScoped(1)), observation))
+    }
+
+    const observeSnapshot = <A, E, R>(use: (value: V.Snapshot) => Effect.Effect<A, E, R>) =>
+      observe(Effect.flatMap(snapshot(owner), use))
+
     const volume: V.Volume = {
       [VolumeId]: true,
       durability: "memory-only",
       identity,
       incarnation,
       limits,
-      usage: owner.usage.pipe(Effect.map((u) => ({ entries: u.entries, usedBytes: u.contentBytes }))),
-      snapshot: snapshot(owner),
+      usage: observe(owner.usage.pipe(Effect.map((u) => ({ entries: u.entries, usedBytes: u.contentBytes })))),
+      snapshot: observe(snapshot(owner)),
       caller: Effect.fnUntraced(function*(o) {
         const chosen = yield* Effect.fromResult(
           Errors.decodeConfiguration(RootCallerOptions, o === undefined ? {} : o, "caller")
@@ -3024,7 +3049,7 @@ export const makeVolume = Effect.fnUntraced(
         const ino = observed.metadata.objectNumber
 
         return { identity: identityBytes.slice(), epoch: epochBytes.slice(), ino, tag: keyTag(ino) }
-      }),
+      }, observe),
       resolveReferenceKey: Effect.fnUntraced(function*(key) {
         if (!Schema.is(ReferenceKey)(key)) return yield* Errors.fsFailure("InvalidReference", "resolveReferenceKey")
 
@@ -3042,11 +3067,11 @@ export const makeVolume = Effect.fnUntraced(
         yield* keyObservation(selected.reference)
 
         return selected.core
-      })
+      }, observe)
     }
 
     runtimes.set(volume, runtime)
 
-    return { volume, shutdown: Effect.void }
+    return { volume, shutdown: Effect.void, observeSnapshot }
   }
 )

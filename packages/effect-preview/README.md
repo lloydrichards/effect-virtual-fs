@@ -23,8 +23,7 @@ bun run --cwd packages/node test:mounted
 
 The import audit checks that core construction and the native binding use the preview. Existing consumer tests
 define the drop-in contract. Open gaps include committed-change subscriptions for watches, durable-store commits,
-writer admission during overlay capture, and metadata walks that preserve atime while listing a readable directory without search
-permission. Current results and adapter findings are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
+admission of recent reads during cooperative overlay capture, and metadata walks that preserve atime while listing a readable directory without search permission. Current results and adapter findings are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
 
 Import the proposed public API and authorize a scoped caller:
 

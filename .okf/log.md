@@ -2,6 +2,8 @@
 
 ## 2026-11-15
 
+- Record cooperative overlay capture admission and the committed mutation information core needs for watch delivery.
+
 - Record the private capture boundary that lets sibling overlays share captured and decoded snapshot bytes until a write.
 
 - Record how caller-authorized attribute updates use a retained file handle after unlink and enforce both confinement boundaries.
