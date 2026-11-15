@@ -229,6 +229,7 @@ const prepareWrite = (
         if (edited.kind !== "file") {
           return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
         }
+        edited.mode &= ~E.SET_ID_BITS
         edited.data = output
         yield* tx.changedResult(file.id, ["mtime", "ctime"])
         const next = state.append
@@ -257,13 +258,14 @@ const prepareTruncate = (
         const file = yield* node(tx, state)
         yield* tx.revisionResult(file, fixedOptions)
         const size = yield* candidate(tx, length)
-        if (file.data.length !== size) {
+        if (file.data.length !== size || (file.mode & E.SET_ID_BITS) !== 0) {
           const output = new Uint8Array(size)
           output.set(file.data.subarray(0, size))
           const edited = yield* tx.editResult(file.id)
           if (edited.kind !== "file") {
             return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
           }
+          edited.mode &= ~E.SET_ID_BITS
           edited.data = output
           yield* tx.changedResult(file.id, ["mtime", "ctime"])
         }
@@ -486,7 +488,7 @@ const validateOpen = (
     if (options?.expectedRevision !== undefined && (!options.truncate || create === "exclusive")) {
       return yield* Result.fail(new M.InvalidInput({ operation, field: "expectedRevision", reason: "malformed" }))
     }
-    if (options?.mode !== undefined) yield* E.modeResult(options.mode, "file", operation)
+    if (options?.mode !== undefined) yield* E.modeResult(options.mode, operation)
     const initialSize = options?.initialSize
     if (initialSize !== undefined && create === "existing") {
       return yield* Result.fail(new M.InvalidInput({ operation, field: "initialSize", reason: "malformed" }))
@@ -612,11 +614,12 @@ const openNode = (
     }
     if (options.truncate && !created) {
       yield* candidate(tx, zero)
-      if (selected.data.length > 0) {
+      if (selected.data.length > 0 || (selected.mode & E.SET_ID_BITS) !== 0) {
         const edited = yield* tx.editResult(selected.id)
         if (edited.kind !== "file") {
           return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
         }
+        edited.mode &= ~E.SET_ID_BITS
         edited.data = new Uint8Array(0)
         yield* tx.changedResult(selected.id, ["mtime", "ctime"])
       }

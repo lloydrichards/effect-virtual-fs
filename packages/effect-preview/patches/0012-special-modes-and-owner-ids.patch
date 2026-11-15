@@ -1,0 +1,381 @@
+--- a/packages/effect/src/virtual-file-system/internal/model.ts
++++ b/packages/effect/src/virtual-file-system/internal/model.ts
+@@ -92,13 +92,13 @@
+ const PositiveCount = Count.check(Schema.isGreaterThan(0))
+ 
+ /** @internal */
+-export const Uint32 = Schema.Number.check(Schema.isUint32())
++export const Identity = Schema.Natural.check(Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER))
+ 
+ /** @internal */
+-export const isUint32 = Schema.is(Uint32)
++export const isIdentity = Schema.is(Identity)
+ 
+ /** @internal */
+-export const PermissionMode = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 0o3777 }))
++export const PermissionMode = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 0o7777 }))
+ 
+ /** @internal */
+ export const isPermissionMode = Schema.is(PermissionMode)
+@@ -149,15 +149,12 @@
+ 
+ const validMetadata = (metadata: {
+   readonly kind: "file" | "directory" | "symlink"
+-  readonly mode: number
+   readonly size: ByteSize.ByteSize
+   readonly nlink: bigint
+ }) =>
+-  metadata.kind === "file" ?
+-    metadata.mode <= 0o777 :
+-    metadata.kind === "symlink" ?
+-    metadata.mode <= 0o777 && metadata.size > bigint0 :
+-    metadata.size === bigint0 && (metadata.nlink === bigint0 || metadata.nlink >= bigint2)
++  metadata.kind === "directory"
++    ? metadata.size === bigint0 && (metadata.nlink === bigint0 || metadata.nlink >= bigint2)
++    : metadata.kind === "file" || metadata.size > bigint0
+ 
+ const coherentObservation = (observation: {
+   readonly reference: ObjectReference
+@@ -231,8 +228,8 @@
+ export const Metadata = Schema.Struct({
+   kind: Schema.Literals(["file", "directory", "symlink"]),
+   objectNumber: PositiveBigInt,
+-  uid: Uint32,
+-  gid: Uint32,
++  uid: Identity,
++  gid: Identity,
+   mode: PermissionMode,
+   atime: Schema.UnixNano,
+   mtime: Schema.UnixNano,
+@@ -733,8 +730,8 @@
+ 
+ export const SemanticMetadata = Schema.Struct({
+   objectNumber: PositiveBigInt,
+-  uid: Uint32,
+-  gid: Uint32,
++  uid: Identity,
++  gid: Identity,
+   mode: PermissionMode,
+   atime: Schema.UnixNano,
+   mtime: Schema.UnixNano,
+@@ -765,7 +762,7 @@
+   parentId: PositiveBigInt,
+   name: Name,
+   data: Schema.Uint8Array.check(Schema.makeFilter((value) => Result.isSuccess(Bytes.byteLength(value)))),
+-  metadata: SemanticMetadata.check(Schema.makeFilter((metadata) => metadata.mode <= 0o777))
++  metadata: SemanticMetadata
+ })
+ 
+ export type FileRecord = typeof FileRecord["Type"]
+@@ -775,7 +772,7 @@
+   parentId: PositiveBigInt,
+   name: Name,
+   target: NonEmptyPath,
+-  metadata: SemanticMetadata.check(Schema.makeFilter((metadata) => metadata.mode <= 0o777))
++  metadata: SemanticMetadata
+ })
+ 
+ export type SymlinkRecord = typeof SymlinkRecord["Type"]
+--- a/packages/effect/src/virtual-file-system/internal/engine.ts
++++ b/packages/effect/src/virtual-file-system/internal/engine.ts
+@@ -20,6 +20,7 @@
+ export const EXECUTE_PERMISSION = 1
+ const STICKY_BIT = 0o1000
+ export const SET_GID_BIT = 0o2000
++export const SET_ID_BITS = 0o6000
+ 
+ export interface Binding {
+   readonly name: BytePath.BytePath
+@@ -266,7 +267,7 @@
+   operation: string,
+   field: string
+ ) =>
+-  M.isUint32(input)
++  M.isIdentity(input)
+     ? Result.succeed(input)
+     : Result.fail(new M.InvalidInput({ operation, field, reason: "range" }))
+ 
+@@ -279,10 +280,9 @@
+ /** @internal */
+ export const modeResult = (
+   input: unknown,
+-  kind: Node["kind"],
+   operation: string
+ ) => {
+-  if (!M.isPermissionMode(input) || (kind !== "directory" && input > 0o777)) {
++  if (!M.isPermissionMode(input)) {
+     return Result.fail(new M.InvalidInput({ operation, field: "mode", reason: "unsupportedBits" }))
+   }
+   return Result.succeed(input)
+@@ -711,7 +711,7 @@
+   authorizeCreateResult(parent: DirectoryNode, requested: number | undefined, kind: Node["kind"]) {
+     return Result.gen(this, function*() {
+       yield* this.requireResult(parent, WRITE_PERMISSION | EXECUTE_PERMISSION)
+-      if (requested !== undefined) yield* modeResult(requested, kind, this.operation)
++      if (requested !== undefined) yield* modeResult(requested, this.operation)
+       if (
+         kind === "directory" && requested !== undefined && (requested & SET_GID_BIT) !== 0 &&
+         !this.caller.policy.privileged
+@@ -723,6 +723,11 @@
+         }
+       }
+     })
++  }
++
++  fileMode(mode: number, gid: number) {
++    const policy = this.caller.policy
++    return policy.privileged || gid === policy.gid || policy.groups.includes(gid) ? mode : mode & ~SET_GID_BIT
+   }
+ 
+   ownsResult(node: Node) {
+@@ -1378,13 +1383,15 @@
+   ) {
+     return Result.gen(this, function*() {
+       const policy = this.caller.policy
+-      const requested = yield* modeResult(modeInput ?? (kind === "directory" ? 0o777 : 0o666), kind, this.operation)
++      const requested = yield* modeResult(modeInput ?? (kind === "directory" ? 0o777 : 0o666), this.operation)
+       const now = DateTime.unixNanoFromNanoseconds(BigInt("0"))
++      const gid = (parent.mode & SET_GID_BIT) !== 0 ? parent.gid : policy.gid
++      const mode = requested & ~policy.umask
+       const common: Base = {
+         id: this.engine.nextObject++,
+         uid: policy.uid,
+-        gid: (parent.mode & SET_GID_BIT) !== 0 ? parent.gid : policy.gid,
+-        mode: kind === "symlink" ? 0o777 : requested & ~policy.umask,
++        gid,
++        mode: kind === "symlink" ? 0o777 : kind === "file" ? this.fileMode(mode, gid) : mode,
+         nlink: kind === "directory" ? BigInt("2") : BigInt("1"),
+         revision: BigInt("1"),
+         atime: now,
+--- a/packages/effect/src/virtual-file-system/internal/atomic.ts
++++ b/packages/effect/src/virtual-file-system/internal/atomic.ts
+@@ -148,7 +148,7 @@
+     Match.when("writeFile", () =>
+       Result.gen(function*() {
+         const object = yield* E.checkOptionsResult(options, optionFields.writeFile, operation)
+-        if (object?.finalMode !== undefined) yield* E.modeResult(object.finalMode, "file", operation)
++        if (object?.finalMode !== undefined) yield* E.modeResult(object.finalMode, operation)
+         if (object?.replaceFinalSymlink !== undefined && !isBoolean(object.replaceFinalSymlink)) {
+           return yield* Result.fail(new M.InvalidInput({ operation, field: "replaceFinalSymlink", reason: "malformed" }))
+         }
+@@ -164,7 +164,7 @@
+         if (create !== undefined && !M.isCreation(create)) {
+           return yield* Result.fail(new M.InvalidInput({ operation, field: "create", reason: "malformed" }))
+         }
+-        if (object?.mode !== undefined) yield* E.modeResult(object.mode, "file", operation)
++        if (object?.mode !== undefined) yield* E.modeResult(object.mode, operation)
+         yield* condition(object?.conditions, operation)
+         if (object?.create === "exclusive" && object.expectedRevision !== undefined) {
+           return yield* Result.fail(new M.InvalidInput({ operation, field: "expectedRevision", reason: "malformed" }))
+@@ -174,7 +174,7 @@
+       Result.gen(function*() {
+         const object = yield* E.checkOptionsResult(options, optionFields[operation], operation)
+         if (object?.mode !== undefined) {
+-          yield* E.modeResult(object.mode, operation === "createFile" ? "file" : "directory", operation)
++          yield* E.modeResult(object.mode, operation)
+         }
+         if (operation === "makeDirectory") {
+           const recursive = object?.recursive
+@@ -226,7 +226,7 @@
+         if (overwrite !== undefined && !isBoolean(overwrite)) {
+           return yield* Result.fail(new M.InvalidInput({ operation, field: "overwrite", reason: "malformed" }))
+         }
+-        if (object?.mode !== undefined) yield* E.modeResult(object.mode, "file", operation)
++        if (object?.mode !== undefined) yield* E.modeResult(object.mode, operation)
+         yield* condition(object?.destination, operation)
+         const times = yield* E.checkOptionsResult(object?.preserveTimes, timeFields, operation)
+         if (object?.preserveTimes !== undefined && (!isUnixNano(times?.atime) || !isUnixNano(times?.mtime))) {
+@@ -588,6 +588,7 @@
+     if (edited.kind !== "file") {
+       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+     }
++    if (options?.finalMode === undefined) edited.mode &= ~E.SET_ID_BITS
+     edited.data = next
+     yield* tx.changedResult(node.id, ["mtime", "ctime"])
+   })
+@@ -609,7 +610,7 @@
+     yield* tx.requireResult(node, E.WRITE_PERMISSION)
+     yield* tx.revisionResult(node, options)
+     yield* reserveFile(tx, requested)
+-    if (requested === BigInt(node.data.length)) return
++    if (requested === BigInt(node.data.length) && (node.mode & E.SET_ID_BITS) === 0) return
+     const data = new Uint8Array(Number(requested))
+     data.set(node.data.subarray(0, data.length))
+     const edited = yield* tx.editResult(node.id)
+@@ -617,6 +618,7 @@
+       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+     }
+     edited.data = data
++    edited.mode &= ~E.SET_ID_BITS
+     yield* tx.changedResult(node.id, ["mtime", "ctime"])
+   })
+ 
+@@ -631,7 +633,7 @@
+       return yield* Result.fail(new M.InvalidInput({ operation, field: "attributes", reason: "malformed" }))
+     }
+     if (attributes.size !== undefined) yield* R.sizeResult(attributes.size, operation, "size")
+-    if (attributes.mode !== undefined) yield* E.modeResult(attributes.mode, "directory", operation)
++    if (attributes.mode !== undefined) yield* E.modeResult(attributes.mode, operation)
+     if (attributes.uid !== undefined) yield* E.identityResult(attributes.uid, operation, "uid")
+     if (attributes.gid !== undefined) yield* E.identityResult(attributes.gid, operation, "gid")
+     if (attributes.atime !== undefined && attributes.atime !== "now" && !isUnixNano(attributes.atime)) {
+@@ -661,7 +663,6 @@
+       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+     }
+     if (attributes.mode !== undefined) {
+-      yield* E.modeResult(attributes.mode, node.kind, tx.operation)
+       yield* tx.ownsResult(node)
+       if (
+         node.kind === "directory" && (attributes.mode & E.SET_GID_BIT) !== 0 && (node.mode & E.SET_GID_BIT) === 0 &&
+@@ -669,7 +670,10 @@
+       ) return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "ownership" }))
+     }
+     if (attributes.uid !== undefined && !tx.caller.policy.privileged) {
+-      return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "ownership" }))
++      yield* tx.ownsResult(node)
++      if (attributes.uid !== node.uid) {
++        return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "ownership" }))
++      }
+     }
+     if (attributes.gid !== undefined) {
+       yield* tx.ownsResult(node)
+@@ -708,8 +712,17 @@
+       changed = true
+       yield* tx.touchResult(node.id, ["mtime"])
+     }
++    const clearSetId = requested !== undefined || attributes.uid !== undefined || attributes.gid !== undefined
++    const mode = attributes.mode ?? (clearSetId && edited.kind === "file" ? edited.mode & ~E.SET_ID_BITS : edited.mode)
++    const finalMode = attributes.mode !== undefined && edited.kind === "file"
++      ? tx.fileMode(mode, attributes.gid ?? edited.gid)
++      : mode
++    if (finalMode !== edited.mode) {
++      edited.mode = finalMode
++      changed = true
++    }
+     for (const field of attributeFields) {
+-      if (field === "size") continue
++      if (field === "size" || field === "mode") continue
+       const value = attributes[field]
+       if (value === undefined) continue
+       if (value !== "now" && value !== node[field]) changed = true
+@@ -1114,6 +1127,7 @@
+     next.data = data.slice()
+     if (existing === undefined) yield* tx.insertResult(slot.parent.id, slot.name, node.id)
+     if (data.length > 0 || (existing !== undefined && existing.data.length !== 0)) {
++      next.mode &= ~E.SET_ID_BITS
+       yield* tx.changedResult(node.id, ["mtime", "ctime"])
+     }
+     if (options?.preserveTimes !== undefined) {
+--- a/packages/effect/src/virtual-file-system/internal/handles.ts
++++ b/packages/effect/src/virtual-file-system/internal/handles.ts
+@@ -228,6 +228,7 @@
+         if (edited.kind !== "file") {
+           return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+         }
++        edited.mode &= ~E.SET_ID_BITS
+         edited.data = output
+         yield* tx.changedResult(file.id, ["mtime", "ctime"])
+         const next = state.append
+@@ -256,13 +257,14 @@
+         const file = yield* node(tx, state)
+         yield* tx.revisionResult(file, fixedOptions)
+         const size = yield* candidate(tx, length)
+-        if (file.data.length !== size) {
++        if (file.data.length !== size || (file.mode & E.SET_ID_BITS) !== 0) {
+           const output = new Uint8Array(size)
+           output.set(file.data.subarray(0, size))
+           const edited = yield* tx.editResult(file.id)
+           if (edited.kind !== "file") {
+             return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+           }
++          edited.mode &= ~E.SET_ID_BITS
+           edited.data = output
+           yield* tx.changedResult(file.id, ["mtime", "ctime"])
+         }
+@@ -485,7 +487,7 @@
+     if (options?.expectedRevision !== undefined && (!options.truncate || create === "exclusive")) {
+       return yield* Result.fail(new M.InvalidInput({ operation, field: "expectedRevision", reason: "malformed" }))
+     }
+-    if (options?.mode !== undefined) yield* E.modeResult(options.mode, "file", operation)
++    if (options?.mode !== undefined) yield* E.modeResult(options.mode, operation)
+     const initialSize = options?.initialSize
+     if (initialSize !== undefined && create === "existing") {
+       return yield* Result.fail(new M.InvalidInput({ operation, field: "initialSize", reason: "malformed" }))
+@@ -611,11 +613,12 @@
+     }
+     if (options.truncate && !created) {
+       yield* candidate(tx, zero)
+-      if (selected.data.length > 0) {
++      if (selected.data.length > 0 || (selected.mode & E.SET_ID_BITS) !== 0) {
+         const edited = yield* tx.editResult(selected.id)
+         if (edited.kind !== "file") {
+           return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+         }
++        edited.mode &= ~E.SET_ID_BITS
+         edited.data = new Uint8Array(0)
+         yield* tx.changedResult(selected.id, ["mtime", "ctime"])
+       }
+--- a/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
++++ b/packages/effect/src/virtual-file-system/VirtualFileSystem.ts
+@@ -208,7 +208,7 @@
+    */
+   ListedEntry,
+   /**
+-   * Complete logical metadata. Object numbers are positive, uid/gid are uint32, and modes reject
++   * Complete logical metadata. Object numbers are positive, uid/gid are nonnegative safe integers, and modes reject
+    * unsupported bits.
+    *
+    * @stability experimental
+@@ -448,7 +448,7 @@
+    */
+   CreateOptions,
+   /**
+-   * Copied uint32 identity. Supplementary groups default empty; privilege defaults false. uid zero has no
++   * Copied nonnegative safe-integer identity. Supplementary groups default empty; privilege defaults false. uid zero has no
+    * implicit privilege.
+    *
+    * @stability experimental
+@@ -1146,7 +1146,7 @@
+             const root = {
+               uid: yield* E.identityResult(configuration?.root?.uid ?? 0, "make", "uid"),
+               gid: yield* E.identityResult(configuration?.root?.gid ?? 0, "make", "gid"),
+-              mode: yield* E.modeResult(configuration?.root?.mode ?? DEFAULT_ROOT_MODE, "directory", "make")
++              mode: yield* E.modeResult(configuration?.root?.mode ?? DEFAULT_ROOT_MODE, "make")
+             }
+             return yield* ownerFor(new E.Engine(new R.Runtime(limits, clock), root, undefined, accessTime))
+           })
+@@ -1344,7 +1344,7 @@
+ const Umask = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 0o777 }))
+ 
+ const isBoolean = Schema.is(Schema.Boolean)
+-const isGroups = Schema.is(Schema.Array(M.Uint32))
++const isGroups = Schema.is(Schema.Array(M.Identity))
+ const isUmask = Schema.is(Umask)
+ 
+ const credentials = (
+--- a/packages/effect/test/virtual-file-system/VirtualFileSystem.capture.test.ts
++++ b/packages/effect/test/virtual-file-system/VirtualFileSystem.capture.test.ts
+@@ -56,7 +56,7 @@
+       const malformed of [
+         { ...file, id: 0n },
+         { ...file, metadata: { ...file.metadata, uid: -1 } },
+-        { ...file, metadata: { ...file.metadata, mode: 0o4000 } },
++        { ...file, metadata: { ...file.metadata, mode: 0o10000 } },
+         { ...file, name: path("a/b") }
+       ]
+     ) assert.isFalse(Schema.is(VFS.CaptureRecord)(malformed))
+--- a/packages/effect/test/virtual-file-system/VirtualFileSystem.test.ts
++++ b/packages/effect/test/virtual-file-system/VirtualFileSystem.test.ts
+@@ -533,10 +533,8 @@
+         (yield* Effect.flip(caller.setAttributes("/group/child", { mode: 0o2755 })))._tag,
+         "AccessDenied"
+       )
+-      assert.strictEqual(
+-        (yield* Effect.flip(caller.setAttributes("/group/child/file", { mode: 0o2644 })))._tag,
+-        "InvalidInput"
+-      )
++      yield* caller.setAttributes("/group/child/file", { mode: 0o2644 })
++      assert.strictEqual((yield* caller.stat("/group/child/file")).metadata.mode, 0o644)
+     }).pipe(withClock))
+ 
+   it.effect("should check requested permissions without touching metadata when access follows a symlink", () =>

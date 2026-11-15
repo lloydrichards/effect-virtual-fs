@@ -21,6 +21,7 @@ export const WRITE_PERMISSION = 2
 export const EXECUTE_PERMISSION = 1
 const STICKY_BIT = 0o1000
 export const SET_GID_BIT = 0o2000
+export const SET_ID_BITS = 0o6000
 
 export interface Binding {
   readonly name: BytePath.BytePath
@@ -267,7 +268,7 @@ export const identityResult = (
   operation: string,
   field: string
 ) =>
-  M.isUint32(input)
+  M.isIdentity(input)
     ? Result.succeed(input)
     : Result.fail(new M.InvalidInput({ operation, field, reason: "range" }))
 
@@ -280,10 +281,9 @@ export const accessTimeResult = (input: unknown, operation: string) =>
 /** @internal */
 export const modeResult = (
   input: unknown,
-  kind: Node["kind"],
   operation: string
 ) => {
-  if (!M.isPermissionMode(input) || (kind !== "directory" && input > 0o777)) {
+  if (!M.isPermissionMode(input)) {
     return Result.fail(new M.InvalidInput({ operation, field: "mode", reason: "unsupportedBits" }))
   }
   return Result.succeed(input)
@@ -712,7 +712,7 @@ export class Transaction {
   authorizeCreateResult(parent: DirectoryNode, requested: number | undefined, kind: Node["kind"]) {
     return Result.gen(this, function*() {
       yield* this.requireResult(parent, WRITE_PERMISSION | EXECUTE_PERMISSION)
-      if (requested !== undefined) yield* modeResult(requested, kind, this.operation)
+      if (requested !== undefined) yield* modeResult(requested, this.operation)
       if (
         kind === "directory" && requested !== undefined && (requested & SET_GID_BIT) !== 0 &&
         !this.caller.policy.privileged
@@ -724,6 +724,11 @@ export class Transaction {
         }
       }
     })
+  }
+
+  fileMode(mode: number, gid: number) {
+    const policy = this.caller.policy
+    return policy.privileged || gid === policy.gid || policy.groups.includes(gid) ? mode : mode & ~SET_GID_BIT
   }
 
   ownsResult(node: Node) {
@@ -1379,13 +1384,15 @@ export class Transaction {
   ) {
     return Result.gen(this, function*() {
       const policy = this.caller.policy
-      const requested = yield* modeResult(modeInput ?? (kind === "directory" ? 0o777 : 0o666), kind, this.operation)
+      const requested = yield* modeResult(modeInput ?? (kind === "directory" ? 0o777 : 0o666), this.operation)
       const now = DateTime.unixNanoFromNanoseconds(BigInt("0"))
+      const gid = (parent.mode & SET_GID_BIT) !== 0 ? parent.gid : policy.gid
+      const mode = requested & ~policy.umask
       const common: Base = {
         id: this.engine.nextObject++,
         uid: policy.uid,
-        gid: (parent.mode & SET_GID_BIT) !== 0 ? parent.gid : policy.gid,
-        mode: kind === "symlink" ? 0o777 : requested & ~policy.umask,
+        gid,
+        mode: kind === "symlink" ? 0o777 : kind === "file" ? this.fileMode(mode, gid) : mode,
         nlink: kind === "directory" ? BigInt("2") : BigInt("1"),
         revision: BigInt("1"),
         atime: now,

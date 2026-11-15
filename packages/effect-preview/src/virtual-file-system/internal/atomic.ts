@@ -149,7 +149,7 @@ export const validate = (operation: Operation, options: unknown): Result.Result<
     Match.when("writeFile", () =>
       Result.gen(function*() {
         const object = yield* E.checkOptionsResult(options, optionFields.writeFile, operation)
-        if (object?.finalMode !== undefined) yield* E.modeResult(object.finalMode, "file", operation)
+        if (object?.finalMode !== undefined) yield* E.modeResult(object.finalMode, operation)
         if (object?.replaceFinalSymlink !== undefined && !isBoolean(object.replaceFinalSymlink)) {
           return yield* Result.fail(new M.InvalidInput({ operation, field: "replaceFinalSymlink", reason: "malformed" }))
         }
@@ -165,7 +165,7 @@ export const validate = (operation: Operation, options: unknown): Result.Result<
         if (create !== undefined && !M.isCreation(create)) {
           return yield* Result.fail(new M.InvalidInput({ operation, field: "create", reason: "malformed" }))
         }
-        if (object?.mode !== undefined) yield* E.modeResult(object.mode, "file", operation)
+        if (object?.mode !== undefined) yield* E.modeResult(object.mode, operation)
         yield* condition(object?.conditions, operation)
         if (object?.create === "exclusive" && object.expectedRevision !== undefined) {
           return yield* Result.fail(new M.InvalidInput({ operation, field: "expectedRevision", reason: "malformed" }))
@@ -175,7 +175,7 @@ export const validate = (operation: Operation, options: unknown): Result.Result<
       Result.gen(function*() {
         const object = yield* E.checkOptionsResult(options, optionFields[operation], operation)
         if (object?.mode !== undefined) {
-          yield* E.modeResult(object.mode, operation === "createFile" ? "file" : "directory", operation)
+          yield* E.modeResult(object.mode, operation)
         }
         if (operation === "makeDirectory") {
           const recursive = object?.recursive
@@ -227,7 +227,7 @@ export const validate = (operation: Operation, options: unknown): Result.Result<
         if (overwrite !== undefined && !isBoolean(overwrite)) {
           return yield* Result.fail(new M.InvalidInput({ operation, field: "overwrite", reason: "malformed" }))
         }
-        if (object?.mode !== undefined) yield* E.modeResult(object.mode, "file", operation)
+        if (object?.mode !== undefined) yield* E.modeResult(object.mode, operation)
         yield* condition(object?.destination, operation)
         const times = yield* E.checkOptionsResult(object?.preserveTimes, timeFields, operation)
         if (object?.preserveTimes !== undefined && (!isUnixNano(times?.atime) || !isUnixNano(times?.mtime))) {
@@ -589,6 +589,7 @@ export const writeFile = (
     if (edited.kind !== "file") {
       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
     }
+    if (options?.finalMode === undefined) edited.mode &= ~E.SET_ID_BITS
     edited.data = next
     yield* tx.changedResult(node.id, ["mtime", "ctime"])
   })
@@ -610,7 +611,7 @@ export const truncate = (
     yield* tx.requireResult(node, E.WRITE_PERMISSION)
     yield* tx.revisionResult(node, options)
     yield* reserveFile(tx, requested)
-    if (requested === BigInt(node.data.length)) return
+    if (requested === BigInt(node.data.length) && (node.mode & E.SET_ID_BITS) === 0) return
     const data = new Uint8Array(Number(requested))
     data.set(node.data.subarray(0, data.length))
     const edited = yield* tx.editResult(node.id)
@@ -618,6 +619,7 @@ export const truncate = (
       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
     }
     edited.data = data
+    edited.mode &= ~E.SET_ID_BITS
     yield* tx.changedResult(node.id, ["mtime", "ctime"])
   })
 
@@ -632,7 +634,7 @@ export const validateAttributes = (
       return yield* Result.fail(new M.InvalidInput({ operation, field: "attributes", reason: "malformed" }))
     }
     if (attributes.size !== undefined) yield* R.sizeResult(attributes.size, operation, "size")
-    if (attributes.mode !== undefined) yield* E.modeResult(attributes.mode, "directory", operation)
+    if (attributes.mode !== undefined) yield* E.modeResult(attributes.mode, operation)
     if (attributes.uid !== undefined) yield* E.identityResult(attributes.uid, operation, "uid")
     if (attributes.gid !== undefined) yield* E.identityResult(attributes.gid, operation, "gid")
     if (attributes.atime !== undefined && attributes.atime !== "now" && !isUnixNano(attributes.atime)) {
@@ -662,7 +664,6 @@ export const attributesFor = (
       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
     }
     if (attributes.mode !== undefined) {
-      yield* E.modeResult(attributes.mode, node.kind, tx.operation)
       yield* tx.ownsResult(node)
       if (
         node.kind === "directory" && (attributes.mode & E.SET_GID_BIT) !== 0 && (node.mode & E.SET_GID_BIT) === 0 &&
@@ -670,7 +671,10 @@ export const attributesFor = (
       ) return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "ownership" }))
     }
     if (attributes.uid !== undefined && !tx.caller.policy.privileged) {
-      return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "ownership" }))
+      yield* tx.ownsResult(node)
+      if (attributes.uid !== node.uid) {
+        return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "ownership" }))
+      }
     }
     if (attributes.gid !== undefined) {
       yield* tx.ownsResult(node)
@@ -709,8 +713,17 @@ export const attributesFor = (
       changed = true
       yield* tx.touchResult(node.id, ["mtime"])
     }
+    const clearSetId = requested !== undefined || attributes.uid !== undefined || attributes.gid !== undefined
+    const mode = attributes.mode ?? (clearSetId && edited.kind === "file" ? edited.mode & ~E.SET_ID_BITS : edited.mode)
+    const finalMode = attributes.mode !== undefined && edited.kind === "file"
+      ? tx.fileMode(mode, attributes.gid ?? edited.gid)
+      : mode
+    if (finalMode !== edited.mode) {
+      edited.mode = finalMode
+      changed = true
+    }
     for (const field of attributeFields) {
-      if (field === "size") continue
+      if (field === "size" || field === "mode") continue
       const value = attributes[field]
       if (value === undefined) continue
       if (value !== "now" && value !== node[field]) changed = true
@@ -1115,6 +1128,7 @@ export const publishCopiedFile = (
     next.data = data.slice()
     if (existing === undefined) yield* tx.insertResult(slot.parent.id, slot.name, node.id)
     if (data.length > 0 || (existing !== undefined && existing.data.length !== 0)) {
+      next.mode &= ~E.SET_ID_BITS
       yield* tx.changedResult(node.id, ["mtime", "ctime"])
     }
     if (options?.preserveTimes !== undefined) {

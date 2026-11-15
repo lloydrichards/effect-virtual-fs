@@ -93,13 +93,13 @@ const Count = Schema.Natural
 const PositiveCount = Count.check(Schema.isGreaterThan(0))
 
 /** @internal */
-export const Uint32 = Schema.Number.check(Schema.isUint32())
+export const Identity = Schema.Natural.check(Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER))
 
 /** @internal */
-export const isUint32 = Schema.is(Uint32)
+export const isIdentity = Schema.is(Identity)
 
 /** @internal */
-export const PermissionMode = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 0o3777 }))
+export const PermissionMode = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 0o7777 }))
 
 /** @internal */
 export const isPermissionMode = Schema.is(PermissionMode)
@@ -150,15 +150,12 @@ const sortedNames = (names: ReadonlyArray<BytePath.BytePath>) =>
 
 const validMetadata = (metadata: {
   readonly kind: "file" | "directory" | "symlink"
-  readonly mode: number
   readonly size: ByteSize.ByteSize
   readonly nlink: bigint
 }) =>
-  metadata.kind === "file" ?
-    metadata.mode <= 0o777 :
-    metadata.kind === "symlink" ?
-    metadata.mode <= 0o777 && metadata.size > bigint0 :
-    metadata.size === bigint0 && (metadata.nlink === bigint0 || metadata.nlink >= bigint2)
+  metadata.kind === "directory"
+    ? metadata.size === bigint0 && (metadata.nlink === bigint0 || metadata.nlink >= bigint2)
+    : metadata.kind === "file" || metadata.size > bigint0
 
 const coherentObservation = (observation: {
   readonly reference: ObjectReference
@@ -232,8 +229,8 @@ export type EntryTarget = Path | EntryAddress
 export const Metadata = Schema.Struct({
   kind: Schema.Literals(["file", "directory", "symlink"]),
   objectNumber: PositiveBigInt,
-  uid: Uint32,
-  gid: Uint32,
+  uid: Identity,
+  gid: Identity,
   mode: PermissionMode,
   atime: Schema.UnixNano,
   mtime: Schema.UnixNano,
@@ -734,8 +731,8 @@ export interface CaptureTraversalOptions {
 
 export const SemanticMetadata = Schema.Struct({
   objectNumber: PositiveBigInt,
-  uid: Uint32,
-  gid: Uint32,
+  uid: Identity,
+  gid: Identity,
   mode: PermissionMode,
   atime: Schema.UnixNano,
   mtime: Schema.UnixNano,
@@ -766,7 +763,7 @@ export const FileRecord = Schema.TaggedStruct("file", {
   parentId: PositiveBigInt,
   name: Name,
   data: Schema.Uint8Array.check(Schema.makeFilter((value) => Result.isSuccess(Bytes.byteLength(value)))),
-  metadata: SemanticMetadata.check(Schema.makeFilter((metadata) => metadata.mode <= 0o777))
+  metadata: SemanticMetadata
 })
 
 export type FileRecord = typeof FileRecord["Type"]
@@ -776,7 +773,7 @@ export const SymlinkRecord = Schema.TaggedStruct("symlink", {
   parentId: PositiveBigInt,
   name: Name,
   target: NonEmptyPath,
-  metadata: SemanticMetadata.check(Schema.makeFilter((metadata) => metadata.mode <= 0o777))
+  metadata: SemanticMetadata
 })
 
 export type SymlinkRecord = typeof SymlinkRecord["Type"]

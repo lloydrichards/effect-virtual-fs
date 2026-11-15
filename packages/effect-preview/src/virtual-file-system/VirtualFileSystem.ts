@@ -209,7 +209,7 @@ export {
    */
   ListedEntry,
   /**
-   * Complete logical metadata. Object numbers are positive, uid/gid are uint32, and modes reject
+   * Complete logical metadata. Object numbers are positive, uid/gid are nonnegative safe integers, and modes reject
    * unsupported bits.
    *
    * @stability experimental
@@ -449,7 +449,7 @@ export type {
    */
   CreateOptions,
   /**
-   * Copied uint32 identity. Supplementary groups default empty; privilege defaults false. uid zero has no
+   * Copied nonnegative safe-integer identity. Supplementary groups default empty; privilege defaults false. uid zero has no
    * implicit privilege.
    *
    * @stability experimental
@@ -1147,7 +1147,7 @@ export const make: (
             const root = {
               uid: yield* E.identityResult(configuration?.root?.uid ?? 0, "make", "uid"),
               gid: yield* E.identityResult(configuration?.root?.gid ?? 0, "make", "gid"),
-              mode: yield* E.modeResult(configuration?.root?.mode ?? DEFAULT_ROOT_MODE, "directory", "make")
+              mode: yield* E.modeResult(configuration?.root?.mode ?? DEFAULT_ROOT_MODE, "make")
             }
             return yield* ownerFor(new E.Engine(new R.Runtime(limits, clock), root, undefined, accessTime))
           })
@@ -1345,7 +1345,7 @@ const write = <Target extends M.Target, Operation extends "writeFile" | "publish
 const Umask = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 0o777 }))
 
 const isBoolean = Schema.is(Schema.Boolean)
-const isGroups = Schema.is(Schema.Array(M.Uint32))
+const isGroups = Schema.is(Schema.Array(M.Identity))
 const isUmask = Schema.is(Umask)
 
 const credentials = (

@@ -536,10 +536,8 @@ describe("VirtualFileSystem", () => {
         (yield* Effect.flip(caller.setAttributes("/group/child", { mode: 0o2755 })))._tag,
         "AccessDenied"
       )
-      assert.strictEqual(
-        (yield* Effect.flip(caller.setAttributes("/group/child/file", { mode: 0o2644 })))._tag,
-        "InvalidInput"
-      )
+      yield* caller.setAttributes("/group/child/file", { mode: 0o2644 })
+      assert.strictEqual((yield* caller.stat("/group/child/file")).metadata.mode, 0o644)
     }).pipe(withClock))
 
   it.effect("should check requested permissions without touching metadata when access follows a symlink", () =>
