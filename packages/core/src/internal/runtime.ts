@@ -254,6 +254,8 @@ export const drainPending = Effect.fnUntraced(function*(runtime: Runtime) {
 // Only operations that leave content, timestamps and cursors untouched can pass an active capture.
 const captureObservations = new Set(["access", "lookup", "parent", "realPath", "root", "stat", "sync", "walk"])
 
+const captureReads = new Set(["pread", "readDirectory", "readFile", "readLink"])
+
 // The core boundary serializes its compatibility observations. Native calls share its busy guard.
 const execute = <A, R>(
   runtime: Runtime,
@@ -291,12 +293,26 @@ const execute = <A, R>(
         }).pipe(Effect.andThen(drainPending(runtime)))
     )
 
-    // A writer holds the arrival gate while waiting for captures, so a later observer cannot pass it.
-    const work = runtime.gate.withPermit(
-      runtime.captureReaders === undefined || captureObservations.has(operation)
-        ? run
-        : runtime.captureReaders.withPermits(Number.MAX_SAFE_INTEGER)(run)
-    )
+    // Keep the arrival gate while a stale read waits, so later observers cannot overtake it.
+    const work = runtime.gate.withPermit(Effect.gen(function*() {
+      const readers = runtime.captureReaders
+
+      if (readers === undefined || captureObservations.has(operation)) return yield* run
+      const exclusive = readers.withPermits(Number.MAX_SAFE_INTEGER)(run)
+
+      if (!captureReads.has(operation)) return yield* exclusive
+      const immediate = yield* readers.withPermitsIfAvailable(Number.MAX_SAFE_INTEGER)(run)
+
+      if (Option.isSome(immediate)) return immediate.value
+
+      return yield* run.pipe(
+        Effect.provideService(P.RequireStableReadAtime, true),
+        Effect.catchIf(
+          (error) => Schema.is(P.Busy)(error.cause) && error.cause.reason === "accessTimeUpdate",
+          () => exclusive
+        )
+      )
+    }))
 
     return runtime.owner.limits.synchronous
       ? Effect.provideService(work, Scheduler.PreventSchedulerYield, true)

@@ -586,9 +586,13 @@ export class LimitExceeded extends Schema.TaggedError<LimitExceeded>()("LimitExc
   stage: Schema.Literals(["admission", "reservation", "resolution", "publication", "traversal", "restore"])
 }) {}
 
+export const RequireStableReadAtime = Context.Reference<boolean>("effect/VirtualFileSystem/RequireStableReadAtime", {
+  defaultValue: () => false
+})
+
 export class Busy extends Schema.TaggedError<Busy>()("Busy", {
   ...ErrorContext,
-  reason: Schema.Literals(["pending", "draining", "nonemptyDirectory"])
+  reason: Schema.Literals(["pending", "draining", "nonemptyDirectory", "accessTimeUpdate"])
 }) {}
 
 export class ReentrantOperation extends Schema.TaggedError<ReentrantOperation>()("ReentrantOperation", {

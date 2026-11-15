@@ -33,6 +33,16 @@ const DEFAULT_UMASK = 0o022
 
 export {
   /**
+   * When true, an Effect operation that would change an automatic read access time
+   * fails before publication with Busy("accessTimeUpdate"). Explicit attribute
+   * updates and synchronous calls retain their usual behavior. Defaults to false.
+   *
+   * @stability experimental
+   * @category references
+   * @since 4.1.0
+   */
+  RequireStableReadAtime,
+  /**
    * AccessDenied expected failure with typed reasons and safe operation context.
    *
    * @stability experimental

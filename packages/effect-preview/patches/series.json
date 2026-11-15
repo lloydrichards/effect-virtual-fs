@@ -86,5 +86,9 @@
   {
     "file": "0022-inspect-directory-identities.patch",
     "sha256": "a7389ffab4fc1361756fa327cc0943d631e959a6a4b86739d6d95ab079645df0"
+  },
+  {
+    "file": "0023-guard-automatic-read-atime.patch",
+    "sha256": "fcb000bf856a62572f915a7d47c82cf041dff0878cb4b739700dad0f0ba9928a"
   }
 ]

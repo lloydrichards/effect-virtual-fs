@@ -352,6 +352,7 @@ export class Resource {
 /** @internal */
 export interface ResultTransition<A> {
   readonly value: A
+  readonly readAtimeChanged?: boolean | undefined
   readonly publish?: (() => Result.Result<void, M.OperationError>) | undefined
 }
 
@@ -734,6 +735,9 @@ export class Runtime {
           }))
           // Observe interruption before publication, while filesystem changes remain staged.
           yield* restore(Effect.void)
+          if (transition.readAtimeChanged && (yield* M.RequireStableReadAtime)) {
+            return yield* new M.Busy({ operation, reason: "accessTimeUpdate" })
+          }
           const publish = transition.publish
           if (publish !== undefined) {
             yield* Effect.suspend(() => {

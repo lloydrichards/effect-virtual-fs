@@ -2,6 +2,8 @@
 
 ## 2026-11-15
 
+- Record how cooperative overlay capture admits recent reads and queues operations that change atime or advance a cursor.
+
 - Record how core walks list readable directories without updating atime and account for bytes while preserving child metadata permissions.
 
 - Record cooperative overlay capture admission and the committed mutation information core needs for watch delivery.

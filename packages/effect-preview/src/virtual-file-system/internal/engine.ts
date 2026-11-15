@@ -1539,6 +1539,7 @@ export class Transaction {
           )
         }
       }
+      let readAtimeChanged = false
       if (this.timeRequests.size > 0) {
         const now = engine.now()
         for (const [id, fields] of this.timeRequests) {
@@ -1555,7 +1556,10 @@ export class Transaction {
               changed = true
             }
           }
-          if (changed && (fields.size > 1 || !fields.has("atime"))) node.revision++
+          if (changed) {
+            if (fields.size === 1 && fields.has("atime")) readAtimeChanged = true
+            else node.revision++
+          }
         }
       }
       for (const product of this.products) {
@@ -1567,6 +1571,7 @@ export class Transaction {
       const caller = this.pendingCaller
       return {
         value,
+        readAtimeChanged,
         publish: () =>
           Result.gen(this, function*() {
             // NOTE: Clock may have changed the borrowed view. Validate before any publication.
