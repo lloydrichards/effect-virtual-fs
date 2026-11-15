@@ -21,6 +21,8 @@ sources:
     title: Upstream atomic mkdir timestamps and runtime/type regressions
   - resource: ../../packages/effect-preview/patches/0007-atomic-open-timestamps.patch
     title: Upstream atomic open creation timestamps and runtime/type regressions
+  - resource: ../../packages/effect-preview/patches/0008-atime-revision-neutrality.patch
+    title: Upstream read atime revision neutrality and regression tests
   - resource: ../../packages/core/test/PreviewRuntime.test.ts
     title: Preview ownership regressions through existing constructors
   - resource: ../../packages/core/src/VirtualFileSystem.ts
@@ -43,14 +45,14 @@ sources:
     title: Public owner operations, metadata, and atomic publication options
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/328
     title: Remaining API gaps and atomic copy option proposal
-generated: { by: codex/okf, at: "2026-11-15T21:56:00+00:00" }
+generated: { by: codex/okf, at: "2026-11-15T22:04:00+00:00" }
 ---
 
 # Effect preview drop-in evaluation
 
 The goal is one reproducible private preview package consumed by the existing core, memory, and Node packages. Existing applications, public behavior, codecs, and test assertions must remain intact. A parallel downstream stack does not establish replacement compatibility.
 
-The PR now adds only `packages/effect-preview`, pinned to `161258278d6618bb5a10804827bb7a5f34b04c4d`. The former parallel adapters, codecs, helpers, transfer/search/delta packages, and application rewrites are removed. The upstream snapshot remains unchanged; checksummed contribution patches fix cancellation and recursive mkdir dot-component traversal, and add current-time attributes, atomic resize attributes, opt-in relatime, and atomic mkdir/open timestamps, with upstream runtime and type regressions.
+The PR now adds only `packages/effect-preview`, pinned to `161258278d6618bb5a10804827bb7a5f34b04c4d`. The former parallel adapters, codecs, helpers, transfer/search/delta packages, and application rewrites are removed. The upstream snapshot remains unchanged; checksummed contribution patches fix cancellation and recursive mkdir dot-component traversal, and add current-time attributes, atomic resize attributes, opt-in relatime, atomic mkdir/open timestamps, and atime-only revision neutrality, with upstream runtime and type regressions.
 
 ## Current result: runtime switched, acceptance blocked
 
@@ -87,7 +89,6 @@ Core production source is 17,088 lines versus 22,710 in the previous PR state an
 | Atomic initial metadata                                                 | Open rejects `initialSize` and initial ownership. Literal directory/open timestamps are supported by contributions six and seven.                                                                                               | Initial size/ownership and their rollback checks.                                                                   |
 | Special modes, custom symlink modes, wide owners, empty symlink targets | Direct probes reject unsupported bits, symlink mode changes, owners above unsigned 32-bit range, and empty targets.                                                                                                             | Existing rich fixtures, snapshot round trips, transfer fidelity, and Node symlink tests. No metadata is normalized. |
 | Caller-authorized orphan metadata                                       | A file retained by a creator handle remains observable, but a different authorized owner cannot update it by public reference after unlink. Using the creator's privileged handle would change the invoking caller's authority. | Orphan handle metadata authority.                                                                                   |
-| Atime-only revision neutrality                                          | A direct preview read refreshes atime and advances the object revision while mtime is unchanged.                                                                                                                                | Reference-open stale-observation regression, previously blocked during timestamped fixture creation.                |
 | Readable, nonsearchable directory listing                               | Public no-atime walk requires search permission before listing. Binding listings require search; name-only listings lack object references and touch atime.                                                                     | Walk, recursive listing, and transfer failure-prefix tests.                                                         |
 
 Masked finalizer cleanup was a demonstrated upstream defect and is now fixed by `patches/0001-preserve-caller-interruptibility.patch` in the preview package. Admission and the pre-publication interruption checkpoint restore the caller's interruption setting instead of forcing interruption. Regression tests prove that interrupted-child cleanup and masked writes finish, while the existing ordinary-write interruption test still proves rollback before publication. This needs no adapter changes or detached cleanup fibers. Regeneration verifies the contribution checksum, applies it to upstream paths with zero fuzz, and checks generated output against the patched source.
@@ -104,7 +105,9 @@ Atomic mkdir timestamps are supported by `patches/0006-atomic-mkdir-timestamps.p
 
 Atomic open creation timestamps are supported by `patches/0007-atomic-open-timestamps.patch`. Creation-capable async and sync opens snapshot and validate literal times, then stage them only for a newly created file in the open transaction. Existing files ignore them; reference-only opens reject them. Creation ctime/birthtime, parent updates, access grants and cursor defaults retain ordinary behavior. Core forwards its existing times and corrects an invalid option mapping: after checking expected-child state under its serialized operation, it forwards preview's object-revision guard only when truncating. Preview rejects that guard on non-truncating opens.
 
-The existing stale-observation test now passes fixture creation and matching-open assertions but fails when a read changes only atime and preview advances the object revision. A direct preview probe confirms this without core. Timestamp support therefore does not establish a recovered test; atime-only revision neutrality is a separate upstream gap. Core's revision mapping remains unchanged.
+The open-timestamp contribution exposed an atime-only revision mismatch after fixture creation and matching-open assertions. Contribution eight below resolves that separate upstream behavior without changing core revision mapping.
+
+Read atime revision neutrality is supported by `patches/0008-atime-revision-neutrality.patch`. Transaction finalization still publishes automatic atime updates but does not advance the object revision for an atime-only touch. Strict and relatime reads, including symlinks, directory listings, handles and synchronous reads, retain their access-time policy. Explicit timestamp/content mutations still advance revisions and invalidate old guards. One existing upstream observed-read assertion changes to the proposed contract; seventeen added regressions cover the behavior and preservation rules. The existing core reference-open stale-observation regression passes without any core edits or changed assertions.
 
 Error precedence, fields, listing order, snapshot identity, authority, and cancellation remain part of the acceptance contract. A failing assertion alone does not establish an upstream gap. Failures in concurrent watch and live-store tests that wait for unavailable hooks remain visible, including their timeouts.
 

@@ -1921,3 +1921,123 @@ describe("atomic open creation timestamps", () => {
       assert.strictEqual((yield* Effect.flip(caller.stat("/file")))._tag, "NotFound")
     }))
 })
+
+
+describe("atime-only revision neutrality", () => {
+  for (const accessTime of ["strict", "relatime"] as const) {
+    for (const read of ["file", "directory", "entries", "symlink", "handle", "positioned"] as const) {
+      it.effect(`should preserve revision when ${accessTime} ${read} reads refresh atime`, () =>
+        Effect.gen(function*() {
+          const owner = yield* VFS.make({ accessTime })
+          const caller = yield* owner.authorize({ credentials })
+          const isDirectory = read === "directory" || read === "entries"
+          if (isDirectory) yield* caller.makeDirectory("/target")
+          else if (read === "symlink") yield* caller.makeSymlink("/target", "/destination")
+          else yield* caller.writeFile("/target", new Uint8Array([1]))
+          const target = read === "symlink" ? { directory: "/", name: "target" } : "/target"
+          const before = read === "symlink" ? yield* caller.linkStat(target) : yield* caller.stat(target)
+          yield* TestClock.adjust("1 second")
+          switch (read) {
+            case "file": yield* caller.readFile(target); break
+            case "directory": yield* caller.readDirectory(target); break
+            case "entries": yield* caller.readDirectoryEntries(target); break
+            case "symlink": yield* caller.readLink(target); break
+            default: {
+              const file = yield* caller.open("/target", { access: "read" })
+              yield* file.readAlloc(1, read === "positioned" ? { position: 0n } : undefined)
+              assert.strictEqual(yield* file.position(), read === "positioned" ? 0n : 1n)
+            }
+          }
+          const after = read === "symlink" ? yield* caller.linkStat(target) : yield* caller.stat(target)
+          assert.strictEqual(after.metadata.atime, 1000000000n)
+          assert.deepStrictEqual(after.metadata, { ...before.metadata, atime: 1000000000n })
+          assert.isTrue(VFS.equalsObjectRevision(before.revision, after.revision))
+          assert.isTrue(VFS.equalsObjectReference(before.reference, after.reference))
+          if (before.kind === "directory" && after.kind === "directory") {
+            assert.isTrue(VFS.equalsNamespaceRevision(before.namespaceRevision, after.namespaceRevision))
+          }
+        }))
+    }
+  }
+
+  it.effect("should accept a pre-read revision guard and reject it after a content write", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.writeFile("/file", new Uint8Array([1]))
+      const before = yield* caller.stat("/file")
+      yield* TestClock.adjust("1 second")
+      yield* caller.readFile("/file")
+      yield* caller.writeFile("/file", new Uint8Array([2]), { expectedRevision: before.revision })
+      assert.isFalse(VFS.equalsObjectRevision(before.revision, (yield* caller.stat("/file")).revision))
+      const error = yield* Effect.flip(caller.setAttributes("/file", { mode: 0o600 }, { expectedRevision: before.revision }))
+      assert.strictEqual(error._tag, "ConditionFailed")
+    }))
+
+  for (const time of ["literal", "now"] as const) {
+    it.effect(`should advance revision for an explicit ${time} atime change`, () =>
+      Effect.gen(function*() {
+        const owner = yield* VFS.make()
+        const caller = yield* owner.authorize({ credentials })
+        yield* caller.writeFile("/file", new Uint8Array([1]))
+        const before = yield* caller.stat("/file")
+        yield* TestClock.adjust("1 second")
+        yield* caller.setAttributes("/file", {
+          atime: time === "now" ? "now" : DateTime.unixNanoFromNanoseconds(7n)
+        })
+        const after = yield* caller.stat("/file")
+        assert.strictEqual(after.metadata.atime, time === "now" ? 1000000000n : 7n)
+        assert.strictEqual(after.metadata.ctime, 1000000000n)
+        assert.isFalse(VFS.equalsObjectRevision(before.revision, after.revision))
+        assert.strictEqual((yield* Effect.flip(caller.setAttributes("/file", { mode: 0o600 }, { expectedRevision: before.revision })))._tag, "ConditionFailed")
+      }))
+  }
+
+  it.effect("should preserve revision for synchronous whole-file and handle reads", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make({ limits: { synchronous: true } })
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.writeFile("/file", new Uint8Array([1]))
+      const region = yield* caller.acquireSync
+      const before = Result.getOrThrow(region.stat("/file"))
+      yield* TestClock.adjust("1 second")
+      Result.getOrThrow(region.readFile("/file"))
+      const after = Result.getOrThrow(region.stat("/file"))
+      assert.strictEqual(after.metadata.atime, 1000000000n)
+      assert.isTrue(VFS.equalsObjectRevision(before.revision, after.revision))
+      const file = Result.getOrThrow(region.open("/file"))
+      yield* TestClock.adjust("1 second")
+      Result.getOrThrow(file.readAlloc(1))
+      const afterHandle = Result.getOrThrow(file.stat())
+      assert.strictEqual(afterHandle.metadata.atime, 2000000000n)
+      assert.isTrue(VFS.equalsObjectRevision(before.revision, afterHandle.revision))
+    }))
+
+  it.effect("should publish neither atime nor revision changes when a read is interrupted", () =>
+    Effect.gen(function*() {
+      const clock = yield* Clock.Clock
+      let interrupt: (() => void) | undefined
+      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
+        ...clock,
+        currentTimeNanosUnsafe: () => {
+          interrupt?.()
+          return clock.currentTimeNanosUnsafe()
+        }
+      }))
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.writeFile("/file", new Uint8Array([1]))
+      const before = yield* caller.stat("/file")
+      const usage = yield* owner.usage
+      yield* TestClock.adjust("1 second")
+      const reading = yield* Effect.withFiber((fiber) => {
+        interrupt = () => {
+          interrupt = undefined
+          fiber.interruptUnsafe()
+        }
+        return caller.readFile("/file")
+      }).pipe(Effect.forkChild({ startImmediately: true }))
+      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(reading)))
+      assert.deepStrictEqual(yield* caller.stat("/file"), before)
+      assert.deepStrictEqual(yield* owner.usage, usage)
+    }))
+})

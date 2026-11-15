@@ -1530,7 +1530,7 @@ export class Transaction {
               changed = true
             }
           }
-          if (changed) node.revision++
+          if (changed && (fields.size > 1 || !fields.has("atime"))) node.revision++
         }
       }
       for (const product of this.products) {

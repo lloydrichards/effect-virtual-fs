@@ -26,5 +26,9 @@
   {
     "file": "0007-atomic-open-timestamps.patch",
     "sha256": "844607154b31d46c4c589c3269298136d2bbfb4c0389499bd3ce3cc3f2f4fce4"
+  },
+  {
+    "file": "0008-atime-revision-neutrality.patch",
+    "sha256": "d608e3424d535668bd8bc85724ee051244b29b0418a08455423d4702587e5711"
   }
 ]

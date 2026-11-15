@@ -610,7 +610,8 @@ export type {
    */
   ObjectReference,
   /**
-   * Opaque object revision bound to its object and instance.
+   * Opaque object revision bound to its object and instance. Automatic read access-time updates do not advance it;
+   * explicit timestamp and other mutations retain their revision checks and advancement.
    *
    * @stability experimental
    * @category models

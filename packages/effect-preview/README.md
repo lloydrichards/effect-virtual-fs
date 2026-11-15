@@ -106,7 +106,12 @@ its existing mkdir times instead of rejecting them or applying metadata after pu
 The existing open transaction stages exact initial atime/mtime before publishing the file or delivering its
 handle. Existing files ignore creation times, reference opens reject them, and ordinary opens keep their defaults.
 Core forwards its existing times option. Initial size and ownership remain separate gaps. The stale-observation
-core test now reaches an atime-only revision mismatch; the adapter does not hide that upstream behavior.
+core test exposed the atime-only revision mismatch resolved by contribution eight below.
+
+`0008-atime-revision-neutrality.patch` preserves object revisions when an automatic read refreshes only atime.
+The refreshed atime still publishes under strict and relatime policies. Explicit timestamp updates and other
+mutations retain their revision advancement and stale-guard behavior. The patch updates the upstream observed-read
+assertion to the new contract and adds read-path, synchronous, guard and cancellation regressions. Core is unchanged.
 
 Apply these contributions in series order from an Effect checkout at the pinned PR commit:
 
@@ -118,6 +123,7 @@ patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0004-atom
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0005-opt-in-relatime.patch
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0006-atomic-mkdir-timestamps.patch
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0007-atomic-open-timestamps.patch
+patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0008-atime-revision-neutrality.patch
 ```
 
 To revise a contribution, edit its upstream patch, update the checksum in `series.json`, and regenerate. Once the

@@ -597,7 +597,7 @@ describe("VirtualFileSystem", () => {
       assert.strictEqual(read.accessTimeBeforeRead, before.metadata.atime)
       assert.strictEqual(read.object.metadata.atime, 1_000_000_000n)
       assert.isTrue(VFS.equalsObjectRevision(read.object.revision, (yield* caller.stat("/file")).revision))
-      assert.isFalse(VFS.equalsObjectRevision(read.object.revision, before.revision))
+      assert.isTrue(VFS.equalsObjectRevision(read.object.revision, before.revision))
     }).pipe(withClock))
 
   it.effect("should preserve all attributes when a combined request exceeds the caller's authority", () =>
