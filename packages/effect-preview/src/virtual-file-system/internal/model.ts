@@ -446,6 +446,10 @@ export interface OpenOptions extends RevisionCondition {
 }
 
 export interface WriteFileOptions extends RevisionCondition {
+  /** Exact permission mode to publish with the bytes. Existing files require owner authority. */
+  readonly finalMode?: number | undefined
+  /** Replace the final symbolic link itself with a regular file, retaining any other links to it. */
+  readonly replaceFinalSymlink?: boolean | undefined
   readonly placement?: "replace" | "start" | "append" | undefined
   readonly access?: typeof WriteAccess["Type"] | undefined
   readonly create?: typeof Creation["Type"] | undefined
@@ -828,7 +832,7 @@ export type ReferenceOpenOptions = Omit<OpenOptions, "create" | "mode" | "condit
   readonly create?: Extract<typeof Creation["Type"], "existing"> | undefined
 }
 
-export type ReferenceWriteFileOptions = Omit<WriteFileOptions, "create" | "mode" | "conditions"> & {
+export type ReferenceWriteFileOptions = Omit<WriteFileOptions, "create" | "mode" | "conditions" | "replaceFinalSymlink"> & {
   readonly create?: Extract<typeof Creation["Type"], "existing"> | undefined
 }
 

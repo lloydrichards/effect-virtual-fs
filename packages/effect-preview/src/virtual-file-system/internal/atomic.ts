@@ -47,7 +47,7 @@ export type Operation = keyof OptionsByOperation
 /** @internal */
 export const optionFields = {
   access: ["read", "write", "execute"],
-  writeFile: ["placement", "access", "create", "mode", "conditions", "expectedRevision"],
+  writeFile: ["placement", "access", "create", "mode", "conditions", "expectedRevision", "finalMode", "replaceFinalSymlink"],
   createFile: ["mode", "conditions"],
   makeDirectory: ["mode", "conditions", "recursive", "preserveTimes"],
   makeDirectoryEntry: ["mode", "conditions", "preserveTimes"],
@@ -149,6 +149,10 @@ export const validate = (operation: Operation, options: unknown): Result.Result<
     Match.when("writeFile", () =>
       Result.gen(function*() {
         const object = yield* E.checkOptionsResult(options, optionFields.writeFile, operation)
+        if (object?.finalMode !== undefined) yield* E.modeResult(object.finalMode, "file", operation)
+        if (object?.replaceFinalSymlink !== undefined && !isBoolean(object.replaceFinalSymlink)) {
+          return yield* Result.fail(new M.InvalidInput({ operation, field: "replaceFinalSymlink", reason: "malformed" }))
+        }
         const placement = object?.placement
         if (placement !== undefined && !isPlacement(placement)) {
           return yield* Result.fail(new M.InvalidInput({ operation, field: "placement", reason: "malformed" }))
@@ -475,7 +479,7 @@ const writable = (
   Result.gen(function*() {
     if (M.isToken(target)) {
       if (
-        options.conditions !== undefined || options.mode !== undefined ||
+        options.conditions !== undefined || options.mode !== undefined || options.replaceFinalSymlink !== undefined ||
         (options.create !== undefined && options.create !== "existing")
       ) {
         return yield* Result.fail(
@@ -509,7 +513,17 @@ const writable = (
         return yield* Result.fail(new M.AlreadyExists({ operation: tx.operation, reason: "occupiedEntry" }))
       }
     } else {
-      selected = yield* tx.followFinalSlotResult(initial, state)
+      selected = options.replaceFinalSymlink ? initial : yield* tx.followFinalSlotResult(initial, state)
+      if (selected.binding !== undefined && options.replaceFinalSymlink &&
+        (yield* tx.getResult(selected.binding.object)).kind === "symlink") {
+        const victim = yield* tx.getResult(selected.binding.object)
+        yield* tx.stickyResult(selected.parent, victim)
+        yield* tx.authorizeCreateResult(selected.parent, options.mode, "file")
+        yield* tx.conditionsResult(initial.parent, initial.binding, options.conditions)
+        yield* tx.revisionResult(victim, options)
+        yield* tx.removeResult(selected.parent, selected.binding)
+        return yield* createWritableFile(tx, selected, options.mode)
+      }
       if (selected.binding !== undefined) {
         const node = yield* tx.getResult(selected.binding.object)
         yield* tx.requireResult(
@@ -533,7 +547,12 @@ const writable = (
     if (options.expectedRevision !== undefined) {
       return yield* Result.fail(new M.ConditionFailed({ operation: tx.operation, reason: "objectRevision" }))
     }
-    const node = yield* tx.createResult("file", selected.parent, options.mode)
+    return yield* createWritableFile(tx, selected, options.mode)
+  })
+
+const createWritableFile = (tx: E.Transaction, selected: { parent: E.DirectoryNode; name: BytePath.BytePath }, mode?: number) =>
+  Result.gen(function*() {
+    const node = yield* tx.createResult("file", selected.parent, mode)
     if (node.kind !== "file") {
       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
     }
@@ -551,6 +570,7 @@ export const writeFile = (
   Result.gen(function*() {
     yield* validate("writeFile", options)
     const node = yield* writable(tx, target, options ?? {})
+    if (options?.finalMode !== undefined) yield* attributesFor(tx, node, { mode: options.finalMode })
     if (BigInt(data.length) > tx.engine.runtime.limits.ioBytes) {
       return yield* Result.fail(new M.LimitExceeded({ operation: tx.operation, domain: "io", stage: "reservation" }))
     }

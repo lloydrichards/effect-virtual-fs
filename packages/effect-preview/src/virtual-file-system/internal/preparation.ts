@@ -150,6 +150,8 @@ export const snapshotOptions: {
       yield* checkShape(input, A.optionFields.writeFile, "writeFile")
       return {
         placement: input.placement,
+        finalMode: input.finalMode,
+        replaceFinalSymlink: input.replaceFinalSymlink,
         access: input.access,
         create: input.create,
         mode: input.mode,

@@ -1913,20 +1913,15 @@ const wrapCaller = (
           const located = yield* entryActor(runtime, caller, value)
           const t = located.target
           const actor = located.caller
-          const literal = yield* Effect.result(mapped(actor.linkStat(t)))
-
-          if (
-            o.replaceFinalSymlink && Result.isSuccess(literal) && literal.success.kind === "symlink"
-          ) return yield* blocked("atomicFinalSymlinkReplacement")
-
           const present = yield* Effect.result(
-            mapped(o.followFinalSymlink === false ? actor.linkStat(t) : actor.stat(t))
+            mapped(o.replaceFinalSymlink || o.followFinalSymlink === false ? actor.linkStat(t) : actor.stat(t))
           )
+          const replacing = o.replaceFinalSymlink && Result.isSuccess(present) && present.success.kind === "symlink"
 
           if (Result.isSuccess(present)) {
             if (present.success.kind === "directory") return yield* Errors.fsFailure("IsDirectory", "writeFile")
 
-            if (present.success.kind === "symlink") return yield* Errors.fsFailure("SymlinkLoop", "writeFile")
+            if (!replacing && present.success.kind === "symlink") return yield* Errors.fsFailure("SymlinkLoop", "writeFile")
           }
 
           if (o.access === "read") {
@@ -1935,35 +1930,29 @@ const wrapCaller = (
             return yield* Errors.fsFailure("InvalidHandle", "writeFile")
           }
 
-          if (o.finalMode !== undefined && Result.isSuccess(present)) {
-            if (
-              identity !== undefined && !identity.privileged && identity.uid !== present.success.metadata.uid
-            ) return yield* Errors.fsFailure("NotPermitted", "writeFile")
-
-            if (present.success.metadata.mode !== o.finalMode) return yield* blocked("atomicFinalMode")
+          if (replacing || (Result.isFailure(present) && o.create !== "never" && o.create !== undefined)) {
+            yield* allocation(runtime)
           }
-
-          if (Result.isFailure(present) && o.create !== "never" && o.create !== undefined) yield* allocation(runtime)
 
           const options: P.WriteFileOptions = {
             access: o.access === "readWrite" ? "readwrite" : "write",
             create: o.create === "ifMissing" ? "ifmissing" : o.create === "exclusive" ? "exclusive" : "existing",
-            mode: o.finalMode ?? o.mode,
+            mode: o.mode,
+            finalMode: o.finalMode,
+            replaceFinalSymlink: o.replaceFinalSymlink,
             placement: o.append ? "append" : o.truncate ? "replace" : "start"
           }
 
           const made = yield* namespace(value, (t, actor) =>
             Effect.gen(function*() {
-              if (o.followFinalSymlink !== false) yield* followedEntry(t, actor, boundariesOf(runtime, value))
+              if (!o.replaceFinalSymlink && o.followFinalSymlink !== false) {
+                yield* followedEntry(t, actor, boundariesOf(runtime, value))
+              }
 
-              const selected = o.finalMode !== undefined && Result.isFailure(present)
-                ? yield* withMask(actor, t, 0)
-                : actor
+              if (Predicate.isString(t) || Path.isBytePath(t)) yield* actor.writeFile(t, data, options)
+              else yield* actor.writeFile(t, data, options)
 
-              if (Predicate.isString(t) || Path.isBytePath(t)) yield* selected.writeFile(t, data, options)
-              else yield* selected.writeFile(t, data, options)
-
-              return yield* selected.stat(t)
+              return yield* actor.stat(t)
             }))
 
           return token(runtime, made.result).core

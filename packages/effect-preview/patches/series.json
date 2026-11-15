@@ -38,5 +38,9 @@
   {
     "file": "0010-symlink-modes.patch",
     "sha256": "339c7186aecac00e8daf2352f256f5899d23ae6b88be9083ff011c1388d935ef"
+  },
+  {
+    "file": "0011-atomic-write-publication.patch",
+    "sha256": "8e4e090dd105fe114259cca82132e406e9e25f1317e9869ed2760c1b00b0684a"
   }
 ]
