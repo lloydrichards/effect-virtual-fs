@@ -1730,3 +1730,194 @@ describe("atomic mkdir timestamps", () => {
       assert.strictEqual((yield* Effect.flip(caller.stat("/a")))._tag, "NotFound")
     }))
 })
+
+
+describe("atomic open creation timestamps", () => {
+  const times = {
+    atime: DateTime.unixNanoFromNanoseconds(31n),
+    mtime: DateTime.unixNanoFromNanoseconds(32n)
+  }
+  const opener = (caller: VFS.VirtualFileSystem, synchronous: boolean) => Effect.gen(function*() {
+    const region = synchronous ? yield* caller.acquireSync : undefined
+    return (target: VFS.EntryAddress, options: VFS.OpenOptions) => region === undefined
+      ? caller.open(target, options)
+      : Effect.map(Effect.fromResult(region.open(target, options)), (file) => file.effect)
+  })
+
+  for (const synchronous of [false, true]) {
+    const mode = synchronous ? "sync" : "async"
+    it.effect(`should publish initial file times with parent changes before ${mode} handle delivery`, () =>
+      Effect.gen(function*() {
+        const owner = yield* VFS.make({ limits: { synchronous: true } })
+        const caller = yield* owner.authorize({ credentials })
+        const open = yield* opener(caller, synchronous)
+        const parent = yield* caller.stat("/")
+        yield* TestClock.adjust("1 second")
+        const file = yield* open({ directory: "/", name: "file" }, {
+          create: "exclusive", access: "read", mode: 0o640, preserveTimes: times
+        })
+        const observed = yield* file.stat()
+        assert.deepStrictEqual(observed, yield* caller.stat("/file"))
+        assert.strictEqual(observed.metadata.atime, 31n)
+        assert.strictEqual(observed.metadata.mtime, 32n)
+        assert.strictEqual(observed.metadata.ctime, 1000000000n)
+        assert.strictEqual(observed.metadata.birthtime, 1000000000n)
+        assert.strictEqual(observed.metadata.size, 0n)
+        assert.strictEqual(observed.metadata.mode, 0o640)
+        assert.strictEqual(yield* file.position(), 0n)
+        const after = yield* caller.stat("/")
+        if (parent.kind !== "directory" || after.kind !== "directory") throw new Error("Expected directory")
+        assert.isFalse(VFS.equalsNamespaceRevision(after.namespaceRevision, parent.namespaceRevision))
+        assert.strictEqual(after.metadata.mtime, 1000000000n)
+        assert.strictEqual(after.metadata.atime, parent.metadata.atime)
+        assert.strictEqual((yield* Effect.flip(file.write(new Uint8Array([1]))))._tag, "AccessDenied")
+      }))
+
+    it.effect(`should ignore creation times for existing files in ${mode} opens`, () =>
+      Effect.gen(function*() {
+        const owner = yield* VFS.make({ limits: { synchronous: true } })
+        const caller = yield* owner.authorize({ credentials })
+        const open = yield* opener(caller, synchronous)
+        yield* caller.writeFile("/file", new Uint8Array([1]))
+        const before = yield* caller.stat("/file")
+        const parent = yield* caller.stat("/")
+        yield* TestClock.adjust("1 second")
+        const file = yield* open({ directory: "/", name: "file" }, { create: "ifmissing", access: "read", preserveTimes: times })
+        assert.deepStrictEqual(yield* file.stat(), before)
+        assert.deepStrictEqual(yield* caller.stat("/"), parent)
+        assert.strictEqual((yield* Effect.flip(open({ directory: "/", name: "file" }, { create: "exclusive", preserveTimes: times })))._tag, "AlreadyExists")
+        assert.deepStrictEqual(yield* file.stat(), before)
+      }))
+
+    it.effect(`should reject malformed creation times without entries or leaked ${mode} handles`, () =>
+      Effect.gen(function*() {
+        const owner = yield* VFS.make({ limits: { synchronous: true } })
+        const caller = yield* owner.authorize({ credentials })
+        const open = yield* opener(caller, synchronous)
+        const before = yield* caller.stat("/")
+        const usage = yield* owner.usage
+        for (const invalid of [null, {}, { atime: 31n }, { atime: "now", mtime: 32n }, { ...times, extra: true }]) {
+          const options: VFS.OpenOptions = { create: "exclusive" }
+          Object.defineProperty(options, "preserveTimes", { value: invalid })
+          assert.strictEqual((yield* Effect.flip(open({ directory: "/", name: "file" }, options)))._tag, "InvalidInput")
+          assert.deepStrictEqual(yield* caller.stat("/"), before)
+          assert.deepStrictEqual(yield* owner.usage, usage)
+        }
+      }))
+  }
+
+  it.effect("should preserve ordinary path-open defaults and support creation-capable byte paths", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      yield* TestClock.adjust("1 second")
+      const ordinary = yield* caller.open("/ordinary", { create: "ifmissing" })
+      assert.strictEqual((yield* ordinary.stat()).metadata.atime, 1000000000n)
+      assert.strictEqual((yield* ordinary.stat()).metadata.mtime, 1000000000n)
+      const file = yield* caller.open(Result.getOrThrow(BytePath.fromString("/file")), { create: "ifmissing", preserveTimes: times })
+      assert.strictEqual((yield* file.stat()).metadata.atime, 31n)
+      assert.strictEqual((yield* file.stat()).metadata.mtime, 32n)
+    }))
+
+  it.effect("should reject creation times without creation intent and through references", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.writeFile("/file", new Uint8Array([1]))
+      const before = yield* caller.stat("/file")
+      assert.strictEqual((yield* Effect.flip(caller.open("/file", { preserveTimes: times })))._tag, "InvalidInput")
+      const options: VFS.ReferenceOpenOptions = {}
+      Object.defineProperty(options, "preserveTimes", { value: times })
+      assert.strictEqual((yield* Effect.flip(caller.open(before.reference, options)))._tag, "InvalidInput")
+      assert.deepStrictEqual(yield* caller.stat("/file"), before)
+    }))
+
+  it.effect("should retain stale parent conditions without creating a timestamped file", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      const root = yield* caller.stat("/")
+      if (root.kind !== "directory") throw new Error("Expected directory")
+      yield* caller.makeDirectory("/other")
+      const before = yield* caller.stat("/")
+      const usage = yield* owner.usage
+      const error = yield* Effect.flip(caller.open({ directory: "/", name: "file" }, {
+        create: "exclusive", preserveTimes: times, conditions: { parentNamespace: root.namespaceRevision }
+      }))
+      assert.strictEqual(error._tag, "ConditionFailed")
+      assert.deepStrictEqual(yield* caller.stat("/"), before)
+      assert.deepStrictEqual(yield* owner.usage, usage)
+    }))
+
+  it.effect("should publish no file when handle capacity is exhausted", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make({ limits: { handles: 1 } })
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.open("/held", { create: "exclusive" })
+      const before = yield* caller.stat("/")
+      const usage = yield* owner.usage
+      assert.strictEqual((yield* Effect.flip(caller.open("/file", { create: "exclusive", preserveTimes: times })))._tag, "LimitExceeded")
+      assert.deepStrictEqual(yield* caller.stat("/"), before)
+      assert.deepStrictEqual(yield* owner.usage, usage)
+      assert.strictEqual((yield* Effect.flip(caller.stat("/file")))._tag, "NotFound")
+    }))
+
+  it.effect("should retain parent permission checks for timestamped creation", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const admin = yield* owner.authorize({ credentials })
+      const caller = yield* owner.authorize({ credentials: { uid: 1, gid: 1 } })
+      yield* admin.makeDirectory("/locked", { mode: 0o555 })
+      const before = yield* admin.stat("/locked")
+      assert.strictEqual((yield* Effect.flip(caller.open("/locked/file", { create: "exclusive", preserveTimes: times })))._tag, "AccessDenied")
+      assert.deepStrictEqual(yield* admin.stat("/locked"), before)
+      assert.strictEqual((yield* Effect.flip(admin.stat("/locked/file")))._tag, "NotFound")
+    }))
+
+  it.effect("should snapshot nested creation times before the publication clock runs", () =>
+    Effect.gen(function*() {
+      const clock = yield* Clock.Clock
+      const input = { ...times }
+      let mutate = false
+      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
+        ...clock,
+        currentTimeNanosUnsafe: () => {
+          if (mutate) input.atime = DateTime.unixNanoFromNanoseconds(99n)
+          return clock.currentTimeNanosUnsafe()
+        }
+      }))
+      const caller = yield* owner.authorize({ credentials })
+      mutate = true
+      const file = yield* caller.open("/file", { create: "exclusive", preserveTimes: input })
+      assert.strictEqual(input.atime, 99n)
+      assert.strictEqual((yield* file.stat()).metadata.atime, 31n)
+      assert.strictEqual((yield* file.stat()).metadata.mtime, 32n)
+    }))
+
+  it.effect("should roll back timestamps, parent changes and handle admission on cancellation", () =>
+    Effect.gen(function*() {
+      const clock = yield* Clock.Clock
+      let interrupt: (() => void) | undefined
+      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
+        ...clock,
+        currentTimeNanosUnsafe: () => {
+          interrupt?.()
+          return clock.currentTimeNanosUnsafe()
+        }
+      }))
+      const caller = yield* owner.authorize({ credentials })
+      const before = yield* caller.stat("/")
+      const usage = yield* owner.usage
+      const opening = yield* Effect.withFiber((fiber) => {
+        interrupt = () => {
+          interrupt = undefined
+          fiber.interruptUnsafe()
+        }
+        return caller.open("/file", { create: "exclusive", preserveTimes: times })
+      }).pipe(Effect.forkChild({ startImmediately: true }))
+      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(opening)))
+      assert.deepStrictEqual(yield* caller.stat("/"), before)
+      assert.deepStrictEqual(yield* owner.usage, usage)
+      assert.strictEqual((yield* Effect.flip(caller.stat("/file")))._tag, "NotFound")
+    }))
+})

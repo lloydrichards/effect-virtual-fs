@@ -1562,9 +1562,7 @@ const wrapCaller = (
 
         if (
           (options.initialSize !== undefined && options.initialSize !== 0n) ||
-          (options.owner !== undefined && (options.owner.uid !== undefined || options.owner.gid !== undefined)) ||
-          (options.times !== undefined &&
-            (options.times.access.kind === "value" || options.times.modification.kind === "value"))
+          (options.owner !== undefined && (options.owner.uid !== undefined || options.owner.gid !== undefined))
         ) return yield* blocked("atomicOpenInitialMetadata")
 
         if (options.mode !== undefined && (options.create === undefined || options.create === "never")) {
@@ -1636,9 +1634,19 @@ const wrapCaller = (
         const handle = yield* mapped(
           opening.open(address, {
             ...openOptions(options),
+            preserveTimes: options.times === undefined ? undefined : {
+              atime: nano(
+                options.times.access.kind === "value" ? options.times.access.nanoseconds : runtime.readClock()
+              ),
+              mtime: nano(
+                options.times.modification.kind === "value"
+                  ? options.times.modification.nanoseconds
+                  : runtime.readClock()
+              )
+            },
             conditions,
             noFollow: options.followFinalSymlink === false,
-            expectedRevision: options.expectedChild == null ? undefined : present?.revision
+            expectedRevision: options.truncate && options.expectedChild != null ? present?.revision : undefined
           })
         )
 

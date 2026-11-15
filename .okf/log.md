@@ -2,6 +2,8 @@
 
 ## 2026-11-15
 
+- Add the seventh reproducible upstream contribution for atomic open creation timestamps across async and sync APIs, with existing-file preservation and rollback regressions. Core forwards times and corrects a non-truncating-open guard mapping. The stale-observation test now reaches a demonstrated upstream atime-only revision mismatch; preserve its expectation and leave core revision mapping unchanged.
+
 - Add the sixth reproducible upstream contribution for atomic mkdir timestamps. Snapshot and validate literal times, apply them to newly created final directories within the creation transaction, and forward existing core options. Preserve recursive prefixes, existing directories, creation/parent clock values, conditions and rollback; initial open metadata remains separate.
 
 - Add the fifth reproducible preview contribution for opt-in relatime, keeping strict updates as the upstream default. Core selects the policy for fresh and restored volumes. Preserve explicit timestamps, capture records and unchanged-read revision tokens; distinguish the remaining directory permission mapping and overlay/persistence blockers.

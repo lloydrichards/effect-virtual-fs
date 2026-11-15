@@ -4,6 +4,7 @@ import type * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import * as Scope from "effect/Scope"
+import * as Schema from "../../compat/Schema.js"
 import * as A from "./atomic.js"
 import * as E from "./engine.js"
 import * as M from "./model.js"
@@ -16,6 +17,8 @@ import * as R from "./runtime.js"
 
 const CHAR_DOT = 46
 const CHAR_FORWARD_SLASH = 47
+
+const isUnixNano = Schema.is(Schema.UnixNano)
 
 const zero = BigInt(0)
 const maxSafe = BigInt(Number.MAX_SAFE_INTEGER)
@@ -451,6 +454,7 @@ const validateOpen = (
       "truncateCursor",
       "noFollow",
       "mode",
+      "preserveTimes",
       "conditions",
       "expectedRevision"
     ], operation)
@@ -482,6 +486,12 @@ const validateOpen = (
       return yield* Result.fail(new M.InvalidInput({ operation, field: "expectedRevision", reason: "malformed" }))
     }
     if (options?.mode !== undefined) yield* E.modeResult(options.mode, "file", operation)
+    const preserveTimes = yield* P.snapshotTimes(options?.preserveTimes, operation)
+    if (preserveTimes !== undefined) {
+      if (!isUnixNano(preserveTimes.atime) || !isUnixNano(preserveTimes.mtime) || create === "existing") {
+        return yield* Result.fail(new M.InvalidInput({ operation, field: "preserveTimes", reason: "malformed" }))
+      }
+    }
     if (
       M.isToken(target) &&
       (options?.conditions !== undefined || options?.mode !== undefined || create !== "existing")
@@ -494,6 +504,7 @@ const validateOpen = (
     yield* A.condition(conditions, operation)
     return {
       mode: options?.mode,
+      preserveTimes,
       conditions,
       expectedRevision: options?.expectedRevision,
       access,
@@ -571,6 +582,10 @@ const openNode = (
           return yield* Result.fail(new M.ConditionFailed({ operation: tx.operation, reason: "objectRevision" }))
         }
         selected = yield* tx.createResult("file", slot.parent, options.mode)
+        if (options.preserveTimes !== undefined) {
+          yield* tx.explicitTimeResult(selected.id, "atime", options.preserveTimes.atime)
+          yield* tx.explicitTimeResult(selected.id, "mtime", options.preserveTimes.mtime)
+        }
         yield* tx.insertResult(slot.parent.id, slot.name, selected.id)
       }
     }

@@ -99,7 +99,8 @@ export function snapshotConditions(
 // Operation options
 // -----------------------------------------------------------------------------
 
-const snapshotTimes = (
+/** @internal */
+export const snapshotTimes = (
   input: M.AtomicCopyOptions["preserveTimes"],
   operation: string
 ) =>

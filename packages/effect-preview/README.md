@@ -102,6 +102,12 @@ Recursive prefixes and existing final directories retain their timestamps; creat
 updates keep their normal clock values. Preparation snapshots the nested record before execution. Core forwards
 its existing mkdir times instead of rejecting them or applying metadata after publication.
 
+`0007-atomic-open-timestamps.patch` adds literal `preserveTimes` to creation-capable async and sync opens.
+The existing open transaction stages exact initial atime/mtime before publishing the file or delivering its
+handle. Existing files ignore creation times, reference opens reject them, and ordinary opens keep their defaults.
+Core forwards its existing times option. Initial size and ownership remain separate gaps. The stale-observation
+core test now reaches an atime-only revision mismatch; the adapter does not hide that upstream behavior.
+
 Apply these contributions in series order from an Effect checkout at the pinned PR commit:
 
 ```sh
@@ -111,6 +117,7 @@ patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0003-curr
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0004-atomic-resize-attributes.patch
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0005-opt-in-relatime.patch
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0006-atomic-mkdir-timestamps.patch
+patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0007-atomic-open-timestamps.patch
 ```
 
 To revise a contribution, edit its upstream patch, update the checksum in `series.json`, and regenerate. Once the

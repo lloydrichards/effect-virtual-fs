@@ -251,3 +251,18 @@ describe("atomic mkdir timestamps", () => {
     expect(caller.makeDirectoryEntry).type.not.toBeCallableWith(address, { recursive: true })
   })
 })
+
+
+describe("atomic open creation timestamps", () => {
+  it("should accept literal times for creation-capable opens and reject reference creation options", () => {
+    const options = { create: "exclusive" as const, preserveTimes: { atime: instant, mtime: instant } }
+    expect(caller.open("/file", options)).type.toBe<Effect.Effect<VFS.FileHandle, VFS.OperationError, Scope.Scope>>()
+    expect(caller.open).type.toBeCallableWith(address, options)
+    expect(sync.open).type.toBeCallableWith("/file", options)
+    expect(sync.open).type.toBeCallableWith(address, options)
+    expect(caller.open).type.not.toBeCallableWith(reference, { preserveTimes: options.preserveTimes })
+    expect(sync.open).type.not.toBeCallableWith(reference, { preserveTimes: options.preserveTimes })
+    expect(caller.open).type.not.toBeCallableWith("/file", { create: "exclusive", preserveTimes: { atime: "now", mtime: instant } })
+    expect(caller.open).type.not.toBeCallableWith("/file", { create: "exclusive", preserveTimes: { atime: instant } })
+  })
+})

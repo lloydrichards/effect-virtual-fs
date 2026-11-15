@@ -428,6 +428,8 @@ export interface AttributeOptions extends RevisionCondition {
 }
 
 export interface OpenOptions extends RevisionCondition {
+  /** Exact initial times when creating a file; an existing file retains its timestamps. Requires creation intent. */
+  readonly preserveTimes?: { readonly atime: DateTime.UnixNano; readonly mtime: DateTime.UnixNano } | undefined
   readonly access?: typeof OpenAccess["Type"] | undefined
   readonly create?: typeof Creation["Type"] | undefined
   readonly append?: boolean | undefined
@@ -820,7 +822,7 @@ type Scoped<A> = Effect.Effect<A, OperationError, Scope.Scope>
 
 type SyncResult<A> = Result.Result<A, OperationError>
 
-export type ReferenceOpenOptions = Omit<OpenOptions, "create" | "mode" | "conditions"> & {
+export type ReferenceOpenOptions = Omit<OpenOptions, "create" | "mode" | "conditions" | "preserveTimes"> & {
   readonly create?: Extract<typeof Creation["Type"], "existing"> | undefined
 }
 
