@@ -10,7 +10,7 @@ import type { Binding, Handle } from "../SynchronousAdapter.js"
 import { Target as CoreTarget } from "../Target.js"
 import type { FsFailure, ObjectReference, TargetInput } from "../VirtualFileSystem.js"
 import { Errors, Paths } from "./model.js"
-import { creationMode, direntReference, drainPending, failure, metadata, PreviewBlocker, type runtimeOf } from "./runtime.js"
+import { creationMode, direntReference, drainPending, failure, metadata, type runtimeOf } from "./runtime.js"
 
 type Runtime = NonNullable<ReturnType<typeof runtimeOf>>
 
@@ -226,13 +226,13 @@ export const bind = Effect.fnUntraced(
       mkdir: (path: string, o?: MkdirOptions) => {
         if (o?.exactMode && o.mode === undefined) throw Errors.fsFailure("InvalidArgument", "mkdir")
 
-        if (o?.times !== undefined && (o.times.access.kind === "value" || o.times.modification.kind === "value")) {
-          throw new PreviewBlocker({ feature: "atomicDirectoryMetadata" })
-        }
-
         unwrap((o?.exactMode ? exactSync : sync).makeDirectory(checked(path), {
-          mode: o?.mode,
-          recursive: o?.recursive
+          mode: creationMode(o?.mode, 0o1777, o?.exactMode),
+          recursive: o?.recursive,
+          preserveTimes: o?.times === undefined ? undefined : {
+            atime: nano(o.times.access.kind === "value" ? o.times.access.nanoseconds : runtime.readClock()),
+            mtime: nano(o.times.modification.kind === "value" ? o.times.modification.nanoseconds : runtime.readClock())
+          }
         }))
       },
       rmdir: (path: string) => {
@@ -277,6 +277,7 @@ export const bind = Effect.fnUntraced(
 
         const handle = directory ? unwrap(sync.openDirectory(checked(path))) : unwrap(sync.open(checked(path), {
           ...o,
+          mode: creationMode(o.mode, 0o777),
           access: o.access === "readWrite" ? "readwrite" : o.access,
           create: o.create === "never" ? "existing" : o.create === "ifMissing" ? "ifmissing" : o.create,
           noFollow,

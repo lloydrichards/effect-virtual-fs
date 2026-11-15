@@ -806,14 +806,19 @@ const times = (value: Times): P.Attributes => {
   return { atime: selected(value.access), mtime: selected(value.modification) }
 }
 
-const openOptions = (o: V.OpenOptions): P.OpenOptions => ({
+const validMode = Schema.is(Mode)
+
+export const creationMode = (mode: number | undefined, mask: number, exact = false) =>
+  exact || !validMode(mode) ? mode : mode & mask
+
+const openOptions = (o: V.OpenEntryOptions): P.OpenOptions => ({
   access: o.access === "readWrite" ? "readwrite" : o.access,
   create: o.create === "never" || o.create === undefined
     ? "existing"
     : o.create === "ifMissing"
     ? "ifmissing"
     : "exclusive",
-  mode: o.mode,
+  mode: creationMode(o.mode, 0o777, o.exactMode),
   append: o.append,
   truncate: o.truncate,
   appendCursor: "advance",
@@ -1940,7 +1945,7 @@ const wrapCaller = (
           const options: P.WriteFileOptions = {
             access: o.access === "readWrite" ? "readwrite" : "write",
             create: o.create === "ifMissing" ? "ifmissing" : o.create === "exclusive" ? "exclusive" : "existing",
-            mode: o.mode,
+            mode: creationMode(o.mode, 0o777),
             finalMode: o.finalMode,
             replaceFinalSymlink: o.replaceFinalSymlink,
             placement: o.append ? "append" : o.truncate ? "replace" : "start"
@@ -2010,7 +2015,7 @@ const wrapCaller = (
             const selected = o?.exactMode ? yield* withMask(actor, t, 0) : actor
 
             return yield* selected.makeDirectory(t, {
-              mode: o?.mode,
+              mode: creationMode(o?.mode, 0o1777, o?.exactMode),
               recursive: o?.recursive,
               preserveTimes: o?.times === undefined ? undefined : {
                 atime: nano(o.times.access.kind === "value" ? o.times.access.nanoseconds : runtime.readClock()),
