@@ -1,6 +1,7 @@
 /* eslint-disable effecttsgo/experimental-api-usage */
 import { BytePath, type VirtualFileSystem as P } from "@effect-vfs/effect-preview"
 import { type Cause, Effect, Exit, Predicate, Queue, Scope, Stream } from "effect"
+import * as Scheduler from "effect/Scheduler"
 import type * as V from "../VirtualFileSystem.js"
 import { Change } from "../Watch.js"
 import { sameBytes } from "./bytes.js"
@@ -25,6 +26,9 @@ interface Subscription {
 }
 
 const root = 1n
+
+// Queue offers run inside the commit listener. Schedule their wakeups on a microtask before invoking consumer code.
+const wakeScheduler = new Scheduler.MixedScheduler("sync")
 
 // Object numbers identify scope across renames. Only namespace bindings are needed to project events to byte paths.
 export const make = (initial: State.VolumeState | undefined, capacity: number) => {
@@ -195,7 +199,9 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
     const subscriber: Subscription = {
       root: object,
       recursive,
-      queue: yield* Queue.bounded<V.Change, Cause.Done>(capacity + 1),
+      queue: yield* Queue.bounded<V.Change, Cause.Done>(capacity + 1).pipe(
+        Effect.provideService(Scheduler.Scheduler, wakeScheduler)
+      ),
       overflowed: false
     }
 
