@@ -14,6 +14,8 @@ import * as Scope from "effect/Scope"
 import type { MkdirOptions, OpenOptions, RootCallerOptions } from "./Caller.js"
 import { engineOf } from "./internal/adapterBinding.js"
 import { Errors, Paths } from "./internal/engine.js"
+import { runtimeOf } from "./internal/previewRuntime.js"
+import { bind as bindPreview } from "./internal/previewSync.js"
 import type { Metadata, OwnerUpdate, Times } from "./Metadata.js"
 import type { Caller, DirectoryHandle, FileHandle, FsFailure, TargetInput, Volume } from "./VirtualFileSystem.js"
 
@@ -64,6 +66,14 @@ export interface Binding {
  */
 export const bind = Effect.fnUntraced(
   function*(volume: Volume, options?: RootCallerOptions): Effect.fn.Return<Binding, FsFailure, Scope.Scope> {
+    const preview = runtimeOf(volume)
+
+    if (preview !== undefined) {
+      if (!preview.owner.limits.synchronous) return yield* Errors.argumentFailure("bind", "volume")
+
+      return yield* bindPreview(preview, options)
+    }
+
     const engine = engineOf(volume)
     const checked = engine?.syncBinding
 

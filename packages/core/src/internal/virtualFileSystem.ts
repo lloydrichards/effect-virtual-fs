@@ -41,6 +41,7 @@ import * as Image from "./image.js"
 import * as LiveImage from "./liveImage.js"
 import * as MetadataDomain from "./metadata.js"
 import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./overlayDiff.js"
+import * as PreviewRuntime from "./previewRuntime.js"
 
 import { Errors, Paths, State, VolumeTestSeams } from "./engine.js"
 import * as Limits from "./volumeLimits.js"
@@ -113,7 +114,7 @@ const randomHex128 = Effect.gen(function*() {
 })
 
 /** @internal */
-export const makeVolume = Effect.fnUntraced(function*(
+export const makeCommunityVolume = Effect.fnUntraced(function*(
   source: VolumeSource,
   commitProvider: CommitProvider<VolumeState>,
   options?: VolumeOptions,
@@ -380,6 +381,9 @@ export const makeVolume = Effect.fnUntraced(function*(
 })
 
 /** @internal */
+export const makeVolume = PreviewRuntime.makeVolume
+
+/** @internal */
 export const make = Effect.fnUntraced(function*(options?: VolumeOptions) {
   return (yield* makeVolume(VolumeSource.Empty(), memoryCommitProvider, options).pipe(
     Effect.catchIf((error) => Schema.is(VfsError)(error) && error.code !== "InvalidArgument", Effect.die)
@@ -462,7 +466,7 @@ export const fromSnapshot = Effect.fnUntraced(
 )
 
 /** @internal */
-export const makeOverlay = Effect.fnUntraced(
+export const makeCommunityOverlay = Effect.fnUntraced(
   function*(base: Snapshot, options?: VolumeOptions) {
     const value = yield* Image.valueOf(base)
 
@@ -499,3 +503,6 @@ export const makeOverlay = Effect.fnUntraced(
     return overlay
   }
 )
+
+export const makeOverlay: typeof makeCommunityOverlay = (_base, _options) =>
+  PreviewRuntime.blocked("overlayCopyOnWrite")

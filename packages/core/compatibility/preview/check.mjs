@@ -1,7 +1,14 @@
-// This executable compares contracts without substituting a different implementation into the old tests.
+// Compare the explicit community baseline with the pinned upstream API. Ordinary core constructors use preview.
 // Calls with incompatible shapes are deliberate runtime probes, not typed production adapters.
 /* eslint-disable effecttsgo/node-builtin-import, effecttsgo/async-function, effecttsgo/any-unknown-in-error-context, effecttsgo/experimental-api-usage */
-import { VirtualFileSystem as Core } from "../../dist/index.js"
+import { VirtualFileSystem as Current } from "../../dist/index.js"
+import { makeCommunityVolume, VolumeSource, memoryCommitProvider } from "../../dist/internal/virtualFileSystem.js"
+
+const Core = {
+  ...Current,
+  make: options => Effect.map(makeCommunityVolume(VolumeSource.Empty(), memoryCommitProvider, options), result => result.volume)
+}
+
 import { BytePath as PreviewPath, VirtualFileSystem as Preview } from "@effect-vfs/effect-preview"
 import * as NodeCrypto from "@effect/platform-node-shared/NodeCrypto"
 import { Effect, Result } from "effect"

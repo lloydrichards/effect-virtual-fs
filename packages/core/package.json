@@ -36,8 +36,7 @@
     "@effect/vitest": "4.1.4",
     "@repo/config-typescript": "workspace:*",
     "effect": "4.1.4",
-    "@types/node": "26.6.6",
-    "@effect-vfs/effect-preview": "workspace:*"
+    "@types/node": "26.6.6"
   },
   "exports": {
     ".": {
@@ -125,5 +124,8 @@
     "type": "git",
     "url": "git+https://github.com/lloydrichards/effect-virtual-fs.git",
     "directory": "packages/core"
+  },
+  "dependencies": {
+    "@effect-vfs/effect-preview": "workspace:*"
   }
 }
