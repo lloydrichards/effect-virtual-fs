@@ -2,7 +2,7 @@
 /* eslint-disable effecttsgo/experimental-api-usage, effecttsgo/run-effect-inside-effect */
 import { BytePath, type VirtualFileSystem as Vfs } from "@effect-vfs/effect-preview"
 import { unixNanoFromNanoseconds as nano } from "@effect-vfs/effect-preview/DateTime"
-import { Effect, Predicate, Result, Scope } from "effect"
+import { Effect, Exit, Predicate, Result, Scheduler, Scope } from "effect"
 import type { MkdirOptions, OpenOptions, RootCallerOptions } from "../Caller.js"
 import { DirectoryHandleId, FileHandleId } from "../FileHandle.js"
 import type { OwnerUpdate, Times } from "../Metadata.js"
@@ -10,7 +10,7 @@ import type { Binding, Handle } from "../SynchronousAdapter.js"
 import { Target as CoreTarget } from "../Target.js"
 import type { FsFailure, ObjectReference, TargetInput } from "../VirtualFileSystem.js"
 import { Errors, Paths } from "./engine.js"
-import { coreReference, failure, metadata, PreviewBlocker, type runtimeOf } from "./previewRuntime.js"
+import { coreReference, drainPending, failure, metadata, PreviewBlocker, type runtimeOf } from "./previewRuntime.js"
 
 type Runtime = NonNullable<ReturnType<typeof runtimeOf>>
 
@@ -29,7 +29,7 @@ const times = (runtime: Runtime, t: Times): Vfs.Attributes => {
   const selected = (value: Times["access"]) =>
     value.kind === "omit"
       ? undefined
-      : nano(value.kind === "value" ? value.nanoseconds : runtime.clock.currentTimeNanosUnsafe())
+      : nano(value.kind === "value" ? value.nanoseconds : runtime.readClock())
 
   return { atime: selected(t.access), mtime: selected(t.modification) }
 }
@@ -37,11 +37,23 @@ const times = (runtime: Runtime, t: Times): Vfs.Attributes => {
 const run = <A>(runtime: Runtime, operation: string, action: () => A): A => {
   if (runtime.busy) throw Errors.fsFailure("VolumeBusy", operation)
   runtime.busy = true
+  runtime.time.active = true
+  runtime.time.value = undefined
+  runtime.snapshotEpoch++
 
   try {
     return action()
+  } catch (cause) {
+    if (Predicate.isTagged(cause, "InvalidClockSample")) {
+      throw Errors.argumentFailure(operation, "clock.currentTimeNanos")
+    }
+
+    throw cause
   } finally {
     runtime.busy = false
+    runtime.time.active = false
+    runtime.time.value = undefined
+    Effect.runSync(drainPending(runtime).pipe(Effect.provideService(Scheduler.PreventSchedulerYield, true)))
   }
 }
 
@@ -63,6 +75,27 @@ const guardHandle = (runtime: Runtime, handle: Handle): Handle => ({
 
 export const bind = Effect.fnUntraced(
   function*(runtime: Runtime, options?: RootCallerOptions): Effect.fn.Return<Binding, FsFailure, Scope.Scope> {
+    const parent = yield* Effect.scope
+    const owned = yield* Scope.make()
+    let closed = false
+    yield* Scope.addFinalizer(
+      parent,
+      Effect.suspend(() => {
+        closed = true
+        const release = Scope.close(owned, Exit.void)
+
+        if (runtime.busy) {
+          runtime.pending.push(release)
+
+          return Effect.void
+        }
+
+        return release
+      })
+    )
+
+    if (closed) return yield* Effect.interrupt
+
     const caller = yield* runtime.owner.authorize({
       credentials: options?.identity === undefined
         ? { uid: 0, gid: 0, privileged: true }
@@ -73,15 +106,30 @@ export const bind = Effect.fnUntraced(
           supplementaryGroups: options.identity.groups
         },
       umask: options?.umask ?? 0o022
-    }).pipe(Effect.mapError(failure))
+    }).pipe(Scope.provide(owned), Effect.mapError(failure), Effect.onError(() => Scope.close(owned, Exit.void)))
 
-    const sync = yield* caller.acquireSync.pipe(Effect.mapError(failure))
-    let closed = false
-    yield* Scope.addFinalizer(
-      yield* Effect.scope,
-      Effect.sync(() => {
-        closed = true
-      })
+    const sync = yield* caller.acquireSync.pipe(
+      Scope.provide(owned),
+      Effect.mapError(failure),
+      Effect.onError(() => Scope.close(owned, Exit.void))
+    )
+
+    const exactCaller = yield* runtime.owner.authorize({
+      credentials: options?.identity === undefined
+        ? { uid: 0, gid: 0, privileged: true }
+        : {
+          uid: options.identity.uid,
+          gid: options.identity.gid,
+          privileged: options.identity.privileged,
+          supplementaryGroups: options.identity.groups
+        },
+      umask: 0
+    }).pipe(Scope.provide(owned), Effect.mapError(failure), Effect.onError(() => Scope.close(owned, Exit.void)))
+
+    const exactSync = yield* exactCaller.acquireSync.pipe(
+      Scope.provide(owned),
+      Effect.mapError(failure),
+      Effect.onError(() => Scope.close(owned, Exit.void))
     )
 
     const resolveReference = (value: ObjectReference) => {
@@ -90,6 +138,14 @@ export const bind = Effect.fnUntraced(
       if (r === undefined) throw Errors.fsFailure("ForeignReference", "bind")
 
       return r
+    }
+
+    const checked = (input: string) => {
+      const value = Paths.preparePath(input, "path", runtime.owner.limits.expandedPathBytes)
+
+      if (Result.isFailure(value)) throw value.failure
+
+      return input
     }
 
     const resolve = (value: Target): Vfs.Target => {
@@ -112,6 +168,10 @@ export const bind = Effect.fnUntraced(
 
         return unwrap<Vfs.ObjectObservation>(view.stat()).reference
       }
+
+      const prepared = Paths.preparePath(chosen.path, "path", runtime.owner.limits.expandedPathBytes)
+
+      if (Result.isFailure(prepared)) throw prepared.failure
 
       const name = Predicate.isString(chosen.path)
         ? chosen.path
@@ -152,31 +212,41 @@ export const bind = Effect.fnUntraced(
       stat,
       readDirectory: (path: string) => ({
         revision: metadata(runtime, unwrap(sync.stat(path))).revision,
-        value: unwrap(sync.readDirectoryEntries(path)).entries.map((e) => ({
+        value: unwrap(sync.readDirectoryEntries(checked(path))).entries.map((e) => ({
           name: BytePath.toBytes(e.name),
           reference: coreReference(runtime, e.object)
         }))
       }),
-      readLink: (path: string) => BytePath.toBytes(unwrap(sync.readLink(path))),
-      realPath: (path: string) => BytePath.toBytes(unwrap(sync.realPath(path))),
+      readLink: (path: string) => BytePath.toBytes(unwrap(sync.readLink(checked(path)))),
+      realPath: (path: string) => BytePath.toBytes(unwrap(sync.realPath(checked(path)))),
       access: (path: string, bits: number) => {
-        unwrap(sync.access(path, { read: (bits & 4) !== 0, write: (bits & 2) !== 0, execute: (bits & 1) !== 0 }))
+        unwrap(
+          sync.access(checked(path), { read: (bits & 4) !== 0, write: (bits & 2) !== 0, execute: (bits & 1) !== 0 })
+        )
 
         return bits
       },
       mkdir: (path: string, o?: MkdirOptions) => {
-        if (o?.exactMode || o?.times !== undefined) throw new PreviewBlocker({ feature: "atomicDirectoryMetadata" })
-        unwrap(sync.makeDirectory(path, o))
+        if (o?.exactMode && o.mode === undefined) throw Errors.fsFailure("InvalidArgument", "mkdir")
+
+        if (o?.times !== undefined && (o.times.access.kind === "value" || o.times.modification.kind === "value")) {
+          throw new PreviewBlocker({ feature: "atomicDirectoryMetadata" })
+        }
+
+        unwrap((o?.exactMode ? exactSync : sync).makeDirectory(checked(path), {
+          mode: o?.mode,
+          recursive: o?.recursive
+        }))
       },
       rmdir: (path: string) => {
-        unwrap(sync.removeDirectory(path))
+        unwrap(sync.removeDirectory(checked(path)))
       },
       unlink: (path: string) => {
         if (unwrap(sync.linkStat(path)).kind === "directory") throw Errors.fsFailure("IsDirectory", "unlink")
-        unwrap(sync.unlink(path))
+        unwrap(sync.unlink(checked(path)))
       },
       rename: (from: string, to: string) => {
-        unwrap(sync.rename(from, to))
+        unwrap(sync.rename(checked(from), checked(to)))
       },
       link: (from: Target, to: string) => {
         const selected = resolve(from)
@@ -189,7 +259,8 @@ export const bind = Effect.fnUntraced(
         unwrap(sync.makeHardLink(source, to))
       },
       symlink: (target: string, path: string) => {
-        unwrap(sync.makeSymlink(path, target))
+        unwrap(sync.makeSymlink(checked(path), target))
+        runtime.links.set(unwrap(sync.linkStat(path)).metadata.objectNumber, new TextEncoder().encode(target))
       },
       chmod: (t: Target, mode: number) => attributes(t, { mode }),
       chown: (t: Target, owner: OwnerUpdate) => attributes(t, owner),
@@ -207,7 +278,7 @@ export const bind = Effect.fnUntraced(
           throw Errors.fsFailure("IsDirectory", "open")
         }
 
-        const handle = directory ? unwrap(sync.openDirectory(path)) : unwrap(sync.open(path, {
+        const handle = directory ? unwrap(sync.openDirectory(checked(path))) : unwrap(sync.open(checked(path), {
           ...o,
           access: o.access === "readWrite" ? "readwrite" : o.access,
           create: o.create === "never" ? "existing" : o.create === "ifMissing" ? "ifmissing" : o.create,
@@ -216,6 +287,7 @@ export const bind = Effect.fnUntraced(
           truncateCursor: "preserve"
         }))
 
+        runtime.retained.push(new WeakRef(handle.effect))
         let released = false
 
         const file = () => {
@@ -278,23 +350,29 @@ export const bind = Effect.fnUntraced(
       }
     }
 
+    const perform = <A>(operation: string, action: () => A): A => {
+      if (closed) throw Errors.fsFailure("ClosedCaller", operation)
+
+      return run(runtime, operation, action)
+    }
+
     return {
-      stat: (target) => run(runtime, "stat", () => binding.stat(target)),
-      readDirectory: (path) => run(runtime, "readDirectory", () => binding.readDirectory(path)),
-      readLink: (path) => run(runtime, "readLink", () => binding.readLink(path)),
-      realPath: (path) => run(runtime, "realPath", () => binding.realPath(path)),
-      access: (path, bits) => run(runtime, "access", () => binding.access(path, bits)),
-      mkdir: (path, options) => run(runtime, "mkdir", () => binding.mkdir(path, options)),
-      rmdir: (path) => run(runtime, "rmdir", () => binding.rmdir(path)),
-      unlink: (path) => run(runtime, "unlink", () => binding.unlink(path)),
-      rename: (from, to) => run(runtime, "rename", () => binding.rename(from, to)),
-      link: (from, to) => run(runtime, "link", () => binding.link(from, to)),
-      symlink: (target, path) => run(runtime, "symlink", () => binding.symlink(target, path)),
-      chmod: (target, mode) => run(runtime, "chmod", () => binding.chmod(target, mode)),
-      chown: (target, owner) => run(runtime, "chown", () => binding.chown(target, owner)),
-      utimes: (target, times) => run(runtime, "utimes", () => binding.utimes(target, times)),
+      stat: (target) => perform("stat", () => binding.stat(target)),
+      readDirectory: (path) => perform("readDirectory", () => binding.readDirectory(path)),
+      readLink: (path) => perform("readLink", () => binding.readLink(path)),
+      realPath: (path) => perform("realPath", () => binding.realPath(path)),
+      access: (path, bits) => perform("access", () => binding.access(path, bits)),
+      mkdir: (path, options) => perform("mkdir", () => binding.mkdir(path, options)),
+      rmdir: (path) => perform("rmdir", () => binding.rmdir(path)),
+      unlink: (path) => perform("unlink", () => binding.unlink(path)),
+      rename: (from, to) => perform("rename", () => binding.rename(from, to)),
+      link: (from, to) => perform("link", () => binding.link(from, to)),
+      symlink: (target, path) => perform("symlink", () => binding.symlink(target, path)),
+      chmod: (target, mode) => perform("chmod", () => binding.chmod(target, mode)),
+      chown: (target, owner) => perform("chown", () => binding.chown(target, owner)),
+      utimes: (target, times) => perform("utimes", () => binding.utimes(target, times)),
       open: (path, options, noFollow, directory) =>
-        run(runtime, "open", () => binding.open(path, options, noFollow, directory))
+        perform("open", () => binding.open(path, options, noFollow, directory))
     }
   }
 )
