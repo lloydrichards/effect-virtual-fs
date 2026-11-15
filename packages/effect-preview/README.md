@@ -76,6 +76,8 @@ manifest remain unchanged. Generated-file checks cover the patched result.
 | 0012–0013 | Support special mode bits and safe-integer owner IDs. Preserve empty symlink payloads through copy and restore. |
 | 0014–0015 | List entry identities with directory read permission and set initial file ownership during open. |
 | 0016 | Describe the revised attribute, copy, open and write contracts in the public API documentation. |
+| 0017 | Allow a volume to inherit the parent directory’s group on creation. |
+| 0018 | Specify which UID assignments an unprivileged file owner can make. |
 
 To try the same changes in an Effect checkout at the pinned commit, point `preview` at this package and apply
 the files in manifest order. Run this command from the root of the Effect checkout.

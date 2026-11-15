@@ -66,5 +66,9 @@
   {
     "file": "0017-parent-group-inheritance.patch",
     "sha256": "beff546b2e24f20f386675662693297f126d1bf3354bb6d0d33718ed833e69cf"
+  },
+  {
+    "file": "0018-specify-owner-uid-assignment.patch",
+    "sha256": "73b9f0d02df4dd1a1a49eb90cee21771ef986341f81958c4ac3ff204651905a3"
   }
 ]
