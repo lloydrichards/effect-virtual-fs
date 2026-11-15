@@ -2,6 +2,7 @@
 
 ## 2026-11-15
 
+- Record completed preview adaptations for scoped authority, reference keys, paths, revisions, insertion order, snapshot reuse, creation modes, staged removal, and native reentrant cleanup. Replace earlier speculative blockers with direct public-API evidence for the remaining atomicity, representation, atime, and masked-finalizer gaps.
 - Core constructors now create preview-owned state, and the existing memory and Node bindings consume it. Updated the drop-in evaluation to distinguish real runtime integration from the earlier baseline diagnostics and retain unresolved atomicity, lifetime, and metadata contracts as acceptance blockers.
 - Restructure the evaluation around one pinned preview package and existing core/memory/Node contracts. Remove the parallel downstream stack and consumer rewrites; record direct replacement failures separately from unchanged baseline test results.
 

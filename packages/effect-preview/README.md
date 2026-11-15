@@ -101,5 +101,8 @@ Refresh does not promise that an arbitrary later PR revision works without adapt
 and local adaptations in the generator. After an Effect release includes the accepted APIs, switch the consumer's
 imports, rerun the same qualification, and remove this temporary package.
 
-The preview does not provide the community's watches, live durable volumes, portable reference keys, snapshot codecs,
-or overlays. These contracts remain owned by the existing packages. No replacement packages or reduced application flows are introduced.
+Existing core adapters provide authenticated in-memory reference keys, snapshot codecs, reference paths, insertion order,
+and scoped authority over the preview. The preview still lacks the public contracts needed for watches, durable volumes,
+copy-on-write overlays, several atomic metadata operations, and masked-finalizer cleanup. Direct reproductions and the
+unchanged acceptance results are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
+No replacement packages or reduced application flows are introduced.
