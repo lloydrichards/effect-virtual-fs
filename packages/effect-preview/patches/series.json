@@ -74,5 +74,9 @@
   {
     "file": "0019-caller-file-handle-attributes.patch",
     "sha256": "d4439ab550bb8569fb58203e59fe9684a01ce440530bcfb01e24cf7139921eb8"
+  },
+  {
+    "file": "0020-share-trusted-capture-file-bytes.patch",
+    "sha256": "3b8881a72dcf8dd902b7d467c99008848838e6159ec47e1d2359a20d082677cc"
   }
 ]

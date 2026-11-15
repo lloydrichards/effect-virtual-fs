@@ -79,6 +79,7 @@ manifest remain unchanged. Generated-file checks cover the patched result.
 | 0017      | Allow a volume to inherit the parent directory’s group on creation.                                                             |
 | 0018      | Specify which UID assignments an unprivileged file owner can make.                                                              |
 | 0019      | Apply attributes to a retained file under the acting caller’s permissions and both parties’ confinement.                        |
+| 0020      | Share private file bytes across restores of one preview Capture. Public record exports and stream imports keep owned copies.    |
 
 To try the same changes in an Effect checkout at the pinned commit, point `preview` at this package and apply
 the files in manifest order. Run this command from the root of the Effect checkout.

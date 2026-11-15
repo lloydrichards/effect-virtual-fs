@@ -284,7 +284,7 @@ class Candidate extends R.ChargedBytes {
     super(runtime, "restore")
   }
 
-  accept(input: unknown) {
+  accept(input: unknown, captured?: SnapshotRecord) {
     const prepared = Result.gen(this, function*() {
       const limits = this.runtime.limits
       this.consumedRecords++
@@ -410,13 +410,14 @@ class Candidate extends R.ChargedBytes {
           bytes = currentBytes
         }
         yield* this.reserveResult(bytes)
-        const snapshot = yield* copy(record)
+        // Capture owns its private bytes. Writes replace the payload, and records() copies it on export.
+        const snapshot = captured ?? (yield* copy(record))
         if (snapshot._tag !== "root") this.entries.push(snapshot)
         if (snapshot._tag !== "alias") this.nodes.set(snapshot.id, snapshot)
         if (snapshot._tag === "root") this.root = snapshot
       })
     } finally {
-      // NOTE: The copied candidate has its own charge; release raw-record staging on every outcome.
+      // NOTE: The candidate has its own charge; release raw-record staging on every outcome.
       this.release(bytes)
     }
   }
@@ -561,31 +562,26 @@ export const restoreEngine: <Error = never, Requirements = never>(
       })
     )
     const candidate = new Candidate(runtime, state.accessTime, state.groupInheritance)
-    const stream = yield* Effect.suspend(() =>
+    const accept = (record: M.CaptureRecord, captured?: SnapshotRecord) =>
+      Effect.suspend(() =>
+        Result.match(Result.try(() => candidate.accept(record, captured)), {
+          onFailure: restoreFailure,
+          onSuccess: Effect.fromResult
+        }))
+    const consume = yield* Effect.suspend(() =>
       Result.match(
         Result.try(() =>
           state.snapshotRecords !== undefined
-            ? Result.succeed(Stream.fromIterable(state.snapshotRecords))
+            ? Result.succeed(Stream.runForEach(Stream.fromIterable(state.snapshotRecords), (record) => accept(record, record)))
             : isRecordStream(source)
-            ? Result.succeed(source)
+            ? Result.succeed(Stream.runForEach(source, (record) => accept(record)))
             : Result.fail(new M.InvalidInput({ operation: "restore", field: "source", reason: "malformed" }))
         ),
         { onFailure: restoreFailure, onSuccess: Effect.fromResult }
       )
     )
     return yield* Effect.gen(function*() {
-      yield* Effect.scoped(
-        Stream.runForEach(stream, (record) =>
-          Effect.suspend(() =>
-            Result.match(
-              Result.try(() => candidate.accept(record)),
-              {
-                onFailure: restoreFailure,
-                onSuccess: Effect.fromResult
-              }
-            )
-          ))
-      )
+      yield* Effect.scoped(consume)
       return yield* Effect.suspend(() =>
         Result.match(Result.try(() => candidate.build()), {
           onFailure: restoreFailure,
