@@ -52,10 +52,30 @@ bun run --cwd packages/effect-preview sync:check
 bun run --cwd packages/effect-preview test:sync
 ```
 
-Regeneration uses only the checked-in snapshot and Bun. It does not fetch source or resolve dependencies.
+Regeneration uses the checked-in snapshot, Bun, and the system `patch` command. It does not fetch source or resolve dependencies.
 `sync:check` verifies every input checksum, compares generated files byte for byte, and rejects unexpected files.
 The build runs this check before compilation. `test:sync` regenerates a temporary package and proves that manual
-engine edits, extra generated files, and corrupted snapshots fail verification.
+engine edits, extra generated files, and corrupted snapshots or contribution patches fail verification.
+
+### Local upstream contributions
+
+`patches/series.json` lists ordered contribution patches and their SHA-256 hashes. The generator verifies them and
+applies them with zero fuzz to a temporary upstream tree before adapting imports. The pinned snapshot and its
+manifest remain unchanged. Generated-file checks cover the patched result.
+
+`0001-preserve-caller-interruptibility.patch` replaces forced interruption at operation admission and before
+publication with the caller's original interruption setting. Masked finalizers can finish filesystem cleanup;
+ordinary writes retain cancellation before publication. The patch includes regression tests for interrupted-child
+cleanup and masked writes interrupted through the clock, alongside the existing ordinary-write rollback test.
+
+Apply this contribution from an Effect checkout at the pinned PR commit with:
+
+```sh
+patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0001-preserve-caller-interruptibility.patch
+```
+
+To revise a contribution, edit its upstream patch, update the checksum in `series.json`, and regenerate. Once the
+change lands upstream, refresh the pin and remove the corresponding patch and series entry.
 
 Do not edit `src`, `test`, or `typetest` directly. These directories are generated and excluded from repository
 formatting and style linting to preserve the reviewed upstream implementation. Runtime tests, strict compilation,

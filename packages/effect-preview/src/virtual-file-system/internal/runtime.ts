@@ -720,7 +720,7 @@ export class Runtime {
       const execute = Effect.uninterruptibleMask((restore) =>
         Effect.gen({ self: this }, function*() {
           if (enroll !== undefined) yield* enroll
-          yield* Effect.interruptible(Deferred.await(request.ready))
+          yield* restore(Deferred.await(request.ready))
           const transition = yield* restore(Effect.suspend(() => {
             this.inTurn = true
             try {
@@ -733,7 +733,7 @@ export class Runtime {
             }
           }))
           // Observe interruption before publication, while filesystem changes remain staged.
-          yield* Effect.interruptible(Effect.void)
+          yield* restore(Effect.void)
           const publish = transition.publish
           if (publish !== undefined) {
             yield* Effect.suspend(() => {

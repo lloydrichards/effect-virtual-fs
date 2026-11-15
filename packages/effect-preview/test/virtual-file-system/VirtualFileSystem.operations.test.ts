@@ -1,7 +1,7 @@
 // Generated from Effect PR #9960 by scripts/sync.mjs. Edit the snapshot or generator, then run sync.
 import { assert, describe, it } from "@effect/vitest"
 import * as BytePath from "../../src/compat/BytePath.js"
-import { Clock, Effect, Exit, Fiber, Option, Result, Scope, Stream } from "effect"
+import { Clock, Deferred, Effect, Exit, Fiber, Option, Result, Scope, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import * as VFS from "../../src/virtual-file-system/VirtualFileSystem.js"
 
@@ -932,6 +932,68 @@ describe("VirtualFileSystem public scheduling boundaries", () => {
       yield* caller.writeFile("/file", new Uint8Array([7]))
       assert.isTrue(observed)
       assert.strictEqual(Result.getOrThrow(same.stat("/")).kind, "directory")
+    }).pipe(withClock))
+
+  it.effect("should finish masked filesystem cleanup when its child is interrupted", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.writeFile("/temporary", new Uint8Array([1]))
+      const ready = yield* Deferred.make<void>()
+      const child = yield* Effect.gen(function*() {
+        yield* Deferred.succeed(ready, undefined)
+        yield* Effect.never
+      }).pipe(
+        Effect.ensuring(Effect.gen(function*() {
+          yield* caller.unlink("/temporary")
+          yield* caller.makeDirectory("/cleaned")
+        }).pipe(Effect.orDie)),
+        Effect.forkChild
+      )
+      yield* Deferred.await(ready)
+      yield* Fiber.interrupt(child)
+      const exit = yield* Fiber.await(child)
+      assert.isTrue(Exit.hasInterrupts(exit))
+      assert.strictEqual((yield* Effect.flip(caller.stat("/temporary")))._tag, "NotFound")
+      assert.strictEqual((yield* caller.stat("/cleaned")).kind, "directory")
+      assert.strictEqual((yield* owner.usage).operations, 0)
+      assert.strictEqual((yield* owner.usage).reservedTransientBytes, 0n)
+    }).pipe(withClock))
+
+  it.effect("should publish a masked write before observing interruption from its clock", () =>
+    Effect.gen(function*() {
+      const clock = yield* Clock.Clock
+      let interrupt: (() => void) | undefined
+      const owner = yield* VFS.make().pipe(
+        Effect.provideService(Clock.Clock, {
+          ...clock,
+          currentTimeNanosUnsafe: () => {
+            interrupt?.()
+            return clock.currentTimeNanosUnsafe()
+          }
+        })
+      )
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.writeFile("/file", new Uint8Array([1, 2]))
+      const before = yield* caller.stat("/file")
+      let completed = false
+      const writing = yield* Effect.withFiber((fiber) => {
+        interrupt = () => {
+          interrupt = undefined
+          fiber.interruptUnsafe()
+        }
+        return Effect.uninterruptible(Effect.gen(function*() {
+          yield* caller.writeFile("/file", new Uint8Array([8, 9, 10]))
+          completed = true
+        }))
+      }).pipe(Effect.forkChild({ startImmediately: true }))
+      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(writing)))
+      assert.isTrue(completed)
+      const after = yield* caller.stat("/file")
+      assert.isFalse(VFS.equalsObjectRevision(after.revision, before.revision))
+      assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array([8, 9, 10]))
+      assert.strictEqual((yield* owner.usage).operations, 0)
+      assert.strictEqual((yield* owner.usage).reservedTransientBytes, 0n)
     }).pipe(withClock))
 
   it.effect("should preserve the previous file when interruption arrives through the write clock", () =>

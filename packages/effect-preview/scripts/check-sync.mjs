@@ -15,6 +15,7 @@ try {
   await mkdir(join(temporary, "scripts"))
   await cp(join(root, "scripts/sync.mjs"), join(temporary, "scripts/sync.mjs"))
   await cp(join(root, "upstream"), join(temporary, "upstream"), { recursive: true })
+  await cp(join(root, "patches"), join(temporary, "patches"), { recursive: true })
 
   const run = (...args) => spawnSync(process.execPath, [join(temporary, "scripts/sync.mjs"), ...args], { encoding: "utf8" })
 
@@ -39,12 +40,20 @@ try {
   assert.notEqual(run("--check").status, 0, "Unexpected generated files must fail verification")
   await rm(extra)
 
+  const series = JSON.parse(await readFile(join(temporary, "patches/series.json"), "utf8"))
+  const contribution = join(temporary, "patches", series[0].file)
+  const originalPatch = await readFile(contribution, "utf8")
+  await writeFile(contribution, originalPatch + "\n")
+  assert.notEqual(run().status, 0, "A corrupted contribution patch must fail regeneration")
+  await writeFile(contribution, originalPatch)
+  assert.equal(run("--check").status, 0, "Restoring the patch must restore reproducibility")
+
   const snapshotPath = join(temporary, "upstream/files.json")
   const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"))
   snapshot.files[0].patch += "\n"
   await writeFile(snapshotPath, JSON.stringify(snapshot))
   assert.notEqual(run().status, 0, "A corrupted snapshot must fail regeneration")
-  process.stdout.write("Offline regeneration, generated-file drift, unexpected files, and snapshot corruption checks passed.\n")
+  process.stdout.write("Offline regeneration, generated-file drift, unexpected files, and snapshot/patch corruption checks passed.\n")
 } finally {
   await rm(temporary, { recursive: true, force: true })
 }
