@@ -2869,8 +2869,8 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const owner = yield* mapped((Predicate.isTagged(source, "Empty")
-      ? P.make({ limits: configuration })
-      : P.restore(Stream.fromIterable(records(source.value)), { limits: configuration })).pipe(
+      ? P.make({ limits: configuration, accessTime: "relatime" })
+      : P.restore(Stream.fromIterable(records(source.value)), { limits: configuration, accessTime: "relatime" })).pipe(
         Effect.provideService(Clock.Clock, previewClock)
       ))
 

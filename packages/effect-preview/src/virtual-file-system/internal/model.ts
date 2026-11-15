@@ -696,6 +696,8 @@ export interface CallerOptions {
 }
 
 export interface Configuration {
+  /** Read access-time policy. Defaults to "strict"; "relatime" refreshes after metadata changes or 24 hours. */
+  readonly accessTime?: "strict" | "relatime" | undefined
   readonly limits?: LimitOptions | undefined
   readonly root?: {
     readonly uid?: number | undefined
@@ -705,6 +707,8 @@ export interface Configuration {
 }
 
 export interface RestoreOptions {
+  /** Instance policy, independent of the captured metadata. Defaults to "strict". */
+  readonly accessTime?: "strict" | "relatime" | undefined
   readonly limits?: LimitOptions | undefined
 }
 

@@ -1139,7 +1139,8 @@ export const make: (
       Result.match(
         Result.try(() =>
           Result.gen(function*() {
-            yield* E.checkOptionsResult(configuration, ["limits", "root"], "make")
+            yield* E.checkOptionsResult(configuration, ["limits", "root", "accessTime"], "make")
+            const accessTime = yield* E.accessTimeResult(configuration?.accessTime, "make")
             const limits = yield* R.configureResult(configuration?.limits)
             yield* E.checkOptionsResult(configuration?.root, ["uid", "gid", "mode"], "make")
             const root = {
@@ -1147,7 +1148,7 @@ export const make: (
               gid: yield* E.identityResult(configuration?.root?.gid ?? 0, "make", "gid"),
               mode: yield* E.modeResult(configuration?.root?.mode ?? DEFAULT_ROOT_MODE, "directory", "make")
             }
-            return yield* ownerFor(new E.Engine(new R.Runtime(limits, clock), root))
+            return yield* ownerFor(new E.Engine(new R.Runtime(limits, clock), root, undefined, accessTime))
           })
         ),
         { onFailure: R.failure, onSuccess: Effect.fromResult }
@@ -1242,7 +1243,8 @@ export const layer = (
     Effect.gen(function*() {
       const owner = yield* make({
         ...(configuration.limits === undefined ? {} : { limits: configuration.limits }),
-        ...(configuration.root === undefined ? {} : { root: configuration.root })
+        ...(configuration.root === undefined ? {} : { root: configuration.root }),
+        ...(configuration.accessTime === undefined ? {} : { accessTime: configuration.accessTime })
       })
       return yield* owner.authorize(configuration.caller)
     })

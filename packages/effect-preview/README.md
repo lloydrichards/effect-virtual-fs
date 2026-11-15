@@ -90,6 +90,12 @@ path and reference resize check current write permission. Explicit times overrid
 Runtime and type tests cover the shared attribute entry points, rollback, and guards. Core forwards combined
 requests directly, including its existing error and revision conventions.
 
+`0005-opt-in-relatime.patch` adds `accessTime: "strict" | "relatime"` to construction, layers, and restore.
+The default remains strict. Relatime refreshes access time when it is no newer than modification or status-change
+time, or is at least 24 hours old. Suppressed reads preserve metadata and revision tokens; explicit timestamps
+and creation times keep their existing behavior. The instance policy is selected at restore rather than encoded
+in capture records. Core selects relatime for both fresh and restored volumes.
+
 Apply these contributions in series order from an Effect checkout at the pinned PR commit:
 
 ```sh
@@ -97,6 +103,7 @@ patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0001-pres
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0002-recursive-mkdir-dot-components.patch
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0003-current-time-attributes.patch
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0004-atomic-resize-attributes.patch
+patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0005-opt-in-relatime.patch
 ```
 
 To revise a contribution, edit its upstream patch, update the checksum in `series.json`, and regenerate. Once the

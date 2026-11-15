@@ -272,6 +272,12 @@ export const identityResult = (
     : Result.fail(new M.InvalidInput({ operation, field, reason: "range" }))
 
 /** @internal */
+export const accessTimeResult = (input: unknown, operation: string) =>
+  input === undefined || input === "strict" || input === "relatime"
+    ? Result.succeed<"strict" | "relatime">(input ?? "strict")
+    : Result.fail(new M.InvalidInput({ operation, field: "accessTime", reason: "malformed" }))
+
+/** @internal */
 export const modeResult = (
   input: unknown,
   kind: Node["kind"],
@@ -358,7 +364,8 @@ export class Engine {
   constructor(
     runtime: R.Runtime,
     root: { readonly uid: number; readonly gid: number; readonly mode: number },
-    rootId = BigInt("1")
+    rootId = BigInt("1"),
+    readonly accessTime: "strict" | "relatime" = "strict"
   ) {
     this.runtime = runtime
     this.inputLimits = Object.freeze({ ioBytes: runtime.limits.ioBytes, pathBytes: runtime.limits.pathBytes })
@@ -1513,6 +1520,11 @@ export class Transaction {
           const node = yield* this.editResult(id)
           let changed = false
           for (const field of fields) {
+            if (
+              field === "atime" && fields.size === 1 && engine.accessTime === "relatime" &&
+              node.atime > node.mtime && node.atime > node.ctime &&
+              now - node.atime < BigInt("86400000000000")
+            ) continue
             if (node[field] !== now) {
               node[field] = now
               changed = true

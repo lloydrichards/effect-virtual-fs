@@ -995,3 +995,124 @@ process.stdout.write(JSON.stringify({
       if (stale._tag === "InvalidResource") assert.strictEqual(stale.reason, "stale")
     }).pipe(withClock))
 })
+
+
+describe("VirtualFileSystem access-time policy", () => {
+  const second = BigInt("1000000000")
+  const day = BigInt("86400000000000")
+  const reads = [
+    { name: "readFile", directory: false, read: (caller: VFS.VirtualFileSystem) => caller.readFile("/target") },
+    { name: "readDirectory", directory: true, read: (caller: VFS.VirtualFileSystem) => caller.readDirectory("/target") },
+    { name: "pread", directory: false, read: (caller: VFS.VirtualFileSystem) => Effect.scoped(Effect.gen(function*() {
+      const file = yield* caller.open("/target", { access: "read" })
+      return yield* file.readAlloc(1, { position: BigInt("0") })
+    })) },
+    { name: "read", directory: false, read: (caller: VFS.VirtualFileSystem) => Effect.scoped(Effect.gen(function*() {
+      const file = yield* caller.open("/target", { access: "read" })
+      return yield* file.readAlloc(1)
+    })) }
+  ]
+
+  for (const { name, directory, read } of reads) {
+    it.effect(`should apply relatime to ${name} after content, status, and daily expiry`, () => Effect.gen(function*() {
+      const owner = yield* VFS.make({ accessTime: "relatime" })
+      const caller = yield* owner.authorize({ credentials })
+      if (directory) yield* caller.makeDirectory("/target")
+      else yield* caller.writeFile("/target", bytes(1))
+      yield* TestClock.adjust("1 second")
+      yield* read(caller)
+      assert.strictEqual((yield* caller.stat("/target")).metadata.atime, second)
+      const recent = yield* caller.stat("/target")
+      yield* TestClock.adjust("1 second")
+      yield* read(caller)
+      assert.deepStrictEqual(yield* caller.stat("/target"), recent)
+      if (directory) yield* caller.makeDirectory("/target/child")
+      else yield* caller.writeFile("/target", bytes(2))
+      yield* TestClock.adjust("1 second")
+      yield* read(caller)
+      assert.strictEqual((yield* caller.stat("/target")).metadata.atime, 3n * second)
+      yield* TestClock.adjust("1 second")
+      yield* caller.setAttributes("/target", { mode: 0o700 })
+      yield* TestClock.adjust("1 second")
+      yield* read(caller)
+      const afterStatus = yield* caller.stat("/target")
+      assert.strictEqual(afterStatus.metadata.atime, 5n * second)
+      yield* TestClock.adjust("86399999999999 nanos")
+      yield* read(caller)
+      assert.deepStrictEqual(yield* caller.stat("/target"), afterStatus)
+      yield* TestClock.adjust("1 nano")
+      yield* read(caller)
+      const expired = yield* caller.stat("/target")
+      assert.strictEqual(expired.metadata.atime, 5n * second + day)
+      assert.strictEqual(expired.metadata.mtime, afterStatus.metadata.mtime)
+      assert.strictEqual(expired.metadata.ctime, afterStatus.metadata.ctime)
+    }))
+  }
+
+  for (const accessTime of [undefined, "strict"] as const) {
+    it.effect(`should retain strict access-time updates with ${accessTime ?? "default"} configuration`, () => Effect.gen(function*() {
+      const owner = yield* VFS.make(accessTime === undefined ? undefined : { accessTime })
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.writeFile("/file", bytes(1))
+      yield* TestClock.adjust("1 second")
+      yield* caller.readFile("/file")
+      yield* TestClock.adjust("1 second")
+      yield* caller.readFile("/file")
+      assert.strictEqual((yield* caller.stat("/file")).metadata.atime, 2n * second)
+    }))
+  }
+
+  it.effect("should select the restore policy without changing captured timestamps", () => Effect.gen(function*() {
+    const owner = yield* VFS.make({ accessTime: "relatime" })
+    const caller = yield* owner.authorize({ credentials })
+    yield* caller.writeFile("/file", bytes(1))
+    yield* caller.setAttributes("/file", { atime: DateTime.unixNanoFromNanoseconds(5n * second) })
+    const capture = yield* owner.capture()
+    const restored = yield* VFS.restore(capture, { accessTime: "relatime" })
+    const strict = yield* VFS.restore(capture)
+    const relativeCaller = yield* restored.authorize({ credentials })
+    const strictCaller = yield* strict.authorize({ credentials })
+    const before = yield* relativeCaller.stat("/file")
+    yield* relativeCaller.readFile("/file")
+    assert.deepStrictEqual(yield* relativeCaller.stat("/file"), before)
+    yield* strictCaller.readFile("/file")
+    assert.strictEqual((yield* strictCaller.stat("/file")).metadata.atime, 0n)
+  }))
+
+  it.effect("should preserve metadata and guards for zero-byte and same-instant reads", () => Effect.gen(function*() {
+    const owner = yield* VFS.make({ accessTime: "relatime" })
+    const caller = yield* owner.authorize({ credentials })
+    yield* caller.writeFile("/file", bytes(1))
+    const file = yield* caller.open("/file", { access: "read" })
+    const before = yield* caller.stat("/file")
+    yield* caller.readFile("/file")
+    assert.deepStrictEqual(yield* caller.stat("/file"), before)
+    yield* TestClock.adjust("1 second")
+    yield* file.readAlloc(0, { position: 0n })
+    yield* file.readAlloc(0)
+    assert.deepStrictEqual(yield* caller.stat("/file"), before)
+    yield* caller.setAttributes("/file", { mode: 0o600 }, { expectedRevision: before.revision })
+  }))
+
+  it.effect("should reject unknown access-time policies at construction and restore", () => Effect.gen(function*() {
+    const configuration: VFS.Configuration = {}
+    Object.defineProperty(configuration, "accessTime", { value: "never" })
+    const makeError = yield* Effect.flip(VFS.make(configuration))
+    assert.strictEqual(makeError._tag, "InvalidInput")
+    const owner = yield* VFS.make()
+    const restoreError = yield* Effect.flip(VFS.restore(yield* owner.capture(), configuration))
+    assert.strictEqual(restoreError._tag, "InvalidInput")
+  }))
+})
+
+
+it.effect("should honor relatime when the caller is provided through a layer", () => Effect.gen(function*() {
+  const caller = yield* VFS.VirtualFileSystem
+  yield* caller.writeFile("/file", bytes(1))
+  yield* TestClock.adjust("1 second")
+  yield* caller.readFile("/file")
+  const recent = yield* caller.stat("/file")
+  yield* TestClock.adjust("1 second")
+  yield* caller.readFile("/file")
+  assert.deepStrictEqual(yield* caller.stat("/file"), recent)
+}).pipe(Effect.provide(VFS.layer({ accessTime: "relatime", caller: { credentials } }))))

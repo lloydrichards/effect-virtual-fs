@@ -224,3 +224,17 @@ describe("VirtualFileSystem atomic resize attributes", () => {
     expect(sync.setAttributes).type.not.toBeCallableWith("/file", { size: true })
   })
 })
+
+
+describe("VirtualFileSystem access-time configuration", () => {
+  it("should accept strict and relatime policies for creation, restore, and layers", () => {
+    expect(VFS.make({ accessTime: "relatime" })).type.toBe<Effect.Effect<VFS.Owner, VFS.VirtualFileSystemError>>()
+    expect(VFS.restore(snapshot, { accessTime: "strict" })).type.toBe<Effect.Effect<VFS.Owner, VFS.VirtualFileSystemError>>()
+    expect(VFS.layer({ accessTime: "relatime", caller: { credentials: { uid: 0, gid: 0 } } })).type.toBe<
+      Layer.Layer<VFS.VirtualFileSystem, VFS.VirtualFileSystemError>
+    >()
+    expect<NonNullable<VFS.Configuration["accessTime"]>>().type.toBe<"strict" | "relatime">()
+    expect<NonNullable<VFS.RestoreOptions["accessTime"]>>().type.toBe<"strict" | "relatime">()
+    expect(VFS.make).type.not.toBeCallableWith({ accessTime: "never" })
+  })
+})

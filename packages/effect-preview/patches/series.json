@@ -14,5 +14,9 @@
   {
     "file": "0004-atomic-resize-attributes.patch",
     "sha256": "3e9d902e651739485f20d681feb0733e99e30989d894d28d915ce0abe895d1ca"
+  },
+  {
+    "file": "0005-opt-in-relatime.patch",
+    "sha256": "af6cce6f1e7ef5399cb708917d70b98a1a504436fbf8d8dc08d4b89df48bb36d"
   }
 ]

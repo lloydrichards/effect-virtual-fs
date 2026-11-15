@@ -276,7 +276,7 @@ class Candidate extends R.ChargedBytes {
   consumedPayload = zero
   content = zero
 
-  constructor(runtime: R.Runtime) {
+  constructor(runtime: R.Runtime, readonly accessTime: "strict" | "relatime") {
     super(runtime, "restore")
   }
 
@@ -457,7 +457,7 @@ class Candidate extends R.ChargedBytes {
         }
         for (const id of route) checked.add(id)
       }
-      const engine = new E.Engine(this.runtime, root.metadata, root.metadata.objectNumber)
+      const engine = new E.Engine(this.runtime, root.metadata, root.metadata.objectNumber, this.accessTime)
       engine.nodes.clear()
       let maxObject = zero
       for (const record of this.nodes.values()) {
@@ -537,8 +537,9 @@ export const restoreEngine: <Error = never, Requirements = never>(
       Result.match(
         Result.try(() =>
           Result.gen(function*() {
-            yield* E.checkOptionsResult(options, ["limits"], "restore")
+            yield* E.checkOptionsResult(options, ["limits", "accessTime"], "restore")
             return {
+              accessTime: yield* E.accessTimeResult(options?.accessTime, "restore"),
               limits: yield* R.configureResult(options?.limits),
               snapshotRecords: typeof source === "object" && source !== null ? captures.get(source) : undefined
             }
@@ -554,7 +555,7 @@ export const restoreEngine: <Error = never, Requirements = never>(
         onSuccess: Effect.succeed
       })
     )
-    const candidate = new Candidate(runtime)
+    const candidate = new Candidate(runtime, state.accessTime)
     const stream = yield* Effect.suspend(() =>
       Result.match(
         Result.try(() =>
