@@ -1,28 +1,31 @@
 /* eslint-disable effecttsgo/experimental-api-usage */
 import { BytePath, type VirtualFileSystem as P } from "@effect-vfs/effect-preview"
-import { type Cause, Effect, Exit, Predicate, Queue, Scope, Stream } from "effect"
+import { Cause, Effect, Exit, Predicate, Queue, Scope, Stream } from "effect"
 import * as Scheduler from "effect/Scheduler"
 import type * as V from "../VirtualFileSystem.js"
 import { Change } from "../Watch.js"
 import { sameBytes } from "./bytes.js"
 import { Errors, Paths, type State, VolumeTestSeams } from "./model.js"
 
-interface Link {
-  readonly parent: bigint
-  readonly name: Uint8Array
+import * as CallerWatch from "./callerWatchSelection.js"
+import type { CallerWatchSelection, Event, Link } from "./callerWatchSelection.js"
+
+export type { CallerWatchSelection } from "./callerWatchSelection.js"
+
+interface Mailbox<E> {
+  readonly queue: Queue.Queue<V.Change, E | Cause.Done>
+  overflowed: boolean
 }
 
-interface Event {
-  readonly change: V.Change
-  readonly object: bigint
-  readonly parent: bigint
-}
-
-interface Subscription {
+interface Subscription extends Mailbox<never> {
   readonly root: bigint
   readonly recursive: boolean
-  readonly queue: Queue.Queue<V.Change, Cause.Done>
-  overflowed: boolean
+}
+
+interface CallerSubscription extends Mailbox<V.FsFailure> {
+  readonly options: CallerWatchSelection
+  selected: Link | undefined
+  view: CallerWatch.View
 }
 
 const root = 1n
@@ -34,6 +37,7 @@ const wakeScheduler = new Scheduler.MixedScheduler("sync")
 export const make = (initial: State.VolumeState | undefined, capacity: number) => {
   const names = new Map<bigint, Array<Link>>()
   const subscriptions = new Set<Subscription>()
+  const callers = new Set<CallerSubscription>()
 
   const add = (object: bigint, link: Link) => {
     const links = names.get(object)
@@ -85,10 +89,25 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
       offset += component.length
     }
 
-    return Paths.ownedPath(bytes)
+    return bytes
   }
 
   const rootPath = Paths.ownedPath(Paths.ROOT_PATH)
+
+  const aliases = (id: bigint) =>
+    id === root ? [Paths.ROOT_PATH] : (names.get(id) ?? []).flatMap((link) => {
+      const value = path(link)
+
+      return value === undefined ? [] : [value]
+    })
+
+  const offer = <E>(subscriber: Mailbox<E>, change: V.Change, rescan: () => V.BytePath) => {
+    const size = Queue.sizeUnsafe(subscriber.queue)
+
+    if (subscriber.overflowed && size > 0) return
+    subscriber.overflowed = size >= capacity - 1
+    Queue.offerUnsafe(subscriber.queue, subscriber.overflowed ? Change.cases.Rescan.make({ path: rescan() }) : change)
+  }
 
   const includes = (subscriber: Subscription, event: Event) => {
     if (subscriber.root === event.object || subscriber.root === event.parent) return true
@@ -109,15 +128,23 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
 
   const publish = (batch: ReadonlyArray<P.CommittedMutation>) => {
     const events: Array<Event> = []
-    const removed = new Map<bigint, V.BytePath>()
-    const watching = subscriptions.size !== 0
+    const removed = new Map<bigint, Uint8Array>()
+    const watching = subscriptions.size !== 0 || callers.size !== 0
+    let lastRemoval: { object: bigint; link: Link } | undefined
 
     for (const action of batch) {
       if (Predicate.isTagged(action, "Update")) {
+        lastRemoval = undefined
+
         if (!watching) continue
 
         if (action.object === root) {
-          events.push({ object: root, parent: root, change: Change.cases.Update.make({ path: rootPath }) })
+          events.push({
+            object: root,
+            parent: root,
+            path: Paths.ROOT_PATH,
+            change: Change.cases.Update.make({ path: rootPath })
+          })
         }
 
         for (const link of names.get(action.object) ?? []) {
@@ -127,7 +154,8 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
             events.push({
               object: action.object,
               parent: link.parent,
-              change: Change.cases.Update.make({ path: current })
+              path: current,
+              change: Change.cases.Update.make({ path: Paths.ownedPath(current) })
             })
           }
         }
@@ -139,6 +167,7 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
       const current = watching ? path(link) : undefined
 
       if (Predicate.isTagged(action, "Remove")) {
+        lastRemoval = { object: action.object, link }
         remove(action.object, link)
 
         if (current !== undefined) removed.set(action.object, current)
@@ -149,14 +178,31 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
           if (current !== undefined) removed.set(action.previous, current)
         }
 
+        // The feed publishes one rename as adjacent Remove/Create facts for the same object.
+        if (lastRemoval?.object === action.object && Predicate.isTagged(action, "Create")) {
+          for (const subscriber of callers) {
+            if (
+              subscriber.options.target === action.object && subscriber.selected?.parent === lastRemoval.link.parent &&
+              sameBytes(subscriber.selected.name, lastRemoval.link.name)
+            ) subscriber.selected = link
+          }
+        }
+
+        lastRemoval = undefined
         add(action.object, link)
       }
 
       if (current !== undefined) {
         const tag = Predicate.isTagged(action, "Replace") ? "Update" : action._tag
-        const change = Change.cases[tag].make({ path: current })
+        const change = Change.cases[tag].make({ path: Paths.ownedPath(current) })
 
-        events.push({ object: action.object, parent: link.parent, change })
+        events.push({
+          object: action.object,
+          parent: link.parent,
+          path: current,
+          change,
+          previous: Predicate.isTagged(action, "Remove") ? undefined : action.previous
+        })
       }
     }
 
@@ -169,46 +215,74 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
         }
 
         if (!includes(subscriber, event)) continue
-        const size = Queue.sizeUnsafe(subscriber.queue)
-
-        if (subscriber.overflowed && size > 0) continue
-        subscriber.overflowed = size >= capacity - 1
-
-        if (subscriber.overflowed) {
+        offer(subscriber, event.change, () => {
           const link = names.get(subscriber.root)?.[0]
           const current = link === undefined ? terminal : path(link)
-          Queue.offerUnsafe(subscriber.queue, Change.cases.Rescan.make({ path: current ?? rootPath }))
-        } else Queue.offerUnsafe(subscriber.queue, event.change)
+
+          return current === undefined ? rootPath : Paths.ownedPath(current)
+        })
       }
 
       if (terminal !== undefined) {
         // The extra queue slot preserves final removal even when a rescan marker is pending.
-        Queue.offerUnsafe(subscriber.queue, Change.cases.Remove.make({ path: terminal }))
+        Queue.offerUnsafe(subscriber.queue, Change.cases.Remove.make({ path: Paths.ownedPath(terminal) }))
         Queue.endUnsafe(subscriber.queue)
         subscriptions.delete(subscriber)
       }
     }
+
+    for (const subscriber of callers) {
+      const after = CallerWatch.observe(subscriber.options, subscriber.selected, aliases, path)
+
+      if (!("aliases" in after)) {
+        callers.delete(subscriber)
+        Queue.failCauseUnsafe(subscriber.queue, Cause.fail(after))
+        continue
+      }
+
+      CallerWatch.deliver(
+        subscriber.options,
+        subscriber.view,
+        after,
+        events,
+        (change, rescan) => offer(subscriber, change, () => rescan),
+        (last, rescan) => {
+          for (const change of last) offer(subscriber, change, () => rescan)
+
+          if (subscriber.overflowed) {
+            while (Queue.takeUnsafe(subscriber.queue) !== undefined) {
+              /* Replace any undelivered prefix with one marker. */
+            }
+
+            Queue.offerUnsafe(subscriber.queue, Change.cases.Rescan.make({ path: rescan }))
+          }
+
+          callers.delete(subscriber)
+          Queue.endUnsafe(subscriber.queue)
+        }
+      )
+      subscriber.view = after
+    }
   }
 
-  const subscribe = Effect.fnUntraced(function*(object: bigint, recursive: boolean) {
-    if (object !== root && !names.has(object)) return yield* Errors.fsFailure("StaleReference", "watch")
+  const register = Effect.fnUntraced(function*<E, S extends Mailbox<E>>(
+    subscribers: Set<S>,
+    create: (queue: Queue.Queue<V.Change, E | Cause.Done>) => S
+  ) {
     const scope = yield* Scope.fork(yield* Effect.scope)
 
     if (Predicate.isTagged(scope.state, "Closed")) return Stream.empty
 
-    const subscriber: Subscription = {
-      root: object,
-      recursive,
-      queue: yield* Queue.bounded<V.Change, Cause.Done>(capacity + 1).pipe(
-        Effect.provideService(Scheduler.Scheduler, wakeScheduler)
-      ),
-      overflowed: false
-    }
+    const queue = yield* Queue.bounded<V.Change, E | Cause.Done>(capacity + 1).pipe(
+      Effect.provideService(Scheduler.Scheduler, wakeScheduler)
+    )
+
+    const subscriber = create(queue)
 
     yield* Scope.addFinalizer(
       scope,
       Effect.sync(() => {
-        subscriptions.delete(subscriber)
+        subscribers.delete(subscriber)
         Queue.shutdownUnsafe(subscriber.queue)
       })
     )
@@ -216,7 +290,7 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
     const seams = yield* VolumeTestSeams
     yield* Effect.suspend(() => {
       if (Predicate.isTagged(scope.state, "Closed")) return Effect.void
-      subscriptions.add(subscriber)
+      subscribers.add(subscriber)
 
       return seams.afterSubscribe
     }).pipe(Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))))
@@ -226,5 +300,31 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
       : Stream.fromEffectRepeat(Queue.take(subscriber.queue))
   })
 
-  return { publish, subscribe }
+  const subscribe = Effect.fnUntraced(function*(object: bigint, recursive: boolean) {
+    if (object !== root && !names.has(object)) return yield* Errors.fsFailure("StaleReference", "watch")
+
+    return yield* register<never, Subscription>(
+      subscriptions,
+      (queue) => ({ root: object, recursive, queue, overflowed: false })
+    )
+  })
+
+  const subscribeCaller = Effect.fnUntraced(function*(options: CallerWatchSelection) {
+    if (options.target !== root && !names.has(options.target)) return yield* Errors.fsFailure("NotFound", "watch")
+    const view = CallerWatch.observe(options, options.selected, aliases, path)
+
+    if (!("aliases" in view)) return yield* view
+
+    if (view.aliases.length === 0) return yield* Errors.fsFailure("AccessDenied", "watch")
+
+    return yield* register<V.FsFailure, CallerSubscription>(callers, (queue) => ({
+      options,
+      selected: options.selected,
+      view,
+      queue,
+      overflowed: false
+    }))
+  })
+
+  return { publish, subscribe, subscribeCaller }
 }

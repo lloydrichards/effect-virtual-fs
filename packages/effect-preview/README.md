@@ -22,7 +22,7 @@ bun run --cwd packages/node test:mounted
 ```
 
 The import audit checks that core construction and the native binding use the preview. Existing consumer tests
-define the drop-in contract. Open gaps include caller-confined watch delivery and durable-store commits. Current results and adapter findings are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
+define the drop-in contract. Core adapts the preview commit feed for volume and caller-confined watches. Durable-store commits remain open. Current results and adapter findings are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
 
 Import the proposed public API and authorize a scoped caller:
 

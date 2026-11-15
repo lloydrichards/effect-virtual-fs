@@ -26,7 +26,7 @@ import { isEntry, Target } from "../Target.js"
 import { make as vfsError } from "../VfsError.js"
 import type * as V from "../VirtualFileSystem.js"
 import { ReferenceKey, VolumeId, VolumeIdentity, VolumeIncarnation } from "../Volume.js"
-import { WatchOptions } from "../Watch.js"
+import { CallerWatchOptions, WatchOptions } from "../Watch.js"
 import * as CorePath from "./bytePath.js"
 import { sameBytes } from "./bytes.js"
 import { imageFailure } from "./errors.js"
@@ -169,6 +169,7 @@ interface Token {
 
 export interface Runtime {
   readonly owner: P.Owner
+  readonly subscribeCaller: ReturnType<typeof VolumeWatch.make>["subscribeCaller"]
   readonly walkEntrySize: (reference: P.ObjectReference) => Effect.Effect<bigint, V.FsFailure>
   readonly clock: Clock.Clock
   readonly rootScope: Scope.Closeable
@@ -566,6 +567,7 @@ const validateResolution = Effect.fnUntraced(
 )
 
 interface Boundary {
+  readonly rootChain: ReadonlyArray<bigint>
   readonly caller: P.VirtualFileSystem
   readonly ino: bigint
 }
@@ -601,13 +603,17 @@ export const attributeHandle = (runtime: Runtime, value: V.TargetInput) => {
   return FileHandleId in selected.handle ? runtime.files.get(selected.handle) : runtime.directories.get(selected.handle)
 }
 
-const forkBoundaries = Effect.fnUntraced(function*(caller: P.VirtualFileSystem, inherited: ReadonlyArray<Boundary>) {
+const forkBoundaries = Effect.fnUntraced(function*(
+  caller: P.VirtualFileSystem,
+  rootChain: ReadonlyArray<bigint>,
+  inherited: ReadonlyArray<Boundary>
+) {
   const boundaries: Array<Boundary> = []
 
-  for (const source of [caller, ...inherited.map((boundary) => boundary.caller)]) {
-    const independent = yield* mapped(source.withRoot("/"))
+  for (const source of [{ caller, rootChain }, ...inherited]) {
+    const independent = yield* mapped(source.caller.withRoot("/"))
     const root = yield* mapped(independent.stat("/"))
-    boundaries.push({ caller: independent, ino: root.metadata.objectNumber })
+    boundaries.push({ caller: independent, ino: root.metadata.objectNumber, rootChain: source.rootChain })
   }
 
   return boundaries
@@ -1098,10 +1104,12 @@ const wrapCaller = (
   caller: P.VirtualFileSystem,
   limits: V.VolumeLimits,
   inherited: ReadonlyArray<Boundary> = [],
-  rootIno = 1n,
+  rootChain: ReadonlyArray<bigint> = [1n],
   identity?: V.RootCallerOptions["identity"],
-  cwdIno = rootIno
+  cwdIno = 1n
 ): V.Caller => {
+  const rootIno = rootChain[rootChain.length - 1]!
+
   const alive = Effect.gen(function*() {
     yield* checkRoots(runtime, inherited)
     const root = yield* Effect.result(mapped(caller.stat("/")))
@@ -1142,14 +1150,14 @@ const wrapCaller = (
 
     const derived = yield* mapped(narrow ? parent.withRoot(directory) : parent.withCurrentDirectory(directory))
     const root = yield* mapped(derived.stat("/"))
-    const retained = yield* forkBoundaries(caller, boundaries)
+    const retained = yield* forkBoundaries(caller, rootChain, boundaries)
 
     return wrapCaller(
       runtime,
       derived,
       limits,
       retained,
-      root.metadata.objectNumber,
+      root.metadata.objectNumber === rootIno ? rootChain : [...rootChain, root.metadata.objectNumber],
       identity,
       narrow ? root.metadata.objectNumber : (yield* mapped(parent.stat(directory))).metadata.objectNumber
     )
@@ -1726,7 +1734,7 @@ const wrapCaller = (
               : handle,
             options.append,
             options.access,
-            yield* forkBoundaries(caller, [...inherited, ...boundariesOf(runtime, value)])
+            yield* forkBoundaries(caller, rootChain, [...inherited, ...boundariesOf(runtime, value)])
           ),
           reference: token(runtime, observation).core,
           created: present === undefined,
@@ -1804,7 +1812,7 @@ const wrapCaller = (
         positioned,
         options.append,
         options.access,
-        yield* forkBoundaries(caller, [...inherited, ...boundariesOf(runtime, value)])
+        yield* forkBoundaries(caller, rootChain, [...inherited, ...boundariesOf(runtime, value)])
       )
     })
   }
@@ -2025,7 +2033,7 @@ const wrapCaller = (
       return wrapDirectory(
         runtime,
         handle,
-        yield* forkBoundaries(caller, [...inherited, ...boundariesOf(runtime, value)])
+        yield* forkBoundaries(caller, rootChain, [...inherited, ...boundariesOf(runtime, value)])
       )
     }),
     mkdir: Effect.fnUntraced(function*(value, o) {
@@ -2381,7 +2389,46 @@ const wrapCaller = (
       })),
     withRoot: (value) => derive(value, true),
     withDirectory: (value) => derive(value, false),
-    watch: () => blocked("watch"),
+    watch: Effect.fnUntraced(function*(value, options) {
+      const decoded = yield* Effect.fromResult(
+        Errors.decodeConfiguration(CallerWatchOptions, options === undefined ? {} : options, "watch")
+      )
+
+      const observed = yield* stat(runtime, caller, value)
+      const object = observed.metadata.objectNumber
+
+      if (observed.metadata.nlink === 0n) return yield* Errors.fsFailure("NotFound", "watch")
+      yield* mapped(caller.access(observed.reference, { read: true }))
+
+      const additionalRoots = [...inherited, ...boundariesOf(runtime, value)].map((boundary) => boundary.rootChain)
+      const selection = { target: object, rootChain, additionalRoots, recursive: decoded.recursive ?? true }
+
+      if (decoded.alias !== "resolved" || observed.kind === "directory") {
+        return yield* runtime.subscribeCaller(selection)
+      }
+
+      const binding = yield* Effect.scoped(Effect.gen(function*() {
+        const located = yield* addressed(runtime, caller, value)
+        const input = located.target
+
+        if (!Predicate.isString(input) && !Path.isBytePath(input)) {
+          return yield* Errors.fsFailure("InvalidArgument", "watch")
+        }
+
+        const route = follow(value) ? yield* mapped(located.caller.realPath(input)) : input
+        const parent = yield* mapped(located.caller.observeRouteParent(route))
+
+        if (Option.isNone(parent) || !P.equalsObjectReference(parent.value.object.reference, observed.reference)) {
+          return yield* Errors.fsFailure("NotFound", "watch")
+        }
+
+        const directory = yield* mapped(located.caller.stat(parent.value.parent))
+
+        return { parent: directory.metadata.objectNumber, name: Path.toBytes(parent.value.name) }
+      }))
+
+      return yield* runtime.subscribeCaller({ ...selection, selected: binding })
+    }),
     walk: (value, options) =>
       Stream.unwrap(
         Effect.as(alive, walkPreview(runtime, caller, value, options, [...inherited, ...boundariesOf(runtime, value)]))
@@ -2966,8 +3013,11 @@ export const makeVolume = Effect.fnUntraced(
       Scope.provide(owner.authorize({ credentials: { uid: 0, gid: 0, privileged: true } }), rootScope)
     )
 
+    const watches = VolumeWatch.make("value" in source ? source.value : undefined, limits.maxWatchEvents)
+
     const runtime: Runtime = {
       owner,
+      subscribeCaller: watches.subscribeCaller,
       walkEntrySize: (ref) => mapped(ownerCaller.stat(ref)).pipe(Effect.map((entry) => entry.metadata.size)),
       clock: yield* Clock.Clock,
       rootScope,
@@ -3056,7 +3106,6 @@ export const makeVolume = Effect.fnUntraced(
     const observeSnapshot = <A, E, R>(use: (value: V.Snapshot) => Effect.Effect<A, E, R>) =>
       observe(Effect.flatMap(snapshot(owner), use))
 
-    const watches = VolumeWatch.make("value" in source ? source.value : undefined, limits.maxWatchEvents)
     yield* Scope.provide(owner.onCommit(watches.publish), rootScope)
 
     const volume: V.Volume = {
@@ -3087,7 +3136,7 @@ export const makeVolume = Effect.fnUntraced(
           rootScope
         ))
 
-        return wrapCaller(runtime, caller, limits, [], 1n, chosen.identity)
+        return wrapCaller(runtime, caller, limits, [], [1n], chosen.identity)
       }),
       watch: (options) =>
         execute(

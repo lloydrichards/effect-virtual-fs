@@ -2,6 +2,8 @@
 
 ## 2026-11-16
 
+- Record how caller watches rebase event paths and retain imported root boundaries across namespace changes.
+
 - Record acting-caller attribute updates on retained directory handles after unlink or rename displacement.
 
 - Record the owner commit feed and volume watch implementation on preview, and the remaining caller-confinement gap.
