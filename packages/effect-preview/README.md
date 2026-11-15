@@ -66,18 +66,18 @@ engine edits, extra generated files, and corrupted snapshots or contribution pat
 applies them with zero fuzz to a temporary upstream tree before adapting imports. The pinned snapshot and its
 manifest remain unchanged. Generated-file checks cover the patched result.
 
-| Patches | Behavior under evaluation |
-| --- | --- |
-| 0001–0002 | Preserve caller interruptibility during cleanup and resolve terminal dot components in recursive mkdir. |
-| 0003–0004 | Apply current-time attributes and file resize in the same transaction as other metadata. |
+| Patches   | Behavior under evaluation                                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 0001–0002 | Preserve caller interruptibility during cleanup and resolve terminal dot components in recursive mkdir.                         |
+| 0003–0004 | Apply current-time attributes and file resize in the same transaction as other metadata.                                        |
 | 0005–0008 | Support opt-in relatime, create directories and files with exact timestamps, and preserve revisions on automatic atime updates. |
-| 0009–0010 | Create zero-filled files at their initial size during open and update symlink mode without following the link. |
-| 0011 | Publish file contents with a final mode and optionally replace the final symlink itself. |
-| 0012–0013 | Support special mode bits and safe-integer owner IDs. Preserve empty symlink payloads through copy and restore. |
-| 0014–0015 | List entry identities with directory read permission and set initial file ownership during open. |
-| 0016 | Describe the revised attribute, copy, open and write contracts in the public API documentation. |
-| 0017 | Allow a volume to inherit the parent directory’s group on creation. |
-| 0018 | Specify which UID assignments an unprivileged file owner can make. |
+| 0009–0010 | Create zero-filled files at their initial size during open and update symlink mode without following the link.                  |
+| 0011      | Publish file contents with a final mode and optionally replace the final symlink itself.                                        |
+| 0012–0013 | Support special mode bits and safe-integer owner IDs. Preserve empty symlink payloads through copy and restore.                 |
+| 0014–0015 | List entry identities with directory read permission and set initial file ownership during open.                                |
+| 0016      | Describe the revised attribute, copy, open and write contracts in the public API documentation.                                 |
+| 0017      | Allow a volume to inherit the parent directory’s group on creation.                                                             |
+| 0018      | Specify which UID assignments an unprivileged file owner can make.                                                              |
 
 To try the same changes in an Effect checkout at the pinned commit, point `preview` at this package and apply
 the files in manifest order. Run this command from the root of the Effect checkout.

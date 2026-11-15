@@ -305,6 +305,7 @@ const intern = (
       if (known.revision !== undefined && !P.equalsObjectRevision(known.revision, revision)) {
         known.number = runtime.revision > known.number ? runtime.revision : known.number + 1n
       }
+
       known.revision = revision
     }
 
@@ -1918,19 +1919,25 @@ const wrapCaller = (
           const located = yield* entryActor(runtime, caller, value)
           const t = located.target
           const actor = located.caller
+
           const present = yield* Effect.result(
             mapped(o.replaceFinalSymlink || o.followFinalSymlink === false ? actor.linkStat(t) : actor.stat(t))
           )
+
           const replacing = o.replaceFinalSymlink && Result.isSuccess(present) && present.success.kind === "symlink"
 
           if (Result.isSuccess(present)) {
             if (present.success.kind === "directory") return yield* Errors.fsFailure("IsDirectory", "writeFile")
 
-            if (!replacing && present.success.kind === "symlink") return yield* Errors.fsFailure("SymlinkLoop", "writeFile")
+            if (!replacing && present.success.kind === "symlink") {
+              return yield* Errors.fsFailure("SymlinkLoop", "writeFile")
+            }
           }
 
           if (o.access === "read") {
-            if (Result.isFailure(present)) return yield* present.failure
+            if (Result.isFailure(present)) {
+              return yield* present.failure
+            }
 
             return yield* Errors.fsFailure("InvalidHandle", "writeFile")
           }
@@ -2876,6 +2883,7 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const policies = { limits: configuration, accessTime: "relatime", groupInheritance: "parent" } as const
+
     const owner = yield* mapped((Predicate.isTagged(source, "Empty")
       ? P.make(policies)
       : P.restore(Stream.fromIterable(records(source.value)), policies)).pipe(
