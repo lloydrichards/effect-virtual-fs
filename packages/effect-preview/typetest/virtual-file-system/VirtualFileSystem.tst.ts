@@ -1,7 +1,7 @@
 // Generated from Effect PR #9960 by scripts/sync.mjs. Edit the snapshot or generator, then run sync.
 import type * as BytePath from "../../src/compat/BytePath.js"
 import type * as DateTime from "../../src/compat/DateTime.js"
-import type { Effect, Layer, Option, Result, Scope, Stream } from "effect"
+import type { ByteSize, Effect, Layer, Option, Result, Scope, Stream } from "effect"
 import * as VFS from "../../src/virtual-file-system/VirtualFileSystem.js"
 import { describe, expect, it } from "tstyche"
 
@@ -202,5 +202,25 @@ describe("VirtualFileSystem current-time attributes", () => {
     expect(caller.setAttributes).type.not.toBeCallableWith("/file", { atime: "later" })
     expect(file.setAttributes).type.not.toBeCallableWith({ mtime: "omit" })
     expect(sync.setAttributes).type.not.toBeCallableWith("/file", { atime: 0n })
+  })
+})
+
+describe("VirtualFileSystem atomic resize attributes", () => {
+  it("should accept byte-size inputs with metadata at every attribute boundary", () => {
+    expect(caller.setAttributes).type.toBeCallableWith("/file", { size: 4n, mode: 0o600 })
+    expect(operation.files.setAttributes).type.toBeCallableWith(reference, { size: "4 B", atime: "now" })
+    expect(file.setAttributes).type.toBeCallableWith({ size: 4, mtime: instant })
+    expect(sync.setAttributes).type.toBeCallableWith(reference, { size: 4n, uid: 7 })
+    expect(syncFile.setAttributes).type.toBeCallableWith({ size: "4 B" })
+    expect(caller.setAttributes("/file", { size: 4n })).type.toBe<Effect.Effect<void, VFS.OperationError>>()
+    expect(sync.setAttributes("/file", { size: 4n })).type.toBe<Result.Result<void, VFS.OperationError>>()
+  })
+
+  it("should reject unsupported size shapes and keep observed size literal", () => {
+    expect<VFS.Attributes["size"]>().type.toBe<ByteSize.Input | undefined>()
+    expect<VFS.Metadata["size"]>().type.toBe<ByteSize.ByteSize>()
+    expect(caller.setAttributes).type.not.toBeCallableWith("/file", { size: "now" })
+    expect(file.setAttributes).type.not.toBeCallableWith({ size: {} })
+    expect(sync.setAttributes).type.not.toBeCallableWith("/file", { size: true })
   })
 })

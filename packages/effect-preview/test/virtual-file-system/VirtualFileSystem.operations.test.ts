@@ -1365,3 +1365,201 @@ describe("VirtualFileSystem current-time attributes", () => {
       assert.deepStrictEqual(after.metadata, before.metadata)
     }).pipe(withClock))
 })
+
+describe("VirtualFileSystem atomic resize attributes", () => {
+  for (const boundary of ["caller", "operation", "handle", "sync", "syncHandle"] as const) {
+    it.effect(`should resize and apply metadata atomically through ${boundary}`, () =>
+      Effect.gen(function*() {
+        const owner = yield* VFS.make({ limits: { synchronous: true } })
+        const caller = yield* owner.authorize({ credentials })
+        yield* caller.writeFile("/file", new Uint8Array([1, 2]))
+        yield* caller.makeHardLink({ entry: "/file" }, "/alias")
+        const before = yield* caller.stat("/file")
+        const handle = yield* caller.open("/file", { access: "readwrite", truncateCursor: "clamp" })
+        yield* handle.seek({ from: "start", offset: 9n })
+        yield* TestClock.adjust("2 seconds")
+        const attributes = { size: 4n, mode: 0o600, atime: "now", mtime: DateTime.unixNanoFromNanoseconds(-1n) } as const
+        if (boundary === "caller") yield* caller.setAttributes("/file", attributes)
+        else if (boundary === "operation") {
+          const operation = yield* caller.acquireOperation()
+          yield* operation.files.setAttributes("/file", attributes)
+        } else if (boundary === "handle") yield* handle.setAttributes(attributes)
+        else if (boundary === "sync") {
+          const sync = yield* caller.acquireSync
+          yield* Effect.fromResult(sync.setAttributes("/file", attributes))
+        } else {
+          const sync = yield* handle.sync()
+          yield* Effect.fromResult(sync.setAttributes(attributes))
+        }
+        const after = yield* handle.stat()
+        assert.isTrue(VFS.equalsObjectReference(before.reference, after.reference))
+        assert.isTrue(VFS.equalsObjectReference(after.reference, yield* caller.lookup("/alias")))
+        assert.strictEqual(after.metadata.size, 4n)
+        assert.strictEqual(after.metadata.mode, 0o600)
+        assert.strictEqual(after.metadata.atime, 2_000_000_000n)
+        assert.strictEqual(after.metadata.mtime, -1n)
+        assert.strictEqual(after.metadata.ctime, 2_000_000_000n)
+        assert.strictEqual(after.metadata.birthtime, before.metadata.birthtime)
+        assert.strictEqual(yield* handle.position(), 9n)
+        assert.deepStrictEqual(yield* caller.readFile("/alias"), new Uint8Array([1, 2, 0, 0]))
+        yield* caller.setAttributes("/file", { size: 1n })
+        assert.deepStrictEqual(yield* caller.readFile("/alias"), new Uint8Array([1]))
+        assert.strictEqual(yield* handle.position(), 9n)
+      }).pipe(withClock))
+  }
+
+  it.effect("should check metadata ownership before write access and publish nothing on denial", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const admin = yield* owner.authorize({ credentials })
+      yield* admin.writeFile("/file", new Uint8Array([1, 2]), { mode: 0o444 })
+      const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
+      const before = yield* admin.stat("/file")
+      const usage = yield* owner.usage
+      const error = yield* Effect.flip(caller.setAttributes("/file", { size: 0n, mode: 0o600 }))
+      assert.strictEqual(error._tag, "AccessDenied")
+      if (error._tag === "AccessDenied") assert.strictEqual(error.reason, "ownership")
+      assert.deepStrictEqual(yield* admin.stat("/file"), before)
+      assert.deepStrictEqual(yield* owner.usage, usage)
+      assert.deepStrictEqual(yield* admin.readFile("/file"), new Uint8Array([1, 2]))
+    }).pipe(withClock))
+
+  it.effect("should authorize resize against the original mode before applying a new mode", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const admin = yield* owner.authorize({ credentials })
+      yield* admin.setAttributes("/", { mode: 0o777 })
+      const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
+      yield* caller.createFile("/file", { mode: 0o400 })
+      const before = yield* caller.stat("/file")
+      const error = yield* Effect.flip(caller.setAttributes("/file", { size: 1n, mode: 0o600 }))
+      assert.strictEqual(error._tag, "AccessDenied")
+      if (error._tag === "AccessDenied") assert.strictEqual(error.reason, "permission")
+      assert.deepStrictEqual(yield* caller.stat("/file"), before)
+    }).pipe(withClock))
+
+  it.effect("should use a handle's open-time write grant and reject resize through a read-only handle", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const admin = yield* owner.authorize({ credentials })
+      yield* admin.writeFile("/file", new Uint8Array([1, 2]))
+      yield* admin.setAttributes("/file", { mode: 0o666 })
+      const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
+      const read = yield* caller.open("/file")
+      const write = yield* caller.open("/file", { access: "write" })
+      const before = yield* admin.stat("/file")
+      assert.strictEqual((yield* Effect.flip(read.setAttributes({ size: 0n })))._tag, "AccessDenied")
+      assert.deepStrictEqual(yield* admin.stat("/file"), before)
+      yield* admin.setAttributes("/file", { mode: 0o444 })
+      assert.strictEqual((yield* Effect.flip(caller.setAttributes("/file", { size: 1n })))._tag, "AccessDenied")
+      yield* write.setAttributes({ size: 1n })
+      assert.strictEqual((yield* write.stat()).metadata.size, 1n)
+    }).pipe(withClock))
+
+  for (const domain of ["file", "content", "transient"] as const) {
+    it.effect(`should roll back all resize attributes when the ${domain} limit is exceeded`, () =>
+      Effect.gen(function*() {
+        const limits = domain === "file" ? { fileBytes: 2 } : domain === "content" ? { contentBytes: 2 } : { transientBytes: 16 }
+        const owner = yield* VFS.make({ limits })
+        const caller = yield* owner.authorize({ credentials })
+        yield* caller.writeFile("/f", new Uint8Array([1, 2]))
+        const before = yield* caller.stat("/f")
+        const usage = yield* owner.usage
+        yield* TestClock.adjust("1 second")
+        const error = yield* Effect.flip(caller.setAttributes("/f", { size: 32n, mode: 0o600, atime: "now" }))
+        assert.strictEqual(error._tag, "LimitExceeded")
+        if (error._tag === "LimitExceeded") assert.strictEqual(error.domain, domain)
+        assert.deepStrictEqual(yield* caller.stat("/f"), before)
+        assert.deepStrictEqual(yield* owner.usage, usage)
+        assert.deepStrictEqual(yield* caller.readFile("/f"), new Uint8Array([1, 2]))
+      }).pipe(withClock))
+  }
+
+  it.effect("should use one clock sample for resize and current timestamps", () =>
+    Effect.gen(function*() {
+      const clock = yield* Clock.Clock
+      let samples = 0
+      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
+        ...clock,
+        currentTimeNanosUnsafe: () => BigInt(++samples)
+      }))
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.createFile("/file")
+      const before = samples
+      yield* caller.setAttributes("/file", { size: 2n, atime: "now", mtime: "now" })
+      const metadata = (yield* caller.stat("/file")).metadata
+      assert.strictEqual(samples, before + 1)
+      assert.strictEqual(metadata.atime, BigInt(samples))
+      assert.strictEqual(metadata.mtime, metadata.atime)
+      assert.strictEqual(metadata.ctime, metadata.atime)
+    }).pipe(withClock))
+
+  it.effect("should apply metadata when the size is unchanged and preserve revisions for a complete no-op", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.createFile("/file")
+      yield* caller.setAttributes("/file", { size: "0 B", mode: 0o600 })
+      const before = yield* caller.stat("/file")
+      assert.strictEqual(before.metadata.mode, 0o600)
+      yield* caller.setAttributes("/file", { size: 0n, mode: 0o600 })
+      assert.isTrue(VFS.equalsObjectRevision(before.revision, (yield* caller.stat("/file")).revision))
+    }).pipe(withClock))
+
+  it.effect("should retain stale revision guards without publishing resize or metadata", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.createFile("/file")
+      const stale = yield* caller.stat("/file")
+      yield* caller.writeFile("/file", new Uint8Array([1]))
+      const before = yield* caller.stat("/file")
+      const usage = yield* owner.usage
+      const error = yield* Effect.flip(caller.setAttributes("/file", { size: 0n, mode: 0o600 }, {
+        expectedRevision: stale.revision
+      }))
+      assert.strictEqual(error._tag, "ConditionFailed")
+      assert.deepStrictEqual(yield* caller.stat("/file"), before)
+      assert.deepStrictEqual(yield* owner.usage, usage)
+    }).pipe(withClock))
+
+  it.effect("should validate a size before resolving a missing path and reject non-file targets", () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const caller = yield* owner.authorize({ credentials })
+      assert.strictEqual((yield* Effect.flip(caller.setAttributes("/missing", { size: -1n })))._tag, "InvalidInput")
+      yield* caller.makeSymlink("/link", "/")
+      for (const path of ["/", "/link"]) {
+        const error = yield* Effect.flip(caller.setAttributes(path, { size: 0n }, { followFinalSymlink: false }))
+        assert.strictEqual(error._tag, "InvalidResource")
+      }
+    }).pipe(withClock))
+
+  it.effect("should roll back resize and metadata when interrupted before publication", () =>
+    Effect.gen(function*() {
+      const clock = yield* Clock.Clock
+      let interrupt: (() => void) | undefined
+      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
+        ...clock,
+        currentTimeNanosUnsafe: () => {
+          interrupt?.()
+          return clock.currentTimeNanosUnsafe()
+        }
+      }))
+      const caller = yield* owner.authorize({ credentials })
+      yield* caller.writeFile("/file", new Uint8Array([1, 2]))
+      const before = yield* caller.stat("/file")
+      const usage = yield* owner.usage
+      yield* TestClock.adjust("1 second")
+      const updating = yield* Effect.withFiber((fiber) => {
+        interrupt = () => {
+          interrupt = undefined
+          fiber.interruptUnsafe()
+        }
+        return caller.setAttributes("/file", { size: 0n, mode: 0o600 })
+      }).pipe(Effect.forkChild({ startImmediately: true }))
+      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(updating)))
+      assert.deepStrictEqual(yield* caller.stat("/file"), before)
+      assert.deepStrictEqual(yield* owner.usage, usage)
+    }).pipe(withClock))
+})

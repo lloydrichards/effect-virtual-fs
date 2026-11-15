@@ -79,7 +79,7 @@ export const slotVariantFields = {
 export const timeFields = ["atime", "mtime"] as const
 
 /** @internal */
-export const attributeFields = ["mode", "uid", "gid", "atime", "mtime"] as const
+export const attributeFields = ["size", "mode", "uid", "gid", "atime", "mtime"] as const
 
 /** @internal */
 export const hardLinkSourceFields = {
@@ -605,6 +605,7 @@ export const validateAttributes = (
     if (attributes === undefined) {
       return yield* Result.fail(new M.InvalidInput({ operation, field: "attributes", reason: "malformed" }))
     }
+    if (attributes.size !== undefined) yield* R.sizeResult(attributes.size, operation, "size")
     if (attributes.mode !== undefined) yield* E.modeResult(attributes.mode, "directory", operation)
     if (attributes.uid !== undefined) yield* E.identityResult(attributes.uid, operation, "uid")
     if (attributes.gid !== undefined) yield* E.identityResult(attributes.gid, operation, "gid")
@@ -625,10 +626,15 @@ export const attributesFor = (
   tx: E.Transaction,
   node: E.Node,
   attributes: M.Attributes,
-  options?: M.RevisionCondition
+  options?: M.RevisionCondition,
+  writeAccess?: boolean
 ) =>
   Result.gen(function*() {
     yield* validateAttributes(attributes, tx.operation)
+    const requested = attributes.size === undefined ? undefined : yield* R.sizeResult(attributes.size, tx.operation, "size")
+    if (requested !== undefined && node.kind !== "file") {
+      return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
+    }
     if (attributes.mode !== undefined) {
       if (node.kind === "symlink") {
         return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
@@ -657,10 +663,31 @@ export const attributesFor = (
       ) yield* tx.requireResult(node, E.WRITE_PERMISSION)
       else yield* tx.ownsResult(node)
     }
+    if (requested !== undefined) {
+      // Handles supply their open-time grant; path and reference updates check current permissions.
+      if (writeAccess === false) {
+        return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "permission" }))
+      }
+      if (writeAccess === undefined) yield* tx.requireResult(node, E.WRITE_PERMISSION)
+    }
     yield* tx.revisionResult(node, options)
+    if (requested !== undefined) {
+      if (requested > tx.engine.runtime.limits.fileBytes) {
+        return yield* Result.fail(new M.LimitExceeded({ operation: tx.operation, domain: "file", stage: "publication" }))
+      }
+      yield* reserveFile(tx, requested)
+    }
     let changed = false
     const edited = yield* tx.editResult(node.id)
+    if (requested !== undefined && edited.kind === "file" && requested !== BigInt(edited.data.length)) {
+      const data = new Uint8Array(Number(requested))
+      data.set(edited.data.subarray(0, data.length))
+      edited.data = data
+      changed = true
+      yield* tx.touchResult(node.id, ["mtime"])
+    }
     for (const field of attributeFields) {
+      if (field === "size") continue
       const value = attributes[field]
       if (value === undefined) continue
       if (value !== "now" && value !== node[field]) changed = true

@@ -2296,34 +2296,19 @@ const wrapCaller = (
           return yield* Errors.fsFailure("StaleReference", "setattr", { field: "expected" })
         }
 
-        if (a.size !== undefined) {
-          if (a.mode !== undefined || a.owner !== undefined || a.times !== undefined) {
-            return yield* blocked("atomicSetattrSizeAndMetadata")
-          }
-
-          const size = a.size
-          yield* onTarget(value, (t, actor) => actor.access(t, { write: true }))
-
-          if (size > limits.maxFileBytes) return yield* noPath(Errors.fsFailure("FileTooLarge", "setattr"))
-
-          return yield* mutateTarget(value, (t, actor) =>
-            actor.truncate(t, size, { expectedRevision: observed.revision }))
-            .pipe(Effect.mapError((error) =>
-              error.code === "NoSpace" || error.code === "FileTooLarge" ? noPath(error) : error
-            ))
-        }
-
         if (a.times !== undefined && a.mode === undefined && a.owner === undefined) {
           yield* validateCurrentTimes(value, a.times)
         }
 
-        const selected: P.Attributes = { ...a.owner, mode: a.mode }
+        const selected: P.Attributes = { ...a.owner, mode: a.mode, size: a.size }
 
         return yield* attributes(
           value,
           a.times === undefined ? selected : { ...selected, ...times(a.times) },
-          a.expected === undefined ? undefined : observed.revision
-        )
+          a.expected === undefined && a.size === undefined ? undefined : observed.revision
+        ).pipe(Effect.mapError((error) =>
+          a.size !== undefined && (error.code === "NoSpace" || error.code === "FileTooLarge") ? noPath(error) : error
+        ))
       })),
     withRoot: (value) => derive(value, true),
     withDirectory: (value) => derive(value, false),

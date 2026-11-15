@@ -310,7 +310,7 @@ const prepareAttributes = (
     yield* A.validateAttributes(attributes, work.operation)
     const fixed = yield* P.snapshotAttributes(attributes, work.operation)
     const revision = yield* revisionOptions(options, work.operation)
-    return (tx: E.Transaction) => Result.flatMap(node(tx, state), (file) => A.attributesFor(tx, file, fixed, revision))
+    return (tx: E.Transaction) => Result.flatMap(node(tx, state), (file) => A.attributesFor(tx, file, fixed, revision, state.write))
   })
 
 // -----------------------------------------------------------------------------

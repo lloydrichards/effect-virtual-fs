@@ -80,12 +80,20 @@ literal or mixed timestamp requests still require ownership, and other requested
 Omitted fields remain unchanged. The patch includes runtime and type tests for the shared caller, operation-session,
 handle, and synchronous APIs. Core preserves the markers instead of converting them into literal timestamps.
 
+`0004-atomic-resize-attributes.patch` adds an optional byte-size input to `Attributes.size`. Resizing, metadata,
+and timestamps publish in one transaction after prestate authorization and quota checks. Growth is zero-filled;
+identity, hard-link aliases, and handle cursors are preserved. Handle resize uses its open-time write grant, while
+path and reference resize check current write permission. Explicit times override resize's automatic mtime.
+Runtime and type tests cover the shared attribute entry points, rollback, and guards. Core forwards combined
+requests directly, including its existing error and revision conventions.
+
 Apply these contributions in series order from an Effect checkout at the pinned PR commit:
 
 ```sh
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0001-preserve-caller-interruptibility.patch
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0002-recursive-mkdir-dot-components.patch
 patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0003-current-time-attributes.patch
+patch --batch --forward --fuzz=0 -p1 < /path/to/effect-preview/patches/0004-atomic-resize-attributes.patch
 ```
 
 To revise a contribution, edit its upstream patch, update the checksum in `series.json`, and regenerate. Once the

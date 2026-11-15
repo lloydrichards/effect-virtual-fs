@@ -10,5 +10,9 @@
   {
     "file": "0003-current-time-attributes.patch",
     "sha256": "277262b9999ebe825162c745f50fc4d9fe9afe1df601a5ba073015d4479c6599"
+  },
+  {
+    "file": "0004-atomic-resize-attributes.patch",
+    "sha256": "3e9d902e651739485f20d681feb0733e99e30989d894d28d915ce0abe895d1ca"
   }
 ]

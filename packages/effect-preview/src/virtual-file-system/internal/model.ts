@@ -414,6 +414,8 @@ export type HardLinkSource = { readonly reference: ObjectReference } | {
  * A write-authorized non-owner may request both times as "now". Literal or mixed timestamp updates require ownership.
  */
 export interface Attributes {
+  /** Resizes a regular file atomically; file-handle updates preserve cursors and use open-time write access. */
+  readonly size?: ByteSize.Input | undefined
   readonly mode?: number | undefined
   readonly uid?: number | undefined
   readonly gid?: number | undefined
