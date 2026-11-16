@@ -35,7 +35,6 @@
     "clsx": "^2.1.1",
     "effect": "4.1.4",
     "esbuild-wasm": "0.28.2",
-    "idb-keyval": "6.3.0",
     "isbot": "^5.2.3",
     "lucide-react": "^1.70.0",
     "mdast-util-to-string": "^4.0.0",
