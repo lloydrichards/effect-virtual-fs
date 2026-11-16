@@ -53,7 +53,11 @@ function accessLabel(mask: number) {
 
 export function FilePermissions() {
   const { entries, volume } = useAtomValue(playgroundAtom)
-  const groups = new Map<string, { paths: Array<string>; owner: string; mode: string; reader: string; editor: string }>()
+
+  const groups = new Map<
+    string,
+    { paths: Array<string>; owner: string; mode: string; reader: string; editor: string }
+  >()
 
   for (const { path, policy } of entries) {
     if (!policy) continue
@@ -78,7 +82,9 @@ export function FilePermissions() {
       <figcaption className="mb-4 text-sm font-semibold">File permissions for this workspace</figcaption>
       <div className="grid gap-5 sm:grid-cols-2">
         {groups.size === 0 && (
-          <span className="text-sm text-muted-foreground">{volume ? "No files in this workspace." : "Loading permissions…"}</span>
+          <span className="text-sm text-muted-foreground">
+            {volume ? "No files in this workspace." : "Loading permissions…"}
+          </span>
         )}
         {Array.from(groups.values()).map(({ paths, owner, mode, reader, editor }) => (
           <div key={paths[0]} className="border-s-2 ps-3 last:border-primary">
@@ -87,9 +93,12 @@ export function FilePermissions() {
             </div>
             <div className="mt-1 text-xs text-muted-foreground">{mode} · owned by {owner}</div>
             <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-              <dt>Reader</dt><dd>{reader}</dd>
-              <dt>Editor</dt><dd>{editor}</dd>
-              <dt>Admin</dt><dd>Read and write</dd>
+              <dt>Reader</dt>
+              <dd>{reader}</dd>
+              <dt>Editor</dt>
+              <dd>{editor}</dd>
+              <dt>Admin</dt>
+              <dd>Read and write</dd>
             </dl>
           </div>
         ))}

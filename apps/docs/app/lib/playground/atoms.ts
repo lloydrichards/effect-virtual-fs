@@ -139,7 +139,9 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
         dirty: false,
         output: { code: result.code, lines: run.success.lines },
         error: run.success.error ?? "",
-        status: run.success.error !== undefined ? "Built successfully. Execution failed." : "Built and ran from " + result.reads.join(", ")
+        status: run.success.error !== undefined
+          ? "Built successfully. Execution failed."
+          : "Built and ran from " + result.reads.join(", ")
       }
     }
 

@@ -26,11 +26,11 @@ export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
           metadata: { uid: 1000, mode: 0o644 },
           bytes: encoder.encode(
             [
-              'import { value } from "./src/value.js"',
+              "import { value } from \"./src/value.js\"",
               "// Uncomment to run the private calibration.",
-              '// import "./secret.js"',
+              "// import \"./secret.js\"",
               "",
-              'console.log(`Reading: ${value}`)',
+              "console.log(`Reading: ${value}`)",
               ""
             ].join("\n")
           )
@@ -41,11 +41,11 @@ export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
           metadata: { uid: 0, mode: 0o600 },
           bytes: encoder.encode(
             [
-              'import { value } from "./src/value.js"',
+              "import { value } from \"./src/value.js\"",
               "",
               "const offset = 22",
               "const calibrated = value + offset",
-              'console.log(`Secret: ${calibrated} (${value} + ${offset})`)',
+              "console.log(`Secret: ${calibrated} (${value} + ${offset})`)",
               ""
             ].join("\n")
           )
