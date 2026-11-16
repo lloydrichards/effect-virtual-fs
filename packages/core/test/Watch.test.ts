@@ -521,6 +521,28 @@ describe("scoped watch", () => {
   })
 
   it.layer(BunCrypto.layer)((it) => {
+    it.effect("should report the overwritten name and keep watching the surviving alias", () =>
+      Effect.gen(function*() {
+        const caller = yield* Vfs.Caller
+        yield* file(caller, "/target")
+        yield* caller.link("/target", "/alias")
+        yield* file(caller, "/source")
+        const stream = yield* watchAt("/target")
+
+        yield* caller.rename("/source", "/target")
+        yield* caller.chmod("/target", 0o600)
+        yield* caller.chmod("/alias", 0o600)
+        yield* caller.unlink("/alias")
+
+        assert.deepStrictEqual(yield* rendered(yield* Stream.runCollect(stream)), [
+          "Remove /target",
+          "Update /alias",
+          "Remove /alias"
+        ])
+      }).pipe(Effect.provide(Testing.layer())))
+  })
+
+  it.layer(BunCrypto.layer)((it) => {
     it.effect(
       "should keep watching an object when another hard-link name still exists",
       () =>

@@ -210,12 +210,19 @@ export const make = (initial: State.VolumeState | undefined, capacity: number) =
       const terminal = names.has(subscriber.root) ? undefined : removed.get(subscriber.root)
 
       for (const event of events) {
-        if (terminal !== undefined && event.object === subscriber.root && Predicate.isTagged(event.change, "Remove")) {
+        const displaced = event.previous === subscriber.root && event.object !== subscriber.root
+
+        if (
+          terminal !== undefined &&
+          (displaced || (event.object === subscriber.root && Predicate.isTagged(event.change, "Remove")))
+        ) {
           continue
         }
 
-        if (!includes(subscriber, event)) continue
-        offer(subscriber, event.change, () => {
+        if (!displaced && !includes(subscriber, event)) continue
+        const change = displaced ? Change.cases.Remove.make({ path: event.change.path }) : event.change
+
+        offer(subscriber, change, () => {
           const link = names.get(subscriber.root)?.[0]
           const current = link === undefined ? terminal : path(link)
 
