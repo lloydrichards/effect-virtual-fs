@@ -7,7 +7,6 @@ import {
   FileCode2,
   FilePlus2,
   Folder,
-  FolderOpen,
   FolderPlus,
   LockKeyhole,
   Pencil,
@@ -156,9 +155,6 @@ export function FilesystemPlayground() {
       </div>
       <div aria-busy={opening} className="grid min-w-0 sm:grid-cols-[minmax(8rem,28%)_minmax(0,1fr)]">
         <aside aria-label="Project files" className="min-w-0 border-b bg-sidebar p-2 sm:border-e sm:border-b-0">
-          <div className="mb-1 flex items-center gap-1.5 px-1 text-xs font-semibold">
-            <FolderOpen className="size-4" />Files
-          </div>
           <div className="mb-2 flex flex-wrap gap-1 border-b pb-1">
             {([
               ["New file", FilePlus2],
