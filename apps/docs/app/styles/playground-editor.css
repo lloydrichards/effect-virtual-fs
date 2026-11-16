@@ -1,5 +1,6 @@
+.playground-editor { @apply h-full; }
 .playground-editor .cm-editor {
-  @apply h-[clamp(18rem,48vh,32rem)] bg-code-block text-code-block-foreground;
+  @apply h-full bg-code-block text-code-block-foreground;
 }
 .playground-editor .cm-editor.cm-focused { @apply outline-none; }
 .playground-editor .cm-scroller { @apply font-mono text-sm leading-6; }
