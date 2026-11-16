@@ -7,6 +7,8 @@ import {
   FilePlus2,
   Folder,
   FolderOpen,
+  FolderPlus,
+  Pencil,
   Play,
   RotateCcw,
   Save,
@@ -75,7 +77,8 @@ export function FilesystemPlayground() {
   const [path, setPath] = useState("/src/value.js")
   const [source, setSource] = useState("")
   const [dirty, setDirty] = useState(false)
-  const [name, setName] = useState<string | null>(null)
+  const [operation, setOperation] = useState<"New file" | "New folder" | "Rename file" | null>(null)
+  const [name, setName] = useState("")
   const [hasCheckpoint, setHasCheckpoint] = useState(false)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState("Opening workspace…")
@@ -154,7 +157,7 @@ export function FilesystemPlayground() {
   }
 
   async function select(caller: FileAccess, next: string) {
-    const [text, bits] = await Promise.all([caller.read(next), caller.permissions(next)])
+    const [text, bits] = next ? await Promise.all([caller.read(next), caller.permissions(next)]) : ["", 0] as const
     setPath(next)
     setSource(text)
     setPermissions(bits)
@@ -192,8 +195,8 @@ export function FilesystemPlayground() {
                 await flush(caller)
                 await select(volume[next], path)
                 setRole(next)
-                setName(null)
-                setStatus(`Reading ${path} as ${next}.`)
+                setOperation(null)
+                setStatus(`Switched to ${next}.`)
               })
             }}
           >
@@ -220,19 +223,49 @@ export function FilesystemPlayground() {
         <aside aria-label="Project files" className="min-w-0 border-b bg-sidebar p-2 sm:border-e sm:border-b-0">
           <div className="mb-1 flex items-center gap-1.5 px-1 text-xs font-semibold">
             <FolderOpen className="size-4" />Files
+          </div>
+          <div className="mb-2 flex flex-wrap gap-1 border-b pb-1">
+            {([
+              ["New file", FilePlus2],
+              ["New folder", FolderPlus],
+              ["Rename file", Pencil]
+            ] as const).map(([action, Icon]) => (
+              <Button
+                key={action}
+                size="icon-xs"
+                variant="ghost"
+                aria-label={action}
+                title={action}
+                disabled={role !== "editor" || (action === "Rename file" && !path)}
+                onClick={() => {
+                  setOperation(operation === action ? null : action)
+                  setName(action === "Rename file" ? path.slice(1) : path.slice(1, path.lastIndexOf("/") + 1))
+                }}
+              >
+                <Icon />
+              </Button>
+            ))}
             <Button
-              className="ms-auto"
               size="icon-xs"
               variant="ghost"
-              aria-label="New file"
-              title="New file"
-              disabled={!writable}
-              onClick={() => setName(name === null ? path.slice(1, path.lastIndexOf("/") + 1) : null)}
+              aria-label="Delete file"
+              title={path ? `Delete ${path}` : "Delete file"}
+              disabled={role !== "editor" || !path}
+              onClick={() =>
+                act(async (_, caller) => {
+                  await caller.unlink(path)
+                  const tree = await caller.files()
+                  await select(caller, tree.find((entry) => !entry.directory)?.path ?? "")
+                  setEntries(tree)
+                  setOperation(null)
+                  setOutput("")
+                  setStatus("Deleted " + path)
+                })}
             >
-              <FilePlus2 />
+              <Trash2 />
             </Button>
           </div>
-          {name !== null && (
+          {operation && (
             <form
               className="mb-2 space-y-1"
               onSubmit={(event) => {
@@ -245,24 +278,39 @@ export function FilesystemPlayground() {
                   }
 
                   await flush(caller)
-                  await caller.create(next)
+
+                  if (operation === "Rename file") {
+                    if (entries.some((entry) => entry.path === next && next !== path)) {
+                      throw new Error("That path already exists.")
+                    }
+
+                    await caller.rename(path, next)
+                  } else if (operation === "New folder") {
+                    await caller.mkdir(next)
+                  } else {
+                    await caller.create(next)
+                  }
+
                   setEntries(await caller.files())
-                  await select(caller, next)
-                  setName(null)
-                  setStatus("Created " + next)
+
+                  if (operation !== "New folder") await select(caller, next)
+                  setOperation(null)
+                  setStatus((operation === "Rename file" ? "Renamed to " : "Created ") + next)
                   setOutput("")
                 })
               }}
             >
               <input
-                aria-label="New file path"
-                placeholder="src/message.js"
+                aria-label={operation + " path"}
+                placeholder={operation === "New folder" ? "src/lib" : "src/message.js"}
                 value={name}
                 maxLength={150}
                 onChange={(event) => setName(event.target.value)}
                 className="w-full rounded border bg-background p-1 font-mono text-xs"
               />
-              <Button type="submit" size="xs" variant="outline">Add file</Button>
+              <Button type="submit" size="xs" variant="outline">
+                {operation === "New folder" ? "Add folder" : operation === "Rename file" ? "Rename" : "Add file"}
+              </Button>
             </form>
           )}
           <FileList
@@ -273,14 +321,15 @@ export function FilesystemPlayground() {
               act(async (_, caller) => {
                 await flush(caller)
                 await select(caller, next)
+                setOperation(null)
               })}
           />
         </aside>
         <div className="min-w-0 bg-code-block">
           <div className="flex flex-wrap items-center gap-2 border-b bg-card px-3 py-2 font-mono text-xs">
             <Braces className="size-3.5 text-primary" />
-            <span className="break-all">{path}{dirty && <span aria-label="Modified">*</span>}</span>
-            <span className="ms-auto text-muted-foreground">{writable ? "Read / write" : "Read only"}</span>
+            <span className="break-all">{path || "No file open"}{dirty && <span aria-label="Modified">*</span>}</span>
+            <span className="ms-auto text-muted-foreground">{path && (writable ? "Read / write" : "Read only")}</span>
           </div>
           <PlaygroundEditor
             path={path}
@@ -340,11 +389,15 @@ export function FilesystemPlayground() {
               const tree = await saved[role].files()
               const fallback = tree.find((entry) => !entry.directory)?.path
 
-              if (!fallback) throw new Error("The checkpoint contains no files.")
-              await select(saved[role], tree.some((entry) => entry.path === path && !entry.directory) ? path : fallback)
+              await select(
+                saved[role],
+                tree.some((entry) => entry.path === path && !entry.directory)
+                  ? path
+                  : fallback ?? ""
+              )
               setWorkspace(saved)
               setEntries(tree)
-              setName(null)
+              setOperation(null)
               setOutput("")
               setStatus("Reopened the saved checkpoint.")
             })}

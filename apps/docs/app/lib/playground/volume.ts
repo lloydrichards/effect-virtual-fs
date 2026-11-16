@@ -68,6 +68,9 @@ export async function openVolume(image?: Uint8Array) {
         access: "write",
         truncate: true
       })),
+    mkdir: (path: string) => Effect.runPromise(caller.mkdir(path)),
+    rename: (from: string, to: string) => Effect.runPromise(caller.rename(from, to)),
+    unlink: (path: string) => Effect.runPromise(caller.unlink(path)),
     create: (path: string) =>
       Effect.runPromise(caller.writeFile(path, new Uint8Array(), {
         access: "write",
