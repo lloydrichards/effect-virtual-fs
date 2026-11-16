@@ -4,6 +4,7 @@
 @import "@fontsource-variable/manrope";
 @import "@fontsource-variable/jetbrains-mono";
 @import "./styles/mdx.css";
+@import "./styles/playground-editor.css";
 
 @custom-variant dark (&:is(.dark *));
 

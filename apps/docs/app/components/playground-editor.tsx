@@ -5,7 +5,6 @@ import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/s
 import { EditorView, keymap, lineNumbers } from "@codemirror/view"
 import { classHighlighter } from "@lezer/highlight"
 import { useLayoutEffect, useRef } from "react"
-import "~/styles/playground-editor.css"
 
 const externalChange = Annotation.define<boolean>()
 
@@ -14,7 +13,7 @@ interface Props {
   label: string
   value: string
   readOnly: boolean
-  onEdit?: (text: string) => void
+  onEdit: (text: string) => void
 }
 
 export function PlaygroundEditor({ path, label, value, readOnly, onEdit }: Props) {
@@ -33,7 +32,9 @@ export function PlaygroundEditor({ path, label, value, readOnly, onEdit }: Props
         /\.[cm]?jsx?$/i.test(path)
           ? [javascript({ jsx: path.endsWith(".jsx") }), syntaxHighlighting(classHighlighter)]
           : [],
-        onEdit ? [lineNumbers(), history(), keymap.of([...defaultKeymap, ...historyKeymap])] : []
+        lineNumbers(),
+        history(),
+        keymap.of([...defaultKeymap, ...historyKeymap])
       ]
     })
 
@@ -64,7 +65,7 @@ export function PlaygroundEditor({ path, label, value, readOnly, onEdit }: Props
         EditorView.editable.of(!readOnly),
         EditorView.contentAttributes.of({ "aria-readonly": String(readOnly), tabindex: "0" }),
         EditorView.updateListener.of((update) => {
-          if (onEdit && update.docChanged && !update.transactions.some((tr) => tr.annotation(externalChange))) {
+          if (update.docChanged && !update.transactions.some((tr) => tr.annotation(externalChange))) {
             onEdit(update.state.doc.toString())
           }
         })
@@ -72,5 +73,10 @@ export function PlaygroundEditor({ path, label, value, readOnly, onEdit }: Props
     })
   }, [readOnly, path, label, onEdit])
 
-  return <div ref={container} className={onEdit ? "playground-editor" : "playground-editor playground-bundle"} />
+  return (
+    <div
+      ref={container}
+      className="playground-editor playground-syntax relative isolate focus-within:after:pointer-events-none focus-within:after:absolute focus-within:after:inset-0 focus-within:after:z-10 focus-within:after:border-2 focus-within:after:border-ring forced-colors:focus-within:after:border-[Highlight]"
+    />
+  )
 }

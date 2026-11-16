@@ -1,4 +1,5 @@
-/* oxlint-disable effecttsgo/async-function -- React event handlers sequence editor commands and update component state. */
+import { RegistryProvider, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
 import {
   Braces,
   ChevronRight,
@@ -15,14 +16,20 @@ import {
   Terminal,
   Trash2
 } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
-import type { FileAccess, Workspace } from "~/lib/playground/volume"
+import { useEffect, useState } from "react"
+import {
+  checkpointAtom,
+  commandAtom,
+  editAtom,
+  type Entry,
+  type Operation,
+  playgroundAtom
+} from "~/lib/playground/atoms"
+import { PlaygroundBundle } from "./playground-bundle"
 import { PlaygroundEditor } from "./playground-editor"
 import { Button } from "./ui/button"
-
-type Entry = Awaited<ReturnType<FileAccess["files"]>>[number]
-
-type Role = keyof Pick<Workspace, "editor" | "reader">
+import { Input } from "./ui/input"
+import { NativeSelect } from "./ui/native-select"
 
 function FileList({ entries, parent, selected, onSelect }: {
   entries: ReadonlyArray<Entry>
@@ -79,116 +86,44 @@ function FileList({ entries, parent, selected, onSelect }: {
 }
 
 export function FilesystemPlayground() {
-  const [workspace, setWorkspace] = useState<Workspace>()
-  const [role, setRole] = useState<Role>("editor")
-  const [permissions, setPermissions] = useState(0)
-  const [entries, setEntries] = useState<ReadonlyArray<Entry>>([])
-  const [path, setPath] = useState("/src/value.js")
-  const [source, setSource] = useState("")
-  const [dirty, setDirty] = useState(false)
-  const [folder, setFolder] = useState("")
+  return (
+    <RegistryProvider>
+      <WorkspacePanel />
+    </RegistryProvider>
+  )
+}
+
+function WorkspacePanel() {
+  const { volume, role, permissions, entries, path, source, dirty, folder, busy, status, output, error } = useAtomValue(
+    playgroundAtom
+  )
+
+  const run = useAtomSet(commandAtom, { mode: "promise" })
+  const edit = useAtomSet(editAtom)
+  const checkpoint = useAtomValue(checkpointAtom)
+  const refresh = useAtomRefresh(checkpointAtom)
+  const hasCheckpoint = AsyncResult.isSuccess(checkpoint) && checkpoint.value
   const selected = folder || path
   const renameAction = folder ? "Rename folder" : "Rename file"
-  const [operation, setOperation] = useState<"New file" | "New folder" | "Rename file" | "Rename folder" | null>(null)
+  const [operation, setOperation] = useState<Operation | null>(null)
   const [name, setName] = useState("")
-  const [hasCheckpoint, setHasCheckpoint] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [status, setStatus] = useState("Opening workspace…")
-  const [output, setOutput] = useState("")
-  const [error, setError] = useState("")
-  const locked = useRef(false)
 
   useEffect(() => {
-    let active = true
+    void run("open")
+    window.addEventListener("focus", refresh)
 
-    function refreshCheckpoint() {
-      void import("~/lib/playground/storage").then(({ hasSavedCheckpoint }) => hasSavedCheckpoint())
-        .catch(() => false)
-        .then((exists) => {
-          if (active) setHasCheckpoint(exists)
-        })
-    }
+    return () => window.removeEventListener("focus", refresh)
+  }, [refresh, run])
 
-    refreshCheckpoint()
-    window.addEventListener("focus", refreshCheckpoint)
-
-    async function start() {
-      const { openVolume } = await import("~/lib/playground/volume")
-      const volume = await openVolume()
-
-      const [tree, text, bits] = await Promise.all([
-        volume.editor.files(),
-        volume.editor.read("/src/value.js"),
-        volume.editor.permissions("/src/value.js")
-      ])
-
-      if (active) {
-        setWorkspace(volume)
-        setEntries(tree)
-        setSource(text)
-        setPermissions(bits)
-        setStatus("Starter files open in memory.")
-      }
-    }
-
-    void start().catch((cause) => {
-      if (active) {
-        setError(String(cause))
-        setStatus("Could not open workspace.")
-      }
-    })
-
-    return () => {
-      active = false
-      window.removeEventListener("focus", refreshCheckpoint)
-    }
-  }, [])
-
-  async function act(task: (volume: Workspace, caller: FileAccess) => Promise<void>) {
-    if (!workspace || locked.current) return
-    locked.current = true
-    setBusy(true)
-    setError("")
-
-    try {
-      await task(workspace, workspace[role])
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-      setStatus("Action failed.")
-    } finally {
-      locked.current = false
-      setBusy(false)
-    }
+  const closeOnSuccess = (success: boolean) => {
+    if (success) setOperation(null)
   }
-
-  async function flush(caller: FileAccess) {
-    if (dirty) {
-      await caller.write(path, source)
-      setDirty(false)
-    }
-  }
-
-  async function select(caller: FileAccess, next: string) {
-    const [text, bits] = next ? await Promise.all([caller.read(next), caller.permissions(next)]) : ["", 0] as const
-    setPath(next)
-    setSource(text)
-    setPermissions(bits)
-    setDirty(false)
-  }
-
-  const edit = useCallback((text: string) => {
-    setSource(text)
-    setDirty(true)
-    setError("")
-    setOutput("")
-    setStatus("Working copy edited.")
-  }, [])
 
   const writable = (permissions & 2) !== 0
 
   return (
     <fieldset
-      disabled={!workspace || busy}
+      disabled={!volume || busy}
       className="my-5 min-w-0 overflow-hidden rounded-xl border border-code-block-border bg-card text-card-foreground shadow-sm"
     >
       <legend className="sr-only">Virtual filesystem editor</legend>
@@ -198,36 +133,16 @@ export function FilesystemPlayground() {
         </span>
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           Caller
-          <select
-            className="rounded-md border bg-background px-2 py-1 text-foreground"
+          <NativeSelect
             value={role}
-            onChange={(event) => {
-              const next = event.target.value === "reader" ? "reader" : "editor"
-              void act(async (volume, caller) => {
-                await flush(caller)
-                await select(volume[next], path)
-                setRole(next)
-                setOperation(null)
-                setStatus(`Switched to ${next}.`)
-              })
-            }}
+            onChange={(event) =>
+              void run({ role: event.target.value === "reader" ? "reader" : "editor" }).then(closeOnSuccess)}
           >
             <option value="editor">Editor</option>
             <option value="reader">Reader</option>
-          </select>
+          </NativeSelect>
         </label>
-        <Button
-          onClick={() =>
-            act(async (_, caller) => {
-              setOutput("")
-              setStatus("Building /main.js…")
-              await flush(caller)
-              const { buildWorkspace } = await import("~/lib/playground/build")
-              const result = await buildWorkspace(caller)
-              setOutput(result.code)
-              setStatus("Built from " + result.reads.join(", "))
-            })}
-        >
+        <Button onClick={() => void run("build")}>
           <Play />Run build
         </Button>
       </div>
@@ -271,22 +186,7 @@ export function FilesystemPlayground() {
               aria-label={folder ? "Delete folder" : "Delete file"}
               title={folder ? `Delete ${folder} and its contents` : `Delete ${path}`}
               disabled={role !== "editor" || !selected}
-              onClick={() =>
-                act(async (_, caller) => {
-                  if (folder) await caller.removeFolder(folder)
-                  else await caller.unlink(path)
-                  const tree = await caller.files()
-
-                  if (!folder || !path || path.startsWith(folder + "/")) {
-                    await select(caller, tree.find((entry) => !entry.directory)?.path ?? "")
-                  }
-
-                  setFolder("")
-                  setEntries(tree)
-                  setOperation(null)
-                  setOutput("")
-                  setStatus("Deleted " + selected + (folder ? " and its contents." : ""))
-                })}
+              onClick={() => void run("deleteEntry").then(closeOnSuccess)}
             >
               <Trash2 />
             </Button>
@@ -296,51 +196,16 @@ export function FilesystemPlayground() {
               className="mb-2 space-y-1"
               onSubmit={(event) => {
                 event.preventDefault()
-                void act(async (_, caller) => {
-                  const next = "/" + name
-
-                  if (!name.split("/").every((part) => /^[\w-][\w.-]*$/.test(part))) {
-                    throw new Error("Enter a path such as src/message.js.")
-                  }
-
-                  await flush(caller)
-
-                  if (operation === renameAction) {
-                    if (entries.some((entry) => entry.path === next && next !== selected)) {
-                      throw new Error("That path already exists.")
-                    }
-
-                    await caller.rename(selected, next)
-                  } else if (operation === "New folder") {
-                    await caller.mkdir(next)
-                  } else {
-                    await caller.create(next)
-                  }
-
-                  setEntries(await caller.files())
-
-                  if (operation === "Rename folder") {
-                    setFolder(next)
-
-                    if (path.startsWith(folder + "/")) await select(caller, next + path.slice(folder.length))
-                  } else if (operation !== "New folder") {
-                    await select(caller, next)
-                    setFolder("")
-                  }
-
-                  setOperation(null)
-                  setStatus((operation === renameAction ? "Renamed to " : "Created ") + next)
-                  setOutput("")
-                })
+                void run({ operation, name }).then(closeOnSuccess)
               }}
             >
-              <input
+              <Input
                 aria-label={operation + " path"}
                 placeholder={operation === "New folder" ? "src/lib" : "src/message.js"}
                 value={name}
                 maxLength={150}
                 onChange={(event) => setName(event.target.value)}
-                className="w-full rounded border bg-background p-1 font-mono text-xs"
+                className="rounded-md font-mono"
               />
               <Button type="submit" size="xs" variant="outline">
                 {operation === "New folder" ? "Add folder" : operation === renameAction ? "Rename" : "Add file"}
@@ -351,14 +216,7 @@ export function FilesystemPlayground() {
             entries={entries}
             parent=""
             selected={selected}
-            onSelect={(entry) =>
-              act(async (_, caller) => {
-                await flush(caller)
-
-                if (!entry.directory) await select(caller, entry.path)
-                setFolder(entry.directory ? entry.path : "")
-                setOperation(null)
-              })}
+            onSelect={(entry) => void run({ select: entry }).then(closeOnSuccess)}
           />
         </aside>
         <div className="min-w-0 bg-code-block">
@@ -384,73 +242,35 @@ export function FilesystemPlayground() {
         {output && (
           <div className="mt-2">
             <h3 className="text-xs font-semibold">Generated bundle</h3>
-            <PlaygroundEditor path="bundle.js" label="Generated bundle" value={output} readOnly />
+            <PlaygroundBundle source={output} />
           </div>
         )}
       </div>
       <div className="flex flex-wrap items-center gap-1 border-t p-2">
         <Button
           variant="outline"
-          onClick={() =>
-            act(async (volume, caller) => {
-              await flush(caller)
-              const { saveCheckpoint } = await import("~/lib/playground/storage")
-              await saveCheckpoint(await volume.snapshot())
-              setHasCheckpoint(true)
-              setStatus("Saved workspace.sqlite in this browser.")
-            })}
+          onClick={() => void run("save")}
         >
           <Save />Save checkpoint
         </Button>
         <Button
           variant="ghost"
           disabled={!hasCheckpoint}
-          onClick={() =>
-            act(async () => {
-              const { readCheckpoint } = await import("~/lib/playground/storage")
-              const row = await readCheckpoint()
-              setStatus(`SQLite row: saved_at = ${row.savedAt}, length(image) = ${row.size} bytes.`)
-            })}
+          onClick={() => void run("inspect")}
         >
           <Database />Inspect saved row
         </Button>
         <Button
           variant="ghost"
           disabled={!hasCheckpoint}
-          onClick={() =>
-            act(async () => {
-              const { readCheckpoint } = await import("~/lib/playground/storage")
-              const { openVolume } = await import("~/lib/playground/volume")
-              const saved = await openVolume((await readCheckpoint()).image)
-              const tree = await saved[role].files()
-              const fallback = tree.find((entry) => !entry.directory)?.path
-
-              await select(
-                saved[role],
-                tree.some((entry) => entry.path === path && !entry.directory)
-                  ? path
-                  : fallback ?? ""
-              )
-              setFolder("")
-              setWorkspace(saved)
-              setEntries(tree)
-              setOperation(null)
-              setOutput("")
-              setStatus("Reopened the saved checkpoint.")
-            })}
+          onClick={() => void run("reopen").then(closeOnSuccess)}
         >
           <RotateCcw />Reopen saved
         </Button>
         <Button
           variant="ghost"
           disabled={!hasCheckpoint}
-          onClick={() =>
-            act(async () => {
-              const { deleteCheckpoint } = await import("~/lib/playground/storage")
-              await deleteCheckpoint()
-              setHasCheckpoint(false)
-              setStatus("Checkpoint deleted. Your working files are still open.")
-            })}
+          onClick={() => void run("deleteCheckpoint")}
         >
           <Trash2 />Delete checkpoint
         </Button>
