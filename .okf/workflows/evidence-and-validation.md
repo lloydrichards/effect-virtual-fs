@@ -23,7 +23,7 @@ sources:
   - id: sqlite-vm-gate
     resource: ../../packages/persistence/scripts/utm-vm-crash-gate.sh
     title: Local UTM guest OS hard-stop gate
-generated: { by: codex/okf, at: 2026-09-19T21:14:47Z }
+generated: { by: codex/okf-dream, at: 2026-11-16T21:53:21Z }
 ---
 
 # Evidence and validation
@@ -32,7 +32,11 @@ Claims should be no broader than the check that supports them. A passing type co
 
 For a behavior change, identify the requirement or accepted decision, add a focused regression when appropriate, prove that the regression fails for the intended defect, repair narrowly, then run the relevant package and repository checks. Preserve structured errors and rejected-state invariants; do not validate behavior by parsing incidental error prose.
 
-Workspace declarations must exist before Effect-aware lint analyzes package consumers. The repository CI sequence is frozen install, format check, build, an API-reference staleness check (a dirty committed reference fails the run), lint (the anti-slop policy script, then Oxlint), Effect-aware lint, type check, and tests. Tests and type checks also depend on upstream package builds through Turbo. Privileged checks stay out of that sequence: the NFS Linux mount gate is a separate workflow that runs on demand or when a pull request carries the `nfs-gate` label, and records the kernel client it ran against. The unprivileged pinned pynfs gate runs as its own workflow on pull requests that change the core, the NFS package, or the preview app, and fails on any difference from the classified known-failures file. The [NFS interoperability and fault evidence decision](../decisions/nfs/nfs-interoperability-evidence.md "refined by") fixes which NFS checks run where.
+The main pull-request job uses Bun 1.4.4. It runs a frozen install, checks formatting, and builds the workspace. The docs build regenerates the committed API reference, so CI checks it for changes immediately afterward. The build also emits the workspace declarations that type-aware lint needs. If a consumer reports missing `dist/*.d.ts`, reproduce this build order before changing its source. CI then runs the anti-slop policy check and Oxlint, Effect-aware lint, type checking, tests, and the core and NFS [benchmark correctness checks](package-benchmarks.md "uses"). Tests and type checks also depend on upstream package builds through Turbo.
+
+Separate jobs target Ubuntu 24.04. The host filesystem contract runs on Node 24.21.0. The direct Node provider, mounted filesystem, and TypeScript workbench jobs run on Node 26.11.1. Record the runtime each check exercised when citing its results.
+
+Outside the main workflow, the NFS Linux mount gate is a separate workflow that runs on demand or when a pull request carries the `nfs-gate` label, and records the kernel client it ran against. The unprivileged pinned pynfs gate runs as its own workflow on pull requests that change the core, the NFS package, or the preview app, and fails on any difference from the classified known-failures file. The [NFS interoperability and fault evidence decision](../decisions/nfs/nfs-interoperability-evidence.md "refined by") fixes which NFS checks run where.
 
 SQLite failure qualification has two separate gates. The opt-in hosted Linux workflow repeats process death, a real disk-full write, and injected SQLite VFS write and sync failures. A local UTM script forcibly stops a dedicated Linux guest between a provider write and recovery, retaining its virtual disk across boots. Both record the actual runtime and storage configuration. Neither a green hosted runner nor a VM hard stop proves physical power-loss durability; lost or reordered writes require a separate fault model, and a finite rollback-journal and temporary-file policy is still open.
 
