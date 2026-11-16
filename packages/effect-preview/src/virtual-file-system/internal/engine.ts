@@ -911,6 +911,7 @@ export class Transaction {
         for (const binding of dir.entries.values()) {
           yield* this.visitResult()
           const node = yield* this.getResult(binding.object)
+          if (node.id !== info.object && node.kind !== "directory") continue
           const routeSupport = [...support, {
             parent: dir.id,
             name: binding.name,
