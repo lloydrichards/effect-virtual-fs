@@ -37,6 +37,7 @@
   "devDependencies": {
     "@mdx-js/rollup": "^3.1.1",
     "@react-router/dev": "8.5.1",
+    "@repo/config-typescript": "workspace:*",
     "@shikijs/transformers": "^4.6.0",
     "@tailwindcss/vite": "^4.3.5",
     "@types/bun": "^1.4.4",
