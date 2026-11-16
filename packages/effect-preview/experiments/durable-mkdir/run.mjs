@@ -63,7 +63,7 @@ try {
   const vitest = join(dependencies, "vitest/vitest.mjs")
   run(vitest, "run", "test", "--maxWorkers", "2")
 
-  for (const path of ["test/LiveVolume.test.ts", "test/internal/virtualFileSystem.test.ts", "test/support/lines.ts", "test/support/text.ts"]) {
+  for (const path of ["test/LiveVolume.test.ts", "test/internal/virtualFileSystem.test.ts", "test/internal/liveImage.test.ts", "test/support/lines.ts", "test/support/text.ts"]) {
     await cp(resolve(preview, "../core", path), join(core, path))
   }
 
@@ -72,7 +72,7 @@ try {
 
   const persistence = join(scratch, "persistence")
 
-  for (const path of ["src", "test/SqliteLiveImageStore.test.ts", "test/fixtures/live-restart.ts"]) {
+  for (const path of ["src", "test/SqliteLiveImageStore.test.ts", "test/R2LiveImageStore.test.ts", "test/fixtures/live-restart.ts"]) {
     await cp(resolve(preview, "../persistence", path), join(persistence, path), { recursive: true })
   }
 
@@ -81,6 +81,17 @@ try {
   await symlink(core, join(persistence, "node_modules/@effect-vfs/core"), "dir")
   run(vitest, "run", "persistence/test/SqliteLiveImageStore.test.ts", "-t", "when the writer is killed",
     "--reporter", "verbose")
+
+  const nfs = join(scratch, "nfs")
+  for (const path of ["src", "test/internal/nfs4.test.ts", "test/support"]) {
+    await cp(resolve(preview, "../nfs", path), join(nfs, path), { recursive: true })
+  }
+  await mkdir(join(nfs, "node_modules/@effect-vfs"), { recursive: true })
+  await symlink(core, join(nfs, "node_modules/@effect-vfs/core"), "dir")
+
+  run(vitest, "run", "core/test/LiveVolume.test.ts", "core/test/internal/liveImage.test.ts",
+    "nfs/test/internal/nfs4.test.ts", "persistence/test/R2LiveImageStore.test.ts", "-t",
+    "should compare capacity quantities|should re-encode identical bytes|should survive a server restart and report it in fh_expire_type|should answer STALE when a persistent handle|should report power-loss durability")
 } finally {
   await rm(scratch, { recursive: true, force: true })
 }

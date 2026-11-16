@@ -43,7 +43,7 @@
      const work = runtime.gate.withPermit(Effect.gen(function*() {
 +      if (runtime.storageReady) yield* runtime.storageReady
 +      if (runtime.frozen) return yield* Errors.fsFailure("VolumeUnavailable", operation)
-+      if (runtime.storageReady && !["root", "mkdir", "lookup", "stat", "watch", "open", "read", "pread", "readFile", "writeFile", "write", "close", "unlink", "openDirectory", "rmdir"].includes(operation)) {
++      if (runtime.storageReady && !["root", "mkdir", "lookup", "stat", "watch", "open", "read", "pread", "readFile", "writeFile", "write", "close", "unlink", "openDirectory", "rmdir", "link", "symlink", "rename", "chmod"].includes(operation)) {
 +        return yield* blocked("mkdirTrialOnly")
 +      }
        const readers = runtime.captureReaders
@@ -91,14 +91,16 @@
 +    input: Source,
      provider: CommitProvider<State.VolumeState>,
      options?: V.VolumeOptions,
-     _durability?: V.VolumeDurability
+-    _durability?: V.VolumeDurability
++    durability: V.VolumeDurability = "memory-only"
    ) {
 -    if (provider.mode !== "memory" || Predicate.isTagged(source, "Live")) return yield* blocked("durableCommit")
 +    const live = input._tag === "Live" ? input.restored : undefined
 +    const source = input._tag === "Live" ? { _tag: "Live" as const, value: input.restored.value } : input
 +    const durable = provider.mode === "durable"
      const checked = yield* Effect.fromResult(Limits.configuration(options))
-     const limits = checked.limits
+-    const limits = checked.limits
++    const limits = live ? yield* Effect.fromResult(Limits.fromStored(live.limits, checked.limits)) : checked.limits
  
 @@ -3063,11 +3080,22 @@
      }
@@ -139,6 +141,15 @@
 
        if (readers === undefined) return observation
 
+@@ -3118,7 +3152,7 @@
+
+     const volume: V.Volume = {
+       [VolumeId]: true,
+-      durability: "memory-only",
++      durability,
+       identity,
+       incarnation,
+       limits,
 @@ -3145,7 +3179,7 @@
          ))
 
