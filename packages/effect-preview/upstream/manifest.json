@@ -1,6 +1,6 @@
 {
   "repository": "lloydrichards/open_effect",
-  "commit": "4a9d10c437ea0a74dc9208a4d021326d336b4d75",
+  "commit": "2850ae65c53e0d23273954a99a9c1ce3f0716195",
   "base": "d0c49be523923fd58821ab25a777b1832e412dfc",
   "pullRequest": "https://github.com/Effect-TS/effect/pull/9960",
   "files": {
@@ -11,7 +11,7 @@
     "src/virtual-file-system/VirtualFileSystem.ts": "ce56e3c70b17ea4b277c4f59e582077d5bd5c947d93c970276da72fcb07a6d9f",
     "src/virtual-file-system/index.ts": "50051f6fbcc25aad12c8ba04627061fe825b21fcd2b5de982d4e55d4d40760f5",
     "src/virtual-file-system/internal/atomic.ts": "407da359555f6a571929d0e032038e97889f558b87d1aa914d163c4a792b4649",
-    "src/virtual-file-system/internal/capture.ts": "54c0fab0bfcf4e533c2637edd522cb6d694715bcc5cf61fc55c78d0ceacb98e0",
+    "src/virtual-file-system/internal/capture.ts": "3dfa4748c7425fbc4fb4e7844df67fb53828c0ff4738634f4712585f1eb9fc8c",
     "src/virtual-file-system/internal/engine.ts": "69aac6715d763fbc08b22cd7f0ed1be69d85de1d221167c3aed0fbd61e7a2448",
     "src/virtual-file-system/internal/handles.ts": "57a0a8e47703427c3132baa19671a739fd9b2001497ba2b0e9a41187606538cb",
     "src/virtual-file-system/internal/model.ts": "24af7babedd7ba498e23976ad8072b383c576d357ab15ebf6192653bd5dae100",
@@ -25,7 +25,7 @@
     "test/DateTime.UnixNano.test.ts": "3c0ecad15a28b6208524fe3559a21a9b1379f11f9d772bd130d8d049089a986f",
     "test/schema/BytePath.test.ts": "2de6a2e6e338fe2543e9fcdfc21e95ab525f3c7d11093eddf27066a25b09f28a",
     "test/schema/representation/toCodeDocument.test.ts": "a11fd913bce69109cfa53d86b10cf50fb0c6f945c575ee3e3187580a946f5772",
-    "test/virtual-file-system/VirtualFileSystem.capture.test.ts": "fbf793e0d11e7d829d286babe4927c633c3361b5b67013a14c399b8758150c99",
+    "test/virtual-file-system/VirtualFileSystem.capture.test.ts": "8df170973e9471aedf03d9966d5458e0d4444449bdd5de2c1efcc36595fb797e",
     "test/virtual-file-system/VirtualFileSystem.handles.test.ts": "3b19f1d76d432faa73871689718abe3687bf119f2c43db981a600ab324d8b8f7",
     "test/virtual-file-system/VirtualFileSystem.limits.test.ts": "2c4e08e9a65a1c0bc793b8728319f8f466c587fa88462b94729ed9b928184007",
     "test/virtual-file-system/VirtualFileSystem.operations.test.ts": "137e8e0819afd68de34d85b543e1eed7d0132b69ba7a897103417a0c16cbfa08",
