@@ -1,6 +1,6 @@
 // Generated from Effect PR #9960 by scripts/sync.mjs. Edit the snapshot or generator, then run sync.
 import { assert, it } from "@effect/vitest"
-import { Clock, Effect, Result } from "effect"
+import { Clock, Effect, Exit, Result, Scope } from "effect"
 import { TestClock } from "effect/testing"
 import { installStorage } from "../../src/virtual-file-system/internal/engine.js"
 import * as VFS from "../../src/virtual-file-system/VirtualFileSystem.js"
@@ -44,3 +44,36 @@ it.effect("keeps the cursor, destination, and stored access time together on bor
     assert.strictEqual(yield* file.position(), 2n)
     assert.strictEqual(offered.length, 1)
   }))
+
+for (const last of ["caller", "handle", "concurrent"] as const) {
+  it.effect(`offers a detached directory once when its final pins close (${last})`, () =>
+    Effect.gen(function*() {
+      const owner = yield* VFS.make()
+      const admin = yield* owner.authorize({ credentials: { uid: 0, gid: 0 } })
+      const directory = yield* admin.makeDirectory("/directory")
+      const id = directory.metadata.objectNumber
+      const scope = yield* Scope.make()
+      const closeCaller = Scope.close(scope, Exit.void)
+      yield* Effect.addFinalizer(() => closeCaller)
+      yield* admin.withRoot("/directory").pipe(Scope.provide(scope))
+      const handle = yield* admin.openDirectory("/directory")
+      const offers: Array<boolean> = []
+      yield* installStorage(owner, (nodes) =>
+        Effect.sync(() => {
+          offers.push(nodes.has(id))
+        }), () => false)
+
+      yield* admin.removeDirectory("/directory")
+      assert.deepStrictEqual(offers, [true])
+      if (last === "concurrent") {
+        yield* Effect.all([closeCaller, handle.close()], { concurrency: "unbounded" })
+      } else {
+        yield* (last === "caller" ? handle.close() : closeCaller)
+        assert.strictEqual((yield* owner.usage).unreachableRetainedObjects, 1)
+        assert.deepStrictEqual(offers, [true])
+        yield* (last === "caller" ? closeCaller : handle.close())
+      }
+      assert.strictEqual((yield* owner.usage).unreachableRetainedObjects, 0)
+      assert.deepStrictEqual(offers, [true, false])
+    }))
+}
