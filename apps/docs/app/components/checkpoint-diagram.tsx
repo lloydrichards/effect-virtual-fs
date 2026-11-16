@@ -34,38 +34,3 @@ export function CheckpointDiagram() {
     </figure>
   )
 }
-
-export function CallerDiagram() {
-  return (
-    <table className="my-5 w-full text-left text-sm">
-      <caption className="pb-3 text-left font-semibold">Caller permissions for the starter files</caption>
-      <thead>
-        <tr className="border-b align-bottom">
-          <th scope="col" className="py-2 pr-2">Caller</th>
-          <th scope="col" className="px-2 py-2">
-            <span className="block font-mono text-xs">/main.js</span>
-            <span className="block font-mono text-xs">/src/value.js</span>
-            <span className="text-xs font-normal text-muted-foreground">Editor · 0644</span>
-          </th>
-          <th scope="col" className="py-2 pl-2">
-            <span className="block font-mono text-xs">/secret.js</span>
-            <span className="text-xs font-normal text-muted-foreground">Admin · 0600</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {[
-          ["Reader", "Read only", "No access"],
-          ["Editor", "Read and write", "No access"],
-          ["Admin", "Read and write", "Read and write"]
-        ].map(([caller, publicAccess, privateAccess]) => (
-          <tr key={caller} className="border-b last:border-0">
-            <th scope="row" className="py-2 pr-2 font-medium">{caller}</th>
-            <td className="px-2 py-2">{publicAccess}</td>
-            <td className="py-2 pl-2">{privateAccess}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
