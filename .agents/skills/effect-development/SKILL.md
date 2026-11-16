@@ -54,25 +54,28 @@ does not cover it.
 
 ## Route common work
 
-- Services and Layers: search
-  `node_modules/effect/ai-docs/src/01_effect/03_services/`.
-- Resource and `Scope` ownership: search
-  `node_modules/effect/ai-docs/src/01_effect/05_resources/`.
-- Streams and watch delivery: search
-  `node_modules/effect/ai-docs/src/03_stream/` and inspect the existing watcher
-  contract tests.
-- Schema work: start with
-  `node_modules/effect/ai-docs/src/01_effect/02_schema/` and installed Schema
-  source or declarations. The package does not include the full `SCHEMA.md`.
-- Effect tests: search `node_modules/effect/ai-docs/src/09_testing/` and inspect
-  the nearest package tests. Use `@effect/vitest` assertions and `it.effect` for
-  Effect-returning tests. Remember that `it.effect` and `it.live` already manage
-  a scope. Use `TestClock` for clock-dependent behavior and avoid
-  `Effect.runSync` inside Effect tests.
-- Adapter compatibility: inspect `packages/memory/test/FileSystemTest.ts` and
-  focused binding tests before changing observable `FileSystem` behavior.
-- Public type composition: inspect and extend `packages/core/contracts/` when a
-  change affects compile-time API contracts.
+- For services and Layers, see `node_modules/effect/ai-docs/src/01_effect/03_services/`.
+  The [virtual filesystem tests](../../../packages/core/test/VirtualFileSystem.test.ts) use
+  `Effect.provide` with `Testing.layer` to configure a caller.
+- For resource and `Scope` ownership, see `node_modules/effect/ai-docs/src/01_effect/05_resources/`.
+  The [file handle tests](../../../packages/core/test/FileHandle.test.ts) exercise handles across scope closure.
+- For streams, see `node_modules/effect/ai-docs/src/03_stream/`. Check the
+  [volume watch tests](../../../packages/core/test/Watch.test.ts) for concurrent registration and the
+  [caller watch tests](../../../packages/core/test/CallerWatch.test.ts) for filtering and rebasing paths.
+- For Schema, start with `node_modules/effect/ai-docs/src/01_effect/02_schema/` and the installed
+  Schema source or declarations. The package does not include the full `SCHEMA.md`.
+  The [snapshot tests](../../../packages/core/test/Snapshot.test.ts) show how this project uses Schema.
+- For Effect tests, see `node_modules/effect/ai-docs/src/09_testing/` and the nearest package tests.
+  Use `@effect/vitest` assertions and `it.effect` for Effect-returning tests.
+  Both `it.effect` and `it.live` manage a scope. For clock-dependent behavior, see how the
+  [metadata tests](../../../packages/core/test/Metadata.test.ts) use `TestClock.adjust`.
+  Avoid `Effect.runSync` inside Effect tests.
+- For changes to observable `FileSystem` behavior, inspect the
+  [adapter compatibility suite](../../../packages/memory/test/FileSystemTest.ts) and the
+  [borrowed caller binding tests](../../../packages/memory/test/BindCaller.test.ts).
+- For public type changes, inspect and extend the relevant compile-time contracts for
+  [API composition](../../../packages/core/contracts/ApiTypes.ts) or
+  [engine ownership](../../../packages/core/contracts/EngineOwnership.ts).
 
 ## Verify observable behavior
 
