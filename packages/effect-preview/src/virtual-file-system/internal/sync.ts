@@ -88,7 +88,8 @@ const make = (caller: E.Caller) =>
     readLinkObserved: (target) => R.readOnlyResult(simple(caller, "readLinkObserved", target, A.readLinkObserved)),
     readDirectory: (target) => R.readOnlyResult(simple(caller, "readDirectory", target, A.readDirectory)),
     readDirents: (target) => R.readOnlyResult(simple(caller, "readDirents", target, A.readDirents)),
-    inspectDirents: (target) => R.readOnlyResult(simple(caller, "inspectDirents", target, (tx, t) => A.readDirents(tx, t, false))),
+    inspectDirents: (target) =>
+      R.readOnlyResult(simple(caller, "inspectDirents", target, (tx, t) => A.readDirents(tx, t, false))),
     readDirectoryEntries: (target) =>
       R.readOnlyResult(simple(caller, "readDirectoryEntries", target, A.readDirectoryEntries)),
     writeFile: (target: M.Target, input: Uint8Array, options?: M.WriteFileOptions) =>
@@ -120,9 +121,11 @@ const make = (caller: E.Caller) =>
           const selected = yield* E.snapshotTargetResult(target)
           const fixed = yield* P.snapshotOptions.setAttributes(options)
           const attrs = yield* P.snapshotAttributes(attributes, "setAttributes")
-          return (tx: E.Transaction) => A.setAttributes(tx, selected, attrs, fixed)
+          return (tx: E.Transaction) =>
+            A.setAttributes(tx, selected, attrs, fixed)
         })),
-    createFile: (target, options) => withOptions(caller, "createFile", target, options, A.createFile),
+    createFile: (target, options) =>
+      withOptions(caller, "createFile", target, options, A.createFile),
     makeDirectory: (target, options) => withOptions(caller, "makeDirectory", target, options, A.makeDirectory),
     makeSymlink: (target, link, options) =>
       invokeResult(caller, "makeSymlink", E.symlinkInputs(target, link), () =>

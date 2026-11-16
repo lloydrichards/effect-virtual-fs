@@ -1,7 +1,7 @@
 # Evaluate the proposed Effect filesystem
 
 This private package ports [Effect PR #9960](https://github.com/Effect-TS/effect/pull/9960) at
-`161258278d6618bb5a10804827bb7a5f34b04c4d` and shares the installed Effect 4.1.4 runtime. Core uses the
+`a70c8b9b29994ec1d53b49bb49436527f149d85e` and shares the installed Effect 4.1.4 runtime. Core uses the
 preview engine for its public constructors and native binding. Memory and Node use that same core state.
 
 ## Build and run the preview
@@ -73,52 +73,13 @@ Regeneration uses the checked-in snapshot, Bun, and `git apply`. It does not fet
 The build runs this check before compilation. `test:sync` regenerates a temporary package and proves that manual
 engine edits, extra generated files, and corrupted snapshots or contribution patches fail verification.
 
-### Local upstream contributions
+### Downstream regression coverage
 
-`patches/series.json` lists ordered contribution patches and their SHA-256 hashes. The generator verifies them and
-applies them with zero fuzz to a temporary upstream tree before adapting imports. The pinned snapshot and its
-manifest remain unchanged. Generated-file checks cover the patched result.
-
-| Patches   | Behavior under evaluation                                                                                                       |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| 0001–0002 | Preserve caller interruptibility during cleanup and resolve terminal dot components in recursive mkdir.                         |
-| 0003–0004 | Apply current-time attributes and file resize in the same transaction as other metadata.                                        |
-| 0005–0008 | Support opt-in relatime, create directories and files with exact timestamps, and preserve revisions on automatic atime updates. |
-| 0009–0010 | Create zero-filled files at their initial size during open and update symlink mode without following the link.                  |
-| 0011      | Publish file contents with a final mode and optionally replace the final symlink itself.                                        |
-| 0012–0013 | Support special mode bits and safe-integer owner IDs. Preserve empty symlink payloads through copy and restore.                 |
-| 0014–0015 | List entry identities with directory read permission and set initial file ownership during open.                                |
-| 0016      | Describe the revised attribute, copy, open and write contracts in the public API documentation.                                 |
-| 0017      | Allow a volume to inherit the parent directory’s group on creation.                                                             |
-| 0018      | Specify which UID assignments an unprivileged file owner can make.                                                              |
-| 0019      | Apply attributes to a retained file under the acting caller’s permissions and both parties’ confinement.                        |
-| 0020      | Share private file bytes across restores of one preview Capture. Public record exports and stream imports keep owned copies.    |
-| 0021      | Let core overlay restores reuse file bytes from a private snapshot through an internal capture constructor.                     |
-| 0022      | Inspect directory entry names, kinds and identities with read permission, preserving directory atime.                           |
-| 0023      | Let an async read report a pending automatic atime update before publication so core can wait for a cooperative capture.        |
-| 0024      | Subscribe as the owner to ordered batches of committed mutations from async and synchronous operations.                         |
-| 0025      | Generalize patch 0019 to retained directory handles. Orphan updates require unrestricted roots for both callers.                |
-| 0026      | Reuse the resolved directory for each path component. Allocate an owned name only when inserting a new binding.                 |
-| 0027      | Resolve linked directories directly for privileged volume-wide callers when only the directory object or containment is needed. |
-| 0028      | Stage allocation and publication until a storage decision.                                                                      |
-| 0029      | Offer durable changes and coordinate last-handle cleanup.                                                                       |
-| 0030      | Wait for storage when acquiring an existing file handle.                                                                        |
-| 0031      | Protect admission and cleanup installation from interruption.                                                                   |
-| 0032      | Install storage and restore allocator state through a private owner capability.                                                 |
-
-To try the same changes in an Effect checkout at the pinned commit, point `preview` at this package and apply
-the files in manifest order. Run this command from the root of the Effect checkout.
-
-```sh
-preview=/absolute/path/to/effect-virtual-fs/packages/effect-preview
-bun -e 'for (const entry of await Bun.file(process.argv[1]).json()) console.log(entry.file)' "$preview/patches/series.json" |
-  while IFS= read -r name; do
-    patch --batch --forward --fuzz=0 -p1 < "$preview/patches/$name" || exit 1
-  done
-```
-
-To revise a contribution, edit its upstream patch, update the checksum in `series.json`, and regenerate. Once the
-change lands upstream, refresh the pin and remove the corresponding patch and series entry.
+The pinned revision includes the engine changes previously carried in patches 0001–0032 on
+[PR #329](https://github.com/lloydrichards/effect-virtual-fs/pull/329). The preview imports the upstream storage
+tests alongside the filesystem suite. The sole entry in `patches/series.json`, `downstream-regression-tests.patch`,
+retains runtime and type assertions from the evaluation that are absent from the upstream snapshot. It touches only
+upstream test paths. Regeneration checks its SHA-256 and applies it before rewriting imports.
 
 Do not edit `src`, `test`, or `typetest` directly. These directories are generated and excluded from repository
 formatting and style linting to preserve the reviewed upstream implementation. Runtime tests, strict compilation,

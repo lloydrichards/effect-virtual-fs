@@ -285,5 +285,12 @@ export const snapshotAttributes = (
 ): Result.Result<Complete<M.Attributes>, M.InvalidInput> =>
   Result.gen(function*() {
     yield* checkShape(input, A.attributeFields, operation)
-    return { size: input.size, mode: input.mode, uid: input.uid, gid: input.gid, atime: input.atime, mtime: input.mtime }
+    return {
+      size: input.size,
+      mode: input.mode,
+      uid: input.uid,
+      gid: input.gid,
+      atime: input.atime,
+      mtime: input.mtime
+    }
   })

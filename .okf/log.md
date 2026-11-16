@@ -2,6 +2,8 @@
 
 ## 2026-11-16
 
+- Record the upstream preview sync and the retained downstream regression suite.
+
 - Record LiveVolume publication, recovery and handle cleanup through the normal preview build.
 
 - Record the durable mkdir experiment and the recovery and handle-cleanup contracts still needed for live volumes.

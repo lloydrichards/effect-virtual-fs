@@ -1,13 +1,13 @@
 // Generated from Effect PR #9960 by scripts/sync.mjs. Edit the snapshot or generator, then run sync.
-import * as Effect from "effect/Effect"
-import * as Semaphore from "effect/Semaphore"
 import * as BytePath from "../../compat/BytePath.js"
 import * as Bytes from "../../compat/Bytes.js"
 import * as ByteSize from "effect/ByteSize"
 import * as DateTime from "../../compat/DateTime.js"
+import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as Result from "effect/Result"
 import * as Schema from "../../compat/Schema.js"
+import * as Semaphore from "effect/Semaphore"
 import * as M from "./model.js"
 import * as R from "./runtime.js"
 
@@ -236,6 +236,7 @@ export const installStorage = (
 ) => {
   const engine = storageEngine(owner)
   if (engine.offer) throw new Error("Storage already installed")
+  if (engine.runtime.limits.synchronous) throw new Error("Storage requires synchronous operations to be disabled")
   const gate = Semaphore.makeUnsafe(1)
   engine.offer = offer
   engine.runtime.storageUnavailable = frozen
@@ -390,9 +391,20 @@ export const asciiPath = (path: string) => Result.getOrThrow(BytePath.fromString
 // -----------------------------------------------------------------------------
 
 export class Engine {
-  offer?: (nodes: ReadonlyMap<bigint, Node>, changed: ReadonlySet<bigint>, nextObject: bigint, operation: string) => R.StorageOffer
+  offer?: (
+    nodes: ReadonlyMap<bigint, Node>,
+    changed: ReadonlySet<bigint>,
+    nextObject: bigint,
+    operation: string
+  ) => R.StorageOffer
 
-  offerState(changes: ReadonlyMap<bigint, Node>, removed: ReadonlyArray<bigint>, nextObject: bigint, operation: string, acquiringFile = false) {
+  offerState(
+    changes: ReadonlyMap<bigint, Node>,
+    removed: ReadonlyArray<bigint>,
+    nextObject: bigint,
+    operation: string,
+    acquiringFile = false
+  ) {
     if (!this.offer) return undefined
     const changed = new Set<bigint>()
     for (const [id, node] of changes) {
@@ -419,14 +431,19 @@ export class Engine {
   nextObject = BigInt("2")
   nextBinding = BigInt("1")
 
+  readonly accessTime: "strict" | "relatime"
+  readonly groupInheritance: "setgid" | "parent"
+
   constructor(
     runtime: R.Runtime,
     root: { readonly uid: number; readonly gid: number; readonly mode: number },
     rootId = BigInt("1"),
-    readonly accessTime: "strict" | "relatime" = "strict",
-    readonly groupInheritance: "setgid" | "parent" = "setgid"
+    accessTime: "strict" | "relatime" = "strict",
+    groupInheritance: "setgid" | "parent" = "setgid"
   ) {
     this.runtime = runtime
+    this.accessTime = accessTime
+    this.groupInheritance = groupInheritance
     this.inputLimits = Object.freeze({ ioBytes: runtime.limits.ioBytes, pathBytes: runtime.limits.pathBytes })
     this.root = rootId
     this.nextObject = rootId + BigInt("1")
@@ -860,8 +877,10 @@ export class Transaction {
       yield* this.authorityResult()
       // A linked directory has one parent chain to the volume root. A privileged caller
       // at that root needs no search proof when the operation only consumes the object.
-      if (selection === "object" && object.kind === "directory" && object.nlink > BigInt("0") &&
-        this.caller.policy.privileged && this.caller.policy.root === this.engine.root) {
+      if (
+        selection === "object" && object.kind === "directory" && object.nlink > BigInt("0") &&
+        this.caller.policy.privileged && this.caller.policy.root === this.engine.root
+      ) {
         yield* this.visitResult()
         return { object }
       }
@@ -1663,13 +1682,24 @@ export class Transaction {
         Object.assign(product.value, engine.observation(node))
       }
       const read = this.pendingRead
+      // The destination can detach while storage decides whether to persist atime.
+      if (read !== undefined && engine.offer !== undefined && readAtimeChanged) {
+        return yield* Result.fail(new M.Busy({ operation: this.operation, reason: "accessTimeUpdate" }))
+      }
       const position = this.pendingPosition
       const caller = this.pendingCaller
       return {
         value,
         readAtimeChanged,
         offer: engine.offer && (acquiringFile || this.changes.size > 0)
-          ? () => engine.offerState(this.changes, [...removed ?? [], ...released ?? []], this.nextObject, this.operation, acquiringFile)
+          ? () =>
+            engine.offerState(
+              this.changes,
+              [...removed ?? [], ...released ?? []],
+              this.nextObject,
+              this.operation,
+              acquiringFile
+            )
           : undefined,
         publish: () =>
           Result.gen(this, function*() {

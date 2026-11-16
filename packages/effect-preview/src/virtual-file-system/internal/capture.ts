@@ -156,13 +156,15 @@ const captureValue = (snapshotRecords: CaptureRecords) => {
 
 // Exported reads use typed-array slice. Only reuse plain, fixed-length file storage.
 const isOwnedFileData = (data: Uint8Array): data is Uint8Array<ArrayBuffer> =>
-  Object.getPrototypeOf(data) === Uint8Array.prototype && data.buffer instanceof ArrayBuffer && !data.buffer.resizable
+  Object.getPrototypeOf(data) === Uint8Array.prototype && data.buffer instanceof ArrayBuffer &&
+  !("resizable" in data.buffer && data.buffer.resizable)
 
 /**
  * The adapter owns these validated snapshot records and must keep their file bytes private
  * and immutable for the lifetime of the capture and all restored volumes.
  * @internal
  */
+// oxlint-disable-next-line effect/no-unused-internal -- The downstream preview generates the adapter import.
 export const unsafeFromOwnedRecords = (records: ReadonlyArray<M.CaptureRecord>): M.Capture =>
   captureValue(records.map((record): SnapshotRecord => {
     if (record._tag === "alias") return { ...record }
@@ -294,12 +296,17 @@ class Candidate extends R.ChargedBytes {
   consumedPayload = zero
   content = zero
 
+  readonly accessTime: E.Engine["accessTime"]
+  readonly groupInheritance: E.Engine["groupInheritance"]
+
   constructor(
     runtime: R.Runtime,
-    readonly accessTime: E.Engine["accessTime"],
-    readonly groupInheritance: E.Engine["groupInheritance"]
+    accessTime: E.Engine["accessTime"],
+    groupInheritance: E.Engine["groupInheritance"]
   ) {
     super(runtime, "restore")
+    this.accessTime = accessTime
+    this.groupInheritance = groupInheritance
   }
 
   accept(input: unknown, captured?: SnapshotRecord) {
@@ -480,7 +487,13 @@ class Candidate extends R.ChargedBytes {
         }
         for (const id of route) checked.add(id)
       }
-      const engine = new E.Engine(this.runtime, root.metadata, root.metadata.objectNumber, this.accessTime, this.groupInheritance)
+      const engine = new E.Engine(
+        this.runtime,
+        root.metadata,
+        root.metadata.objectNumber,
+        this.accessTime,
+        this.groupInheritance
+      )
       engine.nodes.clear()
       let maxObject = zero
       for (const record of this.nodes.values()) {
@@ -585,12 +598,15 @@ export const restoreEngine: <Error = never, Requirements = never>(
         Result.match(Result.try(() => candidate.accept(record, captured)), {
           onFailure: restoreFailure,
           onSuccess: Effect.fromResult
-        }))
+        })
+      )
     const consume = yield* Effect.suspend(() =>
       Result.match(
         Result.try(() =>
           state.snapshotRecords !== undefined
-            ? Result.succeed(Stream.runForEach(Stream.fromIterable(state.snapshotRecords), (record) => accept(record, record)))
+            ? Result.succeed(
+              Stream.runForEach(Stream.fromIterable(state.snapshotRecords), (record) => accept(record, record))
+            )
             : isRecordStream(source)
             ? Result.succeed(Stream.runForEach(source, (record) => accept(record)))
             : Result.fail(new M.InvalidInput({ operation: "restore", field: "source", reason: "malformed" }))

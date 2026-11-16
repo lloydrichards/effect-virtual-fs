@@ -1,0 +1,1291 @@
+--- a/packages/effect/test/virtual-file-system/VirtualFileSystem.operations.test.ts
++++ b/packages/effect/test/virtual-file-system/VirtualFileSystem.operations.test.ts
+@@ -1,5 +1,5 @@
+ import { assert, describe, it } from "@effect/vitest"
+-import { BytePath, Clock, Effect, Exit, Fiber, Option, Result, Scope, Stream } from "effect"
++import { BytePath, Clock, DateTime, Deferred, Effect, Exit, Fiber, Option, Result, Scope, Stream } from "effect"
+ import { TestClock } from "effect/testing"
+ import * as VFS from "effect/virtual-file-system/VirtualFileSystem"
+
+@@ -932,6 +932,68 @@
+       assert.strictEqual(Result.getOrThrow(same.stat("/")).kind, "directory")
+     }).pipe(withClock))
+
++  it.effect("should finish masked filesystem cleanup when its child is interrupted", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.writeFile("/temporary", new Uint8Array([1]))
++      const ready = yield* Deferred.make<void>()
++      const child = yield* Effect.gen(function*() {
++        yield* Deferred.succeed(ready, undefined)
++        yield* Effect.never
++      }).pipe(
++        Effect.ensuring(Effect.gen(function*() {
++          yield* caller.unlink("/temporary")
++          yield* caller.makeDirectory("/cleaned")
++        }).pipe(Effect.orDie)),
++        Effect.forkChild
++      )
++      yield* Deferred.await(ready)
++      yield* Fiber.interrupt(child)
++      const exit = yield* Fiber.await(child)
++      assert.isTrue(Exit.hasInterrupts(exit))
++      assert.strictEqual((yield* Effect.flip(caller.stat("/temporary")))._tag, "NotFound")
++      assert.strictEqual((yield* caller.stat("/cleaned")).kind, "directory")
++      assert.strictEqual((yield* owner.usage).operations, 0)
++      assert.strictEqual((yield* owner.usage).reservedTransientBytes, 0n)
++    }).pipe(withClock))
++
++  it.effect("should publish a masked write before observing interruption from its clock", () =>
++    Effect.gen(function*() {
++      const clock = yield* Clock.Clock
++      let interrupt: (() => void) | undefined
++      const owner = yield* VFS.make().pipe(
++        Effect.provideService(Clock.Clock, {
++          ...clock,
++          currentTimeNanosUnsafe: () => {
++            interrupt?.()
++            return clock.currentTimeNanosUnsafe()
++          }
++        })
++      )
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.writeFile("/file", new Uint8Array([1, 2]))
++      const before = yield* caller.stat("/file")
++      let completed = false
++      const writing = yield* Effect.withFiber((fiber) => {
++        interrupt = () => {
++          interrupt = undefined
++          fiber.interruptUnsafe()
++        }
++        return Effect.uninterruptible(Effect.gen(function*() {
++          yield* caller.writeFile("/file", new Uint8Array([8, 9, 10]))
++          completed = true
++        }))
++      }).pipe(Effect.forkChild({ startImmediately: true }))
++      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(writing)))
++      assert.isTrue(completed)
++      const after = yield* caller.stat("/file")
++      assert.isFalse(VFS.equalsObjectRevision(after.revision, before.revision))
++      assert.deepStrictEqual(yield* caller.readFile("/file"), new Uint8Array([8, 9, 10]))
++      assert.strictEqual((yield* owner.usage).operations, 0)
++      assert.strictEqual((yield* owner.usage).reservedTransientBytes, 0n)
++    }).pipe(withClock))
++
+   it.effect("should preserve the previous file when interruption arrives through the write clock", () =>
+     Effect.gen(function*() {
+       const clock = yield* Clock.Clock
+@@ -1008,3 +1070,971 @@
+       yield* operation.close
+     }).pipe(withClock))
+ })
++
++describe("VirtualFileSystem recursive mkdir dot components", () => {
++  for (const suffix of [".", ".."] as const) {
++    it.effect(`should create directories before resolving a terminal ${suffix}`, () =>
++      Effect.gen(function*() {
++        const owner = yield* VFS.make()
++        const caller = yield* owner.authorize({ credentials })
++        const created = yield* caller.makeDirectory(`/a/./b/../c/${suffix}`, { recursive: true })
++        for (const path of ["/a/b", "/a/c"]) {
++          assert.strictEqual((yield* caller.stat(path)).kind, "directory")
++        }
++        const selected = yield* caller.stat(suffix === "." ? "/a/c" : "/a")
++        assert.isTrue(VFS.equalsObjectReference(created.reference, selected.reference))
++      }).pipe(withClock))
++  }
++
++  it.effect("should resolve a terminal parent with a tight transient budget", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make({ limits: { transientBytes: 11 } })
++      const caller = yield* owner.authorize({ credentials })
++      const root = yield* caller.stat("/")
++      const created = yield* caller.makeDirectory("/n/..", { recursive: true })
++      assert.isTrue(VFS.equalsObjectReference(created.reference, root.reference))
++      assert.strictEqual((yield* caller.stat("/n")).kind, "directory")
++      assert.strictEqual((yield* owner.usage).reservedTransientBytes, 0n)
++    }).pipe(withClock))
++
++  it.effect("should resolve dot components in byte paths", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      const path = Result.getOrThrow(BytePath.fromBytes(new Uint8Array([47, 255, 47, 46, 46])))
++      const child = Result.getOrThrow(BytePath.fromBytes(new Uint8Array([47, 255])))
++      const root = yield* caller.stat("/")
++      const created = yield* caller.makeDirectory(path, { recursive: true })
++      assert.isTrue(VFS.equalsObjectReference(created.reference, root.reference))
++      assert.strictEqual((yield* caller.stat(child)).kind, "directory")
++    }).pipe(withClock))
++
++  it.effect("should follow intermediate symlinks before resolving parent components inside its root", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const admin = yield* owner.authorize({ credentials })
++      yield* admin.makeDirectory("/jail/target", { recursive: true })
++      const caller = yield* admin.withRoot("/jail")
++      yield* caller.makeSymlink("/link", "/target")
++      const created = yield* caller.makeDirectory("/../../link/new/..", { recursive: true })
++      assert.isTrue(VFS.equalsObjectReference(created.reference, yield* admin.lookup("/jail/target")))
++      assert.strictEqual((yield* admin.stat("/jail/target/new")).kind, "directory")
++      assert.strictEqual((yield* Effect.flip(admin.stat("/new")))._tag, "NotFound")
++      assert.strictEqual((yield* Effect.flip(admin.stat("/target")))._tag, "NotFound")
++    }).pipe(withClock))
++
++  it.effect("should roll back staged dot-component creation when later traversal is denied", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const admin = yield* owner.authorize({ credentials })
++      yield* admin.setAttributes("/", { mode: 0o777 })
++      yield* admin.makeDirectory("/blocked", { mode: 0 })
++      const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
++      const before = yield* admin.stat("/")
++      const usage = yield* owner.usage
++      const error = yield* Effect.flip(caller.makeDirectory("/new/../blocked/x/.", { recursive: true }))
++      assert.strictEqual(error._tag, "AccessDenied")
++      assert.strictEqual((yield* Effect.flip(admin.stat("/new")))._tag, "NotFound")
++      assert.isTrue(VFS.equalsObjectRevision(before.revision, (yield* admin.stat("/")).revision))
++      assert.deepStrictEqual(yield* owner.usage, usage)
++    }).pipe(withClock))
++
++  it.effect("should roll back staged dot-component creation when the entry limit is reached", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make({ limits: { entries: 1 } })
++      const caller = yield* owner.authorize({ credentials })
++      const before = yield* caller.stat("/")
++      const usage = yield* owner.usage
++      const error = yield* Effect.flip(caller.makeDirectory("/first/../second/.", { recursive: true }))
++      assert.strictEqual(error._tag, "LimitExceeded")
++      if (error._tag === "LimitExceeded") assert.strictEqual(error.domain, "entries")
++      for (const path of ["/first", "/second"]) {
++        assert.strictEqual((yield* Effect.flip(caller.stat(path)))._tag, "NotFound")
++      }
++      assert.isTrue(VFS.equalsObjectRevision(before.revision, (yield* caller.stat("/")).revision))
++      assert.deepStrictEqual(yield* owner.usage, usage)
++    }).pipe(withClock))
++
++  it.effect("should retain final-entry conditions after traversing dot components", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.makeDirectory("/existing")
++      const before = yield* caller.stat("/")
++      const usage = yield* owner.usage
++      const error = yield* Effect.flip(caller.makeDirectory("/new/../existing", {
++        recursive: true,
++        conditions: { entry: { expected: "absent" } }
++      }))
++      assert.strictEqual(error._tag, "ConditionFailed")
++      assert.strictEqual((yield* Effect.flip(caller.stat("/new")))._tag, "NotFound")
++      assert.isTrue(VFS.equalsObjectRevision(before.revision, (yield* caller.stat("/")).revision))
++      assert.deepStrictEqual(yield* owner.usage, usage)
++      yield* caller.makeDirectory("/new/../created", {
++        recursive: true,
++        conditions: { entry: { expected: "absent" } }
++      })
++      assert.strictEqual((yield* caller.stat("/new")).kind, "directory")
++      assert.strictEqual((yield* caller.stat("/created")).kind, "directory")
++    }).pipe(withClock))
++
++  for (const suffix of [".", ".."] as const) {
++    it.effect(`should retain rejection of entry conditions on a terminal ${suffix}`, () =>
++      Effect.gen(function*() {
++        const owner = yield* VFS.make()
++        const caller = yield* owner.authorize({ credentials })
++        const usage = yield* owner.usage
++        const error = yield* Effect.flip(caller.makeDirectory(`/new/${suffix}`, {
++          recursive: true,
++          conditions: { entry: { expected: "absent" } }
++        }))
++        assert.strictEqual(error._tag, "InvalidInput")
++        if (error._tag === "InvalidInput") assert.strictEqual(error.field, "name")
++        assert.strictEqual((yield* Effect.flip(caller.stat("/new")))._tag, "NotFound")
++        assert.deepStrictEqual(yield* owner.usage, usage)
++      }).pipe(withClock))
++  }
++})
++
++describe("VirtualFileSystem current-time attributes", () => {
++  for (const boundary of ["caller", "operation", "handle", "sync", "syncHandle"] as const) {
++    it.effect(`should let a write-authorized non-owner touch both times through ${boundary}`, () =>
++      Effect.gen(function*() {
++        const owner = yield* VFS.make({ limits: { synchronous: true } })
++        const admin = yield* owner.authorize({ credentials })
++        yield* admin.createFile("/file")
++        yield* admin.setAttributes("/file", { mode: 0o666 })
++        const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
++        yield* TestClock.adjust("2 seconds")
++        const attributes = { atime: "now", mtime: "now" } as const
++        if (boundary === "caller") yield* caller.setAttributes("/file", attributes)
++        else if (boundary === "operation") {
++          const operation = yield* caller.acquireOperation()
++          yield* operation.files.setAttributes("/file", attributes)
++        } else if (boundary === "handle") {
++          const handle = yield* caller.open("/file")
++          yield* handle.setAttributes(attributes)
++        } else if (boundary === "sync") {
++          const sync = yield* caller.acquireSync
++          yield* Effect.fromResult(sync.setAttributes("/file", attributes))
++        } else {
++          const handle = yield* caller.open("/file")
++          const sync = yield* handle.sync()
++          yield* Effect.fromResult(sync.setAttributes(attributes))
++        }
++        const metadata = (yield* admin.stat("/file")).metadata
++        assert.strictEqual(metadata.atime, 2_000_000_000n)
++        assert.strictEqual(metadata.mtime, metadata.atime)
++        assert.strictEqual(metadata.ctime, metadata.atime)
++        assert.strictEqual(metadata.uid, 0)
++        assert.strictEqual(metadata.mode, 0o666)
++      }).pipe(withClock))
++  }
++
++  it.effect("should preserve omitted and literal times when an owner requests a current time", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const before = yield* caller.stat("/file")
++      yield* TestClock.adjust("1 second")
++      yield* caller.setAttributes("/file", { atime: "now" })
++      const first = (yield* caller.stat("/file")).metadata
++      assert.strictEqual(first.atime, 1_000_000_000n)
++      assert.strictEqual(first.mtime, before.metadata.mtime)
++      yield* TestClock.adjust("1 second")
++      const literal = DateTime.unixNanoFromNanoseconds(-1n)
++      yield* caller.setAttributes("/file", { atime: literal, mtime: "now" })
++      const next = (yield* caller.stat("/file")).metadata
++      assert.strictEqual(next.atime, literal)
++      assert.strictEqual(next.mtime, 2_000_000_000n)
++      assert.strictEqual(next.ctime, next.mtime)
++      assert.strictEqual(next.birthtime, before.metadata.birthtime)
++    }).pipe(withClock))
++
++  it.effect("should retain prestate authority and publish nothing when a timestamp request is denied", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const admin = yield* owner.authorize({ credentials })
++      yield* admin.createFile("/file")
++      yield* admin.setAttributes("/file", { mode: 0o666 })
++      const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
++      yield* TestClock.adjust("1 second")
++      const literal = DateTime.unixNanoFromNanoseconds(1_000_000_000n)
++      const before = yield* admin.stat("/file")
++      const usage = yield* owner.usage
++      const requests: ReadonlyArray<VFS.Attributes> = [
++        { atime: "now" },
++        { atime: "now", mtime: literal },
++        { atime: literal, mtime: literal },
++        { atime: "now", mtime: "now", mode: 0o600 },
++        { atime: "now", mtime: "now", uid: 7 }
++      ]
++      for (const attributes of requests) {
++        const error = yield* Effect.flip(caller.setAttributes("/file", attributes))
++        assert.strictEqual(error._tag, "AccessDenied")
++        if (error._tag === "AccessDenied") assert.strictEqual(error.reason, "ownership")
++        assert.deepStrictEqual(yield* admin.stat("/file"), before)
++        assert.deepStrictEqual(yield* owner.usage, usage)
++      }
++      yield* admin.setAttributes("/file", { mode: 0o444 })
++      const readonly = yield* admin.stat("/file")
++      const denied = yield* Effect.flip(caller.setAttributes("/file", { atime: "now", mtime: "now" }))
++      assert.strictEqual(denied._tag, "AccessDenied")
++      if (denied._tag === "AccessDenied") assert.strictEqual(denied.reason, "permission")
++      assert.deepStrictEqual(yield* admin.stat("/file"), readonly)
++    }).pipe(withClock))
++
++  it.effect("should use one transaction clock sample for all requested current times", () =>
++    Effect.gen(function*() {
++      const clock = yield* Clock.Clock
++      let samples = 0
++      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
++        ...clock,
++        currentTimeNanosUnsafe: () => BigInt(++samples)
++      }))
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const before = samples
++      yield* caller.setAttributes("/file", { mode: 0o600, atime: "now", mtime: "now" })
++      const metadata = (yield* caller.stat("/file")).metadata
++      assert.strictEqual(samples, before + 1)
++      assert.strictEqual(metadata.atime, BigInt(samples))
++      assert.strictEqual(metadata.mtime, metadata.atime)
++      assert.strictEqual(metadata.ctime, metadata.atime)
++    }).pipe(withClock))
++
++  it.effect("should retain revision guards when requesting current times", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const stale = yield* caller.stat("/file")
++      yield* caller.writeFile("/file", new Uint8Array([1]))
++      const before = yield* caller.stat("/file")
++      const usage = yield* owner.usage
++      yield* TestClock.adjust("1 second")
++      const error = yield* Effect.flip(caller.setAttributes("/file", { atime: "now", mtime: "now" }, {
++        expectedRevision: stale.revision
++      }))
++      assert.strictEqual(error._tag, "ConditionFailed")
++      assert.deepStrictEqual(yield* caller.stat("/file"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++    }).pipe(withClock))
++
++  it.effect("should roll back current-time updates when interrupted before publication", () =>
++    Effect.gen(function*() {
++      const clock = yield* Clock.Clock
++      let interrupt: (() => void) | undefined
++      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
++        ...clock,
++        currentTimeNanosUnsafe: () => {
++          interrupt?.()
++          return clock.currentTimeNanosUnsafe()
++        }
++      }))
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const before = yield* caller.stat("/file")
++      const usage = yield* owner.usage
++      yield* TestClock.adjust("1 second")
++      const updating = yield* Effect.withFiber((fiber) => {
++        interrupt = () => {
++          interrupt = undefined
++          fiber.interruptUnsafe()
++        }
++        return caller.setAttributes("/file", { atime: "now", mtime: "now" })
++      }).pipe(Effect.forkChild({ startImmediately: true }))
++      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(updating)))
++      assert.deepStrictEqual(yield* caller.stat("/file"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++    }).pipe(withClock))
++
++  it.effect("should preserve the revision when current times already equal the transaction clock", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const before = yield* caller.stat("/file")
++      yield* caller.setAttributes("/file", { atime: "now", mtime: "now" })
++      const after = yield* caller.stat("/file")
++      assert.isTrue(VFS.equalsObjectRevision(before.revision, after.revision))
++      assert.deepStrictEqual(after.metadata, before.metadata)
++    }).pipe(withClock))
++})
++
++describe("VirtualFileSystem atomic resize attributes", () => {
++  for (const boundary of ["caller", "operation", "handle", "sync", "syncHandle"] as const) {
++    it.effect(`should resize and apply metadata atomically through ${boundary}`, () =>
++      Effect.gen(function*() {
++        const owner = yield* VFS.make({ limits: { synchronous: true } })
++        const caller = yield* owner.authorize({ credentials })
++        yield* caller.writeFile("/file", new Uint8Array([1, 2]))
++        yield* caller.makeHardLink({ entry: "/file" }, "/alias")
++        const before = yield* caller.stat("/file")
++        const handle = yield* caller.open("/file", { access: "readwrite", truncateCursor: "clamp" })
++        yield* handle.seek({ from: "start", offset: 9n })
++        yield* TestClock.adjust("2 seconds")
++        const attributes = { size: 4n, mode: 0o600, atime: "now", mtime: DateTime.unixNanoFromNanoseconds(-1n) } as const
++        if (boundary === "caller") yield* caller.setAttributes("/file", attributes)
++        else if (boundary === "operation") {
++          const operation = yield* caller.acquireOperation()
++          yield* operation.files.setAttributes("/file", attributes)
++        } else if (boundary === "handle") yield* handle.setAttributes(attributes)
++        else if (boundary === "sync") {
++          const sync = yield* caller.acquireSync
++          yield* Effect.fromResult(sync.setAttributes("/file", attributes))
++        } else {
++          const sync = yield* handle.sync()
++          yield* Effect.fromResult(sync.setAttributes(attributes))
++        }
++        const after = yield* handle.stat()
++        assert.isTrue(VFS.equalsObjectReference(before.reference, after.reference))
++        assert.isTrue(VFS.equalsObjectReference(after.reference, yield* caller.lookup("/alias")))
++        assert.strictEqual(after.metadata.size, 4n)
++        assert.strictEqual(after.metadata.mode, 0o600)
++        assert.strictEqual(after.metadata.atime, 2_000_000_000n)
++        assert.strictEqual(after.metadata.mtime, -1n)
++        assert.strictEqual(after.metadata.ctime, 2_000_000_000n)
++        assert.strictEqual(after.metadata.birthtime, before.metadata.birthtime)
++        assert.strictEqual(yield* handle.position(), 9n)
++        assert.deepStrictEqual(yield* caller.readFile("/alias"), new Uint8Array([1, 2, 0, 0]))
++        yield* caller.setAttributes("/file", { size: 1n })
++        assert.deepStrictEqual(yield* caller.readFile("/alias"), new Uint8Array([1]))
++        assert.strictEqual(yield* handle.position(), 9n)
++      }).pipe(withClock))
++  }
++
++  it.effect("should check metadata ownership before write access and publish nothing on denial", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const admin = yield* owner.authorize({ credentials })
++      yield* admin.writeFile("/file", new Uint8Array([1, 2]), { mode: 0o444 })
++      const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
++      const before = yield* admin.stat("/file")
++      const usage = yield* owner.usage
++      const error = yield* Effect.flip(caller.setAttributes("/file", { size: 0n, mode: 0o600 }))
++      assert.strictEqual(error._tag, "AccessDenied")
++      if (error._tag === "AccessDenied") assert.strictEqual(error.reason, "ownership")
++      assert.deepStrictEqual(yield* admin.stat("/file"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++      assert.deepStrictEqual(yield* admin.readFile("/file"), new Uint8Array([1, 2]))
++    }).pipe(withClock))
++
++  it.effect("should authorize resize against the original mode before applying a new mode", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const admin = yield* owner.authorize({ credentials })
++      yield* admin.setAttributes("/", { mode: 0o777 })
++      const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
++      yield* caller.createFile("/file", { mode: 0o400 })
++      const before = yield* caller.stat("/file")
++      const error = yield* Effect.flip(caller.setAttributes("/file", { size: 1n, mode: 0o600 }))
++      assert.strictEqual(error._tag, "AccessDenied")
++      if (error._tag === "AccessDenied") assert.strictEqual(error.reason, "permission")
++      assert.deepStrictEqual(yield* caller.stat("/file"), before)
++    }).pipe(withClock))
++
++  it.effect("should use a handle's open-time write grant and reject resize through a read-only handle", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const admin = yield* owner.authorize({ credentials })
++      yield* admin.writeFile("/file", new Uint8Array([1, 2]))
++      yield* admin.setAttributes("/file", { mode: 0o666 })
++      const caller = yield* owner.authorize({ credentials: { uid: 7, gid: 7 } })
++      const read = yield* caller.open("/file")
++      const write = yield* caller.open("/file", { access: "write" })
++      const before = yield* admin.stat("/file")
++      assert.strictEqual((yield* Effect.flip(read.setAttributes({ size: 0n })))._tag, "AccessDenied")
++      assert.deepStrictEqual(yield* admin.stat("/file"), before)
++      yield* admin.setAttributes("/file", { mode: 0o444 })
++      assert.strictEqual((yield* Effect.flip(caller.setAttributes("/file", { size: 1n })))._tag, "AccessDenied")
++      yield* write.setAttributes({ size: 1n })
++      assert.strictEqual((yield* write.stat()).metadata.size, 1n)
++    }).pipe(withClock))
++
++  for (const domain of ["file", "content", "transient"] as const) {
++    it.effect(`should roll back all resize attributes when the ${domain} limit is exceeded`, () =>
++      Effect.gen(function*() {
++        const limits = domain === "file" ? { fileBytes: 2 } : domain === "content" ? { contentBytes: 2 } : { transientBytes: 16 }
++        const owner = yield* VFS.make({ limits })
++        const caller = yield* owner.authorize({ credentials })
++        yield* caller.writeFile("/f", new Uint8Array([1, 2]))
++        const before = yield* caller.stat("/f")
++        const usage = yield* owner.usage
++        yield* TestClock.adjust("1 second")
++        const error = yield* Effect.flip(caller.setAttributes("/f", { size: 32n, mode: 0o600, atime: "now" }))
++        assert.strictEqual(error._tag, "LimitExceeded")
++        if (error._tag === "LimitExceeded") assert.strictEqual(error.domain, domain)
++        assert.deepStrictEqual(yield* caller.stat("/f"), before)
++        assert.deepStrictEqual(yield* owner.usage, usage)
++        assert.deepStrictEqual(yield* caller.readFile("/f"), new Uint8Array([1, 2]))
++      }).pipe(withClock))
++  }
++
++  it.effect("should use one clock sample for resize and current timestamps", () =>
++    Effect.gen(function*() {
++      const clock = yield* Clock.Clock
++      let samples = 0
++      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
++        ...clock,
++        currentTimeNanosUnsafe: () => BigInt(++samples)
++      }))
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const before = samples
++      yield* caller.setAttributes("/file", { size: 2n, atime: "now", mtime: "now" })
++      const metadata = (yield* caller.stat("/file")).metadata
++      assert.strictEqual(samples, before + 1)
++      assert.strictEqual(metadata.atime, BigInt(samples))
++      assert.strictEqual(metadata.mtime, metadata.atime)
++      assert.strictEqual(metadata.ctime, metadata.atime)
++    }).pipe(withClock))
++
++  it.effect("should apply metadata when the size is unchanged and preserve revisions for a complete no-op", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      yield* caller.setAttributes("/file", { size: "0 B", mode: 0o600 })
++      const before = yield* caller.stat("/file")
++      assert.strictEqual(before.metadata.mode, 0o600)
++      yield* caller.setAttributes("/file", { size: 0n, mode: 0o600 })
++      assert.isTrue(VFS.equalsObjectRevision(before.revision, (yield* caller.stat("/file")).revision))
++    }).pipe(withClock))
++
++  it.effect("should retain stale revision guards without publishing resize or metadata", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.createFile("/file")
++      const stale = yield* caller.stat("/file")
++      yield* caller.writeFile("/file", new Uint8Array([1]))
++      const before = yield* caller.stat("/file")
++      const usage = yield* owner.usage
++      const error = yield* Effect.flip(caller.setAttributes("/file", { size: 0n, mode: 0o600 }, {
++        expectedRevision: stale.revision
++      }))
++      assert.strictEqual(error._tag, "ConditionFailed")
++      assert.deepStrictEqual(yield* caller.stat("/file"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++    }).pipe(withClock))
++
++  it.effect("should validate a size before resolving a missing path and reject non-file targets", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      assert.strictEqual((yield* Effect.flip(caller.setAttributes("/missing", { size: -1n })))._tag, "InvalidInput")
++      yield* caller.makeSymlink("/link", "/")
++      for (const path of ["/", "/link"]) {
++        const error = yield* Effect.flip(caller.setAttributes(path, { size: 0n }, { followFinalSymlink: false }))
++        assert.strictEqual(error._tag, "InvalidResource")
++      }
++    }).pipe(withClock))
++
++  it.effect("should roll back resize and metadata when interrupted before publication", () =>
++    Effect.gen(function*() {
++      const clock = yield* Clock.Clock
++      let interrupt: (() => void) | undefined
++      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
++        ...clock,
++        currentTimeNanosUnsafe: () => {
++          interrupt?.()
++          return clock.currentTimeNanosUnsafe()
++        }
++      }))
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.writeFile("/file", new Uint8Array([1, 2]))
++      const before = yield* caller.stat("/file")
++      const usage = yield* owner.usage
++      yield* TestClock.adjust("1 second")
++      const updating = yield* Effect.withFiber((fiber) => {
++        interrupt = () => {
++          interrupt = undefined
++          fiber.interruptUnsafe()
++        }
++        return caller.setAttributes("/file", { size: 0n, mode: 0o600 })
++      }).pipe(Effect.forkChild({ startImmediately: true }))
++      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(updating)))
++      assert.deepStrictEqual(yield* caller.stat("/file"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++    }).pipe(withClock))
++})
++
++
++describe("atomic mkdir timestamps", () => {
++  const times = {
++    atime: DateTime.unixNanoFromNanoseconds(11n),
++    mtime: DateTime.unixNanoFromNanoseconds(12n)
++  }
++
++  it.effect("should publish exact initial times with the original directory identity and parent change", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      const before = yield* caller.stat("/")
++      yield* TestClock.adjust("1 second")
++      const made = yield* caller.makeDirectory({ directory: "/", name: "child" }, { mode: 0o750, preserveTimes: times })
++      const observed = yield* caller.stat("/child")
++      assert.deepStrictEqual(observed, made)
++      assert.strictEqual(observed.metadata.atime, 11n)
++      assert.strictEqual(observed.metadata.mtime, 12n)
++      assert.strictEqual(observed.metadata.ctime, 1000000000n)
++      assert.strictEqual(observed.metadata.birthtime, 1000000000n)
++      assert.strictEqual(observed.metadata.mode, 0o750)
++      const parent = yield* caller.stat("/")
++      assert.strictEqual(parent.metadata.atime, before.metadata.atime)
++      assert.strictEqual(parent.metadata.mtime, 1000000000n)
++      if (before.kind !== "directory" || parent.kind !== "directory") throw new Error("Expected directory")
++      assert.isFalse(VFS.equalsNamespaceRevision(parent.namespaceRevision, before.namespaceRevision))
++    }))
++
++  for (const constrained of [false, true]) {
++    it.effect(`should preserve only final recursive directory times with ${constrained ? "constrained" : "ordinary"} budgets`, () =>
++      Effect.gen(function*() {
++        const owner = yield* VFS.make(constrained ? { limits: { transientBytes: 11 } } : undefined)
++        const caller = yield* owner.authorize({ credentials })
++        yield* TestClock.adjust("1 second")
++        const made = yield* caller.makeDirectory("/a/b", { recursive: true, preserveTimes: times })
++        assert.strictEqual(made.metadata.atime, 11n)
++        assert.strictEqual(made.metadata.mtime, 12n)
++        const parent = yield* caller.stat("/a")
++        assert.strictEqual(parent.metadata.atime, 1000000000n)
++        assert.strictEqual(parent.metadata.mtime, 1000000000n)
++        assert.strictEqual(parent.metadata.birthtime, 1000000000n)
++      }))
++  }
++
++  it.effect("should apply final times through byte paths and terminal dot traversal", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      const made = yield* caller.makeDirectory(Result.getOrThrow(BytePath.fromString("/a/b/.")), {
++        recursive: true, preserveTimes: times
++      })
++      assert.deepStrictEqual(made, yield* caller.stat("/a/b"))
++      assert.strictEqual(made.metadata.atime, 11n)
++      assert.strictEqual((yield* caller.stat("/a")).metadata.atime, 0n)
++    }))
++
++  it.effect("should leave existing final directories unchanged and retain ordinary creation defaults", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.makeDirectory("/existing")
++      const before = yield* caller.stat("/existing")
++      const parent = yield* caller.stat("/")
++      yield* TestClock.adjust("1 second")
++      assert.deepStrictEqual(yield* caller.makeDirectory("/existing", { recursive: true, preserveTimes: times }), before)
++      assert.deepStrictEqual(yield* caller.stat("/"), parent)
++      const ordinary = yield* caller.makeDirectory("/ordinary")
++      assert.strictEqual(ordinary.metadata.atime, 1000000000n)
++      assert.strictEqual(ordinary.metadata.mtime, 1000000000n)
++    }))
++
++  it.effect("should return preserved times through directory-entry creation and operation sessions", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      const entry = yield* caller.makeDirectoryEntry({ directory: "/", name: "entry" }, { preserveTimes: times })
++      assert.strictEqual(entry.object.metadata.atime, 11n)
++      assert.strictEqual(entry.object.metadata.mtime, 12n)
++      const operation = yield* caller.acquireOperation()
++      const made = yield* operation.files.makeDirectory("/session", { preserveTimes: times })
++      assert.strictEqual(made.metadata.atime, 11n)
++      assert.strictEqual(made.metadata.mtime, 12n)
++    }))
++
++  it.effect("should reject invalid timestamp records without publishing recursive prefixes", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      const before = yield* caller.stat("/")
++      const usage = yield* owner.usage
++      for (const invalid of [null, {}, { atime: 11n }, { atime: 11n, mtime: "now" }, { ...times, extra: true }]) {
++        const options: VFS.MkdirOptions = { recursive: true }
++        Object.defineProperty(options, "preserveTimes", { value: invalid })
++        assert.strictEqual((yield* Effect.flip(caller.makeDirectory("/a/b", options)))._tag, "InvalidInput")
++        assert.deepStrictEqual(yield* caller.stat("/"), before)
++        assert.deepStrictEqual(yield* owner.usage, usage)
++      }
++    }))
++
++  it.effect("should preserve stale parent conditions without changing existing directories", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      const root = yield* caller.stat("/")
++      if (root.kind !== "directory") throw new Error("Expected directory")
++      yield* caller.makeDirectory("/other")
++      const before = yield* caller.stat("/")
++      const error = yield* Effect.flip(caller.makeDirectory("/child", {
++        preserveTimes: times, conditions: { parentNamespace: root.namespaceRevision }
++      }))
++      assert.strictEqual(error._tag, "ConditionFailed")
++      assert.deepStrictEqual(yield* caller.stat("/"), before)
++      assert.strictEqual((yield* Effect.flip(caller.stat("/child")))._tag, "NotFound")
++    }))
++
++  it.effect("should roll back recursive creation and timestamps when entry capacity is exceeded", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make({ limits: { entries: 1 } })
++      const caller = yield* owner.authorize({ credentials })
++      const before = yield* caller.stat("/")
++      const usage = yield* owner.usage
++      assert.strictEqual((yield* Effect.flip(caller.makeDirectory("/a/b", { recursive: true, preserveTimes: times })))._tag, "LimitExceeded")
++      assert.deepStrictEqual(yield* caller.stat("/"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++      assert.strictEqual((yield* Effect.flip(caller.stat("/a")))._tag, "NotFound")
++    }))
++
++  it.effect("should enforce parent permissions before publishing timestamps or entries", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const admin = yield* owner.authorize({ credentials })
++      const guest = yield* owner.authorize({ credentials: { uid: 1, gid: 1 } })
++      yield* admin.makeDirectory("/locked", { mode: 0o555 })
++      const before = yield* admin.stat("/locked")
++      assert.strictEqual((yield* Effect.flip(guest.makeDirectory("/locked/child", { preserveTimes: times })))._tag, "AccessDenied")
++      assert.deepStrictEqual(yield* admin.stat("/locked"), before)
++      assert.strictEqual((yield* Effect.flip(admin.stat("/locked/child")))._tag, "NotFound")
++    }))
++
++  it.effect("should roll back initial timestamps and prefixes when interrupted before publication", () =>
++    Effect.gen(function*() {
++      const clock = yield* Clock.Clock
++      let interrupt: (() => void) | undefined
++      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
++        ...clock,
++        currentTimeNanosUnsafe: () => {
++          interrupt?.()
++          return clock.currentTimeNanosUnsafe()
++        }
++      }))
++      const caller = yield* owner.authorize({ credentials })
++      const before = yield* caller.stat("/")
++      const usage = yield* owner.usage
++      const creating = yield* Effect.withFiber((fiber) => {
++        interrupt = () => {
++          interrupt = undefined
++          fiber.interruptUnsafe()
++        }
++        return caller.makeDirectory("/a/b", { recursive: true, preserveTimes: times })
++      }).pipe(Effect.forkChild({ startImmediately: true }))
++      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(creating)))
++      assert.deepStrictEqual(yield* caller.stat("/"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++      assert.strictEqual((yield* Effect.flip(caller.stat("/a")))._tag, "NotFound")
++    }))
++})
++
++
++describe("atomic open creation timestamps", () => {
++  const times = {
++    atime: DateTime.unixNanoFromNanoseconds(31n),
++    mtime: DateTime.unixNanoFromNanoseconds(32n)
++  }
++  const opener = (caller: VFS.VirtualFileSystem, synchronous: boolean) => Effect.gen(function*() {
++    const region = synchronous ? yield* caller.acquireSync : undefined
++    return (target: VFS.EntryAddress, options: VFS.OpenOptions) => region === undefined
++      ? caller.open(target, options)
++      : Effect.map(Effect.fromResult(region.open(target, options)), (file) => file.effect)
++  })
++
++  for (const synchronous of [false, true]) {
++    const mode = synchronous ? "sync" : "async"
++    it.effect(`should publish initial file times with parent changes before ${mode} handle delivery`, () =>
++      Effect.gen(function*() {
++        const owner = yield* VFS.make({ limits: { synchronous: true } })
++        const caller = yield* owner.authorize({ credentials })
++        const open = yield* opener(caller, synchronous)
++        const parent = yield* caller.stat("/")
++        yield* TestClock.adjust("1 second")
++        const file = yield* open({ directory: "/", name: "file" }, {
++          create: "exclusive", access: "read", mode: 0o640, preserveTimes: times
++        })
++        const observed = yield* file.stat()
++        assert.deepStrictEqual(observed, yield* caller.stat("/file"))
++        assert.strictEqual(observed.metadata.atime, 31n)
++        assert.strictEqual(observed.metadata.mtime, 32n)
++        assert.strictEqual(observed.metadata.ctime, 1000000000n)
++        assert.strictEqual(observed.metadata.birthtime, 1000000000n)
++        assert.strictEqual(observed.metadata.size, 0n)
++        assert.strictEqual(observed.metadata.mode, 0o640)
++        assert.strictEqual(yield* file.position(), 0n)
++        const after = yield* caller.stat("/")
++        if (parent.kind !== "directory" || after.kind !== "directory") throw new Error("Expected directory")
++        assert.isFalse(VFS.equalsNamespaceRevision(after.namespaceRevision, parent.namespaceRevision))
++        assert.strictEqual(after.metadata.mtime, 1000000000n)
++        assert.strictEqual(after.metadata.atime, parent.metadata.atime)
++        assert.strictEqual((yield* Effect.flip(file.write(new Uint8Array([1]))))._tag, "AccessDenied")
++      }))
++
++    it.effect(`should ignore creation times for existing files in ${mode} opens`, () =>
++      Effect.gen(function*() {
++        const owner = yield* VFS.make({ limits: { synchronous: true } })
++        const caller = yield* owner.authorize({ credentials })
++        const open = yield* opener(caller, synchronous)
++        yield* caller.writeFile("/file", new Uint8Array([1]))
++        const before = yield* caller.stat("/file")
++        const parent = yield* caller.stat("/")
++        yield* TestClock.adjust("1 second")
++        const file = yield* open({ directory: "/", name: "file" }, { create: "ifmissing", access: "read", preserveTimes: times })
++        assert.deepStrictEqual(yield* file.stat(), before)
++        assert.deepStrictEqual(yield* caller.stat("/"), parent)
++        assert.strictEqual((yield* Effect.flip(open({ directory: "/", name: "file" }, { create: "exclusive", preserveTimes: times })))._tag, "AlreadyExists")
++        assert.deepStrictEqual(yield* file.stat(), before)
++      }))
++
++    it.effect(`should reject malformed creation times without entries or leaked ${mode} handles`, () =>
++      Effect.gen(function*() {
++        const owner = yield* VFS.make({ limits: { synchronous: true } })
++        const caller = yield* owner.authorize({ credentials })
++        const open = yield* opener(caller, synchronous)
++        const before = yield* caller.stat("/")
++        const usage = yield* owner.usage
++        for (const invalid of [null, {}, { atime: 31n }, { atime: "now", mtime: 32n }, { ...times, extra: true }]) {
++          const options: VFS.OpenOptions = { create: "exclusive" }
++          Object.defineProperty(options, "preserveTimes", { value: invalid })
++          assert.strictEqual((yield* Effect.flip(open({ directory: "/", name: "file" }, options)))._tag, "InvalidInput")
++          assert.deepStrictEqual(yield* caller.stat("/"), before)
++          assert.deepStrictEqual(yield* owner.usage, usage)
++        }
++      }))
++  }
++
++  it.effect("should preserve ordinary path-open defaults and support creation-capable byte paths", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* TestClock.adjust("1 second")
++      const ordinary = yield* caller.open("/ordinary", { create: "ifmissing" })
++      assert.strictEqual((yield* ordinary.stat()).metadata.atime, 1000000000n)
++      assert.strictEqual((yield* ordinary.stat()).metadata.mtime, 1000000000n)
++      const file = yield* caller.open(Result.getOrThrow(BytePath.fromString("/file")), { create: "ifmissing", preserveTimes: times })
++      assert.strictEqual((yield* file.stat()).metadata.atime, 31n)
++      assert.strictEqual((yield* file.stat()).metadata.mtime, 32n)
++    }))
++
++  it.effect("should reject creation times without creation intent and through references", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.writeFile("/file", new Uint8Array([1]))
++      const before = yield* caller.stat("/file")
++      assert.strictEqual((yield* Effect.flip(caller.open("/file", { preserveTimes: times })))._tag, "InvalidInput")
++      const options: VFS.ReferenceOpenOptions = {}
++      Object.defineProperty(options, "preserveTimes", { value: times })
++      assert.strictEqual((yield* Effect.flip(caller.open(before.reference, options)))._tag, "InvalidInput")
++      assert.deepStrictEqual(yield* caller.stat("/file"), before)
++    }))
++
++  it.effect("should retain stale parent conditions without creating a timestamped file", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      const root = yield* caller.stat("/")
++      if (root.kind !== "directory") throw new Error("Expected directory")
++      yield* caller.makeDirectory("/other")
++      const before = yield* caller.stat("/")
++      const usage = yield* owner.usage
++      const error = yield* Effect.flip(caller.open({ directory: "/", name: "file" }, {
++        create: "exclusive", preserveTimes: times, conditions: { parentNamespace: root.namespaceRevision }
++      }))
++      assert.strictEqual(error._tag, "ConditionFailed")
++      assert.deepStrictEqual(yield* caller.stat("/"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++    }))
++
++  it.effect("should publish no file when handle capacity is exhausted", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make({ limits: { handles: 1 } })
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.open("/held", { create: "exclusive" })
++      const before = yield* caller.stat("/")
++      const usage = yield* owner.usage
++      assert.strictEqual((yield* Effect.flip(caller.open("/file", { create: "exclusive", preserveTimes: times })))._tag, "LimitExceeded")
++      assert.deepStrictEqual(yield* caller.stat("/"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++      assert.strictEqual((yield* Effect.flip(caller.stat("/file")))._tag, "NotFound")
++    }))
++
++  it.effect("should retain parent permission checks for timestamped creation", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const admin = yield* owner.authorize({ credentials })
++      const caller = yield* owner.authorize({ credentials: { uid: 1, gid: 1 } })
++      yield* admin.makeDirectory("/locked", { mode: 0o555 })
++      const before = yield* admin.stat("/locked")
++      assert.strictEqual((yield* Effect.flip(caller.open("/locked/file", { create: "exclusive", preserveTimes: times })))._tag, "AccessDenied")
++      assert.deepStrictEqual(yield* admin.stat("/locked"), before)
++      assert.strictEqual((yield* Effect.flip(admin.stat("/locked/file")))._tag, "NotFound")
++    }))
++
++  it.effect("should snapshot nested creation times before the publication clock runs", () =>
++    Effect.gen(function*() {
++      const clock = yield* Clock.Clock
++      const input = { ...times }
++      let mutate = false
++      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
++        ...clock,
++        currentTimeNanosUnsafe: () => {
++          if (mutate) input.atime = DateTime.unixNanoFromNanoseconds(99n)
++          return clock.currentTimeNanosUnsafe()
++        }
++      }))
++      const caller = yield* owner.authorize({ credentials })
++      mutate = true
++      const file = yield* caller.open("/file", { create: "exclusive", preserveTimes: input })
++      assert.strictEqual(input.atime, 99n)
++      assert.strictEqual((yield* file.stat()).metadata.atime, 31n)
++      assert.strictEqual((yield* file.stat()).metadata.mtime, 32n)
++    }))
++
++  it.effect("should roll back timestamps, parent changes and handle admission on cancellation", () =>
++    Effect.gen(function*() {
++      const clock = yield* Clock.Clock
++      let interrupt: (() => void) | undefined
++      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
++        ...clock,
++        currentTimeNanosUnsafe: () => {
++          interrupt?.()
++          return clock.currentTimeNanosUnsafe()
++        }
++      }))
++      const caller = yield* owner.authorize({ credentials })
++      const before = yield* caller.stat("/")
++      const usage = yield* owner.usage
++      const opening = yield* Effect.withFiber((fiber) => {
++        interrupt = () => {
++          interrupt = undefined
++          fiber.interruptUnsafe()
++        }
++        return caller.open("/file", { create: "exclusive", preserveTimes: times })
++      }).pipe(Effect.forkChild({ startImmediately: true }))
++      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(opening)))
++      assert.deepStrictEqual(yield* caller.stat("/"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++      assert.strictEqual((yield* Effect.flip(caller.stat("/file")))._tag, "NotFound")
++    }))
++})
++
++
++describe("atime-only revision neutrality", () => {
++  for (const accessTime of ["strict", "relatime"] as const) {
++    for (const read of ["file", "directory", "entries", "symlink", "handle", "positioned"] as const) {
++      it.effect(`should preserve revision when ${accessTime} ${read} reads refresh atime`, () =>
++        Effect.gen(function*() {
++          const owner = yield* VFS.make({ accessTime })
++          const caller = yield* owner.authorize({ credentials })
++          const isDirectory = read === "directory" || read === "entries"
++          if (isDirectory) yield* caller.makeDirectory("/target")
++          else if (read === "symlink") yield* caller.makeSymlink("/target", "/destination")
++          else yield* caller.writeFile("/target", new Uint8Array([1]))
++          const target = read === "symlink" ? { directory: "/", name: "target" } : "/target"
++          const before = read === "symlink" ? yield* caller.linkStat(target) : yield* caller.stat(target)
++          yield* TestClock.adjust("1 second")
++          switch (read) {
++            case "file": yield* caller.readFile(target); break
++            case "directory": yield* caller.readDirectory(target); break
++            case "entries": yield* caller.readDirectoryEntries(target); break
++            case "symlink": yield* caller.readLink(target); break
++            default: {
++              const file = yield* caller.open("/target", { access: "read" })
++              yield* file.readAlloc(1, read === "positioned" ? { position: 0n } : undefined)
++              assert.strictEqual(yield* file.position(), read === "positioned" ? 0n : 1n)
++            }
++          }
++          const after = read === "symlink" ? yield* caller.linkStat(target) : yield* caller.stat(target)
++          assert.strictEqual(after.metadata.atime, 1000000000n)
++          assert.deepStrictEqual(after.metadata, { ...before.metadata, atime: 1000000000n })
++          assert.isTrue(VFS.equalsObjectRevision(before.revision, after.revision))
++          assert.isTrue(VFS.equalsObjectReference(before.reference, after.reference))
++          if (before.kind === "directory" && after.kind === "directory") {
++            assert.isTrue(VFS.equalsNamespaceRevision(before.namespaceRevision, after.namespaceRevision))
++          }
++        }))
++    }
++  }
++
++  it.effect("should accept a pre-read revision guard and reject it after a content write", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make()
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.writeFile("/file", new Uint8Array([1]))
++      const before = yield* caller.stat("/file")
++      yield* TestClock.adjust("1 second")
++      yield* caller.readFile("/file")
++      yield* caller.writeFile("/file", new Uint8Array([2]), { expectedRevision: before.revision })
++      assert.isFalse(VFS.equalsObjectRevision(before.revision, (yield* caller.stat("/file")).revision))
++      const error = yield* Effect.flip(caller.setAttributes("/file", { mode: 0o600 }, { expectedRevision: before.revision }))
++      assert.strictEqual(error._tag, "ConditionFailed")
++    }))
++
++  for (const time of ["literal", "now"] as const) {
++    it.effect(`should advance revision for an explicit ${time} atime change`, () =>
++      Effect.gen(function*() {
++        const owner = yield* VFS.make()
++        const caller = yield* owner.authorize({ credentials })
++        yield* caller.writeFile("/file", new Uint8Array([1]))
++        const before = yield* caller.stat("/file")
++        yield* TestClock.adjust("1 second")
++        yield* caller.setAttributes("/file", {
++          atime: time === "now" ? "now" : DateTime.unixNanoFromNanoseconds(7n)
++        })
++        const after = yield* caller.stat("/file")
++        assert.strictEqual(after.metadata.atime, time === "now" ? 1000000000n : 7n)
++        assert.strictEqual(after.metadata.ctime, 1000000000n)
++        assert.isFalse(VFS.equalsObjectRevision(before.revision, after.revision))
++        assert.strictEqual((yield* Effect.flip(caller.setAttributes("/file", { mode: 0o600 }, { expectedRevision: before.revision })))._tag, "ConditionFailed")
++      }))
++  }
++
++  it.effect("should preserve revision for synchronous whole-file and handle reads", () =>
++    Effect.gen(function*() {
++      const owner = yield* VFS.make({ limits: { synchronous: true } })
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.writeFile("/file", new Uint8Array([1]))
++      const region = yield* caller.acquireSync
++      const before = Result.getOrThrow(region.stat("/file"))
++      yield* TestClock.adjust("1 second")
++      Result.getOrThrow(region.readFile("/file"))
++      const after = Result.getOrThrow(region.stat("/file"))
++      assert.strictEqual(after.metadata.atime, 1000000000n)
++      assert.isTrue(VFS.equalsObjectRevision(before.revision, after.revision))
++      const file = Result.getOrThrow(region.open("/file"))
++      yield* TestClock.adjust("1 second")
++      Result.getOrThrow(file.readAlloc(1))
++      const afterHandle = Result.getOrThrow(file.stat())
++      assert.strictEqual(afterHandle.metadata.atime, 2000000000n)
++      assert.isTrue(VFS.equalsObjectRevision(before.revision, afterHandle.revision))
++    }))
++
++  it.effect("should publish neither atime nor revision changes when a read is interrupted", () =>
++    Effect.gen(function*() {
++      const clock = yield* Clock.Clock
++      let interrupt: (() => void) | undefined
++      const owner = yield* VFS.make().pipe(Effect.provideService(Clock.Clock, {
++        ...clock,
++        currentTimeNanosUnsafe: () => {
++          interrupt?.()
++          return clock.currentTimeNanosUnsafe()
++        }
++      }))
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.writeFile("/file", new Uint8Array([1]))
++      const before = yield* caller.stat("/file")
++      const usage = yield* owner.usage
++      yield* TestClock.adjust("1 second")
++      const reading = yield* Effect.withFiber((fiber) => {
++        interrupt = () => {
++          interrupt = undefined
++          fiber.interruptUnsafe()
++        }
++        return caller.readFile("/file")
++      }).pipe(Effect.forkChild({ startImmediately: true }))
++      assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(reading)))
++      assert.deepStrictEqual(yield* caller.stat("/file"), before)
++      assert.deepStrictEqual(yield* owner.usage, usage)
++    }))
++})
+--- a/packages/effect/test/virtual-file-system/VirtualFileSystem.test.ts
++++ b/packages/effect/test/virtual-file-system/VirtualFileSystem.test.ts
+@@ -161,7 +161,10 @@
+       const zero = yield* owner.authorize({ credentials })
+       assert.strictEqual((yield* Effect.flip(zero.readFile("/private")))._tag, "AccessDenied")
+       yield* own.setAttributes("/group", { uid: 100 })
++      const beforeDenied = yield* admin.stat("/group")
+       assert.strictEqual((yield* Effect.flip(own.setAttributes("/group", { uid: 200 })))._tag, "AccessDenied")
++      assert.strictEqual((yield* Effect.flip(member.setAttributes("/group", { uid: 100 })))._tag, "AccessDenied")
++      assert.deepStrictEqual(yield* admin.stat("/group"), beforeDenied)
+       yield* own.setAttributes("/group", { gid: 20 })
+       assert.strictEqual((yield* Effect.flip(own.setAttributes("/group", { gid: 21 })))._tag, "AccessDenied")
+     }).pipe(withClock))
+@@ -991,3 +994,124 @@
+       if (stale._tag === "InvalidResource") assert.strictEqual(stale.reason, "stale")
+     }).pipe(withClock))
+ })
++
++
++describe("VirtualFileSystem access-time policy", () => {
++  const second = BigInt("1000000000")
++  const day = BigInt("86400000000000")
++  const reads = [
++    { name: "readFile", directory: false, read: (caller: VFS.VirtualFileSystem) => caller.readFile("/target") },
++    { name: "readDirectory", directory: true, read: (caller: VFS.VirtualFileSystem) => caller.readDirectory("/target") },
++    { name: "pread", directory: false, read: (caller: VFS.VirtualFileSystem) => Effect.scoped(Effect.gen(function*() {
++      const file = yield* caller.open("/target", { access: "read" })
++      return yield* file.readAlloc(1, { position: BigInt("0") })
++    })) },
++    { name: "read", directory: false, read: (caller: VFS.VirtualFileSystem) => Effect.scoped(Effect.gen(function*() {
++      const file = yield* caller.open("/target", { access: "read" })
++      return yield* file.readAlloc(1)
++    })) }
++  ]
++
++  for (const { name, directory, read } of reads) {
++    it.effect(`should apply relatime to ${name} after content, status, and daily expiry`, () => Effect.gen(function*() {
++      const owner = yield* VFS.make({ accessTime: "relatime" })
++      const caller = yield* owner.authorize({ credentials })
++      if (directory) yield* caller.makeDirectory("/target")
++      else yield* caller.writeFile("/target", bytes(1))
++      yield* TestClock.adjust("1 second")
++      yield* read(caller)
++      assert.strictEqual((yield* caller.stat("/target")).metadata.atime, second)
++      const recent = yield* caller.stat("/target")
++      yield* TestClock.adjust("1 second")
++      yield* read(caller)
++      assert.deepStrictEqual(yield* caller.stat("/target"), recent)
++      if (directory) yield* caller.makeDirectory("/target/child")
++      else yield* caller.writeFile("/target", bytes(2))
++      yield* TestClock.adjust("1 second")
++      yield* read(caller)
++      assert.strictEqual((yield* caller.stat("/target")).metadata.atime, 3n * second)
++      yield* TestClock.adjust("1 second")
++      yield* caller.setAttributes("/target", { mode: 0o700 })
++      yield* TestClock.adjust("1 second")
++      yield* read(caller)
++      const afterStatus = yield* caller.stat("/target")
++      assert.strictEqual(afterStatus.metadata.atime, 5n * second)
++      yield* TestClock.adjust("86399999999999 nanos")
++      yield* read(caller)
++      assert.deepStrictEqual(yield* caller.stat("/target"), afterStatus)
++      yield* TestClock.adjust("1 nano")
++      yield* read(caller)
++      const expired = yield* caller.stat("/target")
++      assert.strictEqual(expired.metadata.atime, 5n * second + day)
++      assert.strictEqual(expired.metadata.mtime, afterStatus.metadata.mtime)
++      assert.strictEqual(expired.metadata.ctime, afterStatus.metadata.ctime)
++    }))
++  }
++
++  for (const accessTime of [undefined, "strict"] as const) {
++    it.effect(`should retain strict access-time updates with ${accessTime ?? "default"} configuration`, () => Effect.gen(function*() {
++      const owner = yield* VFS.make(accessTime === undefined ? undefined : { accessTime })
++      const caller = yield* owner.authorize({ credentials })
++      yield* caller.writeFile("/file", bytes(1))
++      yield* TestClock.adjust("1 second")
++      yield* caller.readFile("/file")
++      yield* TestClock.adjust("1 second")
++      yield* caller.readFile("/file")
++      assert.strictEqual((yield* caller.stat("/file")).metadata.atime, 2n * second)
++    }))
++  }
++
++  it.effect("should select the restore policy without changing captured timestamps", () => Effect.gen(function*() {
++    const owner = yield* VFS.make({ accessTime: "relatime" })
++    const caller = yield* owner.authorize({ credentials })
++    yield* caller.writeFile("/file", bytes(1))
++    yield* caller.setAttributes("/file", { atime: DateTime.unixNanoFromNanoseconds(5n * second) })
++    const capture = yield* owner.capture()
++    const restored = yield* VFS.restore(capture, { accessTime: "relatime" })
++    const strict = yield* VFS.restore(capture)
++    const relativeCaller = yield* restored.authorize({ credentials })
++    const strictCaller = yield* strict.authorize({ credentials })
++    const before = yield* relativeCaller.stat("/file")
++    yield* relativeCaller.readFile("/file")
++    assert.deepStrictEqual(yield* relativeCaller.stat("/file"), before)
++    yield* strictCaller.readFile("/file")
++    assert.strictEqual((yield* strictCaller.stat("/file")).metadata.atime, 0n)
++  }))
++
++  it.effect("should preserve metadata and guards for zero-byte and same-instant reads", () => Effect.gen(function*() {
++    const owner = yield* VFS.make({ accessTime: "relatime" })
++    const caller = yield* owner.authorize({ credentials })
++    yield* caller.writeFile("/file", bytes(1))
++    const file = yield* caller.open("/file", { access: "read" })
++    const before = yield* caller.stat("/file")
++    yield* caller.readFile("/file")
++    assert.deepStrictEqual(yield* caller.stat("/file"), before)
++    yield* TestClock.adjust("1 second")
++    yield* file.readAlloc(0, { position: 0n })
++    yield* file.readAlloc(0)
++    assert.deepStrictEqual(yield* caller.stat("/file"), before)
++    yield* caller.setAttributes("/file", { mode: 0o600 }, { expectedRevision: before.revision })
++  }))
++
++  it.effect("should reject unknown access-time policies at construction and restore", () => Effect.gen(function*() {
++    const configuration: VFS.Configuration = {}
++    Object.defineProperty(configuration, "accessTime", { value: "never" })
++    const makeError = yield* Effect.flip(VFS.make(configuration))
++    assert.strictEqual(makeError._tag, "InvalidInput")
++    const owner = yield* VFS.make()
++    const restoreError = yield* Effect.flip(VFS.restore(yield* owner.capture(), configuration))
++    assert.strictEqual(restoreError._tag, "InvalidInput")
++  }))
++})
++
++
++it.effect("should honor relatime when the caller is provided through a layer", () => Effect.gen(function*() {
++  const caller = yield* VFS.VirtualFileSystem
++  yield* caller.writeFile("/file", bytes(1))
++  yield* TestClock.adjust("1 second")
++  yield* caller.readFile("/file")
++  const recent = yield* caller.stat("/file")
++  yield* TestClock.adjust("1 second")
++  yield* caller.readFile("/file")
++  assert.deepStrictEqual(yield* caller.stat("/file"), recent)
++}).pipe(Effect.provide(VFS.layer({ accessTime: "relatime", caller: { credentials } }))))
+--- a/packages/effect/typetest/virtual-file-system/VirtualFileSystem.tst.ts
++++ b/packages/effect/typetest/virtual-file-system/VirtualFileSystem.tst.ts
+@@ -1,7 +1,10 @@
+-import type { BytePath, Effect, Layer, Option, Result, Scope, Stream } from "effect"
++import type { BytePath, ByteSize, DateTime, Effect, Layer, Option, Result, Scope, Stream } from "effect"
+ import * as VFS from "effect/virtual-file-system/VirtualFileSystem"
+ import { describe, expect, it } from "tstyche"
+
++declare const instant: DateTime.UnixNano
++declare const operation: VFS.OperationSession
++declare const syncFile: VFS.SyncFileHandle
+ declare const caller: VFS.VirtualFileSystem
+ declare const reference: VFS.ObjectReference
+ declare const address: VFS.EntryAddress
+@@ -175,3 +178,88 @@
+     expect(caller.writeFile).type.not.toBeCallableWith(reference, bytes, { conditions: undefined })
+   })
+ })
++
++describe("VirtualFileSystem current-time attributes", () => {
++  it("should accept current-time markers across asynchronous and synchronous boundaries", () => {
++    expect(caller.setAttributes).type.toBeCallableWith("/file", { atime: "now", mtime: "now" })
++    expect(caller.setAttributes).type.toBeCallableWith(reference, { atime: instant })
++    expect(operation.files.setAttributes).type.toBeCallableWith("/file", { atime: "now" })
++    expect(file.setAttributes).type.toBeCallableWith({ atime: instant, mtime: "now" })
++    expect(sync.setAttributes).type.toBeCallableWith(reference, { atime: "now", mtime: "now" })
++    expect(syncFile.setAttributes).type.toBeCallableWith({ atime: "now" })
++    expect(caller.setAttributes("/file", { atime: "now" })).type.toBe<Effect.Effect<void, VFS.OperationError>>()
++    expect(sync.setAttributes("/file", { mtime: "now" })).type.toBe<Result.Result<void, VFS.OperationError>>()
++  })
++
++  it("should restrict markers to attribute inputs and keep stored times literal", () => {
++    expect<VFS.Attributes["atime"]>().type.toBe<DateTime.UnixNano | "now" | undefined>()
++    expect<VFS.Attributes["mtime"]>().type.toBe<DateTime.UnixNano | "now" | undefined>()
++    expect<VFS.Metadata["atime"]>().type.toBe<DateTime.UnixNano>()
++    expect<VFS.SemanticMetadata["mtime"]>().type.toBe<DateTime.UnixNano>()
++    expect(caller.setAttributes).type.not.toBeCallableWith("/file", { atime: "later" })
++    expect(file.setAttributes).type.not.toBeCallableWith({ mtime: "omit" })
++    expect(sync.setAttributes).type.not.toBeCallableWith("/file", { atime: 0n })
++  })
++})
++
++describe("VirtualFileSystem atomic resize attributes", () => {
++  it("should accept byte-size inputs with metadata at every attribute boundary", () => {
++    expect(caller.setAttributes).type.toBeCallableWith("/file", { size: 4n, mode: 0o600 })
++    expect(operation.files.setAttributes).type.toBeCallableWith(reference, { size: "4 B", atime: "now" })
++    expect(file.setAttributes).type.toBeCallableWith({ size: 4, mtime: instant })
++    expect(sync.setAttributes).type.toBeCallableWith(reference, { size: 4n, uid: 7 })
++    expect(syncFile.setAttributes).type.toBeCallableWith({ size: "4 B" })
++    expect(caller.setAttributes("/file", { size: 4n })).type.toBe<Effect.Effect<void, VFS.OperationError>>()
++    expect(sync.setAttributes("/file", { size: 4n })).type.toBe<Result.Result<void, VFS.OperationError>>()
++  })
++
++  it("should reject unsupported size shapes and keep observed size literal", () => {
++    expect<VFS.Attributes["size"]>().type.toBe<ByteSize.Input | undefined>()
++    expect<VFS.Metadata["size"]>().type.toBe<ByteSize.ByteSize>()
++    expect(caller.setAttributes).type.not.toBeCallableWith("/file", { size: "now" })
++    expect(file.setAttributes).type.not.toBeCallableWith({ size: {} })
++    expect(sync.setAttributes).type.not.toBeCallableWith("/file", { size: true })
++  })
++})
++
++
++describe("VirtualFileSystem access-time configuration", () => {
++  it("should accept strict and relatime policies for creation, restore, and layers", () => {
++    expect(VFS.make({ accessTime: "relatime" })).type.toBe<Effect.Effect<VFS.Owner, VFS.VirtualFileSystemError>>()
++    expect(VFS.restore(snapshot, { accessTime: "strict" })).type.toBe<Effect.Effect<VFS.Owner, VFS.VirtualFileSystemError>>()
++    expect(VFS.layer({ accessTime: "relatime", caller: { credentials: { uid: 0, gid: 0 } } })).type.toBe<
++      Layer.Layer<VFS.VirtualFileSystem, VFS.VirtualFileSystemError>
++    >()
++    expect<NonNullable<VFS.Configuration["accessTime"]>>().type.toBe<"strict" | "relatime">()
++    expect<NonNullable<VFS.RestoreOptions["accessTime"]>>().type.toBe<"strict" | "relatime">()
++    expect(VFS.make).type.not.toBeCallableWith({ accessTime: "never" })
++  })
++})
++
++
++describe("atomic mkdir timestamps", () => {
++  it("should accept literal creation times through callers, entry creation and sessions", () => {
++    const options = { preserveTimes: { atime: instant, mtime: instant } }
++    expect(caller.makeDirectory("/directory", options)).type.toBe<Effect.Effect<VFS.DirectoryObservation, VFS.OperationError>>()
++    expect(caller.makeDirectoryEntry(address, options)).type.toBe<Effect.Effect<VFS.PresentEntry & { readonly object: VFS.DirectoryObservation }, VFS.OperationError>>()
++    expect(operation.files.makeDirectory("/directory", options)).type.toBe<Effect.Effect<VFS.DirectoryObservation, VFS.OperationError>>()
++    expect(caller.makeDirectory).type.not.toBeCallableWith("/directory", { preserveTimes: { atime: "now", mtime: instant } })
++    expect(caller.makeDirectory).type.not.toBeCallableWith("/directory", { preserveTimes: { atime: instant } })
++    expect(caller.makeDirectoryEntry).type.not.toBeCallableWith(address, { recursive: true })
++  })
++})
++
++
++describe("atomic open creation timestamps", () => {
++  it("should accept literal times for creation-capable opens and reject reference creation options", () => {
++    const options = { create: "exclusive" as const, preserveTimes: { atime: instant, mtime: instant } }
++    expect(caller.open("/file", options)).type.toBe<Effect.Effect<VFS.FileHandle, VFS.OperationError, Scope.Scope>>()
++    expect(caller.open).type.toBeCallableWith(address, options)
++    expect(sync.open).type.toBeCallableWith("/file", options)
++    expect(sync.open).type.toBeCallableWith(address, options)
++    expect(caller.open).type.not.toBeCallableWith(reference, { preserveTimes: options.preserveTimes })
++    expect(sync.open).type.not.toBeCallableWith(reference, { preserveTimes: options.preserveTimes })
++    expect(caller.open).type.not.toBeCallableWith("/file", { create: "exclusive", preserveTimes: { atime: "now", mtime: instant } })
++    expect(caller.open).type.not.toBeCallableWith("/file", { create: "exclusive", preserveTimes: { atime: instant } })
++  })
++})

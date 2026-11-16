@@ -3,8 +3,8 @@ import * as BytePath from "../../compat/BytePath.js"
 import type * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
-import * as Scope from "effect/Scope"
 import * as Schema from "../../compat/Schema.js"
+import * as Scope from "effect/Scope"
 import * as A from "./atomic.js"
 import * as E from "./engine.js"
 import * as M from "./model.js"
@@ -320,7 +320,8 @@ const prepareAttributes = (
     yield* A.validateAttributes(attributes, work.operation)
     const fixed = yield* P.snapshotAttributes(attributes, work.operation)
     const revision = yield* revisionOptions(options, work.operation)
-    return (tx: E.Transaction) => Result.flatMap(node(tx, state), (file) => A.attributesFor(tx, file, fixed, revision, state.write))
+    return (tx: E.Transaction) =>
+      Result.flatMap(node(tx, state), (file) => A.attributesFor(tx, file, fixed, revision, state.write))
   })
 
 /** @internal */
@@ -645,10 +646,12 @@ const openNode = (
           return yield* Result.fail(new M.ConditionFailed({ operation: tx.operation, reason: "objectRevision" }))
         }
         const policy = tx.caller.policy
-        if (!policy.privileged && (
-          (options.uid !== undefined && options.uid !== policy.uid) ||
-          (options.gid !== undefined && options.gid !== policy.gid && !policy.groups.includes(options.gid))
-        )) return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "ownership" }))
+        if (
+          !policy.privileged && (
+            (options.uid !== undefined && options.uid !== policy.uid) ||
+            (options.gid !== undefined && options.gid !== policy.gid && !policy.groups.includes(options.gid))
+          )
+        ) return yield* Result.fail(new M.AccessDenied({ operation: tx.operation, reason: "ownership" }))
         selected = yield* tx.createResult("file", slot.parent, options.mode, undefined, options)
         created = true
         if (options.initialSize !== undefined && selected.kind === "file") {
@@ -689,9 +692,13 @@ const openNode = (
 
 const retainHandle = (engine: E.Engine, resource: R.Resource, id: bigint) =>
   Result.map(engine.retainObjectsResult(resource, [id]), () => {
-    if (engine.offer) resource.cleanupOffer = () => {
-      if (engine.runtime.storageUnavailable?.() || engine.pins.get(id) !== 1 || engine.nodes.get(id)?.nlink !== zero) return undefined
-      return engine.offerState(new Map(), [id], engine.nextObject, "close")
+    if (engine.offer) {
+      resource.cleanupOffer = () => {
+        if (
+          engine.runtime.storageUnavailable?.() || engine.pins.get(id) !== 1 || engine.nodes.get(id)?.nlink !== zero
+        ) return undefined
+        return engine.offerState(new Map(), [id], engine.nextObject, "close")
+      }
     }
   })
 
@@ -742,11 +749,16 @@ export const open = Effect.fnUntraced(
               let deciding = false
               let abandoned = false
               return {
-                enroll: durable ? Scope.addFinalizer(scope, Effect.suspend(() => {
-                  if (!deciding) return acquired.close
-                  abandoned = true
-                  return Effect.void
-                })) : acquired.enroll(scope, "open"),
+                enroll: durable ?
+                  Scope.addFinalizer(
+                    scope,
+                    Effect.suspend(() => {
+                      if (!deciding) return acquired.close
+                      abandoned = true
+                      return Effect.void
+                    })
+                  ) :
+                  acquired.enroll(scope, "open"),
                 execute: () =>
                   Result.gen(function*() {
                     yield* acquired.checkOpenResult("open")
@@ -758,10 +770,11 @@ export const open = Effect.fnUntraced(
                     deciding = true
                     return {
                       ...transition,
-                      publish: () => Result.flatMap(transition.publish(), () => {
-                        deciding = false
-                        return abandoned ? Result.fail(R.closed("open")) : Result.succeed(undefined)
-                      })
+                      publish: () =>
+                        Result.flatMap(transition.publish(), () => {
+                          deciding = false
+                          return abandoned ? Result.fail(R.closed("open")) : Result.succeed(undefined)
+                        })
                     }
                   })
               }

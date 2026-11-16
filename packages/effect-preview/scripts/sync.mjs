@@ -94,7 +94,8 @@ const rewrite = (source, destination, original) => {
   const specifier = (name) => {
     let path
 
-    if (name.startsWith("effect/virtual-file-system")) path = "src/virtual-file-system/VirtualFileSystem.ts"
+    if (name === "effect/virtual-file-system") path = "src/virtual-file-system/VirtualFileSystem.ts"
+    else if (name.startsWith("effect/virtual-file-system/")) path = `src/${name.slice("effect/".length)}.ts`
     else if (name.startsWith("effect/")) path = moduleFor(name.slice(7))
     else if (name.startsWith(".")) {
       const upstream = posix.normalize(posix.join(posix.dirname(original), name))

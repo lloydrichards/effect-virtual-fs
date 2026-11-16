@@ -47,7 +47,16 @@ export type Operation = keyof OptionsByOperation
 /** @internal */
 export const optionFields = {
   access: ["read", "write", "execute"],
-  writeFile: ["placement", "access", "create", "mode", "conditions", "expectedRevision", "finalMode", "replaceFinalSymlink"],
+  writeFile: [
+    "placement",
+    "access",
+    "create",
+    "mode",
+    "conditions",
+    "expectedRevision",
+    "finalMode",
+    "replaceFinalSymlink"
+  ],
   createFile: ["mode", "conditions"],
   makeDirectory: ["mode", "conditions", "recursive", "preserveTimes"],
   makeDirectoryEntry: ["mode", "conditions", "preserveTimes"],
@@ -151,7 +160,9 @@ export const validate = (operation: Operation, options: unknown): Result.Result<
         const object = yield* E.checkOptionsResult(options, optionFields.writeFile, operation)
         if (object?.finalMode !== undefined) yield* E.modeResult(object.finalMode, operation)
         if (object?.replaceFinalSymlink !== undefined && !isBoolean(object.replaceFinalSymlink)) {
-          return yield* Result.fail(new M.InvalidInput({ operation, field: "replaceFinalSymlink", reason: "malformed" }))
+          return yield* Result.fail(
+            new M.InvalidInput({ operation, field: "replaceFinalSymlink", reason: "malformed" })
+          )
         }
         const placement = object?.placement
         if (placement !== undefined && !isPlacement(placement)) {
@@ -444,13 +455,22 @@ export const readDirectory = (tx: E.Transaction, target: M.Target): Result.Resul
   }))
 
 /** @internal */
-export const readDirents = (tx: E.Transaction, target: M.Target, touchAtime = true): Result.Result<M.DirentListing, M.OperationError> =>
+export const readDirents = (
+  tx: E.Transaction,
+  target: M.Target,
+  touchAtime = true
+): Result.Result<M.DirentListing, M.OperationError> =>
   Result.gen(function*() {
     const { directory, entries } = yield* listDirectory(tx, target, E.READ_PERMISSION, touchAtime)
     const children: Array<M.DirentListing["entries"][number]> = []
     for (const entry of entries) {
       const child = yield* tx.getResult(entry.object)
-      children.push({ name: entry.name, kind: child.kind, objectNumber: child.id, reference: tx.engine.reference(child.id) })
+      children.push({
+        name: entry.name,
+        kind: child.kind,
+        objectNumber: child.id,
+        reference: tx.engine.reference(child.id)
+      })
     }
     return { directory, entries: children }
   })
@@ -521,8 +541,10 @@ const writable = (
       }
     } else {
       selected = options.replaceFinalSymlink ? initial : yield* tx.followFinalSlotResult(initial, state)
-      if (selected.binding !== undefined && options.replaceFinalSymlink &&
-        (yield* tx.getResult(selected.binding.object)).kind === "symlink") {
+      if (
+        selected.binding !== undefined && options.replaceFinalSymlink &&
+        (yield* tx.getResult(selected.binding.object)).kind === "symlink"
+      ) {
         const victim = yield* tx.getResult(selected.binding.object)
         yield* tx.stickyResult(selected.parent, victim)
         yield* tx.authorizeCreateResult(selected.parent, options.mode, "file")
@@ -557,7 +579,11 @@ const writable = (
     return yield* createWritableFile(tx, selected, options.mode)
   })
 
-const createWritableFile = (tx: E.Transaction, selected: { parent: E.DirectoryNode; name: BytePath.BytePath }, mode?: number) =>
+const createWritableFile = (
+  tx: E.Transaction,
+  selected: { parent: E.DirectoryNode; name: BytePath.BytePath },
+  mode?: number
+) =>
   Result.gen(function*() {
     const node = yield* tx.createResult("file", selected.parent, mode)
     if (node.kind !== "file") {
@@ -668,7 +694,9 @@ export const attributesFor = (
 ) =>
   Result.gen(function*() {
     yield* validateAttributes(attributes, tx.operation)
-    const requested = attributes.size === undefined ? undefined : yield* R.sizeResult(attributes.size, tx.operation, "size")
+    const requested = attributes.size === undefined
+      ? undefined
+      : yield* R.sizeResult(attributes.size, tx.operation, "size")
     if (requested !== undefined && node.kind !== "file") {
       return yield* Result.fail(new M.InvalidResource({ operation: tx.operation, reason: "wrongKind" }))
     }
@@ -709,7 +737,9 @@ export const attributesFor = (
     yield* tx.revisionResult(node, options)
     if (requested !== undefined) {
       if (requested > tx.engine.runtime.limits.fileBytes) {
-        return yield* Result.fail(new M.LimitExceeded({ operation: tx.operation, domain: "file", stage: "publication" }))
+        return yield* Result.fail(
+          new M.LimitExceeded({ operation: tx.operation, domain: "file", stage: "publication" })
+        )
       }
       yield* reserveFile(tx, requested)
     }
