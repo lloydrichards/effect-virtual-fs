@@ -3,15 +3,18 @@ import { FilesystemPlayground } from "~/components/filesystem-playground"
 
 # Build and save a browser filesystem
 
-As **Admin**, change `20` to `21` in `src/value.js`, then select **Run build**. The bundle exports `43`: `main.js` imports your value and adds the offset from `secret.js`.
+Select **Run build** to bundle a public sensor reading. All three callers can build it. As **Editor**, change `20` to `21` in `src/value.js` and build again. The generated bundle exports the updated reading.
 
 <FilesystemPlayground />
 
 Select a file or folder by name, then use the **Files** toolbar to rename or delete it. Renaming a folder moves its contents. Deleting a folder removes every file and subfolder inside it. Enter paths from the volume root, such as `src/lib`. If you rename an imported module, update its import before building. Tree changes stay in memory until you save a checkpoint.
 
-## Try another caller
+## Try the private calibration
 
-Open `secret.js` as **Admin** to see the offset, `22`. Switch to **Editor** and try opening it again. The filename is visible, but its owner-only permissions (`0600`) deny the read. **Run build** also fails because the bundler reads each import as the selected caller. Try **Reader** on `src/value.js`, then switch back to **Admin** to build.
+1. As **Editor**, open `main.js` and uncomment the export from `./secret.js`. Select **Run build**. The bundler now needs the private calibration module, so the read fails with `AccessDenied`.
+2. Switch to **Reader** and build the same files. Reader can read the public sensor value but cannot read the calibration module either.
+3. Switch to **Admin** and build again. The bundle now exports both `reading` and `calibrated`. Open `secret.js` to see the calibration offset of `22`.
+4. Comment out the private export in `main.js` and switch back to **Reader**. The public build succeeds again.
 
 <CallerDiagram />
 

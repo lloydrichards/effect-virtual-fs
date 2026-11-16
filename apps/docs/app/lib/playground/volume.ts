@@ -25,14 +25,22 @@ export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
           path: "/main.js",
           metadata: { uid: 1000, mode: 0o644 },
           bytes: encoder.encode(
-            "import { value } from \"./src/value.js\"\nimport { offset } from \"./secret.js\"\nexport const answer = value + offset\n"
+            `export { value as reading } from "./src/value.js"
+
+// Uncomment to include the calibrated reading.
+// export { calibrated } from "./secret.js"
+`
           )
         },
         {
           kind: "file",
           path: "/secret.js",
           metadata: { uid: 0, mode: 0o600 },
-          bytes: encoder.encode("export const offset = 22\n")
+          bytes: encoder.encode(`import { value } from "./src/value.js"
+
+const offset = 22
+export const calibrated = value + offset
+`)
         },
         {
           kind: "file",

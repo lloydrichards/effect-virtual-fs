@@ -38,27 +38,25 @@ export function CheckpointDiagram() {
 export function CallerDiagram() {
   return (
     <figure className="my-4 rounded-xl border bg-card p-3 text-xs">
-      <figcaption className="mb-3 font-semibold">Starter volume · imports read by /main.js</figcaption>
+      <figcaption className="mb-3 font-semibold">Which modules does the build need?</figcaption>
       <table className="w-full text-start">
         <thead>
           <tr className="border-b text-muted-foreground">
             <th scope="col" className="p-1 text-start">Caller</th>
-            <th scope="col" className="p-1 text-start font-mono">/src/value.js</th>
-            <th scope="col" className="p-1 text-start font-mono">/secret.js</th>
-            <th scope="col" className="p-1 text-start">Build</th>
+            <th scope="col" className="p-1 text-start">Public reading</th>
+            <th scope="col" className="p-1 text-start">With calibration</th>
           </tr>
         </thead>
         <tbody>
           {[
-            ["Admin", "Read + write", "Read + write", "Succeeds"],
-            ["Editor", "Read + write", "Denied", "Fails"],
-            ["Reader", "Read", "Denied", "Fails"]
-          ].map(([caller, value, secret, build]) => (
+            ["Admin", "Builds", "Builds"],
+            ["Editor", "Builds", "Cannot read /secret.js"],
+            ["Reader", "Builds", "Cannot read /secret.js"]
+          ].map(([caller, reading, calibrated]) => (
             <tr key={caller} className="border-b last:border-0">
               <th scope="row" className="p-1 text-start">{caller}</th>
-              <td className="p-1">{value}</td>
-              <td className="p-1">{secret}</td>
-              <td className="p-1">{build}</td>
+              <td className="p-1">{reading}</td>
+              <td className="p-1">{calibrated}</td>
             </tr>
           ))}
         </tbody>
