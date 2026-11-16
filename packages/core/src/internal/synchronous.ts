@@ -17,6 +17,8 @@ import {
   direntReference,
   drainPending,
   failure,
+  growsFile,
+  growthWritePrefix,
   metadata,
   type runtimeOf,
   target
@@ -342,19 +344,11 @@ export const bind = Effect.fnUntraced(
           write: (bytes, position, append) => {
             const info = unwrap(file().stat())
             const at = append ? info.metadata.size : position
-            const usage = Effect.runSync(runtime.owner.usage)
-            const fileAvailable = runtime.owner.limits.fileBytes - at
-            const volumeAvailable = info.metadata.size + runtime.owner.limits.contentBytes - usage.contentBytes - at
-            const available = fileAvailable < volumeAvailable ? fileAvailable : volumeAvailable
 
-            if (bytes.length > 0 && available <= 0n) {
-              throw Errors.fsFailure(
-                fileAvailable <= 0n ? "FileTooLarge" : "NoSpace",
-                "write"
-              )
-            }
+            const part = growsFile(bytes, at, info.metadata.size)
+              ? Effect.runSync(growthWritePrefix(runtime.owner, bytes, at, info.metadata.size))
+              : bytes
 
-            const part = bytes.subarray(0, Number(available < BigInt(bytes.length) ? available : BigInt(bytes.length)))
             unwrap(file().write(new Uint8Array(part), append ? undefined : { position }))
 
             return part.length

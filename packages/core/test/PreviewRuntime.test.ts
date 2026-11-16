@@ -32,6 +32,34 @@ describe("preview ownership", () => {
         }))
     }
 
+    it.effect("overwrites existing bytes through both handle bindings without querying volume usage", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make({ execution: "sync" })
+        const runtime = runtimeOf(volume)
+
+        if (runtime === undefined) return assert.fail("Core did not construct preview state")
+        const caller = yield* volume.caller()
+        yield* caller.writeFile("/file", bytes, create)
+        const file = yield* caller.open("/file", { access: "readWrite" })
+        const native = (yield* SynchronousAdapter.bind(volume)).open("/file", { access: "readWrite" }, false, false)
+        const owner = runtime.owner
+        let scans = 0
+        const usage = Effect.tap(owner.usage, () => Effect.sync(() => scans++))
+        Object.assign(runtime, { owner: { ...owner, usage } })
+
+        try {
+          assert.strictEqual(yield* file.pwrite(Uint8Array.of(7), 0n), 1)
+          const effectScans = scans
+          assert.strictEqual(native.write(Uint8Array.of(8), 2n, false), 1)
+          assert.deepStrictEqual([effectScans, scans - effectScans], [0, 0])
+        } finally {
+          Object.assign(runtime, { owner })
+          native.close()
+        }
+
+        assert.deepStrictEqual(yield* caller.readFile("/file"), Uint8Array.of(7, 2, 8))
+      }))
+
     it.effect("shares native writes with the same public preview owner", () =>
       Effect.gen(function*() {
         const volume = yield* Vfs.make({ execution: "sync" })
