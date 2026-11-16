@@ -95,50 +95,7 @@ export function FilesystemPlayground() {
   return (
     <RegistryProvider>
       <WorkspacePanel />
-      <CallerDiagram />
     </RegistryProvider>
-  )
-}
-
-function accessLabel(permissions: number) {
-  switch (permissions & 6) {
-    case 6:
-      return "Read / write"
-    case 4:
-      return "Read only"
-    case 2:
-      return "Write only"
-    default:
-      return "No access"
-  }
-}
-
-function CallerDiagram() {
-  const { volume, entries, role } = useAtomValue(playgroundAtom)
-
-  return (
-    <figure className="my-5 rounded-xl border bg-card p-3 sm:p-4">
-      <figcaption className="mb-3 text-sm font-semibold">Caller access to starter files</figcaption>
-      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center" aria-live="polite">
-        <strong className="rounded-md border bg-muted px-2 py-1 text-sm capitalize">{role}</strong>
-        <ul className="relative m-0 list-none p-0 text-xs before:absolute before:inset-y-5 before:left-2 before:border-l sm:before:left-5">
-          {["/main.js", "/src/value.js", "/secret.js"].map((path, index) => {
-            const file = entries.find((entry) => !entry.directory && entry.path === path)
-            const access = file ? accessLabel(file.permissions) : volume ? "File missing" : "—"
-
-            return (
-              <li key={path} className="flex h-10 items-center">
-                <span aria-hidden="true" className={index === 1 ? "w-2 border-t sm:w-5" : "w-2 sm:w-5"} />
-                <span aria-hidden="true" className="min-w-1 flex-1 border-t" />
-                <span className="px-1.5 text-muted-foreground">{access}</span>
-                <span aria-hidden="true" className="min-w-1 flex-1 border-t" />
-                <span className="w-[14ch] rounded-md border px-1.5 py-1 font-mono">{path}</span>
-              </li>
-            )
-          })}
-        </ul>
-      </div>
-    </figure>
   )
 }
 
