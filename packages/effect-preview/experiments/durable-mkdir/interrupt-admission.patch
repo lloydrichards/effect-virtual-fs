@@ -1,0 +1,40 @@
+--- a/packages/effect/src/virtual-file-system/internal/runtime.ts
++++ b/packages/effect/src/virtual-file-system/internal/runtime.ts
+@@ -690,5 +690,5 @@
+     beforePublish?: (candidate: A) => Effect.Effect<void, E>
+   ) {
+-    return Effect.suspend(() => {
++    return Effect.uninterruptibleMask((restoreExecution) => {
+       let work: Work | undefined
+       const attempt = Result.try(() =>
+@@ -777,18 +777,16 @@
+         })
+       )
+-      return Effect.uninterruptibleMask((restore) =>
+-        Effect.gen({ self: this }, function*() {
+-          const exit = yield* Effect.exit(restore(execute))
+-          const reasons: Array<Cause.Reason<M.OperationError | E>> = Exit.isFailure(exit) ? [...exit.cause.reasons] : []
+-          if (Exit.isFailure(exit)) {
+-            this.cancel(admitted)
+-            const cleanup = yield* Effect.exit(admitted.rollback())
+-            if (Exit.isFailure(cleanup)) reasons.push(...cleanup.cause.reasons)
+-          }
+-          this.finish(admitted)
+-          if (Exit.isFailure(exit)) return yield* Effect.failCause(Cause.fromReasons(reasons))
+-          return exit.value
+-        })
+-      )
++      return Effect.gen({ self: this }, function*() {
++        const exit = yield* Effect.exit(restoreExecution(execute))
++        const reasons: Array<Cause.Reason<M.OperationError | E>> = Exit.isFailure(exit) ? [...exit.cause.reasons] : []
++        if (Exit.isFailure(exit)) {
++          this.cancel(admitted)
++          const cleanup = yield* Effect.exit(admitted.rollback())
++          if (Exit.isFailure(cleanup)) reasons.push(...cleanup.cause.reasons)
++        }
++        this.finish(admitted)
++        if (Exit.isFailure(exit)) return yield* Effect.failCause(Cause.fromReasons(reasons))
++        return exit.value
++      })
+     })
+   }
