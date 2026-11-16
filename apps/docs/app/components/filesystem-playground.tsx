@@ -30,6 +30,7 @@ import { PlaygroundEditor } from "./playground-editor"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import { NativeSelect } from "./ui/native-select"
+import { Skeleton } from "./ui/skeleton"
 
 function FileList({ entries, parent, selected, onSelect }: {
   entries: ReadonlyArray<Entry>
@@ -119,6 +120,7 @@ function WorkspacePanel() {
     if (success) setOperation(null)
   }
 
+  const opening = !volume && !error
   const writable = (permissions & 2) !== 0
 
   return (
@@ -146,7 +148,7 @@ function WorkspacePanel() {
           <Play />Run build
         </Button>
       </div>
-      <div className="grid min-w-0 sm:grid-cols-[minmax(8rem,28%)_minmax(0,1fr)]">
+      <div aria-busy={opening} className="grid min-w-0 sm:grid-cols-[minmax(8rem,28%)_minmax(0,1fr)]">
         <aside aria-label="Project files" className="min-w-0 border-b bg-sidebar p-2 sm:border-e sm:border-b-0">
           <div className="mb-1 flex items-center gap-1.5 px-1 text-xs font-semibold">
             <FolderOpen className="size-4" />Files
@@ -212,12 +214,24 @@ function WorkspacePanel() {
               </Button>
             </form>
           )}
-          <FileList
-            entries={entries}
-            parent=""
-            selected={selected}
-            onSelect={(entry) => void run({ select: entry }).then(closeOnSuccess)}
-          />
+          {opening ?
+            (
+              <div aria-hidden="true" className="px-2">
+                {["mb-0.5 w-16", "w-12", "ms-3 w-20"].map((row) => (
+                  <div key={row} className={`flex h-7 max-w-full items-center pointer-coarse:h-11 ${row}`}>
+                    <Skeleton className="h-2 w-full rounded motion-reduce:animate-none" />
+                  </div>
+                ))}
+              </div>
+            ) :
+            (
+              <FileList
+                entries={entries}
+                parent=""
+                selected={selected}
+                onSelect={(entry) => void run({ select: entry }).then(closeOnSuccess)}
+              />
+            )}
         </aside>
         <div className="min-w-0 bg-code-block">
           <div className="flex flex-wrap items-center gap-2 border-b bg-card px-3 py-2 font-mono text-xs">
@@ -225,13 +239,24 @@ function WorkspacePanel() {
             <span className="break-all">{path || "No file open"}{dirty && <span aria-label="Modified">*</span>}</span>
             <span className="ms-auto text-muted-foreground">{path && (writable ? "Read / write" : "Read only")}</span>
           </div>
-          <PlaygroundEditor
-            path={path}
-            label={`Edit ${path}`}
-            value={source}
-            readOnly={!writable || busy}
-            onEdit={edit}
-          />
+          <div className="h-[clamp(18rem,48vh,32rem)]">
+            {volume ?
+              (
+                <PlaygroundEditor
+                  path={path}
+                  label={`Edit ${path}`}
+                  value={source}
+                  readOnly={!writable || busy}
+                  onEdit={edit}
+                />
+              ) :
+              opening && (
+                <div aria-hidden="true" className="space-y-4 p-4">
+                  <Skeleton className="h-2.5 w-3/5 rounded motion-reduce:animate-none" />
+                  <Skeleton className="h-2.5 w-1/3 rounded motion-reduce:animate-none" />
+                </div>
+              )}
+          </div>
         </div>
       </div>
       <div className="border-t bg-muted/30 px-3 py-2">
