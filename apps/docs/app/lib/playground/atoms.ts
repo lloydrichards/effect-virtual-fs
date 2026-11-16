@@ -1,8 +1,9 @@
 import { Cause, Effect, Exit } from "effect"
 import * as Atom from "effect/reactivity/Atom"
+import { buildWorkspace } from "./build"
 import { PlaygroundError } from "./error"
 import { deleteCheckpoint, hasSavedCheckpoint, readCheckpoint, saveCheckpoint } from "./storage"
-import type { FileAccess, Workspace } from "./volume"
+import { type FileAccess, openVolume, type Workspace } from "./volume"
 
 export type Entry = Effect.Success<ReturnType<FileAccess["files"]>>[number]
 
@@ -70,7 +71,6 @@ const selectFile = Effect.fnUntraced(function*(caller: FileAccess, path: string)
 
 const perform = Effect.fnUntraced(function*(command: Command, state: Playground) {
   if (command === "open" || command === "reopen") {
-    const { openVolume } = yield* Effect.tryPromise({ try: () => import("./volume"), catch: PlaygroundError.fromCause })
     const volume = yield* openVolume(command === "reopen" ? (yield* readCheckpoint).image : undefined)
     const caller = volume[state.role]
     const entries = yield* caller.files()
@@ -114,11 +114,6 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
       return { status: "Checkpoint deleted. Your working files are still open." }
     case "build": {
       yield* flush
-
-      const { buildWorkspace } = yield* Effect.tryPromise({
-        try: () => import("./build"),
-        catch: PlaygroundError.fromCause
-      })
 
       const result = yield* buildWorkspace(caller)
 
