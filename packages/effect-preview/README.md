@@ -59,8 +59,9 @@ session unavailable.
 The runner also compiles a temporary copy of core against the experimental preview. It opens a version 1 live image,
 offers one mkdir to a file-backed store, closes the session and reopens the persisted bytes through `LiveVolume.openImage`.
 The checks resolve saved reference keys before any path lookup, compare root and child revisions, and allocate another
-directory after both acceptance and rejection. Process death, uncertain writes across restart, and final handle cleanup
-remain open. [Durability follow-up](https://github.com/lloydrichards/effect-virtual-fs/issues/328#issuecomment-6908734064)
+directory after reopening. For an unknown decision the store either keeps the old image or writes the candidate before
+returning `unknown`. The initiating mkdir reports `OutcomeUnknown`. Queued work and later calls report
+`VolumeUnavailable` until a fresh session opens the image on disk. Process death and final handle cleanup remain open. [Durability follow-up](https://github.com/lloydrichards/effect-virtual-fs/issues/328#issuecomment-6908734064)
 
 ## Regenerate the pinned port offline
 

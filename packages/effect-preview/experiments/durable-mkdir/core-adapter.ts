@@ -7,7 +7,11 @@ import { type CommitProvider, Errors, State } from "./model.js"
 
 export { resumeAllocator } from "@effect-vfs/effect-preview/durable-mkdir"
 
-export const makeLiveMkdir = (initial: State.VolumeState, provider: CommitProvider<State.VolumeState>) => {
+export const makeLiveMkdir = (
+  initial: State.VolumeState,
+  provider: CommitProvider<State.VolumeState>,
+  freeze: () => void
+) => {
   let committed = initial
 
   const offer = Effect.fnUntraced(function*(candidate: Candidate) {
@@ -65,10 +69,14 @@ export const makeLiveMkdir = (initial: State.VolumeState, provider: CommitProvid
   // eslint-disable-next-line effecttsgo/experimental-api-usage -- Compile against the trial preview caller.
   return (actor: P.VirtualFileSystem, target: P.Path, options: P.MkdirOptions) =>
     makeCallerTrial(actor, offer).mkdir(target, options).pipe(
-      Effect.mapError((e) =>
-        Predicate.isTagged(e, "StorageRejected") || Predicate.isTagged(e, "VolumeUnavailable")
-          ? Errors.fsFailure(e._tag, "mkdir")
-          : e
-      )
+      Effect.mapError((error) => {
+        if (Predicate.isTagged(error, "VolumeUnavailable")) {
+          freeze()
+
+          return Errors.fsFailure("OutcomeUnknown", "mkdir")
+        }
+
+        return Predicate.isTagged(error, "StorageRejected") ? Errors.fsFailure("StorageRejected", "mkdir") : error
+      })
     )
 }

@@ -56,7 +56,14 @@ try {
   execFileSync("git", ["apply", join(experiment, "core-reopen.patch")], { cwd: core })
   run(join(dependencies, ".bin/tsc"), "-p", join(core, "tsconfig.build.json"))
   run("experiments/durable-mkdir/reopen.mjs")
-  run(join(dependencies, "vitest/vitest.mjs"), "run", "test", "--maxWorkers", "2")
+  const vitest = join(dependencies, "vitest/vitest.mjs")
+  run(vitest, "run", "test", "--maxWorkers", "2")
+
+  for (const path of ["test/LiveVolume.test.ts", "test/support/lines.ts", "test/support/text.ts"]) {
+    await cp(resolve(preview, "../core", path), join(core, path))
+  }
+
+  run(vitest, "run", "core/test/LiveVolume.test.ts", "-t", "should stop paths, observations, and watch registration")
 } finally {
   await rm(scratch, { recursive: true, force: true })
 }
