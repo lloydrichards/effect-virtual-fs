@@ -47,7 +47,7 @@ sources:
   - id: watch-resources
     resource: ../../packages/core/test/Watch.test.ts
     title: Interrupted admission, watch cleanup, and bounded overflow
-generated: { by: codex/okf, at: 2026-10-04T00:00:00Z }
+generated: { by: codex/okf-dream, at: 2026-11-16T21:53:21Z }
 ---
 
 # Current validation conclusions
@@ -62,8 +62,6 @@ Fixed-seed sequences check regular-file identity, retained content, and selected
 
 Selected production regression probes have demonstrated that these checks detect identity redirection, premature reclamation, retained byte charges, cursor changes after rejection, cancelled admission tickets, detached scopes, and watch overflow changes. This is finite qualification. It does not establish exhaustive scheduling, a heap-leak bound, provider failure guarantees, durability, or a runtime matrix.
 
-Build workspace declarations before Effect-aware lint. Missing `dist/*.d.ts` can otherwise produce a validation artifact in workspace consumers rather than a source defect. Reproduce the configured clean order before changing product code in response to such diagnostics.
-
 Browser-target bundling plus a Node smoke proves that reachable package exports bundle and execute in that check. It does not prove browser or worker runtime behavior. NodeNext consumers prove emitted module and type resolution, not every downstream toolchain.
 
-The repository pins Bun 1.2.21 for CI and Node 24 for releases and package support. Older local validation on a different Bun version is historical, not confirmation of the current checkout. Fresh claims should use the [evidence and validation workflow](../workflows/evidence-and-validation.md "governed by") and report the runtime actually exercised. This ledger [supports the implemented filesystem profile](../profiles/implemented-filesystem.md "supports") without replacing its focused behavioral evidence.
+For CI runtime targets and build prerequisites, see the [evidence and validation workflow](../workflows/evidence-and-validation.md "governed by"). This ledger [supports the implemented filesystem profile](../profiles/implemented-filesystem.md "supports") without replacing its focused behavioral evidence.

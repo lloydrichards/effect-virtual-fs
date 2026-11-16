@@ -26,15 +26,15 @@ sources:
   - id: nfs-package
     resource: ../../packages/nfs/package.json
     title: NFS package manifest
-generated: { by: claude/okf, at: 2026-09-16T23:00:00+02:00 }
+generated: { by: codex/okf-dream, at: 2026-11-16T21:53:21Z }
 ---
 
 # Release readiness
 
 Core is the publication root. Memory, persistence, and nfs depend on core, so `@effect-vfs/core` must be available before consumers that reference its released range. Changesets keeps core, memory, persistence, and nfs in one fixed version group and updates internal dependencies at patch level.
 
-Before publishing, use the same ordering as pull-request validation: frozen install, format check, build, the API-reference staleness check, lint, Effect-aware lint, type check, and tests. Build must precede type-aware lint because workspace packages expose declarations from `dist/`, and it must precede the staleness check because the docs prebuild regenerates the committed API reference.
+Before publishing, follow the [pull-request validation sequence](evidence-and-validation.md "depends on"). The release job uses Node 24 and invokes Changesets on pushes to `main`. When Changesets publishes, the release script builds the workspace first.
 
 Package-specific build gates matter. Core and persistence check emitted NodeNext consumption. Memory additionally bundles a browser-target entry and runs a Node smoke against that artifact. These establish export, module-resolution, and bundling compatibility; they do not establish full browser or worker runtime filesystem behavior.
 
-Release notes and version changes should reflect user-visible behavior. A release-ready claim must state any runtime matrix that was actually exercised rather than inheriting old local results. A release that states an NFS profile maturity must list the clients, suites, and versions behind it, as the [NFS interoperability and fault evidence decision](../decisions/nfs/nfs-interoperability-evidence.md "constrained by") requires; the preview app's conformance baseline is the record for the read-only profile. This workflow is [constrained by package boundaries](../decisions/package-boundaries.md "constrained by") and uses the [evidence and validation workflow](evidence-and-validation.md "depends on").
+Release notes and version changes should reflect user-visible behavior. A release-ready claim must state any runtime matrix that was actually exercised rather than inheriting old local results. A release that states an NFS profile maturity must list the clients, suites, and versions behind it, as the [NFS interoperability and fault evidence decision](../decisions/nfs/nfs-interoperability-evidence.md "constrained by") requires; the preview app's conformance baseline is the record for the read-only profile. This workflow is [constrained by package boundaries](../decisions/package-boundaries.md "constrained by").

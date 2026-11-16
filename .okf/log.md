@@ -2,6 +2,8 @@
 
 ## 2026-11-16
 
+- Consolidate CI build order and runtime targets in the validation workflow. Link release readiness and the validation ledger to it.
+
 - Align README and OKF package overview shapes with the detailed map, using a pill for the Effect preview, rectangles for community packages, and hexagons for application consumers.
 
 - Distinguish Effect capabilities, community features, external consumers, and requirements with pill, rectangle, hexagon, and diamond nodes and stronger package borders.
