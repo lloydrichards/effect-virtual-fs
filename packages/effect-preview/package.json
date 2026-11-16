@@ -7,7 +7,10 @@
   "sideEffects": false,
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./internal/ownedCapture": { "types": "./dist/internal/ownedCapture.d.ts", "import": "./dist/internal/ownedCapture.js" },
+    "./internal/ownedCapture": {
+      "types": "./dist/internal/ownedCapture.d.ts",
+      "import": "./dist/internal/ownedCapture.js"
+    },
     "./VirtualFileSystem": {
       "types": "./dist/virtual-file-system/VirtualFileSystem.d.ts",
       "import": "./dist/virtual-file-system/VirtualFileSystem.js"

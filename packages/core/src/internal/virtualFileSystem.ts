@@ -26,7 +26,7 @@ import {
   VolumeTestSeams
 } from "./model.js"
 import { compareOverlay, type ObservationEntry, type RawOverlayChange } from "./overlayDiff.js"
-import * as Runtime from "./runtime.js"
+import { makeVolume } from "./runtime.js"
 import * as Limits from "./volumeLimits.js"
 import { storedMetadata } from "./volumeState.js"
 
@@ -56,7 +56,7 @@ const randomHex128 = Effect.gen(function*() {
   return Hex.encode(yield* crypto.randomBytes(16))
 })
 
-export const makeVolume = Runtime.makeVolume
+export { makeVolume }
 
 export const make = Effect.fnUntraced(function*(options?: VolumeOptions) {
   return (yield* makeVolume(VolumeSource.Empty(), memoryCommitProvider, options).pipe(
