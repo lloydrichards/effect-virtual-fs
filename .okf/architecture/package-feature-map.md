@@ -26,7 +26,7 @@ sources:
   - id: preview-manifest
     resource: ../../packages/effect-preview/upstream/manifest.json
     title: Pinned upstream preview revision
-generated: { by: codex/okf, at: 2026-11-16T21:12:32+00:00 }
+generated: { by: codex/okf, at: 2026-11-16T21:14:36+00:00 }
 ---
 
 # Package feature map
@@ -63,16 +63,18 @@ flowchart LR
 
 ## Detailed feature map
 
+Rounded nodes identify Effect-provided capabilities, including the pinned preview. Rectangular nodes identify community capabilities, requirements, and external consumers. Package colors identify ownership.
+
 Related public operations share feature nodes. Core also exposes engine capabilities through its own contracts. Transport and access are independent dimensions of an NFS export.
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph Preview["Effect preview · shared engine"]
-    Owner["Owner · atomic state"] -->|authorizes| Caller["Scoped callers<br/>Identity, permissions, root and cwd"]
-    Caller -->|reads and writes| Files["Files, directories and links<br/>Byte-preserving paths"]
-    Files -->|opens| Handles["Scoped handles<br/>Effect and synchronous APIs"]
-    Guards["Revision conditions<br/>Resource and work limits"] -->|guards| Files
-    Owner <-->|captures and restores| Capture["Capture and restore"]
+    Owner("Owner · atomic state") -->|authorizes| Caller("Scoped callers<br/>Identity, permissions, root and cwd")
+    Caller -->|reads and writes| Files("Files, directories and links<br/>Byte-preserving paths")
+    Files -->|opens| Handles("Scoped handles<br/>Effect and synchronous APIs")
+    Guards("Revision conditions<br/>Resource and work limits") -->|guards| Files
+    Owner <-->|captures and restores| Capture("Capture and restore")
   end
   subgraph Core["@effect-vfs/core"]
     subgraph Access["Live access"]
@@ -104,7 +106,7 @@ flowchart LR
   Volume -->|adapts callers| MemoryFS
   Volume <-->|imports and exports| Transfer
   Snapshot -->|exports| Transfer
-  MemoryFS -->|provides| EffectFS["Effect FileSystem"]
+  MemoryFS -->|provides| EffectFS("Effect FileSystem")
   Transfer <-->|transfers trees| EffectFS
   Faults -->|wraps implementations| EffectFS
   subgraph Node["@effect-vfs/node"]
@@ -139,7 +141,7 @@ flowchart LR
     Network -->|configures| Server
   end
   Volume -->|exports| Server
-  Socket["Effect SocketServer<br/>TCP or UNIX socket"] -->|transports requests| Server
+  Socket("Effect SocketServer<br/>TCP or UNIX socket") -->|transports requests| Server
   Live -.->|must meet durability requirement| Durable
   ReadOnly -->|serves| Clients["NFSv4.1 clients"]
   Writable -->|serves| Clients
