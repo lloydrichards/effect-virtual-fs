@@ -2,6 +2,8 @@
 
 ## 2026-11-16
 
+- Align README and OKF package overview shapes with the detailed map, using a pill for the Effect preview, rectangles for community packages, and hexagons for application consumers.
+
 - Distinguish Effect capabilities, community features, external consumers, and requirements with pill, rectangle, hexagon, and diamond nodes and stronger package borders.
 
 - Orient the detailed feature map vertically and distinguish Effect capabilities from community and external nodes by shape.

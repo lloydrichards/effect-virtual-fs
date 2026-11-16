@@ -26,7 +26,7 @@ sources:
   - id: preview-manifest
     resource: ../../packages/effect-preview/upstream/manifest.json
     title: Pinned upstream preview revision
-generated: { by: codex/okf, at: 2026-11-16T21:15:57+00:00 }
+generated: { by: codex/okf, at: 2026-11-16T21:17:47+00:00 }
 ---
 
 # Package feature map
@@ -37,14 +37,14 @@ The preview supplies the filesystem engine used by core. Core exposes shared vol
 
 ```mermaid
 flowchart LR
-  Preview["Effect preview<br/>Shared engine"] -->|powers| Core["@effect-vfs/core<br/>Volumes and state workflows"]
+  Preview(["Effect preview<br/>Shared engine"]) -->|powers| Core["@effect-vfs/core<br/>Volumes and state workflows"]
   Core -->|adapts callers| Memory["@effect-vfs/memory"]
   Core -->|binds synchronous operations| Node["@effect-vfs/node"]
   Core -->|exports volumes| NFS["@effect-vfs/nfs"]
   Core <-->|snapshots and live images| Persistence["@effect-vfs/persistence"]
-  Memory -->|provides FileSystem| EffectApps["Effect applications"]
-  Node -->|provides VirtualProvider| NodeApps["Node fs consumers"]
-  NFS -->|serves| Clients["NFSv4.1 clients"]
+  Memory -->|provides FileSystem| EffectApps{{"Effect applications"}}
+  Node -->|provides VirtualProvider| NodeApps{{"Node fs consumers"}}
+  NFS -->|serves| Clients{{"NFSv4.1 clients"}}
   classDef preview fill:#ede9fe,stroke:#7c3aed,color:#2e1065,stroke-width:3px
   classDef core fill:#dbeafe,stroke:#2563eb,color:#172554,stroke-width:3px
   classDef memory fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:3px
