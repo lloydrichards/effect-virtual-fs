@@ -59,7 +59,8 @@ try {
 
     if (hash(patch) !== entry.sha256) throw new Error(`Contribution patch checksum mismatch: ${entry.file}`)
 
-    const result = spawnSync("patch", ["--batch", "--forward", "--fuzz=0", "-p1", "-d", temporary], {
+    const result = spawnSync("git", ["apply", "--whitespace=nowarn", "-"], {
+      cwd: temporary,
       input: patch,
       encoding: "utf8"
     })
