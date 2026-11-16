@@ -35,32 +35,86 @@ export function CheckpointDiagram() {
   )
 }
 
+const accessStyles = {
+  write: { label: "Read + write", color: "text-primary", dash: undefined },
+  read: { label: "Read only", color: "text-foreground", dash: "7 4" },
+  denied: { label: "No access", color: "text-muted-foreground", dash: "1 5" }
+} as const
+
+const callers = [
+  { name: "Reader", uid: 2000, access: ["read", "denied"] },
+  { name: "Editor", uid: 1000, access: ["write", "denied"] },
+  { name: "Admin", uid: 0, access: ["write", "write"] }
+] as const
+
+const files = [
+  { path: "/src/value.js", mode: "0644", owner: "Editor" },
+  { path: "/secret.js", mode: "0600", owner: "Admin" }
+] as const
+
 export function CallerDiagram() {
   return (
-    <figure className="my-4 rounded-xl border bg-card p-3 text-xs">
-      <figcaption className="mb-3 font-semibold">Which modules does the build need?</figcaption>
-      <table className="w-full text-start">
-        <thead>
-          <tr className="border-b text-muted-foreground">
-            <th scope="col" className="p-1 text-start">Caller</th>
-            <th scope="col" className="p-1 text-start">Public reading</th>
-            <th scope="col" className="p-1 text-start">With calibration</th>
-          </tr>
-        </thead>
-        <tbody>
-          {[
-            ["Admin", "Builds", "Builds"],
-            ["Editor", "Builds", "Cannot read /secret.js"],
-            ["Reader", "Builds", "Cannot read /secret.js"]
-          ].map(([caller, reading, calibrated]) => (
-            <tr key={caller} className="border-b last:border-0">
-              <th scope="row" className="p-1 text-start">{caller}</th>
-              <td className="p-1">{reading}</td>
-              <td className="p-1">{calibrated}</td>
-            </tr>
+    <figure className="my-5 rounded-xl border bg-muted/30 p-3 sm:p-4">
+      <figcaption className="mb-3 text-sm font-semibold">Who can read and write the starter files?</figcaption>
+      <ul aria-label="Access levels" className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-xs">
+        {Object.entries(accessStyles).map(([key, { label, color, dash }]) => (
+          <li key={key} className="flex items-center gap-1.5">
+            <svg aria-hidden="true" width="24" height="8" className={color}>
+              <path d="M1 4 H23" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray={dash} />
+            </svg>
+            {label}
+          </li>
+        ))}
+      </ul>
+      <div className="mt-4 grid grid-cols-[auto_minmax(2rem,1fr)_auto] items-center text-xs">
+        <div className="grid h-60 grid-rows-3 items-center">
+          {callers.map(({ name, uid, access }) => (
+            <div key={name} className="rounded-lg border bg-card px-2 py-1.5 sm:px-3">
+              <strong className="block text-sm">{name}</strong>
+              <span className="font-mono text-muted-foreground">UID {uid}</span>
+              <span className="sr-only">
+                {access.map((level, i) => files[i]!.path + ": " + accessStyles[level].label).join(". ")}
+              </span>
+            </div>
           ))}
-        </tbody>
-      </table>
+        </div>
+        <svg aria-hidden="true" viewBox="0 0 100 240" preserveAspectRatio="none" className="h-60 w-full">
+          {callers.flatMap(({ name, access }, row) =>
+            access.map((level, file) => {
+              const start = 40 + row * 80 + (file === 0 ? -7 : 7)
+              const end = 60 + file * 120 + (row - 1) * 12
+              const { color, dash } = accessStyles[level]
+
+              return (
+                <path
+                  key={name + file}
+                  d={`M0 ${start} C32 ${start} 68 ${end} 100 ${end}`}
+                  className={color}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeDasharray={dash}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )
+            })
+          )}
+        </svg>
+        <div className="grid h-60 grid-rows-2 items-center">
+          {files.map(({ path, mode, owner }) => (
+            <div key={path} className="rounded-lg border bg-card px-2 py-2 sm:px-3">
+              <strong className="block font-mono">{path}</strong>
+              <span className="font-mono text-muted-foreground">{mode}</span>
+              <span className="block text-muted-foreground">Owner · {owner}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <p className="mt-3 border-t pt-2 text-xs text-muted-foreground">
+        Admin is privileged. For other callers, the file mode sets access for the owner, group, and everyone else.
+        The build reads each import as the selected caller.
+      </p>
     </figure>
   )
 }
