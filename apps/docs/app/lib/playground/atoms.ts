@@ -39,7 +39,7 @@ interface Playground {
 }
 
 export const playgroundAtom = Atom.make<Playground>({
-  role: "admin",
+  role: "editor",
   entries: [],
   path: "/src/value.js",
   folder: "",
