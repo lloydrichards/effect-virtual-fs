@@ -2,6 +2,8 @@
 
 ## 2026-11-16
 
+- Record the durable mkdir experiment and the recovery and handle-cleanup contracts still needed for live volumes.
+
 - Record the path and directory lookup costs exposed by the deep-tree memory test and the confinement checks retained by the preview.
 
 - Record how caller watches rebase event paths and retain imported root boundaries across namespace changes.

@@ -42,6 +42,21 @@ Use this package's `BytePath`, `Schema`, and `DateTime` exports when using the p
 BytePath values are authenticated by one module-local registry. Convert community paths through bytes when crossing
 implementations. References, revisions, handles, and callers belong to their issuing filesystem and are not transferable.
 
+## Try a durable mkdir
+
+From the repository root, run the storage-decision experiment with the workspace dependencies installed.
+
+```sh
+bun packages/effect-preview/experiments/durable-mkdir/run.mjs
+```
+
+The runner applies an experimental patch after the 27 MVP patches in a temporary package, compiles it, and runs the
+mkdir checks and the existing preview tests. The store receives the new directory, its parent’s staged metadata,
+the binding name and the next object number. A confirmed commit releases queued reads to see the new directory.
+Rejection preserves the parent revision and the object number for a retry. An uncertain outcome makes the trial
+session unavailable. The trial uses an in-memory store callback. Crash recovery, live-image compatibility and final
+handle cleanup remain open for the durable-volume design. [Durability follow-up](https://github.com/lloydrichards/effect-virtual-fs/issues/328#issuecomment-6908734064)
+
 ## Regenerate the pinned port offline
 
 The checked-in `upstream/files.json` retains the selected PR patches. `upstream/manifest.json` records their SHA-256

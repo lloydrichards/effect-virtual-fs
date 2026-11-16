@@ -23,6 +23,8 @@ sources:
     title: Upstream atomic open creation timestamps and runtime/type regressions
   - resource: ../../packages/effect-preview/patches/0008-atime-revision-neutrality.patch
     title: Upstream read atime revision neutrality and regression tests
+  - resource: ../../packages/effect-preview/experiments/durable-mkdir/run.mjs
+    title: Opt-in pre-publication storage decision experiment
   - resource: ../../packages/core/test/PreviewRuntime.test.ts
     title: Preview ownership regressions through existing constructors
   - resource: ../../packages/core/src/VirtualFileSystem.ts
@@ -45,7 +47,7 @@ sources:
     title: Public owner operations, metadata, and atomic publication options
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/328
     title: Remaining API gaps and atomic copy option proposal
-generated: { by: codex/okf, at: "2026-11-16T00:30:07+01:00" }
+generated: { by: codex/okf, at: "2026-11-16T07:36:06+01:00" }
 ---
 
 # Effect preview drop-in evaluation
@@ -92,6 +94,8 @@ At removal of the old engine, core production source was 17,088 lines versus 22,
 | Readable, nonsearchable directory listing                               | Public no-atime walk requires search permission before listing. Binding listings require search; name-only listings lack object references and touch atime.                                                                     | Walk, recursive listing, and transfer failure-prefix tests.                                                         |
 
 Contribution 0022 adds `inspectDirents` for metadata walks. Read permission on a directory allows listing its names, kinds and identities without updating atime. Descending into a child still requires search permission on the parent. When a walk requests a byte limit, core uses the volume owner's caller to charge file and symlink sizes for the listed identities in emission order. Child sizes stay out of the caller's listing.
+
+The opt-in durable mkdir experiment holds the preview turn while a store decides on a staged parent, child, binding name and allocator state. A definite rejection discards the candidate, and an uncertain outcome disables further operations through the trial session. Public live-volume support also needs recovery of persisted revisions and allocator state, retained unlinked objects and ordered final-handle cleanup. The default preview build uses the 27 MVP patches.
 
 The existing memory test exercises listing, copying and renaming a 6,000-level directory tree. Contributions 0026 and 0027 address two costs in that workload. Resolving an existing path component can reuse its stored binding. An object-only lookup of a linked directory by a privileged caller at the volume root can use its object number directly, since directories have one parent and only empty directories can be unlinked. Confined callers still prove reachability, and operations that retain a route still collect its bindings. Core refreshes retained-handle permissions before a binding can be lost and indexes issued references by the volume’s object numbers.
 
