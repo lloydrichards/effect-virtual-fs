@@ -6,3 +6,5 @@ Start with [system boundaries](system-boundaries.md) for the separation between 
 - [Code Mode example ownership](codemode-example.md) explains per-execution overlays, retained inspection, and interpreter limits.
 - [Package dependency model](package-dependency-model.md) records dependency direction and package ownership.
 - [Implemented filesystem profile](../profiles/implemented-filesystem.md) summarizes the supported system built on these boundaries, including the read-only NFS export.
+
+- [Package feature map](package-feature-map.md) shows the package overview and detailed capability flows.
