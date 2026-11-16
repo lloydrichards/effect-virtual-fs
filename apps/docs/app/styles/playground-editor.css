@@ -1,0 +1,33 @@
+.playground-editor .cm-editor {
+  height: 11rem;
+  color: var(--code-block-foreground);
+  background: var(--code-block);
+}
+.playground-editor .cm-scroller {
+  font: 0.875rem/1.5rem var(--font-mono);
+}
+.playground-editor .cm-content {
+  padding: 0.75rem 0;
+  caret-color: var(--code-block-foreground);
+}
+.playground-editor .cm-gutters {
+  color: var(--muted-foreground);
+  background: var(--code-block);
+  border-color: var(--code-block-border);
+}
+.playground-editor .cm-editor.cm-focused {
+  outline: 1px solid var(--ring);
+  outline-offset: -1px;
+}
+.playground-bundle .cm-editor {
+  height: auto;
+  max-height: 16rem;
+  background: transparent;
+}
+.playground-editor .tok-keyword { color: light-dark(#7534a5, #d2a8ff); }
+.playground-editor .tok-string, .playground-editor .tok-string2 { color: light-dark(#126343, #8de1b1); }
+.playground-editor .tok-number, .playground-editor .tok-bool { color: light-dark(#935218, #ffc080); }
+.playground-editor .tok-definition, .playground-editor .tok-propertyName { color: light-dark(#234fac, #92baff); }
+.playground-editor .tok-comment { color: var(--muted-foreground); font-style: italic; }
+.playground-editor { color-scheme: light; }
+.dark .playground-editor { color-scheme: dark; }

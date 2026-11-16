@@ -1,14 +1,21 @@
 /* oxlint-disable effecttsgo/async-function -- IndexedDB transactions and SQLite WebAssembly initialization expose Promise APIs. */
 import * as Schema from "effect/Schema"
-import { createStore, get, set } from "idb-keyval"
-import initSqlJs from "sql.js"
+import { createStore, get, keys, set } from "idb-keyval"
 import sqliteURL from "sql.js/dist/sql-wasm-browser.wasm?url"
 
 const store = createStore("effect-vfs-playground", "databases")
 
 const key = "workspace.sqlite"
 
-const sqlite = () => initSqlJs({ locateFile: () => sqliteURL })
+const sqlite = async () => {
+  const { default: initSqlJs } = await import("sql.js")
+
+  return initSqlJs({ locateFile: () => sqliteURL })
+}
+
+export async function hasSavedCheckpoint() {
+  return (await keys(store)).includes(key)
+}
 
 export async function saveCheckpoint(image: Uint8Array) {
   const SQL = await sqlite()
