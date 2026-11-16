@@ -1,21 +1,28 @@
 --- a/packages/effect/src/virtual-file-system/internal/engine.ts
 +++ b/packages/effect/src/virtual-file-system/internal/engine.ts
-@@ -357,4 +357,14 @@
+@@ -357,4 +357,21 @@
 
  export class Engine {
 +  offer?: (nodes: ReadonlyMap<bigint, Node>, changed: ReadonlySet<bigint>, nextObject: bigint, operation: string) => R.StorageOffer
 +
-+  offerState(changes: ReadonlyMap<bigint, Node>, removed: Iterable<bigint>, nextObject: bigint, operation: string) {
++  offerState(changes: ReadonlyMap<bigint, Node>, removed: ReadonlyArray<bigint>, nextObject: bigint, operation: string) {
 +    if (!this.offer) return undefined
++    const changed = new Set<bigint>()
++    for (const [id, node] of changes) {
++      const prior = this.nodes.get(id)
++      // A read can refresh atime without advancing the object's revision.
++      if (!prior || prior.revision !== node.revision || prior.atime !== node.atime) changed.add(id)
++    }
++    if (changed.size === 0 && removed.length === 0 && nextObject === this.nextObject) return undefined
 +    const nodes = new Map(this.nodes)
 +    for (const [id, node] of changes) nodes.set(id, node)
 +    for (const id of removed) nodes.delete(id)
-+    return this.offer(nodes, new Set(changes.keys()), nextObject, operation)
++    return this.offer(nodes, changed, nextObject, operation)
 +  }
 +
    readonly runtime: R.Runtime
    readonly inputLimits: Readonly<Pick<M.Limits, "ioBytes" | "pathBytes">>
-@@ -1618,4 +1628,7 @@
+@@ -1618,4 +1635,7 @@
          value,
          readAtimeChanged,
 +        offer: engine.offer && this.changes.size > 0

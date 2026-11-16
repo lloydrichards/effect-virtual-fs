@@ -67,6 +67,9 @@ try {
     await cp(resolve(preview, "../core", path), join(core, path))
   }
 
+  run(vitest, "run", "core/test/LiveVolume.test.ts", "-t",
+    "should commit an access-time refresh only when a read changes it|should commit one refresh when two due reads wait|should avoid a commit when a change leaves state unchanged")
+
   run(vitest, "run", "core/test/LiveVolume.test.ts", "core/test/internal/virtualFileSystem.test.ts", "-t",
     "should admit one waiter and release its slot when it is cancelled|keep a memory volume usable when its no-op shutdown runs|detached directory|retain open content until close|typed commit failure also contains|stop paths, observations|persist final unlinked-file cleanup|release handles and disable|include open unlinked files|retain inode identity and open unlinked content|stop the volume when final handle cleanup")
 
