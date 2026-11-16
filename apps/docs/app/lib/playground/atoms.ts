@@ -1,7 +1,8 @@
-import { Cause, Effect, Exit } from "effect"
+import { Cause, Effect, Exit, Result } from "effect"
 import * as Atom from "effect/reactivity/Atom"
 import { buildWorkspace } from "./build"
 import { PlaygroundError } from "./error"
+import { runBundle } from "./run"
 import { deleteCheckpoint, hasSavedCheckpoint, readCheckpoint, saveCheckpoint } from "./storage"
 import { type FileAccess, openVolume, type Workspace } from "./volume"
 
@@ -35,7 +36,7 @@ interface Playground {
   busy: boolean
   status: string
   error: string
-  output: string
+  output: { code: string; values: string | null } | null
 }
 
 export const playgroundAtom = Atom.make<Playground>({
@@ -49,7 +50,7 @@ export const playgroundAtom = Atom.make<Playground>({
   busy: false,
   status: "Opening workspace…",
   error: "",
-  output: ""
+  output: null
 })
 
 export const checkpointAtom = Atom.make(hasSavedCheckpoint).pipe(Atom.withServerValueInitial)
@@ -58,7 +59,7 @@ export const editAtom = Atom.fnSync((source: string, ctx) => {
   const state = ctx(playgroundAtom)
 
   if (state.busy || !(state.permissions & 2)) return
-  ctx.set(playgroundAtom, { ...state, source, dirty: true, error: "", output: "", status: "Working copy edited." })
+  ctx.set(playgroundAtom, { ...state, source, dirty: true, error: "", output: null, status: "Working copy edited." })
 })
 
 const selectFile = Effect.fnUntraced(function*(caller: FileAccess, path: string) {
@@ -89,7 +90,7 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
       entries,
       ...yield* selectReadableFile(caller, entries, state.path),
       folder: "",
-      output: "",
+      output: null,
       status: command === "open" ? "Starter files open in memory." : "Reopened the saved checkpoint."
     }
   }
@@ -122,7 +123,22 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
 
       const result = yield* buildWorkspace(caller)
 
-      return { dirty: false, output: result.code, status: "Built from " + result.reads.join(", ") }
+      const run = yield* Effect.result(runBundle(result.code))
+
+      if (Result.isFailure(run)) {
+        return {
+          dirty: false,
+          output: { code: result.code, values: null },
+          error: run.failure.message,
+          status: "Built successfully. Execution failed."
+        }
+      }
+
+      return {
+        dirty: false,
+        output: { code: result.code, values: run.success },
+        status: "Built and ran from " + result.reads.join(", ")
+      }
     }
 
     case "deleteEntry": {
@@ -137,7 +153,7 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
         entries,
         ...file,
         folder: "",
-        output: "",
+        output: null,
         status: "Deleted " + selected + (folder ? " and its contents." : "")
       }
     }
@@ -153,7 +169,7 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
       entries,
       role: command.role,
       ...yield* selectReadableFile(nextCaller, entries, path),
-      output: "",
+      output: null,
       status: `Switched to ${command.role}.`
     }
   }
@@ -188,7 +204,7 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
   const changes = {
     dirty: false,
     entries,
-    output: "",
+    output: null,
     status: (operation.startsWith("Rename") ? "Renamed to " : "Created ") + next
   }
 
@@ -212,7 +228,7 @@ export const commandAtom = Atom.fn<Command>()((command, ctx) =>
       ...state,
       busy: true,
       error: "",
-      output: command === "build" ? "" : state.output,
+      output: command === "build" ? null : state.output,
       status: command === "build" ? "Building /main.js…" : state.status
     })
     const result = yield* Effect.exit(perform(command, state))

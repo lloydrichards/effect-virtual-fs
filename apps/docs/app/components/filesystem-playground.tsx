@@ -158,7 +158,7 @@ function WorkspacePanel() {
           </NativeSelect>
         </label>
         <Button onClick={() => void run("build")}>
-          <Play />Run build
+          <Play />Build and run
         </Button>
       </div>
       <div aria-busy={opening} className="grid min-w-0 sm:grid-cols-[minmax(8rem,28%)_minmax(0,1fr)]">
@@ -280,7 +280,16 @@ function WorkspacePanel() {
         {output && (
           <div className="mt-2">
             <h3 className="text-xs font-semibold">Generated bundle</h3>
-            <PlaygroundBundle source={output} />
+            <PlaygroundBundle source={output.code} />
+            {output.values !== null && (
+              <>
+                <h3 className="text-xs font-semibold">Exported values</h3>
+                <pre
+                  aria-label="Exported values"
+                  className="mt-1 max-h-64 overflow-auto rounded-md border bg-code-block p-3 font-mono text-sm"
+                >{output.values}</pre>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' data:; worker-src data:">
+<script id="executor" type="text/plain">
+  self.onmessage = async ({ data: code, ports: [reply] }) => {
+    const url = "data:text/javascript;charset=utf-8," + encodeURIComponent(code)
+    try {
+      const exports = await import(url)
+      const lines = Object.entries(exports).map(([name, value]) => {
+        let text
+        try {
+          text = JSON.stringify(value) ?? String(value)
+        } catch {
+          text = String(value)
+        }
+        return name + " = " + text
+      })
+      reply.postMessage({ values: lines.join("\n") || "No exported values." })
+    } catch (cause) {
+      reply.postMessage({ error: cause instanceof Error ? cause.message : String(cause) })
+
+    }
+  }
+</script>
+<script>
+  window.addEventListener("message", (event) => {
+    if (event.source !== parent || !event.ports.length) return
+    const url = "data:text/javascript;charset=utf-8," + encodeURIComponent(document.getElementById("executor").textContent)
+    const worker = new Worker(url, { type: "module" })
+    window.addEventListener("pagehide", () => worker.terminate(), { once: true })
+    worker.postMessage(event.data, [event.ports[0]])
+  }, { once: true })
+</script>
