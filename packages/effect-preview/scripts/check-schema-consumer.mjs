@@ -41,7 +41,7 @@ try {
   const codec = Schema.toCodecJson(Entry)
   const encoded = Result.getOrThrow(Schema.encodeResult(codec)({ path, label: "fixture" }))
   assert.deepEqual(encoded, { path: "L/8=", label: "fixture" })
-  const decoded = Result.getOrThrow(Schema.decodeUnknownResult(codec)(encoded))
+  const decoded = Result.getOrThrow(Schema.decodeResult(codec)(encoded))
   assert.deepEqual(BytePath.toBytes(decoded.path), Uint8Array.of(47, 255))
   assert.equal(decoded.label, "fixture")
 } finally {
