@@ -2,6 +2,8 @@
 
 ## 2026-11-16
 
+- Distinguish Effect capabilities, community features, external consumers, and requirements with pill, rectangle, hexagon, and diamond nodes and stronger package borders.
+
 - Orient the detailed feature map vertically and distinguish Effect capabilities from community and external nodes by shape.
 
 - Add package overview and detailed feature maps with adapter requirements, and align the package dependency model with the preview engine and Node adapter.

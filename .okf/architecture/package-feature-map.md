@@ -26,7 +26,7 @@ sources:
   - id: preview-manifest
     resource: ../../packages/effect-preview/upstream/manifest.json
     title: Pinned upstream preview revision
-generated: { by: codex/okf, at: 2026-11-16T21:14:36+00:00 }
+generated: { by: codex/okf, at: 2026-11-16T21:15:57+00:00 }
 ---
 
 # Package feature map
@@ -45,13 +45,13 @@ flowchart LR
   Memory -->|provides FileSystem| EffectApps["Effect applications"]
   Node -->|provides VirtualProvider| NodeApps["Node fs consumers"]
   NFS -->|serves| Clients["NFSv4.1 clients"]
-  classDef preview fill:#ede9fe,stroke:#7c3aed,color:#2e1065
-  classDef core fill:#dbeafe,stroke:#2563eb,color:#172554
-  classDef memory fill:#dcfce7,stroke:#16a34a,color:#14532d
-  classDef node fill:#fef3c7,stroke:#b45309,color:#78350f
-  classDef persistence fill:#fce7f3,stroke:#db2777,color:#831843
-  classDef nfs fill:#cffafe,stroke:#0891b2,color:#164e63
-  classDef external fill:#f1f5f9,stroke:#64748b,color:#0f172a
+  classDef preview fill:#ede9fe,stroke:#7c3aed,color:#2e1065,stroke-width:3px
+  classDef core fill:#dbeafe,stroke:#2563eb,color:#172554,stroke-width:3px
+  classDef memory fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:3px
+  classDef node fill:#fef3c7,stroke:#b45309,color:#78350f,stroke-width:3px
+  classDef persistence fill:#fce7f3,stroke:#db2777,color:#831843,stroke-width:3px
+  classDef nfs fill:#cffafe,stroke:#0891b2,color:#164e63,stroke-width:3px
+  classDef external fill:#f1f5f9,stroke:#475569,color:#0f172a,stroke-width:2px
   class Preview preview
   class Core core
   class Memory memory
@@ -63,18 +63,18 @@ flowchart LR
 
 ## Detailed feature map
 
-Rounded nodes identify Effect-provided capabilities, including the pinned preview. Rectangular nodes identify community capabilities, requirements, and external consumers. Package colors identify ownership.
+Pill-shaped nodes identify Effect-provided capabilities, including the pinned preview. Rectangles identify community capabilities. Hexagons identify external consumers. Diamonds with dashed borders identify requirements. Package colors identify ownership.
 
 Related public operations share feature nodes. Core also exposes engine capabilities through its own contracts. Transport and access are independent dimensions of an NFS export.
 
 ```mermaid
 flowchart TB
   subgraph Preview["Effect preview · shared engine"]
-    Owner("Owner · atomic state") -->|authorizes| Caller("Scoped callers<br/>Identity, permissions, root and cwd")
-    Caller -->|reads and writes| Files("Files, directories and links<br/>Byte-preserving paths")
-    Files -->|opens| Handles("Scoped handles<br/>Effect and synchronous APIs")
-    Guards("Revision conditions<br/>Resource and work limits") -->|guards| Files
-    Owner <-->|captures and restores| Capture("Capture and restore")
+    Owner(["Owner · atomic state"]) -->|authorizes| Caller(["Scoped callers<br/>Identity, permissions, root and cwd"])
+    Caller -->|reads and writes| Files(["Files, directories and links<br/>Byte-preserving paths"])
+    Files -->|opens| Handles(["Scoped handles<br/>Effect and synchronous APIs"])
+    Guards(["Revision conditions<br/>Resource and work limits"]) -->|guards| Files
+    Owner <-->|captures and restores| Capture(["Capture and restore"])
   end
   subgraph Core["@effect-vfs/core"]
     subgraph Access["Live access"]
@@ -106,16 +106,16 @@ flowchart TB
   Volume -->|adapts callers| MemoryFS
   Volume <-->|imports and exports| Transfer
   Snapshot -->|exports| Transfer
-  MemoryFS -->|provides| EffectFS("Effect FileSystem")
+  MemoryFS -->|provides| EffectFS(["Effect FileSystem"])
   Transfer <-->|transfers trees| EffectFS
   Faults -->|wraps implementations| EffectFS
   subgraph Node["@effect-vfs/node"]
     Provider["NodeVirtualProvider"]
-    SyncRequirement["Synchronous memory volume"] -.->|required by| Provider
+    SyncRequirement{"Synchronous memory volume"} -.->|required by| Provider
   end
   Sync -->|binds operations| Provider
-  Provider -->|implements sync and promise APIs| NodeFS["Node fs"]
-  NodeFS -->|mount routing enables| Mounted["Callbacks, descriptors and streams<br/>CJS and ESM loading"]
+  Provider -->|implements sync and promise APIs| NodeFS{{"Node fs"}}
+  NodeFS -->|mount routing enables| Mounted{{"Callbacks, descriptors and streams<br/>CJS and ESM loading"}}
   subgraph Persistence["@effect-vfs/persistence"]
     Checkpoint["CheckpointStore<br/>Named SQLite snapshots"]
     SQLite["SqliteLiveImageStore<br/>Memory-only durability"]
@@ -134,25 +134,25 @@ flowchart TB
       Local["Local read-only setup · preview"]
       Network["Network setup · experimental<br/>AUTH_SYS mapping to callers"]
     end
-    Durable["Qualified storage<br/>Survives power loss"] -.->|required by| Writable
+    Durable{"Qualified storage<br/>Survives power loss"} -.->|required by| Writable
     Server -->|offers| ReadOnly
     Server -->|offers| Writable
     Local -->|configures| Server
     Network -->|configures| Server
   end
   Volume -->|exports| Server
-  Socket("Effect SocketServer<br/>TCP or UNIX socket") -->|transports requests| Server
+  Socket(["Effect SocketServer<br/>TCP or UNIX socket"]) -->|transports requests| Server
   Live -.->|must meet durability requirement| Durable
-  ReadOnly -->|serves| Clients["NFSv4.1 clients"]
+  ReadOnly -->|serves| Clients{{"NFSv4.1 clients"}}
   Writable -->|serves| Clients
-  classDef preview fill:#ede9fe,stroke:#7c3aed,color:#2e1065
-  classDef core fill:#dbeafe,stroke:#2563eb,color:#172554
-  classDef memory fill:#dcfce7,stroke:#16a34a,color:#14532d
-  classDef node fill:#fef3c7,stroke:#b45309,color:#78350f
-  classDef persistence fill:#fce7f3,stroke:#db2777,color:#831843
-  classDef nfs fill:#cffafe,stroke:#0891b2,color:#164e63
-  classDef external fill:#f1f5f9,stroke:#64748b,color:#0f172a
-  classDef requirement fill:#fff7ed,stroke:#9a3412,color:#7c2d12,stroke-dasharray:5 5
+  classDef preview fill:#ede9fe,stroke:#7c3aed,color:#2e1065,stroke-width:3px
+  classDef core fill:#dbeafe,stroke:#2563eb,color:#172554,stroke-width:3px
+  classDef memory fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:3px
+  classDef node fill:#fef3c7,stroke:#b45309,color:#78350f,stroke-width:3px
+  classDef persistence fill:#fce7f3,stroke:#db2777,color:#831843,stroke-width:3px
+  classDef nfs fill:#cffafe,stroke:#0891b2,color:#164e63,stroke-width:3px
+  classDef external fill:#f1f5f9,stroke:#475569,color:#0f172a,stroke-width:2px
+  classDef requirement fill:#fff7ed,stroke:#9a3412,color:#7c2d12,stroke-width:3px,stroke-dasharray:6 4
   class Owner,Caller,Files,Handles,Guards,Capture preview
   class Volume,Watches,Fixtures,Testing,Snapshot,Overlay,Delta,Search,Sync,Live core
   class MemoryFS,Transfer,Faults memory
