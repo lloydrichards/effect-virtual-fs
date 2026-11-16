@@ -136,6 +136,8 @@ export const layer = (options: Options): Layer.Layer<
 
       if (Exit.isFailure(lock)) return yield* opening.fail("Ownership", lock.cause)
 
+      const ownership = yield* Ref.make<Ownership>({ generation: undefined, available: true })
+
       // Release exclusive ownership before closing the client. Older Bun clients
       // can retain prepared statements, delaying the physical close until GC.
       // SQLite requires a database read after switching back to NORMAL:
@@ -143,7 +145,11 @@ export const layer = (options: Options): Layer.Layer<
       yield* Effect.addFinalizer(() =>
         run("PRAGMA locking_mode=NORMAL").pipe(
           Effect.andThen(run("SELECT count(*) AS count FROM sqlite_schema")),
-          Effect.orDie
+          // A frozen connection can still fail I/O during the unlock read. Preserve its
+          // unknown outcome and allow the reserved connection and client to finalize.
+          Effect.catch((error) =>
+            Effect.flatMap(Ref.get(ownership), ({ available }) => available ? Effect.die(error) : Effect.void)
+          )
         )
       )
 
@@ -255,7 +261,6 @@ export const layer = (options: Options): Layer.Layer<
         Effect.mapError((cause) => opening.fail("Storage", cause))
       )
 
-      const ownership = yield* Ref.make<Ownership>({ generation: undefined, available: true })
       const freeze = Ref.update(ownership, (state) => ({ ...state, available: false }))
 
       const select =
