@@ -954,15 +954,20 @@ const wrapFile = (
 
     const part = growsFile(data, at, info.metadata.size)
       ? yield* growthWritePrefix(runtime.owner, data, at, info.metadata.size)
-      : data
+      : yield* Effect.try({
+        try: () => data.subarray(0, data.length),
+        catch: (cause) => Errors.fsFailure("InvalidArgument", "write", { cause })
+      })
+
+    const count = part.length
 
     yield* mapped(
       (position === undefined ? handle : positioned).write(part, position === undefined ? undefined : { position })
     )
 
-    if (part.length > 0) runtime.revision++
+    if (count > 0) runtime.revision++
 
-    return part.length
+    return count
   })
 
   const grant: Grant = { handle, boundaries, allowed: true }
