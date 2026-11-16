@@ -525,6 +525,21 @@ describe("snapshots", () => {
 
 describe("snapshot capture", () => {
   it.layer(BunCrypto.layer)((it) => {
+    it.effect("captures the file and its alias when the volume is at its entry and byte limits", () =>
+      Effect.gen(function*() {
+        const size = 128n * 1024n * 1024n - 1n
+        const volume = yield* Vfs.make({ maxEntries: 2, maxBytes: ByteSize.bytes(size) })
+        const caller = yield* volume.caller()
+        yield* caller.writeFile("/f", new Uint8Array(0), { access: "write", create: "exclusive" })
+        yield* caller.truncate("/f", size)
+        yield* caller.link("/f", "/z")
+
+        const restored = yield* (yield* Vfs.fromSnapshot(yield* volume.snapshot)).caller()
+        const file = yield* restored.stat("/f")
+        assert.strictEqual(file.size, size)
+        assert.strictEqual((yield* restored.stat("/z")).ino, file.ino)
+      }))
+
     it.effect(
       "should capture fresh isolated state when a snapshot effect runs again",
       () =>
