@@ -66,6 +66,7 @@ jobs:
           cat /etc/os-release
           node -p "require('@effect/platform-node-shared/package.json').version"
       - run: bun run build --filter=@effect-vfs/core
+      - run: bun run --cwd packages/core test:packed
       - run: bun run --filter @effect-vfs/memory test:host
       - run: bun run --filter @effect-vfs/nfs build
       - name: Node benchmark correctness smoke

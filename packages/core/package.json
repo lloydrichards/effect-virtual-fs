@@ -19,8 +19,9 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "bun run check:preview-imports && rm -rf dist && tsc --project tsconfig.build.json && tsc --project compatibility/node-next/tsconfig.json",
+    "build": "bun run check:preview-imports && tsdown && tsc --project compatibility/node-next/tsconfig.json",
     "clean": "git clean -xdf .cache .turbo dist docs node_modules tsconfig.tsbuildinfo",
+    "test:packed": "bash compatibility/packed/check.sh",
     "test": "bun --bun run vitest run --config ../../vitest.config.ts --project core",
     "type-check": "tsc --noEmit && tsc --project contracts/tsconfig.json && tsc --project tsconfig.benchmarks.json",
     "benchmark": "bun --bun run vitest bench --run --config ../../vitest.config.ts --project 'core (bench)'",
@@ -30,12 +31,14 @@
     "effect": "~4.1.4"
   },
   "devDependencies": {
+    "@effect-vfs/effect-preview": "workspace:*",
     "@effect/platform-bun": "4.1.4",
     "@effect/platform-node-shared": "4.1.4",
     "@effect/vitest": "4.1.4",
     "@repo/config-typescript": "workspace:*",
     "effect": "4.1.4",
-    "@types/node": "26.6.6"
+    "@types/node": "26.6.6",
+    "tsdown": "^0.23.7"
   },
   "exports": {
     ".": {
@@ -123,8 +126,5 @@
     "type": "git",
     "url": "git+https://github.com/lloydrichards/effect-virtual-fs.git",
     "directory": "packages/core"
-  },
-  "dependencies": {
-    "@effect-vfs/effect-preview": "workspace:*"
   }
 }
