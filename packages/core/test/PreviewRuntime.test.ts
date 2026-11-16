@@ -5,6 +5,7 @@ import { Effect } from "effect"
 import { VirtualFileSystem as Vfs } from "../src/index.js"
 import { runtimeOf } from "../src/internal/runtime.js"
 import * as SynchronousAdapter from "../src/SynchronousAdapter.js"
+import { entryNames } from "./support/text.js"
 
 const bytes = Uint8Array.of(1, 2, 3)
 
@@ -31,6 +32,42 @@ describe("preview ownership", () => {
           assert.deepStrictEqual(yield* (yield* restored.caller()).readFile("/core"), bytes)
         }))
     }
+
+    it.effect("reconciles directory listings in linear work while preserving the order of surviving names", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const core = yield* volume.caller()
+        const runtime = runtimeOf(volume)
+
+        if (runtime === undefined) return assert.fail("Core did not construct preview state")
+        const root = (yield* core.stat("/")).ino
+        const names = Array.from({ length: 64 }, (_, i) => `f${63 - i}`)
+
+        for (const name of names) yield* core.writeFile("/" + name, bytes, create)
+        assert.deepStrictEqual(entryNames(yield* core.readDirectory("/")), names)
+
+        const prior = runtime.orders.get(root)!
+        let reads = 0
+        prior.forEach((name, index) => {
+          Object.defineProperty(prior, index, {
+            get() {
+              reads++
+
+              return name
+            }
+          })
+        })
+        assert.deepStrictEqual(entryNames(yield* core.readDirectory("/")), names)
+        assert.isAtMost(reads, 2 * names.length)
+
+        const preview = yield* runtime.owner.authorize({ credentials: { uid: 0, gid: 0 } })
+        yield* preview.unlink("/f62")
+        yield* preview.rename("/f63", "/z")
+        yield* preview.createFile("/a")
+        const expected = [...names.slice(2), "a", "z"]
+        assert.deepStrictEqual(entryNames(yield* core.readDirectory("/")), expected)
+        assert.deepStrictEqual(entryNames(yield* core.readDirectory("/")), expected)
+      }))
 
     it.effect("overwrites existing bytes through both handle bindings without querying volume usage", () =>
       Effect.gen(function*() {
