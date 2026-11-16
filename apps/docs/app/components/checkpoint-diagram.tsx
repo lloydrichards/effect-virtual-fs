@@ -55,9 +55,7 @@ export function FilePermissions() {
   const { entries, volume } = useAtomValue(playgroundAtom)
   const groups = new Map<string, { paths: Array<string>; owner: string; mode: string; reader: string; editor: string }>()
 
-  for (const path of ["/main.js", "/src/value.js", "/secret.js"]) {
-    const policy = entries.find((entry) => entry.path === path)?.policy
-
+  for (const { path, policy } of entries) {
     if (!policy) continue
     const { uid, mode } = policy.metadata
     const key = [uid, mode, policy.reader, policy.editor].join("/")
@@ -77,14 +75,14 @@ export function FilePermissions() {
 
   return (
     <figure className="my-5 rounded-xl border bg-card p-4">
-      <figcaption className="mb-4 text-sm font-semibold">File permissions for the starter workspace</figcaption>
+      <figcaption className="mb-4 text-sm font-semibold">File permissions for this workspace</figcaption>
       <div className="grid gap-5 sm:grid-cols-2">
         {groups.size === 0 && (
-          <span className="text-sm text-muted-foreground">{volume ? "No starter files remain." : "Loading permissions…"}</span>
+          <span className="text-sm text-muted-foreground">{volume ? "No files in this workspace." : "Loading permissions…"}</span>
         )}
         {Array.from(groups.values()).map(({ paths, owner, mode, reader, editor }) => (
           <div key={paths[0]} className="border-s-2 ps-3 last:border-primary">
-            <div className="font-mono text-sm font-semibold sm:min-h-10">
+            <div className="break-all font-mono text-sm font-semibold sm:min-h-10">
               {paths.map((path) => <div key={path}>{path}</div>)}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">{mode} · owned by {owner}</div>
