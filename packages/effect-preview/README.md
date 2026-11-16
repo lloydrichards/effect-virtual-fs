@@ -38,6 +38,5 @@ snapshot offline, rewrites imports for the installed Effect runtime, and emits `
 Update the snapshot or generator when changing those directories. Review new upstream dependencies and explicitly
 remove obsolete generated files when upstream removes a module.
 
-[The patch series](patches/series.json) retains downstream runtime and type regressions against the upstream engine.
 The preview type check runs the type assertions and verifies that regeneration detects source drift, unexpected
 generated files and corrupted inputs.
