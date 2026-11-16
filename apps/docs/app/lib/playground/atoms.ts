@@ -36,7 +36,7 @@ interface Playground {
   busy: boolean
   status: string
   error: string
-  output: { code: string; values: string | null } | null
+  output: { code: string; lines: ReadonlyArray<string> | null } | null
 }
 
 export const playgroundAtom = Atom.make<Playground>({
@@ -128,7 +128,7 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
       if (Result.isFailure(run)) {
         return {
           dirty: false,
-          output: { code: result.code, values: null },
+          output: { code: result.code, lines: null },
           error: run.failure.message,
           status: "Built successfully. Execution failed."
         }
@@ -136,8 +136,9 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
 
       return {
         dirty: false,
-        output: { code: result.code, values: run.success },
-        status: "Built and ran from " + result.reads.join(", ")
+        output: { code: result.code, lines: run.success.lines },
+        error: run.success.error ?? "",
+        status: run.success.error !== undefined ? "Built successfully. Execution failed." : "Built and ran from " + result.reads.join(", ")
       }
     }
 

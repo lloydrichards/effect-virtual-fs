@@ -25,11 +25,15 @@ export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
           path: "/main.js",
           metadata: { uid: 1000, mode: 0o644 },
           bytes: encoder.encode(
-            `export { value as reading } from "./src/value.js"
-
-// Uncomment to include the calibrated reading.
-// export { calibrated } from "./secret.js"
-`
+            [
+              'import { value } from "./src/value.js"',
+              'console.log(`Reading: ${value}`)',
+              "",
+              "// Uncomment both lines to log the private calibration.",
+              '// import { calibrated } from "./secret.js"',
+              '// console.log(`Secret: ${calibrated}`)',
+              ""
+            ].join("\n")
           )
         },
         {

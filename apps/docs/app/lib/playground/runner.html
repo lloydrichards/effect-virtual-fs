@@ -4,21 +4,24 @@
 <script id="executor" type="text/plain">
   self.onmessage = async ({ data: code, ports: [reply] }) => {
     const url = "data:text/javascript;charset=utf-8," + encodeURIComponent(code)
+    const lines = []
+    const format = (value) => {
+      if (typeof value === "string") return value
+      try {
+        return JSON.stringify(value) ?? String(value)
+      } catch {
+        return String(value)
+      }
+    }
+    console.log = (...args) => {
+      if (lines.length < 500) lines.push(args.map(format).join(" ").slice(0, 4096))
+      else if (lines.length === 500) lines.push("Further console output omitted.")
+    }
     try {
-      const exports = await import(url)
-      const lines = Object.entries(exports).map(([name, value]) => {
-        let text
-        try {
-          text = JSON.stringify(value) ?? String(value)
-        } catch {
-          text = String(value)
-        }
-        return name + " = " + text
-      })
-      reply.postMessage({ values: lines.join("\n") || "No exported values." })
+      await import(url)
+      reply.postMessage({ lines })
     } catch (cause) {
-      reply.postMessage({ error: cause instanceof Error ? cause.message : String(cause) })
-
+      reply.postMessage({ lines, error: cause instanceof Error ? cause.message : String(cause) })
     }
   }
 </script>

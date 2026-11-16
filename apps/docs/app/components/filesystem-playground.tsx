@@ -281,13 +281,13 @@ function WorkspacePanel() {
           <div className="mt-2">
             <h3 className="text-xs font-semibold">Generated bundle</h3>
             <PlaygroundBundle source={output.code} />
-            {output.values !== null && (
+            {output.lines !== null && (
               <>
-                <h3 className="text-xs font-semibold">Exported values</h3>
+                <h3 className="text-xs font-semibold">Console output</h3>
                 <pre
-                  aria-label="Exported values"
+                  aria-label="Console output"
                   className="mt-1 max-h-64 overflow-auto rounded-md border bg-code-block p-3 font-mono text-sm"
-                >{output.values}</pre>
+                >{output.lines.length ? output.lines.join("\n") : "No console output."}</pre>
               </>
             )}
           </div>
