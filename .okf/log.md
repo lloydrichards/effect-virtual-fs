@@ -2,46 +2,7 @@
 
 ## 2026-11-16
 
-- Record LiveVolume publication, recovery and handle cleanup through the normal preview build.
-
-- Record the durable mkdir experiment and the recovery and handle-cleanup contracts still needed for live volumes.
-
-- Record the path and directory lookup costs exposed by the deep-tree memory test and the confinement checks retained by the preview.
-
-- Record how caller watches rebase event paths and retain imported root boundaries across namespace changes.
-
-- Record acting-caller attribute updates on retained directory handles after unlink or rename displacement.
-
-- Record the owner commit feed and volume watch implementation on preview, and the remaining caller-confinement gap.
-
-## 2026-11-15
-
-- Record how cooperative overlay capture admits recent reads and queues operations that change atime or advance a cursor.
-
-- Record how core walks list readable directories without updating atime and account for bytes while preserving child metadata permissions.
-
-- Record cooperative overlay capture admission and the committed mutation information core needs for watch delivery.
-
-- Record the private capture boundary that lets sibling overlays share captured and decoded snapshot bytes until a write.
-
-- Record how caller-authorized attribute updates use a retained file handle after unlink and enforce both confinement boundaries.
-
-- Add the eighth reproducible upstream contribution for read atime revision neutrality. Keep automatic atime publication while preserving object revisions; explicit timestamp/content mutations retain guard invalidation. Update the upstream observed-read assertion, add strict/relatime, handle, sync, guard and cancellation regressions, and recover the existing reference-open stale-observation test without core changes.
-
-- Add the seventh reproducible upstream contribution for atomic open creation timestamps across async and sync APIs, with existing-file preservation and rollback regressions. Core forwards times and corrects a non-truncating-open guard mapping. The stale-observation test now reaches a demonstrated upstream atime-only revision mismatch; preserve its expectation and leave core revision mapping unchanged.
-
-- Add the sixth reproducible upstream contribution for atomic mkdir timestamps. Snapshot and validate literal times, apply them to newly created final directories within the creation transaction, and forward existing core options. Preserve recursive prefixes, existing directories, creation/parent clock values, conditions and rollback; initial open metadata remains separate.
-
-- Add the fifth reproducible preview contribution for opt-in relatime, keeping strict updates as the upstream default. Core selects the policy for fresh and restored volumes. Preserve explicit timestamps, capture records and unchanged-read revision tokens; distinguish the remaining directory permission mapping and overlay/persistence blockers.
-
-- Remove the retained core engine, legacy volume/overlay/watch implementations, native fallback and baseline comparison runner. Core constructors and native binding have one preview path. Move contracts and immutable codec records out of the removed engine, port runtime-facing tests, retire obsolete private-unit probes, and enforce a sole-preview source/artifact audit.
-- Record the fourth reproducible upstream contribution for atomic resize in attributes and core forwarding. Sixteen runtime and two type tests detect the missing feature; ten existing core failures are fixed. Preserve prestate authorization, handle grants/cursors, explicit times, quotas and rollback; watch events, special modes and creation metadata remain separate gaps.
-- Record the third reproducible upstream contribution for current-time attribute markers and core forwarding. Eleven runtime and two type regressions detect the missing feature; four existing core failures are fixed. Literal-time authority, atomicity, interruption and revision guards remain enforced; combined size/time updates remain blocked by atomic resize.
-- Record the second reproducible upstream patch for recursive mkdir dot-component traversal. Preserve conditional named-slot validation and transactional rollback; ten added tests pass, seven detect the original bug. The existing core regression and direct baseline comparison now pass, with memory and Node results unchanged.
-- Record the reproducible upstream cancellation contribution: preserve caller masks at admission and before publication. Two new regressions fail on the original runtime; the fix passes 202 preview tests and resolves 28 existing memory failures, with core and Node results unchanged.
-- Record completed preview adaptations for scoped authority, reference keys, paths, revisions, insertion order, snapshot reuse, creation modes, staged removal, and native reentrant cleanup. Replace earlier speculative blockers with direct public-API evidence for the remaining atomicity, representation, atime, and masked-finalizer gaps.
-- Core constructors now create preview-owned state, and the existing memory and Node bindings consume it. Updated the drop-in evaluation to distinguish real runtime integration from the earlier baseline diagnostics and retain unresolved atomicity, lifetime, and metadata contracts as acceptance blockers.
-- Restructure the evaluation around one pinned preview package and existing core/memory/Node contracts. Remove the parallel downstream stack and consumer rewrites; record direct replacement failures separately from unchanged baseline test results.
+- Document how core, memory, Node and LiveVolume use the pinned Effect preview.
 
 ## 2026-11-12
 

@@ -1,13 +1,9 @@
 // Generated from Effect PR #9960 by scripts/sync.mjs. Edit the snapshot or generator, then run sync.
 import type * as BytePath from "../../src/compat/BytePath.js"
-import type * as DateTime from "../../src/compat/DateTime.js"
-import type { ByteSize, Effect, Layer, Option, Result, Scope, Stream } from "effect"
+import type { Effect, Layer, Option, Result, Scope, Stream } from "effect"
 import * as VFS from "../../src/virtual-file-system/VirtualFileSystem.js"
 import { describe, expect, it } from "tstyche"
 
-declare const instant: DateTime.UnixNano
-declare const operation: VFS.OperationSession
-declare const syncFile: VFS.SyncFileHandle
 declare const caller: VFS.VirtualFileSystem
 declare const reference: VFS.ObjectReference
 declare const address: VFS.EntryAddress
@@ -179,90 +175,5 @@ describe("VirtualFileSystem model", () => {
     expect(caller.open).type.toBeCallableWith(reference, { create: undefined, truncate: undefined })
     expect(caller.open).type.not.toBeCallableWith(reference, { mode: undefined })
     expect(caller.writeFile).type.not.toBeCallableWith(reference, bytes, { conditions: undefined })
-  })
-})
-
-describe("VirtualFileSystem current-time attributes", () => {
-  it("should accept current-time markers across asynchronous and synchronous boundaries", () => {
-    expect(caller.setAttributes).type.toBeCallableWith("/file", { atime: "now", mtime: "now" })
-    expect(caller.setAttributes).type.toBeCallableWith(reference, { atime: instant })
-    expect(operation.files.setAttributes).type.toBeCallableWith("/file", { atime: "now" })
-    expect(file.setAttributes).type.toBeCallableWith({ atime: instant, mtime: "now" })
-    expect(sync.setAttributes).type.toBeCallableWith(reference, { atime: "now", mtime: "now" })
-    expect(syncFile.setAttributes).type.toBeCallableWith({ atime: "now" })
-    expect(caller.setAttributes("/file", { atime: "now" })).type.toBe<Effect.Effect<void, VFS.OperationError>>()
-    expect(sync.setAttributes("/file", { mtime: "now" })).type.toBe<Result.Result<void, VFS.OperationError>>()
-  })
-
-  it("should restrict markers to attribute inputs and keep stored times literal", () => {
-    expect<VFS.Attributes["atime"]>().type.toBe<DateTime.UnixNano | "now" | undefined>()
-    expect<VFS.Attributes["mtime"]>().type.toBe<DateTime.UnixNano | "now" | undefined>()
-    expect<VFS.Metadata["atime"]>().type.toBe<DateTime.UnixNano>()
-    expect<VFS.SemanticMetadata["mtime"]>().type.toBe<DateTime.UnixNano>()
-    expect(caller.setAttributes).type.not.toBeCallableWith("/file", { atime: "later" })
-    expect(file.setAttributes).type.not.toBeCallableWith({ mtime: "omit" })
-    expect(sync.setAttributes).type.not.toBeCallableWith("/file", { atime: 0n })
-  })
-})
-
-describe("VirtualFileSystem atomic resize attributes", () => {
-  it("should accept byte-size inputs with metadata at every attribute boundary", () => {
-    expect(caller.setAttributes).type.toBeCallableWith("/file", { size: 4n, mode: 0o600 })
-    expect(operation.files.setAttributes).type.toBeCallableWith(reference, { size: "4 B", atime: "now" })
-    expect(file.setAttributes).type.toBeCallableWith({ size: 4, mtime: instant })
-    expect(sync.setAttributes).type.toBeCallableWith(reference, { size: 4n, uid: 7 })
-    expect(syncFile.setAttributes).type.toBeCallableWith({ size: "4 B" })
-    expect(caller.setAttributes("/file", { size: 4n })).type.toBe<Effect.Effect<void, VFS.OperationError>>()
-    expect(sync.setAttributes("/file", { size: 4n })).type.toBe<Result.Result<void, VFS.OperationError>>()
-  })
-
-  it("should reject unsupported size shapes and keep observed size literal", () => {
-    expect<VFS.Attributes["size"]>().type.toBe<ByteSize.Input | undefined>()
-    expect<VFS.Metadata["size"]>().type.toBe<ByteSize.ByteSize>()
-    expect(caller.setAttributes).type.not.toBeCallableWith("/file", { size: "now" })
-    expect(file.setAttributes).type.not.toBeCallableWith({ size: {} })
-    expect(sync.setAttributes).type.not.toBeCallableWith("/file", { size: true })
-  })
-})
-
-
-describe("VirtualFileSystem access-time configuration", () => {
-  it("should accept strict and relatime policies for creation, restore, and layers", () => {
-    expect(VFS.make({ accessTime: "relatime" })).type.toBe<Effect.Effect<VFS.Owner, VFS.VirtualFileSystemError>>()
-    expect(VFS.restore(snapshot, { accessTime: "strict" })).type.toBe<Effect.Effect<VFS.Owner, VFS.VirtualFileSystemError>>()
-    expect(VFS.layer({ accessTime: "relatime", caller: { credentials: { uid: 0, gid: 0 } } })).type.toBe<
-      Layer.Layer<VFS.VirtualFileSystem, VFS.VirtualFileSystemError>
-    >()
-    expect<NonNullable<VFS.Configuration["accessTime"]>>().type.toBe<"strict" | "relatime">()
-    expect<NonNullable<VFS.RestoreOptions["accessTime"]>>().type.toBe<"strict" | "relatime">()
-    expect(VFS.make).type.not.toBeCallableWith({ accessTime: "never" })
-  })
-})
-
-
-describe("atomic mkdir timestamps", () => {
-  it("should accept literal creation times through callers, entry creation and sessions", () => {
-    const options = { preserveTimes: { atime: instant, mtime: instant } }
-    expect(caller.makeDirectory("/directory", options)).type.toBe<Effect.Effect<VFS.DirectoryObservation, VFS.OperationError>>()
-    expect(caller.makeDirectoryEntry(address, options)).type.toBe<Effect.Effect<VFS.PresentEntry & { readonly object: VFS.DirectoryObservation }, VFS.OperationError>>()
-    expect(operation.files.makeDirectory("/directory", options)).type.toBe<Effect.Effect<VFS.DirectoryObservation, VFS.OperationError>>()
-    expect(caller.makeDirectory).type.not.toBeCallableWith("/directory", { preserveTimes: { atime: "now", mtime: instant } })
-    expect(caller.makeDirectory).type.not.toBeCallableWith("/directory", { preserveTimes: { atime: instant } })
-    expect(caller.makeDirectoryEntry).type.not.toBeCallableWith(address, { recursive: true })
-  })
-})
-
-
-describe("atomic open creation timestamps", () => {
-  it("should accept literal times for creation-capable opens and reject reference creation options", () => {
-    const options = { create: "exclusive" as const, preserveTimes: { atime: instant, mtime: instant } }
-    expect(caller.open("/file", options)).type.toBe<Effect.Effect<VFS.FileHandle, VFS.OperationError, Scope.Scope>>()
-    expect(caller.open).type.toBeCallableWith(address, options)
-    expect(sync.open).type.toBeCallableWith("/file", options)
-    expect(sync.open).type.toBeCallableWith(address, options)
-    expect(caller.open).type.not.toBeCallableWith(reference, { preserveTimes: options.preserveTimes })
-    expect(sync.open).type.not.toBeCallableWith(reference, { preserveTimes: options.preserveTimes })
-    expect(caller.open).type.not.toBeCallableWith("/file", { create: "exclusive", preserveTimes: { atime: "now", mtime: instant } })
-    expect(caller.open).type.not.toBeCallableWith("/file", { create: "exclusive", preserveTimes: { atime: instant } })
   })
 })

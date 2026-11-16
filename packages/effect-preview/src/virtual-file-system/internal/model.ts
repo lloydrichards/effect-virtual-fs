@@ -858,13 +858,17 @@ type Scoped<A> = Effect.Effect<A, OperationError, Scope.Scope>
 
 type SyncResult<A> = Result.Result<A, OperationError>
 
-export type ReferenceOpenOptions = Omit<OpenOptions, "create" | "mode" | "conditions" | "preserveTimes" | "initialSize" | "owner"> & {
-  readonly create?: Extract<typeof Creation["Type"], "existing"> | undefined
-}
+export type ReferenceOpenOptions =
+  & Omit<OpenOptions, "create" | "mode" | "conditions" | "preserveTimes" | "initialSize" | "owner">
+  & {
+    readonly create?: Extract<typeof Creation["Type"], "existing"> | undefined
+  }
 
-export type ReferenceWriteFileOptions = Omit<WriteFileOptions, "create" | "mode" | "conditions" | "replaceFinalSymlink"> & {
-  readonly create?: Extract<typeof Creation["Type"], "existing"> | undefined
-}
+export type ReferenceWriteFileOptions =
+  & Omit<WriteFileOptions, "create" | "mode" | "conditions" | "replaceFinalSymlink">
+  & {
+    readonly create?: Extract<typeof Creation["Type"], "existing"> | undefined
+  }
 
 export interface AccessOptions {
   readonly read?: boolean | undefined
@@ -1208,6 +1212,7 @@ export const DirectoryHandleTypeId: unique symbol = Symbol("effect/virtual-file-
 export interface FileHandle {
   readonly [FileHandleTypeId]: typeof FileHandleTypeId
   readonly stat: () => ReadEffect<ObjectObservation>
+  /** A storage-backed read that must update atime fails with Busy(accessTimeUpdate). Use readAlloc for that case. */
   readonly read: (destination: Uint8Array, options?: ReadOptions) => ReadEffect<number>
   readonly readAlloc: (count: number, options?: ReadOptions) => ReadEffect<Uint8Array>
   readonly write: (source: Uint8Array, options?: WriteOptions) => Fx<void>

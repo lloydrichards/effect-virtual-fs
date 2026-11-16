@@ -26,7 +26,7 @@ generated: { by: codex/okf, at: "2026-10-22T12:23:00+02:00" }
 
 # Staged Effect filesystem implementation plan
 
-The former private core engine has been removed. The current experiment uses the single Effect preview runtime through existing core constructors; older implementation comparisons below are historical research. See [the current replacement evaluation](preview-drop-in.md).
+The implementation comparisons below predate the preview. See the [current volume architecture](../architecture/volume-caller-handle-model.md).
 
 Retire `@effect-vfs/core` in stages. Effect owns `VirtualFileSystem` and `MemoryFileSystem`; retained community packages use supported Effect exports. Preserve one filesystem implementation during migration. The first refactor changes contract ownership only.
 

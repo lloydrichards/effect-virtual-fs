@@ -242,10 +242,16 @@ export class Resource {
           const exit = yield* Effect.exit(child.close)
           if (Exit.isFailure(exit)) reasons.push(...exit.cause.reasons)
         }
-        const release = () => Effect.gen({ self: this }, function*() {
-          const offer = this.cleanupOffer?.()
-          if (offer) yield* Effect.catch(offer, (e) => Effect.sync(() => { this.cleanupError = e }))
-        }).pipe(Effect.ensuring(Effect.sync(() => this.releaseLocal(reasons))))
+        const release = () =>
+          Effect.gen({ self: this }, function*() {
+            const offer = this.cleanupOffer?.()
+            if (offer) {
+              yield* Effect.catch(offer, (e) =>
+                Effect.sync(() => {
+                  this.cleanupError = e
+                }))
+            }
+          }).pipe(Effect.ensuring(Effect.sync(() => this.releaseLocal(reasons))))
         if (this.cleanupOffer && this.runtime.storageTurn) yield* this.runtime.storageTurn(release())
         else this.releaseLocal(reasons)
         return yield* closeExit(reasons)
@@ -737,7 +743,9 @@ export class Runtime {
           if (enroll !== undefined) yield* enroll
           yield* restore(Deferred.await(request.ready))
           const turn = Effect.gen({ self: this }, function*() {
-            if (this.storageUnavailable?.()) return yield* new M.InvalidResource({ operation, reason: "volumeUnavailable" })
+            if (this.storageUnavailable?.()) {
+              return yield* new M.InvalidResource({ operation, reason: "volumeUnavailable" })
+            }
             const transition = yield* restore(Effect.suspend(() => {
               this.inTurn = true
               try {
@@ -757,7 +765,9 @@ export class Runtime {
             const publish = transition.publish
             if (publish !== undefined) {
               const offer = transition.offer?.()
-              if (offer) yield* offer
+              if (offer) {
+                yield* offer
+              }
               if (beforePublish !== undefined) yield* beforePublish(transition.value)
               yield* Effect.suspend(() => {
                 this.inTurn = true

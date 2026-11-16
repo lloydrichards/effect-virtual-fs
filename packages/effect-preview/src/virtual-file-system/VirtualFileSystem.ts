@@ -33,16 +33,6 @@ const DEFAULT_UMASK = 0o022
 
 export {
   /**
-   * When true, an Effect operation that would change an automatic read access time
-   * fails before publication with Busy("accessTimeUpdate"). Explicit attribute
-   * updates and synchronous calls retain their usual behavior. Defaults to false.
-   *
-   * @stability experimental
-   * @category references
-   * @since 4.1.0
-   */
-  RequireStableReadAtime,
-  /**
    * AccessDenied expected failure with typed reasons and safe operation context.
    *
    * @stability experimental
@@ -280,6 +270,16 @@ export {
    */
   ReentrantOperation,
   /**
+   * When true, an Effect operation that would change an automatic read access time
+   * fails before publication with Busy("accessTimeUpdate"). Explicit attribute
+   * updates and synchronous calls retain their usual behavior. Defaults to false.
+   *
+   * @stability experimental
+   * @category references
+   * @since 4.1.0
+   */
+  RequireStableReadAtime,
+  /**
    * Constructible root capture record. Local ids are positive and separate from preserved object numbers.
    *
    * @stability experimental
@@ -349,14 +349,6 @@ export {
 } from "./internal/model.js"
 
 export type {
-  /**
-   * An owner-only namespace or object mutation in a committed operation.
-   *
-   * @stability experimental
-   * @category models
-   * @since 4.1.0
-   */
-  CommittedMutation,
   /**
    * Absence and parent conditions for exclusive entry creation.
    *
@@ -437,6 +429,14 @@ export type {
    * @since 4.1.0
    */
   CaptureTraversalOptions,
+  /**
+   * An owner-only namespace or object mutation in a committed operation.
+   *
+   * @stability experimental
+   * @category models
+   * @since 4.1.0
+   */
+  CommittedMutation,
   /**
    * Fresh instance configuration. Root defaults 0:0/0755 without umask; its four times use one captured
    * Clock sample.
@@ -1176,7 +1176,9 @@ export const make: (
               gid: yield* E.identityResult(configuration?.root?.gid ?? 0, "make", "gid"),
               mode: yield* E.modeResult(configuration?.root?.mode ?? DEFAULT_ROOT_MODE, "make")
             }
-            return yield* ownerFor(new E.Engine(new R.Runtime(limits, clock), root, undefined, accessTime, groupInheritance))
+            return yield* ownerFor(
+              new E.Engine(new R.Runtime(limits, clock), root, undefined, accessTime, groupInheritance)
+            )
           })
         ),
         { onFailure: R.failure, onSuccess: Effect.fromResult }
@@ -1418,7 +1420,8 @@ const makeCaller = (caller: E.Caller) => {
     readLinkObserved: (target) => R.readOnly(simple(caller, "readLinkObserved", target, A.readLinkObserved)),
     readDirectory: (target) => R.readOnly(simple(caller, "readDirectory", target, A.readDirectory)),
     readDirents: (target) => R.readOnly(simple(caller, "readDirents", target, A.readDirents)),
-    inspectDirents: (target) => R.readOnly(simple(caller, "inspectDirents", target, (tx, t) => A.readDirents(tx, t, false))),
+    inspectDirents: (target) =>
+      R.readOnly(simple(caller, "inspectDirents", target, (tx, t) => A.readDirents(tx, t, false))),
     readDirectoryEntries: (target) =>
       R.readOnly(simple(caller, "readDirectoryEntries", target, A.readDirectoryEntries)),
     writeFile: (target: M.Target, data: Uint8Array, options?: M.WriteFileOptions) =>
@@ -1441,9 +1444,13 @@ const makeCaller = (caller: E.Caller) => {
           })
       ),
     setHandleAttributes: (handle, attributes, options) =>
-      E.runAtomicResult(caller, "setHandleAttributes", [], () =>
-        A.validateAttributes(attributes, "setHandleAttributes"), (work) =>
-        H.prepareCallerAttributes(handle, attributes, options, work)),
+      E.runAtomicResult(
+        caller,
+        "setHandleAttributes",
+        [],
+        () => A.validateAttributes(attributes, "setHandleAttributes"),
+        (work) => H.prepareCallerAttributes(handle, attributes, options, work)
+      ),
     setAttributes: (target, attributes, options) =>
       E.runAtomicResult(caller, "setAttributes", [target], () =>
         Result.gen(function*() {
@@ -1625,7 +1632,10 @@ const ownerFor = (engine: E.Engine) =>
             engine.listeners.add(sink)
             return sink
           }),
-          (sink) => Effect.sync(() => { engine.listeners.delete(sink) })
+          (sink) =>
+            Effect.sync(() => {
+              engine.listeners.delete(sink)
+            })
         )),
       authorize: Effect.fnUntraced(function*(options: M.CallerOptions) {
         const scope = yield* Scope.Scope

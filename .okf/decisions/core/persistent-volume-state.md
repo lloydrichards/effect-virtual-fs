@@ -20,7 +20,7 @@ generated: { by: codex/okf, at: "2026-10-21T17:50:27+00:00" }
 
 # Persistent volume state
 
-This records the removed core engine implementation. The Effect preview now owns live state and publication. The immutable inode records described here remain only as core snapshot/codec data; live copy-on-write overlays and durable publication require the missing preview APIs tracked in [the replacement evaluation](../../research/preview-drop-in.md).
+This decision describes the former core engine. Core still uses immutable inode records for snapshots and live images. The [volume architecture](../../architecture/volume-caller-handle-model.md) describes how the preview owns live state and publication.
 
 The volume owns one immutable state value. Inodes live in Effect `HashMap<Ino, Node>`, keyed by inode number. Directories carry their parent, name, and entries; files and symbolic links carry the names that reach them. Persistent directory entries avoid copying a wide directory on every live namespace edit.
 

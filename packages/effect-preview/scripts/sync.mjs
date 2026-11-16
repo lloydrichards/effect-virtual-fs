@@ -1,9 +1,7 @@
 // This build tool reads a pinned upstream snapshot and writes only this package's generated files.
 /* eslint-disable effecttsgo/node-builtin-import */
 import { createHash } from "node:crypto"
-import { spawnSync } from "node:child_process"
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, posix, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -41,42 +39,6 @@ const sources = new Map([...patches].map(([path, patch]) => [path,
   ).join("\n") + "\n"
 ]))
 
-// Apply contribution patches to upstream paths before adapting imports to this workspace.
-const series = JSON.parse(await readFile(resolve(root, "patches/series.json"), "utf8"))
-
-const temporary = await mkdtemp(resolve(tmpdir(), "effect-preview-patches-"))
-
-try {
-  for (const [path, source] of sources) {
-    const target = resolve(temporary, "packages/effect", path)
-    await mkdir(dirname(target), { recursive: true })
-    await writeFile(target, source)
-  }
-
-  for (const entry of series) {
-    if (!/^[a-z0-9-]+\.patch$/.test(entry.file)) throw new Error("Invalid contribution patch filename")
-    const patch = await readFile(resolve(root, "patches", entry.file), "utf8")
-
-    if (hash(patch) !== entry.sha256) throw new Error(`Contribution patch checksum mismatch: ${entry.file}`)
-
-    const result = spawnSync("git", ["apply", "--whitespace=nowarn", "-"], {
-      cwd: temporary,
-      input: patch,
-      encoding: "utf8"
-    })
-
-    if (result.error) throw result.error
-
-    if (result.status !== 0) throw new Error(`Cannot apply ${entry.file}: ${result.stdout}${result.stderr}`)
-  }
-
-  for (const path of sources.keys()) {
-    sources.set(path, await readFile(resolve(temporary, "packages/effect", path), "utf8"))
-  }
-} finally {
-  await rm(temporary, { recursive: true, force: true })
-}
-
 const additions = (path) => sources.get(path)
 
 const generated = new Map()
@@ -94,7 +56,8 @@ const rewrite = (source, destination, original) => {
   const specifier = (name) => {
     let path
 
-    if (name.startsWith("effect/virtual-file-system")) path = "src/virtual-file-system/VirtualFileSystem.ts"
+    if (name === "effect/virtual-file-system") path = "src/virtual-file-system/VirtualFileSystem.ts"
+    else if (name.startsWith("effect/virtual-file-system/")) path = `src/${name.slice("effect/".length)}.ts`
     else if (name.startsWith("effect/")) path = moduleFor(name.slice(7))
     else if (name.startsWith(".")) {
       const upstream = posix.normalize(posix.join(posix.dirname(original), name))
