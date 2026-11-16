@@ -2901,7 +2901,8 @@ const snapshot = Effect.fnUntraced(function*(owner: P.Owner) {
     return prior.snapshot
   }
 
-  const specs = new Map<bigint, NodeSpec>()
+  const specs: Array<NodeSpec> = []
+  const linksById = new Map<bigint, Array<State.Link>>()
 
   const ids = new Map(
     input.filter((record) => !Predicate.isTagged(record, "alias")).map(
@@ -2911,14 +2912,7 @@ const snapshot = Effect.fnUntraced(function*(owner: P.Owner) {
 
   for (const r of input) {
     if (Predicate.isTagged(r, "alias")) {
-      const prior = specs.get(r.targetId)
-
-      if (prior !== undefined && prior.kind !== "directory") {
-        specs.set(r.targetId, {
-          ...prior,
-          links: [...prior.links, { parent: ids.get(r.parentId)!, name: Hex.encode(Path.toBytes(r.name)) }]
-        })
-      }
+      linksById.get(r.targetId)?.push({ parent: ids.get(r.parentId)!, name: Hex.encode(Path.toBytes(r.name)) })
 
       continue
     }
@@ -2944,12 +2938,17 @@ const snapshot = Effect.fnUntraced(function*(owner: P.Owner) {
       : { parent: ids.get(r.parentId)!, name: Hex.encode(Path.toBytes(r.name)) }
 
     if (Predicate.isTagged(r, "root") || Predicate.isTagged(r, "directory")) {
-      specs.set(r.id, { ...common, kind: "directory", ...link })
-    } else if (Predicate.isTagged(r, "file")) specs.set(r.id, { ...common, kind: "file", links: [link], data: r.data })
-    else specs.set(r.id, { ...common, kind: "symlink", links: [link], target: Path.toBytes(r.target) })
+      specs.push({ ...common, kind: "directory", ...link })
+    } else {
+      const links = [link]
+      linksById.set(r.id, links)
+
+      if (Predicate.isTagged(r, "file")) specs.push({ ...common, kind: "file", links, data: r.data })
+      else specs.push({ ...common, kind: "symlink", links, target: Path.toBytes(r.target) })
+    }
   }
 
-  const snapshot = Image.make(assemble([...specs.values()]))
+  const snapshot = Image.make(assemble(specs))
   snapshots.set(owner, { records: input, snapshot, epoch })
 
   return snapshot

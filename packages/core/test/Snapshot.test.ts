@@ -10,6 +10,7 @@ import { describeTree } from "./support/describeTree.js"
 import { assertHardLinkedSymlinks, hardLinkedSymlinks } from "./support/hardLinkedSymlinks.js"
 import { documentText, readLines, toLines, toLines as encode } from "./support/lines.js"
 import { entryNames, text } from "./support/text.js"
+import { name as entryKey } from "./support/volumeState.js"
 
 const limits = {
   maxEncodedBytes: ByteSize.megabytes(1),
@@ -525,6 +526,52 @@ describe("snapshots", () => {
 
 describe("snapshot capture", () => {
   it.layer(BunCrypto.layer)((it) => {
+    it.effect("assembles snapshot aliases without rescanning the growing list of links", () =>
+      Effect.gen(function*() {
+        const volume = yield* Vfs.make()
+        const caller = yield* volume.caller()
+        const original = "000-primary"
+        const aliases = Array.from({ length: 16 }, (_, i) => `alias-${i}`)
+        yield* caller.writeFile(`/${original}`, Uint8Array.of(7), { access: "write", create: "exclusive" })
+
+        for (const alias of aliases) yield* caller.link(`/${original}`, `/${alias}`)
+
+        // The capture visits names in byte order, so each prefix starts with the primary name.
+        const firstKey = entryKey(original)
+        const iterate = Array.prototype[Symbol.iterator]
+        let visited = 0
+
+        // Vitest's spy wrapper also calls the array iterator, so count these visits directly.
+        // eslint-disable-next-line no-extend-native
+        Array.prototype[Symbol.iterator] = function(this: Array<unknown>) {
+          const first = this[0]
+
+          if (
+            Predicate.hasProperty(first, "name") && first.name === firstKey && Predicate.hasProperty(first, "parent")
+          ) {
+            visited += this.length
+          }
+
+          return iterate.call(this)
+        }
+
+        let snapshot: Vfs.Snapshot
+
+        try {
+          snapshot = yield* volume.snapshot
+        } finally {
+          // eslint-disable-next-line no-extend-native
+          Array.prototype[Symbol.iterator] = iterate
+        }
+
+        assert.isAtMost(visited, aliases.length + 1)
+        const restored = yield* (yield* Vfs.fromSnapshot(snapshot)).caller()
+        const file = yield* restored.stat(`/${original}`)
+        assert.strictEqual(file.nlink, aliases.length + 1)
+
+        for (const alias of aliases) assert.strictEqual((yield* restored.stat(`/${alias}`)).ino, file.ino)
+      }))
+
     it.effect("captures the file and its alias when the volume is at its entry and byte limits", () =>
       Effect.gen(function*() {
         const size = 128n * 1024n * 1024n - 1n
