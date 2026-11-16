@@ -1,6 +1,6 @@
 {
   "repository": "lloydrichards/open_effect",
-  "commit": "2b9d713f03ae263ff567b24775cd63aa8f801ac9",
+  "commit": "7691819935d1ed3fe3406118b91e4eb69be3c9e3",
   "base": "d0c49be523923fd58821ab25a777b1832e412dfc",
   "pullRequest": "https://github.com/Effect-TS/effect/pull/9960",
   "files": {
@@ -10,7 +10,7 @@
     "src/Schema.ts": "6bc51bb5c1d66bd0b87be5b87ecfb97ea753e04524f750f8412d1c1215f37ffe",
     "src/virtual-file-system/VirtualFileSystem.ts": "ce56e3c70b17ea4b277c4f59e582077d5bd5c947d93c970276da72fcb07a6d9f",
     "src/virtual-file-system/index.ts": "50051f6fbcc25aad12c8ba04627061fe825b21fcd2b5de982d4e55d4d40760f5",
-    "src/virtual-file-system/internal/atomic.ts": "16b2273c021f24833b9c5268d871e38d480dc68c0ba0f94d8fc36f49e88bdd19",
+    "src/virtual-file-system/internal/atomic.ts": "f1cde971a92c42056ae46a62cb3ccfd9576309e490806bb7c9e59140ed62d6db",
     "src/virtual-file-system/internal/capture.ts": "54c0fab0bfcf4e533c2637edd522cb6d694715bcc5cf61fc55c78d0ceacb98e0",
     "src/virtual-file-system/internal/engine.ts": "54c86c3c286aa82dbc4e9991f3a0701a960e7acf04e7634632cb204497ff9989",
     "src/virtual-file-system/internal/handles.ts": "3a01cc084d78db399f3746214f684a991253547ed443b4c2b6e06198199da3fc",
@@ -30,7 +30,7 @@
     "test/virtual-file-system/VirtualFileSystem.limits.test.ts": "59edb2c24476db91b30ac57a3db5e55628ced9f99cfe33253bfb4f753c65b879",
     "test/virtual-file-system/VirtualFileSystem.operations.test.ts": "c20a9ac28fc5bc8fdb92128e9afc0124d153e6c73bfe17f002e486f0da78c452",
     "test/virtual-file-system/VirtualFileSystem.storage.test.ts": "8552059356a35a41598f69e0e9954b55c23378047fc2f14e4657ce54412cbd08",
-    "test/virtual-file-system/VirtualFileSystem.test.ts": "348f5b201c40827cde820cfc031faf1adf2a7420e498f19eb6a02a12eb488bc2",
+    "test/virtual-file-system/VirtualFileSystem.test.ts": "07fdc8dcdf394cca093a9608bd3978a25211cdc799e6c193ce18024b883d93cc",
     "typetest/BytePath.tst.ts": "9646491b37625a9b7ab8b2ee9a0844d6578698e6241106b6fd85b65db52b152d",
     "typetest/DateTime.UnixNano.tst.ts": "79e88a9930fcc9efae407d636c5a5cc95ebb50435d9a35c470230190a56b0c86",
     "typetest/virtual-file-system/VirtualFileSystem.tst.ts": "892249767356d0514e6da51cb0999eb170fbbb5e913b90800a15a6d43529b294"
