@@ -85,7 +85,7 @@ export const contentPages = [
   },
   {
     section: "Examples",
-    label: "Bundle virtual modules with Vite",
+    label: "Build and save a browser filesystem",
     href: "/examples/virtual-build",
     routePath: "examples/virtual-build",
     contentPath: "content/examples/virtual-build.mdx"

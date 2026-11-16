@@ -1,33 +1,23 @@
-# Bundle virtual modules with Vite
+import { FilesystemPlayground } from "~/components/filesystem-playground"
 
-Watch a bundle change from `42` to `43` after a single write to an in-memory file. Vite runs on the host. A plugin reads the project’s modules through an Effect VFS caller, and Vite returns the bundled JavaScript in memory.
+# Build and save a browser filesystem
 
-## Run locally
+Open `/main.js` to see how it imports `value` from `./value.js`. Change `20` to `21` in `/value.js` and choose **Run build**. The browser bundles the two virtual modules and shows the generated JavaScript and the paths it read. You can add another file and import it by its relative path.
 
-From the repository root, run the following commands with Bun installed. If you already installed dependencies and built the workspace for the [Node workbench](/examples/node-workbench), start with the last command. No API key is required.
+<FilesystemPlayground />
 
-```sh
-bun install
-bun run build
-bun run --cwd apps/virtual-build demo
-```
+## What survives a reload?
 
-## Read the three bundles
+1. Give `/value.js` a value you will recognize. Choose **Save checkpoint**, then **Inspect saved row**. The timestamp and byte count come from a query against your saved SQLite database.
+2. Change the value again and run another build. Inspect the row again. Its timestamp stays the same because building only uses the working copy.
+3. Reload this page. The editor starts with the two original files. Choose **Reopen saved** to replace the working copy with your checkpoint. Open `/value.js` to verify the value you saved. Any files you added before saving come back too.
 
-The command prints the generated code for each build and a list of the virtual paths the plugin read.
+## Where the bytes go
 
-| Output | What to look for |
-| --- | --- |
-| `firstBundle` | `main.js` imports `20` from `./value.js` and adds `22`. The bundled module exports `42`. |
-| `rebuiltBundle` | The demo writes `21` to the same virtual dependency and builds again. The new bundle exports `43`. |
-| `packageBundle` | An entry imports `only-in-vfs`. The plugin reads its virtual `package.json`, follows `exports` to `index.js`, and bundles the string `"virtual-package"`. |
+The editor and bundler share an in-memory Effect VFS volume. Switching files, saving, or building writes the current editor buffer into that volume. The build starts at `/main.js`; esbuild runs as WebAssembly in your browser and reads each imported module through the volume’s caller.
 
-The plugin’s `resolveId` hook resolves imports against the caller’s volume. Its `load` hook reads the bytes with `caller.readFile`. Vite’s `write: false` setting keeps the output chunk in memory. Remove a virtual dependency and the build fails at its virtual path.
+**Save checkpoint** captures the whole volume with `volume.snapshot` and encodes it with `Vfs.encodeSnapshot`. SQLite stores those bytes in the `image` column of a single row in the `checkpoint` table. The browser stores the resulting SQLite database as a byte array in IndexedDB. Each save replaces the previous database for this site and browser profile.
 
-To evaluate the bundles and exercise the missing-file case, run the demo’s tests:
+To inspect it yourself, open your browser’s developer tools and look under **Application** (or **Storage**) → **IndexedDB** → **effect-vfs-playground** → **databases** → **workspace.sqlite**. Clearing this site’s browser storage removes the checkpoint. **Reopen saved** reads the database, decodes the snapshot, and opens a fresh writable volume. It discards any unsaved edits in the current tab.
 
-```sh
-bun run --cwd apps/virtual-build test
-```
-
-See the [fixture and Vite plugin](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/virtual-build/src/VirtualBuild.ts) for the supported import forms and the [demo entry point](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/virtual-build/src/demo.ts) for the write between builds.
+For the local Vite version, run `bun run --cwd apps/virtual-build demo` from a built repository checkout. For server-side persistence, see [Save and restore SQLite checkpoints](/guides/sqlite-checkpoints).
