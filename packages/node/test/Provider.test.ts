@@ -213,6 +213,26 @@ describe("direct Node provider", () => {
     expect(provider.readFileSync("/file", "utf8")).toBe("abc")
     handle.closeSync()
   })
+  it.each(
+    [
+      ["maxBytes", "ENOSPC"],
+      ["maxFileBytes", "EFBIG"]
+    ] as const
+  )("should report committed vector bytes when %s is reached between buffers", async (limit, code) => {
+    const { provider } = await make(undefined, { execution: "sync", [limit]: ByteSize.bytes(3) })
+    const handle = provider.openSync("/file", "w+")
+    expect(handle.writevSync([Buffer.from("abc"), Buffer.from("d")])).toBe(3)
+    expect(handle.position).toBe(3)
+    expect(provider.readFileSync("/file", "utf8")).toBe("abc")
+    expect(() => handle.writevSync([Buffer.from("d")])).toThrow(error(code))
+
+    handle.position = 1
+    const buffers = [Buffer.from("XYZ"), Buffer.from("!")]
+    expect(await handle.writev(buffers, 0)).toEqual({ bytesWritten: 3, buffers })
+    expect(handle.position).toBe(1)
+    expect(provider.readFileSync("/file", "utf8")).toBe("XYZ")
+    await handle.close()
+  })
   it("should retain unlinked and replaced objects until the last close", async () => {
     const { provider, volume } = await make()
     provider.writeFileSync("/file", "old")
