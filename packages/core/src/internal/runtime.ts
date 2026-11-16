@@ -2871,7 +2871,13 @@ const snapshot = Effect.fnUntraced(function*(owner: P.Owner) {
   // The owner stays private; core and native entry points invalidate before any possible state change.
   if (epoch !== undefined && prior?.epoch === epoch) return prior.snapshot
   const capture = yield* mapped(owner.capture())
-  const input = yield* Stream.runCollect(capture.records()).pipe(Effect.mapError(failure))
+
+  // Capture charged one visit per record and reserved the full payload, including names and link targets.
+  const input = yield* Stream.runCollect(capture.records({
+    records: owner.limits.namespaceVisits,
+    payloadBytes: owner.limits.transientBytes,
+    stagingBytes: owner.limits.transientBytes
+  })).pipe(Effect.mapError(failure))
 
   if (
     prior !== undefined && input.length === prior.records.length &&
