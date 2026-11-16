@@ -238,6 +238,9 @@
     }
   ],
   "ignorePatterns": [
+    "packages/effect-preview/src/**",
+    "packages/effect-preview/test/**",
+    "packages/effect-preview/typetest/**",
     "packages/core/contracts/ApiTypes.ts",
     "scripts/anti-slop-policy-fixtures/**",
     ".agent/**",

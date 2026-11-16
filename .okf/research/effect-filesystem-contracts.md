@@ -5,7 +5,7 @@ description: Defines the proposed VirtualFileSystem and MemoryFileSystem declara
 status: draft
 tags: [effect, contracts, filesystem, migration]
 sources:
-  - resource: ../../packages/core/src/internal/engine.ts
+  - resource: ../../packages/core/src/internal/model.ts
     title: Stage 1 engine-owned capability definitions
   - resource: ../../packages/core/src/SynchronousAdapter.ts
     title: Current checked synchronous binding
@@ -29,6 +29,8 @@ generated: { by: codex/okf, at: "2026-10-22T12:23:00+02:00" }
 ---
 
 # Effect filesystem public contract draft
+
+The implementation comparisons below predate the preview. See the [current volume architecture](../architecture/volume-caller-handle-model.md).
 
 Effect owns two modules: `VirtualFileSystem` for the in-memory filesystem and its callers, and `MemoryFileSystem` for adaptation to Effect FileSystem. Community core is retired after the [staged implementation plan](minimal-effect-port.md "implements") completes.
 

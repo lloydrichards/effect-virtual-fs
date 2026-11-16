@@ -3,7 +3,7 @@ import * as Result from "effect/Result"
 import type { VolumeLimits } from "../VirtualFileSystem.js"
 import { type VolumeIdentity, VolumeOptions } from "../Volume.js"
 
-import { Errors, State } from "./engine.js"
+import { Errors, State } from "./model.js"
 import type * as Tree from "./tree.js"
 
 const decodeConfiguration = Errors.decodeConfiguration

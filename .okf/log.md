@@ -1,5 +1,9 @@
 # Bundle update log
 
+## 2026-11-16
+
+- Document how core, memory, Node and LiveVolume use the pinned Effect preview.
+
 ## 2026-11-12
 
 - Record why Effect 4.1.4's derived glob cannot replace the local implementation: it suppresses `BadResource` and unexpected `Unknown` readLink failures. Retain the adapter's error propagation and decorated traversal as replacement conditions.

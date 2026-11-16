@@ -11,13 +11,13 @@ sources:
     resource: ../../../packages/core/src/VirtualFileSystem.ts
     title: Handle close and scoped acquisition
   - id: engine
-    resource: ../../../packages/core/src/internal/engine.ts
+    resource: ../../../packages/core/src/internal/runtime.ts
     title: Handle scopes, shared release, and cleanup finalizers
   - id: tests
     resource: ../../../packages/core/test/FileHandle.test.ts
     title: Handle lifecycle races, busy closes, and interrupted cleanup
   - id: registry
-    resource: ../../../packages/core/src/internal/engine.ts
+    resource: ../../../packages/core/src/internal/runtime.ts
     title: Handle lifecycle, acquisition and one release operation
   - id: registry-tests
     resource: ../../../packages/core/test/Engine.test.ts

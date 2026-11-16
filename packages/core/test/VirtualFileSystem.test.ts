@@ -19,7 +19,7 @@ import {
 import * as TestClock from "effect/testing/TestClock"
 import { Testing, VirtualFileSystem as Vfs } from "../src/index.js"
 
-import { withVolumeTestSeams } from "../src/internal/engine.js"
+import { withVolumeTestSeams } from "../src/internal/model.js"
 import { exists, failure, GUEST, RECURSIVE, write } from "./support/caller.js"
 import { entryNames, pathText, rawEntryNames, text } from "./support/text.js"
 

@@ -26,7 +26,7 @@ import * as Merkle from "./merkle.js"
 import { StoredMetadata } from "./metadata.js"
 
 import { VfsError } from "../VfsError.js"
-import { Paths, State } from "./engine.js"
+import { Paths, State } from "./model.js"
 import * as SnapshotDeltaModel from "./snapshotDeltaModel.js"
 import { UNCHECKED } from "./tree.js"
 import { storedMetadata } from "./volumeState.js"

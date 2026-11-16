@@ -2,10 +2,10 @@
 type: Decision
 title: Persistent volume state
 description: Keeps volume state immutable and installs one coordinated candidate after its commit provider confirms the change.
-status: stable
+status: deprecated
 tags: [core, engine, staging, overlay, snapshots]
 sources:
-  - resource: ../../../packages/core/src/internal/engine.ts
+  - resource: ../../../packages/core/src/internal/model.ts
     title: Persistent state, directory slots and coordinated installation
   - resource: ../../../packages/core/src/internal/tree.ts
     title: Snapshot and live-image codecs
@@ -19,6 +19,8 @@ generated: { by: codex/okf, at: "2026-10-21T17:50:27+00:00" }
 ---
 
 # Persistent volume state
+
+This decision describes the former core engine. Core still uses immutable inode records for snapshots and live images. The [volume architecture](../../architecture/volume-caller-handle-model.md) describes how the preview owns live state and publication.
 
 The volume owns one immutable state value. Inodes live in Effect `HashMap<Ino, Node>`, keyed by inode number. Directories carry their parent, name, and entries; files and symbolic links carry the names that reach them. Persistent directory entries avoid copying a wide directory on every live namespace edit.
 

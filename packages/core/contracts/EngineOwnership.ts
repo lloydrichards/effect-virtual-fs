@@ -1,7 +1,6 @@
 import type { ByteSize, Effect, Scope, Stream } from "effect"
 import type { CallerId, ObjectReferenceId } from "../src/Caller.js"
 import type { DirectoryHandleId, FileHandleId } from "../src/FileHandle.js"
-import type * as Engine from "../src/internal/engine.js"
 import type * as Vfs from "../src/VirtualFileSystem.js"
 import type * as WatchModule from "../src/Watch.js"
 
@@ -236,12 +235,3 @@ export type WalkFailureCompatibility = Assert<Compatible<Vfs.WalkFailure, Before
 export type VolumeLimitsCompatibility = Assert<Compatible<Vfs.VolumeLimits, Before.VolumeLimits>>
 
 export type CallerCompatibility = Assert<Compatible<Vfs.Caller, Before.Caller>>
-
-export type EngineOperationsCompatibility = Assert<
-  Compatible<
-    Engine.EngineOperations,
-    Omit<Before.Caller, symbol | "watch" | "withRoot" | "withDirectory" | "limits"> & {
-      readonly limits: Omit<Before.VolumeLimits, "maxWatchEvents">
-    }
-  >
->

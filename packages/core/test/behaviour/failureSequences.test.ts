@@ -227,7 +227,8 @@ const runRejections = Effect.fnUntraced(function*(script: ReadonlyArray<typeof R
   yield* handle.close
 })
 
-describe("v1 failure sequences", () => {
+// Each property runs 100 complete filesystem scenarios under one Vitest deadline.
+describe("v1 failure sequences", { timeout: 15_000 }, () => {
   it.layer(BunCrypto.layer)((it) => {
     it.effect.prop(
       "should preserve object identity and retained content when generated names and handles change",

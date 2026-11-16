@@ -16,6 +16,7 @@ export default defineConfig({
     exclude: ["**/node_modules/**", "**/dist/**", "**/.reference/**"],
     // All projects run under Bun so the root test script can use one Vitest process.
     projects: [
+      project("effect-preview", "./packages/effect-preview/"),
       project("core", "./packages/core/"),
       project("memory", "./packages/memory/"),
       project("nfs", "./packages/nfs/"),

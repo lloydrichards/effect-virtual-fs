@@ -62,7 +62,9 @@ async function loadCore(
     "--external",
     "effect",
     "--external",
-    "effect/*"
+    "effect/*",
+    "--external",
+    "@effect-vfs/effect-preview"
   ])
   sourceBundleHashes[label] = createHash("sha256").update(await readFile(output)).digest("hex")
 

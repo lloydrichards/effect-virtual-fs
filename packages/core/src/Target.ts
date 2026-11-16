@@ -8,7 +8,7 @@
  */
 import type * as Data from "effect/Data"
 import type * as Schema from "effect/Schema"
-import { Address } from "./internal/engine.js"
+import { Address } from "./internal/model.js"
 import type { DirectoryHandle, FileHandle, ObjectReference, PathInput } from "./VirtualFileSystem.js"
 
 /**

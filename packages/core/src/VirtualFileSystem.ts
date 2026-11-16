@@ -64,8 +64,7 @@ import * as FixtureInternal from "./internal/fixture.js"
 import * as Image from "./internal/image.js"
 
 // Explicit public member types preserve portable consumer declarations while extending engine contracts.
-import type * as Engine from "./internal/engine.js"
-import { Errors, Paths as Path } from "./internal/engine.js"
+import { Errors, Paths as Path } from "./internal/model.js"
 import * as SnapshotDeltaInternal from "./internal/snapshotDelta.js"
 import * as SnapshotMergeInternal from "./internal/snapshotMerge.js"
 import * as VfsModel from "./internal/virtualFileSystem.js"
@@ -436,7 +435,7 @@ export type VolumeOptions = typeof VolumeOptions.Type
  * @category models
  * @since 0.1.0
  */
-export interface VolumeLimits extends Engine.EngineLimits {
+export interface VolumeLimits {
   readonly maxBytes: ByteSize.ByteSize | undefined
   readonly maxFileBytes: ByteSize.ByteSize
   readonly maxEntries: number | undefined
@@ -454,7 +453,7 @@ export interface VolumeLimits extends Engine.EngineLimits {
  * @category models
  * @since 0.1.0
  */
-export interface VolumeUsage extends Engine.VolumeUsage {
+export interface VolumeUsage {
   readonly usedBytes: bigint
   readonly entries: number
 }
@@ -505,7 +504,7 @@ export type Metadata = typeof Metadata.Type
  * @category models
  * @since 0.1.0
  */
-export interface ObjectReference extends Engine.ObjectReference {
+export interface ObjectReference {
   readonly [ObjectReferenceId]: true
 }
 
@@ -544,7 +543,7 @@ export interface ObjectReference extends Engine.ObjectReference {
  * @category models
  * @since 0.1.0
  */
-export interface ObjectObservation<A> extends Engine.ObjectObservation<A> {
+export interface ObjectObservation<A> {
   readonly value: A
   readonly revision: bigint
 }
@@ -555,7 +554,7 @@ export interface ObjectObservation<A> extends Engine.ObjectObservation<A> {
  * @category models
  * @since 0.1.0
  */
-export interface DirectoryEntry extends Engine.DirectoryEntry {
+export interface DirectoryEntry {
   readonly name: Uint8Array
   readonly reference: ObjectReference
 }
@@ -574,7 +573,7 @@ export interface DirectoryEntry extends Engine.DirectoryEntry {
  * @category models
  * @since 0.6.0
  */
-export interface WalkEntry extends Engine.WalkEntry {
+export interface WalkEntry {
   readonly path: BytePath
   readonly name: Uint8Array
   readonly reference: ObjectReference
@@ -631,7 +630,7 @@ export type DirectoryChange = typeof DirectoryChange.Type
  * @category models
  * @since 0.4.0
  */
-export interface ReferenceEntryResult extends Engine.ReferenceEntryResult {
+export interface ReferenceEntryResult {
   readonly reference: ObjectReference
   readonly directory: DirectoryChange
 }
@@ -755,7 +754,7 @@ export type Times = typeof Times.Type
  * @category models
  * @since 0.1.0
  */
-export interface DirectoryHandle extends Engine.DirectoryHandle {
+export interface DirectoryHandle {
   readonly [DirectoryHandleId]: true
   readonly stat: Effect.Effect<Metadata, FsFailure>
   readonly close: Effect.Effect<void, FsFailure>
@@ -920,7 +919,7 @@ export type OpenEntryOptions = typeof OpenEntryOptions.Type
  * @category models
  * @since 0.4.0
  */
-export interface OpenEntryResult extends Engine.OpenEntryResult {
+export interface OpenEntryResult {
   readonly handle: FileHandle
   readonly reference: ObjectReference
   readonly created: boolean
@@ -984,7 +983,7 @@ export type WriteFileOptions = typeof WriteFileOptions.Type
  * @category models
  * @since 0.6.0
  */
-export interface ReadResult extends Engine.ReadResult {
+export interface ReadResult {
   readonly bytes: Uint8Array
   readonly eof: boolean
 }
@@ -1021,7 +1020,7 @@ export interface ReadResult extends Engine.ReadResult {
  * @category models
  * @since 0.1.0
  */
-export interface FileHandle extends Engine.FileHandle {
+export interface FileHandle {
   readonly [FileHandleId]: true
   /** Reads up to `maximumBytes` from the cursor and advances it by the returned length. */
   readonly read: (maximumBytes: number) => Effect.Effect<Uint8Array, FsFailure>
@@ -1142,7 +1141,7 @@ export interface FileHandle extends Engine.FileHandle {
  * @category models
  * @since 0.1.0
  */
-export interface Caller extends Engine.EngineOperations {
+export interface Caller {
   readonly [CallerId]: true
   /** Backing volume configuration; these are not subtree quotas. */
   readonly limits: VolumeLimits

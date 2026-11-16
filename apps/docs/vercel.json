@@ -1,0 +1,3 @@
+{
+  "buildCommand": "cd ../.. && bun run build --filter=@effect-vfs/docs"
+}

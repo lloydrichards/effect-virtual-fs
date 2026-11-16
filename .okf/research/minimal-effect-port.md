@@ -11,7 +11,7 @@ sources:
     title: Effect engine ownership and acceptance
   - resource: https://github.com/lloydrichards/effect-virtual-fs/issues/309
     title: Effect FileSystem adaptation
-  - resource: ../../packages/core/src/internal/engine.ts
+  - resource: ../../packages/core/src/internal/model.ts
     title: Current shared engine and Caller-derived operation contract
   - resource: ../../packages/core/src/VirtualFileSystem.ts
     title: Current community contracts and construction
@@ -25,6 +25,8 @@ generated: { by: codex/okf, at: "2026-10-22T12:23:00+02:00" }
 ---
 
 # Staged Effect filesystem implementation plan
+
+The implementation comparisons below predate the preview. See the [current volume architecture](../architecture/volume-caller-handle-model.md).
 
 Retire `@effect-vfs/core` in stages. Effect owns `VirtualFileSystem` and `MemoryFileSystem`; retained community packages use supported Effect exports. Preserve one filesystem implementation during migration. The first refactor changes contract ownership only.
 
@@ -84,7 +86,7 @@ Deliver one behavior-preserving local refactor.
 5. Extend dependency qualification to cover type ownership. The existing runtime audit erases types and cannot catch the upward `Caller` dependency.
 6. Update the engine ownership map after the implementation matches it.
 
-Primary files are `packages/core/src/internal/engine.ts`, `packages/core/src/VirtualFileSystem.ts`, and the public Caller, FileHandle, Target, Metadata and VfsError modules. Add no public minimal-engine export, duplicate runtime schema, generic transaction framework or mechanical per-operation file split.
+Primary files are `packages/core/src/internal/model.ts`, `packages/core/src/VirtualFileSystem.ts`, and the public Caller, FileHandle, Target, Metadata and VfsError modules. Add no public minimal-engine export, duplicate runtime schema, generic transaction framework or mechanical per-operation file split.
 
 Acceptance checks:
 

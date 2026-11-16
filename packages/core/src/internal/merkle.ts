@@ -6,8 +6,8 @@ import * as Effect from "effect/Effect"
 import type * as PlatformError from "effect/PlatformError"
 import type { ImageFailure } from "../VfsError.js"
 import { bytesOrder } from "./bytes.js"
-import { Paths, State } from "./engine.js"
 import { imageFailure } from "./errors.js"
+import { Paths, State } from "./model.js"
 
 const { joinPath, nameBytes, ROOT_PATH } = Paths
 

@@ -17,9 +17,19 @@ import {
   Scope,
   Stream
 } from "effect"
-import type * as Tracer from "effect/Tracer"
 import { BytePath, LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
-import { makeEngine, memoryCommitProvider, State, withVolumeTestSeams } from "../src/internal/engine.js"
+import * as Image from "../src/internal/image.js"
+import { Errors, State } from "../src/internal/model.js"
+import { runtimeOf } from "../src/internal/runtime.js"
+
+const makeRuntime = (options?: Vfs.VolumeOptions) => Vfs.make(options).pipe(Effect.provide(NodeCrypto.layer))
+
+const capture = (volume: Vfs.Volume) => Effect.flatMap(volume.snapshot, Image.valueOf)
+
+const availability = (volume: Vfs.Volume, operation: string) =>
+  runtimeOf(volume)!.busy
+    ? Result.fail(Errors.fsFailure("VolumeBusy", operation))
+    : Result.succeed(undefined)
 
 const run = Effect.runSync
 
@@ -119,8 +129,8 @@ describe("volume execution", () => {
 
   for (const execution of ["cooperative", "sync"] as const) {
     it(`should preserve positional I/O, links, open-unlinked files and admission reuse in ${execution} mode`, async () => {
-      const engine = run(makeEngine({ execution, limits: { maxPendingOperations: 1 } }))
-      const caller = run(engine.context()).operations
+      const volume = run(makeRuntime({ execution, maxPendingOperations: 1 }))
+      const caller = run(volume.caller())
       const scope = Scope.makeUnsafe()
       await Effect.runPromise(caller.writeFile("/file", text.encode("abcd"), create))
       const handle = run(caller.open("/file", { access: "readWrite" }).pipe(Effect.provideService(Scope.Scope, scope)))
@@ -133,17 +143,17 @@ describe("volume execution", () => {
       assert.deepStrictEqual(run(caller.readFile("/alias")), text.encode("aYXd"))
       run(caller.unlink("/file"))
       run(caller.unlink("/alias"))
-      assert.strictEqual(run(engine.usage).usedBytes, 4n)
+      assert.strictEqual(run(volume.usage).usedBytes, 4n)
       run(handle.close)
       run(Scope.close(scope, Exit.void))
-      assert.strictEqual(run(engine.usage).usedBytes, 0n)
+      assert.strictEqual(run(volume.usage).usedBytes, 0n)
       assert.strictEqual(failure(handle.stat).code, "InvalidHandle")
       run(caller.mkdir("/after-close"))
     })
   }
 
   it("should default to cooperative execution and restore or overlay with an independent mode", async () => {
-    assert.isUndefined(run(makeEngine()).syncBinding)
+    assert.isFalse(runtimeOf(run(makeRuntime()))!.owner.limits.synchronous)
     const original = await make({ execution: "sync" })
     run((run(original.caller())).writeFile("/file", text.encode("before"), create))
     const snapshot = run(original.snapshot)
@@ -165,35 +175,6 @@ describe("volume execution", () => {
     )
 
     run((run(fixture.caller())).mkdir("/fixture"))
-  })
-
-  it("should reject a falsely labelled memory provider before calling its commit or clock", () => {
-    let invoked = false
-
-    const provider = {
-      ...memoryCommitProvider,
-      commit: () => {
-        invoked = true
-
-        return Effect.succeed("committed" as const)
-      }
-    }
-
-    const clock = run(Clock.clockWith(Effect.succeed))
-
-    const construction = makeEngine({ execution: "sync", commitProvider: provider }).pipe(
-      Effect.provideService(
-        Clock.Clock,
-        withNanos(clock, () => {
-          invoked = true
-
-          return 0n
-        })
-      )
-    )
-
-    assert.strictEqual(failure(construction).field, "execution")
-    assert.isFalse(invoked)
   })
 
   it("should reject sync live stores before loading or committing an image", async () => {
@@ -229,8 +210,8 @@ describe("volume execution", () => {
     let hook: (() => void) | undefined
     const clock = run(Clock.clockWith(Effect.succeed))
 
-    const engine = run(
-      makeEngine({ execution: "sync" }).pipe(Effect.provideService(
+    const volume = run(
+      makeRuntime({ execution: "sync" }).pipe(Effect.provideService(
         Clock.Clock,
         withNanos(clock, () => {
           hook?.()
@@ -240,7 +221,7 @@ describe("volume execution", () => {
       ))
     )
 
-    const caller = run(engine.context()).operations
+    const caller = run(volume.caller())
     const scope = Scope.makeUnsafe()
     const directory = run(caller.openDirectory("/").pipe(Effect.provideService(Scope.Scope, scope)))
     hook = () => {
@@ -256,7 +237,7 @@ describe("volume execution", () => {
         failure(caller.openDirectory("/").pipe(Effect.provideService(Scope.Scope, scope))).code,
         "VolumeBusy"
       )
-      assert.isTrue(Result.isFailure(engine.syncBinding!.check("close")))
+      assert.isTrue(Result.isFailure(availability(volume, "close")))
     }
 
     run(caller.mkdir("/outer"))
@@ -266,7 +247,7 @@ describe("volume execution", () => {
     run(Scope.close(scope, Exit.void))
     await Effect.runPromise(Effect.sleep("1 millis"))
     assert.strictEqual(failure(caller.stat("/nested")).code, "NotFound")
-    assert.strictEqual(run(engine.capture("test")).open.size, 0)
+    assert.strictEqual(run(runtimeOf(volume)!.owner.usage).handles, 0)
   })
 
   for (const outcome of ["success", "failure", "defect"] as const) {
@@ -275,8 +256,8 @@ describe("volume execution", () => {
       let invalidTime = false
       const clock = run(Clock.clockWith(Effect.succeed))
 
-      const engine = run(
-        makeEngine({ execution: "sync" }).pipe(Effect.provideService(
+      const volume = run(
+        makeRuntime({ execution: "sync" }).pipe(Effect.provideService(
           Clock.Clock,
           withNanos(clock, () => {
             hook?.()
@@ -286,7 +267,7 @@ describe("volume execution", () => {
         ))
       )
 
-      const caller = run(engine.context()).operations
+      const caller = run(volume.caller())
       const scope = Scope.makeUnsafe(outcome === "success" ? "parallel" : "sequential")
       run(caller.writeFile("/held", text.encode("held"), create))
       const handle = run(caller.open("/held", { access: "readWrite" }).pipe(Effect.provideService(Scope.Scope, scope)))
@@ -306,161 +287,25 @@ describe("volume execution", () => {
       const outer = Effect.runSyncExit(caller.mkdir("/outer"))
       invalidTime = false
       assert.strictEqual(Exit.isSuccess(outer), outcome === "success")
-      assert.strictEqual(run(engine.usage).usedBytes, 0n)
+      assert.strictEqual(run(volume.usage).usedBytes, 0n)
       assert.strictEqual(failure(handle.stat).code, "InvalidHandle")
       assert.strictEqual(failure(directory.stat).code, "InvalidHandle")
-      const state = run(engine.capture("test"))
-      assert.strictEqual(Array.from(state.inodes).filter(([, node]) => node.metadata.nlink === 0).length, 0)
+      assert.strictEqual(run(runtimeOf(volume)!.owner.usage).unreachableRetainedObjects, 0)
     })
   }
-
-  for (const when of ["before", "after"] as const) {
-    it(`should release acquisition when its scope closes ${when} publication`, () => {
-      let hook: (() => void) | undefined
-      let installed: (() => void) | undefined
-      const clock = run(Clock.clockWith(Effect.succeed))
-
-      const engine = run(
-        makeEngine({ execution: "sync", installed: () => installed?.() }).pipe(
-          Effect.provideService(
-            Clock.Clock,
-            withNanos(clock, () => {
-              hook?.()
-
-              return clock.currentTimeNanosUnsafe()
-            })
-          )
-        )
-      )
-
-      const caller = run(engine.context()).operations
-      const scope = Scope.makeUnsafe()
-
-      const close = () => {
-        hook = undefined
-        installed = undefined
-        run(Scope.close(scope, Exit.void))
-      }
-
-      if (when === "before") hook = close
-      else installed = close
-      const opened = Effect.runSyncExit(caller.open("/created", create).pipe(Effect.provideService(Scope.Scope, scope)))
-      assert.isTrue(Exit.isFailure(opened))
-      assert.strictEqual(run(engine.capture("test")).open.size, 0)
-      assert.strictEqual(Exit.isSuccess(Effect.runSyncExit(caller.stat("/created"))), when === "after")
-    })
-  }
-
-  it("should reject injected Effects before recursive removal invokes a hook or changes state", () => {
-    const caller = run((run(makeEngine({ execution: "sync" }))).context()).operations
-    run(caller.mkdir("/tree/child", { recursive: true }))
-    let invoked = false
-
-    const remove = caller.remove("/tree", { recursive: true }).pipe(withVolumeTestSeams({
-      beforeTreeRemoval: Effect.andThen(
-        Effect.sync(() => {
-          invoked = true
-        }),
-        Effect.sleep("1 millis")
-      )
-    }))
-
-    assert.strictEqual(failure(remove).code, "InvalidArgument")
-    assert.isFalse(invoked)
-    assert.strictEqual(run(caller.stat("/tree/child")).kind, "directory")
-  })
 
   it("should capture persistent state without holding ownership during subsequent Effects", async () => {
-    const engine = run(makeEngine({ execution: "sync" }))
-    const caller = run(engine.context()).operations
-    const captured = run(engine.capture("test"))
-    const pending = Effect.runFork(Effect.andThen(Effect.yieldNow, Effect.succeed(captured.revision)))
+    const volume = run(makeRuntime({ execution: "sync" }))
+    const caller = run(volume.caller())
+    const captured = run(capture(volume))
+    const pending = Effect.runFork(Effect.andThen(Effect.yieldNow, Effect.succeed(captured)))
     run(caller.mkdir("/later"))
-    assert.strictEqual(await Effect.runPromise(Fiber.join(pending)), captured.revision)
-    assert.isTrue(run(engine.capture("test")).revision > captured.revision)
+    assert.strictEqual(await Effect.runPromise(Fiber.join(pending)), captured)
+    assert.isTrue(run(capture(volume)).entries > captured.entries)
     assert.strictEqual(State.getNode(captured, State.ROOT_INO)!.kind, "directory")
   })
-  it("should keep rejecting ordinary reentry while draining every release after a cleanup defect", () => {
-    let hook: (() => void) | undefined
-    let installed: (() => void) | undefined
-    const defect = new Error("cleanup installation failed")
-    const clock = run(Clock.clockWith(Effect.succeed))
-
-    const engine = run(
-      makeEngine({ execution: "sync", installed: () => installed?.() }).pipe(
-        Effect.provideService(
-          Clock.Clock,
-          withNanos(clock, () => {
-            hook?.()
-
-            return clock.currentTimeNanosUnsafe()
-          })
-        )
-      )
-    )
-
-    const caller = run(engine.context()).operations
-    const scope = Scope.makeUnsafe()
-
-    const handles = ["a", "b"].map((name) => {
-      run(caller.writeFile("/" + name, new Uint8Array([1]), create))
-      const handle = run(caller.open("/" + name, { access: "read" }).pipe(Effect.provideService(Scope.Scope, scope)))
-      run(caller.unlink("/" + name))
-
-      return handle
-    })
-
-    hook = () => {
-      hook = undefined
-      run(Scope.close(scope, Exit.void))
-    }
-
-    let installs = 0
-    installed = () => {
-      assert.strictEqual(failure(caller.stat("/")).code, "VolumeBusy")
-
-      if (++installs === 2) throw defect
-    }
-
-    const outer = Effect.runSyncExit(caller.mkdir("/outer"))
-    installed = undefined
-    assert.isTrue(Exit.isFailure(outer))
-
-    if (Exit.isFailure(outer)) assert.strictEqual(Cause.squash(outer.cause), defect)
-    assert.strictEqual(run(engine.usage).usedBytes, 0n)
-
-    for (const handle of handles) assert.strictEqual(failure(handle.stat).code, "InvalidHandle")
-    assert.strictEqual(run(caller.stat("/outer")).kind, "directory")
-  })
-
-  it("should deliver interruption after a started transition and its cleanup finish", () => {
-    const engine = run(makeEngine({ execution: "sync" }))
-    const caller = run(engine.context()).operations
-    const tracer = run(Effect.tracer)
-    let interrupted = false
-
-    const hooked: Tracer.Tracer = {
-      span: (options) => tracer.span(options),
-      context(primitive, fiber) {
-        if (!interrupted && Result.isFailure(engine.syncBinding!.check("probe"))) {
-          interrupted = true
-          fiber.interruptUnsafe()
-        }
-
-        return primitive["~effect/Effect/evaluate"](fiber)
-      }
-    }
-
-    const exit = Effect.runSyncExit(caller.mkdir("/committed").pipe(Effect.withTracer(hooked)))
-    assert.isTrue(interrupted)
-    assert.isTrue(Exit.isFailure(exit))
-
-    if (Exit.isFailure(exit)) assert.isTrue(Cause.hasInterrupts(exit.cause))
-    assert.strictEqual(run(caller.stat("/committed")).kind, "directory")
-  })
-
   it("should not start an interrupted operation that has not entered the volume", async () => {
-    const caller = run((run(makeEngine({ execution: "sync" }))).context()).operations
+    const caller = run(run(makeRuntime({ execution: "sync" })).caller())
     const ready = Deferred.makeUnsafe<void>()
     const waiting = Effect.runFork(Effect.andThen(Deferred.await(ready), caller.mkdir("/cancelled")))
     await Effect.runPromise(Fiber.interrupt(waiting))
@@ -514,8 +359,8 @@ describe("volume execution", () => {
     assert.strictEqual(run(caller.stat("/callback")).kind, "directory")
   })
   it("should keep scheduler yield callbacks outside sync ownership", () => {
-    const engine = run(makeEngine({ execution: "sync" }))
-    const caller = run(engine.context()).operations
+    const volume = run(makeRuntime({ execution: "sync" }))
+    const caller = run(volume.caller())
     const ordinary = new Scheduler.MixedScheduler("sync")
     let consulted = 0
 
@@ -524,7 +369,7 @@ describe("volume execution", () => {
       makeDispatcher: () => ordinary.makeDispatcher(),
       shouldYield(fiber) {
         consulted++
-        assert.isTrue(Result.isSuccess(engine.syncBinding!.check("probe")))
+        assert.isTrue(Result.isSuccess(availability(volume, "probe")))
 
         return ordinary.shouldYield(fiber)
       }

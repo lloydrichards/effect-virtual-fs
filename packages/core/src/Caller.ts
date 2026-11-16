@@ -5,7 +5,7 @@
  * @since 0.6.0
  */
 import type * as Schema from "effect/Schema"
-import * as Engine from "./internal/engine.js"
+import * as Model from "./internal/model.js"
 import type { ObjectReference } from "./VirtualFileSystem.js"
 
 /**
@@ -30,7 +30,7 @@ export type CallerId = typeof CallerId
  * @category type IDs
  * @since 0.6.0
  */
-export const ObjectReferenceId: typeof Engine.ObjectReferenceId = Engine.ObjectReferenceId
+export const ObjectReferenceId: typeof Model.ObjectReferenceId = Model.ObjectReferenceId
 
 /**
  * Brand key that marks an object reference.
@@ -52,7 +52,7 @@ export const Identity: Schema.Struct<{
   readonly gid: Schema.Natural
   readonly groups: Schema.$Array<Schema.Natural>
   readonly privileged: Schema.Boolean
-}> = Engine.Identity
+}> = Model.Identity
 
 /**
  * A caller's credentials.
@@ -78,7 +78,7 @@ export const RootCallerOptions: Schema.Struct<{
     }>
   >
   readonly umask: Schema.optionalKey<Schema.Natural>
-}> = Engine.RootCallerOptions
+}> = Model.RootCallerOptions
 
 /**
  * Options of a root caller.
@@ -101,7 +101,7 @@ export const OpenOptions: Schema.Struct<{
   readonly mode: Schema.optionalKey<Schema.Natural>
   readonly append: Schema.optionalKey<Schema.Boolean>
   readonly truncate: Schema.optionalKey<Schema.Boolean>
-}> = Engine.OpenOptions
+}> = Model.OpenOptions
 
 /**
  * Options of `open` on a target.
@@ -127,7 +127,7 @@ export const WriteFileOptions: Schema.Struct<{
   readonly followFinalSymlink: Schema.optionalKey<Schema.Boolean>
   readonly replaceFinalSymlink: Schema.optionalKey<Schema.Boolean>
   readonly finalMode: Schema.optionalKey<Schema.Natural>
-}> = Engine.WriteFileOptions
+}> = Model.WriteFileOptions
 
 /**
  * Options of `writeFile`.
@@ -146,7 +146,7 @@ export type WriteFileOptions = typeof WriteFileOptions.Type
 export const DirectoryChange: Schema.Struct<{
   readonly before: Schema.BigInt
   readonly after: Schema.BigInt
-}> = Engine.DirectoryChange
+}> = Model.DirectoryChange
 
 /**
  * A directory's revision before and after a change.
@@ -179,7 +179,7 @@ export const RenameReferenceResult: Schema.TaggedUnion<{
       readonly after: Schema.BigInt
     }>
   }>
-}> = Engine.RenameReferenceResult
+}> = Model.RenameReferenceResult
 
 /**
  * The result of `rename`.
@@ -235,7 +235,7 @@ export const MkdirOptions: Schema.Struct<{
     }>
   >
   readonly recursive: Schema.optionalKey<Schema.Boolean>
-}> = Engine.MkdirOptions
+}> = Model.MkdirOptions
 
 /**
  * Options of `mkdir`.
@@ -261,7 +261,7 @@ export const WalkOptions: Schema.Struct<{
   readonly maxDepth: Schema.optionalKey<Schema.Natural>
   readonly maxEntries: Schema.optionalKey<Schema.Natural>
   readonly maxBytes: Schema.optionalKey<Schema.ByteSize>
-}> = Engine.WalkOptions
+}> = Model.WalkOptions
 
 /**
  * Options of `walk`.
@@ -283,7 +283,7 @@ export const RemoveOptions: Schema.Struct<{
   readonly recursive: Schema.optionalKey<Schema.Boolean>
   readonly force: Schema.optionalKey<Schema.Boolean>
   readonly expected: Schema.optionalKey<Schema.suspend<Schema.declare<ObjectReference, ObjectReference>>>
-}> = Engine.RemoveOptions
+}> = Model.RemoveOptions
 
 /**
  * Options of `remove`.
@@ -332,7 +332,7 @@ export const SymlinkOptions: Schema.Struct<{
       >
     }>
   >
-}> = Engine.SymlinkOptions
+}> = Model.SymlinkOptions
 
 /**
  * Options of `symlink`.
@@ -399,7 +399,7 @@ export const SetattrOptions: Schema.Struct<{
       readonly revision: Schema.BigInt
     }>
   >
-}> = Engine.SetattrOptions
+}> = Model.SetattrOptions
 
 /**
  * Attributes of `setattr`.
@@ -415,7 +415,7 @@ export type SetattrOptions = typeof SetattrOptions.Type
  *
  * @internal
  */
-export const ObjectReferenceSchema: Schema.declare<ObjectReference, ObjectReference> = Engine.ObjectReferenceSchema
+export const ObjectReferenceSchema: Schema.declare<ObjectReference, ObjectReference> = Model.ObjectReferenceSchema
 
 /**
  * Schema for the options of `open` on an entry, a lookup-or-create-and-open in
@@ -485,7 +485,7 @@ export const OpenEntryOptions: Schema.Struct<{
       }>
     >
   >
-}> = Engine.OpenEntryOptions
+}> = Model.OpenEntryOptions
 
 /**
  * Options of `open` on an entry.

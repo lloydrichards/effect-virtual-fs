@@ -65,7 +65,7 @@ jobs:
           uname -a
           cat /etc/os-release
           node -p "require('@effect/platform-node-shared/package.json').version"
-      - run: bun run --filter @effect-vfs/core build
+      - run: bun run build --filter=@effect-vfs/core
       - run: bun run --filter @effect-vfs/memory test:host
       - run: bun run --filter @effect-vfs/nfs build
       - name: Node benchmark correctness smoke
@@ -93,8 +93,7 @@ jobs:
           node-version: 26.11.1
       - run: bun install --frozen-lockfile
       - run: node --version
-      - run: bun run --cwd packages/core build
-      - run: bun run --cwd packages/node build
+      - run: bun run build --filter=@effect-vfs/node
       - run: bun run --cwd packages/node type-check
       - run: bun run test:node
 
@@ -116,8 +115,7 @@ jobs:
           uname -a
           git rev-parse HEAD
           node -p "require('effect/package.json').version"
-      - run: bun run --cwd packages/core build
-      - run: bun run --cwd packages/node build
+      - run: bun run build --filter=@effect-vfs/node
       - run: bun run --cwd packages/node type-check
       - run: bun run --cwd packages/node test:mounted
 
@@ -133,8 +131,6 @@ jobs:
         with:
           node-version: 26.11.1
       - run: bun install --frozen-lockfile
-      - run: bun run --cwd packages/core build
-      - run: bun run --cwd packages/node build
-      - run: bun run --cwd apps/demo-typescript-workbench build
+      - run: bun run build --filter=@repo/typescript-workbench
       - run: bun run --cwd apps/demo-typescript-workbench lint:effects
       - run: bun run --cwd apps/demo-typescript-workbench test

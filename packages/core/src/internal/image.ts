@@ -15,7 +15,7 @@ import { make as makeBytePath } from "./bytePath.js"
 import { imageFailure } from "./errors.js"
 import * as Lines from "./lines.js"
 
-import { Errors, Paths, State } from "./engine.js"
+import { Errors, Paths, State } from "./model.js"
 import * as Tree from "./tree.js"
 import { assemble, storedMetadata } from "./volumeState.js"
 

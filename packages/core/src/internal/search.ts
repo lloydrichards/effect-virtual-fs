@@ -7,7 +7,7 @@ import type { PathInput } from "../VirtualFileSystem.js"
 
 import * as Image from "./image.js"
 
-import { Errors, Paths, State } from "./engine.js"
+import { Errors, Paths, State } from "./model.js"
 import { BudgetExceeded, type Kind, type Meter } from "./searchModel.js"
 
 const fsFailure = Errors.fsFailure
