@@ -29,7 +29,7 @@ for (const entry of ["VirtualFileSystem.ts", "LiveVolume.ts", "SynchronousAdapte
     seen.add(url)
 
     for (const specifier of dependencies(url)) {
-      if (specifier.startsWith("@effect-vfs/effect-preview")) preview = true
+      if (specifier.startsWith("#preview/")) preview = true
       else if (specifier.startsWith(".")) pending.push(new URL(specifier.replace(/\.js$/, ".ts"), url).href)
       else if (specifier !== "effect" && !specifier.startsWith("effect/")) throw new Error(`Unexpected core runtime dependency: ${specifier}`)
     }

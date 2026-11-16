@@ -212,10 +212,8 @@
     "packages/core": {
       "name": "@effect-vfs/core",
       "version": "0.10.0",
-      "dependencies": {
-        "@effect-vfs/effect-preview": "workspace:*",
-      },
       "devDependencies": {
+        "@effect-vfs/effect-preview": "workspace:*",
         "@effect/platform-bun": "4.1.4",
         "@effect/platform-node-shared": "4.1.4",
         "@effect/vitest": "4.1.4",

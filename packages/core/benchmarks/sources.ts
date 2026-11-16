@@ -64,7 +64,9 @@ async function loadCore(
     "--external",
     "effect/*",
     "--external",
-    "@effect-vfs/effect-preview"
+    "@effect-vfs/effect-preview",
+    "--external",
+    "#preview/*"
   ])
   sourceBundleHashes[label] = createHash("sha256").update(await readFile(output)).digest("hex")
 
@@ -79,6 +81,9 @@ export async function prepareSources(controls: ConfinementControls) {
   try {
     const baselineRef = (await command(["git", "rev-parse", controls.baseline])).toString().trim()
     await symlink(resolve(repo, "node_modules"), resolve(temp, "node_modules"), "dir")
+    // The isolated source trees resolve the same private engine imports as the built package.
+    await cp(resolve(repo, "packages/core/package.json"), resolve(temp, "package.json"))
+    await symlink(resolve(repo, "packages/core/dist"), resolve(temp, "dist"), "dir")
     await mkdir(resolve(temp, "baseline"))
     await writeFile(resolve(temp, "baseline.tar"), await command(["git", "archive", baselineRef, "packages/core/src"]))
     await command(["tar", "-xf", resolve(temp, "baseline.tar"), "-C", resolve(temp, "baseline")])

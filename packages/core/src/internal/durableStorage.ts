@@ -1,7 +1,7 @@
 /** Translate staged preview nodes into the core v1 live image, including files pinned after unlink. @internal */
-import { BytePath } from "@effect-vfs/effect-preview"
-import { installStorage } from "@effect-vfs/effect-preview/internal/durableStorage"
-import * as P from "@effect-vfs/effect-preview/VirtualFileSystem"
+import { BytePath } from "#preview/index"
+import { installStorage } from "#preview/internal/durableStorage"
+import * as P from "#preview/virtual-file-system/VirtualFileSystem"
 import { Cause, Effect, Exit, Predicate } from "effect"
 import { type CommitProvider, State } from "./model.js"
 import { assemble, type NodeSpec } from "./volumeState.js"
