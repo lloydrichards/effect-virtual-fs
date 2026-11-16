@@ -33,6 +33,13 @@ Switch **Caller** to **Reader** and run the build again. Both callers see the sa
 yield* saveCheckpoint(yield* volume.snapshot())
 ```
 
-The save effect inserts the snapshot into SQLite, exports the database bytes, and waits for the IndexedDB write to finish. `Effect.acquireRelease` closes the SQLite connection on success or failure. After a successful save or delete, the command refreshes the checkpoint atom. Its value controls **Reopen saved** and **Inspect saved row**.
+The save effect binds the snapshot bytes to an Effect SQL query. The browser SQLite driver exports the database, then the effect waits for the IndexedDB write to finish.
+
+```ts
+yield* sql`INSERT INTO checkpoint VALUES (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ${image})`
+const bytes = yield* sql.export
+```
+
+The effect scope closes the database on success or failure. After a successful save or delete, the command refreshes the checkpoint atom. Its value controls **Reopen saved** and **Inspect saved row**.
 
 For a server-side example, see [Save and restore SQLite checkpoints](/guides/sqlite-checkpoints).
