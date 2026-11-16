@@ -1,22 +1,22 @@
+import * as BrowserKeyValueStore from "@effect/platform-browser/BrowserKeyValueStore"
+import * as IndexedDb from "@effect/platform-browser/IndexedDb"
 import * as SqliteClient from "@effect/sql-sqlite-wasm/SqliteClient"
-import { Effect, Schema } from "effect"
-import { createStore, del, get, keys, set } from "idb-keyval"
+import { Effect, Layer, Schema } from "effect"
+import { KeyValueStore } from "effect/persistence/KeyValueStore"
 
 import { PlaygroundError } from "./error"
 
-const store = createStore("effect-vfs-playground", "databases")
-
 const key = "workspace.sqlite"
 
-// Existing checkpoints use out-of-line keys and raw bytes in the databases object store.
-const indexedDb = <A>(request: () => Promise<A>) =>
-  Effect.tryPromise({ try: request, catch: PlaygroundError.fromCause })
+const storeLayer = BrowserKeyValueStore.layerIndexedDb({ database: "effect-vfs-checkpoints" }).pipe(
+  Layer.provide(IndexedDb.layerWindow)
+)
 
-const sqlite = SqliteClient.layerMemory({})
+const checkpointLayer = Layer.merge(storeLayer, SqliteClient.layerMemory({}))
 
-export const hasSavedCheckpoint = indexedDb(() => keys(store)).pipe(Effect.map((names) => names.includes(key)))
+export const hasSavedCheckpoint = KeyValueStore.use((store) => store.has(key)).pipe(Effect.provide(storeLayer))
 
-export const deleteCheckpoint = indexedDb(() => del(key, store))
+export const deleteCheckpoint = KeyValueStore.use((store) => store.remove(key)).pipe(Effect.provide(storeLayer))
 
 export const saveCheckpoint = Effect.fnUntraced(function*(image: Uint8Array) {
   const sql = yield* SqliteClient.SqliteClient
@@ -24,11 +24,13 @@ export const saveCheckpoint = Effect.fnUntraced(function*(image: Uint8Array) {
   yield* sql`INSERT INTO checkpoint VALUES (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ${image})`
   const bytes = yield* sql.export
 
-  yield* indexedDb(() => set(key, bytes, store))
-}, Effect.provide(sqlite))
+  const store = yield* KeyValueStore
+  yield* store.set(key, bytes)
+}, Effect.provide(checkpointLayer))
 
 export const readCheckpoint = Effect.gen(function*() {
-  const bytes = yield* indexedDb(() => get<Uint8Array>(key, store))
+  const store = yield* KeyValueStore
+  const bytes = yield* store.getUint8Array(key)
 
   if (!bytes) return yield* new PlaygroundError({ message: "No checkpoint saved in this browser yet." })
 
@@ -41,4 +43,4 @@ export const readCheckpoint = Effect.gen(function*() {
     size: Schema.Finite,
     image: Schema.Uint8Array
   }))(row)
-}).pipe(Effect.provide(sqlite))
+}).pipe(Effect.provide(checkpointLayer))
