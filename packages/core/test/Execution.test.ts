@@ -17,6 +17,7 @@ import {
   Scope,
   Stream
 } from "effect"
+import { vi } from "vitest"
 import { BytePath, LiveVolume, VirtualFileSystem as Vfs } from "../src/index.js"
 import * as Image from "../src/internal/image.js"
 import { Errors, State } from "../src/internal/model.js"
@@ -77,6 +78,38 @@ describe("volume execution", () => {
     assert.deepStrictEqual(await Effect.runPromise(caller.readFile(deep + "/data")), text.encode("shared"))
     run(Scope.close(scope, Exit.void))
     assert.strictEqual(failure(rooted.stat("/")).code, "ClosedCaller")
+  })
+
+  it("resolves a directory handle repeatedly without copying unrelated file contents", async () => {
+    const volume = await make({ execution: "sync" })
+    const caller = run(volume.caller())
+    run(caller.mkdir("/dir"))
+    const size = 256 * 1024
+    run(caller.writeFile("/unrelated", new Uint8Array(size), create))
+    const scope = Scope.makeUnsafe()
+    const handle = run(caller.openDirectory("/dir").pipe(Scope.provide(scope)))
+    const slices = vi.spyOn(Uint8Array.prototype, "slice")
+    const sets = vi.spyOn(Uint8Array.prototype, "set")
+
+    try {
+      const copies = []
+
+      for (let i = 0; i < 2; i++) {
+        slices.mockClear()
+        sets.mockClear()
+        assert.strictEqual(run(BytePath.toString(run(caller.realPath(handle)))), "/dir")
+        copies.push(
+          slices.mock.contexts.filter((bytes) => bytes instanceof Uint8Array && bytes.byteLength === size).length +
+            sets.mock.calls.filter(([bytes]) => bytes.length === size).length
+        )
+      }
+
+      assert.deepStrictEqual(copies, [0, 0])
+    } finally {
+      slices.mockRestore()
+      sets.mockRestore()
+      run(Scope.close(scope, Exit.void))
+    }
   })
 
   for (const operation of ["handle", "realPath"] as const) {

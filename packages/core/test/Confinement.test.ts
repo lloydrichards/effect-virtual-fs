@@ -139,6 +139,39 @@ describe("confined callers", () => {
         assert.strictEqual((yield* directory.stat).kind, "directory")
       }).pipe(Effect.provide(Testing.layer())))
 
+    it.effect("resolves directory handles through visible ancestors after restore and rename", () =>
+      Effect.gen(function*() {
+        const original = yield* Vfs.make()
+        const source = yield* original.caller()
+        yield* source.mkdir("/removed")
+        yield* source.mkdir("/tenant/parent/child", { recursive: true })
+        yield* source.rmdir("/removed")
+        const volume = yield* Vfs.fromSnapshot(yield* original.snapshot)
+        const owner = yield* volume.caller()
+        const guest = yield* volume.caller({ identity: { uid: 9, gid: 9, groups: [], privileged: false } })
+        const confined = yield* guest.withRoot("/tenant")
+        const root = yield* confined.openDirectory("/")
+        const child = yield* owner.openDirectory("/tenant/parent/child")
+        const parent = yield* confined.openDirectory("/parent")
+        assert.strictEqual(yield* pathText(yield* confined.realPath(root)), "/")
+        yield* owner.chmod("/tenant/parent/child", 0)
+        assert.strictEqual(yield* pathText(yield* confined.realPath(child)), "/parent/child")
+        yield* owner.chmod("/tenant/parent", 0)
+        assert.strictEqual((yield* Effect.flip(confined.realPath(child))).code, "AccessDenied")
+        yield* owner.chmod("/tenant/parent", 0o755)
+        yield* owner.rename("/tenant/parent", "/outside")
+        assert.strictEqual((yield* Effect.flip(confined.realPath(child))).code, "AccessDenied")
+        assert.strictEqual((yield* Effect.flip(owner.realPath(parent))).code, "AccessDenied")
+        yield* owner.rename("/outside", "/tenant/returned")
+        assert.strictEqual(yield* pathText(yield* confined.realPath(child)), "/returned/child")
+        yield* owner.rmdir("/tenant/returned/child")
+        assert.strictEqual((yield* Effect.flip(owner.realPath(child))).code, "NotFound")
+        assert.strictEqual((yield* Effect.flip(confined.realPath(child))).code, "AccessDenied")
+        assert.strictEqual((yield* Effect.flip(source.realPath(child))).code, "ForeignHandle")
+        yield* child.close
+        assert.strictEqual((yield* Effect.flip(owner.realPath(child))).code, "InvalidHandle")
+      }))
+
     it.effect("retains imported handle restrictions even for an unrestricted caller", () =>
       Effect.gen(function*() {
         const { owner, caller } = yield* fixture
