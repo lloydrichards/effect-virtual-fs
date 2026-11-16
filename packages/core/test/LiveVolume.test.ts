@@ -1,3 +1,4 @@
+/// <reference lib="es2024.arraybuffer" />
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { ByteSize, Deferred, Effect, Exit, Fiber, Layer, Predicate, Queue, Stream } from "effect"
@@ -709,6 +710,23 @@ describe("live commit", () => {
   })
 
   it.layer(BunCrypto.layer)((it) => {
+    it.effect("reports the committed overwrite length when its input grows before storage acknowledges it", () =>
+      Effect.gen(function*() {
+        const { caller, pauseNext } = yield* pausable
+        const handle = yield* caller.open("/file", { access: "readWrite", create: "exclusive" })
+        yield* handle.write(bytes(1, 2, 3))
+        const buffer = new ArrayBuffer(1, { maxByteLength: 3 })
+        const input = new Uint8Array(buffer)
+        input[0] = 9
+        const { entered, release } = yield* pauseNext
+        const writing = yield* handle.pwrite(input, 0n).pipe(Effect.forkChild({ startImmediately: true }))
+        yield* entered
+        buffer.resize(3)
+        yield* release
+        assert.strictEqual(yield* Fiber.join(writing), 1)
+        assert.deepStrictEqual(yield* caller.readFile("/file"), bytes(9, 2, 3))
+      }))
+
     it.effect("should settle a pending commit when its worker is interrupted", () =>
       Effect.gen(function*() {
         const live = yield* pausable
