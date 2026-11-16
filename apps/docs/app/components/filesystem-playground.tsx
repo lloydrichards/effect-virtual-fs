@@ -137,9 +137,17 @@ function WorkspacePanel() {
           Caller
           <NativeSelect
             value={role}
-            onChange={(event) =>
-              void run({ role: event.target.value === "reader" ? "reader" : "editor" }).then(closeOnSuccess)}
+            onChange={(event) => {
+              const next = event.target.value
+
+              if (next === "admin" || next === "editor" || next === "reader") {
+                void run({ role: next }).then(
+                  closeOnSuccess
+                )
+              }
+            }}
           >
+            <option value="admin">Admin</option>
             <option value="editor">Editor</option>
             <option value="reader">Reader</option>
           </NativeSelect>
@@ -166,7 +174,7 @@ function WorkspacePanel() {
                 variant="ghost"
                 aria-label={action}
                 title={action}
-                disabled={role !== "editor" || (action === renameAction && !selected)}
+                disabled={role === "reader" || (action === renameAction && !selected)}
                 onClick={() => {
                   setOperation(operation === action ? null : action)
                   setName(
@@ -187,7 +195,7 @@ function WorkspacePanel() {
               variant="ghost"
               aria-label={folder ? "Delete folder" : "Delete file"}
               title={folder ? `Delete ${folder} and its contents` : `Delete ${path}`}
-              disabled={role !== "editor" || !selected}
+              disabled={role === "reader" || !selected}
               onClick={() => void run("deleteEntry").then(closeOnSuccess)}
             >
               <Trash2 />
@@ -217,7 +225,7 @@ function WorkspacePanel() {
           {opening ?
             (
               <div aria-hidden="true" className="px-2">
-                {["mb-0.5 w-16", "w-12", "ms-3 w-20"].map((row) => (
+                {["mb-0.5 w-16", "mb-0.5 w-20", "w-12", "ms-3 w-20"].map((row) => (
                   <div key={row} className={`flex h-7 max-w-full items-center pointer-coarse:h-11 ${row}`}>
                     <Skeleton className="h-2 w-full rounded motion-reduce:animate-none" />
                   </div>

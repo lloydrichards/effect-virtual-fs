@@ -17,25 +17,39 @@ export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
   const program = image
     ? Effect.flatMap(Vfs.decodeSnapshot(image, limits), (snapshot) => Vfs.fromSnapshot(snapshot))
     : Vfs.fromFixture({
+      rootMetadata: { uid: 0, gid: 1000, mode: 0o1775 },
       entries: [
-        { kind: "directory", path: "/src", metadata: { mode: 0o755 } },
+        { kind: "directory", path: "/src", metadata: { uid: 1000, mode: 0o755 } },
         {
           kind: "file",
           path: "/main.js",
-          metadata: { mode: 0o644 },
-          bytes: encoder.encode("import { value } from \"./src/value.js\"\nexport const answer = value + 22\n")
+          metadata: { uid: 1000, mode: 0o644 },
+          bytes: encoder.encode(
+            "import { value } from \"./src/value.js\"\nimport { offset } from \"./secret.js\"\nexport const answer = value + offset\n"
+          )
+        },
+        {
+          kind: "file",
+          path: "/secret.js",
+          metadata: { uid: 0, mode: 0o600 },
+          bytes: encoder.encode("export const offset = 22\n")
         },
         {
           kind: "file",
           path: "/src/value.js",
-          metadata: { mode: 0o644 },
+          metadata: { uid: 1000, mode: 0o644 },
           bytes: encoder.encode("export const value = 20\n")
         }
       ]
     })
 
   const volume = yield* program.pipe(Effect.provide(BrowserCrypto.layer))
-  const editor = yield* volume.caller({ umask: 0o022 })
+  const admin = yield* volume.caller({ identity: { uid: 0, gid: 0, groups: [], privileged: true }, umask: 0o022 })
+
+  const editor = yield* volume.caller({
+    identity: { uid: 1000, gid: 1000, groups: [], privileged: false },
+    umask: 0o022
+  })
 
   const reader = yield* volume.caller({
     identity: { uid: 2000, gid: 2000, groups: [], privileged: false }
@@ -75,6 +89,7 @@ export const openVolume = Effect.fnUntraced(function*(image?: Uint8Array) {
   })
 
   return {
+    admin: bind(admin),
     editor: bind(editor),
     reader: bind(reader),
     snapshot: () => volume.snapshot.pipe(Effect.flatMap((snapshot) => Vfs.encodeSnapshot(snapshot, limits)))

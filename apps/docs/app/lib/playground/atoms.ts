@@ -9,7 +9,7 @@ export type Entry = Effect.Success<ReturnType<FileAccess["files"]>>[number]
 
 export type Operation = "New file" | "New folder" | "Rename file" | "Rename folder"
 
-type Role = "editor" | "reader"
+type Role = "admin" | "editor" | "reader"
 
 type Command =
   | "open"
@@ -39,7 +39,7 @@ interface Playground {
 }
 
 export const playgroundAtom = Atom.make<Playground>({
-  role: "editor",
+  role: "admin",
   entries: [],
   path: "/src/value.js",
   folder: "",
@@ -69,20 +69,32 @@ const selectFile = Effect.fnUntraced(function*(caller: FileAccess, path: string)
   return { path, source, permissions, dirty: false }
 })
 
+const selectReadableFile = Effect.fnUntraced(
+  function*(caller: FileAccess, entries: ReadonlyArray<Entry>, preferred: string) {
+    const paths = entries.flatMap((entry) => entry.directory ? [] : [entry.path])
+
+    if (paths.includes(preferred) && ((yield* caller.permissions(preferred)) & 4)) {
+      return yield* selectFile(caller, preferred)
+    }
+
+    for (const candidate of paths) {
+      if ((yield* caller.permissions(candidate)) & 4) return yield* selectFile(caller, candidate)
+    }
+
+    return yield* selectFile(caller, "")
+  }
+)
+
 const perform = Effect.fnUntraced(function*(command: Command, state: Playground) {
   if (command === "open" || command === "reopen") {
     const volume = yield* openVolume(command === "reopen" ? (yield* readCheckpoint).image : undefined)
     const caller = volume[state.role]
     const entries = yield* caller.files()
 
-    const path = entries.some((entry) => !entry.directory && entry.path === state.path)
-      ? state.path :
-      entries.find((entry) => !entry.directory)?.path ?? ""
-
     return {
       volume,
       entries,
-      ...yield* selectFile(caller, path),
+      ...yield* selectReadableFile(caller, entries, state.path),
       folder: "",
       output: "",
       status: command === "open" ? "Starter files open in memory." : "Reopened the saved checkpoint."
@@ -125,7 +137,7 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
       const entries = yield* caller.files()
 
       const file = !folder || !path || path.startsWith(folder + "/")
-        ? yield* selectFile(caller, entries.find((entry) => !entry.directory)?.path ?? "") :
+        ? yield* selectReadableFile(caller, entries, "") :
         {}
 
       return {
@@ -143,7 +155,8 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
   if ("role" in command) {
     return {
       role: command.role,
-      ...yield* selectFile(volume[command.role], path),
+      ...yield* selectReadableFile(volume[command.role], state.entries, path),
+      output: "",
       status: `Switched to ${command.role}.`
     }
   }
