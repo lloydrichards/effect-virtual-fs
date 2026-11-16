@@ -466,17 +466,17 @@ const busyWithUnlinkedOpen = Effect.fnUntraced(function*(scope: Scope.Scope) {
 
 type Opener = (caller: Vfs.Caller) => Effect.Effect<unknown, Vfs.VfsError, Scope.Scope>
 
-const fileOpeners: ReadonlyArray<readonly [string, Opener]> = [
-  ["open", (caller) => caller.open("/file", { access: "read" })],
+const fileOpeners = (options: Vfs.OpenOptions = { access: "read" }): ReadonlyArray<readonly [string, Opener]> => [
+  ["open", (caller) => caller.open("/file", options)],
   ["openReference", (caller) =>
     Effect.gen(function*() {
       const reference = yield* caller.lookup(Vfs.Entry(yield* caller.root, name("file")))
 
-      return yield* caller.open(reference, { access: "read" })
+      return yield* caller.open(reference, options)
     })],
   ["openChildReference", (caller) =>
     Effect.gen(function*() {
-      return yield* caller.open(Vfs.Entry(yield* caller.root, name("file")), { access: "read" })
+      return yield* caller.open(Vfs.Entry(yield* caller.root, name("file")), options)
     })]
 ]
 
@@ -486,7 +486,7 @@ const directoryOpeners: ReadonlyArray<readonly [string, Opener]> = [
 ]
 
 describe("handle lifecycles", () => {
-  for (const [label, opener] of [...fileOpeners, ...directoryOpeners]) {
+  for (const [label, opener] of [...fileOpeners(), ...directoryOpeners]) {
     it.layer(BunCrypto.layer)((it) => {
       it.effect(
         `should interrupt ${label} when its scope closes while acquisition waits`,
@@ -514,7 +514,7 @@ describe("handle lifecycles", () => {
     })
   }
 
-  for (const [label, opener] of fileOpeners) {
+  for (const [label, opener] of fileOpeners()) {
     it.layer(BunCrypto.layer)((it) => {
       it.effect(
         `should release unlinked content when ${label} loses its scope or fiber while waiting`,
@@ -543,7 +543,7 @@ describe("handle lifecycles", () => {
     })
   }
 
-  for (const [label, opener] of fileOpeners) {
+  for (const [label, opener] of fileOpeners()) {
     it.layer(BunCrypto.layer)((it) => {
       it.effect(
         `should release acquired resources when ${label} scope closes during acquisition`,
@@ -570,13 +570,13 @@ describe("handle lifecycles", () => {
     })
   }
 
-  for (const [label, opener] of fileOpeners) {
+  for (const [label, opener] of fileOpeners({ access: "write", truncate: true })) {
     it.layer(BunCrypto.layer)((it) => {
       it.effect(
         `should interrupt ${label} and release resources when its scope closes during a pending commit`,
         () =>
           Effect.gen(function*() {
-            const { volume, caller, pauseNext } = yield* pausedVolume
+            const { caller, pauseNext, retained } = yield* pausedVolume
             yield* caller.writeFile("/file", bytes(1, 2), { access: "write", create: "exclusive" })
             const { entered, release } = yield* pauseNext
             const scope = yield* Scope.make()
@@ -591,20 +591,21 @@ describe("handle lifecycles", () => {
             yield* release
             const result = yield* Fiber.await(opening)
             assert.isTrue(Exit.isFailure(result) && Cause.hasInterruptsOnly(result.cause))
+            assert.strictEqual((yield* caller.stat("/file")).size, 0n)
             yield* caller.unlink("/file")
-            assert.strictEqual((yield* volume.usage).usedBytes, 0n)
+            assert.deepEqual(retained(), [])
           })
       )
     })
   }
 
-  for (const [label, opener] of fileOpeners) {
+  for (const [label, opener] of fileOpeners({ access: "write", truncate: true })) {
     it.layer(BunCrypto.layer)((it) => {
       it.effect(
         `should release resources when ${label} scope and fiber close during its pending commit`,
         () =>
           Effect.gen(function*() {
-            const { volume, caller, pauseNext } = yield* pausedVolume
+            const { caller, pauseNext, retained } = yield* pausedVolume
             yield* caller.writeFile("/file", bytes(1, 2), { access: "write", create: "exclusive" })
             const { entered, release } = yield* pauseNext
             const scope = yield* Scope.make()
@@ -620,8 +621,9 @@ describe("handle lifecycles", () => {
             const interrupting = yield* Fiber.interrupt(opening).pipe(Effect.forkChild({ startImmediately: true }))
             yield* release
             yield* Fiber.join(interrupting)
+            assert.strictEqual((yield* caller.stat("/file")).size, 0n)
             yield* caller.unlink("/file")
-            assert.strictEqual((yield* volume.usage).usedBytes, 0n)
+            assert.deepEqual(retained(), [])
           })
       )
     })

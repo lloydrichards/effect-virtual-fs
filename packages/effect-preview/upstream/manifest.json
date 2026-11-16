@@ -1,6 +1,6 @@
 {
   "repository": "lloydrichards/open_effect",
-  "commit": "c3bbe400e4f03b2ab74f0c16018c8ebbfd047698",
+  "commit": "7f1f5081ad39806f2c79af9a2bd6ade7c0510120",
   "base": "d0c49be523923fd58821ab25a777b1832e412dfc",
   "pullRequest": "https://github.com/Effect-TS/effect/pull/9960",
   "files": {
@@ -13,7 +13,7 @@
     "src/virtual-file-system/internal/atomic.ts": "407da359555f6a571929d0e032038e97889f558b87d1aa914d163c4a792b4649",
     "src/virtual-file-system/internal/capture.ts": "3dfa4748c7425fbc4fb4e7844df67fb53828c0ff4738634f4712585f1eb9fc8c",
     "src/virtual-file-system/internal/engine.ts": "84083b12ad04ee656662159d57a1a78733c8234f0fbae33c59cee13d260111de",
-    "src/virtual-file-system/internal/handles.ts": "57a0a8e47703427c3132baa19671a739fd9b2001497ba2b0e9a41187606538cb",
+    "src/virtual-file-system/internal/handles.ts": "e772d21255fc1e32f21d328c3e64104c88a9cda5cbfe913aca6b3d63dd3fb010",
     "src/virtual-file-system/internal/model.ts": "24af7babedd7ba498e23976ad8072b383c576d357ab15ebf6192653bd5dae100",
     "src/virtual-file-system/internal/operations.ts": "2bc730f48872f52c9203cb01935e5f34a05915fb8a797c1daeff3061b61a8d1a",
     "src/virtual-file-system/internal/preparation.ts": "ea099198808691b8ec2f657f2bed2eda7204f65f38fa11205e40cef085dd0cf2",
@@ -29,7 +29,7 @@
     "test/virtual-file-system/VirtualFileSystem.handles.test.ts": "3b19f1d76d432faa73871689718abe3687bf119f2c43db981a600ab324d8b8f7",
     "test/virtual-file-system/VirtualFileSystem.limits.test.ts": "2c4e08e9a65a1c0bc793b8728319f8f466c587fa88462b94729ed9b928184007",
     "test/virtual-file-system/VirtualFileSystem.operations.test.ts": "97954b6da2fe9c9e5c9ee5eef9367d3624f1c7f9a1e60a62fc88c6b8967e90b0",
-    "test/virtual-file-system/VirtualFileSystem.storage.test.ts": "8552059356a35a41598f69e0e9954b55c23378047fc2f14e4657ce54412cbd08",
+    "test/virtual-file-system/VirtualFileSystem.storage.test.ts": "fcbb6a048d84c14caa41d78a304ffd70b5686ed911818789f2fcddd1b23cedc4",
     "test/virtual-file-system/VirtualFileSystem.test.ts": "91ee02d3a784eeee864903e3c4e53112f14b20e5a45a556201c08cdc4118b0d0",
     "typetest/BytePath.tst.ts": "9646491b37625a9b7ab8b2ee9a0844d6578698e6241106b6fd85b65db52b152d",
     "typetest/DateTime.UnixNano.tst.ts": "79e88a9930fcc9efae407d636c5a5cc95ebb50435d9a35c470230190a56b0c86",
