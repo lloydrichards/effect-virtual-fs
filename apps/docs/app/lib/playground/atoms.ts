@@ -71,17 +71,10 @@ const selectFile = Effect.fnUntraced(function*(caller: FileAccess, path: string)
 
 const selectReadableFile = Effect.fnUntraced(
   function*(caller: FileAccess, entries: ReadonlyArray<Entry>, preferred: string) {
-    const paths = entries.flatMap((entry) => entry.directory ? [] : [entry.path])
+    const files = entries.filter((entry) => !entry.directory && entry.readable)
+    const selected = files.find((entry) => entry.path === preferred) ?? files[0]
 
-    if (paths.includes(preferred) && ((yield* caller.permissions(preferred)) & 4)) {
-      return yield* selectFile(caller, preferred)
-    }
-
-    for (const candidate of paths) {
-      if ((yield* caller.permissions(candidate)) & 4) return yield* selectFile(caller, candidate)
-    }
-
-    return yield* selectFile(caller, "")
+    return yield* selectFile(caller, selected?.path ?? "")
   }
 )
 
@@ -153,9 +146,13 @@ const perform = Effect.fnUntraced(function*(command: Command, state: Playground)
   yield* flush
 
   if ("role" in command) {
+    const nextCaller = volume[command.role]
+    const entries = yield* nextCaller.files()
+
     return {
+      entries,
       role: command.role,
-      ...yield* selectReadableFile(volume[command.role], state.entries, path),
+      ...yield* selectReadableFile(nextCaller, entries, path),
       output: "",
       status: `Switched to ${command.role}.`
     }
