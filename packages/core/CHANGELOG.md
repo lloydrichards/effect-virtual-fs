@@ -1,5 +1,23 @@
 # @effect-vfs/core
 
+## 0.11.1
+
+### Patch Changes
+
+- [`54d49ca`](https://github.com/lloydrichards/effect-virtual-fs/commit/54d49ca695f057b330b5522411d0c966f0052330) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Reclaim a detached directory from durable storage when the last caller retaining it closes.
+
+- [`204e49c`](https://github.com/lloydrichards/effect-virtual-fs/commit/204e49c485ef90d1223cc5efe71c7456ace51a3f) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Skip the volume usage scan when a handle write fits inside the current file.
+
+- [#332](https://github.com/lloydrichards/effect-virtual-fs/pull/332) [`758af16`](https://github.com/lloydrichards/effect-virtual-fs/commit/758af1616ea55623a3f37fdca13098d494496e6b) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Include the preview filesystem engine in the core package so external installations can create and use volumes.
+
+- [`ce0e9f4`](https://github.com/lloydrichards/effect-virtual-fs/commit/ce0e9f4396628e5887614fc5de167739eb417a43) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Return `FileTooLarge` from path truncate when a signed 64-bit length exceeds both the file quota and JavaScript's safe integer range, matching handle truncate and setattr.
+
+- [`aadb459`](https://github.com/lloydrichards/effect-virtual-fs/commit/aadb4591ccb5173e262d68dca23a5c7af24f8633) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Avoid copying earlier names for each additional hard link when capturing a snapshot.
+
+- [`f8a26b3`](https://github.com/lloydrichards/effect-virtual-fs/commit/f8a26b3fb1b8696c2fce2a9d1c06d042e89fb42a) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Report removal of an overwritten name to volume watchers when the watched file has another hard link.
+
+- [`8fcc724`](https://github.com/lloydrichards/effect-virtual-fs/commit/8fcc7249bcb09e3e0e4eeb65ebc648a40f190b8f) Thanks [@lloydrichards](https://github.com/lloydrichards)! - Allow snapshots of admitted volumes whose file contents and names exceed the default preview export limits.
+
 ## 0.11.0
 
 ### Minor Changes
