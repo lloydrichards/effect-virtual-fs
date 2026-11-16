@@ -1,3 +1,4 @@
+/* oxlint-disable effecttsgo/async-function -- IndexedDB transactions and SQLite WebAssembly initialization expose Promise APIs. */
 import * as Schema from "effect/Schema"
 import { createStore, get, set } from "idb-keyval"
 import initSqlJs from "sql.js"

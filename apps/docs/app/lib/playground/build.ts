@@ -1,10 +1,11 @@
+/* oxlint-disable effecttsgo/async-function -- esbuild initializes in the browser and invokes its module hooks through Promise APIs. */
 import { build, initialize } from "esbuild-wasm"
 import wasmURL from "esbuild-wasm/esbuild.wasm?url"
-import type { Workspace } from "./volume"
+import type { FileAccess } from "./volume"
 
 let ready: Promise<void> | undefined
 
-export async function buildWorkspace(workspace: Workspace) {
+export async function buildWorkspace(workspace: FileAccess) {
   ready ??= initialize({ wasmURL }).catch((error) => {
     ready = undefined
     throw error

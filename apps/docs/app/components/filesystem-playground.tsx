@@ -1,17 +1,84 @@
+/* oxlint-disable effecttsgo/async-function -- React event handlers sequence editor commands and update component state. */
+import {
+  Braces,
+  ChevronRight,
+  Database,
+  FileCode2,
+  FilePlus2,
+  Folder,
+  FolderOpen,
+  Play,
+  RotateCcw,
+  Save,
+  Terminal
+} from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import type { Workspace } from "~/lib/playground/volume"
+import type { FileAccess, Workspace } from "~/lib/playground/volume"
 import { Button } from "./ui/button"
+
+type Entry = Awaited<ReturnType<FileAccess["files"]>>[number]
+
+type Role = keyof Pick<Workspace, "editor" | "reader">
+
+function FileList({ entries, parent, selected, onSelect }: {
+  entries: ReadonlyArray<Entry>
+  parent: string
+  selected: string
+  onSelect: (path: string) => void
+}) {
+  return (
+    <ul className="space-y-0.5">
+      {entries.filter(({ path }) => path.slice(0, path.lastIndexOf("/")) === parent).map((entry) => {
+        const name = entry.path.slice(parent.length + 1)
+
+        return (
+          <li key={entry.path}>
+            {entry.directory
+              ? (
+                <details open>
+                  <summary className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 font-mono text-xs hover:bg-sidebar-accent">
+                    <ChevronRight className="size-3 in-open:rotate-90" />
+                    <Folder className="size-3.5 text-muted-foreground" />
+                    {name}
+                  </summary>
+                  <div className="ms-3 border-s ps-1">
+                    <FileList entries={entries} parent={entry.path} selected={selected} onSelect={onSelect} />
+                  </div>
+                </details>
+              )
+              : (
+                <button
+                  type="button"
+                  aria-label={entry.path}
+                  aria-current={entry.path === selected ? "true" : undefined}
+                  onClick={() => onSelect(entry.path)}
+                  className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left font-mono text-xs hover:bg-sidebar-accent aria-current:bg-accent aria-current:font-semibold aria-current:text-primary"
+                >
+                  <FileCode2 className="size-3.5 shrink-0" />
+                  <span className="break-all">{name}</span>
+                </button>
+              )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
 
 export function FilesystemPlayground() {
   const [workspace, setWorkspace] = useState<Workspace>()
-  const [files, setFiles] = useState<Array<string>>([])
-  const [path, setPath] = useState("/value.js")
+  const [role, setRole] = useState<Role>("editor")
+  const [permissions, setPermissions] = useState(0)
+  const [entries, setEntries] = useState<ReadonlyArray<Entry>>([])
+  const [path, setPath] = useState("/src/value.js")
   const [source, setSource] = useState("")
-  const [name, setName] = useState("")
+  const [dirty, setDirty] = useState(false)
+  const [name, setName] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [status, setStatus] = useState("Opening the starter files…")
+  const [status, setStatus] = useState("Opening workspace…")
   const [output, setOutput] = useState("")
   const [error, setError] = useState("")
+  const gutter = useRef<HTMLPreElement>(null)
   const locked = useRef(false)
 
   useEffect(() => {
@@ -20,13 +87,18 @@ export function FilesystemPlayground() {
     async function start() {
       const { openVolume } = await import("~/lib/playground/volume")
       const volume = await openVolume()
-      const paths = await volume.files()
-      const text = await volume.read("/value.js")
+
+      const [tree, text, bits] = await Promise.all([
+        volume.editor.files(),
+        volume.editor.read("/src/value.js"),
+        volume.editor.permissions("/src/value.js")
+      ])
 
       if (active) {
         setWorkspace(volume)
-        setFiles(paths)
+        setEntries(tree)
         setSource(text)
+        setPermissions(bits)
         setStatus("Starter files open in memory.")
       }
     }
@@ -34,7 +106,7 @@ export function FilesystemPlayground() {
     void start().catch((cause) => {
       if (active) {
         setError(String(cause))
-        setStatus("Could not open the workspace.")
+        setStatus("Could not open workspace.")
       }
     })
 
@@ -43,14 +115,14 @@ export function FilesystemPlayground() {
     }
   }, [])
 
-  async function act(task: (volume: Workspace) => Promise<void>) {
+  async function act(task: (volume: Workspace, caller: FileAccess) => Promise<void>) {
     if (!workspace || locked.current) return
     locked.current = true
     setBusy(true)
     setError("")
 
     try {
-      await task(workspace)
+      await task(workspace, workspace[role])
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
       setStatus("Action failed.")
@@ -60,143 +132,219 @@ export function FilesystemPlayground() {
     }
   }
 
-  async function select(volume: Workspace, next: string) {
-    const text = await volume.read(next)
+  async function flush(caller: FileAccess) {
+    if (dirty) {
+      await caller.write(path, source)
+      setDirty(false)
+    }
+  }
+
+  async function select(caller: FileAccess, next: string) {
+    const [text, bits] = await Promise.all([caller.read(next), caller.permissions(next)])
     setPath(next)
     setSource(text)
+    setPermissions(bits)
+    setDirty(false)
   }
+
+  const writable = (permissions & 2) !== 0
 
   return (
     <fieldset
       disabled={!workspace || busy}
-      className="my-6 min-w-0 space-y-4 rounded-xl border bg-card p-4 text-card-foreground"
+      className="my-5 min-w-0 overflow-hidden rounded-xl border border-code-block-border bg-card text-card-foreground shadow-sm"
     >
-      <legend className="px-2 font-semibold">Your filesystem</legend>
-      <div className="flex flex-wrap gap-2" aria-label="Virtual files">
-        {files.map((file) => (
-          <Button
-            key={file}
-            variant={file === path ? "secondary" : "outline"}
-            aria-pressed={file === path}
-            onClick={() =>
-              act(async (volume) => {
-                await volume.write(path, source)
-                await select(volume, file)
-              })}
+      <legend className="sr-only">Virtual filesystem editor</legend>
+      <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-2">
+        <span className="me-auto inline-flex items-center gap-2 text-sm font-semibold">
+          <Terminal className="size-4 text-primary" />Workspace
+        </span>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          Caller
+          <select
+            className="rounded-md border bg-background px-2 py-1 text-foreground"
+            value={role}
+            onChange={(event) => {
+              const next = event.target.value === "reader" ? "reader" : "editor"
+              void act(async (volume, caller) => {
+                await flush(caller)
+                await select(volume[next], path)
+                setRole(next)
+                setName(null)
+                setStatus(`Reading ${path} as ${next}.`)
+              })
+            }}
           >
-            {file}
-          </Button>
-        ))}
-      </div>
-      <form
-        className="flex flex-wrap gap-2"
-        onSubmit={(event) => {
-          event.preventDefault()
-          void act(async (volume) => {
-            if (!/^[\w-][\w.-]*$/.test(name)) throw new Error("Enter a filename such as message.js.")
-
-            if (files.includes("/" + name)) throw new Error("A file with that name already exists.")
-            await volume.write(path, source)
-            await volume.create("/" + name)
-            setFiles(await volume.files())
-            await select(volume, "/" + name)
-            setName("")
-            setStatus("Added a file to the working copy.")
-            setOutput("")
-          })
-        }}
-      >
-        <input
-          aria-label="New filename"
-          placeholder="message.js"
-          value={name}
-          maxLength={100}
-          onChange={(event) => setName(event.target.value)}
-          className="rounded border bg-background px-2 text-sm"
-        />
-        <Button type="submit" variant="outline" disabled={!name}>Add file</Button>
-      </form>
-      <label className="block font-mono text-sm">
-        {path}
-        <textarea
-          spellCheck={false}
-          rows={6}
-          value={source}
-          onChange={(event) => {
-            setSource(event.target.value)
-            setOutput("")
-            setError("")
-            setStatus("Working copy edited.")
-          }}
-          className="mt-2 block w-full rounded-lg border bg-background p-3 font-mono text-sm"
-        />
-      </label>
-      <div className="flex flex-wrap gap-2">
+            <option value="editor">Editor</option>
+            <option value="reader">Reader</option>
+          </select>
+        </label>
         <Button
           onClick={() =>
-            act(async (volume) => {
-              setStatus("Building /main.js…")
+            act(async (_, caller) => {
               setOutput("")
-              await volume.write(path, source)
+              setStatus("Building /main.js…")
+              await flush(caller)
               const { buildWorkspace } = await import("~/lib/playground/build")
-              const result = await buildWorkspace(volume)
+              const result = await buildWorkspace(caller)
               setOutput(result.code)
               setStatus("Built from " + result.reads.join(", "))
             })}
         >
-          Run build
+          <Play />Run build
         </Button>
+      </div>
+      <div className="grid min-w-0 sm:grid-cols-[minmax(8rem,28%)_minmax(0,1fr)]">
+        <aside aria-label="Project files" className="min-w-0 border-b bg-sidebar p-2 sm:border-e sm:border-b-0">
+          <div className="mb-1 flex items-center gap-1.5 px-1 text-xs font-semibold">
+            <FolderOpen className="size-4" />Files
+            <Button
+              className="ms-auto"
+              size="icon-xs"
+              variant="ghost"
+              aria-label="New file"
+              title="New file"
+              disabled={!writable}
+              onClick={() => setName(name === null ? path.slice(1, path.lastIndexOf("/") + 1) : null)}
+            >
+              <FilePlus2 />
+            </Button>
+          </div>
+          {name !== null && (
+            <form
+              className="mb-2 space-y-1"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void act(async (_, caller) => {
+                  const next = "/" + name
+
+                  if (!name.split("/").every((part) => /^[\w-][\w.-]*$/.test(part))) {
+                    throw new Error("Enter a path such as src/message.js.")
+                  }
+
+                  await flush(caller)
+                  await caller.create(next)
+                  setEntries(await caller.files())
+                  await select(caller, next)
+                  setName(null)
+                  setStatus("Created " + next)
+                  setOutput("")
+                })
+              }}
+            >
+              <input
+                aria-label="New file path"
+                placeholder="src/message.js"
+                value={name}
+                maxLength={150}
+                onChange={(event) => setName(event.target.value)}
+                className="w-full rounded border bg-background p-1 font-mono text-xs"
+              />
+              <Button type="submit" size="xs" variant="outline">Add file</Button>
+            </form>
+          )}
+          <FileList
+            entries={entries}
+            parent=""
+            selected={path}
+            onSelect={(next) =>
+              act(async (_, caller) => {
+                await flush(caller)
+                await select(caller, next)
+              })}
+          />
+        </aside>
+        <div className="min-w-0 bg-code-block">
+          <div className="flex flex-wrap items-center gap-2 border-b bg-card px-3 py-2 font-mono text-xs">
+            <Braces className="size-3.5 text-primary" />
+            <span className="break-all">{path}{dirty && <span aria-label="Modified">*</span>}</span>
+            <span className="ms-auto text-muted-foreground">{writable ? "Read / write" : "Read only"}</span>
+          </div>
+          <div className="flex h-44 overflow-hidden py-3 font-mono text-sm leading-6 text-code-block-foreground">
+            <pre
+              aria-hidden="true"
+              ref={gutter}
+              className="m-0 shrink-0 overflow-hidden border-e px-2 text-end font-mono text-sm leading-6 text-muted-foreground"
+            >{source.split("\n").map((_, i) => i + 1).join("\n")}</pre>
+            <textarea
+              aria-label={`Edit ${path}`}
+              readOnly={!writable}
+              spellCheck={false}
+              wrap="off"
+              value={source}
+              onScroll={(event) => {
+                if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop
+              }}
+              onChange={(event) => {
+                setSource(event.target.value)
+                setDirty(true)
+                setError("")
+                setOutput("")
+                setStatus("Working copy edited.")
+              }}
+              className="min-w-0 flex-1 resize-none bg-transparent px-3 font-mono text-sm leading-6 focus-visible:outline-primary"
+            />
+          </div>
+        </div>
+      </div>
+      <div className="border-t bg-muted/30 px-3 py-2">
+        <p role="status" className="break-words font-mono text-xs text-muted-foreground">{status}</p>
+        {error && (
+          <pre role="alert" className="mt-2 whitespace-pre-wrap break-words text-xs text-destructive">{error}</pre>
+        )}
+        {output && (
+          <div className="mt-2">
+            <h3 className="text-xs font-semibold">Generated bundle</h3>
+            <pre className="mt-1 overflow-auto font-mono text-xs"><code>{output}</code></pre>
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-1 border-t p-2">
         <Button
           variant="outline"
           onClick={() =>
-            act(async (volume) => {
-              setStatus("Saving checkpoint…")
-              await volume.write(path, source)
+            act(async (volume, caller) => {
+              await flush(caller)
               const { saveCheckpoint } = await import("~/lib/playground/storage")
               await saveCheckpoint(await volume.snapshot())
               setStatus("Saved workspace.sqlite in this browser.")
             })}
         >
-          Save checkpoint
+          <Save />Save checkpoint
         </Button>
         <Button
-          variant="outline"
+          variant="ghost"
           onClick={() =>
             act(async () => {
               const { readCheckpoint } = await import("~/lib/playground/storage")
-              const checkpoint = await readCheckpoint()
-              setStatus(`SQLite row: saved_at = ${checkpoint.savedAt}, length(image) = ${checkpoint.size} bytes.`)
+              const row = await readCheckpoint()
+              setStatus(`SQLite row: saved_at = ${row.savedAt}, length(image) = ${row.size} bytes.`)
             })}
         >
-          Inspect saved row
+          <Database />Inspect saved row
         </Button>
         <Button
-          variant="outline"
+          variant="ghost"
           onClick={() =>
             act(async () => {
               const { readCheckpoint } = await import("~/lib/playground/storage")
               const { openVolume } = await import("~/lib/playground/volume")
-              const { image } = await readCheckpoint()
-              const saved = await openVolume(image)
-              const paths = await saved.files()
-              await select(saved, paths.includes(path) ? path : "/value.js")
+              const saved = await openVolume((await readCheckpoint()).image)
+              const tree = await saved[role].files()
+              const fallback = tree.find((entry) => !entry.directory)?.path
+
+              if (!fallback) throw new Error("The checkpoint contains no files.")
+              await select(saved[role], tree.some((entry) => entry.path === path && !entry.directory) ? path : fallback)
               setWorkspace(saved)
-              setFiles(paths)
+              setEntries(tree)
+              setName(null)
               setOutput("")
               setStatus("Reopened the saved checkpoint.")
             })}
         >
-          Reopen saved
+          <RotateCcw />Reopen saved
         </Button>
       </div>
-      <p role="status" className="text-sm text-muted-foreground">{status}</p>
-      {error && <pre role="alert" className="whitespace-pre-wrap break-words text-sm text-destructive">{error}</pre>}
-      {output && (
-        <section aria-label="Generated bundle">
-          <h3 className="mb-2 text-sm font-semibold">Generated bundle</h3>
-          <pre className="overflow-auto rounded-lg bg-muted p-3 text-sm"><code>{output}</code></pre>
-        </section>
-      )}
     </fieldset>
   )
 }
