@@ -7,6 +7,10 @@
   "sideEffects": false,
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./internal/durableStorage": {
+      "types": "./dist/internal/durableStorage.d.ts",
+      "import": "./dist/internal/durableStorage.js"
+    },
     "./internal/ownedCapture": {
       "types": "./dist/internal/ownedCapture.d.ts",
       "import": "./dist/internal/ownedCapture.js"

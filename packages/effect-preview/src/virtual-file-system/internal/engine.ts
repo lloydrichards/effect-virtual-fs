@@ -1,4 +1,6 @@
 // Generated from Effect PR #9960 by scripts/sync.mjs. Edit the snapshot or generator, then run sync.
+import * as Effect from "effect/Effect"
+import * as Semaphore from "effect/Semaphore"
 import * as BytePath from "../../compat/BytePath.js"
 import * as Bytes from "../../compat/Bytes.js"
 import * as ByteSize from "effect/ByteSize"
@@ -210,6 +212,38 @@ export interface FileState {
   position: bigint
 }
 
+export const owners = new WeakMap<M.Owner, Engine>()
+const storageEngine = (owner: M.Owner) => {
+  const engine = owners.get(owner)
+  if (!engine) throw new Error("Unknown preview owner")
+  return engine
+}
+
+// Core v1 persists its own revision numbers. Preview observation tokens are session-local.
+export const resumeAllocator = (owner: M.Owner, nextObject: bigint) => {
+  const engine = storageEngine(owner)
+
+  if (nextObject < engine.nextObject) throw new Error("Invalid restored allocator")
+  engine.nextObject = nextObject
+
+  return (ino: bigint) => engine.reference(ino)
+}
+
+export const installStorage = (
+  owner: M.Owner,
+  offer: NonNullable<Engine["offer"]>,
+  frozen: () => boolean
+) => {
+  const engine = storageEngine(owner)
+  if (engine.offer) throw new Error("Storage already installed")
+  const gate = Semaphore.makeUnsafe(1)
+  engine.offer = offer
+  engine.runtime.storageUnavailable = frozen
+  engine.runtime.storageTurn = <A, E, R>(effect: Effect.Effect<A, E, R>) => gate.withPermit(effect)
+
+  return gate.withPermit(Effect.void)
+}
+
 export const callers = new WeakMap<M.VirtualFileSystem, Caller>()
 
 interface DirectoryHandleState {
@@ -356,6 +390,23 @@ export const asciiPath = (path: string) => Result.getOrThrow(BytePath.fromString
 // -----------------------------------------------------------------------------
 
 export class Engine {
+  offer?: (nodes: ReadonlyMap<bigint, Node>, changed: ReadonlySet<bigint>, nextObject: bigint, operation: string) => R.StorageOffer
+
+  offerState(changes: ReadonlyMap<bigint, Node>, removed: ReadonlyArray<bigint>, nextObject: bigint, operation: string, acquiringFile = false) {
+    if (!this.offer) return undefined
+    const changed = new Set<bigint>()
+    for (const [id, node] of changes) {
+      const prior = this.nodes.get(id)
+      // A read can refresh atime without advancing the object's revision.
+      if (!prior || prior.revision !== node.revision || prior.atime !== node.atime) changed.add(id)
+    }
+    if (!acquiringFile && changed.size === 0 && removed.length === 0 && nextObject === this.nextObject) return undefined
+    const nodes = new Map(this.nodes)
+    for (const [id, node] of changes) nodes.set(id, node)
+    for (const id of removed) nodes.delete(id)
+    return this.offer(nodes, changed, nextObject, operation)
+  }
+
   readonly runtime: R.Runtime
   readonly inputLimits: Readonly<Pick<M.Limits, "ioBytes" | "pathBytes">>
   readonly root: bigint
@@ -548,6 +599,8 @@ interface BorrowedDestination {
 export class Transaction {
   readonly changes = new Map<bigint, Node>()
   private mutations?: Array<M.CommittedMutation>
+  nextObject: bigint
+  private nextBinding: bigint
 
   private record(mutation: M.CommittedMutation) {
     const mutations = this.mutations ??= []
@@ -572,6 +625,8 @@ export class Transaction {
   constructor(caller: Caller, work: R.Work) {
     this.caller = caller
     this.work = work
+    this.nextObject = this.engine.nextObject
+    this.nextBinding = this.engine.nextBinding
   }
 
   get engine() {
@@ -1385,7 +1440,7 @@ export class Transaction {
   insertResult(parentId: bigint, name: BytePath.BytePath, object: bigint, previous?: bigint) {
     return Result.gen(this, function*() {
       yield* this.reserveResult(BigInt(BytePath.byteLength(name)))
-      const binding = { name, object, version: this.engine.nextBinding++ }
+      const binding = { name, object, version: this.nextBinding++ }
       const parent = yield* this.editDirectoryResult(parentId)
       parent.entries.set(key(name), binding)
       const last = this.mutations?.[this.mutations.length - 1]
@@ -1447,7 +1502,7 @@ export class Transaction {
       const gid = owner?.gid ?? this.creationGroup(parent)
       const mode = requested & ~policy.umask
       const common: Base = {
-        id: this.engine.nextObject++,
+        id: this.nextObject++,
         uid: owner?.uid ?? policy.uid,
         gid,
         mode: kind === "symlink" ? 0o777 : kind === "file" ? this.fileMode(mode, gid) : mode,
@@ -1503,7 +1558,7 @@ export class Transaction {
   // Atomic publication
   // ---------------------------------------------------------------------------
 
-  transitionResult<A>(value: A) {
+  transitionResult<A>(value: A, acquiringFile = false) {
     return Result.gen(this, function*() {
       const engine = this.engine
       let capacityUnchanged = true
@@ -1613,6 +1668,9 @@ export class Transaction {
       return {
         value,
         readAtimeChanged,
+        offer: engine.offer && (acquiringFile || this.changes.size > 0)
+          ? () => engine.offerState(this.changes, [...removed ?? [], ...released ?? []], this.nextObject, this.operation, acquiringFile)
+          : undefined,
         publish: () =>
           Result.gen(this, function*() {
             // NOTE: Clock may have changed the borrowed view. Validate before any publication.
@@ -1634,6 +1692,8 @@ export class Transaction {
             if (released !== undefined) { for (const id of released) engine.reclaim(id) }
             if (removed !== undefined) { for (const id of removed) engine.nodes.delete(id) }
             for (const [id, node] of this.changes) if (!removed?.has(id)) engine.publishNode(node)
+            engine.nextObject = this.nextObject
+            engine.nextBinding = this.nextBinding
             engine.entryCount += entryDelta
             engine.contentBytes += contentDelta
             if (read !== undefined) Uint8Array.prototype.set.call(read.destination.view, read.bytes)

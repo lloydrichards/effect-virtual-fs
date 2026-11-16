@@ -1,11 +1,9 @@
-// Exercise both sessions through the scratch core's public API and on-disk v1 image.
-// Core declarations are generated in the scratch build.
 /* eslint-disable effecttsgo/any-unknown-in-error-context */
 import assert from "node:assert/strict"
 import * as BunFileSystem from "@effect/platform-bun/BunFileSystem"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { ByteSize, Deferred, Effect, Fiber, FileSystem, Layer } from "effect"
-import * as Live from "../../core/dist/LiveVolume.js"
+import * as Live from "../../../core/dist/LiveVolume.js"
 
 const bound = ByteSize.kilobytes(64)
 

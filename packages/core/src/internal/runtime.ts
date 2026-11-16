@@ -2,8 +2,9 @@
 /* eslint-disable effecttsgo/experimental-api-usage */
 import { BytePath as Path, VirtualFileSystem as P } from "@effect-vfs/effect-preview"
 import { unixNanoFromNanoseconds as nano } from "@effect-vfs/effect-preview/DateTime"
+import { cleanupError, resumeAllocator } from "@effect-vfs/effect-preview/internal/durableStorage"
 import { unsafeFromOwnedRecords } from "@effect-vfs/effect-preview/internal/ownedCapture"
-import { ByteSize, Data, Effect, Iterable, Option, Order, Predicate, Result, Schema, Scope, Stream } from "effect"
+import { ByteSize, Data, Effect, Exit, Iterable, Option, Order, Predicate, Result, Schema, Scope, Stream } from "effect"
 import * as Clock from "effect/Clock"
 import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Hex from "effect/encoding/Hex"
@@ -23,15 +24,17 @@ import {
 import { DirectoryHandleId, FileHandleId } from "../FileHandle.js"
 import { type Metadata, Mode, OwnerUpdate, type Times, Times as TimesSchema, Timestamp } from "../Metadata.js"
 import { isEntry, Target } from "../Target.js"
-import { make as vfsError } from "../VfsError.js"
+import { make as vfsError, VfsError } from "../VfsError.js"
 import type * as V from "../VirtualFileSystem.js"
 import { ReferenceKey, VolumeId, VolumeIdentity, VolumeIncarnation } from "../Volume.js"
 import { CallerWatchOptions, WatchOptions } from "../Watch.js"
 import * as CorePath from "./bytePath.js"
 import { sameBytes } from "./bytes.js"
+import { attachStore } from "./durableStorage.js"
 import { imageFailure } from "./errors.js"
 import { hmacSha256, sameTag } from "./hmac.js"
 import * as Image from "./image.js"
+import type * as LiveImage from "./liveImage.js"
 import {
   type CommitProvider,
   Errors,
@@ -46,19 +49,19 @@ import * as Limits from "./volumeLimits.js"
 import { assemble, type NodeSpec, reachableValue } from "./volumeState.js"
 import * as VolumeWatch from "./volumeWatch.js"
 
-export class PreviewBlocker extends Data.TaggedError("PreviewBlocker")<{
-  readonly feature: string
-}> {
-  override get message() {
-    return `The pinned preview has no public operation for ${this.feature}`
-  }
-}
-
 class InvalidClockSample extends Data.TaggedError("InvalidClockSample")<{}> {}
 
-export const blocked = (feature: string): Effect.Effect<never> => Effect.die(new PreviewBlocker({ feature }))
+const isStorageRejection = (cause: unknown): cause is V.FsFailure =>
+  Schema.is(VfsError)(cause) && cause.code === "StorageRejected"
 
 export const failure = (error: P.VirtualFileSystemError, operation = error.operation): V.FsFailure => {
+  if (
+    Predicate.isTagged(error, "InvalidResource") && error.reason === "storageRejected" &&
+    isStorageRejection(error.cause)
+  ) {
+    return error.cause
+  }
+
   const code: V.FsCode = (() => {
     if (Predicate.isTagged(error, "NotFound")) {
       return "NotFound"
@@ -114,6 +117,12 @@ export const failure = (error: P.VirtualFileSystemError, operation = error.opera
 
     {
       switch (error.reason) {
+        case "storageRejected":
+          return "StorageRejected"
+        case "outcomeUnknown":
+          return "OutcomeUnknown"
+        case "volumeUnavailable":
+          return "VolumeUnavailable"
         case "symlinkCycle":
         case "symlinkLimit":
         case "refusedSymlink":
@@ -168,6 +177,8 @@ interface Token {
 }
 
 export interface Runtime {
+  frozen?: boolean
+  storageReady?: Effect.Effect<void>
   readonly owner: P.Owner
   readonly subscribeCaller: ReturnType<typeof VolumeWatch.make>["subscribeCaller"]
   readonly walkEntrySize: (reference: P.ObjectReference) => Effect.Effect<bigint, V.FsFailure>
@@ -236,6 +247,7 @@ const contextual = (
   source?: V.TargetInput | V.EntryInput,
   destination?: V.TargetInput | V.EntryInput
 ): V.FsFailure => {
+  if (error.code === "StorageRejected" && error.operation === "commit") return error
   const value = Predicate.hasProperty(error.cause, "side") && error.cause.side === "destination" ? destination : source
   const selected = error.path ?? (unlocated.has(error) || value === undefined ? undefined : errorPath(value))
   const details: ErrorDetails = { cause: error.cause }
@@ -299,6 +311,9 @@ const execute = <A, R>(
 
     // Keep the arrival gate while a stale read waits, so later observers cannot overtake it.
     const work = runtime.gate.withPermit(Effect.gen(function*() {
+      if (runtime.storageReady) yield* runtime.storageReady
+
+      if (runtime.frozen) return yield* Errors.fsFailure("VolumeUnavailable", operation)
       const readers = runtime.captureReaders
 
       if (readers === undefined || captureObservations.has(operation)) return yield* run
@@ -993,8 +1008,11 @@ const wrapFile = (
       mapped(handle.stat()).pipe(
         Effect.andThen(handle.close()),
         Effect.andThen(positioned === handle ? Effect.void : positioned.close()),
-        Effect.andThen(Effect.sync(() => {
+        Effect.andThen(Effect.suspend(() => {
           closed = true
+          const error = runtime.storageReady && (cleanupError(handle) ?? cleanupError(positioned))
+
+          return error ? Effect.fail(failure(error, "close")) : Effect.void
         }))
       )
     )
@@ -1049,8 +1067,11 @@ const wrapDirectory = (
     close: Effect.suspend(() =>
       closed
         ? Effect.fail(Errors.fsFailure("InvalidHandle", "close"))
-        : handle.close().pipe(Effect.andThen(Effect.sync(() => {
+        : handle.close().pipe(Effect.andThen(Effect.suspend(() => {
           closed = true
+          const error = runtime.storageReady && cleanupError(handle)
+
+          return error ? Effect.fail(failure(error, "close")) : Effect.void
         })))
     )
   }
@@ -1058,7 +1079,11 @@ const wrapDirectory = (
   const protectedDirectory: V.DirectoryHandle = {
     ...directory,
     stat: execute(runtime, "stat", undefined, Effect.andThen(checkGrant(runtime, grant), directory.stat)),
-    close: execute(runtime, "close", undefined, directory.close)
+    close: Effect.suspend(() =>
+      closed
+        ? Effect.fail(Errors.fsFailure("InvalidHandle", "close"))
+        : execute(runtime, "close", undefined, directory.close)
+    )
   }
 
   runtime.activeGrants.push(new WeakRef(grant))
@@ -2928,18 +2953,21 @@ type Source =
   | { readonly _tag: "Restored" | "Overlay"; readonly value: State.VolumeState }
   | {
     readonly _tag: "Live"
+    readonly restored: LiveImage.Restored
   }
 
 export const makeVolume = Effect.fnUntraced(
   function*(
-    source: Source,
+    input: Source,
     provider: CommitProvider<State.VolumeState>,
     options?: V.VolumeOptions,
-    _durability?: V.VolumeDurability
+    durability: V.VolumeDurability = "memory-only"
   ) {
-    if (provider.mode !== "memory" || Predicate.isTagged(source, "Live")) return yield* blocked("durableCommit")
+    const live = Predicate.isTagged(input, "Live") ? input.restored : undefined
+    const source = Predicate.isTagged(input, "Live") ? { _tag: "Live" as const, value: input.restored.value } : input
+    const durable = provider.mode === "durable"
     const checked = yield* Effect.fromResult(Limits.configuration(options))
-    const limits = checked.limits
+    const limits = live ? yield* Effect.fromResult(Limits.fromStored(live.limits, checked.limits)) : checked.limits
 
     if ("value" in source) {
       const restored = yield* reachableValue(source.value)
@@ -3063,11 +3091,32 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const random = yield* SecureRandom.SecureRandom
-    const identity = checked.identity ?? VolumeIdentity.make(Hex.encode(yield* random.randomBytes(16)))
+
+    const storageReady = durable
+      ? attachStore(owner, live?.value ?? State.emptyState(initialTime), provider, () => {
+        runtime.frozen = true
+      }, () => runtime.frozen === true)
+      : undefined
+
+    if (storageReady) runtime.storageReady = storageReady
+
+    if (live) {
+      runtime.revision = live.value.revision
+      const referenceFor = resumeAllocator(owner, BigInt(live.value.nextInode))
+
+      for (const [, node] of live.value.inodes) {
+        const observed = yield* mapped(ownerCaller.stat(referenceFor(BigInt(node.ino))))
+        token(runtime, observed).number = node.revision
+      }
+    }
+
+    const identity = live?.identity ?? checked.identity ??
+      VolumeIdentity.make(Hex.encode(yield* random.randomBytes(16)))
+
     const incarnation = VolumeIncarnation.make(Hex.encode(yield* random.randomBytes(16)))
     const identityBytes = Result.getOrThrow(Hex.decode(identity))
-    const epochBytes = yield* random.randomBytes(16)
-    const secret = yield* random.randomBytes(16)
+    const epochBytes = live ? Result.getOrThrow(Hex.decode(live.epoch)) : yield* random.randomBytes(16)
+    const secret = live ? Result.getOrThrow(Hex.decode(live.keySecret)) : yield* random.randomBytes(16)
 
     const keyTag = (ino: bigint) => {
       const message = new Uint8Array(40)
@@ -3103,8 +3152,23 @@ export const makeVolume = Effect.fnUntraced(
       return yield* Errors.fsFailure("StaleReference", "referenceKey")
     })
 
-    const observe = <A, E, R>(observation: Effect.Effect<A, E, R>) => {
+    const observe = (operation: string) => <A, E, R>(observation: Effect.Effect<A, E, R>) => {
       const readers = runtime.captureReaders
+
+      if (storageReady) {
+        const work = runtime.gate.withPermit(
+          Effect.andThen(
+            storageReady,
+            (): Effect.Effect<A, E | V.FsFailure, R> =>
+              runtime.frozen ? Effect.fail(Errors.fsFailure("VolumeUnavailable", operation)) : observation
+          )
+        )
+
+        return runtime.admission.withPermitsIfAvailable(1)(work).pipe(Effect.flatMap(Option.match({
+          onNone: () => Effect.fail(Errors.fsFailure("VolumeBusy", operation)),
+          onSome: Effect.succeed
+        })))
+      }
 
       if (readers === undefined) return observation
 
@@ -3112,18 +3176,18 @@ export const makeVolume = Effect.fnUntraced(
     }
 
     const observeSnapshot = <A, E, R>(use: (value: V.Snapshot) => Effect.Effect<A, E, R>) =>
-      observe(Effect.flatMap(snapshot(owner), use))
+      observe("snapshot")(Effect.flatMap(snapshot(owner), use))
 
     yield* Scope.provide(owner.onCommit(watches.publish), rootScope)
 
     const volume: V.Volume = {
       [VolumeId]: true,
-      durability: "memory-only",
+      durability,
       identity,
       incarnation,
       limits,
-      usage: observe(owner.usage.pipe(Effect.map((u) => ({ entries: u.entries, usedBytes: u.contentBytes })))),
-      snapshot: observe(snapshot(owner)),
+      usage: observe("usage")(owner.usage.pipe(Effect.map((u) => ({ entries: u.entries, usedBytes: u.contentBytes })))),
+      snapshot: observe("snapshot")(snapshot(owner)),
       caller: Effect.fnUntraced(function*(o) {
         const chosen = yield* Effect.fromResult(
           Errors.decodeConfiguration(RootCallerOptions, o === undefined ? {} : o, "caller")
@@ -3145,7 +3209,7 @@ export const makeVolume = Effect.fnUntraced(
         ))
 
         return wrapCaller(runtime, caller, limits, [], [1n], chosen.identity)
-      }),
+      }, observe("caller")),
       watch: (options) =>
         execute(
           runtime,
@@ -3175,7 +3239,7 @@ export const makeVolume = Effect.fnUntraced(
         const ino = observed.metadata.objectNumber
 
         return { identity: identityBytes.slice(), epoch: epochBytes.slice(), ino, tag: keyTag(ino) }
-      }, observe),
+      }, observe("referenceKey")),
       resolveReferenceKey: Effect.fnUntraced(function*(key) {
         if (!Schema.is(ReferenceKey)(key)) return yield* Errors.fsFailure("InvalidReference", "resolveReferenceKey")
 
@@ -3193,11 +3257,23 @@ export const makeVolume = Effect.fnUntraced(
         yield* keyObservation(selected.reference)
 
         return selected.core
-      }, observe)
+      }, observe("resolveReferenceKey"))
     }
 
     runtimes.set(volume, runtime)
 
-    return { volume, shutdown: Effect.void, observeSnapshot }
+    const shutdown = storageReady
+      ? yield* Effect.cached(Effect.uninterruptible(Effect.gen(function*() {
+        // Let the active caller finish publishing before retiring the session.
+        yield* runtime.gate.withPermit(Effect.sync(() => {
+          runtime.frozen = true
+        }))
+        // A scope finalizer can already be committing last-handle cleanup outside the caller gate.
+        yield* storageReady
+        yield* Scope.close(rootScope, Exit.void).pipe(Effect.ensuring(provider.shutdown))
+      })))
+      : provider.shutdown
+
+    return { volume, shutdown, observeSnapshot }
   }
 )

@@ -1,23 +1,13 @@
-// Build a detached v1 image from the trial transaction, including files pinned after unlink.
+/** Translate staged preview nodes into the core v1 live image, including files pinned after unlink. @internal */
 import { BytePath } from "@effect-vfs/effect-preview"
-import { installStorage } from "@effect-vfs/effect-preview/durable-mkdir"
+import { installStorage } from "@effect-vfs/effect-preview/internal/durableStorage"
 import * as P from "@effect-vfs/effect-preview/VirtualFileSystem"
 import { Cause, Effect, Exit, Predicate } from "effect"
-import type { FsFailure } from "../VfsError.js"
 import { type CommitProvider, State } from "./model.js"
 import { assemble, type NodeSpec } from "./volumeState.js"
 
-export { cleanupError, resumeAllocator } from "@effect-vfs/effect-preview/durable-mkdir"
-
-// Carry the provider's attribution through the preview's storage error channel.
-export class CommitRejected extends P.InvalidResource {
-  constructor(readonly failure: FsFailure & { readonly code: "StorageRejected" }) {
-    super({ operation: failure.operation, reason: "storageRejected", cause: failure })
-  }
-}
-
 export const attachStore = (
-  actor: Parameters<typeof installStorage>[0],
+  owner: Parameters<typeof installStorage>[0],
   initial: State.VolumeState,
   provider: CommitProvider<State.VolumeState>,
   freeze: () => void,
@@ -25,7 +15,7 @@ export const attachStore = (
 ) => {
   let committed = initial
 
-  return installStorage(actor, (nodes, changed, next, operation) =>
+  return installStorage(owner, (nodes, changed, next, operation) =>
     Effect.gen(function*() {
       const revision = committed.revision + 1n
       const links = new Map<bigint, Array<State.Link>>()
@@ -101,22 +91,30 @@ export const attachStore = (
 
       if (Exit.isSuccess(decision) && decision.value === "committed") {
         committed = candidate
+
         return
       }
 
       if (operation === "close") freeze()
+
       if (Exit.isSuccess(decision) && Predicate.isTagged(decision.value, "Rejected")) {
         return yield* Effect.failCause(decision.value.cause)
       }
+
       if (Exit.isFailure(decision) && decision.cause.reasons.every(Cause.isFailReason)) {
         const first = decision.cause.reasons[0]
-        if (first) return yield* new CommitRejected(first.error)
+
+        if (first) {
+          // eslint-disable-next-line effecttsgo/experimental-api-usage -- Preserve provider attribution through the storage error channel.
+          return yield* new P.InvalidResource({ operation, reason: "storageRejected", cause: first.error })
+        }
       }
 
       const rejected = Exit.isSuccess(decision) && decision.value === "rejected"
+
       if (!rejected) freeze()
 
-      // eslint-disable-next-line effecttsgo/experimental-api-usage -- Scratch preview storage decision.
+      // eslint-disable-next-line effecttsgo/experimental-api-usage -- Map a durable storage decision into a preview operation error.
       return yield* new P.InvalidResource({ operation, reason: rejected ? "storageRejected" : "outcomeUnknown" })
     }), frozen)
 }

@@ -545,6 +545,9 @@ export class InvalidResource extends Schema.TaggedError<InvalidResource>()("Inva
     "foreign",
     "stale",
     "wrongKind",
+    "storageRejected",
+    "outcomeUnknown",
+    "volumeUnavailable",
     "refusedSymlink",
     "symlinkCycle",
     "symlinkLimit"

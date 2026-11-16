@@ -25,7 +25,7 @@ const dependencies = (url) => {
   return [...text.matchAll(/\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']/g)].map((match) => match[1] ?? match[2])
 }
 
-for (const entry of ["VirtualFileSystem.ts", "SynchronousAdapter.ts"]) {
+for (const entry of ["VirtualFileSystem.ts", "LiveVolume.ts", "SynchronousAdapter.ts"]) {
   const pending = [new URL(entry, source).href]
   const seen = new Set()
   let preview = false

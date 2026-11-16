@@ -22,7 +22,7 @@ bun run --cwd packages/node test:mounted
 ```
 
 The import audit checks that core construction and the native binding use the preview. Existing consumer tests
-define the drop-in contract. Core adapts the preview commit feed for volume and caller-confined watches. Durable-store commits remain open. Current results and adapter findings are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
+define the drop-in contract. Core adapts the preview commit feed for volume and caller-confined watches. LiveVolume uses the same engine with private storage and restore hooks. Current results and adapter findings are tracked in [issue #328](https://github.com/lloydrichards/effect-virtual-fs/issues/328).
 
 Import the proposed public API and authorize a scoped caller:
 
@@ -44,40 +44,18 @@ implementations. References, revisions, handles, and callers belong to their iss
 
 ## Try durable writes, cleanup and recovery
 
-From the repository root, run the storage-decision experiment with the workspace dependencies installed.
+Core owns the v1 live-image format and the storage provider contract. The preview stages a mutation until the
+store accepts its candidate. Rejection discards the candidate. An unknown outcome freezes the session until the
+application reopens the image from storage. The allocator, volume identity, and reference keys survive reopen.
+
+After building the workspace, run the on-disk reopen and last-handle cleanup checks:
 
 ```sh
 bun packages/effect-preview/experiments/durable-mkdir/run.mjs
 ```
 
-The runner applies experimental patches after the 27 MVP patches in a temporary package, compiles it, and runs the
-publication checks and the existing preview tests. The store receives the new directory, its parent’s staged metadata,
-the binding name and the next object number. A confirmed commit releases queued reads to see the new directory.
-Rejection preserves the parent revision and the object number for a retry. An uncertain outcome makes the trial
-session unavailable.
-
-The runner also compiles a temporary copy of core against the experimental preview. It opens a version 1 live image,
-offers one mkdir to a file-backed store, closes the session and reopens the persisted bytes through `LiveVolume.openImage`.
-The checks resolve saved reference keys before any path lookup, compare root and child revisions, and allocate another
-directory after reopening. For an unknown decision the store either keeps the old image or writes the candidate before
-returning `unknown`. The initiating mkdir reports `OutcomeUnknown`. Queued work and later calls report
-`VolumeUnavailable` until a fresh session opens the image on disk.
-
-For file cleanup, the trial persists unlinked bytes while a handle remains open. Closing the last handle offers
-one image without the file. Rejection or an unknown outcome releases the handle and freezes the session. Reopen drops
-unlinked files from either image and preserves the inode allocator. The runner exercises explicit close, scope cleanup
-and the existing core cleanup tests.
-
-After removing an open directory, the candidate retains its inode for the handle. The v1 image omits the detached
-directory because no path reaches it. The last close offers one cleanup commit and releases the inode on every
-storage decision. After a rejected or unknown close, reopening either image preserves the allocator and leaves the old
-directory key stale.
-
-The runner also executes the two SQLite writer-death tests against the temporary core build. After the writer
-acknowledges creating `/durable` and receives `SIGKILL`, a fresh process reads the committed bytes `[7, 8, 9]`.
-When the writer receives `SIGKILL` before SQLite commits an overwrite with `[4, 5, 6]`, the fresh process reads
-the previous bytes `[7, 8, 9]`. Both cases verify the original volume identity. Physical power-loss qualification
-has a separate procedure. [Power-loss testing](../persistence/POWER_LOSS_TESTING.md)
+The root test suite also exercises SQLite writer death before COMMIT and after acknowledgement.
+[Physical power-loss qualification](../persistence/POWER_LOSS_TESTING.md) has a separate procedure.
 
 ## Regenerate the pinned port offline
 
@@ -122,6 +100,11 @@ manifest remain unchanged. Generated-file checks cover the patched result.
 | 0025      | Generalize patch 0019 to retained directory handles. Orphan updates require unrestricted roots for both callers.                |
 | 0026      | Reuse the resolved directory for each path component. Allocate an owned name only when inserting a new binding.                 |
 | 0027      | Resolve linked directories directly for privileged volume-wide callers when only the directory object or containment is needed. |
+| 0028      | Stage allocation and publication until a storage decision.                                                                      |
+| 0029      | Offer durable changes and coordinate last-handle cleanup.                                                                       |
+| 0030      | Wait for storage when acquiring an existing file handle.                                                                        |
+| 0031      | Protect admission and cleanup installation from interruption.                                                                   |
+| 0032      | Install storage and restore allocator state through a private owner capability.                                                 |
 
 To try the same changes in an Effect checkout at the pinned commit, point `preview` at this package and apply
 the files in manifest order. Run this command from the root of the Effect checkout.

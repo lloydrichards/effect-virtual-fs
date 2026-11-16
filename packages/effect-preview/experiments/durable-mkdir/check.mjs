@@ -1,4 +1,3 @@
-// The runner supplies the isolated trial module and its Effect types after applying the candidate patch.
 /* eslint-disable effecttsgo/any-unknown-in-error-context, effecttsgo/experimental-api-usage */
 import assert from "node:assert/strict"
 import { Deferred, Effect, Fiber, Predicate } from "effect"

@@ -2,6 +2,8 @@
 
 ## 2026-11-16
 
+- Record LiveVolume publication, recovery and handle cleanup through the normal preview build.
+
 - Record the durable mkdir experiment and the recovery and handle-cleanup contracts still needed for live volumes.
 
 - Record the path and directory lookup costs exposed by the deep-tree memory test and the confinement checks retained by the preview.

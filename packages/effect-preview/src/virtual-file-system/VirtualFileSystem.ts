@@ -1695,5 +1695,6 @@ const ownerFor = (engine: E.Engine) =>
       })
     }
 
+    E.owners.set(owner, engine)
     return Object.freeze(owner)
   })

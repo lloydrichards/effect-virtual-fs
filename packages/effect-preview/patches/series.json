@@ -106,5 +106,25 @@
   {
     "file": "0027-resolve-linked-directory-objects.patch",
     "sha256": "330caf37254e15b85f6187e963a73ee08f229d59b7e148947a3232663f2af52e"
+  },
+  {
+    "file": "0028-stage-publication.patch",
+    "sha256": "fde9fd254e934c3036b02fc6e04d3cffef9e51c827a27e186dad35e28ef04d05"
+  },
+  {
+    "file": "0029-durable-storage-decisions.patch",
+    "sha256": "fb1b359a7db2d8e377c94d9cc20fd9d21a4571e99e2d52c64fab97bd789079ce"
+  },
+  {
+    "file": "0030-durable-file-acquisition.patch",
+    "sha256": "38122975a4ce594d76fd782f1f557029431a27824da093408daf549c71c6525e"
+  },
+  {
+    "file": "0031-mask-work-admission.patch",
+    "sha256": "53a56642ab46ee1839845b2b32827e304eb7b1fb7c3c041bf329a325ba35638f"
+  },
+  {
+    "file": "0032-private-storage-hooks.patch",
+    "sha256": "3058046dbf89f9315b53e522e08e6d7c69871b4fc0122201b0dc04fc7269e76a"
   }
 ]

@@ -148,6 +148,10 @@ for (const [path, patch] of patches) {
 // Only the core snapshot adapter owns immutable image records suitable for this handoff.
 put("src/internal/ownedCapture.ts", 'export { unsafeFromOwnedRecords } from "../virtual-file-system/internal/capture.js"\n')
 
+put("src/internal/durableStorage.ts",
+  'export { installStorage, resumeAllocator } from "../virtual-file-system/internal/engine.js"\n' +
+  'export { cleanupError } from "../virtual-file-system/internal/handles.js"\n')
+
 put(
   "src/index.ts",
   "export * as VirtualFileSystem from \"./virtual-file-system/VirtualFileSystem.js\"\nexport * as BytePath from \"./compat/BytePath.js\"\n"
