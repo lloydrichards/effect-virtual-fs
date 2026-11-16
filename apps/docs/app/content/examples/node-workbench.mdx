@@ -1,0 +1,27 @@
+# Compile TypeScript on a Node VFS mount
+
+Edit a TypeScript module, compile it, and run the emitted JavaScript. The editor runs in your browser. A local Node worker mounts an in-memory Effect VFS so the TypeScript compiler can read the sources and write its output using its default filesystem host.
+
+![The workbench with dist/index.js selected. The editor shows emitted CommonJS code and the Node output panel shows the program’s numbered task list.](/examples/node-workbench.png)
+
+## Run locally
+
+Use Bun and Node 26 with experimental VFS support. The demo was developed with Node 26.11.1. From the repository root, install dependencies, build the workspace packages, and start the workbench. No API key is required.
+
+```sh
+bun install
+bun run build
+bun run --cwd apps/demo-typescript-workbench dev
+```
+
+Open [the local workbench](http://127.0.0.1:4310/) and choose **Compile & Run**. Under **dist**, select **index.js** to see the CommonJS module that Node just executed. The output panel lists “Edit TypeScript”, “Compile in memory”, and “Run with Node”.
+
+1. Open `src/format.ts` and change the numbered prefix in `summarize` to a bullet. Choose **Compile & Run** again. The list now uses bullets even though you only edited the imported module.
+2. Expand **Caller permissions**, choose **Viewer** under **Compile as**, and compile. The viewer can read the sources, but the compiler reports a write error when it tries to emit into `dist`.
+3. Switch back to **Compiler** and compile again. Choose **Run** to execute the new output.
+
+## How the compiler sees the files
+
+For each compile or run, the worker binds the current volume to a caller with `NodeVirtualProvider.bind`. It passes that provider to `create` from `node:vfs` and calls `mount()` to obtain a path. TypeScript reads the project through that path. Node executes the emitted entry point through a read-only caller. The worker unmounts the filesystem when the operation ends.
+
+Run trusted local code in the workbench. Tabs share the same workspace, and restarting the server discards its contents. To follow the mount and cleanup in code, see the [workbench worker implementation](https://github.com/lloydrichards/effect-virtual-fs/blob/main/apps/demo-typescript-workbench/src/workbench/workspace.ts).
