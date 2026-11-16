@@ -15,3 +15,7 @@ This block is written and re-added by `turbo` before repository-scoped commands 
 For Effect TypeScript changes, read the [Effect development skill](.agents/skills/effect-development/SKILL.md).
 Use `node_modules/effect/AGENTS.md` to find examples for the installed version.
 Check the owning package's tests and the [filesystem contracts](.okf/contracts/index.md) for the behavior the implementation must preserve.
+
+## Commits, branches, and reviews
+
+Omit Codex signatures and co-author trailers. Give new branches descriptive names without the `codex/` prefix.
