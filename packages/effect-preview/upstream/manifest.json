@@ -1,6 +1,6 @@
 {
   "repository": "lloydrichards/open_effect",
-  "commit": "7f1f5081ad39806f2c79af9a2bd6ade7c0510120",
+  "commit": "2bf24a366e275b6f000fe50a18c34a8f6a48b331",
   "base": "d0c49be523923fd58821ab25a777b1832e412dfc",
   "pullRequest": "https://github.com/Effect-TS/effect/pull/9960",
   "files": {
@@ -25,7 +25,7 @@
     "test/DateTime.UnixNano.test.ts": "3c0ecad15a28b6208524fe3559a21a9b1379f11f9d772bd130d8d049089a986f",
     "test/schema/BytePath.test.ts": "2de6a2e6e338fe2543e9fcdfc21e95ab525f3c7d11093eddf27066a25b09f28a",
     "test/schema/representation/toCodeDocument.test.ts": "a11fd913bce69109cfa53d86b10cf50fb0c6f945c575ee3e3187580a946f5772",
-    "test/virtual-file-system/VirtualFileSystem.capture.test.ts": "8df170973e9471aedf03d9966d5458e0d4444449bdd5de2c1efcc36595fb797e",
+    "test/virtual-file-system/VirtualFileSystem.capture.test.ts": "844d4c4d95d2ec9dbbece81d3337f43a390d550e8fe8a51c17da847499cd0f5c",
     "test/virtual-file-system/VirtualFileSystem.handles.test.ts": "3b19f1d76d432faa73871689718abe3687bf119f2c43db981a600ab324d8b8f7",
     "test/virtual-file-system/VirtualFileSystem.limits.test.ts": "2c4e08e9a65a1c0bc793b8728319f8f466c587fa88462b94729ed9b928184007",
     "test/virtual-file-system/VirtualFileSystem.operations.test.ts": "97954b6da2fe9c9e5c9ee5eef9367d3624f1c7f9a1e60a62fc88c6b8967e90b0",

@@ -204,7 +204,7 @@ describe("VirtualFileSystem capture and restore", () => {
           const capture = yield* owner.capture()
           const records = yield* Stream.runCollect(capture.records())
           const captured = records.map((record) => record._tag === "root" ? "/" : text(record.name))
-          assert.deepStrictEqual(captured, ["/", "dir", ...names.toReversed(), "z"])
+          assert.deepStrictEqual(captured, ["/", "dir", "a", "b", "c", "d", "e", "f", "g", "h", "z"])
           assert.strictEqual(records.filter((record) => record._tag === "alias").length, names.length)
         }
       }
