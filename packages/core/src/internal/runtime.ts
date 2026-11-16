@@ -1,9 +1,9 @@
 // The compatibility boundary owns core tokens and policy; all live filesystem state belongs to the public preview.
 /* eslint-disable effecttsgo/experimental-api-usage */
-import { unixNanoFromNanoseconds as nano } from "#preview/compat/DateTime"
-import { BytePath as Path, VirtualFileSystem as P } from "#preview/index"
-import { cleanupError, resumeAllocator } from "#preview/internal/durableStorage"
-import { unsafeFromOwnedRecords } from "#preview/internal/ownedCapture"
+import { BytePath as Path, VirtualFileSystem as P } from "@effect-vfs/effect-preview"
+import { unixNanoFromNanoseconds as nano } from "@effect-vfs/effect-preview/DateTime"
+import { cleanupError, resumeAllocator } from "@effect-vfs/effect-preview/internal/durableStorage"
+import { unsafeFromOwnedRecords } from "@effect-vfs/effect-preview/internal/ownedCapture"
 import { ByteSize, Data, Effect, Exit, Iterable, Option, Order, Predicate, Result, Schema, Scope, Stream } from "effect"
 import * as Clock from "effect/Clock"
 import * as SecureRandom from "effect/crypto/SecureRandom"

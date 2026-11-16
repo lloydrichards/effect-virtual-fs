@@ -1,7 +1,7 @@
 // The existing core native boundary borrows the preview's checked synchronous region.
 /* eslint-disable effecttsgo/experimental-api-usage, effecttsgo/run-effect-inside-effect */
-import { unixNanoFromNanoseconds as nano } from "#preview/compat/DateTime"
-import { BytePath, type VirtualFileSystem as Vfs } from "#preview/index"
+import { BytePath, type VirtualFileSystem as Vfs } from "@effect-vfs/effect-preview"
+import { unixNanoFromNanoseconds as nano } from "@effect-vfs/effect-preview/DateTime"
 import { Effect, Exit, Predicate, Result, Scheduler, Scope } from "effect"
 import type { MkdirOptions, OpenOptions, RootCallerOptions } from "../Caller.js"
 import { DirectoryHandleId, FileHandleId } from "../FileHandle.js"

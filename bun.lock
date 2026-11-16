@@ -220,6 +220,7 @@
         "@repo/config-typescript": "workspace:*",
         "@types/node": "26.6.6",
         "effect": "4.1.4",
+        "tsdown": "^0.23.7",
       },
       "peerDependencies": {
         "effect": "~4.1.4",
