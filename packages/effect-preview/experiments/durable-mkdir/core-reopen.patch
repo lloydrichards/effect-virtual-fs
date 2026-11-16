@@ -57,7 +57,7 @@
      const work = runtime.gate.withPermit(Effect.gen(function*() {
 +      if (runtime.storageReady) yield* runtime.storageReady
 +      if (runtime.frozen) return yield* Errors.fsFailure("VolumeUnavailable", operation)
-+      if (runtime.storageReady && !["root", "mkdir", "lookup", "stat", "watch", "open", "read", "pread", "readFile", "writeFile", "write", "close", "unlink", "openDirectory", "rmdir", "link", "symlink", "rename", "chmod"].includes(operation)) {
++      if (runtime.storageReady && !["root", "mkdir", "lookup", "stat", "watch", "open", "read", "pread", "readFile", "writeFile", "write", "close", "unlink", "openDirectory", "rmdir", "readDirectory", "link", "symlink", "rename", "chmod"].includes(operation)) {
 +        return yield* blocked("mkdirTrialOnly")
 +      }
        const readers = runtime.captureReaders
@@ -142,20 +142,34 @@
  
      const keyTag = (ino: bigint) => {
        const message = new Uint8Array(40)
-@@ -3105,6 +3133,12 @@
+@@ -3103,27 +3135,37 @@
+       return yield* Errors.fsFailure("StaleReference", "referenceKey")
+     })
 
-     const observe = <A, E, R>(observation: Effect.Effect<A, E, R>) => {
+-    const observe = <A, E, R>(observation: Effect.Effect<A, E, R>) => {
++    const observe = (operation: string) => <A, E, R>(observation: Effect.Effect<A, E, R>) => {
        const readers = runtime.captureReaders
-+
-+      if (durable) {
-+        return runtime.gate.withPermit(Effect.andThen(runtime.storageReady!, (): Effect.Effect<A, E | V.FsFailure, R> =>
-+          runtime.frozen ? Effect.fail(Errors.fsFailure("VolumeUnavailable", "observe")) : observation
-+        ))
-+      }
 
++      if (durable) {
++        const work = runtime.gate.withPermit(Effect.andThen(runtime.storageReady!, (): Effect.Effect<A, E | V.FsFailure, R> =>
++          runtime.frozen ? Effect.fail(Errors.fsFailure("VolumeUnavailable", operation)) : observation
++        ))
++        return runtime.admission.withPermitsIfAvailable(1)(work).pipe(Effect.flatMap(Option.match({
++          onNone: () => Effect.fail(Errors.fsFailure("VolumeBusy", operation)),
++          onSome: Effect.succeed
++        })))
++      }
++
        if (readers === undefined) return observation
 
-@@ -3118,7 +3152,7 @@
+       return Effect.scoped(Effect.andThen(runtime.gate.withPermit(readers.takeScoped(1)), observation))
+     }
+
+     const observeSnapshot = <A, E, R>(use: (value: V.Snapshot) => Effect.Effect<A, E, R>) =>
+-      observe(Effect.flatMap(snapshot(owner), use))
++      observe("snapshot")(Effect.flatMap(snapshot(owner), use))
+
+     yield* Scope.provide(owner.onCommit(watches.publish), rootScope)
 
      const volume: V.Volume = {
        [VolumeId]: true,
@@ -164,19 +178,41 @@
        identity,
        incarnation,
        limits,
-@@ -3145,7 +3179,7 @@
+-      usage: observe(owner.usage.pipe(Effect.map((u) => ({ entries: u.entries, usedBytes: u.contentBytes })))),
+-      snapshot: observe(snapshot(owner)),
++      usage: observe("usage")(owner.usage.pipe(Effect.map((u) => ({ entries: u.entries, usedBytes: u.contentBytes })))),
++      snapshot: observe("snapshot")(snapshot(owner)),
+       caller: Effect.fnUntraced(function*(o) {
+         const chosen = yield* Effect.fromResult(
+           Errors.decodeConfiguration(RootCallerOptions, o === undefined ? {} : o, "caller")
+@@ -3145,7 +3187,7 @@
          ))
 
          return wrapCaller(runtime, caller, limits, [], [1n], chosen.identity)
 -      }),
-+      }, observe),
++      }, observe("caller")),
        watch: (options) =>
          execute(
            runtime,
-@@ -3198,6 +3232,15 @@
- 
+@@ -3175,7 +3217,7 @@
+         const ino = observed.metadata.objectNumber
+
+         return { identity: identityBytes.slice(), epoch: epochBytes.slice(), ino, tag: keyTag(ino) }
+-      }, observe),
++      }, observe("referenceKey")),
+       resolveReferenceKey: Effect.fnUntraced(function*(key) {
+         if (!Schema.is(ReferenceKey)(key)) return yield* Errors.fsFailure("InvalidReference", "resolveReferenceKey")
+
+@@ -3193,11 +3235,20 @@
+         yield* keyObservation(selected.reference)
+
+         return selected.core
+-      }, observe)
++      }, observe("resolveReferenceKey"))
+     }
+
      runtimes.set(volume, runtime)
- 
+
 -    return { volume, shutdown: Effect.void, observeSnapshot }
 +    const shutdown = durable
 +      ? yield* Effect.cached(Effect.uninterruptible(Effect.gen(function*() {
